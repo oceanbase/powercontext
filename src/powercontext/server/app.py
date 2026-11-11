@@ -44,10 +44,10 @@ from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.routing import Match
-from starlette.types import Lifespan, Scope
+from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
 
-from powercontext._logging import error_category, log_safely
+from powercontext._logging import error_category, log_context, log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, StableHandle
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
@@ -159,7 +159,11 @@ from powercontext.builtin.handoff_report import (
     HandoffReportInconsistentError,
     HandoffReportTooLargeError,
 )
-from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.inference.errors import (
+    InferencePrivacyError,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
+)
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -211,6 +215,9 @@ from powercontext.builtin.records import (
 )
 from powercontext.builtin.records import (
     ArtifactWrite as RuntimeArtifactWrite,
+)
+from powercontext.builtin.records import (
+    LogicalArtifactRecord as RuntimeLogicalArtifactRecord,
 )
 from powercontext.builtin.records import (
     SourceRecord as RuntimeSourceRecord,
@@ -290,6 +297,9 @@ from powercontext.builtin.runtime import (
     PrepareContextRequest as RuntimePrepareContextRequest,
 )
 from powercontext.builtin.runtime import (
+    PrepareContextResult as RuntimePrepareContextResult,
+)
+from powercontext.builtin.runtime import (
     PreparedContext as RuntimePreparedContext,
 )
 from powercontext.builtin.runtime import (
@@ -315,6 +325,16 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.context_check import (
+    CHECK_CONTEXT_REQUEST,
+    ContextCheckTooLargeError,
+)
+from powercontext.builtin.runtime.context_check import (
+    CheckContextRequest as RuntimeCheckContextRequest,
+)
+from powercontext.builtin.runtime.context_check import (
+    ContextCheckResult as RuntimeContextCheckResult,
+)
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
@@ -385,6 +405,7 @@ from powercontext.errors import (
     InvalidConnectorRunError,
     InvalidSourceDefinitionError,
     InvalidSourceObservationError,
+    InvalidSourceReferenceError,
     PowerContextError,
     RevisionConflictError,
     SourceConflictError,
@@ -410,6 +431,7 @@ from powercontext.http import (
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
+    ApplyAccessOwnershipRequest,
     ApproveCandidateRequest,
     ArtifactAccessResource,
     ArtifactCollectionItem,
@@ -437,6 +459,7 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
     ChangeArtifactPluginStateRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -444,7 +467,10 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionAuthentication,
+    ConnectionIdentity,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -516,7 +542,9 @@ from powercontext.http import (
     MemoryCapacity,
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
+    PlanAccessOwnershipRequest,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     PreparedWorkHandoff,
     PrepareHandoffHintRequest,
@@ -658,12 +686,14 @@ from powercontext.http._generated.models import (
     AccessControlMode as TransportAccessControlMode,
 )
 from powercontext.http._generated.models import (
-    ArtifactFamily as TransportArtifactFamily,
-)
-from powercontext.http._generated.models import (
+    AccessOwnershipApplyResult,
+    AccessOwnershipPlan,
+    AccessOwnershipScopePlan,
     ArtifactTagPage,
     ArtifactTagSet,
+    BackgroundPermissionGap,
     GetTopicMemoryProcessingBlockRequest,
+    OwnershipGapItem,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
     RetryTopicMemoryProcessingRequest,
@@ -675,6 +705,12 @@ from powercontext.http._generated.models import (
     TopicMemoryProcessingStatus,
     TopicMemoryProcessingStatusRequest,
 )
+from powercontext.http._generated.models import Allowed as TransportOwnershipAllowed
+from powercontext.http._generated.models import (
+    ArtifactFamily as TransportArtifactFamily,
+)
+from powercontext.http._generated.models import OwnershipGapKind as TransportOwnershipGapKind
+from powercontext.http._generated.models import ScopeId1 as TransportScopeId
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
 )
@@ -685,11 +721,13 @@ from powercontext.http._generated.operations import (
     API_DESCRIPTION,
     API_TITLE,
     API_VERSION,
+    APPLY_ACCESS_OWNERSHIP,
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
     CAPTURE_CONTENT_SOURCE,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
+    CHECK_CONTEXT,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
@@ -723,6 +761,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -763,6 +802,7 @@ from powercontext.http._generated.operations import (
     LIST_SCOPES,
     LIST_SOURCES,
     OPENAPI_VERSION,
+    PLAN_ACCESS_OWNERSHIP,
     PREPARE_BOOTSTRAP_CONTEXT,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
@@ -816,6 +856,7 @@ from powercontext.http._generated.operations import (
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
 from powercontext.server.artifact_plugins import ArtifactPluginManager
+from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
 from powercontext.server.atomic_memory import record_response as atomic_record_response
 from powercontext.server.authentication import AuthenticationProvider
@@ -847,6 +888,7 @@ from powercontext.server.authz import (
     ReplaceBinding,
     ResourceRef,
     access_control_for_mode,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.models import (
     ROLE_ACTIONS,
@@ -881,7 +923,15 @@ from powercontext.server.dream_compatibility import (
     negotiate_dream_contract,
     require_extended_dream,
 )
+from powercontext.server.metrics import HttpMetricsMiddleware, HttpResponseMetricsMiddleware, http_operations
+from powercontext.server.ownership import (
+    ArtifactOwnershipGap,
+    CandidateOwnershipGap,
+    apply_ownership_migration,
+    plan_ownership_migration,
+)
 from powercontext.server.request_id import REQUEST_ID_HEADER
+from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
 from powercontext.sources import SourceDefinitionManifest as RuntimeSourceDefinitionManifest
@@ -968,6 +1018,8 @@ class _ScopedRecordApplication(Protocol):
         execution_context: Any = None,
     ) -> RuntimeArtifactRecord: ...
 
+    async def logical_artifacts(self) -> tuple[RuntimeLogicalArtifactRecord, ...]: ...
+
     async def query_artifacts(
         self,
         family: str,
@@ -1013,7 +1065,18 @@ class _ScopedContextApplication(Protocol):
         *,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
-    ) -> RuntimePreparedContext: ...
+        binding_identity: str = "local",
+    ) -> RuntimePrepareContextResult: ...
+
+    async def check(
+        self,
+        request: RuntimeCheckContextRequest,
+        /,
+        *,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+        atomic_context=None,
+        binding_identity: str = "local",
+    ) -> RuntimeContextCheckResult: ...
 
 
 class _ContextApplication(Protocol):
@@ -1304,7 +1367,9 @@ class _TopicMemoryApplication(Protocol):
 
 
 class _ScopedStatisticsApplication(Protocol):
-    async def overview(self, *, period: RuntimeStatisticsPeriod) -> RuntimeStatistics: ...
+    async def overview(
+        self, *, period: RuntimeStatisticsPeriod, include_processing: bool = False
+    ) -> RuntimeStatistics: ...
 
 
 class _StatisticsApplication(Protocol):
@@ -1315,6 +1380,7 @@ class _StatisticsApplication(Protocol):
         selection: DomainScopeSelection,
         *,
         period: RuntimeStatisticsPeriod,
+        include_processing: bool = False,
     ) -> RuntimeStatistics: ...
 
 
@@ -1354,6 +1420,22 @@ class _PreconditionRequiredError(RuntimeError):
     """Raised when an Artifact mutation omits If-Match."""
 
 
+class _ServerApp(FastAPI):
+    @override
+    def build_middleware_stack(self) -> ASGIApp:
+        stack = super().build_middleware_stack()
+        for middleware in self.user_middleware:
+            if middleware.cls is HttpMetricsMiddleware:
+                # ServerErrorMiddleware sends unhandled-error responses outside user middleware.
+                return HttpResponseMetricsMiddleware(
+                    stack,
+                    metrics=middleware.kwargs["metrics"],
+                    operations=http_operations(self.routes),
+                    skip_paths=middleware.kwargs.get("skip_paths", ()),
+                )
+        return stack
+
+
 def create_app(
     *,
     application: ServerApplication | None = None,
@@ -1372,7 +1454,7 @@ def create_app(
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
-    app = FastAPI(
+    app = _ServerApp(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
@@ -1433,7 +1515,13 @@ def create_app(
         request: Request,
         error: RequestValidationError | PydanticValidationError,
     ) -> JSONResponse:
-        errors = _validation_error_details(error)
+        # Discriminator messages and unknown-field locations can contain raw
+        # model data. This boundary returns no caller-controlled validation text.
+        errors = (
+            [{"type": "context_check_invalid", "loc": ["body"], "msg": "Invalid context check request."}]
+            if request.url.path == CHECK_CONTEXT.path
+            else _validation_error_details(error)
+        )
         scoped_resource_syntax_error = request.url.path.startswith("/v1/scopes/") and any(
             isinstance(item, dict)
             and isinstance(item.get("loc"), (list, tuple))
@@ -1508,6 +1596,7 @@ def create_app(
     _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
     _add_route(app, GET_ACCESS_PRINCIPAL, get_access_principal)
+    _add_route(app, GET_CONNECTION_IDENTITY, get_connection_identity)
     _add_route(app, CHECK_ACCESS, check_access)
     _add_route(app, LIST_ACCESS_RESOURCES, list_access_resources)
     _add_route(app, LIST_ACCESS_ROLES, list_access_roles)
@@ -1516,6 +1605,8 @@ def create_app(
     _add_route(app, REVOKE_ACCESS_BINDING, revoke_access_binding)
     _add_route(app, REPLACE_ACCESS_BINDING, replace_access_binding)
     _add_route(app, LIST_ACCESS_AUDIT, list_access_audit)
+    _add_route(app, PLAN_ACCESS_OWNERSHIP, plan_access_ownership)
+    _add_route(app, APPLY_ACCESS_OWNERSHIP, apply_access_ownership)
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, LIST_SOURCES, list_sources)
@@ -1567,6 +1658,7 @@ def create_app(
     # Omit the optional Receipt unless it was requested and successfully built; Host validators
     # still require exactly four fields on the ordinary injection path.
     _add_route(app, PREPARE_CONTEXT, prepare_context, response_model_exclude_unset=True)
+    _add_route(app, CHECK_CONTEXT, check_context, response_model_exclude_unset=True)
     _add_route(app, QUERY_CODE, query_code)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
     _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
@@ -1808,6 +1900,23 @@ async def get_server_info(request: Request) -> ServerInfo:
     if info is None:
         raise _RuntimeNotReadyError
     return info
+
+
+async def get_connection_identity(request: Request) -> ConnectionIdentity:
+    info = await get_server_info(request)
+    principal = current_principal()
+    if principal is None and (
+        request.app.state.access_mode != "disabled" or request.app.state.authentication_provider is not None
+    ):
+        raise AccessIdentityRequiredError
+    return ConnectionIdentity(
+        server_id=info.server_id,
+        authentication=ConnectionAuthentication.DISABLED
+        if principal is None
+        else ConnectionAuthentication.AUTHENTICATED,
+        access_mode=request.app.state.access_mode,
+        principal=None if principal is None else _access_principal_response(principal),
+    )
 
 
 async def get_access_principal(request: Request) -> AccessMeResponse:
@@ -2145,6 +2254,112 @@ async def list_access_audit(payload: ListAccessAuditRequest, request: Request) -
     )
 
 
+async def plan_access_ownership(payload: PlanAccessOwnershipRequest, request: Request) -> AccessOwnershipPlan:
+    application = _require_application(request)
+    scope_ids = await _migration_scope_ids(payload.scope_ids, request)
+    access = request.app.state.access_control
+    background = None if payload.background_principal is None else _access_principal(payload.background_principal)
+    if request.app.state.access_mode == "enforced":
+        access = _require_access_control(request)
+        await access.require(
+            _require_principal(),
+            *_binding_administrative_check(None, deployment_id=access.deployment_id),
+            context=_access_audit_context(PLAN_ACCESS_OWNERSHIP.operation_id),
+        )
+    plan = await plan_ownership_migration(
+        application,
+        access,
+        scope_ids,
+        background_principal=background,
+        context=_access_audit_context(PLAN_ACCESS_OWNERSHIP.operation_id),
+    )
+    return AccessOwnershipPlan(
+        mode=TransportAccessControlMode(request.app.state.access_mode),
+        scopes=[
+            AccessOwnershipScopePlan(
+                scope_id=scope.scope_id,
+                artifact_gaps=[_ownership_gap_item(gap) for gap in scope.artifact_gaps],
+                candidate_gaps=[_ownership_gap_item(gap) for gap in scope.candidate_gaps],
+            )
+            for scope in plan.scopes
+        ],
+        background=[
+            BackgroundPermissionGap(
+                scope_id=gap.scope_id,
+                principal_id=gap.principal_id,
+                allowed=TransportOwnershipAllowed.BOOLEAN_FALSE,
+                reason_code=gap.reason_code,
+            )
+            for gap in plan.background
+        ],
+    )
+
+
+async def apply_access_ownership(payload: ApplyAccessOwnershipRequest, request: Request) -> AccessOwnershipApplyResult:
+    application = _require_application(request)
+    if request.app.state.access_mode != "enforced":
+        raise AccessUnavailableError("ownership_migration_unavailable")
+    access = _require_access_control(request)
+    scope_ids = await _migration_scope_ids(payload.scope_ids, request)
+    await access.require(
+        _require_principal(),
+        *_binding_administrative_check(None, deployment_id=access.deployment_id),
+        context=_access_audit_context(APPLY_ACCESS_OWNERSHIP.operation_id),
+    )
+    result = await apply_ownership_migration(
+        application,
+        access,
+        scope_ids,
+        owner=_access_principal(payload.owner),
+        dry_run=payload.dry_run,
+        owner_recovery=request.app.state.owner_recovery,
+        context=_access_audit_context(APPLY_ACCESS_OWNERSHIP.operation_id),
+    )
+    return AccessOwnershipApplyResult(
+        dry_run=payload.dry_run,
+        applied=[_ownership_gap_item(item.gap, item.detail) for item in result.applied],
+        conflicts=[_ownership_gap_item(item.gap, item.detail) for item in result.conflicts],
+    )
+
+
+async def _migration_scope_ids(
+    requested: Sequence[str | TransportScopeId] | None,
+    request: Request,
+) -> list[str]:
+    if requested is None:
+        return [scope.scope_id for scope in await _require_scope_application(request).list()]
+    unique: list[str] = []
+    for value in requested:
+        scope_id = value.root if isinstance(value, TransportScopeId) else str(value)
+        if scope_id not in unique:
+            unique.append(scope_id)
+    return unique
+
+
+def _ownership_gap_item(
+    gap: ArtifactOwnershipGap | CandidateOwnershipGap,
+    conflict_code: str | None = None,
+) -> OwnershipGapItem:
+    if isinstance(gap, ArtifactOwnershipGap):
+        return OwnershipGapItem(
+            kind=TransportOwnershipGapKind.ARTIFACT_OWNER,
+            scope_id=gap.scope_id,
+            family=gap.family,
+            artifact_id=gap.artifact_id,
+            entry_id=gap.entry_id,
+            conflict_code=conflict_code,
+        )
+    return OwnershipGapItem(
+        kind=TransportOwnershipGapKind.CANDIDATE_ATTESTATION,
+        scope_id=gap.scope_id,
+        family=gap.family,
+        candidate_id=gap.candidate_id,
+        version=gap.version,
+        artifact_id=gap.target_artifact_id,
+        conflict_code=conflict_code,
+    )
+
+
 def _list_scopes_query(
     http_request: Request,
     query: Annotated[str | None, Query(max_length=256)] = None,
@@ -2409,7 +2624,9 @@ async def get_stats(
 ) -> ScopedStats:
     response.headers["Cache-Control"] = "no-store"
     result = await application.statistics.overview(
-        _domain_scope_selection(request.selection), period=RuntimeStatisticsPeriod(request.period.value)
+        _domain_scope_selection(request.selection),
+        period=RuntimeStatisticsPeriod(request.period.value),
+        **({"include_processing": True} if request.include_processing else {}),
     )
     return mapping.statistics_response(result)
 
@@ -2625,7 +2842,7 @@ async def flush_profile(
             await bound.establish_artifact_owner(
                 resource,
                 principal,
-                idempotency_key=f"profile-owner:{request.scope_id}",
+                idempotency_key=bounded_idempotency_key("profile-owner", request.scope_id),
                 context=context,
             )
         if candidate is not None:
@@ -2635,7 +2852,7 @@ async def flush_profile(
                 family="profile",
                 proposed_owner=principal,
                 target=None if candidate.target is None else resource,
-                idempotency_key=f"candidate-owner:{request.scope_id}:{candidate.candidate_id}",
+                idempotency_key=bounded_idempotency_key("candidate-owner", request.scope_id, candidate.candidate_id),
             )
 
     result = await application.profiles.flush(
@@ -2934,7 +3151,7 @@ async def generate_prompt_demonstrations(
 
 
 async def get_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -2947,7 +3164,7 @@ async def get_artifact_tags(
 
 
 async def replace_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -2978,7 +3195,7 @@ def _tag_family(family: TaggableArtifactFamily) -> RuntimeTaggableArtifactFamily
 
 
 async def get_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -2990,7 +3207,7 @@ async def get_memory_entry_tags(
 
 
 async def replace_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -3022,7 +3239,7 @@ def _tag_response(
 
 
 async def query_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     request: QueryArtifactTagsRequest,
     http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -3355,15 +3572,16 @@ async def prepare_context(
     request: PrepareContextRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
-) -> PreparedContext:
+) -> PrepareContextResult:
     prepared_request = mapping.prepare_context_request(request)
     scoped = application.context.for_scope(request.scope_id)
+    reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
     )
     if access is None:
-        result = await scoped.prepare(prepared_request)
+        result = await scoped.prepare(prepared_request, **reuse_arguments)
     else:
 
         async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
@@ -3377,8 +3595,53 @@ async def prepare_context(
             prepared_request,
             authorize_scopes=authorize_scopes,
             atomic_context=_atomic_execution_context(http_request, PREPARE_CONTEXT.operation_id),
+            **reuse_arguments,
         )
-    return mapping.prepared_context_response(result)
+    return mapping.prepare_context_result_response(result)
+
+
+async def check_context(
+    request: CheckContextRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> ContextCheckResult:
+    value = request.root
+    checked_request = CHECK_CONTEXT_REQUEST.validate_json(value.model_dump_json(by_alias=True, exclude={"scope_id"}))
+    scoped = application.context.for_scope(value.scope_id)
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+
+    async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
+        if access is not None:
+            await access.require_all(
+                _require_principal(),
+                tuple((AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)) for scope_id in scope_ids),
+                context=_access_audit_context(CHECK_CONTEXT.operation_id),
+            )
+
+    result = await scoped.check(
+        checked_request,
+        binding_identity=_context_binding_identity(),
+        atomic_context=_atomic_execution_context(http_request, CHECK_CONTEXT.operation_id),
+        authorize_scopes=authorize_scopes,
+    )
+    return ContextCheckResult.model_validate_json(result.model_dump_json(by_alias=True, exclude_none=True))
+
+
+def _context_binding_identity() -> str:
+    """Partition short-lived bindings using current trusted authentication only."""
+    authentication = current_authentication()
+    principal = current_principal()
+    facts = {
+        "subject": None if principal is None else (principal.type, principal.id),
+        "actor": (
+            None
+            if authentication is None or authentication.actor is None
+            else (authentication.actor.type, authentication.actor.id)
+        ),
+        "groups": [] if authentication is None else sorted(group.id for group in authentication.subject_groups),
+        "credential_id": None if authentication is None else authentication.credential_id,
+    }
+    return sha256(json.dumps(facts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 async def prepare_bootstrap_context(
@@ -3550,7 +3813,7 @@ async def commit_handoff(
             await owner_write_access(access, connection).establish_artifact_owner(
                 ResourceRef.artifact(request.scope_id, family="handoff", artifact_id=artifact.artifact_id),
                 principal,
-                idempotency_key=f"handoff-owner:{request.scope_id}:{artifact.artifact_id}",
+                idempotency_key=bounded_idempotency_key("handoff-owner", request.scope_id, artifact.artifact_id),
                 context=context,
             )
         committed = True
@@ -3568,7 +3831,7 @@ async def commit_handoff(
                 family="handoff",
                 artifact_id=result.artifact_id,
             ),
-            idempotency_key=f"handoff-owner:{request.scope_id}:{result.artifact_id}",
+            idempotency_key=bounded_idempotency_key("handoff-owner", request.scope_id, result.artifact_id),
             operation=COMMIT_HANDOFF.operation_id,
         )
     elif access is not None and not committed:
@@ -3734,7 +3997,7 @@ def _dream_principal(request: Request) -> str:
 
 
 async def create_dream_run(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: CreateDreamRunRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -3750,8 +4013,8 @@ async def create_dream_run(
 
 
 async def get_dream_run(
-    scope_id: str,
-    run_id: str,
+    scope_id: _ScopePathId,
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> DreamRun:
@@ -3778,7 +4041,7 @@ def _list_dreams_query(
 
 
 async def list_dream_runs(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: Annotated[ListDreamRunsRequest, Depends(_list_dreams_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
@@ -4428,7 +4691,7 @@ async def _attest_candidate_owner(
         family=family,
         proposed_owner=_require_principal(),
         target=logical_target,
-        idempotency_key=f"candidate-owner:{scope_id}:{candidate_id}",
+        idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate_id),
     )
 
 
@@ -4484,7 +4747,7 @@ def _candidate_owner_commit(request: Request, scope_id: str) -> dict[str, Any]:
                 family=target.family,
                 artifact_id=target.artifact_id,
             ),
-            idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+            idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
         )
 
     return {"on_commit": on_commit}
@@ -4659,7 +4922,7 @@ async def approve_candidate(
                 artifact_id=artifact.artifact_id,
             ),
             attestation.proposed_owner,
-            idempotency_key=f"candidate-artifact-owner:{request.scope_id}:{request.candidate_id}",
+            idempotency_key=bounded_idempotency_key("candidate-artifact-owner", request.scope_id, request.candidate_id),
             context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
         )
     return await _candidate_response(http_request, request.scope_id, result)
@@ -5620,52 +5883,164 @@ def _observe_application_operation(
     @wraps(endpoint)
     async def observed_endpoint(*args: Any, **kwargs: Any) -> _ResponseT | Response:
         started_at = perf_counter()
-        span = _start_application_span(app, operation)
-        try:
-            async with (
-                owner_recovery_session(app.state.owner_recovery),
-                _current_scope(app, operation, args, kwargs),
-            ):
-                result = await endpoint(*args, **kwargs)
-        except asyncio.CancelledError:
-            _observe_application(app, operation, "cancelled", started_at)
-            _log_operation(
-                logging.INFO,
-                "PowerContext application operation cancelled",
-                operation=operation.operation_id,
-                outcome="cancelled",
+        scope_ids = _application_scope_ids(operation, args, kwargs)
+        with log_context({"scope": scope_ids[0] if len(scope_ids) == 1 else None}):
+            span = _start_application_span(app, operation)
+            _set_scope_attributes(span, scope_ids)
+            try:
+                async with (
+                    owner_recovery_session(app.state.owner_recovery),
+                    _current_scope(app, operation, args, kwargs),
+                ):
+                    result = await endpoint(*args, **kwargs)
+            except asyncio.CancelledError:
+                observe_artifact_read(
+                    app.state.metrics, operation.operation_id, kwargs, started_at=started_at, outcome="cancelled"
+                )
+                observe_retrieval(
+                    app.state.metrics, operation.operation_id, kwargs, started_at=started_at, outcome="cancelled"
+                )
+                _observe_application(app, operation, "cancelled", started_at)
+                _log_operation(
+                    logging.INFO,
+                    "PowerContext application operation cancelled",
+                    operation=operation.operation_id,
+                    outcome="cancelled",
+                    started_at=started_at,
+                )
+                _log_scope_operations(operation, scope_ids, "cancelled", started_at)
+                _finish_span(span, "cancelled")
+                raise
+            except Exception as error:
+                response_status, error_code, _, _ = _map_error(error)
+                observe_artifact_read(
+                    app.state.metrics,
+                    operation.operation_id,
+                    kwargs,
+                    started_at=started_at,
+                    outcome="failure",
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                observe_retrieval(
+                    app.state.metrics,
+                    operation.operation_id,
+                    kwargs,
+                    started_at=started_at,
+                    outcome="failure",
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                _observe_application(app, operation, "failure", started_at)
+                diagnostic_error = _application_log_error(operation, response_status, error)
+                _log_operation(
+                    logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
+                    "PowerContext application operation failed",
+                    operation=operation.operation_id,
+                    outcome="failure",
+                    started_at=started_at,
+                    error=diagnostic_error,
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                _log_scope_operations(
+                    operation, scope_ids, "failure", started_at, error_code=error_code, status_code=response_status
+                )
+                _finish_span(
+                    span, "failure", error=diagnostic_error, error_code=error_code, status_code=response_status
+                )
+                raise
+            resolved = getattr(result, "scope_ids", None)
+            if isinstance(resolved, (list, tuple)) and all(isinstance(scope, str) for scope in resolved):
+                scope_ids = tuple(sorted(set(resolved)))
+                _set_scope_attributes(span, scope_ids)
+            observe_artifact_read(
+                app.state.metrics,
+                operation.operation_id,
+                kwargs,
                 started_at=started_at,
+                outcome="success",
+                result=result,
             )
-            _finish_span(span, "cancelled")
-            raise
-        except Exception as error:
-            _observe_application(app, operation, "failure", started_at)
-            response_status, error_code, _, _ = _map_error(error)
-            diagnostic_error = _application_log_error(operation, response_status, error)
-            _log_operation(
-                logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
-                "PowerContext application operation failed",
-                operation=operation.operation_id,
-                outcome="failure",
+            observe_retrieval(
+                app.state.metrics,
+                operation.operation_id,
+                kwargs,
                 started_at=started_at,
-                error=diagnostic_error,
-                error_code=error_code,
-                status_code=response_status,
+                outcome="success",
+                result=result,
             )
-            _finish_span(span, "failure", error=diagnostic_error, error_code=error_code, status_code=response_status)
-            raise
-        outcome = _application_outcome(result)
-        _observe_application(app, operation, outcome, started_at)
-        _finish_span(span, outcome)
-        return result
+            outcome = _application_outcome(result)
+            _observe_application(app, operation, outcome, started_at)
+            _log_scope_operations(operation, scope_ids, outcome, started_at)
+            _finish_span(span, outcome)
+            return result
 
     return observed_endpoint
+
+
+def _application_scope_ids(
+    operation: Operation[Any, Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[str, ...]:
+    """Reuse declared resource selectors after route authorization and request validation."""
+    if operation.access is None:
+        return ()
+    with suppress(Exception):
+        payload: dict[str, Any] = {}
+        for value in (*args, *kwargs.values()):
+            if isinstance(value, Request):
+                payload.update(value.path_params)
+            elif operation.request_type is not None and isinstance(value, operation.request_type):
+                payload.update(value.model_dump(mode="json"))
+        # Path parameters can also be standalone endpoint arguments.
+        payload.update({key: value for key, value in kwargs.items() if isinstance(value, str)})
+        checks = _resolve_access_requirements(operation.access, payload, deployment_id="observability")
+        return tuple(sorted({resource.scope_id for _, resource in checks if resource.scope_id is not None}))
+    return ()
+
+
+def _set_scope_attributes(span: Any | None, scope_ids: tuple[str, ...]) -> None:
+    if span is not None and scope_ids:
+        with suppress(Exception):
+            span.set_attributes({
+                "powercontext.scope.ids": scope_ids,
+                **({"powercontext.scope.id": scope_ids[0]} if len(scope_ids) == 1 else {}),
+            })
+
+
+def _log_scope_operations(
+    operation: Operation[Any, Any],
+    scope_ids: tuple[str, ...],
+    outcome: str,
+    started_at: float,
+    *,
+    error_code: str | None = None,
+    status_code: int | None = None,
+) -> None:
+    # Each row is one Scope's involvement, not another unique request. No identity metric labels.
+    for scope_id in scope_ids:
+        log_safely(
+            logger,
+            logging.INFO,
+            "PowerContext scoped application operation completed",
+            extra={
+                "event": "application.scope.completed",
+                "operation": operation.operation_id,
+                "unit": "application",
+                "scope": scope_id,
+                "outcome": outcome,
+                "duration_ms": max(perf_counter() - started_at, 0) * 1000,
+                **({"error_code": error_code} if error_code is not None else {}),
+                **({"status_code": status_code} if status_code is not None else {}),
+            },
+        )
 
 
 def _sensitive_operation_error(error: Exception) -> bool:
     return isinstance(
         error,
         (
+            InferencePrivacyError,
             AccessControlError,
             RemoteSkillDistributionError,
         ),
@@ -5910,6 +6285,9 @@ def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] 
                 422,
                 "legacy_memory_operation_unsupported",
                 "The legacy Memory collection contract cannot continue for this operation. "
+                "Update the client/SDK and host plugin to a release compatible with this Server, "
+                "rerun powercontext setup for the affected host and profile, fully restart the host, "
+                "and rerun Doctor. Search again for an Atomic Memory artifact reference. "
                 "Reconstruct the request using Atomic Memory operations; do not drop collection CAS "
                 "preconditions and retry automatically.",
                 {
@@ -6279,11 +6657,28 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
             "The request is invalid.",
             _invalid_request_details(error),
         )
+    inference_error = _map_context_inference_error(error)
+    if inference_error is not None:
+        return inference_error
+    return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_context_inference_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InferencePrivacyError):
+        code = 403 if error.decision == "block" else 503
+        return (
+            code,
+            f"inference_privacy_{error.decision}",
+            "Model content was not admitted.",
+            {"phase": error.phase, "reason_codes": list(error.reason_codes)},
+        )
+    if isinstance(error, ContextCheckTooLargeError):
+        return status.HTTP_413_CONTENT_TOO_LARGE, "context_payload_too_large", str(error), None
     if isinstance(error, InferenceTimeoutError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Model inference timed out.", None
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
-    return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+    return None
 
 
 def _map_memory_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
@@ -6360,6 +6755,13 @@ _WORKING_NOTE_EXPIRY_REASONS = {
 
 
 def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InvalidSourceReferenceError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The Source reference is invalid.",
+            {"field": error.field},
+        )
     if isinstance(error, SourceConflictError):
         return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None
     if isinstance(error, InvalidConnectorRunError):

@@ -16,6 +16,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -49,6 +50,10 @@ def setup_boundary(tmp_path, monkeypatch):
     (plugin / "lib").mkdir(parents=True)
     (plugin / "package.json").write_text('{"name":"powercontext-dsh"}')
     (plugin / "lib/index.js").write_text("export const name = 'powercontext-dsh'\n")
+    shutil.copytree(
+        Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
+        plugin / "skills",
+    )
     monkeypatch.setattr(dsh, "dsh_executable", lambda: "npm-dsh")
     inspect = Mock(return_value={})
     monkeypatch.setattr(transport, "read_dsh_settings", inspect)
@@ -61,7 +66,8 @@ def setup_boundary(tmp_path, monkeypatch):
 def test_setup_and_default_doctor_reuse_the_selected_native_target(
     tmp_path, monkeypatch, desktop_command, setup_boundary, profile, server_checks
 ):
-    plugin, _, _ = setup_boundary
+    plugin, _, inspect = setup_boundary
+    inspect.return_value = {"memoryProtocol": "atomic-artifact-v1"}
     desktop_dir = Path(os.environ["DSH_HOME"]) / "profiles/desktop"
     desktop_dir.mkdir(parents=True)
     (desktop_dir / "package.json").write_text("{}")

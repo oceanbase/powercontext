@@ -1,3 +1,8 @@
+---
+title: RFC 0072：Scope 统计与模型用量
+description: Scope 统计的设计提案，通过统一查询呈现内容数量、供应商报告的模型用量与召回节省 Token 的估算。
+---
+
 - Proposal Name: `scoped_statistics_and_usage`
 - Start Date: 2026-08-04
 - RFC PR: [oceanbase/powercontext#72](https://github.com/oceanbase/powercontext/pull/72)

@@ -1,7 +1,7 @@
 ---
-status: community
 title: LangChain
 description: Add bounded PowerContext recall and completed-turn Source capture to a LangChain agent.
+status: community
 ---
 
 # LangChain
@@ -121,3 +121,76 @@ or the prompt. The token remains in Client configuration and never enters agent 
 Recall and capture are best-effort. Server unavailability, an invalid response, or request validation failure does not
 replace the model response or stop the agent. HTTP 401 and 403 are logged once at error level without content or token
 values; transient and unexpected failures are available at debug level.
+
+
+### Adapter-owned GenAI tracing
+
+The LangChain middleware marks its own scope-resolution, recall and optional completed-turn capture calls as GenAI context-service dependencies. It reuses the application-owned OpenTelemetry provider and current parent context. It does not create an exporter, configure logging or import Langfuse. Applications keep their normal middleware configuration; no span allowlist or private Langfuse export predicate is required for these client spans.
+
+Within that adapter-owned context, client spans carry `gen_ai.provider.name=powercontext`. Recall uses `gen_ai.operation.name=retrieval` and the logical `gen_ai.data_source.id=powercontext`. Supporting calls use bounded custom operation names such as `powercontext.resolve_scope_binding` and `powercontext.capture_content_source`; they are not labeled as LLM inference or model-selected tool calls. These attributes contain no query, scope identifier, source body, result, token count or credentials. Standalone SDK calls outside the scoped adapter retain their existing operational-only semantics.
+
+A configured provider/exporter and server-side telemetry are still application/deployment responsibilities. Semantic visibility does not configure a destination or guarantee export by an arbitrary backend. Success, errors, cancellation and fail-open recall behavior are unchanged.
+
+### Async callback parent context
+
+The middleware follows the current OpenTelemetry context. An exported parent tree alone does not establish that
+this context matches the active LangChain node. With LangChain 1.4.4, `langchain-core` 1.7.6 and Langfuse 5.0.2,
+the default synchronous `CallbackHandler` runs async-agent callbacks in executor contexts. Its LangGraph spans can be exported while the
+middleware still sees the outer application span; recall and capture then appear beside the LangGraph subtree.
+
+Applications using that combination can configure their own callback through public APIs:
+
+```python
+from langfuse.langchain import CallbackHandler
+from opentelemetry import trace
+
+callback = CallbackHandler()
+callback.run_inline = True
+
+with trace.use_span(
+    trace.get_current_span(),
+    end_on_exit=False,
+    record_exception=False,
+    set_status_on_exception=False,
+):
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": "How should we deploy this service?"}]},
+        config={"callbacks": [callback]},
+        context=PowerContextScope(),
+    )
+```
+
+Keep the scope around the complete awaited invocation. For streaming, keep it open until the stream is consumed
+or closed. Inline dispatch binds recall to the model node and capture to the `after_agent` node. The invocation
+scope restores the caller's current span on success, error or cancellation: inline dispatch alone is insufficient
+because LangChain can shield completion callbacks in a separate task. The middleware does not mutate application
+callbacks, initialize a provider or require Langfuse. Its `auto_capture` and `trace_content` settings remain independent.
+
+Local validation used an actual PowerContext ASGI/SQLite runtime and deterministic models, including tool rounds,
+concurrent runs and cancellation. A cancelled model's generation span may still be absent with that external callback
+combination; caller-context cleanup and PowerContext recall/capture behavior do not prove complete callback export.
+
+### Optional recall input/output
+
+Use `PowerContextMiddleware(trace_content=True)` to record the latest recall query and the returned context on the
+`PowerContextMiddleware recall` observation. This is separate from `auto_capture`, which writes completed turns to
+PowerContext storage. The default is `False`: recall text may contain private user and memory content.
+The adapter owns this observation; its parent follows the current OpenTelemetry context, including the async
+callback considerations above. Applications configure their exporter and any application-owned callbacks.
+Input and output use OpenInference `input.value` / `output.value` JSON strings, each bounded to 16 KiB of UTF-8
+content with explicit truncation flags. Empty results record the returned null or empty output and the actual context status.
+Request failures do not fabricate an output. This observation is not a model inference or model-selected tool call.
+Server operational spans remain content-free, and historical spans cannot be backfilled from this setting.
+
+The adapter owns its tracing helpers and imports with the released PowerContext 1.5.0 client alone;
+installing a Server in a separate tool environment does not update the application's core client.
+Adapter-owned optional recall I/O works with that core. SDK dependency-span enrichment requires a core
+implementing the local `powercontext.genai_client` OTel context marker (included with this change).
+A 1.5.0 core ignores the marker and retains its existing operational spans and consumer filtering behavior;
+install matching core/adapter artifacts to obtain the complete default-filter tracing fix.
+The marker is local execution context, not network baggage, credentials, or a provider/exporter configuration.
+
+The `tracing-tests` dependency group pins the optional Langfuse consumer and OTLP exporter for CI.
+The `worker-observability` job also runs the LangChain consumer regressions and rejects skipped cases.
+Adapter-only LangChain edits select both that job and standalone installation validation.
+Content bounds and cancellation cleanup tests remain in the default suite without consumer extras.

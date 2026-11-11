@@ -1,7 +1,7 @@
 ---
-status: official
 title: Codex
-description: Install the PowerContext Codex plugin and control its local behavior.
+description: Connect Codex to PowerContext for automatic context recall, prompt capture, and explicit Memory and Handoff operations.
+status: official
 ---
 
 # Codex
@@ -45,7 +45,9 @@ of a returned marketplace name, registration may already have completed; this do
 
 Open a new Codex session after setup. Before sending the first message, use `/hooks` to inspect PowerContext's hooks
 and, when prompted, grant trust. `SessionStart` resolves the Session Scope and optionally loads startup context;
-`UserPromptSubmit` prepares relevant context and independently captures the user input as a Source. The plugin also
+`UserPromptSubmit` prepares relevant context and independently captures the user input as a Source. When Codex's model
+traffic goes through the gateway, turn prompt-time recall off so the gateway prepares context; see
+[Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). The plugin also
 uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
 
 If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
@@ -119,7 +121,7 @@ binding apply. The MCP `set_scope_binding` tool changes only the current Session
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is
-bounded before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent as submitted,
+credential-scrubbed and trimmed before bounding: text of at most 8,192 characters and 8,192 UTF-8 bytes is retained,
 while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192
 bytes. A long prompt therefore narrows the query instead of failing the recall; prompt capture is unaffected and keeps
 its own limit. The Runtime labels
@@ -207,7 +209,39 @@ Set `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` to a JSON assembly object before start
 readable text with configurable Memory/Experience sections, limits, and metadata. See
 [Prepare standard context text](../workflows/prepare-context-text.md) for a complete example and output rules.
 
-## Control prompt capture
+## Data flow and capture controls
+
+Automatic prompt operations require the hook to be enabled and trusted as described in
+[First-session Hook trust](#first-session-hook-trust). MCP connectivity alone does not enable them.
+
+| Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
+| --- | --- | --- | --- | --- | --- |
+| `UserPromptSubmit`: prepare | Credential-scrubbed, bounded query and bound Scope; returned prepared context is supplied to Codex | PowerContext Server; returned context goes to Codex | Enabled hook and a nonblank prompt | Disable this hook in the host | Stops both automatic prompt recall and capture; explicit MCP tools remain separate |
+| `UserPromptSubmit`: capture | Eligible original prompt plus working directory and available session/turn metadata, as a Source | PowerContext Server | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=true`; skip recognized credentials and prompts over 200,000 characters | Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` | Automatic recall and explicit MCP reads/writes remain available |
+| Flush after capture | Bound Scope and processing requests for the accepted Source position, not another transcript upload | PowerContext Server | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false`; opt in for tests | Set `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false` | Stops hook waiting; does not undo capture or disable Server scheduling |
+| `SessionStart`: bootstrap | Scope-bound bootstrap request and optional exact Handoff identity; returned historical context | PowerContext Server; returned context goes to Codex | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false`; see [bootstrap controls](#opt-in-to-session-bootstrap-context) | Set `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false` | Stops bootstrap injection, not prompt recall/capture or explicit tools |
+| Explicit MCP operations | Arguments of the selected read, write, or Handoff operation | PowerContext Server | Explicit tool invocation, subject to Scope binding and authorization | Do not invoke the operation | Automatic capture settings do not disable explicit writes |
+| Evaluation injection trace | Scrubbed prompt, exact injected context, Scope and available session/turn identifiers | Local trace file | On nonempty injection when `POWERCONTEXT_EVAL_TRACE_PATH` is set, or an `eval:` Scope has absolute `POWERCONTEXT_HOME` | Unset the trace path and avoid the evaluation-home fallback | Stops new evaluation traces; recall and capture remain independent |
+
+Trace files contain sensitive content despite credential scrubbing. Capture controls do not disable this separate trace path.
+Recognized credentials are replaced in the read-only query; when scrubbing changes the prompt, capture skips the entire
+event rather than persisting a rewritten Source. Query bounding follows scrubbing. Recognition covers specific patterns
+and the configured credential, not all sensitive information or complete DLP; see [automatic prompt privacy](index.md#automatic-prompt-privacy).
+
+There are three separate data directions: Codex sends queries, Sources or explicit operation arguments to the Server;
+the Server may send queries, candidates or evidence to configured embedding, rerank or generation backends; and Codex
+may include returned historical context in requests to its own model. Loopback describes only the first connection.
+Plugin code running locally does not itself imply that a third-party network service receives data.
+See [configuration](../operate/configuration.md), [inference protection](../operate/inference-protection.md) and
+[context protection](../operate/context-protection.md) for deployment and supported payload boundaries. Inference
+protection defaults to `disabled`; `shadow`/`advisory` do not stop delivery. Installing this plugin does not automatically
+place every Codex model request behind an enforcing protection boundary.
+
+Source acceptance is not Memory extraction; disabling generation does not disable capture. Changing these controls does
+not delete existing Sources, Memory, revisions, local traces or provider-held records. A prepared value, checkpoint,
+host injection, model use and a correct answer are distinct outcomes; HTTP success alone does not establish all of them.
+
+### Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Codex when the current work must not be recorded:
 
@@ -226,6 +260,31 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 ```
 
 This adds inference latency to each prompt and is not the normal interactive setting.
+
+## Leave prompt-time context to the gateway
+
+When Codex sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and
+rejects a prepared-context block that the gateway did not inject, so a turn that also carries the plugin's block fails.
+Turn the plugin's prompt-time recall and prompt capture off before starting Codex:
+
+```bash
+export POWERCONTEXT_CODEX_PROMPT_RECALL=false
+export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
+codex
+```
+
+With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
+context, MCP tools, and diagnostics keep their own settings. Keep the default where Codex calls its model directly or
+signs in with a subscription account, because the gateway does not carry that traffic.
+
+With recall off, prompt-time context comes only from the gateway, with two differences:
+
+- The gateway prepares and captures in the Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin
+  resolves for the Session or workspace. Set it to the same Scope.
+- The gateway does not send the bootstrap receipt, so Memory already injected by
+  [Session bootstrap context](#opt-in-to-session-bootstrap-context) can appear again in the gateway's context.
 
 ## Connect to an authenticated local Server
 
@@ -289,13 +348,15 @@ incorrect, the Hook fails open and emits an `authentication_failed` diagnostic; 
 blocking the Codex session.
 
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
-report that the service is unavailable.
+report that the service is unavailable. Recall and capture both need the current Scope, so when Scope resolution
+fails the Hook does neither and reports the failure as a `scope_resolve` event.
 
 For a normal empty result or recall failure, the Hook emits a content-free JSON diagnostic. Failure outcomes are
 returned through the top-level `systemMessage` in the successful stdout hook response; `empty` remains a local
 diagnostic. Outcomes include `empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and
-`invalid_response`. The event never contains the query, scope, prepared content, citation, response body, or
-authorization value.
+`invalid_response`. An `invalid_response` can carry the Server's `error_code`, such as `scope_not_found` when the
+configured Scope does not exist or no binding resolves. The event never contains the query, scope, prepared content,
+citation, response body, or authorization value.
 
 ## Use a generated environment file
 
@@ -358,6 +419,7 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
+| `POWERCONTEXT_CODEX_PROMPT_RECALL` | `true` | Prepare and inject context for each prompt; set `false` when the gateway carries Codex's model traffic |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |

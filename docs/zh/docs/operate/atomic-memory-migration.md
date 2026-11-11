@@ -1,5 +1,6 @@
 ---
 title: 迁移到 Atomic Memory
+description: "备份数据库后，将旧版 Memory 集合离线转换为 Atomic Memory，并核对身份和版本链。"
 ---
 
 已有 Memory 集合数据库需要停服转换为独立的 `atomic-memory` Artifact。迁移任务为
@@ -8,6 +9,35 @@ title: 迁移到 Atomic Memory
 `pc_memory_artifact_archive` 中，不再出现在公共 Artifact 表、检索或任何在线读取路径里。
 普通服务启动只做轻量残留检查：公共表中没有旧集合、没有指向旧集合的 lineage，旧 entry 表到公共表的
 外键已解除，公共表也不再有旧的 `memory_citations` 列。它不读取归档表或旧 entry 表；逐条完整核验由 `verify` 执行。
+
+
+## 客户端与 Agent Host 的协议兼容
+
+数据库迁移成功、`/health/live` 或 `/health/ready` 正常，都不能证明插件协议兼容。旧集合引用和集合 CAS
+前置条件不能直接重放到 Atomic Memory。HTTP 422 `legacy_memory_operation_unsupported` 表示协议拒绝，
+不是临时故障，也不表示可以去掉 CAS 后重试。
+
+1. 将 CLI/SDK 和受影响的插件更新到与 Server 兼容的发布版本或源码 ref。只升级 Server 不会替换 Host 中
+   已安装的插件；插件自己的包版本号也可能在多个 Server 发布版本间保持不变。
+2. 使用预期的 `--source` / `--ref` 和现有服务端地址执行 `powercontext setup HOST`。DSH 要明确选择实际使用的
+   profile：`powercontext setup dsh --profile web` 或 `powercontext setup dsh --profile desktop`。
+3. 完整重启相应 Host 或 Gateway，包括缓存工具 schema 的旧会话。使用更新后的 CLI 执行
+   `powercontext doctor HOST`。DSH 还要在重启后的会话里执行 `/pc doctor`；Pi、OpenCode 同样提供 `/pc doctor`，
+   Hermes 在 `/pc status` 中单独展示 Memory 协议检查。
+4. 重新搜索或列举，取得 Atomic Memory 的 artifact 引用。修改内容时读取当前内容 ETag，改变生命周期时使用当前
+   `state_version`。不要移除旧 CAS、猜测新前置条件或自动重放写入。如果旧 SDK 在写入成功后因响应解析失败而报错，
+   先检查当前记录，再决定是否再次写入。
+
+更新后的独立 Doctor 将 Server 协议声明与健康状态分开报告。已安装包检查覆盖 DSH、Pi、OpenCode、OpenClaw
+和 Hermes：`atomic-artifact-v1` 是包声明，与 npm/插件版本号无关。没有声明的包是**兼容性未验证**，不等于已确认
+不兼容；诊断会返回 degraded 并提示更新，不再整体显示正常。有声明也不能证明正在运行的进程已经重新加载。
+Server 协议发现接口缺失或不可访问时，同样不能判定兼容。发现请求会复用所选 Host 按 URL 绑定的已存凭据。发现接口要求鉴权但没有可用凭据时，
+检查显示 skipped 并提示配置凭据，单独这项不会使安装或 Doctor 失败；已配置的凭据被拒绝时仍返回 degraded。
+这些只读检查不会执行写入。
+
+Codex、Claude Code、WorkBuddy、ZCode 和 Kimi Code 的 Memory 操作使用 Server 原生 MCP schema。升级 Server 后
+需要重新连接这些 Host；Hook 的上下文准备或采集检查不能验证缓存中的 MCP 工具目录。Server 会在 HTTP/MCP 错误
+响应中保留原错误码与恢复步骤，Host 适配器不能将其归并为通用 `invalid_request`，也不能引导自动重试。
 
 ## 执行顺序
 

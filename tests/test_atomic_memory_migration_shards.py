@@ -97,7 +97,14 @@ def test_three_shards_execute_every_collected_node_exactly_once(
     # Verify actual runner reports through the aggregate CLI's artifact layout.
     for index, report in enumerate(reports):
         artifact = tmp_path / "artifacts" / f"shard-{index}"
-        for group in ("scope-search", "background-metrics", "clean-migration", "startup-snapshot", "long-query"):
+        for group in (
+            "scope-search",
+            "background-metrics",
+            "clean-migration",
+            "grant-migration",
+            "startup-snapshot",
+            "long-query",
+        ):
             destination = artifact / group
             destination.mkdir(parents=True)
             (destination / "summary.json").write_text(json.dumps(report), encoding="utf-8")
@@ -108,6 +115,12 @@ def test_three_shards_execute_every_collected_node_exactly_once(
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+    # A successful evidence/vector group cannot stand in for the separately budgeted grant cases.
+    (tmp_path / "artifacts" / "shard-0" / "grant-migration" / "summary.json").unlink()
+    missing = subprocess.run(result.args, capture_output=True, text=True, check=False)
+    assert missing.returncode == 1
+    assert "grant-migration" in missing.stderr
 
 
 def test_valid_collection_can_produce_an_empty_shard(tmp_path: Path) -> None:
@@ -124,10 +137,11 @@ def test_valid_collection_can_produce_an_empty_shard(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("backend", ["seekdb", "oceanbase"])
-def test_default_runs_the_full_collection(tmp_path: Path, backend: str) -> None:
+@pytest.mark.parametrize("arguments", [(), ("--test-timeout", "300")])
+def test_default_runs_the_full_collection(tmp_path: Path, backend: str, arguments: tuple[str, ...]) -> None:
     write_suite(tmp_path, 2, backend=backend)
     output = tmp_path / "unsharded"
-    result = run_runner(tmp_path, output, backend=backend)
+    result = run_runner(tmp_path, output, *arguments, backend=backend)
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads((output / "summary.json").read_text())
@@ -136,6 +150,44 @@ def test_default_runs_the_full_collection(tmp_path: Path, backend: str) -> None:
     assert len(report["passed_nodes"]) == 2
     assert report["passed_nodes"] == report["collected_nodes"]
     assert report["complete"] is True
+
+
+@pytest.mark.parametrize("seconds", ["0", "-1"])
+def test_nonpositive_test_timeout_is_rejected_before_collection(tmp_path: Path, seconds: str) -> None:
+    output = tmp_path / "invalid-timeout"
+    result = run_runner(tmp_path, output, f"--test-timeout={seconds}")
+
+    assert result.returncode == 2
+    assert "positive" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("seconds,complete", [(5, False), (15, True)])
+def test_test_timeout_includes_cleanup_but_not_collection(tmp_path: Path, seconds: int, complete: bool) -> None:
+    write_suite(tmp_path, 1)
+    (tmp_path / "conftest.py").write_text(
+        "import time\n"
+        "import pytest\n"
+        "def pytest_collection_modifyitems(config, items):\n"
+        "    if config.option.collectonly: time.sleep(6)\n"
+        "@pytest.fixture(autouse=True)\n"
+        "def cleanup():\n"
+        "    yield\n"
+        "    time.sleep(8)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "deadline"
+    result = run_runner(tmp_path, output, "--test-timeout", str(seconds))
+
+    assert result.returncode == (0 if complete else 1), result.stdout + result.stderr
+    report = json.loads((output / "summary.json").read_text())
+    assert report["complete"] is complete
+    assert len(report["collected_nodes"]) == 1
+    assert len(report["passed_nodes"]) == int(complete)
+    assert (tmp_path / "executed.txt").read_text().splitlines() == report["collected_nodes"]
+    if not complete:
+        assert "FAIL exit=124" in result.stdout
+        assert "PASSED" in (output / "001" / "pytest.log").read_text()
 
 
 @pytest.mark.parametrize("shard", ["-1/3", "3/3", "0/0", "0/-1", "x/3", "0/3/1", "1"])
@@ -182,6 +234,21 @@ def test_collect_only_does_not_claim_execution(tmp_path: Path) -> None:
     assert report["passed_nodes"] == []
     assert report["complete"] is False
     assert not (tmp_path / "executed.txt").exists()
+
+
+def test_case_deadline_does_not_count_a_timed_out_test_as_passed(tmp_path: Path) -> None:
+    (tmp_path / "test_cases.py").write_text(
+        "import time\ndef test_oceanbase_slow():\n    time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "timed-out"
+    result = run_runner(tmp_path, output, "--test-timeout", "2")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((output / "summary.json").read_text())
+    assert report["complete"] is False
+    assert report["passed_nodes"] == []
+    assert "FAIL exit=124" in (output / "001/result.txt").read_text()
 
 
 @pytest.mark.parametrize("outcome", ["fail", "skip", "interrupt"])

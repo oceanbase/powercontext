@@ -1,6 +1,6 @@
 ---
 title: 用 Langfuse 查看 trace
-description: 通过标准 OTLP 配置，把 PowerContext 的 transport、application 和推理 span 导出到 Langfuse。
+description: 通过标准 OTLP 配置，将 PowerContext 的传输、应用与模型调用 Trace 导出到 Langfuse。
 ---
 
 # 用 Langfuse 查看 trace

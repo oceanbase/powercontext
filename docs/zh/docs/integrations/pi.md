@@ -1,7 +1,7 @@
 ---
-status: community
 title: Pi Coding Agent
-description: 安装 PowerContext 原生 Pi package，并控制召回、采集和持久化工具写入。
+description: 为 Pi 安装 PowerContext 原生包，并配置召回、采集和持久记忆写入。
+status: community
 ---
 
 # Pi Coding Agent
@@ -37,7 +37,8 @@ pi
 ## 了解 package 的行为
 
 Pi 开始 agent turn 前，package 会以默认 8000-byte 预算调用一次 `POST /v1/context/prepare`。它只严格接受
-`powercontext.prepared-context.v1`，并把结果标记为不可信历史证据。当前 system instruction、仓库规范和用户请求
+`powercontext.prepared-context.v1`，并在 `PowerContext host-supplied context.` 标签之后把结果追加到 system prompt。
+结果中 Server 的信任策略（trust policy）将其标记为不可信历史证据。当前 system instruction、仓库规范和用户请求
 始终优先。
 
 符合条件的用户提示词会被独立采集为 Content Source。package 不会同步完整 Pi transcript。Server 不可用、超时、

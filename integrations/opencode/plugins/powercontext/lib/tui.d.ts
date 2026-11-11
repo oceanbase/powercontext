@@ -48,6 +48,7 @@ interface ResolvedConfig {
   allowInsecureHttp: boolean;
   scopeId: string | undefined;
   authorization: string | undefined;
+  promptRecall: boolean;
   capturePrompts: boolean;
   requestTimeoutMs: number;
   httpBudgetMs: number;

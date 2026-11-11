@@ -17,6 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { boundedRecallQuery, MAX_QUERY_BYTES, MAX_QUERY_CHARACTERS } from '../src/prepared-context.ts'
+import { messagesToQuery, messagesToUserPrompt } from '../src/recall.ts'
 
 interface Segment { text: string; repeat?: number }
 
@@ -35,5 +36,41 @@ describe('shared recall query bound', () => {
 
   it.each(fixture.cases)('$id', ({ prompt, query }) => {
     expect(boundedRecallQuery(expand(prompt))).toBe(expand(query))
+  })
+})
+
+describe('runtime context in recall queries', () => {
+  it.each([
+    { kind: 'runtime-context', form: 'snapshot', sections: [] },
+    { kind: 'runtime-context' },
+    { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' },
+  ])('keeps the user question when a runtime snapshot follows it: %j', (source) => {
+    const question = 'Where is the release checklist?'
+    const messages = [
+      { content: [{ type: 'text', text: question }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'catalog data '.repeat(2000) }], source },
+    ]
+    expect(boundedRecallQuery(messagesToQuery(messages))).toBe(question)
+    expect(messagesToUserPrompt(messages)).toBe(question)
+  })
+
+  it('excludes the host Skill catalog and invocation reminder from recall queries', () => {
+    const question = 'What was the release color?'
+    const messages = [
+      { content: [{ type: 'text', text: question }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'Skill instructions '.repeat(500) }], source: { kind: 'skill-catalog' } },
+      { content: [{ type: 'text', text: 'Use the loaded Skill.' }], source: { kind: 'skill-invocation' } },
+    ]
+    expect(messagesToQuery(messages)).toBe(question)
+  })
+
+  it('retains other plugin context for recall without capturing it as user input', () => {
+    const messages = [
+      { content: [{ type: 'text', text: 'Question' }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'Relevant context' }],
+        source: { kind: 'plugin', plugin: 'example-context', form: 'recall' } },
+    ]
+    expect(messagesToQuery(messages)).toBe('Question\n\nRelevant context')
+    expect(messagesToUserPrompt(messages)).toBe('Question')
   })
 })

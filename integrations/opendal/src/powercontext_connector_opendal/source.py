@@ -21,16 +21,19 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal, cast
 
+import powercontext.sources as source_models
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
+    MemoryEvidenceDeclaration,
     Source,
     SourceMaterialization,
     SourceProjection,
-    TextEvidence,
 )
 from pydantic import BaseModel, JsonValue, field_validator
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
+# Older runtimes expose the same frozen schema under TextEvidence alone.
+_TEXT_EVIDENCE_MODEL: type[BaseModel] = getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
 
 
 class TextFileSnapshotCapture(BaseModel):
@@ -92,6 +95,7 @@ class TextFileSnapshotSourceDefinition:
     name = TEXT_FILE_SNAPSHOT_SOURCE_NAME
     version = "1"
     source_class = TextFileSnapshotSource
+    memory_evidence: MemoryEvidenceDeclaration | None = None
 
     def __init__(self) -> None:
         projection = cast(SourceProjection[TextFileSnapshotSource], TextFileEvidenceProjection())
@@ -136,9 +140,9 @@ class TextFileEvidenceProjection:
     name = TEXT_EVIDENCE_PROJECTION_KEY.name
     version = TEXT_EVIDENCE_PROJECTION_KEY.version
     source_class = TextFileSnapshotSource
-    output_class: type[BaseModel] = TextEvidence
+    output_class: type[BaseModel] = _TEXT_EVIDENCE_MODEL
 
-    def project(self, source: TextFileSnapshotSource, /) -> TextEvidence:
+    def project(self, source: TextFileSnapshotSource, /) -> BaseModel:
         metadata: dict[str, JsonValue] = {
             "namespace": source.namespace,
             "path": source.path,
@@ -153,12 +157,12 @@ class TextFileEvidenceProjection:
             metadata["provider_version"] = source.provider_version
         if source.modified_at is not None:
             metadata["modified_at"] = source.modified_at.isoformat()
-        return TextEvidence(
-            source_type=TEXT_FILE_SNAPSHOT_SOURCE_NAME,
-            source_id=source.name,
-            content=source.content,
-            metadata=metadata,
-        )
+        return _TEXT_EVIDENCE_MODEL.model_validate({
+            "source_type": TEXT_FILE_SNAPSHOT_SOURCE_NAME,
+            "source_id": source.name,
+            "content": source.content,
+            "metadata": metadata,
+        })
 
 
 def _snapshot_id(namespace: str, path: str, content_digest: str) -> str:

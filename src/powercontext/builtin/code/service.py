@@ -28,6 +28,7 @@ from powercontext.builtin.code.capture import (
     digest_bytes,
     json_bytes,
     source_lines,
+    worktree_digests,
     write_private,
 )
 from powercontext.builtin.code.errors import CodeError
@@ -111,6 +112,13 @@ class CodeService:
     @observed("sync")
     def sync(self, scope_id: str) -> dict[str, Any]:
         return self.index(scope_id)
+
+    def file_digests(self, scope_id: str, paths: tuple[str, ...]) -> dict[str, str | None]:
+        """Current worktree digest of each path in the Scope's repository; `None` when it would not be indexed."""
+        repository, _, _ = self._binding(scope_id)
+        return worktree_digests(
+            repository, self.config.limits, paths, time.monotonic() + self.config.limits.query_seconds
+        )
 
     @observed("clear")
     def clear(self, scope_id: str) -> dict[str, Any]:

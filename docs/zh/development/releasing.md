@@ -60,6 +60,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | `docs/en/docs/get-started/manual-start.md`、`docs/zh/docs/get-started/manual-start.md` | CLI/Server 和 Python Client 安装版本及配套 Agent 集成 tag。 |
 | `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 页面描述、当前版本介绍、包版本和 tag、升级目标及 Python Client 安装命令。 |
 | `integrations/dsh/plugins/powercontext/README.md` | Server 安装版本及对应的 `setup dsh --ref` tag。 |
+| `docs/{en,zh}/docs/operate/database-migrations.md`、`tests/release_upgrades/README.md` | 仅同步当前目标发布版本；冻结的 schema revision 名称及原始软件版本保持不变。 |
 
 安装指南也包含历史迁移版本，这些引用会保留。新增表示当前发布版本的安装示例时，应同时将其纳入版本工具的
 管理路径及匹配规则，使下次发布可以自动更新和检查。
@@ -70,6 +71,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | --- | --- |
 | Python wheel/sdist 版本及安装后的 `powercontext --version` | `pyproject.toml` 声明 `dynamic = ["version"]`，Hatch VCS 读取 Git 元数据。最终产物应从目标发布 tag 构建。 |
 | Runtime 包元数据 | 读取已安装 Python 发行包的版本，没有另一份需要手工更新的 Runtime 静态版本。 |
+| DSH npm 发布包 | 发布流程根据所选 Release tag，在临时打包目录中为 `powercontext-dsh` 写入版本。源码 manifest 保留开发版本；运行时身份读取已安装的 manifest。 |
 | Desktop API 绑定 | 运行 `pnpm --dir desktop generate` 重新生成 OpenAPI 类型和契约摘要，再用 `pnpm --dir desktop generate:check` 检查。Desktop 应用本身使用独立包版本。 |
 | Dify 工具契约 | 运行 `uv run python integrations/dify/generate_contract.py` 重新生成，再为同一命令添加 `--check`，检查 API 版本及 Schema。 |
 | Docker 和 Bub harness 的构建版本 | 构建输入通过 `POWERCONTEXT_VERSION` 传递选定的包或 Git 版本，不应在 Dockerfile 中加入固定发布版本。 |
@@ -91,7 +93,7 @@ OpenAPI 版本描述待发布的 API 契约，不覆盖 Hatch VCS。打 tag 前�
 | 通用 Agent Plugin | `integrations/agent-plugin/powercontext/plugin.json`；其包版本与 Agent Plugins schema 版本相互独立。 |
 | Hermes 插件 | `integrations/hermes/plugins/{powercontext,powercontext-command}/plugin.yaml`。 |
 | MiniMax 和 ZCode 插件 | `integrations/minimax/plugins/powercontext/.minimax-plugin/plugin.json` 与 `integrations/zcode/plugins/powercontext/.zcode-plugin/plugin.json`。 |
-| JavaScript 插件 | `integrations/{dsh,opencode,pi}/plugins/powercontext/package.json` 与 `integrations/openclaw/plugins/memory-powercontext/package.json`；OpenClaw 的发现 manifest 没有独立版本字段。 |
+| JavaScript 插件 | `integrations/{opencode,pi}/plugins/powercontext/package.json` 与 `integrations/openclaw/plugins/memory-powercontext/package.json`；OpenClaw 的发现 manifest 没有独立版本字段。DSH 发布包跟随主 Release。 |
 | WorkBuddy 集成 | Hook 和传输脚本包含 User-Agent 字符串，没有需要与 Server 对齐的插件 manifest 版本。 |
 | Skill Receiver | `src/powercontext/client/skill_receiver.py` 中的 `RECEIVER_VERSION` 提供注册、协调及回执上报时默认使用的 Receiver 身份版本，独立于 Server 版本。 |
 | Python 集成包 | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` 有各自的发行版本；依赖范围表示兼容性，不是当前主发布版本。 |
@@ -118,25 +120,77 @@ DSH 的 `pack:release` 先构建再给包 manifest 写入版本，而写版本�
 
 DSH README 中说明某项能力已包含在 `1.1.0` 的文字同样属于历史说明，仅其当前安装命令中的版本参与同步。
 
+## DSH npm 发布包
+
+`release.yml` 从 Python 发布使用的同一个固定 commit 构建 `powercontext-dsh`。流程先测试插件，再将编译后的
+入口、类型声明、Skills 资源、bundle patch、README、许可证和 manifest 打包，并将该发布包安装到干净的使用方目录中检查。
+打包不会改写源码 manifest。验收后的 `.tgz` 保存为 `dsh-release-package`，并附加到 GitHub Release。
+PyPI 发布同时依赖此项检查及原有发布门禁。npm 发布在 PyPI 成功后执行，且仅在 `oceanbase/powercontext` 中运行。
+
+版本来自 Release tag：`powercontext-v1.6.0rc1` 转换为 `1.6.0-rc.1`，`a`、`b` 分别转换为 `alpha`、`beta`。
+正式版本使用 `latest`；版本号带预发布后缀或 GitHub Release 标记为预发布时使用 `next`。
+源码中的开发版本不作为独立的 npm 发布计数。缺少这些打包脚本的旧 tag 不能通过此流程发布，应选择包含 npm
+交付改动的 Release。
+
+发布任务使用 [npm 可信发布](https://docs.npmjs.com/trusted-publishers/)、Node 24 和 GitHub 的 `id-token: write`
+权限，工作流不保存 npm token。包维护者需要完成首次 npm 发布，再配置可信发布者：
+
+| npm 设置 | 值 |
+| --- | --- |
+| Package | `powercontext-dsh` |
+| Provider | GitHub Actions |
+| Organization | `oceanbase` |
+| Repository | `powercontext` |
+| Workflow filename | `release.yml` |
+| Environment | 留空；发布任务没有声明环境 |
+| Allowed actions | 允许直接执行 `npm publish` |
+
+首次发布时，从目标 Release 构建下载已验收的发布包，用维护者的 npm 账户登录，发布同一个文件。例如预发布包：
+
+```bash
+npm login --registry=https://registry.npmjs.org/
+npm publish ./powercontext-dsh-1.6.0-rc.1.tgz --access public --ignore-scripts --tag next --registry=https://registry.npmjs.org/
+```
+
+正式版本改用 `--tag latest`。包创建后配置可信发布者，再重跑失败的 npm 任务。
+重跑仅在 registry 中的 SHA-512 与本次发布包一致时跳过发布；同一版本对应不同内容时明确失败。
+相同发布包的重跑不会修改 dist-tag。不要通过重跑旧 Release 回退 `latest` 或将预发布包提升为正式版本。
+首次补发历史版本前，应核对 registry 中已有的标签。
+
+在仓库根目录执行以下命令验证本地打包：
+
+```bash
+pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+pnpm --dir integrations/dsh/plugins/powercontext test
+pnpm --dir integrations/dsh/plugins/powercontext test:package
+pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
+```
+
+发布包位于插件的 `dist/` 目录。在 DSH Desktop 的 **Plugins → Add plugin** 中安装此文件，确认包信息及启用状态，
+按提示重启，并连接匹配的 Server 运行 `/pc doctor`。分别记录桌面版版本、安装和加载结果、Server 就绪状态及记忆
+行为。本地发布包安装不能证明 npm 已可用；发布后还需在官方源中用 `powercontext-dsh@<version>` 安装，并单独检查
+所选镜像。
+
 ## 发布前验证
 
 ### 数据库升级支持范围
 
 `release/upgrade-support.json` 声明目标版本、来源版本选择策略、后端和配置。`automatic_sources` 继续将 1.3.0
 作为固定基线，显式 `cases` 为空。共登记 12 个组合：一个来源 × 三种后端 × 向量开关 × Code 开关。
-常规发布要求十个自动验收组合全部通过。两个启用 Code 的嵌入式 seekDB 配置因原生 DDL 等待暂时仅手动运行，
-尚未验收，不计入支持的升级声明；自动门禁通过不代表完整的十二项验收通过。
+常规发布要求十二个自动验收组合全部通过，包括两个启用 Code 的嵌入式 seekDB 配置。
+失败、跳过或缺失任一组合都阻止验收；仅用于诊断的 `seekdb-code` 子集不能授权发布。
+发布不再要求额外的升级支持声明。
 目标始终是本次 CI 构建的实际 wheel；后续目标发布版本继续测试 1.3.0，不自动加入中间发行版。
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
-1.3.0 的来源链为 `s1300 → s1400 → s1401 → s1402`，1.4.0 为 `r1400 → s1400 → s1401 → s1402`。两者共享目标
-契约，分别保留冻结的执行历史及日志来源链，以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
+1.3.0 和 1.4.0 的来源链分别从 `s1300` 和 `r1400` 开始，汇入共同的 `s1400 → s1401 → s1402` 路径，
+再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
+以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
 的 Candidate 已是当前格式，桥接原样保留记录，并创建空保留表以统一目标结构，不虚构旧 Candidate 历史。
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
-当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，同时保持“升级支持尚未验证”的声明。
+当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，支持范围以通过完整 Server 验收的组合为准。
 所有配置均使用 `tests/release_upgrades/test_full_server.py`，迁移能力缺失必须失败。仅支持新建数据库的声明或
-正确拒绝旧库，都不能满足门禁。完整迁移实现和验收通过后，审查支持范围，将模式改为 `supported-upgrades`，
-并在发布前重新生成安装说明；两种模式都运行相同的必测矩阵。
+正确拒绝旧库，都不能满足门禁。`upgrade-required` 和 `supported-upgrades` 两种模式均在相同必测矩阵通过后允许发布。
 验收契约和证据要求见仓库中的 `tests/release_upgrades/README.md`。
 
 `make check` 和 `make release-check` 会核对策略及双语安装说明。受管持久化文件变化时，必须审查兼容性影响，
@@ -160,12 +214,13 @@ uv run python scripts/run_upgrade_release_gate.py --release --release-notes /pat
 下的 `validated-dist/`，供 CI 上传。`make publish` 使用 `--release --publish` 在同一次调用中上传这些确切路径；
 验收期间原 `dist/` 的变化不会混入上传。未指定 `--publish` 的验收命令不会发布软件包。
 
-发布检查要求实际 wheel 版本与策略一致，发布说明包含安装指南中的完整英文支持声明。每个组合分别安装准确的
+发布检查要求实际 wheel 版本与策略一致，Release 正文不要求支持范围声明。每个组合分别安装准确的
 旧版发行包和目标 wheel。测试缺失、后端跳过、执行失败或证据缺失都会阻断检查。仅通过静态策略检查不表示
 存在升级路径。普通 PR 构建允许使用开发版本；`--release` 必须验证最终 tag 构建的 wheel，不能覆盖版本号。
 
-CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十个必测自动组合中通过公开命令迁移、
-完整 Server 就绪验证、目标版本启动、历史数据读取和新增写入。局部迁移验证返回 `server_ready=false` 也会失败。一个后端失败后，仍继续执行其他后端，
+CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必测自动组合中通过公开命令迁移、
+完整 Server 就绪验证、目标版本启动、历史数据读取和新增写入；两个 seekDB Code 组合也必须通过。
+局部迁移验证返回 `server_ready=false` 也会失败。一个后端失败后，仍继续执行其他后端，
 分别保存结果和日志。seekDB 直接在 runner 临时目录中以嵌入式启动；PR 和发布工作流均启动隔离的 OceanBase CE
 容器，等待 MySQL 租户就绪，归档诊断并在测试失败时也清理容器，不依赖外部数据库凭据。
 任一后端无法启动都使检查失败，不能跳过。历史拒绝行为回归不参与正向升级门禁。
@@ -173,6 +228,13 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十个必测�
 默认发布工作流只有验收通过才会上传发行包、发布 PyPI 和上传 Release 附件，并归档验收证据。工作流在
 `release.published` 后运行，无法阻止之前手动发布 GitHub Release 页面，因此必须先运行上述命令再发布页面。
 `make publish` 要求提供 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md`，并在上传软件包之前执行相同门禁。
+
+### 在 GitHub 页面触发发布
+
+对于已有的已发布 Release，打开 **Actions → Release → Run workflow**，分支选择 `master`，
+在 `release_tag` 中填写 `powercontext-v1.5.1`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
+工作流修改须先合并到 `master`。本次运行使用工作流提交中的验收脚本，从所选标签构建安装包并执行验收套件。
+十二个组合全部通过后才发布软件包，无需支持范围表格、固定 Release 文案或修改策略模式。
 
 ### 手动跳过升级验收发布
 
@@ -207,7 +269,7 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十个必测�
 
 `release-without-upgrades` 附件记录 tag、源码提交、操作者、运行编号、发行包哈希及
 `upgrade_acceptance: skipped`；运行摘要也会注明已有数据库升级不受支持。
-未勾选该选项时，仍执行常规自动升级矩阵及支持声明检查。
+未勾选该选项时，仍执行常规自动升级矩阵。
 
 ### 通用发布验证
 

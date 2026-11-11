@@ -90,7 +90,10 @@ def test_live_fulltext_initialization_is_concurrent_and_repeatable() -> None:
                     await connection.execute(
                         text(
                             "SELECT DISTINCT table_name, index_name, index_type "
-                            "FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_type = 'FULLTEXT'"
+                            "FROM information_schema.statistics WHERE table_schema = DATABASE() "
+                            "AND index_type = 'FULLTEXT' AND table_name IN ("
+                            "'pc_atomic_memory_current', 'pc_artifact_heads', "
+                            "'pc_topic_memory_active_topics', 'pc_topic_memory_active_chunks')"
                         )
                     )
                 ).all()

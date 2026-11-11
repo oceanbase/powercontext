@@ -1,3 +1,8 @@
+---
+title: "RFC 1629: Dashboard profiles and Handoff exports"
+description: A proposal for read-only Dashboard profiles and Markdown Handoff downloads that preserve exact revisions, evidence, and known omissions.
+---
+
 - Proposal Name: `dashboard_profile_and_handoff_markdown_export`
 - Start Date: 2026-09-16
 - RFC PR: [#1629](https://github.com/oceanbase/powercontext/pull/1629)

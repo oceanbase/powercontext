@@ -1,7 +1,7 @@
 ---
-status: community
 title: LangGraph
 description: Connect a LangGraph graph to a running PowerContext Server for durable Memory and bounded recall.
+status: community
 ---
 
 # LangGraph

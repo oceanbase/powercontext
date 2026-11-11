@@ -36,7 +36,9 @@ from tests.install_support import configure_opencode
 def _write_plugin(root: Path, *, built: bool = True) -> Path:
     plugin = root / "integrations" / "opencode" / "plugins" / "powercontext"
     (plugin / "skills" / "powercontext-project-context").mkdir(parents=True)
-    (plugin / "package.json").write_text('{"name": "powercontext-opencode"}', encoding="utf-8")
+    (plugin / "package.json").write_text(
+        '{"name": "powercontext-opencode", "powercontext": {"memoryProtocol": "atomic-artifact-v1"}}', encoding="utf-8"
+    )
     (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
         "---\nname: powercontext-project-context\ndescription: test\n---\n",
         encoding="utf-8",
@@ -385,16 +387,13 @@ def test_setup_opencode_keeps_previous_install_when_tui_config_is_invalid(
 
 
 def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Path, monkeypatch) -> None:
-    from powercontext.cli.guidance import END, RESOURCE_MANIFEST, START
+    from powercontext.cli.guidance import END, START
 
     first, second = _write_plugin(tmp_path / "first"), _write_plugin(tmp_path / "second")
     for package, value in ((first, "first"), (second, "second")):
         skill = package / "skills/powercontext-project-context"
         (skill / "SKILL.md").write_text(f"{START}\n{value}\n{END}\n", encoding="utf-8")
         (skill / "references/memory.md").unlink()
-        (skill / RESOURCE_MANIFEST).write_text(
-            json.dumps({"schema_version": 1, "resources": ["SKILL.md"]}), encoding="utf-8"
-        )
     config = tmp_path / "config"
     configure_opencode(monkeypatch, config)
     install_plugin("opencode", source=str(first))
@@ -426,7 +425,12 @@ def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatc
     assert not list(config.rglob("*.tmp"))
     install_plugin("opencode", source=str(package))
     assert target.read_bytes() == (package / "lib/index.js").read_bytes()
-    assert json.loads(manifest.read_text()) == {"schema": 1, "owner": "powercontext", "integration": "opencode-plugin"}
+    assert json.loads(manifest.read_text()) == {
+        "schema": 1,
+        "owner": "powercontext",
+        "integration": "opencode-plugin",
+        "memory_protocol": "atomic-artifact-v1",
+    }
 
 
 def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch, installed_agent_checks) -> None:

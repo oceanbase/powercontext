@@ -1,7 +1,7 @@
 ---
-status: community
 title: OpenClaw
 description: Install the PowerContext memory plugin for OpenClaw and control recall, capture, scope, and durable memory writes.
+status: community
 ---
 
 # OpenClaw
@@ -36,9 +36,44 @@ openclaw
 
 The plugin requires OpenClaw 2026.8.1-beta.2 or newer.
 
-## Understand what the plugin does
+## Data flow and capture controls
 
-Before OpenClaw builds a prompt, the plugin calls `POST /v1/context/prepare` once with an 8000-byte default budget.
+The settings below belong to `plugins.entries.memory-powercontext.config`. `autoRecall` and `autoCapture`
+both default to `true` and operate independently; restart the gateway after configuration changes.
+
+| Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
+| --- | --- | --- | --- | --- | --- |
+| `before_prompt_build` | Latest user text (or prompt fallback), bounded to 8192 UTF-8 bytes without credential scrubbing, plus Scope and prepare budget | Configured PowerContext Server; returned context enters the host model request | `autoRecall=true`, eligible private session | `autoRecall=false` | Automatic preparation/injection stops; capture and explicit tools remain independent |
+| Successful `agent_end` | Latest user text prefixed with `User:`, deterministic Source ID and origin metadata | Configured PowerContext Server | `autoCapture=true`, eligible private session | `autoCapture=false` | New automatic Sources stop; recall and explicit writes remain available |
+| `before_compaction` | Same bounded latest-user Source when capture is enabled; Scope for bounded flush | Configured PowerContext Server | Best-effort boundary event | `autoCapture=false` disables new capture, not pending flush | Previously accepted positions can still be flushed; compaction is not blocked |
+| `session_end` / `gateway_stop` | Scope for flushing already accepted pending positions; no new transcript | Configured PowerContext Server | Pending positions and available extraction | No separate flush-off setting | Turning off capture prevents new Sources, but does not cancel existing pending work |
+| Explicit search/get/store/revise/retire | Requested query, reference, or mutation payload | Configured PowerContext Server | Explicit tool execution subject to host controls and access checks | Do not invoke, or restrict the tools in OpenClaw | Automatic recall/capture switches do not disable explicit tools |
+
+Automatic capture excludes group, channel and incognito sessions. `captureMaxChars` defaults to `4000`
+(range `128`–`20000`): the latest user text including the `User: ` prefix is **truncated**, not rejected,
+using JavaScript string length/slicing. This is not a UTF-8 byte limit or complete transcript synchronization.
+Neither automatic recall nor capture performs credential detection or scrubbing, and the plugin has no secret-detection
+configuration. Session eligibility and truncation are not secret filtering. To stop these automatic paths from sending
+prompt text to the Server, set both `autoCapture=false` and `autoRecall=false`, or exclude the session. Explicit tools
+remain independent and can still send their arguments.
+
+There are three separate data directions: OpenClaw sends queries, Sources and explicit operations to the configured
+Server; enabled Server embedding/reranking/generation may send queries, candidates or evidence to its configured
+inference backend; returned historical context enters the model selected by OpenClaw when injected. A loopback
+Server only describes the first connection, not the absence of later network calls. Third-party plugin code does
+not by itself mean a third-party network service receives the data. See [configuration](../operate/configuration.md),
+[inference protection](../operate/inference-protection.md) and [context admission](../operate/context-protection.md).
+Protection defaults to disabled; shadow/advisory do not prevent disclosure. Enforcing protection requires supported
+targets and checked payloads and must not be assumed for every OpenClaw model request.
+
+A Source acceptance is not completed Memory extraction. Disabling generation does not disable capture; accepted
+Sources remain pending when extraction is unavailable. Changing switches does not erase existing Sources, Memory,
+revisions, traces or provider-retained records. Preparation, checkpoint acknowledgement, host injection, actual model
+use and answer correctness are distinct outcomes. Boundary acknowledgement is described below.
+
+### Recall and explicit tools
+
+When automatic recall is enabled, before OpenClaw builds a prompt the plugin calls `POST /v1/context/prepare` once with an 8000-byte default budget.
 Recalled content is labelled as untrusted historical evidence. Current system instructions, repository guidance, and
 the user's request take precedence.
 
@@ -47,7 +82,7 @@ source id, so repeated captures are idempotent. Group, channel, and incognito se
 synchronizes the complete OpenClaw transcript. Recall, capture, and boundary flushing fail open: an unavailable
 Server, timeout, redirect, or invalid response leaves the prompt unchanged and never blocks ordinary work.
 
-The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memory_get`,
+The plugin exposes five memory tools: `powercontext_memory_search`, `powercontext_memory_get`,
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. The mutating tools
 require the model to call them explicitly; OpenClaw controls side-effecting tool execution.
 

@@ -16,8 +16,10 @@
 
 import json
 import sqlite3
+import struct
 from contextlib import closing
 from datetime import UTC, datetime
+from hashlib import sha256
 
 import pytest
 import sqlite_vec
@@ -26,11 +28,21 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.atomic_memory.models import (
+    AtomicMemoryContent,
+)
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.memory.canonical import canonical_json
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.code import CodeConfig
 from powercontext.builtin.dream.models import CreateDreamRunRequest, DreamRecord, DreamRun
 from powercontext.builtin.inference.models import EmbeddingResult
+from powercontext.builtin.persistence.atomic_memory_index import (
+    atomic_memory_embedding_input,
+    atomic_memory_embedding_input_hash,
+    atomic_memory_profile_fingerprint,
+)
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.migrations.deployment import deployment_runner, server_bundle
@@ -134,7 +146,18 @@ def test_registered_sources_choose_distinct_lineages(tmp_path, release, expected
     _settings, _embedding, runner = _source(tmp_path, release=release)
     plan = runner.plan()
     assert plan.source_revision == expected
-    assert plan.revisions == ("s1400", "s1401", "s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    assert plan.revisions == (
+        "s1400",
+        "s1401",
+        "s1402",
+        "v1_4_1_004",
+        "v1_4_1_005",
+        "v1_4_1_006",
+        "v1_5_0_001",
+        "v1_5_0_002",
+        "v1_5_0_003",
+        "v1_5_0_004",
+    )
 
 
 @pytest.mark.parametrize(("vectors", "code"), [(False, False), (True, False), (False, True), (True, True)])
@@ -164,15 +187,19 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     assert _candidate_rows(runner.database) == before
 
 
-def test_release140_extra_object_blocks_before_any_write(tmp_path):
+def test_release140_unrelated_object_survives_readonly_plan_and_upgrade(tmp_path):
     _settings, _embedding, runner = _source(tmp_path)
     with closing(sqlite3.connect(runner.database)) as connection, connection:
         connection.execute("CREATE TABLE unexpected (value TEXT)")
+        connection.execute("INSERT INTO unexpected VALUES ('preserve')")
     before = runner.database.read_bytes()
-    with pytest.raises(MigrationError, match="unknown_baseline"):
-        runner.plan()
+    assert runner.plan().source_revision == "r1400"
     assert runner.database.read_bytes() == before
     assert not runner.evidence_path.exists()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT value FROM unexpected").fetchall() == [("preserve",)]
 
 
 @pytest.mark.parametrize("operation", ["server", "processing", "atomic-projection"])
@@ -243,3 +270,117 @@ def test_release140_current_dream_tasks_keep_their_format_or_fail_before_writes(
                 "queued",
                 before_payload,
             )
+
+
+def test_release140_bridge_preserves_ordinary_and_generated_extensions(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_note TEXT COLLATE NOCASE DEFAULT 'MiXeD'")
+        connection.execute(
+            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT COLLATE NOCASE "
+            "GENERATED ALWAYS AS (extension_note || ':' || revision) VIRTUAL"
+        )
+        connection.execute("CREATE INDEX extension_lookup ON pc_artifacts(extension_value)")
+        before = connection.execute(
+            "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+        ).fetchall()
+    assert runner.plan(backup_policy="skip").source_revision == "r1400"
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        assert (
+            connection.execute(
+                "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+            ).fetchall()
+            == before
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM pc_artifacts INDEXED BY extension_lookup WHERE extension_value='mixed:1'"
+        ).fetchone() == (1,)
+        connection.execute("UPDATE pc_artifacts SET extension_note='Changed'")
+        assert connection.execute("SELECT extension_value FROM pc_artifacts").fetchone() == ("Changed:1",)
+    assert not _apply(runner).changed
+
+
+def test_release140_bridge_preserves_dependent_views(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE VIEW custom_artifacts AS SELECT artifact_id,content FROM pc_artifacts")
+        connection.execute("CREATE VIEW custom_nested AS SELECT * FROM custom_artifacts")
+        before = connection.execute("SELECT * FROM custom_nested").fetchall()
+        definitions = connection.execute(
+            "SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name"
+        ).fetchall()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT * FROM custom_nested").fetchall() == before
+        assert (
+            connection.execute("SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name").fetchall()
+            == definitions
+        )
+    assert not _apply(runner).changed
+
+
+@pytest.mark.parametrize("release", ["1.3.0", "1.4.0"])
+@pytest.mark.parametrize("vectors", [False, True])
+def test_populated_release_atomic_memory_survives_upgrade_before_locator_table_exists(tmp_path, release, vectors):
+    settings, embedding, runner = _source(tmp_path, release=release, vectors=vectors)
+    content = AtomicMemoryContent(kind="fact", text="Historical Atomic Memory remains readable.")
+
+    def connect():
+        connection = sqlite3.connect(runner.database)
+        if vectors:
+            connection.enable_load_extension(True)
+            try:
+                sqlite_vec.load(connection)
+            finally:
+                connection.enable_load_extension(False)
+        return connection
+
+    engine = create_engine("sqlite://", creator=connect)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "INSERT INTO pc_artifacts (scope_id,family,artifact_id,revision,content) "
+                "VALUES ('scope','atomic-memory','historical-memory',1,?)",
+                (content.model_dump_json(by_alias=True).encode(),),
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO pc_artifact_heads (scope_id,family,artifact_id,revision) "
+                "VALUES ('scope','atomic-memory','historical-memory',1)"
+            )
+            # Seed the released layout directly: today's publisher also writes
+            # description, which is absent until the explicit 005 migration.
+            connection.exec_driver_sql(
+                "INSERT INTO pc_atomic_memory_current "
+                "(scope_id,artifact_id,revision,state_version,content_hash,projection_format,kind,text,"
+                "searchable_text,tag_keys,embedding,profile_fingerprint,embedding_input_hash) "
+                "VALUES ('scope','historical-memory',1,0,?,'powercontext.atomic-memory.current.v1',?,?,?,?,?,?,?)",
+                (
+                    sha256(canonical_json(content.model_dump(mode="json", by_alias=True))).hexdigest(),
+                    content.kind,
+                    content.text,
+                    analyze_text(atomic_memory_embedding_input(content.kind, content.text)),
+                    "[]",
+                    None if embedding is None else struct.pack("<3f", 1.0, 0.0, 0.0),
+                    None if embedding is None else atomic_memory_profile_fingerprint(embedding),
+                    None if embedding is None else atomic_memory_embedding_input_hash(content.kind, content.text),
+                ),
+            )
+    finally:
+        engine.dispose()
+
+    assert _apply(runner).revision == "v1_5_0_004"
+    assert runner.verify().state == "ready"
+    assert not _apply(runner).changed
+    app = create_server_app(
+        settings=settings,
+        embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
+        scheduler_path=tmp_path / "scheduler",
+    )
+    with TestClient(app) as client:
+        response = client.get("/v1/scopes/scope/artifacts/atomic-memory/historical-memory/revisions/1")
+        assert response.status_code == 200
+        assert response.json()["content"]["text"] == content.text
+        assert response.json()["sources"] == []

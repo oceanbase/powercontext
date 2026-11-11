@@ -1,6 +1,6 @@
 ---
 title: 插件集成约定
-description: 插件可见集成诊断 RFC 的约定。
+description: PowerContext Agent 插件的故障分类、诊断字段和宿主提示渠道约定。
 ---
 
 # 插件可见诊断约定
@@ -155,3 +155,25 @@ key 是 outcome，不能使用 user input 或 request payload。
 - Bub 集成。
 
 这些决定需要独立的实现证据和评审边界。
+
+
+## Memory 协议升级
+
+HTTP 422 `legacy_memory_operation_unsupported` MUST 在直接工具和命令的结果中保留，并附带固定的恢复步骤：
+更新 CLI/SDK 与受影响的 Host 插件，为实际 profile 重新执行 setup，完整重启 Host，重新运行 Doctor，再取得新的
+Atomic Memory 引用。不得移除集合 CAS 或自动重放写入。恢复文本不能直接展示任意 Server 错误详情。这个错误仍是
+领域拒绝，不能根据异常文本猜测，也不能改写成 `version_mismatch` 或 `invalid_response`。
+
+Doctor 的兼容性检查 MUST 独立于存活、就绪状态。DSH 检查 OpenAPI 的 `memory.explicit` 协议主版本和必需的 Atomic
+路由；Pi、OpenCode、Hermes 检查 ServerInfo 中相同特性的版本。支持主版本 1，并接受兼容的次版本扩展。声明缺失、
+发现接口不可访问或已安装包无法检查，都不能证明兼容。即使 Server 声明当前协议，DSH 原生 MCP 工具目录中仍暴露
+旧版集合修改操作时，Doctor 也必须失败。
+
+CLI 检查 DSH、Pi、OpenCode、OpenClaw 和 Hermes 已安装包的 Memory 协议声明。DSH 使用已安装 Host 的解析器定位
+选定 Web/Desktop bundle；Pi 使用 `pi list` 返回的路径；OpenClaw 使用原生 `plugins inspect`；OpenCode 在受管理的
+bundle 副本旁记录源包声明；Hermes 将声明放在 `powercontext.json`。JS 包使用 `package.json` 的
+`powercontext.memoryProtocol` 字段。声明值为 `atomic-artifact-v1`；缺失时返回未验证/degraded。包版本号和注册成功
+都不能证明协议兼容。OpenCode 的受管理标记也不能证明另行配置的插件或外部修改后的文件兼容。
+
+原生 MCP 适配器（Codex、Claude Code、WorkBuddy、ZCode、Kimi Code）从 Server 发现工具 schema。它们的 HTTP Hook
+成功不能证明会话 MCP 缓存或修改操作正常。恢复步骤见 [协议升级](../docs/operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。

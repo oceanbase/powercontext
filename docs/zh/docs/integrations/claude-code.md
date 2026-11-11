@@ -1,7 +1,7 @@
 ---
-status: community
 title: Claude Code
 description: 安装 PowerContext Claude Code 插件，并配置召回、提示词采集和认证。
+status: community
 ---
 
 # Claude Code
@@ -81,9 +81,10 @@ MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLA
 3. 严格校验 `powercontext.prepared-context.v1`，再通过 `additionalContext` 原样注入；
 4. 独立地将 prompt 采集为普通 Content Source 证据。
 
-召回在构造请求前先给 query 定界：不超过 8192 个字符、也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的
-prompt 改用最近的文本召回，先取末尾 8192 个字符、再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让
-召回失败。采集独立进行，仍按自身上限执行。
+召回先对识别到的凭据脱敏并去掉首尾空白，再给 query 定界：不超过 8192 个字符、也不超过 8192 个 UTF-8 字节的
+文本保留；更长的文本先取末尾 8192 个字符、再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让召回失败。
+采集有自身上限；凭据脱敏改变 prompt 时会跳过整个采集事件，不会把改写后的文本存为 Source。
+这些规则仅识别具体凭据模式和已配置凭据，不涵盖所有敏感信息；见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。
 
 启动上下文是独立且默认关闭的 `SessionStart` 路径。在启动 Claude Code 前显式启用：
 
@@ -201,18 +202,20 @@ Hook 会直接读取该进程环境变量，MCP 配置则把它展开到 `Author
 ## 理解失败行为
 
 召回与采集彼此独立，并且都会 fail open。召回失败不会阻止 prompt 采集，采集失败也不会移除有效的召回上下文。
+两者都依赖当前 Scope：Scope 解析失败时，Hook 既不召回也不采集，并以 `scope_resolve` 事件报告该失败。
 无论哪种情况，Claude Code 都会继续处理当前 prompt。
 
 | 条件 | Hook 行为 |
 | --- | --- |
 | Prepared Context 为空 | 不注入内容，并记录 `empty` outcome |
 | HTTP 401 | 不注入内容，并记录 `authentication_failed` |
-| HTTP 404 | 不注入内容，并记录 `version_mismatch` |
+| 必需路由返回不带错误码的 HTTP 404 | 不注入内容，并记录 `version_mismatch` |
 | HTTP 503 或 Server 不可用 | 不注入内容，并记录 `server_unavailable` |
+| 其他 HTTP 错误，包括 `scope_not_found` 这类带错误码的 404 | 不注入内容，并记录带状态码和错误码（如有）的 `invalid_response` |
 | 未知 schema、错误 JSON 或超大响应 | 不注入内容，并记录 `invalid_response` |
 
-诊断只包含 outcome 和安全的数字 metadata，不包含 prompt、scope、Prepared Context 正文、Authorization 值或
-响应正文。插件会拒绝重定向，并限制响应大小和 wall-clock 时间。
+诊断只包含 outcome、安全的数字 metadata 和 Server 返回的错误码（如有），不包含 prompt、scope、Prepared Context 正文、
+Authorization 值或响应正文。插件会拒绝重定向，并限制响应大小和 wall-clock 时间。
 
 ## 诊断或回滚
 

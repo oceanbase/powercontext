@@ -444,7 +444,7 @@ class _RecordingEnvironment:
     ("setting", "expected"),
     [(None, "https://pypi.org/simple"), ("https://mirror.test/simple", "https://mirror.test/simple")],
 )
-def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
+def test_bub_runtime_install_uses_its_own_index_and_compatible_harbor_sdk(
     monkeypatch, tmp_path: Path, setting: str | None, expected: str
 ) -> None:
     # SWE-bench Pro images configure pip for the index their build used, which no longer answers. The host's own
@@ -462,6 +462,9 @@ def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
         env for command, env in zip(environment.commands, environment.envs, strict=True) if "pip install" in command
     ]
     assert install_env["PIP_INDEX_URL"] == expected
+    constraint_path = install_env["PIP_CONSTRAINT"]
+    assert f"upload harbor-acp-constraints.txt {constraint_path}" in environment.commands
+    assert (tmp_path / "harbor-acp-constraints.txt").read_text(encoding="utf-8") == "agent-client-protocol==0.10.0\n"
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
@@ -847,7 +850,7 @@ def _kimi_installation(home: Path) -> dict[str, object]:
             text = path.read_text(encoding="utf-8")
             if (
                 path.relative_to(home).as_posix()
-                == "plugins/managed/powercontext/skills/powercontext-project-context/SKILL.md"
+                == "plugins/managed/powercontext/skills/powercontext-project-context/references/host.md"
             ):
                 # Each installation must point at its own installed script before paths are normalized for comparison.
                 script = home / "plugins/managed/powercontext/scripts/scope.mjs"

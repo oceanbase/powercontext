@@ -23,6 +23,7 @@ import logging
 import multiprocessing
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerFailure,
     WorkerInitializerPreparation,
 )
+from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging
@@ -378,10 +380,23 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         raise CancelledError(_PRIVATE)
     if assignment.scope_id == "unexpected":
         raise RuntimeError(_PRIVATE)
+    if assignment.scope_id == "denied":
+        raise AccessDeniedError()
     if assignment.scope_id == "blocked":
-        raise ArtifactProcessingBlockedError(
+        blocked = ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
         )
+        attach_diagnostics(
+            blocked,
+            ProcessingDiagnostics(
+                stage=ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                estimated_input_tokens=123,
+                effective_budget=100,
+                failure_location="window_attempt_limit",
+            ),
+        )
+        raise blocked
     return ArtifactProcessingWorkerCompletion()
 
 
@@ -397,10 +412,11 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
         ("unexpected", "internal", "failure"),
+        ("denied", "authorization", "failure"),
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
-    capfd, tmp_path, scope_id, category, outcome
+    capfd, caplog, tmp_path, scope_id, category, outcome
 ) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
@@ -426,12 +442,16 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
                 bindings=(binding,),
                 lease_mode="single-process",
                 tracing=tracing,
-            ):
+            ) as supervisor:
                 async with asyncio.timeout(30):
                     while not any(  # noqa: ASYNC110 - bounded polling of exported observations
                         span.name == "artifact_processing.worker" for span in exporter.get_finished_spans()
                     ):
                         await asyncio.sleep(0.01)
+                    if outcome == "blocked":
+                        # The worker span can end before the supervisor handles the result.
+                        while not supervisor.family_status["memory"]["blocked"]:  # noqa: ASYNC110 - bounded polling
+                            await asyncio.sleep(0.01)
             async with profile.database.transaction() as connection:
                 intent = await intents.load(connection, scope_id, binding_name)
                 assert intent is not None and intent.requested_generation > intent.handled_generation
@@ -452,6 +472,13 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
         assert _PRIVATE not in captured.out + captured.err + repr([dict(span.attributes or {}) for span in spans])
         terminal = [record for record in _json_records(captured.out) if record.get("duration_ms") is not None]
         assert terminal and terminal[-1]["error_category"] == category
+        if outcome == "blocked":
+            blocked = next(r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked")
+            worker_span = next(span for span in spans if span.name == "artifact_processing.worker")
+            assert worker_span.context is not None
+            assert blocked.trace_id == f"{worker_span.context.trace_id:032x}"
+            assert blocked.estimated_input_tokens == 123
+            assert blocked.effective_budget == 100
     finally:
         tracing.shutdown()
 
@@ -626,6 +653,12 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
             assert failure.block == ArtifactProcessingBlock(
                 "frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),)
             )
+            assert failure.diagnostics is not None
+            assert failure.diagnostics.stage is ProcessingStage.GENERATION
+            assert failure.diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert failure.diagnostics.estimated_input_tokens == 123
+            assert failure.diagnostics.effective_budget == 100
+            assert failure.diagnostics.failure_location == "window_attempt_limit"
         finally:
             await handle.terminate()
 
@@ -639,6 +672,11 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
         assert terminal["level"] == "WARNING" and terminal["outcome"] == "blocked"
         assert terminal["error_category"] == "blocked" and terminal["error_code"] == "window_attempt_limit"
         assert terminal["stage"] == "topic_memory" and terminal["worker_id"] == "blocked-attempt"
+        assert terminal["processing_stage"] == "generation"
+        assert terminal["failure_reason"] == "usage_limit"
+        assert terminal["estimated_input_tokens"] == 123
+        assert terminal["effective_budget"] == 100
+        assert terminal["failure_location"] == "window_attempt_limit"
     else:
         terminal_line = captured.out.splitlines()[-1]
         assert " WARNING " in terminal_line
@@ -649,6 +687,11 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
             'error_code="window_attempt_limit"',
             'stage="topic_memory"',
             'worker_id="blocked-attempt"',
+            'processing_stage="generation"',
+            'failure_reason="usage_limit"',
+            "estimated_input_tokens=123",
+            "effective_budget=100",
+            'failure_location="window_attempt_limit"',
         ):
             assert field in terminal_line
 
@@ -755,10 +798,18 @@ def test_unconfigured_sdk_worker_does_not_enable_global_logging(capfd) -> None:
 def test_server_composition_initializes_logging_in_the_real_family_worker(
     capfd, tmp_path, monkeypatch, file_logging
 ) -> None:
+    completed = threading.Event()
+
+    def observe_completion(record: logging.LogRecord) -> bool:
+        if getattr(record, "event", None) in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}:
+            completed.set()
+        return True
+
     parent_logger = logging.getLogger("powercontext")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     handler.addFilter(OperationalContextFilter(role="all"))
+    handler.addFilter(observe_completion)
     monkeypatch.setattr(parent_logger, "handlers", [handler])
     monkeypatch.setattr(parent_logger, "level", logging.INFO)
     monkeypatch.setattr(parent_logger, "propagate", False)
@@ -771,23 +822,16 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
             mcp=McpConfig(enabled=False),
         )
     )
-    records: list[dict[str, Any]] = []
     with TestClient(app) as client:
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         response = client.post(
             "/v1/sources/content", json={"scope_id": scope_id, "source_id": "logging-source", "content": _PRIVATE}
         )
         assert response.status_code == 202
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            records.extend(_json_records(capfd.readouterr().out))
-            if any(
-                record.get("event") in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}
-                for record in records
-            ):
-                break
-            time.sleep(0.05)
-    records.extend(_json_records(capfd.readouterr().out))
+        # Do not reset/truncate fd capture while spawned processes still write
+        # through inherited descriptors. Observe completion without consuming it.
+        assert completed.wait(timeout=60), "The real family worker must report completion"
+    records = _json_records(capfd.readouterr().out)
     worker_records = (
         _json_records((tmp_path / "logs" / "all.log").read_text(encoding="utf-8")) if file_logging else records
     )

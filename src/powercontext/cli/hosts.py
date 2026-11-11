@@ -63,6 +63,8 @@ def validate_native_options(selected: Sequence[str], **options: Any) -> None:
         "boundary_flush": ("zcode",),
         "profile": ("dsh", "kimi-code"),
         "dsh_command": ("dsh",),
+        "minimax_data_dir": ("minimax",),
+        "minimax_command": ("minimax",),
         "runtime": ("kimi-code",),
         "mcp": ("kimi-code",),
         "cwd": ("kimi-code",),
@@ -98,12 +100,14 @@ def native_options(host: str, **options: Any) -> dict[str, Any]:
         "dsh": ("dsh_target",),
         "kimi-code": ("scope_id", "capture_prompts", "workspace_scope", "profile"),
         "zcode": ("capture_prompts", "boundary_flush"),
+        "minimax": ("minimax_data_dir", "minimax_command"),
     }
     return {key: options[key] for key in fields.get(host, ()) if options.get(key) is not None}
 
 
 def doctor_checks(host: str, **options) -> dict[str, Any]:
     """Run native verification and Server checks through the doctor boundary."""
+    from powercontext.cli.authorization import credential_path, read_stored_authorization
     from powercontext.cli.installation import installers
     from powercontext.cli.native_transport import resolve_host_transport
     from powercontext.cli.system import Diagnostic, DiagnosticStatus, server_diagnostics
@@ -113,16 +117,30 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
             from powercontext.cli.dsh_runtime import resolve_dsh_target
 
             options["dsh_target"] = resolve_dsh_target(options.get("profile"), options.get("dsh_command"))
-        installer = installers()[host](**native_options(host, **options))
+        target_options = native_options(host, **options)
+        if host == "minimax":
+            target_options["read_only"] = True
+        installer = installers()[host](**target_options)
         fields = {"kimi-code": ("runtime", "cwd", "session_id", "mcp"), "zcode": ("runtime_data_dir", "prepare")}
         checks = installer.verify(**{key: options[key] for key in fields.get(host, ()) if options.get(key) is not None})
     except Exception as error:  # Each target must produce a result even when native configuration is malformed.
         return {"verification": Diagnostic(DiagnosticStatus.FAILED, str(error))}
     try:
+        if host == "minimax":
+            checks.update(installer.server_checks())
+            return checks
         target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
         endpoint, allowed = resolve_host_transport(host, **target)
+        authorization = None
+        if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
+            authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
         checks.update(
-            server_diagnostics(server_url=endpoint, allow_insecure_http=allowed, readiness=checks.get("server"))
+            server_diagnostics(
+                server_url=endpoint,
+                allow_insecure_http=allowed,
+                readiness=checks.get("server"),
+                authorization=authorization,
+            )
         )
     except Exception as error:  # A failed Server probe must not hide completed installation.
         checks["transport"] = Diagnostic(DiagnosticStatus.FAILED, str(error))
@@ -158,7 +176,15 @@ def report_agents(selected: Sequence[str], action: Callable[[str], dict[str, Any
     else:
         for name, row in rows.items():
             typer.echo(f"{name}: {row['status']}" + (" (setup complete)" if row.get("setup") == "complete" else ""))
-            for key in ("plugin_path", "package_path", "cache_dir", "profile", "profile_dir", "authorization_state"):
+            for key in (
+                "plugin_path",
+                "package_path",
+                "cache_dir",
+                "profile",
+                "profile_dir",
+                "authorization_state",
+                "private_mcp_state",
+            ):
                 if key in row.get("result", {}):
                     typer.echo(f"  {key}: {row['result'][key]}")
             if "error" in row:

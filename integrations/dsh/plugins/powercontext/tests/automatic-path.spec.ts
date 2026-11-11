@@ -15,6 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { existsSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
@@ -57,7 +58,14 @@ async function fixture(
   type ToolDecision = { kind: 'allow' } | { kind: 'deny'; reason: string } | { kind: 'ask'; reason?: string }
   type ToolHook = (payload: unknown, next: () => Promise<ToolDecision>) => Promise<ToolDecision>
   let toolHook: ToolHook | undefined
-  const registry = { register: () => () => {}, section: () => () => {} }
+  const registered: Array<Record<string, unknown>> = []
+  const registry = {
+    register: (definition: Record<string, unknown>) => {
+      registered.push(definition)
+      return () => {}
+    },
+    section: () => () => {},
+  }
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname
     requests.push({ path, body: JSON.parse(String(init.body ?? '{}')) })
@@ -96,7 +104,14 @@ async function fixture(
     signal: new AbortController().signal,
     agent: { session: { header: { id: 'test-session' } } },
   }, async () => ({ kind: 'allow' }))
-  return { run, search, requests, logger, diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)) }
+  return {
+    run,
+    search,
+    requests,
+    logger,
+    registered,
+    diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)),
+  }
 }
 
 function successfulRequest(path: string) {
@@ -127,6 +142,22 @@ afterEach(() => {
 })
 
 describe('registered automatic path', () => {
+  it('registers the packaged Skill with its installed resource directory', async () => {
+    const h = await fixture(successfulRequest)
+    const skill = h.registered.find(definition => definition.name === 'powercontext-project-context')
+    expect(skill).toMatchObject({
+      name: 'powercontext-project-context',
+      source: 'runtime',
+      whenToUse: expect.stringContaining('continuing work across sessions'),
+      resourceBase: { kind: 'directory' },
+    })
+    const resourceBase = skill?.resourceBase as { kind: string; path: string }
+    expect(resourceBase.kind).toBe('directory')
+    expect(existsSync(resourceBase.path)).toBe(true)
+    expect(existsSync(`${resourceBase.path}/references/host.md`)).toBe(true)
+    expect(existsSync(`${resourceBase.path}/references/scope-memory.md`)).toBe(true)
+  })
+
   it('reports missing binding targets with repair guidance and stops automatic Scope work', async () => {
     const h = await fixture(() => response({
       error: { code: 'scope_binding_target_missing', message: PRIVATE, details: { scope_id: PRIVATE } },
@@ -293,23 +324,33 @@ describe('registered automatic path', () => {
     expect(JSON.stringify(result.messages)).not.toContain(PRIVATE)
   })
 
-  it('adds one snapshot with exact text and preserves the downstream decision', async () => {
+  it('attributes recall and routing snapshots to their producer for DSH format v4', async () => {
     const h = await fixture(successfulRequest)
     const next = vi.fn(async () => ({ kind: 'enter', messages: [userMessage], startsRequestSeries: true }))
     const result = await h.run({ next })
+    if (!('messages' in result)) throw new Error('The host did not admit the step')
     expect(result).toHaveProperty('startsRequestSeries', true)
     expect(next).toHaveBeenCalledOnce()
     expect(result.messages).toHaveLength(3)
     const message = messageInSection(result.messages, 'PowerContext')
     expect(message.source).toEqual({
-      kind: 'plugin', plugin: 'powercontext-dsh', form: 'snapshot',
+      kind: 'plugin:powercontext-dsh', form: 'snapshot',
       sections: [{ name: 'PowerContext', text: message.content[0].text }],
     })
-    expect(message.content[0].text).toContain('untrusted historical evidence')
-    expect(message.content[0].text.endsWith(TEXT)).toBe(true)
+    const routing = messageInSection(result.messages, 'PowerContext Scope routing')
+    expect(routing.source).toEqual({
+      kind: 'plugin:powercontext-dsh', form: 'snapshot',
+      sections: [{ name: 'PowerContext Scope routing', text: routing.content[0].text }],
+    })
+    expect(message.content[0].text).toBe(
+      `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${TEXT}`)
   })
 
-  it('prepares and captures from the final downstream message batch', async () => {
+  it.each([
+    { kind: 'runtime-context', form: 'snapshot' },
+    { kind: 'runtime-context' },
+    { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' },
+  ])('prepares and captures user text without runtime context (%j)', async (source) => {
     const h = await fixture(successfulRequest)
     const finalMessage: PromptMessage = {
       content: [{ type: 'text', text: 'Use the rewritten request.' }],
@@ -318,7 +359,7 @@ describe('registered automatic path', () => {
     const runtimeContext = {
       content: [{ type: 'text', text: 'Current runtime context. Workspace policy details.' }],
       source: {
-        kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot',
+        ...source,
         sections: [{ name: 'sandbox-policy', text: 'Workspace policy details.' }],
       },
     }
@@ -335,6 +376,19 @@ describe('registered automatic path', () => {
     })
     expect(JSON.stringify(h.requests)).not.toContain('Continue the API work.')
     expect(JSON.stringify(h.requests)).not.toContain('Workspace policy details.')
+  })
+
+  it('keeps the user question when a longer host runtime snapshot follows it', async () => {
+    const h = await fixture(successfulRequest)
+    const question = 'Which service owns the release checklist?'
+    const messages = [
+      { content: [{ type: 'text', text: question }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'catalog data '.repeat(2_000) }],
+        source: { kind: 'runtime-context', form: 'snapshot' } },
+    ]
+    await h.run({ messages })
+    expect(h.requests.find(({ path }) => path === PREPARE)?.body).toMatchObject({ query: question })
+    expect(h.requests.find(({ path }) => path === CAPTURE)?.body).toMatchObject({ content: question })
   })
 
   it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {

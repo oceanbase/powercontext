@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence import schema
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import ATOMIC_MEMORY_EVIDENCE_TABLES
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.oceanbase.topic_memory_index import OceanBaseTopicMemoryVectorIndex
 
@@ -88,6 +89,7 @@ def test_mysql_access_startup_preserves_dml_only_table_access(state, monkeypatch
 
 
 @pytest.mark.parametrize("family", ["atomic-memory", "topic-memory"])
+@pytest.mark.usefixtures("mock_installed_evidence_schema")
 def test_relational_schema_creation_preserves_native_vector_index_ownership(family, monkeypatch):
     async def scenario():
         profile = EmbeddingProfile(
@@ -110,9 +112,12 @@ def test_relational_schema_creation_preserves_native_vector_index_ownership(fami
         connection.dialect = dialect()
         connection.run_sync.side_effect = lambda callback: callback(sync)
         await schema.create_tables(connection, index.tables)
-        assert len(statements) == len(index.tables)
-        assert all("VECTOR(3)" in sql for sql in statements)
-        assert all("CREATE TABLE IF NOT EXISTS" in sql for sql in statements)
+        tables = [table for table in index.tables if table not in ATOMIC_MEMORY_EVIDENCE_TABLES]
+        assert len(statements) == len(tables)
+        for table in tables:
+            statement = next(sql for sql in statements if f"CREATE TABLE IF NOT EXISTS {table.name} (" in sql)
+            if "embedding" in table.c:
+                assert "VECTOR(3)" in statement
         # Native initializers own VECTOR DDL; table creation must not replace
         # it with an ordinary index or preempt the native race validation.
         assert not any("CREATE INDEX" in sql or "CREATE VECTOR INDEX" in sql for sql in statements)
@@ -167,7 +172,9 @@ def test_managed_schema_startup_never_creates_missing_tables_or_indexes(selected
 
 @pytest.mark.parametrize("family", ["atomic-memory", "experience", "topic-memory"])
 @pytest.mark.parametrize("provisioned", [False, True])
-def test_fulltext_initialization_preserves_provisioned_and_missing_indexes(family, provisioned):
+def test_fulltext_initialization_preserves_provisioned_and_missing_indexes(
+    family, provisioned, mock_provisioned_mysql_connection
+):
     from pymysql.err import OperationalError as MySQLOperationalError
     from sqlalchemy.exc import OperationalError
 
@@ -177,7 +184,8 @@ def test_fulltext_initialization_preserves_provisioned_and_missing_indexes(famil
     async def scenario():
         connection = AsyncMock(spec=AsyncConnection)
         connection.dialect = dialect()
-        connection.run_sync.return_value = {"description", "searchable_text"}
+        connection.run_sync.side_effect = lambda callback: callback(mock_provisioned_mysql_connection)
+        connection.scalars.return_value = ("description", "searchable_text")
 
         async def scalar(statement, *_args):
             sql = str(statement)

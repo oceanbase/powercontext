@@ -50,6 +50,7 @@ CONTENTLESS_OPERATIONS = frozenset({"get_scope", "get_stats", "resolve_scope_sel
 # The Access API returns permission decisions, roles, Bindings, and audit records. Checking whether the caller may read
 # a Scope records that decision on the Scope, and listing its Bindings or audit records an administration check there.
 ACCESS_OPERATIONS = frozenset({
+    "get_connection_identity",
     "get_access_principal",
     "check_access",
     "list_access_resources",
@@ -59,6 +60,8 @@ ACCESS_OPERATIONS = frozenset({
     "revoke_access_binding",
     "replace_access_binding",
     "list_access_audit",
+    "plan_access_ownership",
+    "apply_access_ownership",
 })
 # Checks the Server reports to the caller rather than enforces: which actions a Candidate offers, and the Access API's
 # permission check. Denying one does not reject the request that asked.

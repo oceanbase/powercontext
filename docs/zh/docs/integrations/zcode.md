@@ -1,7 +1,7 @@
 ---
-status: community
 title: ZCode
 description: 安装 PowerContext ZCode 插件，验证自动生成 Memory、新会话召回和 MCP 记忆读写。
+status: community
 ---
 
 # ZCode
@@ -179,6 +179,10 @@ Scope、调用 `POST /v1/context/prepare`、采集提示词到 `POST /v1/sources
 Hook 为同一 Scope、session、turn 和提示词计算稳定 Source ID。若宿主没有提供 `turnId`，同一会话内
 重复的相同文本会保守地复用 Source ID，无法区分独立提交和重试。默认采集提示词；疑似包含密钥的
 文本不会自动采集。准备上下文与采集相互独立：前者失败后仍可能采集，后者失败也不会丢弃已准备的上下文。
+
+`UserPromptSubmit` 和 `SessionStart` 的各次请求共用 4 秒内部网络预算，单次 HTTP 请求上限为 3 秒，
+宿主进程超时为 5 秒；总预算和单次请求期限中，先到达者生效。prepare 超时后，若仍有预算便继续尝试提示词采集；
+预算耗尽后不再发出新请求。Stop 仍采用下文所述的独立短预算。
 
 ## 会话生命周期与可选边界处理
 

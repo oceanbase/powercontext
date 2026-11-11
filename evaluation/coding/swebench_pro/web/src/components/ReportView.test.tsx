@@ -36,6 +36,12 @@ describe("ReportView", () => {
     expect(screen.getByText("−42.8%")).toBeVisible();
     expect(screen.getByText("+1,024")).toBeVisible();
     expect(screen.getByText("+100.0%")).toBeVisible();
+    // Cached and reasoning tokens: per arm and in the comparison.
+    expect(screen.getAllByText("其中缓存命中")).toHaveLength(3);
+    expect(screen.getAllByText("其中推理")).toHaveLength(3);
+    expect(screen.getAllByText("1,810,432")).toHaveLength(2); // OFF arm panel and the comparison table
+    expect(screen.getByText("4,096")).toBeVisible();
+    expect(screen.getByText("−779,264")).toBeVisible();
     expect(screen.getAllByText("N/A").length).toBeGreaterThan(0);
     expect(screen.getByText("10")).toBeVisible();
     expect(screen.getByText("2")).toBeVisible();
@@ -65,7 +71,14 @@ describe("ReportView", () => {
         passed: false,
         treatment_valid: true,
       },
-      comparison: { input_tokens: null, output_tokens: null, elapsed_seconds: null, patch_bytes: null },
+      comparison: {
+        input_tokens: null,
+        cached_input_tokens: null,
+        output_tokens: null,
+        reasoning_output_tokens: null,
+        elapsed_seconds: null,
+        patch_bytes: null,
+      },
     };
     render(<ReportView api={apiStub({ getReport: vi.fn().mockResolvedValue(invalid) })} taskId="invalid" />);
 

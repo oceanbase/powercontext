@@ -1,0 +1,1383 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+mod common;
+
+use powercontext_desktop::{
+    connections::{
+        profiles::ProfileRepository,
+        session::{ConnectionManager, WriteStatus},
+    },
+    credentials::NativeVault,
+    error::SafeError,
+    transport::wire::ArtifactReference,
+};
+use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::Notify,
+    time::{Duration, timeout},
+};
+
+const LEGACY_PROFILE_ID: &str = "synthetic-authenticated-legacy-fixture";
+
+struct State {
+    discovery: (u16, Value),
+    identity_response: Option<(u16, Value)>,
+    readiness_status: u16,
+    capabilities: (u16, Value),
+    principal: Option<String>,
+    pause: Option<String>,
+    requests: Vec<String>,
+    lose_write_response: bool,
+    reject_write: bool,
+}
+struct Fixture {
+    manager: Arc<ConnectionManager>,
+    id: String,
+    state: Arc<Mutex<State>>,
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    server: tokio::task::JoinHandle<()>,
+    _directory: tempfile::TempDir,
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.server.abort();
+        self.release.notify_waiters();
+    }
+}
+fn discovery(id: &str) -> Value {
+    json!({"schema_version":{"major":1,"minor":0},"product":"powercontext","server_id":id,
+        "package_version":"synthetic","api_contract_version":{"major":1,"minor":4},"feature_contracts":{
+        "connection.identity":{"version":{"major":1,"minor":0},"operations":["get_connection_identity"]},
+        "access.principal":{"version":{"major":1,"minor":0},"operations":["get_access_principal"]},
+        "scope.selection":{"version":{"major":1,"minor":0},"operations":["list_scopes","get_scope","get_default_scope"]},
+        "memory.explicit":{"version":{"major":1,"minor":0},"operations":["remember_memory","search_memory"]}}})
+}
+fn scope() -> Value {
+    json!({"scope_id":"scope-a","title":"Private scope","summary":"","context_references":[],
+        "external_references":[],"version":1})
+}
+fn reference() -> ArtifactReference {
+    serde_json::from_value(json!({"family":"atomic-memory","artifact_id":"atomic-a","revision":1}))
+        .unwrap()
+}
+fn record() -> Value {
+    json!({"artifact":reference(),"kind":"note","text":"private result","state":"active",
+        "state_version":1,"merged_into_id":null})
+}
+impl Fixture {
+    async fn new(authenticated: bool) -> Self {
+        Self::with_profile(authenticated, None).await
+    }
+    async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let state = Arc::new(Mutex::new(State {
+            discovery: (200, discovery("server-a")),
+            identity_response: None,
+            readiness_status: 200,
+            capabilities: (403, json!({})),
+            principal: authenticated.then(|| "same-principal".into()),
+            pause: None,
+            requests: vec![],
+            lose_write_response: false,
+            reject_write: false,
+        }));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (responses, entered, resume) = (state.clone(), started.clone(), release.clone());
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let (responses, entered, resume) =
+                    (responses.clone(), entered.clone(), resume.clone());
+                tokio::spawn(async move {
+                    let mut bytes = vec![];
+                    loop {
+                        let mut chunk = [0; 4096];
+                        let count = socket.read(&mut chunk).await.unwrap();
+                        if count == 0 {
+                            return;
+                        }
+                        bytes.extend_from_slice(&chunk[..count]);
+                        if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&bytes[..end]);
+                            let length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length: ")
+                                        .map(|value| value.parse::<usize>().unwrap())
+                                })
+                                .unwrap_or(0);
+                            if bytes.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    let path = String::from_utf8_lossy(&bytes)
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap()
+                        .to_owned();
+                    let (status, value, pause, lose_response) = {
+                        let mut state = responses.lock().unwrap();
+                        state.requests.push(path.clone());
+                        let (status, value) = match path.as_str() {
+                            "/v1/server-info" => state.discovery.clone(),
+                            "/v1/connection/identity" => state.identity_response.clone().unwrap_or_else(|| (200, json!({
+                                "server_id":state.discovery.1["server_id"].as_str().unwrap_or("server-a"),
+                                "authentication":if state.principal.is_some() {"authenticated"} else {"disabled"},
+                                "access_mode":if state.principal.is_some() {"enforced"} else {"disabled"},
+                                "principal":state.principal.as_ref().map(|id| json!({"type":"service","id":id}))
+                            }))),
+                            "/v1/access/me" => match &state.principal {
+                                Some(id) => (
+                                    200,
+                                    json!({"principal":{"type":"service","id":id},"mode":"enforced",
+                                    "resource_kinds":[],"artifact_families":[],"provider_capabilities":{
+                                    "safe_resource_filtering":true,"multi_requirement_check":true,"relationship_management":false,
+                                    "group_subjects":false,"multi_principal":false,"max_direct_resource_keys":100}}),
+                                ),
+                                None => (503, json!({"error":{"code":"runtime_not_ready"}})),
+                            },
+                            "/health/ready" => (
+                                state.readiness_status,
+                                json!({"status":if state.readiness_status == 200 {"ready"} else {"not_ready"},"checks":{
+                                "access_mode":if state.principal.is_some() {"enforced"} else {"disabled"}}}),
+                            ),
+                            "/v1/capabilities" => state.capabilities.clone(),
+                            "/v1/scopes/default" | "/v1/scopes/scope-a" => (200, scope()),
+                            path if path.starts_with("/v1/scopes?") => {
+                                (200, json!({"items":[scope()],"next_cursor":"old-cursor"}))
+                            }
+                            "/v1/memory/search" => (
+                                200,
+                                json!({"mode":"text","hits":[{"memory":record(),"score":1,"matched_by":["text"]}]}),
+                            ),
+                            "/v1/memory/remember" if state.reject_write => {
+                                (403, json!({"error":{"code":"forbidden"}}))
+                            }
+                            "/v1/memory/remember" => {
+                                (200, json!({"changed":true,"records":[record()]}))
+                            }
+                            path if path.contains("/revisions/") => (
+                                200,
+                                json!({"scope_id":"scope-a","family":"atomic-memory",
+                                "artifact_id":"atomic-a","revision":1,"content":{"schema":"powercontext.atomic-memory.v1",
+                                "kind":"note","text":"private result"},"sources":[],"artifacts":[],
+                                "content_digest":format!("sha256:{}", "0".repeat(64))}),
+                            ),
+                            _ => (200, json!({"status":"ok"})),
+                        };
+                        (
+                            status,
+                            value,
+                            state
+                                .pause
+                                .as_ref()
+                                .is_some_and(|prefix| path.starts_with(prefix)),
+                            path == "/v1/memory/remember" && state.lose_write_response,
+                        )
+                    };
+                    if pause {
+                        entered.notify_one();
+                        resume.notified().await;
+                    }
+                    if lose_response {
+                        return;
+                    }
+                    let body = value.to_string();
+                    let response = format!(
+                        "HTTP/1.1 {status} Result\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let repository = ProfileRepository::open(
+            directory.path().join("profiles.json"),
+            Arc::new(NativeVault),
+        )
+        .unwrap();
+        let manager = Arc::new(match compatibility {
+            Some(LEGACY_PROFILE_ID) => {
+                let mut profile = common::compatibility_profile();
+                profile.id = LEGACY_PROFILE_ID.into();
+                // Exercise legacy-client evidence without qualifying a historical Server release.
+                let client_contract =
+                    std::mem::replace(&mut profile.contract_sha256, "0".repeat(64));
+                profile.authenticated_clients = Some(std::collections::BTreeMap::from([(
+                    client_contract,
+                    "Synthetic authenticated legacy HTTP fixture; not release qualification".into(),
+                )]));
+                profile.operations.retain(|operation| {
+                    !matches!(operation.as_str(), "get_connection_identity" | "get_stats")
+                });
+                ConnectionManager::with_compatibility(repository, vec![profile])
+            }
+            Some(_) => ConnectionManager::new(repository),
+            None => common::connection_manager(repository),
+        });
+        let saved = manager.save_profile(serde_json::from_value(json!({"id":null,"revision":null,"name":"Synthetic",
+            "endpoint":endpoint,"authentication":if authenticated {"bearer"} else {"unauthenticated_loopback"},
+            "caPem":null,"compatibility":compatibility.unwrap_or(common::PROFILE_ID),"keepCredential":false,
+            "credential":if authenticated {json!({"secret":"synthetic-token","storage":"session_only"})} else {Value::Null}})).unwrap()).unwrap();
+        Self {
+            manager,
+            id: saved.profiles[0].id.clone(),
+            state,
+            started,
+            release,
+            server,
+            _directory: directory,
+        }
+    }
+    async fn activate(&self) -> u32 {
+        let state = self.manager.check(&self.id, true).await.unwrap();
+        assert!(state.active.unwrap().report.compatibility_verified);
+        state.generation
+    }
+    async fn select(&self) -> u32 {
+        self.manager
+            .select_scope(self.activate().await, "scope-a")
+            .await
+            .unwrap()
+            .generation
+    }
+    fn replace(&self) {
+        self.state.lock().unwrap().discovery = (200, discovery("server-b"));
+    }
+    async fn entered(&self) {
+        timeout(Duration::from_secs(5), self.started.notified())
+            .await
+            .unwrap();
+    }
+    fn assert_disconnected(&self, previous: u32) {
+        let state = self.manager.state().unwrap();
+        assert!(state.active.is_none());
+        assert!(state.generation > previous);
+        assert!(
+            state
+                .reports
+                .iter()
+                .all(|report| report.connection_id != self.id)
+        );
+    }
+}
+
+#[tokio::test]
+async fn authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
+    let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let generation = fixture.select().await;
+    let report = fixture.manager.state().unwrap().active.unwrap().report;
+    assert!(report.connection_identity.is_none());
+    assert!(!report.anonymous_access);
+    assert_eq!(report.supported_operations.len(), 11);
+    assert!(
+        !report
+            .supported_operations
+            .iter()
+            .any(|op| op == "get_connection_identity")
+    );
+    assert_eq!(
+        fixture
+            .manager
+            .remember(generation, "legacy authenticated note")
+            .await
+            .unwrap()
+            .record
+            .status,
+        WriteStatus::Succeeded
+    );
+    fixture.state.lock().unwrap().principal = Some("changed-principal".into());
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+    );
+}
+
+#[tokio::test]
+async fn historical_authenticated_evidence_cannot_authorize_an_unqualified_client() {
+    let directory = tempfile::tempdir().unwrap();
+    let manager = ConnectionManager::new(
+        ProfileRepository::open(
+            directory.path().join("profiles.json"),
+            Arc::new(NativeVault),
+        )
+        .unwrap(),
+    );
+    let current_contract = common::compatibility_profile().contract_sha256;
+    let historical: Vec<_> = manager
+        .state()
+        .unwrap()
+        .compatibility_profiles
+        .into_iter()
+        .filter(|profile| {
+            profile.contract_sha256 != current_contract
+                && profile
+                    .authenticated_clients
+                    .as_ref()
+                    .is_some_and(|clients| {
+                        !clients.is_empty() && !clients.contains_key(&current_contract)
+                    })
+        })
+        .collect();
+    assert!(!historical.is_empty());
+    for profile in historical {
+        let fixture = Fixture::with_profile(true, Some(&profile.id)).await;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let active = state.active.unwrap();
+        assert!(active.report.identity.value.is_some());
+        assert!(!active.report.compatibility_verified);
+        assert!(active.report.supported_operations.is_empty());
+        assert_eq!(
+            fixture
+                .manager
+                .scopes(active.generation, "", None)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::CompatibilityUnverified
+        );
+    }
+}
+
+#[tokio::test]
+async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
+    for bearer in [false, true] {
+        let fixture = Fixture::with_profile(bearer, Some(LEGACY_PROFILE_ID)).await;
+        fixture.state.lock().unwrap().principal = None;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let report = state.active.unwrap().report;
+        assert!(!report.compatibility_verified);
+        assert!(!report.anonymous_access);
+        assert_eq!(
+            fixture
+                .manager
+                .scopes(state.generation, "", None)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::CompatibilityUnverified
+        );
+    }
+}
+
+#[tokio::test]
+async fn replacement_with_the_same_principal_blocks_reads_and_writes_before_dispatch() {
+    for authenticated in [false, true] {
+        for write in [false, true] {
+            let fixture = Fixture::new(authenticated).await;
+            let generation = fixture.select().await;
+            fixture.state.lock().unwrap().requests.clear();
+            fixture.replace();
+            let error = if write {
+                fixture
+                    .manager
+                    .remember(generation, "must not reach server-b")
+                    .await
+                    .map(|_| ())
+            } else {
+                fixture
+                    .manager
+                    .scopes(generation, "", Some("old-cursor"))
+                    .await
+                    .map(|_| ())
+            }
+            .err()
+            .unwrap();
+            assert_eq!(error.code, SafeError::StaleContext);
+            fixture.assert_disconnected(generation);
+            assert!(fixture.manager.state().unwrap().last_write.is_none());
+            assert!(
+                !fixture
+                    .state
+                    .lock()
+                    .unwrap()
+                    .requests
+                    .iter()
+                    .any(|path| path.contains("/memory/") || path.starts_with("/v1/scopes"))
+            );
+            assert!(
+                fixture
+                    .manager
+                    .scopes(generation, "", Some("old-cursor"))
+                    .await
+                    .is_err()
+            );
+            // Only an explicit check can establish the replacement's context.
+            let generation = fixture.activate().await;
+            assert!(
+                fixture
+                    .manager
+                    .state()
+                    .unwrap()
+                    .active
+                    .unwrap()
+                    .scope
+                    .is_none()
+            );
+            assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
+        }
+    }
+}
+
+#[tokio::test]
+async fn late_private_reads_are_rejected_when_the_deployment_changes_during_the_request() {
+    for path in [
+        "/v1/scopes?",
+        "/v1/scopes/default",
+        "/v1/scopes/scope-a",
+        "/v1/memory/search",
+        "/v1/scopes/scope-a/artifacts/",
+    ] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.select().await;
+        fixture.state.lock().unwrap().pause = Some(path.into());
+        let manager = fixture.manager.clone();
+        let read = tokio::spawn(async move {
+            match path {
+                "/v1/scopes?" => manager.scopes(generation, "", None).await.map(|_| ()),
+                "/v1/scopes/default" => manager.default_scope(generation).await.map(|_| ()),
+                "/v1/scopes/scope-a" => manager
+                    .select_scope(generation, "scope-a")
+                    .await
+                    .map(|_| ()),
+                "/v1/memory/search" => manager
+                    .search_memory(generation, "private")
+                    .await
+                    .map(|_| ()),
+                _ => manager
+                    .atomic_memory_entry(generation, &reference())
+                    .await
+                    .map(|_| ()),
+            }
+        });
+        fixture.entered().await;
+        fixture.replace();
+        fixture.release.notify_one();
+        let error = timeout(Duration::from_secs(5), read)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap();
+        assert_eq!(error.code, SafeError::StaleContext, "{path}");
+        fixture.assert_disconnected(generation);
+    }
+}
+
+#[tokio::test]
+async fn ordinary_actions_never_probe_readiness_and_explicit_failure_does_not_revoke_memory() {
+    for authenticated in [false, true] {
+        let fixture = Fixture::new(authenticated).await;
+        let generation = fixture.select().await;
+        fixture
+            .manager
+            .search_memory(generation, "query")
+            .await
+            .unwrap();
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready")
+        );
+        let before = fixture.manager.state().unwrap();
+        let report = &before.active.as_ref().unwrap().report;
+        assert!(report.readiness.value.is_none());
+        assert!(report.readiness_checked_at.is_none());
+        assert_eq!(
+            report.capabilities.error.as_ref().unwrap().code,
+            SafeError::Forbidden
+        );
+        fixture.state.lock().unwrap().readiness_status = 503;
+        let after = fixture
+            .manager
+            .probe_readiness(&fixture.id, report.revision)
+            .await
+            .unwrap();
+        assert_eq!(after.generation, before.generation);
+        assert_eq!(
+            after
+                .active
+                .as_ref()
+                .unwrap()
+                .scope
+                .as_ref()
+                .unwrap()
+                .scope_id,
+            "scope-a"
+        );
+        assert!(after.reports[0].readiness_checked_at.is_some());
+        assert_eq!(
+            after.reports[0].readiness.value.as_ref().unwrap().status,
+            powercontext_desktop::transport::wire::ReadinessStatus::NotReady
+        );
+        fixture
+            .manager
+            .remember(generation, "independently authorized")
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|path| *path == "/health/ready")
+                .count(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn generic_503_and_legacy_discovery_do_not_establish_anonymous_identity() {
+    let fixture = Fixture::new(false).await;
+    fixture.state.lock().unwrap().discovery = (404, json!({}));
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    let generation = state.generation;
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
+    assert!(
+        !fixture
+            .manager
+            .state()
+            .unwrap()
+            .active
+            .unwrap()
+            .report
+            .anonymous_access
+    );
+    assert!(fixture.manager.scopes(generation, "", None).await.is_err());
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready" || path.starts_with("/v1/scopes"))
+    );
+}
+
+#[tokio::test]
+async fn changed_access_mode_or_unavailable_identity_invalidates_the_context_without_probing() {
+    for response in [
+        (
+            200,
+            json!({"server_id":"server-a","authentication":"authenticated","access_mode":"disabled","principal":{"type":"service","id":"same-principal"}}),
+        ),
+        (503, json!({"error":{"code":"authentication_unavailable"}})),
+        (403, json!({"error":{"code":"forbidden"}})),
+        (
+            200,
+            json!({"server_id":"server-a","authentication":"disabled","access_mode":"enforced","principal":null}),
+        ),
+    ] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.select().await;
+        fixture.state.lock().unwrap().identity_response = Some(response);
+        assert!(
+            fixture
+                .manager
+                .search_memory(generation, "query")
+                .await
+                .is_err()
+        );
+        fixture.assert_disconnected(generation);
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready")
+        );
+    }
+}
+
+#[tokio::test]
+async fn review_observation_denial_preserves_qualified_memory_and_deployment_fencing() {
+    let fixture = Fixture::new(true).await;
+    fixture.state.lock().unwrap().discovery = (403, json!({}));
+    let generation = fixture.select().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    assert!(
+        fixture
+            .manager
+            .observe_runtime_capabilities(generation)
+            .await
+            .unwrap()
+            .fact
+            .value
+            .is_some()
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/v1/server-info")
+    );
+    let saved = fixture
+        .manager
+        .remember(generation, "authorized scope note")
+        .await
+        .unwrap();
+    assert_eq!(saved.record.status, WriteStatus::Succeeded);
+    assert_eq!(saved.record.context.server_id.as_deref(), Some("server-a"));
+    assert!(
+        fixture
+            .manager
+            .search_memory(generation, "authorized")
+            .await
+            .is_ok()
+    );
+    fixture.state.lock().unwrap().identity_response = Some((
+        200,
+        json!({
+            "server_id":"server-b", "authentication":"authenticated", "access_mode":"enforced",
+            "principal":{"type":"service","id":"same-principal"}
+        }),
+    ));
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+}
+
+#[tokio::test]
+async fn review_current_product_cannot_downgrade_to_principal_when_identity_feature_is_missing() {
+    let fixture = Fixture::new(true).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
+    assert_eq!(
+        fixture
+            .manager
+            .scopes(state.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path.starts_with("/v1/scopes"))
+    );
+}
+
+#[tokio::test]
+async fn review_switching_connection_supersedes_a_delayed_readiness_probe() {
+    let fixture = Fixture::new(true).await;
+    fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/health/ready".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let probe = tokio::spawn(async move { manager.probe_readiness(&id, 1).await });
+    fixture.entered().await;
+    let endpoint = fixture.manager.state().unwrap().profiles[0]
+        .endpoint
+        .clone();
+    let other = fixture.manager.save_profile(serde_json::from_value(json!({
+        "id":null,"revision":null,"name":"Other","endpoint":endpoint,"authentication":"bearer",
+        "caPem":null,"compatibility":common::PROFILE_ID,"keepCredential":false,
+        "credential":{"secret":"synthetic-token","storage":"session_only"}
+    })).unwrap()).unwrap().profiles.into_iter().find(|p|p.name=="Other").unwrap().id;
+    let state = timeout(Duration::from_secs(5), fixture.manager.check(&other, true))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.active.unwrap().connection_id, other);
+    fixture.release.notify_one();
+    assert_eq!(
+        timeout(Duration::from_secs(5), probe)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    assert!(
+        fixture
+            .manager
+            .state()
+            .unwrap()
+            .reports
+            .iter()
+            .all(|report| report.readiness_checked_at.is_none())
+    );
+}
+
+#[tokio::test]
+async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
+    let fixture = Fixture::new(false).await;
+    fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/health/ready".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let probe = tokio::spawn(async move { manager.probe_readiness(&id, 1).await });
+    fixture.entered().await;
+    fixture.manager.invalidate_profile(&fixture.id).unwrap();
+    fixture.release.notify_one();
+    assert!(
+        timeout(Duration::from_secs(5), probe)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    assert!(fixture.manager.state().unwrap().reports.is_empty());
+}
+
+#[tokio::test]
+async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
+    for status in [404, 401, 403, 503] {
+        let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
+        let generation = fixture.activate().await;
+        fixture.state.lock().unwrap().discovery = (status, json!({}));
+        assert!(fixture.manager.scopes(generation, "", None).await.is_err());
+        fixture.assert_disconnected(generation);
+    }
+}
+
+#[tokio::test]
+async fn a_legacy_session_requires_explicit_recheck_when_discovery_appears() {
+    let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
+    fixture.state.lock().unwrap().discovery = (404, json!({}));
+    let generation = fixture.activate().await;
+    assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
+    fixture.replace();
+    assert_eq!(
+        fixture
+            .manager
+            .scopes(generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+}
+
+#[tokio::test]
+async fn unchanged_identity_allows_the_complete_flow_and_keeps_the_write_target() {
+    for authenticated in [false, true] {
+        let fixture = Fixture::new(authenticated).await;
+        let generation = fixture.select().await;
+        // A package upgrade is not a deployment replacement.
+        fixture.state.lock().unwrap().discovery.1["package_version"] = json!("new-package");
+        assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
+        assert_eq!(
+            fixture
+                .manager
+                .default_scope(generation)
+                .await
+                .unwrap()
+                .scope_id,
+            "scope-a"
+        );
+        assert_eq!(
+            fixture
+                .manager
+                .search_memory(generation, "private")
+                .await
+                .unwrap()
+                .hits
+                .len(),
+            1
+        );
+        assert_eq!(
+            fixture
+                .manager
+                .atomic_memory_entry(generation, &reference())
+                .await
+                .unwrap()
+                .text,
+            "private result"
+        );
+        let outcome = fixture.manager.remember(generation, "note").await.unwrap();
+        assert_eq!(outcome.record.status, WriteStatus::Succeeded);
+        assert_eq!(
+            serde_json::to_value(&outcome.record.context).unwrap()["serverId"],
+            "server-a"
+        );
+        assert_eq!(outcome.record.references, vec![reference()]);
+        assert!(outcome.result.is_some());
+        assert_eq!(fixture.manager.state().unwrap().generation, generation);
+    }
+}
+
+#[tokio::test]
+async fn replacement_during_a_write_preserves_an_unknown_original_target_without_replay() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
+    let manager = fixture.manager.clone();
+    let write =
+        tokio::spawn(async move { manager.remember(generation, "private submitted note").await });
+    fixture.entered().await;
+    fixture.replace();
+    fixture.release.notify_one();
+    let outcome = timeout(Duration::from_secs(5), write)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.record.status, WriteStatus::Unknown);
+    assert_eq!(outcome.record.error.unwrap().code, SafeError::StaleContext);
+    assert!(outcome.result.is_none());
+    assert!(outcome.record.references.is_empty());
+    let state = fixture.manager.state().unwrap();
+    let original = serde_json::to_value(state.last_write.unwrap()).unwrap();
+    assert_eq!(original["context"]["serverId"], "server-a");
+    assert_eq!(original["context"]["scopeId"], "scope-a");
+    assert!(!original.to_string().contains("private submitted note"));
+    fixture.assert_disconnected(generation);
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/v1/memory/remember")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn an_old_write_cannot_disconnect_a_newly_activated_deployment() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
+    let manager = fixture.manager.clone();
+    let write = tokio::spawn(async move { manager.remember(generation, "note").await });
+    fixture.entered().await;
+    fixture.replace();
+    let replacement = fixture.activate().await;
+    fixture.release.notify_one();
+    let outcome = timeout(Duration::from_secs(5), write)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.record.status, WriteStatus::Unknown);
+    assert!(outcome.result.is_none());
+    let state = fixture.manager.state().unwrap();
+    assert_eq!(state.generation, replacement);
+    assert_eq!(
+        state
+            .active
+            .unwrap()
+            .report
+            .discovery
+            .unwrap()
+            .server
+            .unwrap()
+            .server_id,
+        "server-b"
+    );
+    assert_eq!(
+        serde_json::to_value(state.last_write.unwrap()).unwrap()["context"]["serverId"],
+        "server-a"
+    );
+}
+
+#[tokio::test]
+async fn replacement_during_activation_does_not_mix_deployment_and_principal_facts() {
+    let fixture = Fixture::new(true).await;
+    fixture.state.lock().unwrap().pause = Some("/v1/access/me".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let check = tokio::spawn(async move { manager.check(&id, true).await });
+    fixture.entered().await;
+    fixture.replace();
+    fixture.release.notify_one();
+    let error = timeout(Duration::from_secs(5), check)
+        .await
+        .unwrap()
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.code, SafeError::StaleContext);
+    assert!(fixture.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn failed_recheck_drops_the_previous_verified_report() {
+    for status in [200, 503] {
+        let fixture = Fixture::new(true).await;
+        fixture.activate().await;
+        assert!(!fixture.manager.state().unwrap().reports.is_empty());
+        fixture.state.lock().unwrap().pause = Some("/v1/access/me".into());
+        let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+        let check = tokio::spawn(async move { manager.check(&id, true).await });
+        fixture.entered().await;
+        fixture.state.lock().unwrap().discovery = (status, discovery("server-b"));
+        fixture.release.notify_one();
+        assert!(
+            timeout(Duration::from_secs(5), check)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        let state = fixture.manager.state().unwrap();
+        assert!(state.active.is_none());
+        assert!(
+            state
+                .reports
+                .iter()
+                .all(|report| report.connection_id != fixture.id)
+        );
+    }
+}
+
+#[tokio::test]
+async fn post_write_identity_503_disconnects_with_an_unknown_original_receipt() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
+    let manager = fixture.manager.clone();
+    let write = tokio::spawn(async move { manager.remember(generation, "preserve me").await });
+    fixture.entered().await;
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
+    fixture.release.notify_one();
+    let outcome = timeout(Duration::from_secs(5), write)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.record.status, WriteStatus::Unknown);
+    assert_eq!(
+        outcome.record.error.as_ref().unwrap().code,
+        SafeError::RuntimeNotReady
+    );
+    assert!(outcome.result.is_none());
+    assert_eq!(
+        outcome.record.context.server_id.as_deref(),
+        Some("server-a")
+    );
+    fixture.assert_disconnected(generation);
+    assert_eq!(
+        fixture
+            .manager
+            .state()
+            .unwrap()
+            .last_write
+            .unwrap()
+            .operation_id,
+        outcome.record.operation_id
+    );
+}
+
+#[tokio::test]
+async fn retry_identity_failure_preserves_the_original_unknown_receipt_without_dispatch() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().lose_write_response = true;
+    let original = fixture
+        .manager
+        .remember(generation, "original uncertain input")
+        .await
+        .unwrap();
+    assert_eq!(original.record.status, WriteStatus::Unknown);
+    assert!(fixture.manager.state().unwrap().active.is_some());
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
+    let error = fixture
+        .manager
+        .remember(generation, "edited retry input")
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, SafeError::RuntimeNotReady);
+    fixture.assert_disconnected(generation);
+    let retained = fixture.manager.state().unwrap().last_write.unwrap();
+    assert_eq!(retained.operation_id, original.record.operation_id);
+    assert_eq!(retained.status, WriteStatus::Unknown);
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/v1/memory/remember")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn concurrent_read_disconnect_keeps_the_pending_write_until_its_unknown_receipt() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
+    let manager = fixture.manager.clone();
+    let write = tokio::spawn(async move {
+        manager
+            .remember(generation, "in-flight original input")
+            .await
+    });
+    fixture.entered().await;
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
+    let error = fixture
+        .manager
+        .search_memory(generation, "query")
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, SafeError::RuntimeNotReady);
+    fixture.assert_disconnected(generation);
+    let pending = fixture.manager.state().unwrap().last_write.unwrap();
+    assert_eq!(pending.status, WriteStatus::Pending);
+    fixture.release.notify_one();
+    let result = timeout(Duration::from_secs(5), write)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.record.status, WriteStatus::Unknown);
+    assert_eq!(result.record.operation_id, pending.operation_id);
+    assert!(result.result.is_none());
+    assert_eq!(
+        fixture
+            .manager
+            .state()
+            .unwrap()
+            .last_write
+            .unwrap()
+            .operation_id,
+        pending.operation_id
+    );
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/v1/memory/remember")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn rejected_write_after_read_disconnection_retains_its_failed_original_receipt() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.pause = Some("/v1/memory/remember".into());
+        state.reject_write = true;
+    }
+    let manager = fixture.manager.clone();
+    let write = tokio::spawn(async move {
+        manager
+            .remember(generation, "rejected original input")
+            .await
+    });
+    fixture.entered().await;
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
+    assert!(
+        fixture
+            .manager
+            .search_memory(generation, "query")
+            .await
+            .is_err()
+    );
+    fixture.assert_disconnected(generation);
+    let pending = fixture.manager.state().unwrap().last_write.unwrap();
+    assert_eq!(pending.status, WriteStatus::Pending);
+    fixture.release.notify_one();
+    let result = timeout(Duration::from_secs(5), write)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.record.status, WriteStatus::Failed);
+    assert_eq!(
+        result.record.error.as_ref().unwrap().code,
+        SafeError::Forbidden
+    );
+    assert_eq!(result.record.operation_id, pending.operation_id);
+    assert_eq!(result.record.context.server_id.as_deref(), Some("server-a"));
+    assert_eq!(result.record.context.scope_id, "scope-a");
+    assert!(result.result.is_none());
+    assert!(result.record.references.is_empty());
+    let retained = fixture.manager.state().unwrap().last_write.unwrap();
+    assert_eq!(retained.operation_id, pending.operation_id);
+    assert_eq!(retained.status, WriteStatus::Failed);
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/v1/memory/remember")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn principal_revocation_while_reading_discards_private_results() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/v1/memory/search".into());
+    let manager = fixture.manager.clone();
+    let read = tokio::spawn(async move { manager.search_memory(generation, "private").await });
+    fixture.entered().await;
+    fixture.state.lock().unwrap().principal = Some("different-principal".into());
+    fixture.release.notify_one();
+    assert_eq!(
+        timeout(Duration::from_secs(5), read)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+}
+
+fn runtime_capabilities() -> Value {
+    json!({
+        "source_types": ["private-type"],
+        "artifact_families": ["private-family"],
+        "memory_extraction": false,
+        "handoff_generation": false,
+        "search_modes": ["fts"],
+        "context_versions": [],
+        "extraction": {
+            "configuration": "unconfigured",
+            "background": {"location": "none", "state": "stopped"},
+            "observation": {
+                "status": "observed",
+                "since": "2026-10-01T00:00:00Z",
+                "last_failure": {"code": "private detail", "stage": "worker", "occurred_at": "2026-10-01T01:00:00Z"}
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn runtime_refresh_never_probes_and_observation_denial_preserves_memory_access() {
+    let fixture = Fixture::new(false).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().requests.clear();
+    let liveness = fixture
+        .manager
+        .observe_runtime_liveness(generation)
+        .await
+        .unwrap();
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    assert!(liveness.fact.value.is_some());
+    assert_eq!(report.fact.error.unwrap().code, SafeError::Forbidden);
+    let denied = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(denied.code, SafeError::Forbidden);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "fixture")
+            .await
+            .unwrap()
+            .hits
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn runtime_projects_only_its_fields_and_probes_only_on_explicit_action() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.activate().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    let value = serde_json::to_value(report.fact.value.unwrap()).unwrap();
+    assert_eq!(
+        value["extraction"]["observation"]["last_failure"]["code"],
+        "unknown"
+    );
+    assert_eq!(value["search_modes"], json!(["fts"]));
+    for excluded in ["private-type", "private-family", "private detail"] {
+        assert!(!value.to_string().contains(excluded));
+    }
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    let readiness = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(readiness.fact.value).unwrap(), "ready");
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/health/ready")
+            .count(),
+        1
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+}
+
+#[tokio::test]
+async fn runtime_drops_late_results_on_replacement_disconnect_or_cancel() {
+    for transition in ["replacement", "disconnect", "cancel"] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.activate().await;
+        {
+            let mut state = fixture.state.lock().unwrap();
+            state.capabilities = (200, runtime_capabilities());
+            state.pause = Some("/v1/capabilities".into());
+        }
+        let manager = fixture.manager.clone();
+        let task =
+            tokio::spawn(async move { manager.observe_runtime_capabilities(generation).await });
+        fixture.entered().await;
+        match transition {
+            "replacement" => {
+                fixture.replace();
+                fixture.release.notify_one();
+                let report = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(report.fact.error.unwrap().code, SafeError::StaleContext);
+                assert!(report.fact.value.is_none());
+            }
+            "disconnect" | "cancel" => {
+                if transition == "disconnect" {
+                    fixture.manager.disconnect().unwrap();
+                } else {
+                    fixture.manager.cancel_runtime_reads(generation).unwrap();
+                }
+                let result = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.err().unwrap().code, SafeError::StaleContext);
+            }
+            _ => unreachable!(),
+        }
+    }
+}

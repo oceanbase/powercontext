@@ -1,7 +1,7 @@
 ---
-status: community
 title: Pi Coding Agent
 description: Install the native PowerContext package for Pi and control recall, capture, and durable tool writes.
+status: community
 ---
 
 # Pi Coding Agent
@@ -37,8 +37,9 @@ Refreshes at the managed path preserve existing filters.
 ## Understand what the package does
 
 Before Pi starts an agent turn, the package calls `POST /v1/context/prepare` once with an 8000-byte default budget.
-It strictly accepts only `powercontext.prepared-context.v1` and appends a label that marks the result as untrusted
-historical evidence. Current system instructions, repository guidance, and the user's request take precedence.
+It strictly accepts only `powercontext.prepared-context.v1` and appends the result to the system prompt after a
+`PowerContext host-supplied context.` label. The Server's trust policy in the result marks it as untrusted historical
+evidence. Current system instructions, repository guidance, and the user's request take precedence.
 
 Eligible user prompts are captured separately as Content Sources. The package never synchronizes the complete Pi
 transcript. Recall, capture, and boundary flushing fail open: an unavailable Server, timeout, redirect, or invalid

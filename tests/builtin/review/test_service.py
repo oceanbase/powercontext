@@ -58,6 +58,7 @@ from powercontext.builtin.runtime import (
     GetSkillRequest,
     ListCandidatesRequest,
     PrepareContextRequest,
+    PreparedContext,
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RejectCandidateRequest,
@@ -590,6 +591,7 @@ def test_experience_candidate_revise_approve_and_retrieval_gate() -> None:
             prepared = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest(query="Regenerate the Client before contract tests.")
             )
+            assert isinstance(prepared, PreparedContext)
             with pytest.raises(InvalidCandidateError):
                 await runtime.review.for_scope(scope_id).revise(
                     ReviseCandidateRequest(
@@ -621,9 +623,11 @@ def test_experience_candidate_revise_approve_and_retrieval_gate() -> None:
             approved_context = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest(query="Regenerate and inspect the Client before contract tests.")
             )
+            assert isinstance(approved_context, PreparedContext)
             isolated_context = await runtime.context.for_scope(isolated_scope_id).prepare(
                 PrepareContextRequest(query="Regenerate and inspect the Client before contract tests.")
             )
+            assert isinstance(isolated_context, PreparedContext)
             pending = await runtime.review.for_scope(scope_id).list(ListCandidatesRequest())
             approved_page = await runtime.review.for_scope(scope_id).list(
                 ListCandidatesRequest(status=CandidateStatus.APPROVED)
@@ -675,6 +679,7 @@ def test_rejected_candidate_is_terminal_and_scope_evidence_isolated() -> None:
             prepared = await runtime.context.for_scope(scope_a).prepare(
                 PrepareContextRequest(query="Regenerate the Client before contract tests.")
             )
+            assert isinstance(prepared, PreparedContext)
 
             assert rejected.status == "rejected"
             assert rejected.result_artifact is None
@@ -722,6 +727,7 @@ def test_managed_skill_uses_review_gate_and_exact_replacement_lineage() -> None:
             pending_context = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest(query="Regenerate clients and run contract tests")
             )
+            assert isinstance(pending_context, PreparedContext)
 
             assert candidate.family == "skill"
             assert candidate.result_artifact is None
@@ -766,6 +772,7 @@ def test_managed_skill_uses_review_gate_and_exact_replacement_lineage() -> None:
             approved_context = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest(query="Regenerate clients and run contract tests")
             )
+            assert isinstance(approved_context, PreparedContext)
 
             assert second.revision == 2
             assert second.lineage.sources == (usage.source_ref,)
@@ -1012,5 +1019,36 @@ def test_failed_candidate_status_update_rolls_back_artifact_commit(monkeypatch: 
                 artifact_id="exp-fixed",
                 revision=1,
             )
+
+    asyncio.run(scenario())
+
+
+def test_candidate_preserves_distinct_positions_from_one_source() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="positioned", content="Two independent observations.", metadata={})
+            )
+            refs = tuple(
+                SourceRef.model_validate({
+                    **captured.source_ref.model_dump(),
+                    "locator": {"kind": "line_range", "start_line": line, "end_line": line},
+                })
+                for line in (1, 2)
+            )
+            candidate = await runtime.experience.for_scope(scope).propose(
+                ProposeExperienceRequest(proposal=_proposal(), sources=refs)
+            )
+            loaded = await runtime.review.for_scope(scope).get(GetCandidateRequest(candidate_id=candidate.candidate_id))
+            assert loaded.sources == refs
+            approved = await runtime.review.for_scope(scope).approve(
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+            )
+            assert approved.result_artifact is not None
+            result = await runtime.experience.for_scope(scope).get(
+                GetExperienceRequest(artifact=approved.result_artifact)
+            )
+            assert result.lineage.sources == refs
 
     asyncio.run(scenario())

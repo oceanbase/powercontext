@@ -22,11 +22,15 @@ use std::{
     future::Future,
     sync::{
         Arc, Mutex, TryLockError,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use ts_rs::TS;
+
+mod ops;
+pub(crate) use ops::OpsCallObservation;
+pub use ops::{OpsSessionObservation, OpsSessionSummary};
 
 pub const SESSION_OBSERVATION_LIMIT: usize = 512;
 
@@ -45,9 +49,11 @@ pub enum ObservedOperation {
     GetReadiness,
     GetCapabilities,
     GetAccessPrincipal,
+    GetConnectionIdentity,
     ListScopes,
     GetScope,
     GetDefaultScope,
+    GetStats,
     RememberMemory,
     SearchMemory,
     GetArtifactRevision,
@@ -60,9 +66,11 @@ impl ObservedOperation {
             Self::GetReadiness => "get_readiness",
             Self::GetCapabilities => "get_capabilities",
             Self::GetAccessPrincipal => "get_access_principal",
+            Self::GetConnectionIdentity => "get_connection_identity",
             Self::ListScopes => "list_scopes",
             Self::GetScope => "get_scope",
             Self::GetDefaultScope => "get_default_scope",
+            Self::GetStats => "get_stats",
             Self::RememberMemory => "remember_memory",
             Self::SearchMemory => "search_memory",
             Self::GetArtifactRevision => "get_artifact_revision",
@@ -136,6 +144,7 @@ pub struct SessionSummary {
     pub coverage: SessionCoverage,
     pub operations: Vec<OperationSummary>,
     pub recent: Vec<SessionObservation>,
+    pub installer_ops: OpsSessionSummary,
 }
 
 struct Window {
@@ -143,11 +152,15 @@ struct Window {
     started_at_ms: u64,
     evicted: u64,
     records: VecDeque<SessionObservation>,
+    ops_records: VecDeque<OpsSessionObservation>,
+    ops_evicted: u64,
 }
 struct Shared {
     session_started_at_ms: u64,
     generation: AtomicU64,
     dropped: AtomicU64,
+    ops_enabled: AtomicBool,
+    ops_dropped: AtomicU64,
     window: Mutex<Window>,
 }
 
@@ -160,16 +173,24 @@ impl Default for SessionObservations {
             session_started_at_ms: started_at_ms,
             generation: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
+            ops_enabled: AtomicBool::new(false),
+            ops_dropped: AtomicU64::new(0),
             window: Mutex::new(Window {
                 generation: 0,
                 started_at_ms,
                 evicted: 0,
                 records: VecDeque::with_capacity(SESSION_OBSERVATION_LIMIT),
+                ops_records: VecDeque::with_capacity(ops::OPS_OBSERVATION_LIMIT),
+                ops_evicted: 0,
             }),
         }))
     }
 }
 impl SessionObservations {
+    pub(crate) fn enable_ops(&self) {
+        self.0.ops_enabled.store(true, Ordering::Release);
+    }
+
     pub(crate) async fn user_operation<T>(
         &self,
         operation: ObservedOperation,
@@ -213,7 +234,7 @@ impl SessionObservations {
                 let _ = self
                     .0
                     .dropped
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                         Some(n.saturating_add(1))
                     });
             }
@@ -226,6 +247,8 @@ impl SessionObservations {
         window.started_at_ms = now_ms();
         window.records.clear();
         window.evicted = 0;
+        window.ops_records.clear();
+        window.ops_evicted = 0;
         self.0
             .generation
             .store(window.generation, Ordering::Release);
@@ -237,6 +260,12 @@ impl SessionObservations {
         let recent: Vec<_> = window.records.iter().cloned().collect();
         let started_at_ms = window.started_at_ms;
         let evicted = window.evicted;
+        let installer_ops = OpsSessionSummary {
+            capacity: ops::OPS_OBSERVATION_LIMIT,
+            evicted: window.ops_evicted,
+            dropped_since_start: self.0.ops_dropped.load(Ordering::Relaxed),
+            recent: window.ops_records.iter().cloned().collect(),
+        };
         drop(window);
         let mut groups = BTreeMap::<_, OperationSummary>::new();
         for record in &recent {
@@ -264,7 +293,7 @@ impl SessionObservations {
                 (record.duration_ms - group.mean_duration_ms) / f64::from(group.sample_count);
         }
         Ok(SessionSummary {
-            schema_version: 1,
+            schema_version: 2,
             session_started_at_ms: self.0.session_started_at_ms,
             window_started_at_ms: started_at_ms,
             generated_at_ms: now_ms(),
@@ -280,9 +309,11 @@ impl SessionObservations {
                     ObservedOperation::GetReadiness,
                     ObservedOperation::GetCapabilities,
                     ObservedOperation::GetAccessPrincipal,
+                    ObservedOperation::GetConnectionIdentity,
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,
@@ -291,15 +322,17 @@ impl SessionObservations {
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,
                 ],
                 identity_checks_included: true,
-                installer_ops: false,
+                installer_ops: self.0.ops_enabled.load(Ordering::Acquire),
             },
             operations: groups.into_values().collect(),
             recent,
+            installer_ops,
         })
     }
 

@@ -34,7 +34,7 @@ from pydantic import JsonValue, SecretStr
 from sqlalchemy import create_engine, event, insert, select, update
 from sqlalchemy.engine import make_url
 
-from powercontext.artifacts import ArtifactAddress, ArtifactRef, StableHandle
+from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef, StableHandle
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.errors import InvalidAtomicMemoryStateError
 from powercontext.builtin.artifacts.experience import ExperienceContent
@@ -83,6 +83,7 @@ from powercontext.builtin.work import AcknowledgeHandoff, ReceiverChecks
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH
 from powercontext.sources import (
     AdapterSourceDefinition,
+    MemoryEvidenceDeclaration,
     SourceDefinitionRegistry,
     SourceRef,
     manifest_for_definition,
@@ -91,6 +92,61 @@ from powercontext.sources import (
 from tests.builtin.persistence.contract import NoteAdapter, NoteInput, NoteSource
 from tests.e2e.atomic_memory_migration_fixture import SCOPE as MIGRATED_SCOPE
 from tests.e2e.atomic_memory_migration_fixture import _seed_and_migrate
+
+
+def test_archive_preserves_accepted_native_evidence(tmp_path: Path) -> None:
+    declaration = MemoryEvidenceDeclaration(authority="repository_attested", verification="verified")
+    registry = SourceDefinitionRegistry((AdapterSourceDefinition(NoteAdapter(), memory_evidence=declaration),))
+
+    async def authorize(_scopes: tuple[str, ...]) -> None:
+        pass
+
+    async def scenario() -> None:
+        archive = tmp_path / "evidence.pcb"
+        source_config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'source.db'}"))
+        target_config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'target.db'}"))
+        async with open_builtin_contexts(source_config, source_registry=registry) as source:
+            scope = await source.scopes.create(
+                ScopeDraft(title="Evidence", summary="Portable evidence", idempotency_key="evidence")
+            )
+            context = await source.get(scope.scope_id)
+            native = await context.sources.resolve(NoteInput(note_id="native", body="Retained evidence."))
+            await context.sources.add(native)
+            ref = SourceRef(source_type="note", source_id="native")
+            service = source.atomic_memory.service
+            async with source.database.transaction() as connection:
+                plan = await service.inspect_change(
+                    connection,
+                    scope.scope_id,
+                    "rule",
+                    AtomicMemoryContent(kind="fact", text="Preserve evidence."),
+                    None,
+                    lineage=ArtifactLineage(sources=(ref,)),
+                )
+            prepared = await service.prepare_change(plan)
+            async with source.database.transaction() as connection:
+                await service.commit(connection, prepared, None)
+            expected = await source.atomic_memory.for_scope(scope.scope_id).evidence("rule", revision=1)
+            assert expected.sources[0].declaration == declaration
+            await source.portability.export([scope.scope_id], archive, authorize=authorize)
+            inspection = await source.portability.inspect(archive)
+            assert inspection.records_by_type["source_evidence_binding"] == 1
+            assert inspection.records_by_type["atomic_memory_evidence_history"] == 1
+            assert inspection.records_by_type["source_definition"] == 1
+        async with open_builtin_contexts(target_config, source_registry=registry) as target:
+            await target.portability.restore(archive)
+        async with open_builtin_contexts(target_config, source_registry=registry) as target:
+            actual = await target.atomic_memory.for_scope(scope.scope_id).evidence("rule", revision=1)
+            assert actual == expected
+            async with target.database.transaction() as connection:
+                assert (
+                    await target.atomic_memory_index.read_evidence_projection(
+                        connection, scope.scope_id, expected.artifact_ref
+                    )
+                    == expected
+                )
+
+    asyncio.run(scenario())
 
 
 def test_topic_restore_can_retry_after_projection_failure_and_restart(tmp_path: Path) -> None:

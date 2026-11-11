@@ -23,7 +23,7 @@ use powercontext_desktop::{
         profiles::{Authentication, CredentialState, ProfileInput, ProfileView},
         session::{
             ActiveView, CheckReport, CompatibilityProfile, DesktopState, Fact, MemoryContext,
-            WriteOutcome, WriteRecord, WriteStatus,
+            RuntimeCapabilities, RuntimeFact, WriteOutcome, WriteRecord, WriteStatus,
         },
     },
     credentials::{CredentialWriteReceipt, CredentialWriteRequest, StorageChoice},
@@ -32,12 +32,13 @@ use powercontext_desktop::{
     ipc::FoundationInfo,
     ops_bridge::*,
     session_observations::{
-        ObservationOutcome, ObservationUnit, ObservedOperation, OperationSummary, OutcomeCounts,
-        SessionCoverage, SessionObservation, SessionSummary,
+        ObservationOutcome, ObservationUnit, ObservedOperation, OperationSummary,
+        OpsSessionObservation, OpsSessionSummary, OutcomeCounts, SessionCoverage,
+        SessionObservation, SessionSummary,
     },
     transport::{
-        ApiFailure, AtomicMemoryDetail, MemorySaveResponse, MemorySearchHit, MemorySearchResponse,
-        wire,
+        ApiFailure, AtomicMemoryDetail, ExactRecallTokenStatistics, ExactScopeStatistics,
+        ExactScopeStatisticsItem, MemorySaveResponse, MemorySearchHit, MemorySearchResponse, wire,
     },
 };
 use ts_rs::TS;
@@ -117,6 +118,8 @@ fn main() {
         ProfileInput::decl(&config),
         CredentialState::decl(&config),
         Fact::<String>::decl(&config),
+        RuntimeFact::<String>::decl(&config),
+        RuntimeCapabilities::decl(&config),
         DiscoveryStatus::decl(&config),
         CompatibilityReason::decl(&config),
         CompatibilityStatus::decl(&config),
@@ -135,6 +138,9 @@ fn main() {
         MemorySearchHit::decl(&config),
         MemorySearchResponse::decl(&config),
         AtomicMemoryDetail::decl(&config),
+        ExactScopeStatistics::decl(&config),
+        ExactRecallTokenStatistics::decl(&config),
+        ExactScopeStatisticsItem::decl(&config),
         ObservationUnit::decl(&config),
         ObservedOperation::decl(&config),
         ObservationOutcome::decl(&config),
@@ -143,6 +149,8 @@ fn main() {
         OperationSummary::decl(&config),
         SessionCoverage::decl(&config),
         SessionSummary::decl(&config),
+        OpsSessionObservation::decl(&config),
+        OpsSessionSummary::decl(&config),
     ]
     .into_iter()
     .chain(wire::declarations(&config))

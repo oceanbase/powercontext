@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
@@ -24,7 +25,7 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
-from fastapi.routing import APIRoute
+from prometheus_client.exposition import choose_encoder
 from sqlalchemy import select
 from starlette.middleware import Middleware
 
@@ -50,11 +51,20 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.application import ScheduledExperienceRunner, ScheduledSourceRunner
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.context_bindings import BindingCodec
+from powercontext.builtin.runtime.context_check import (
+    MAX_CHECK_BODY_BYTES,
+    MAX_PREPARED_CONTEXTS,
+    RESPONSE_CORRELATION,
+    SEND_VALIDITY,
+)
+from powercontext.builtin.runtime.context_reuse import MAX_REUSE_DEPENDENCIES
 from powercontext.builtin.runtime.processing_registry import processing_capabilities
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import (
     ArtifactDreamingOperationCapability,
     Capabilities,
+    ContextProtectionCapabilities,
     ExtractionStatus,
     MemorySearchMode,
     PreparedContextSchema,
@@ -83,6 +93,7 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
     access_control_for_mode,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.authz.owner_recovery import (
@@ -97,12 +108,12 @@ from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
 from powercontext.server.dream_access import DreamAccess
-from powercontext.server.http_limits import HttpResourceLimitsMiddleware
+from powercontext.server.http_limits import HttpAdmissionMiddleware, HttpRequestBodyLimitMiddleware
 from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
 from powercontext.server.logging import worker_logging
 from powercontext.server.mcp import mount_mcp
-from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
+from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.request_id import HttpRequestIdMiddleware
@@ -142,7 +153,8 @@ class _MetricsEndpoint:
             )
         runtime = request.app.state.application
         self._metrics.refresh_runtime(runtime)
-        return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
+        encoder, content_type = choose_encoder(request.headers.get("accept", ""))
+        return Response(encoder(self._metrics.registry), media_type=content_type)
 
 
 def create_server_app(  # noqa: C901
@@ -188,7 +200,14 @@ def create_server_app(  # noqa: C901
         inference=resolved.inference,
         external_skills=resolved.external_skills,
     )
-    metrics = ServerMetrics(role=resolved.runtime.artifact_processing_role) if resolved.metrics.enabled else None
+    metrics = (
+        ServerMetrics(
+            role=resolved.runtime.artifact_processing_role,
+            exemplars_enabled=resolved.tracing.enabled and tracing is not None,
+        )
+        if resolved.metrics.enabled
+        else None
+    )
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )
@@ -214,9 +233,16 @@ def create_server_app(  # noqa: C901
             None if resolved.cursor_signing_secret is None else resolved.cursor_signing_secret.get_secret_value()
         )
         cursor_secret = resolve_cursor_secret(config.database, configured_cursor_secret)
+        configured_target = resolved_tracing.provider.resource.attributes.get("powercontext.service.target")
+        worker_target = configured_target if isinstance(configured_target, str) else None
         async with AsyncExitStack() as resources:
             logging_bootstrap = resources.enter_context(
-                worker_logging(resolved.logging, role=resolved.runtime.artifact_processing_role)
+                worker_logging(
+                    resolved.logging,
+                    role=resolved.runtime.artifact_processing_role,
+                    target=worker_target,
+                    owner_role=resolved.runtime.artifact_processing_role,
+                )
             )
             active_access_control = configured_access_control
             if active_access_control is None and resolved.access.mode == "enforced":
@@ -278,12 +304,18 @@ def create_server_app(  # noqa: C901
                     tracing=resolved_tracing,
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
+                    provider_observer=None if metrics is None else metrics.observe_provider,
+                    worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
                     worker_security=worker_security,
                     worker_initializer=logging_bootstrap,
-                    worker_entrypoint_wrapper=WorkerTracing(resolved.tracing).wrap,
+                    worker_entrypoint_wrapper=WorkerTracing(
+                        resolved.tracing,
+                        target=worker_target,
+                        owner_role=resolved.runtime.artifact_processing_role,
+                    ).wrap,
                     scheduled_profile_runner=_scheduled_profile_runner(
                         resolved,
                         active_access_control,
@@ -307,9 +339,7 @@ def create_server_app(  # noqa: C901
                 await recovery.initialize()
                 app.state.owner_recovery = recovery
                 await resources.enter_async_context(recovery.monitor())
-            identity_repository = ServerIdentityRepository(runtime.primary_database)
-            await identity_repository.initialize()
-            server_id = await identity_repository.load_or_create()
+            server_id = await _initialize_server_identity(runtime, cursor_secret)
             records = await _restore_artifact_access_profiles(runtime)
             app.state.artifact_access_refresher = partial(refresh_artifact_access_families, records.database)
             _bind_evidence_access(runtime, active_access_control, resolved.access.mode)
@@ -415,6 +445,9 @@ def create_server_app(  # noqa: C901
         _log_lifecycle("server.stopped", "PowerContext Server stopped")
 
     configured_middleware = list(middleware)
+    configured_middleware.insert(
+        0, Middleware(HttpRequestBodyLimitMiddleware, max_request_body_bytes=resolved.http.max_request_body_bytes)
+    )
     if configured_authentication is not None:
         configured_middleware.insert(
             0,
@@ -439,11 +472,7 @@ def create_server_app(  # noqa: C901
     )
     # Admission must see the outward send; only non-buffering instrumentation
     # wraps it so early rejections retain the same correlation and observations.
-    app.add_middleware(
-        HttpResourceLimitsMiddleware,
-        max_request_body_bytes=resolved.http.max_request_body_bytes,
-        max_concurrent_requests=resolved.http.max_concurrent_requests,
-    )
+    app.add_middleware(HttpAdmissionMiddleware, max_concurrent_requests=resolved.http.max_concurrent_requests)
     app.add_middleware(HttpRequestIdMiddleware)
     if metrics is not None:
         app.add_api_route(
@@ -451,7 +480,7 @@ def create_server_app(  # noqa: C901
             _MetricsEndpoint(metrics),
             include_in_schema=False,
         )
-        operations = _http_operations(app)
+        operations = http_operations(app.routes)
         app.add_middleware(
             HttpMetricsMiddleware,
             metrics=metrics,
@@ -462,11 +491,12 @@ def create_server_app(  # noqa: C901
         app.add_middleware(
             HttpAccessLogMiddleware,
             skip_paths=("/health/live", "/health/ready", "/metrics", resolved.mcp.path),
+            operations=http_operations(app.routes),
         )
     app.add_middleware(
         HttpTracingMiddleware,
         tracing=resolved_tracing,
-        operations=_http_operations(app),
+        operations=http_operations(app.routes),
         skip_paths=("/health/live", "/health/ready", "/metrics", resolved.mcp.path),
     )
     if resolved.mcp.enabled:
@@ -480,6 +510,19 @@ def create_server_app(  # noqa: C901
     if resolved.dashboard.enabled:
         mount_dashboard(app)
     return app
+
+
+async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: bytes | None) -> str:
+    identity_repository = ServerIdentityRepository(runtime.primary_database)
+    await identity_repository.initialize()
+    server_id = await identity_repository.load_or_create()
+    if cursor_secret is not None:
+        runtime.context_binding_codec = BindingCodec(
+            key=hmac.digest(cursor_secret, b"powercontext.context-bindings.v1", "sha256"),
+            key_id="server-v1",
+            deployment_id=server_id,
+        )
+    return server_id
 
 
 async def _restore_artifact_access_profiles(runtime: BuiltinRuntime) -> RelationalRecordService:
@@ -604,7 +647,9 @@ def _scheduled_access_runners(
                             family=candidate.target.family,
                             artifact_id=candidate.target.artifact_id,
                         ),
-                        idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                        idempotency_key=bounded_idempotency_key(
+                            "background-candidate-owner", scope_id, candidate.candidate_id
+                        ),
                     )
                     for candidate in candidates
                 )
@@ -627,7 +672,7 @@ def _scheduled_access_runners(
                     family="experience",
                     proposed_owner=principal,
                     target=None,
-                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+                    idempotency_key=bounded_idempotency_key("background-candidate-owner", scope_id, candidate_id),
                 )
                 for candidate_id in result.candidate_ids
             )
@@ -663,7 +708,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                 await bound.establish_artifact_owner(
                     resource,
                     principal,
-                    idempotency_key=f"profile-owner:{scope_id}",
+                    idempotency_key=bounded_idempotency_key("profile-owner", scope_id),
                     context=context,
                 )
             if candidate is not None:
@@ -673,7 +718,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                     family="profile",
                     proposed_owner=principal,
                     target=None if candidate.target is None else resource,
-                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
                 )
 
         recovery = (
@@ -843,15 +888,6 @@ def _log_insecure_remote_http_warning() -> None:
     )
 
 
-def _http_operations(app: FastAPI) -> dict[tuple[str, str], str]:
-    return {
-        (method, route.path): route.operation_id
-        for route in app.routes
-        if isinstance(route, APIRoute) and route.operation_id is not None
-        for method in route.methods or ()
-    }
-
-
 async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
@@ -882,6 +918,21 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
         handoff_generation=capabilities.handoff_generation,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],
         context_versions=[PreparedContextSchema(version) for version in capabilities.context_versions],
+        context_protection=ContextProtectionCapabilities.model_validate({
+            "check_versions": ["powercontext.context-check.v1"],
+            "payload_versions": ["powercontext.model-json-payload.v1"],
+            "reuse_versions": list(capabilities.context_reuse_versions),
+            "reuse_families": list(capabilities.context_reuse_families),
+            "enforcing": runtime.inference_protection.mode == "enforcing",
+            "limits": {
+                "payload_bytes": min(runtime.inference_protection.max_payload_bytes, MAX_CHECK_BODY_BYTES),
+                "binding_bytes": runtime.context_binding_codec.max_token_bytes,
+                "prepared_contexts": MAX_PREPARED_CONTEXTS,
+                "dependencies": MAX_REUSE_DEPENDENCIES,
+                "send_seconds": int(SEND_VALIDITY.total_seconds()),
+                "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
+            },
+        }),
     )
 
 

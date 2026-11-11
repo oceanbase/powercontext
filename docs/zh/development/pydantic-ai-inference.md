@@ -1,48 +1,48 @@
+---
+title: "配置 Pydantic AI 推理"
+description: "通过 Pydantic AI 配置结构化 Memory 候选生成，并单独配置向量检索所需的 Embedding。"
+---
+
 # 配置 Pydantic AI 推理
 
-PowerContext 在 provider 边界使用 Pydantic AI，同时保持 Memory service 与具体框架无关。generation 用于提取结构化
-Memory candidate，embedding 为支持 vector search 的 index 提供向量。这两项能力可以独立配置。
+PowerContext 使用生成模型从 Source 提取 Memory，使用向量模型为支持向量检索的索引生成向量。这两项能力可以分别配置。
 
-## 安装集成
+## 安装依赖
 
-推理集成属于内置实现：
+在 Python 项目中使用内置推理功能，安装 `builtin` extra：
 
 ```bash
 uv add "powercontext[builtin]"
 ```
 
-Server extra 已经包含 Builtin：
+运行 Server 时，安装 `server` extra 即可，它已包含上述依赖：
 
 ```bash
 uv add "powercontext[server]"
 ```
 
+这两个 extra 都会安装 Pydantic AI 2.64 或更新的 2.x 版本。
+
 ## 配置 Server
 
-标准 Server 根据 `ServerSettings.inference` 构造推理 adapter。配置 generation model 后会启用
-Source-to-Memory extraction：
+设置以下环境变量，为 Server 指定用于从 Source 提取 Memory 的生成模型：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
 ```
 
-额外的 Pydantic AI model settings 可以通过 JSON 配置。provider-specific request field 应放在 `extra_body`
-下面；例如，兼容的 OpenAI-style endpoint 可以这样关闭 Qwen thinking：
+额外的模型参数使用 JSON 配置。模型服务特有的请求字段放在 `extra_body` 中。例如，兼容 OpenAI 接口的服务可以这样关闭 Qwen 的思考模式：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:<served-model-name>"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
 ```
 
-Topic Memory 也支持 `openai-chat:<model>` 使用这一精确的 `extra_body` 结构。值必须是 JSON 布尔值
-`false`；任一层的额外字段、其他 provider 前缀以及 Embedding 的 `extra_body` 仍不支持。端点必须实现
-`chat_template_kwargs.enable_thinking`；关闭 thinking 不保证推理一定在超时前完成。
+Topic Memory 仅允许 `openai-chat:<model>` 使用示例中的 `extra_body` 结构。值必须是 JSON 布尔值 `false`，两层对象都不能包含额外字段。其他 provider 前缀和向量模型不支持这一配置。模型服务需要实现 `chat_template_kwargs.enable_thinking`；关闭思考模式后，推理仍可能超时。
 
-generation-backed pipeline、可选的 LLM reranker 和 readiness probe 共用这些 settings。PowerContext 仍保留自身的
-请求边界：readiness 使用 `max_tokens=1`，rerank 使用 `temperature=0`。credential 与 static header 应放在
-provider 配置中，不要放入 model settings。
+生成流程、可选的 LLM 重排和就绪检查共用这些参数。就绪检查可能调用模型并消耗用量。可用参数取决于所选模型服务和模型。凭据与静态请求头使用各自的配置项，不要放入模型参数。
 
-vector search 需要 embedding model 和完整的 deployment profile：
+启用向量检索时，需要同时指定向量模型、配置标识和向量维度：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="provider:embedding-model"
@@ -50,11 +50,7 @@ export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
 ```
 
-每类 workload 可以连接不同的模型服务。自定义 base URL 使用 model identifier 指定的 provider 接口：
-OpenAI-compatible Chat Completions 服务使用 `openai-chat:<model>`，OpenAI-compatible Responses 或 embedding
-服务使用 `openai:<model>`，Anthropic-compatible generation 服务使用 `anthropic:<model>`。内置 reranker 是 LLM
-listwise reranker，因此它的独立 endpoint 也是 Pydantic AI generation endpoint，而不是 cross-encoder `/rerank`
-API：
+生成、向量和重排任务可以分别连接不同的模型服务。按服务接口选择模型前缀：OpenAI Chat Completions 使用 `openai-chat:<model>`，OpenAI Responses 或 embedding 使用 `openai:<model>`，Anthropic 兼容接口使用 `anthropic:<model>`。内置重排使用语言模型对候选列表排序，需要配置生成模型的地址，不支持 cross-encoder 的 `/rerank` 接口：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:generator"
@@ -73,33 +69,64 @@ export POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS='{"Authorization":"Bearer re
 export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS='{"max_tokens":256}'
 ```
 
-header 和 model settings 都使用 JSON object。settings model 会将 header value 作为 secret 处理，并将它们作为
-workload provider client 的静态 header；这些值不会进入 Pydantic AI request settings。不要在 model settings 中配置
-`extra_headers`；使用独立的 headers 变量才能保留配置与日志脱敏语义。其余 model settings 由 Pydantic AI 传递给
-所选 provider。reranker 始终将 `temperature` 固定为零。自定义 embedding base URL 目前要求服务实现
-OpenAI-compatible embeddings 接口。
+请求头和模型参数都使用 JSON 对象。`*_HEADERS` 中的值按敏感信息处理，并作为相应任务的静态请求头发送。将 `extra_headers` 放入模型参数会被拒绝；请使用独立的请求头配置，以便配置展示和日志脱敏生效。其余模型参数传给所选服务。重排不支持自定义采样温度。自定义向量服务需要提供 OpenAI 兼容的 embeddings 接口，已支持的 MiniMax 原生 embedding 端点除外。
 
-base URL 可以包含 gateway path prefix，但具体 operation suffix 仍由所选 Pydantic AI provider 决定，例如
-`/chat/completions`、`/responses` 或 `/embeddings`；不支持任意改写 operation path。
-自定义 base URL 或静态 header 时必须使用显式的 OpenAI- 或 Anthropic-compatible model identifier，PowerContext
-才能创建对应的 provider client。
+服务地址可以包含网关路径前缀，后面会自动追加 `/chat/completions`、`/responses` 或 `/embeddings` 等接口路径，不支持任意改写这些路径。自定义地址或静态请求头时，模型名称必须带有明确的 OpenAI 或 Anthropic 兼容接口前缀。
 
-未设置 `RERANK_MODEL` 时，LLM rerank 复用 generation model 和 base URL；仍可通过 reranker headers 和 model
-settings 扩展或覆盖 generation 配置。覆盖 header 时会为 rerank workload 创建独立 provider client，但保留
-generation model identifier 和 base URL。独立的 reranker base URL 必须同时配置显式 reranker model。reranker
-timeout 和 request limit 未显式设置时继承 generation 的对应配置。
+Anthropic 兼容网关需要分别认证网关和上游时，配置网关的 `Authorization` 请求头，并通过 `ANTHROPIC_API_KEY` 或显式 `X-Api-Key` 请求头提供上游密钥。PowerContext 会将两个请求头都发给网关；显式 `X-Api-Key` 优先于环境变量中的密钥。网关转发给 Anthropic 前必须移除自己的 `Authorization`，因为官方 API 每次请求只接受一份凭据。网关仅要求 `Authorization` 时，不要设置 `ANTHROPIC_API_KEY` 和 `X-Api-Key`。详见 [Anthropic 的网关认证说明](https://platform.claude.com/docs/en/api/migration-2026-10-21#a-client-holds-one-credential)。
 
-不需要自定义 base URL 或 header 时，provider credential 仍使用所选 Pydantic AI provider 支持的环境变量。
+未设置 `RERANK_MODEL` 时，LLM 重排复用生成模型及其服务地址。重排的请求头和模型参数可以扩展或覆盖生成配置；请求头覆盖仅影响重排，不会改变所用模型和地址。单独设置重排地址时，也必须指定重排模型。未设置重排超时和请求次数上限时，它们沿用生成任务的配置。
 
-Server 会拒绝不完整的 embedding profile。`embedding_model`、`embedding_profile_id` 和
-`embedding_dimension` 必须一起配置。SQLite vector search 使用这组配置，因为 index dimension 必须与持久化向量一致。
-`embedding_dimension` 默认也会作为请求参数 `dimensions` 发送，并覆盖 model settings 里的同名字段。固定输出维度、
-不接受该参数的模型把 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` 设为 `false`；本地维度仍然必填，
-返回向量仍按它校验。
+使用默认地址和请求头时，通过所选模型服务支持的环境变量提供凭据。已有订阅凭据的复用方式见下文。
 
-## 直接组合 generation
+`embedding_model`、`embedding_profile_id` 和 `embedding_dimension` 必须一起配置，缺少任一项时 Server 会拒绝该配置。SQLite 向量检索使用这组配置，索引维度必须与存储的向量一致。对于 OpenAI 兼容的 embedding 服务，`embedding_dimension` 默认作为请求参数 `dimensions` 发送，并覆盖模型参数中的同名字段。模型输出维度固定且不接受该参数时，将 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` 设为 `false`。本地维度仍然必填，Server 仍会按它校验返回的向量。
 
-应用已经持有 provider model 生命周期时，可以直接组合：
+## 复用已有订阅凭据
+
+在启动 Server 的环境中提供 Codex 或 GitHub Copilot 凭据，并确保 worker 也能读取。凭据文件的路径以 Server 所在主机及其运行用户为准，客户端机器上的登录不会自动带到 Server。
+
+下面的 Codex 和 Copilot 示例使用默认服务地址和认证方式。使用这些示例时，不要设置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` 和 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS`。将 `<model-name>` 替换为对应订阅可用的模型 ID。
+
+### Codex CLI 凭据
+
+Codex CLI 已使用订阅账号登录，且凭据保存在 `auth.json` 时，使用 `openai-codex:` 模型前缀：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-codex:<model-name>"
+```
+
+Server 默认读取运行用户的 `~/.codex/auth.json`。凭据保存在其他 Codex home 目录时，通过环境变量指定目录：
+
+```bash
+export CODEX_HOME="/path/to/existing/codex-home"
+```
+
+`CODEX_HOME` 指向包含 `auth.json` 的目录。凭据续期由 CLI 负责。Server 和 worker 每次请求都会读取完整登录文件，不会兑换其中的刷新令牌或修改文件，避免与 CLI 或其他进程争用一次性刷新令牌。访问令牌过期或被拒绝时，推理会失败，直到原有 CLI 更新登录；下一次请求即可读取更新后的凭据，无需重启服务。此集成不提供无人值守的自动续期。详见 [Pydantic AI 的 Codex 凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md)。
+
+### GitHub Copilot 凭据
+
+已有 GitHub CLI OAuth 登录，且账号具有 Copilot 访问权限时，在启动 Server 前导出 token：
+
+```bash
+export GITHUB_COPILOT_API_KEY="$(gh auth token)"
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="github-copilot:<model-name>"
+```
+
+请选择支持 Chat Completions 的 Copilot 模型。仅支持 Responses API 的模型不能使用 `github-copilot:` 前缀。
+
+也可以沿用环境中已有的 `GITHUB_COPILOT_API_TOKEN` 或 `COPILOT_GITHUB_TOKEN`，它们会依次作为备用变量读取。Server 使用这些专用变量，通用的 `GITHUB_TOKEN` 和 `GH_TOKEN` 不用于 Copilot 认证。示例中的 `gh auth token` 需要在启动服务前执行，Server 不会自动读取 CLI 配置或续期 token。token 更新后，更新服务进程的环境并重启 Server。详见 [Pydantic AI 的 Copilot 配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md)。
+
+这些配置支持 Memory、Experience 和 Profile 的生成。Codex 和 Copilot 暂不支持 Topic Memory 与 Dream。如果已经显式启用 Topic Memory 处理或自动调度，切换 provider 前需要移除对应配置。已启用内置推理保护时，切换到这两个 provider 会导致启动失败。
+
+### 已有 ChatGPT Plan Usage 凭据
+
+已有 ChatGPT Plan Usage 授权可以通过 SDK 复用。Server 环境变量暂不支持加载这类凭据，只配置模型名称不足以启用服务。
+
+将已有应用配置好的 Pydantic AI 模型用于下文的 SDK 示例。该模型需要使用 ChatGPT Plan Usage 授权，Codex CLI 凭据不能替代它。详见 [Pydantic AI 的已有凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-chatgpt.md#persisting-credentials)。
+
+## 通过 SDK 使用生成模型
+
+如果应用已经配置好 Pydantic AI 模型，可以将它传给结构化生成器，再创建 Memory 提取流程：
 
 ```python
 from powercontext.builtin.artifacts.memory import (
@@ -123,18 +150,13 @@ generator = PydanticAIStructuredGenerator(
 candidate_pipeline = LLMMemoryCandidatePipeline(generator)
 ```
 
-`generation_model` 必须是已经初始化的 Pydantic AI `Model`，不能是 provider name 字符串。打开 model 的应用也负责
-关闭它。
+`generation_model` 接收已初始化的 Pydantic AI `Model` 对象，不接受模型名称字符串。应用负责打开和关闭该对象。
 
-generator 使用 Pydantic 序列化 input model，并根据声明的 output type 校验结构化输出。generation 之后仍会执行
-Memory validation，因此 schema 有效的 candidate 不会自动获得持久化资格。
+生成器按声明的输入类型序列化数据，并按输出类型校验结果。输出通过 schema 校验后，还需要满足 Memory 的写入规则才能保存。
 
-如果某条规则需要结合 input 才能判断，无法写进 output schema，可以传入 `output_check`。这个 callable 接收 input 和
-已通过校验的 output，output 违反规则时抛出 `InvalidInferenceOutputError`。错误的 detail 会作为重试反馈返回给模型，
-这次重试和 schema 错误共用 `max_requests` 预算。预算用完后，`generate()` 抛出最后一次的
-`InvalidInferenceOutputError`。detail 会发送给 provider，所以只写规则本身，不要包含 input 内容。
+输入和输出之间的业务约束无法写入输出 schema 时，可以传入 `output_check`。该回调接收输入和已通过校验的输出，并在输出违反规则时抛出 `InvalidInferenceOutputError`。异常的 `detail` 会作为重试反馈发给模型，与 schema 校验失败共用 `max_requests` 预算。预算耗尽后，`generate()` 抛出最后一次 `InvalidInferenceOutputError`。`detail` 只应描述规则，不要包含输入内容。
 
-## 直接组合 embedding
+## 通过 SDK 使用向量模型
 
 ```python
 from pydantic_ai import Embedder
@@ -157,16 +179,14 @@ embedding_model = PydanticAIEmbeddingModel(
 )
 ```
 
-将这个 adapter 与 `SQLiteConfig` 一起传给 `open_builtin_contexts()` 或 `open_builtin_runtime()` 后，会自动启用捆绑的
-sqlite-vec index。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性，并执行 profile 声明的单位归一化。
+将 `embedding_model` 与 `SQLiteConfig` 一起传给 `open_builtin_contexts()` 或 `open_builtin_runtime()`，即可启用 sqlite-vec 向量索引。保存向量前，PowerContext 会校验数量、顺序、维度和数值是否有效，并按配置执行单位归一化。
 
-`EmbeddingProfile` 是 deployment contract，不是描述性 metadata。持久化 projection 和 query embedding 必须使用
-同一个 profile。model、dimension 或 normalization 发生变化后，应从权威 Memory revision 重建 projection。
+通过 SDK 为 MiniMax 向量模型或 Jev 重排提供 HTTP 客户端时，使用 `httpx2.AsyncClient`。
+
+已存储的向量和查询向量必须使用相同的 `EmbeddingProfile`。修改模型、维度或归一化方式后，需要从权威 Memory revision 重建向量投影。
 
 ## 失败行为
 
-generation 和 embedding failure 会将 provider error 映射为 PowerContext inference error。timeout 和临时 provider
-failure 不会提交部分 Memory revision。
+生成或向量调用失败时，PowerContext 返回相应的推理错误。超时或模型服务暂时不可用时，不会提交部分 Memory revision。
 
-对于 `mode="auto"` 的检索，如果 backend 支持 FTS，临时 query embedding failure 可以回退到 FTS。显式 vector
-或 hybrid search 会报告能力缺失，不会静默改变模式。
+使用 `mode="auto"` 检索时，如果后端支持 FTS，查询向量生成暂时失败时可以回退到 FTS。显式指定 vector 或 hybrid 检索时，系统会报告能力缺失，不会自动切换检索模式。

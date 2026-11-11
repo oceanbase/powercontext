@@ -45,6 +45,7 @@ from powercontext_eval_swebench_pro.codex import (
     CodexRunner,
     UnsafeCodexInvocation,
 )
+from powercontext_eval_swebench_pro.egress import EgressPolicy
 from powercontext_eval_swebench_pro.errors import CommandError
 from powercontext_eval_swebench_pro.models import Arm
 from powercontext_eval_swebench_pro.powercontext_sut import (
@@ -66,6 +67,7 @@ from powercontext_eval_swebench_pro.powercontext_sut import (
     auth_secret_variants,
     loopback_proxy_environment,
     run_codex_contract_smoke,
+    trim_future_history,
     validate_treatment,
 )
 from powercontext_eval_swebench_pro.process import CommandFailed, CommandResult, CommandTimedOut, ProcessRunner
@@ -90,6 +92,8 @@ EXPECTED_COMMON = (
     "gpt-5.6-sol",
     "-c",
     'model_reasoning_effort="medium"',
+    "-c",
+    'web_search="disabled"',
 )
 
 
@@ -178,6 +182,67 @@ def test_codex_runner_writes_exact_jsonl_and_summary_artifacts(tmp_path: Path) -
     }
     assert outcome.last_message == "last"
     assert outcome.usage == {"input_tokens": 7, "output_tokens": 3}
+    assert outcome.isolation_flags == ()
+
+
+def _completed(item: dict[str, object]) -> str:
+    return json.dumps({"type": "item.completed", "item": item}) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("items", "flags"),
+    [
+        # Shapes from Codex 0.145 runs on SWE-bench Pro images.
+        (
+            [{"id": "item_15", "type": "web_search", "query": "site:github.com/ansible/ansible host_label"}],
+            ("web_search",),
+        ),
+        (
+            [
+                {"type": "command_execution", "command": "/bin/bash -lc 'curl -IL https://github.com/ansible/ansible'"},
+                {"type": "command_execution", "command": "/bin/bash -lc 'git fetch origin devel'"},
+            ],
+            ("network_command",),
+        ),
+        *(
+            ([{"type": "command_execution", "command": f"/bin/bash -lc '{command}'"}], ("network_command",))
+            for command in (
+                "git -C /workspace fetch origin",
+                "git -c protocol.version=2 fetch origin",
+                "git --git-dir=/workspace/.git ls-remote origin",
+                "git -C /workspace -c http.extraHeader=x pull --ff-only",
+                "git remote update",
+            )
+        ),
+        (
+            [
+                {
+                    "type": "command_execution",
+                    "command": "/bin/bash -lc 'git -C /workspace log --oneline -5 && git status'",
+                }
+            ],
+            (),
+        ),
+        (
+            [
+                {"type": "command_execution", "command": "/bin/bash -lc \"rg -n 'host_label' lib && git log -5\""},
+                {"type": "command_execution", "command": "/bin/bash -lc 'python -m pytest test/units -q'"},
+            ],
+            (),
+        ),
+    ],
+)
+def test_codex_runner_flags_web_search_and_network_commands(
+    tmp_path: Path, items: list[dict[str, object]], flags: tuple[str, ...]
+) -> None:
+    raw = "".join(_completed(item) for item in items) + _completed({"type": "agent_message", "text": "done"})
+    outcome = CodexRunner(FakeRunner(command_result(raw))).run(
+        CodexInvocation(Arm.OFF, inside_disposable_container=True),
+        prompt=b"prompt",
+        cwd=tmp_path,
+        store=ArtifactStore(tmp_path / "result"),
+    )
+    assert outcome.isolation_flags == flags
 
 
 def test_codex_runner_can_disable_retained_output_secret_scan(tmp_path: Path) -> None:
@@ -455,8 +520,20 @@ class TranscriptDocker:
         self.commands.append(argv)
         if self.fail_at and self.fail_at in argv:
             raise CommandFailed("injected", command_result("", returncode=70))
+        if argv[:2] == ("docker", "cp") and argv[2].endswith(":/app/."):
+            Path(argv[3], ".git").mkdir(parents=True, exist_ok=True)
+        if argv[:2] == ("docker", "run") and argv[-2:] == ("/app/.", "/workspace"):
+            mount = argv[argv.index("--mount") + 1]
+            source = next(part.removeprefix("src=") for part in mount.split(",") if part.startswith("src="))
+            Path(source, ".git").mkdir(parents=True, exist_ok=True)
         if argv[:2] == ("git", "rev-parse"):
             return command_result("a" * 40 + "\n")
+        if argv[:3] == ("git", "worktree", "list"):
+            return command_result(f"worktree {cwd}\nHEAD {'a' * 40}\ndetached\n")
+        if argv == ("git", "rev-list", "HEAD"):
+            return command_result("a" * 40 + "\n")
+        if argv[:2] == ("git", "cat-file"):
+            return command_result("a" * 40 + " commit\n")
         if argv[:2] == ("git", "status"):
             return command_result("")
         if argv[-1:] == ("whoami",) and any(part.endswith("/tokensflow") for part in argv):
@@ -652,6 +729,52 @@ def test_workspace_initialization_recovers_from_docker_cp_rejecting_an_escaping_
     assert fallback[fallback.index("--entrypoint") + 1] == "/bin/cp"
     assert fallback[-4:] == ("--archive", "--no-preserve=ownership", "/app/.", "/workspace")
     assert not paths.workspace.joinpath("partial-copy").exists()
+
+
+def test_workspace_history_keeps_only_head_and_its_ancestors(tmp_path: Path) -> None:
+    def git(*argv: str) -> str:
+        return subprocess.run(
+            ("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", *argv),
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "--quiet", "--initial-branch=main")
+    (tmp_path / "module.py").write_text("value = 1\n")
+    git("add", "module.py")
+    git("commit", "--quiet", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    # The reference fix lives after the base commit on a branch, a remote-tracking ref, and a tag.
+    git("switch", "--quiet", "-c", "devel")
+    (tmp_path / "module.py").write_text("value = 2\n")
+    git("commit", "--quiet", "-am", "reference fix")
+    fix = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/devel", fix)
+    git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/devel")
+    git("tag", "v2", fix)
+    git("switch", "--quiet", "main")
+    (tmp_path / "module.py").write_text("value = 3\n")
+    git("add", "module.py")
+    (tmp_path / "module.py").write_text("value = 4\n")
+    (tmp_path / "new.py").write_text("staged = True\n")
+    git("add", "new.py")
+    (tmp_path / "untracked.py").write_text("untracked = True\n")
+    original_patch = git("diff", "--binary", "HEAD")
+    staged_patch = git("diff", "--cached", "--binary")
+    original_index = (tmp_path / ".git/index").read_bytes()
+
+    trim_future_history(ProcessRunner(), tmp_path)
+
+    assert git("rev-parse", "HEAD") == base
+    assert git("symbolic-ref", "HEAD") == "refs/heads/main"
+    assert git("for-each-ref", "--format=%(refname)") == "refs/heads/main"
+    assert subprocess.run(("git", "cat-file", "-e", fix), cwd=tmp_path, check=False).returncode != 0
+    assert (tmp_path / ".git/index").read_bytes() == original_index
+    assert git("diff", "--binary", "HEAD") == original_patch
+    assert git("diff", "--cached", "--binary") == staged_patch
+    assert (tmp_path / "untracked.py").read_text() == "untracked = True\n"
 
 
 def test_parallel_workspace_initialization_shares_a_bounded_docker_budget(tmp_path: Path) -> None:
@@ -1034,11 +1157,15 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
     assert not any(part.startswith(("HOME=", "CODEX_HOME=")) for part in run)
     assert not any(part.startswith("POWERCONTEXT_CODEX_SCOPE_ID=") for part in run)
     mounts = [run[index + 1] for index, value in enumerate(run) if value in {"--mount", "-v"}]
+    # Both agent-visible task paths must expose the same sanitized checkout and subsequent edits.
+    assert f"type=bind,src={paths.workspace},dst=/workspace" in mounts
+    assert f"type=bind,src={paths.workspace},dst=/app" in mounts
     assert all(
         any(
             allowed in mount
             for allowed in (
                 "/workspace",
+                "/app",
                 "/runtime",
                 "/source",
                 "/evaluation",
@@ -3007,6 +3134,107 @@ def test_sut_uses_timestamp_recorder_and_retains_private_context_traces(tmp_path
     )
 
 
+class FakeEgress:
+    """Records each allowlist switch with the number of Docker commands that had run by then."""
+
+    def __init__(self, docker: TranscriptDocker) -> None:
+        self.docker = docker
+        self.events: list[tuple[str, object, int]] = []
+
+    def start(self, address: str) -> str:
+        self.events.append(("start", address, len(self.docker.commands)))
+        return f"http://{address}:17891"
+
+    def allow(self, phase: str, hosts: frozenset[str]) -> None:
+        self.events.append(("allow", (phase, tuple(sorted(hosts))), len(self.docker.commands)))
+
+    def decisions(self) -> list[dict[str, object]]:
+        return [
+            {"phase": "off:agent", "host": "github.com", "allowed": False, "connections": 1},
+            {"phase": "on:agent", "host": "api.openai.com", "allowed": True, "connections": 3},
+        ]
+
+    def stop(self) -> None:
+        self.events.append(("stop", None, len(self.docker.commands)))
+
+
+def test_egress_allowlist_confines_each_phase_of_a_pair(tmp_path: Path) -> None:
+    off_paths = make_paths(tmp_path / "off")
+    on_paths = make_paths(tmp_path / "on")
+    config = replace(
+        sut_config(tmp_path),
+        proxy=None,
+        tokensflow_enabled=False,
+        egress=EgressPolicy(agent=frozenset({"api.openai.com"})),
+    )
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker()
+    egress = FakeEgress(docker)
+
+    def unexpected_relay() -> FakeRelay:
+        raise AssertionError("the egress allowlist replaces the proxy relay")
+
+    DockerSut(docker, relay_factory=unexpected_relay, egress_factory=lambda _ports: egress).run_pair(
+        config,
+        paths={Arm.OFF: off_paths, Arm.ON: on_paths},
+        prompts={Arm.OFF: b"same", Arm.ON: b"same"},
+        stores={Arm.OFF: ArtifactStore(off_paths.result_root), Arm.ON: ArtifactStore(on_paths.result_root)},
+    )
+
+    commands = docker.commands
+    create = next(command for command in commands if command[:3] == ("docker", "network", "create"))
+    assert "--internal" in create
+    switches = [(value, at) for kind, value, at in egress.events if kind == "allow"]
+    assert [value for value, _ in switches] == [
+        ("off:prewarm", ("files.pythonhosted.org", "pypi.org", "releases.astral.sh")),
+        ("off:agent", ("api.openai.com",)),
+        ("off:closed", ()),
+        ("on:prewarm", ("files.pythonhosted.org", "pypi.org", "releases.astral.sh")),
+        ("on:agent", ("api.openai.com",)),
+        ("on:closed", ()),
+    ]
+    assert egress.events[0][0] == "start" and egress.events[-1][0] == "stop"
+
+    def is_prewarm(command: tuple[str, ...]) -> bool:
+        return command[-9:] == (
+            "sync",
+            "--frozen",
+            "--no-dev",
+            "--project",
+            "/source",
+            "--extra",
+            "server",
+            "--extra",
+            "cli",
+        )
+
+    prewarms = [index for index, command in enumerate(commands) if is_prewarm(command)]
+    agents = [index for index, command in enumerate(commands) if command[:3] == ("docker", "run", "-d")]
+    assert len(prewarms) == len(agents) == 2
+    for arm_index, (prewarm, agent) in enumerate(zip(prewarms, agents, strict=True)):
+        prewarm_allowed, agent_allowed, closed = (at for _, at in switches[3 * arm_index : 3 * arm_index + 3])
+        assert prewarm_allowed <= prewarm < agent_allowed <= agent < closed
+    for index in (*prewarms, *agents):
+        assert any("HTTPS_PROXY=http://172.29.0.1:17891" in part for part in commands[index])
+    for index in prewarms:
+        assert any(part.startswith("UV_PYTHON_INSTALL_MIRROR=https://releases.astral.sh/") for part in commands[index])
+
+    on_decisions = json.loads((on_paths.result_root / "egress/decisions.json").read_text())
+    assert on_decisions == [{"phase": "on:agent", "host": "api.openai.com", "allowed": True, "connections": 3}]
+
+
+def test_a_proxy_upstream_and_the_egress_allowlist_are_exclusive(tmp_path: Path) -> None:
+    with pytest.raises(UnsafeSutConfiguration):
+        replace(sut_config(tmp_path), egress=EgressPolicy())
+
+
+def test_tokensflow_egress_cannot_be_combined_with_the_allowlist(tmp_path: Path) -> None:
+    # TokensFlow attaches an unrestricted network to the agent container, which would bypass the allowlist.
+    with pytest.raises(UnsafeSutConfiguration, match="TokensFlow"):
+        replace(sut_config(tmp_path), proxy=None, egress=EgressPolicy())
+
+
 def test_pair_reuses_one_relay_and_network_and_runs_off_then_on(tmp_path: Path) -> None:
     off_paths = make_paths(tmp_path / "off")
     on_paths = make_paths(tmp_path / "on")
@@ -3630,6 +3858,17 @@ def test_auth_secrets_include_nested_scalars_and_supported_derivations(tmp_path:
     } <= set(variants)
 
 
+def test_auth_mode_label_is_not_treated_as_a_secret(tmp_path: Path) -> None:
+    # API-key logins write auth_mode "apikey"; patches to projects with API-key auth often contain that word.
+    key = "sk-fixture-0123456789abcdef"
+    variants = set(
+        auth_secret_variants(_write_json(tmp_path / "auth.json", {"OPENAI_API_KEY": key, "auth_mode": "apikey"}))
+    )
+
+    assert key in variants
+    assert "apikey" not in variants
+
+
 def test_fake_codex_echo_of_auth_secrets_or_encodings_is_never_published(tmp_path: Path) -> None:
     raw = "fixture/super secret"
     variants = auth_secret_variants(_write_json(tmp_path / "auth.json", {"nested": {"token": raw}}))
@@ -4053,6 +4292,25 @@ def test_managed_python_is_kept_in_the_writable_arm_runtime(tmp_path: Path) -> N
     ]
     assert len(uv_consumers) >= 4
     assert all("UV_PYTHON_INSTALL_DIR=/runtime/uv-python" in command for command in uv_consumers)
+
+
+def test_container_uv_commands_pin_a_python_covered_by_the_lock(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    config = sut_config(tmp_path)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker()
+
+    DockerSut(docker, relay_factory=FakeRelay).run_arm(
+        config, Arm.ON, paths, b"prompt", ArtifactStore(paths.result_root)
+    )
+
+    uv_consumers = [
+        command for command in docker.commands if any(value.startswith("UV_PROJECT_ENVIRONMENT=") for value in command)
+    ]
+    assert len(uv_consumers) >= 4
+    # Without a pin, uv picks the newest CPython, which the locked wheels may not cover (#2369).
+    assert all("UV_PYTHON=3.13" in command for command in uv_consumers)
 
 
 def test_network_is_retained_when_relay_stop_fails(tmp_path: Path) -> None:

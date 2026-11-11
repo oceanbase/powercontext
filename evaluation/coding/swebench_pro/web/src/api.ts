@@ -297,7 +297,9 @@ function armSchema<Arm extends "off" | "on">(arm: Arm) {
     passed: z.boolean().nullable(),
     treatment_valid: z.boolean(),
     input_tokens: nonnegativeIntegerSchema.nullable(),
+    cached_input_tokens: nonnegativeIntegerSchema.nullable(),
     output_tokens: nonnegativeIntegerSchema.nullable(),
+    reasoning_output_tokens: nonnegativeIntegerSchema.nullable(),
     elapsed_seconds: nonnegativeNumberSchema.nullable(),
     patch_bytes: nonnegativeIntegerSchema.nullable(),
   });
@@ -311,7 +313,9 @@ const metricComparisonSchema = z.strictObject({
 });
 const comparisonSchema = z.strictObject({
   input_tokens: metricComparisonSchema.nullable(),
+  cached_input_tokens: metricComparisonSchema.nullable(),
   output_tokens: metricComparisonSchema.nullable(),
+  reasoning_output_tokens: metricComparisonSchema.nullable(),
   elapsed_seconds: metricComparisonSchema.nullable(),
   patch_bytes: metricComparisonSchema.nullable(),
 });
@@ -521,7 +525,9 @@ const batchRuntimeSchema = z.strictObject({
 const taskArmSummarySchema = z.strictObject({
   resolved: z.boolean(),
   input_tokens: nonnegativeIntegerSchema.nullable(),
+  cached_input_tokens: nonnegativeIntegerSchema.nullable(),
   output_tokens: nonnegativeIntegerSchema.nullable(),
+  reasoning_output_tokens: nonnegativeIntegerSchema.nullable(),
   total_tokens: nonnegativeIntegerSchema.nullable(),
 });
 const taskTokenDeltaSchema = z.strictObject({
@@ -609,7 +615,9 @@ const taskDetailArmSchema = z.strictObject({
   pass_to_pass: officialTestGroupSchema,
   log_excerpt: z.string().max(4_000).nullable(),
   input_tokens: nonnegativeIntegerSchema.nullable(),
+  cached_input_tokens: nonnegativeIntegerSchema.nullable(),
   output_tokens: nonnegativeIntegerSchema.nullable(),
+  reasoning_output_tokens: nonnegativeIntegerSchema.nullable(),
   total_tokens: nonnegativeIntegerSchema.nullable(),
 });
 const tokensflowFinalizationSchema = z.strictObject({

@@ -52,6 +52,7 @@ from powercontext.http import (
     ListCandidatesRequest,
     PrepareContextRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -223,6 +224,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(
                     query="strict fixture configuration",
                 )
             )
+            assert isinstance(prepared, PreparedContext)
 
             assert len(candidates) == 1
             assert candidates[0].source_refs == [captured.source]

@@ -67,7 +67,7 @@ def test_claude_sessions_and_codex_share_one_project_memory(
 ) -> None:
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: independent_atomic_memory_model("Use PowerContext as the shared project context service."),
+        lambda _, **_kwargs: independent_atomic_memory_model("Use PowerContext as the shared project context service."),
     )
     app = create_server_app(
         settings=ServerSettings(

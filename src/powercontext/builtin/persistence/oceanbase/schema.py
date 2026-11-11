@@ -32,16 +32,16 @@ def _parameters(value: str) -> dict[str, str]:
     }
 
 
-def _matching_definition(definition: str, quoted_name: str, quoted_column: str, parameters: str) -> bool:
+def _matching_definition(definition: str, name_pattern: str, column_pattern: str, parameters: str) -> bool:
     match = re.search(
-        r"^\s*VECTOR\s+(?:KEY|INDEX)\s+" + quoted_name + r"\s*\(\s*" + quoted_column + r"\s*\)\s+WITH\s*\(([^)]*)\)",
+        r"^\s*VECTOR\s+(?:KEY|INDEX)\s+" + name_pattern + r"\s*\(\s*" + column_pattern + r"\s*\)\s+WITH\s*\(([^)]*)\)",
         definition,
         re.IGNORECASE | re.MULTILINE,
     )
     if match and all(_parameters(match[1]).get(key) == value for key, value in _parameters(parameters).items()):
         return True
     if re.search(
-        r"^\s*(?:(?:UNIQUE|FULLTEXT|VECTOR|SPATIAL)\s+)?(?:KEY|INDEX)\s+" + quoted_name + r"\s*\(",
+        r"^\s*(?:(?:UNIQUE|FULLTEXT|VECTOR|SPATIAL)\s+)?(?:KEY|INDEX)\s+" + name_pattern + r"\s*\(",
         definition,
         re.IGNORECASE | re.MULTILINE,
     ):
@@ -58,15 +58,16 @@ async def create_vector_index(connection: AsyncConnection, index: VectorIndex, /
     preparer = connection.dialect.identifier_preparer
     columns = tuple(index.columns)
     column = columns[0]
-    quoted_name = re.escape(preparer.quote_identifier(name))
-    quoted_column = re.escape(preparer.quote_identifier(column.name))
+    # SHOW CREATE TABLE omits identifier quotes with sql_quote_show_create=OFF.
+    name_pattern = "(?:" + re.escape(preparer.quote_identifier(name)) + "|" + re.escape(name) + ")"
+    column_pattern = "(?:" + re.escape(preparer.quote_identifier(column.name)) + "|" + re.escape(column.name) + ")"
 
     async def existing_matches() -> bool:
         result = await connection.exec_driver_sql(f"SHOW CREATE TABLE {preparer.format_table(table)}")
         row = result.first()
         definition = "" if row is None else str(row[1])
         # STATISTICS exposes hidden BTREE auxiliary columns for VECTOR indexes.
-        return _matching_definition(definition, quoted_name, quoted_column, index.params or "")
+        return _matching_definition(definition, name_pattern, column_pattern, index.params or "")
 
     # 4.4.2.1 rejects another VECTOR index on the column before honoring
     # IF NOT EXISTS. Revalidate only that exact duplicate-column race.

@@ -63,6 +63,7 @@ the website lists stable releases only. `make docs-test` also runs this check as
 | `docs/en/docs/get-started/manual-start.md`, `docs/zh/docs/get-started/manual-start.md` | CLI/Server and Python Client installation pins, and the matching Agent integration tag. |
 | `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Page description, current release prose, package/tag pins, upgrade target, and Python Client installation. |
 | `integrations/dsh/plugins/powercontext/README.md` | Server installation pin and the matching `setup dsh --ref` tag. |
+| `docs/{en,zh}/docs/operate/database-migrations.md`, `tests/release_upgrades/README.md` | Current target release only; frozen schema revision names and their original software versions remain unchanged. |
 
 The installation guides also contain historical migration versions. Those references are preserved. When adding
 another current-release installation example, include it in the version tooling's managed paths and patterns so
@@ -74,6 +75,7 @@ the next release updates and checks it.
 | --- | --- |
 | Python wheel/sdist version and installed `powercontext --version` | `pyproject.toml` declares `dynamic = ["version"]`; Hatch VCS reads Git metadata. Use the intended release tag for the final build. |
 | Runtime package metadata | Reads the installed Python distribution version; there is no separate static runtime version to bump. |
+| DSH npm archive | The release workflow stamps `powercontext-dsh` from the selected Release tag in a temporary package directory. The checkout manifest remains a development version; runtime identity reads the installed manifest. |
 | Desktop API bindings | Regenerate OpenAPI types and contract digests with `pnpm --dir desktop generate`, then run `pnpm --dir desktop generate:check`. The Desktop application has its own package version. |
 | Dify tool contract | Regenerate with `uv run python integrations/dify/generate_contract.py`, then run the same command with `--check` to verify its API version and schemas. |
 | Docker and Bub harness build version | Build inputs pass `POWERCONTEXT_VERSION` from the selected package/Git version. Do not add a fixed release number to Dockerfiles. |
@@ -95,7 +97,7 @@ PowerContext release number.
 | Portable Agent Plugin | `integrations/agent-plugin/powercontext/plugin.json`. Its package version is separate from the Agent Plugins schema version. |
 | Hermes plugins | `integrations/hermes/plugins/{powercontext,powercontext-command}/plugin.yaml`. |
 | MiniMax and ZCode plugins | `integrations/minimax/plugins/powercontext/.minimax-plugin/plugin.json` and `integrations/zcode/plugins/powercontext/.zcode-plugin/plugin.json`. |
-| JavaScript plugins | `integrations/{dsh,opencode,pi}/plugins/powercontext/package.json` and `integrations/openclaw/plugins/memory-powercontext/package.json`. The OpenClaw discovery manifest has no separate version field. |
+| JavaScript plugins | `integrations/{opencode,pi}/plugins/powercontext/package.json` and `integrations/openclaw/plugins/memory-powercontext/package.json`. The OpenClaw discovery manifest has no separate version field. DSH release archives follow the main Release. |
 | WorkBuddy integration | Its hooks and transport scripts carry User-Agent strings; there is no plugin manifest version to align with the Server. |
 | Skill Receiver | `RECEIVER_VERSION` in `src/powercontext/client/skill_receiver.py` supplies the default receiver identity version reported during enrollment, reconciliation, and receipts. It is independent of the Server version. |
 | Python integrations | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` contain separate distribution versions. Dependency constraints express compatibility, not the current main release. |
@@ -125,6 +127,63 @@ migration introduced in `1.1.0` and the pre-`1.0.0` processing migration remain 
 The DSH README's statement that a capability was included in release `1.1.0` is also historical; only its current
 installation pins are synchronized.
 
+## DSH npm package
+
+`release.yml` builds `powercontext-dsh` from the same pinned commit as the Python release. It tests the plugin,
+packs compiled entry points, declarations, packaged Skills, the bundle patch, README, license, and manifest, then installs
+that exact archive into a clean consumer directory. The source manifest is never rewritten during packing.
+The verified `.tgz` is retained as `dsh-release-package` and attached to the GitHub Release.
+PyPI publication requires this package check as well as the existing release gate. npm publication follows
+successful PyPI publication and runs only in `oceanbase/powercontext`.
+
+Versions follow the Release tag: `powercontext-v1.6.0rc1` becomes `1.6.0-rc.1`; `a` and `b` become `alpha` and
+`beta`. Stable releases use `latest`; version prereleases and releases marked as prerelease on GitHub use `next`.
+The checkout's development version is not a separate npm release counter. Older tags without these packaging
+scripts cannot be published through this workflow; select a release containing the npm delivery changes.
+
+The publication job uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/), Node 24, and
+GitHub's `id-token: write` permission. No npm token is stored in the workflow. A package owner must complete
+the initial npm publication and configure its trusted publisher:
+
+| npm setting | Value |
+| --- | --- |
+| Package | `powercontext-dsh` |
+| Provider | GitHub Actions |
+| Organization | `oceanbase` |
+| Repository | `powercontext` |
+| Workflow filename | `release.yml` |
+| Environment | Leave blank; the publication job does not declare one |
+| Allowed actions | Allow direct `npm publish` |
+
+For the first publication, download the verified archive from the intended release build, sign in with the
+maintainer's npm account, and publish that exact file. For example, a prerelease archive uses:
+
+```bash
+npm login --registry=https://registry.npmjs.org/
+npm publish ./powercontext-dsh-1.6.0-rc.1.tgz --access public --ignore-scripts --tag next --registry=https://registry.npmjs.org/
+```
+
+Use `--tag latest` for a stable release. Configure the trusted publisher after the package exists, then rerun
+the failed npm job. A rerun skips publishing only if the registry's SHA-512 integrity matches the archive;
+different bytes under the same version fail explicitly. Identical reruns leave dist-tags unchanged.
+Re-running an older release is not a way to roll back `latest` or promote a prerelease. Check the registry's
+current tags before publishing a previously unpublished historical release.
+
+To validate packaging locally, run from the repository root:
+
+```bash
+pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+pnpm --dir integrations/dsh/plugins/powercontext test
+pnpm --dir integrations/dsh/plugins/powercontext test:package
+pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
+```
+
+The archive is written under the plugin's `dist/` directory. In DSH Desktop, install it using **Plugins → Add
+plugin**, confirm the package and enabled state, restart if requested, and run `/pc doctor` against a matching
+Server. Record the Desktop version and installation/loading results separately from Server readiness and
+memory behavior. A local archive test does not establish npm availability; after publishing, repeat with
+`powercontext-dsh@<version>` against the official registry and verify the selected mirror separately.
+
 ## Verify before publication
 
 ### Database upgrade support
@@ -132,26 +191,26 @@ installation pins are synchronized.
 `release/upgrade-support.json` declares the target version, source-version selection policy, backends, and
 configurations. `automatic_sources` keeps 1.3.0 as its fixed baseline; explicit `cases` are empty.
 The catalog declares twelve cases: one source × three backends × vectors enabled/disabled × Code enabled/disabled.
-Normal publication requires the ten automatic cases to pass. The two embedded seekDB configurations with Code enabled
-are temporarily manual-only because of native DDL waits; they remain unverified and are excluded from supported
-upgrade declarations. Passing the automatic gate does not establish complete twelve-case acceptance.
+Normal publication requires all twelve automatic cases to pass, including both embedded seekDB configurations with
+Code enabled. Failed, skipped, or missing cases block acceptance; the diagnostic-only `seekdb-code` selection cannot
+authorize publication. No separate support declaration is required for publication.
 The target is always the actual wheel built by CI. Future target releases keep testing 1.3.0;
 intervening releases are not added automatically. The registered 1.4.0 bridge remains implemented but is outside
 CI upgrade acceptance, so a passing gate does not certify its upgrade path. Source wheel URLs and SHA-256s are resolved
 from public PyPI and recorded with the target artifact.
 
-The source-specific chains are `s1300 → s1400 → s1401 → s1402` for 1.3.0 and
-`r1400 → s1400 → s1401 → s1402` for 1.4.0. They share the target contract while preserving their frozen execution
+The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
+They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
 creates empty retained tables for the common target shape, without inventing old Candidate history. Adding other
 sources requires exact captures, a registered bridge and actual acceptance; the two registered paths do not certify
 all releases between them or the target.
-The current `upgrade-required` policy mandates positive acceptance on all three backends while keeping upgrade
-support unverified. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
+The current `upgrade-required` policy mandates positive acceptance on all three backends with support limited to combinations
+that pass full Server acceptance. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
 must fail. Neither a fresh-install-only declaration nor correct rejection of an old database satisfies this gate.
-After the full migration implementation and acceptance pass, review the declaration, set `supported-upgrades`, and
-regenerate the installation notices before publication. Both modes run the same mandatory acceptance matrix.
+Both `upgrade-required` and `supported-upgrades` allow publication after the same mandatory acceptance matrix passes.
 The suite contract and evidence requirements are in `tests/release_upgrades/README.md` in the repository.
 
 `make check` and `make release-check` validate this policy and the bilingual installation notices. Changes to
@@ -179,15 +238,15 @@ files to the evidence directory's `validated-dist/`. CI uploads that set. `make 
 upload those exact paths in the same invocation; subsequent changes to the original `dist/` cannot join the upload.
 No packages are uploaded by validation commands without `--publish`.
 
-The release check requires the actual wheel version to match the policy and the release notes to include the exact
-English support declaration from the installation guide. It installs each exact source release and the target wheel
+The release check requires the actual wheel version to match the policy; Release notes need no support declaration.
+It installs each exact source release and the target wheel
 in separate environments. Missing tests, skipped backends, failures, and missing evidence block the check. Static
 policy validation alone does not establish an upgrade path. Ordinary PR builds may have a development
 version; the `--release` check must run against the final tagged wheel without overriding its version.
 
 The **Upgrade release gate** CI job requires successful public migration commands, full Server readiness, target
-startup, preserved records and new writes on real 1.3.0 databases in all ten required automatic cases. The two
-manual seekDB Code cases do not block publication or establish supported upgrades. Limited bundle verification with
+startup, preserved records and new writes on real 1.3.0 databases in all twelve required automatic cases. The two
+seekDB Code cases are mandatory. Limited bundle verification with
 `server_ready=false` fails. Every backend runs even if another backend fails, with separate logs and results.
 seekDB runs embedded in a temporary runner directory. PR and publication jobs start a disposable OceanBase CE
 container, wait for its MySQL tenant, archive diagnostics, and remove it even on failure. No external database
@@ -197,6 +256,14 @@ By default, the release workflow gates distribution upload, PyPI publication, an
 archives its evidence. It runs after `release.published`, so it cannot prevent the earlier manual publication of
 the GitHub Release page: run the command above before that action. `make publish` requires
 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md` and runs the same gate before uploading packages.
+
+### Publish from the GitHub Actions page
+
+For an existing published Release, open **Actions → Release → Run workflow**, select `master`, and enter
+`powercontext-v1.5.1` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
+Workflow changes must be merged into `master` first. The run uses its workflow commit for gate tooling and the
+selected tag for package builds and acceptance suites. All twelve cases must pass before package publication;
+no support table, fixed Release wording, or policy-mode change is required.
 
 ### Manual publication without upgrade acceptance
 
@@ -231,7 +298,7 @@ verification and website deployment remain enabled, using the selected release t
 
 The `release-without-upgrades` artifact records the tag, source commit, actor, run, distribution hashes, and
 `upgrade_acceptance: skipped`; the run summary also states that existing-database upgrades are unsupported.
-Leaving the option disabled runs the normal automatic upgrade matrix and support-declaration checks.
+Leaving the option disabled runs the normal automatic upgrade matrix.
 
 ### General release validation
 

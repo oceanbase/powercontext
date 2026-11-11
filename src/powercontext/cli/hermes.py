@@ -28,7 +28,7 @@ from typing import Any
 
 import yaml
 
-from powercontext.cli.guidance import HOST_GUIDANCE, preserve_installed_guidance
+from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_DIRECTORY, preserve_installed_guidance, refresh_skill
 from powercontext.cli.installation import publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.cli.transport import setup_transport_updates
@@ -152,6 +152,13 @@ class HermesInstaller:
                     shutil.copytree(path, candidate)
                     preserve_installed_guidance(target, candidate)
                     replacements.append((candidate, target))
+                skill = hermes_home() / SKILL_DIRECTORY
+                staged_skill = Path(temporary) / "skill"
+                previous = skill if skill.exists() else root / HERMES_PLUGIN_NAME / SKILL_DIRECTORY
+                if previous.exists():
+                    shutil.copytree(previous, staged_skill)
+                refresh_skill(package / SKILL_DIRECTORY, staged_skill, previous=previous)
+                replacements.append((staged_skill, skill))
                 publish(replacements)
             return {
                 "plugin": HERMES_PLUGIN_NAME,
@@ -159,6 +166,7 @@ class HermesInstaller:
                 "hermes_home": str(hermes_home()),
                 "data_dir": str(powercontext_data_dir()),
                 "command_plugin_path": str(root / HERMES_COMMAND_PLUGIN_NAME),
+                "skill_path": str(skill),
             }
 
     def configure(self, connection):
@@ -215,6 +223,8 @@ class HermesInstaller:
                 ),
             }
 
+        from powercontext.cli.memory_protocol import installed_memory_protocol, read_plugin_memory_protocol
+
         config = _hermes_config()
         provider = config.get("memory", {}).get("provider")
         plugins = config.get("plugins", {})
@@ -264,6 +274,9 @@ class HermesInstaller:
         return {
             "hermes": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} (Hermes Agent v{hermes_version})"),
             "plugin": plugin_diagnostic,
+            "plugin_memory_protocol": installed_memory_protocol(
+                read_plugin_memory_protocol(plugin, "powercontext.json"), "hermes"
+            ),
             "command_plugin": command_diagnostic,
             "provider": Diagnostic(
                 DiagnosticStatus.OK if provider == HERMES_PLUGIN_NAME else DiagnosticStatus.FAILED,

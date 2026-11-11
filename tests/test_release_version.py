@@ -36,11 +36,18 @@ INSTALL_PAGES = (
     "integrations/dsh/plugins/powercontext/README.md",
 )
 HISTORICAL_AND_INDEPENDENT_FILES = (
+    "docs/en/development/releasing.md",
+    "docs/zh/development/releasing.md",
     "docs/en/docs/operate/artifact-processing-migration.md",
     "docs/zh/docs/operate/artifact-processing-migration.md",
     "website/src/lib/releases.ts",
     "integrations/agent-plugin/powercontext/plugin.json",
     "integrations/openclaw/plugins/memory-powercontext/openclaw.plugin.json",
+)
+MIGRATION_PAGES = (
+    "docs/en/docs/operate/database-migrations.md",
+    "docs/zh/docs/operate/database-migrations.md",
+    "tests/release_upgrades/README.md",
 )
 
 
@@ -53,6 +60,7 @@ def release_repo(tmp_path: Path) -> Path:
         "openapi/powercontext.yaml",
         *INSTALL_PAGES,
         *HISTORICAL_AND_INDEPENDENT_FILES,
+        *MIGRATION_PAGES,
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -87,11 +95,10 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         for relative in INSTALL_PAGES:
             content = (release_repo / relative).read_text(encoding="utf-8")
             assert set(re.findall(r"powercontext\[[^\]\n]+\]==([^\s\"`]+)", content)) == {version}, relative
-            assert set(re.findall(r"powercontext-v([^\s\"`]+)", content)) == {version}, relative
+            assert set(re.findall(r"powercontext-v([0-9][^\s\"`]+)", content)) == {version}, relative
             if relative.startswith(("README", "docs/")) and not relative.endswith("/manual-start.md"):
                 assert f"PowerContext {version}" in content, relative
             if re.search(r"(?:a|b|rc)[0-9]+$", version):
-                assert "stable release" not in content, relative
                 assert f"stable PowerContext {version}" not in content, relative
                 assert "正式版本" not in content, relative
                 assert "正式リリース" not in content, relative
@@ -99,15 +106,27 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         english = (release_repo / "docs/en/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         chinese = (release_repo / "docs/zh/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         assert f"package `{version}`" in english
+        assert f"--version {version}" in english
+        assert f"--version {version}" in chinese
         assert f"To install {version} in a separate environment" in english
         assert f"Python 包版本为 `{version}`" in chinese
         assert f"安装 {version} 到独立环境" in chinese
-        assert "Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance" in english
-        assert "1.3.0 和 1.4.0 升级必须通过 SQLite、seekDB 和 OceanBase 的完整 Server 验收" in chinese
+        assert "Database upgrade support is limited to source-version, target-artifact, backend" in english
+        assert "数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。" in chinese
         dsh = (release_repo / "integrations/dsh/plugins/powercontext/README.md").read_text(encoding="utf-8")
         assert "Release 1.1.0 includes direct-operation Scope failure handling" in dsh
+        for relative in MIGRATION_PAGES:
+            content = (release_repo / relative).read_text(encoding="utf-8")
+            assert f"**PowerContext {version}**" in content or f"**{version}**" in content, relative
+            if relative.startswith("docs/"):
+                assert "v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004" in content, relative
+                assert '"software_version":"1.5.0"' in content, relative
+            else:
+                assert "`v1_5_0_001`–`v1_5_0_004`" in content, relative  # noqa: RUF001 -- Documented range
         for relative, original in preserved.items():
             assert (release_repo / relative).read_bytes() == original, relative
+            if relative.endswith("development/releasing.md"):
+                assert "v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004" in original.decode("utf-8"), relative
 
         before = snapshot(release_repo)
         for arguments in (

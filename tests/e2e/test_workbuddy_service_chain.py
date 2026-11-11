@@ -55,7 +55,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
 ) -> None:
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: independent_atomic_memory_model("Use the WorkBuddy service chain for project context."),
+        lambda _, **_kwargs: independent_atomic_memory_model("Use the WorkBuddy service chain for project context."),
     )
     app = create_server_app(
         settings=ServerSettings(
@@ -98,6 +98,19 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
         diagnosed = CliRunner().invoke(create_cli(), ["doctor", "--json"])
         assert diagnosed.exit_code == 0, diagnosed.output
         assert set(json.loads(diagnosed.output)["hosts"]) == {"workbuddy"}
+
+        if authentication_enabled:
+            assert report["checks"]["server_memory_protocol"]["status"] == "skipped"
+            with monkeypatch.context() as credentials:
+                credentials.setenv("POWERCONTEXT_WORKBUDDY_AUTHORIZATION", AUTHORIZATION)
+                configured = CliRunner().invoke(
+                    create_cli(), ["config", "agent", "workbuddy", "--server-url", base_url, "--json"]
+                )
+            assert configured.exit_code == 0, configured.output
+            # Discovery must also work after the setup environment is gone.
+            authenticated = CliRunner().invoke(create_cli(), ["doctor", "workbuddy", "--json"])
+            assert authenticated.exit_code == 0, authenticated.output
+            assert json.loads(authenticated.output)["hosts"]["workbuddy"]["checks"]["server_memory_protocol"]["ok"]
 
         settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
         command = _powercontext_hook_command(settings)

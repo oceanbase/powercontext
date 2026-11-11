@@ -27,7 +27,11 @@ import { blog, blogListing, blogRoutes } from '@/lib/blog';
 import { blogSource } from '@/lib/blog-source';
 import { isLanguage, languages } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
-import { absoluteSiteUrl } from '@/lib/urls';
+import { absoluteSiteUrl, withBasePath } from '@/lib/urls';
+import { pageMetadata } from '@/lib/metadata';
+import { getPageMarkdownUrl } from '@/lib/markdown';
+import { StructuredData } from '@/components/structured-data';
+import { MarkdownCopyButton } from 'fumadocs-ui/layouts/docs/page';
 
 type Props = { params: Promise<{ lang: string; slug?: string[] }> };
 
@@ -41,16 +45,31 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = slug.length === 1 ? blog[lang].posts.find((item) => item.slug === slug[0]) : undefined;
   const listing = blogListing(lang, slug);
   if (!post && !listing) notFound();
-  const title = post?.title ?? listing?.author?.name ?? (lang === 'zh' ? '博客' : 'Blog');
+  const baseTitle = post?.title ?? listing?.author?.name
+    ?? (listing?.year ? `${lang === 'zh' ? '归档' : 'Archive'} · ${listing.year}` : lang === 'zh' ? '博客' : 'Blog');
+  const title = listing && listing.page > 1
+    ? `${baseTitle} · ${lang === 'zh' ? `第 ${listing.page} 页` : `Page ${listing.page}`}` : baseTitle;
+  const description = post?.description ?? (listing?.author
+    ? (lang === 'zh'
+      ? `${listing.author.name} 在 PowerContext 博客发表的文章。${listing.author.description}`
+      : `Articles by ${listing.author.name} on the PowerContext blog. ${listing.author.description}`).trim()
+    : listing?.year
+      ? (lang === 'zh' ? `${listing.year} 年发表的 PowerContext 博客文章。` : `PowerContext blog posts published in ${listing.year}.`)
+      : (lang === 'zh' ? '项目记忆、Agent 协作和 PowerContext 开发实践的文章。' : 'Articles about project memory, agent collaboration, and building PowerContext.'));
   const suffix = slug.length ? `/${slug.join('/')}` : '';
-  return {
-    title, description: post?.description ?? (lang === 'zh' ? 'PowerContext 工程实践、产品更新与技术文章。' : 'Engineering stories, product updates, and technical guides from PowerContext.'),
-    alternates: {
-      canonical: absoluteSiteUrl(`/${lang}/blog${suffix}/`),
-      languages: Object.fromEntries(languages.map((locale) => [locale, absoluteSiteUrl(`/${locale}/blog${suffix}/`)])),
-    },
-    ...(post ? { openGraph: { type: 'article', title: post.title, description: post.description, ...(post.cover ? { images: [{ url: absoluteSiteUrl(`/docs-assets/${post.cover.slice(7)}`), alt: post.coverAlt }] } : {}), publishedTime: post.date, modifiedTime: post.updated ?? post.date, authors: post.authors.map((id) => blog[lang].authors[id].name) } } : {}),
-  };
+  return pageMetadata({
+    path: `/${lang}/blog${suffix}/`, lang, title,
+    description,
+    translations: Object.fromEntries(languages.filter((locale) =>
+      blogRoutes(locale).some((route) => route.join('/') === slug.join('/')),
+    ).map((locale) => [locale, `/${locale}/blog${suffix}/`])),
+    ...(post ? {
+      markdown: getPageMarkdownUrl({ locale: lang, slugs: ['blog', post.slug] }).url,
+      image: post.cover ? { url: `/docs-assets/${post.cover.slice(7)}`, alt: post.coverAlt } : undefined,
+      article: { publishedTime: post.date, modifiedTime: post.updated ?? post.date,
+        authors: post.authors.map((id) => absoluteSiteUrl(`/${lang}/blog/authors/${id}/`)) },
+    } : {}),
+  });
 }
 
 export default async function BlogPage({ params }: Props) {
@@ -63,6 +82,26 @@ export default async function BlogPage({ params }: Props) {
     if (!source) notFound();
     const Body = source.data.body;
     return <HomeLayout {...baseOptions(lang)}>
+      <StructuredData data={{
+        '@context': 'https://schema.org', '@type': 'BlogPosting',
+        headline: post.title, description: post.description,
+        url: absoluteSiteUrl(`${root}/${post.slug}/`),
+        mainEntityOfPage: absoluteSiteUrl(`${root}/${post.slug}/`), inLanguage: lang,
+        datePublished: post.date, dateModified: post.updated ?? post.date,
+        ...(post.cover ? { image: absoluteSiteUrl(`/docs-assets/${post.cover.slice(7)}`) } : {}),
+        author: post.authors.map((id) => ({
+          '@type': 'Person', name: blog[lang].authors[id].name,
+          url: absoluteSiteUrl(`${root}/authors/${id}/`),
+        })),
+      }} />
+      <StructuredData data={{
+        '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+        itemListElement: [
+          { name: 'PowerContext', item: absoluteSiteUrl(lang === 'en' ? '/' : '/zh/') },
+          { name: lang === 'zh' ? '博客' : 'Blog', item: absoluteSiteUrl(`${root}/`) },
+          { name: post.title, item: absoluteSiteUrl(`${root}/${post.slug}/`) },
+        ].map((item, index) => ({ '@type': 'ListItem', position: index + 1, ...item })),
+      }} />
       <main className={styles.main}><article className={styles.article}>
         <Link className={styles.back} href={root}>← {lang === 'zh' ? '返回博客' : 'Back to blog'}</Link>
         <header className={styles.articleHeading}>
@@ -71,6 +110,10 @@ export default async function BlogPage({ params }: Props) {
           <div className={styles.authorCards}>{post.authors.map((id) => <AuthorCard key={id} author={blog[lang].authors[id]} lang={lang} />)}</div>
           <div className={styles.articleSummary}><strong>TL;DR</strong><p>{post.description}</p></div>
         </header>
+        <div className="mb-4 flex items-center gap-3 text-sm text-fd-muted-foreground">
+          <MarkdownCopyButton markdownUrl={withBasePath(getPageMarkdownUrl({ ...source, slugs: ['blog', ...source.slugs] }).url)} />
+          <a href={withBasePath(getPageMarkdownUrl({ ...source, slugs: ['blog', ...source.slugs] }).url)} className="underline underline-offset-4">{lang === 'zh' ? '查看 Markdown' : 'View Markdown'}</a>
+        </div>
         <div className={styles.articleCover}><CoverImage post={post} priority /></div>
         <div className={`prose max-w-none ${styles.articleBody}`}><Body components={getMDXComponents()} /></div>
       </article></main>

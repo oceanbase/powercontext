@@ -1,15 +1,15 @@
 # Installed-release upgrade acceptance
 
 `release/upgrade-support.json` requires **positive** 1.3.0 upgrades on SQLite, embedded seekDB, and OceanBase.
-The current `upgrade-required` mode keeps the upgrade support declaration unverified while requiring every automatic case
-to run and pass, including both embedded seekDB Code configurations. Missing full migration integration (#2154) fails the gate. `supported-upgrades` runs the same
-matrix and enables publication after the reviewed support declaration is updated. `fresh-install-only` is rejected.
+Both `upgrade-required` and `supported-upgrades` allow publication after every automatic case passes, including both
+embedded seekDB Code configurations. Missing full migration integration (#2154) fails the gate. `fresh-install-only` is rejected.
 
 ## Reviewed sources and current target
 
-The declared target release is **1.4.1**. Public migration output maps the two source baselines to
-`v1_3_0_000` / `v1_4_0_000` and the shared steps to `v1_4_1_001`–`v1_4_1_006`. The suite checks
-these names while retaining the original revision IDs in execution and recovery evidence.
+The declared target release is **1.5.1**. Public migration output maps the two source baselines to
+`v1_3_0_000` / `v1_4_0_000` and the shared steps to `v1_4_1_001`–`v1_4_1_006`, followed by
+`v1_5_0_001`–`v1_5_0_004`. The suite checks these names while retaining the original revision IDs in execution
+and recovery evidence.
 
 The `automatic_sources` policy uses `strategy: "fixed-version"` and `source_version: "1.3.0"`.
 Explicit `cases` are empty. The catalog retains twelve configurations of the 1.3.0 source across SQLite,
@@ -88,7 +88,7 @@ gh workflow run master.yml --repo oceanbase/powercontext --ref YOUR_BRANCH -f up
 ```
 
 A diagnostic subset produces no publication artifacts and cannot authorize release. Missing, skipped or failed
-cases in the full automatic matrix block publication, and the reviewed support declaration remains mandatory.
+cases in the full automatic matrix block publication. Release prose is not an acceptance requirement.
 
 The fixed required check remains **Upgrade release gate**; on Main it covers only the selected configurations. It fails if the shared workflow fails or is cancelled.
 Each case job has a sixty-minute budget including provisioning; existing thirty-minute command deadlines and
@@ -167,9 +167,9 @@ Server identity and authorization, and shared limits used in table definitions. 
 changes, but does not infer semantic compatibility or replace real upgrade tests.
 
 Build one wheel and its matching `.tar.gz` source distribution into `dist/`, then run `make upgrade-release-test`. Before release, additionally run
-`uv run python scripts/run_upgrade_release_gate.py --release --release-notes /path/to/notes.md`. The notes must contain
-the exact English support declaration generated in the installation guide. The release workflow performs this check
-against the GitHub event's notes and gates both PyPI publication and release assets on the same tested wheel.
+`uv run python scripts/run_upgrade_release_gate.py --release`. The release workflow uses its own commit for gate
+tooling and the selected tag for package builds and acceptance suites. It gates both PyPI publication and release
+assets on the same tested wheel, without requiring a support declaration in the Release body.
 
 Repository administrators must require **Upgrade release gate** in branch protection. Workflow code cannot configure
 that setting. Because the release workflow starts on `release.published`, it can block package/asset publication,

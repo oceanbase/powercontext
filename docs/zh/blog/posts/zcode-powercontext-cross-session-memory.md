@@ -1,7 +1,7 @@
 ---
-slug: zcode-powercontext-cross-session-memory
 title: "新开一个会话，不必再从头说起"
 description: "从 AgentMeld 项目自动生成的两条工作约定出发，记录我给 ZCode 接入 PowerContext 时，对提示词采集、记忆召回与工作交接的处理。"
+slug: zcode-powercontext-cross-session-memory
 cover: assets/blog/zcode-powercontext-cross-session-memory/cover.png
 cover_alt: 一条蓝色记忆带连接两个工作空间，让项目上下文跨会话延续。
 date: 2026-10-27

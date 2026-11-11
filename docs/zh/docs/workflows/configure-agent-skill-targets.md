@@ -1,6 +1,6 @@
 ---
 title: 将 Skill 安装到 Agent
-description: 注册显式的本地 Codex 或 Claude Code Skill 目录，用于发现和 managed publication。
+description: 注册本地 Codex 或 Claude Code 的 Skill 目录，用于发现已有 Skill 和发布经过批准的托管 Skill。
 ---
 
 # 将 Skill 安装到 Agent

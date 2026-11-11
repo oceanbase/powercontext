@@ -27,7 +27,7 @@ from powercontext.builtin.persistence.oceanbase.topic_memory_index import OceanB
 
 
 @pytest.mark.parametrize("family", ["atomic-memory", "topic-memory"])
-def test_native_vector_initialization_is_idempotent_and_preserves_hnsw(family):
+def test_native_vector_initialization_is_idempotent_and_preserves_hnsw(family, mock_provisioned_mysql_connection):
     async def scenario():
         profile = EmbeddingProfile(
             profile_id="startup-test", model="test", dimension=3, distance="l2", normalization="unit"
@@ -46,7 +46,7 @@ def test_native_vector_initialization_is_idempotent_and_preserves_hnsw(family):
             connection = AsyncMock(spec=AsyncConnection)
             connection.dialect = dialect()
             connection.scalar.return_value = "VECTOR(3)"
-            connection.run_sync.return_value = set()
+            connection.run_sync.side_effect = lambda callback: callback(mock_provisioned_mysql_connection)
             connection.execute.return_value.all.return_value = []
 
             async def execute(sql):
@@ -83,9 +83,10 @@ def test_native_vector_initialization_is_idempotent_and_preserves_hnsw(family):
 
 
 @pytest.mark.parametrize(
-    "case", ["existing", "duplicate", "ordinary", "wrong-distance", "other-unsupported", "missing-name"]
+    "case", ["existing", "duplicate", "ordinary", "wrong-distance", "wrong-column", "other-unsupported", "missing-name"]
 )
-def test_vector_initialization_only_accepts_matching_native_metadata(case):
+@pytest.mark.parametrize("quoted", [True, False])
+def test_vector_initialization_only_accepts_matching_native_metadata(case, quoted):
     from pymysql.err import NotSupportedError as MySQLNotSupportedError
     from sqlalchemy.exc import NotSupportedError, SQLAlchemyError
 
@@ -96,7 +97,7 @@ def test_vector_initialization_only_accepts_matching_native_metadata(case):
         index = OceanBaseTopicMemoryVectorIndex(profile)._topic_index
         connection = AsyncMock(spec=AsyncConnection)
         connection.dialect = dialect()
-        present = case in {"existing", "ordinary", "wrong-distance"}
+        present = case in {"existing", "ordinary", "wrong-distance", "wrong-column"}
         native = (
             "CREATE TABLE `pc_topic_memory_vector_topics` (\n"
             "  VECTOR KEY `ix_pc_topic_memory_vector_topics_embedding` (`embedding`) "
@@ -115,6 +116,10 @@ def test_vector_initialization_only_accepts_matching_native_metadata(case):
                     definition = native.replace("VECTOR KEY", "KEY")
                 elif case == "wrong-distance":
                     definition = native.replace("L2", "COSINE")
+                elif case == "wrong-column":
+                    definition = native.replace("(`embedding`)", "(`other_embedding`)")
+                if not quoted:
+                    definition = definition.replace("`", "")
                 result = MagicMock()
                 result.first.return_value = ("pc_topic_memory_vector_topics", definition)
                 return result
@@ -129,6 +134,9 @@ def test_vector_initialization_only_accepts_matching_native_metadata(case):
         connection.exec_driver_sql.side_effect = execute
         if case in {"existing", "duplicate"}:
             await create_vector_index(connection, index)
+            assert any(
+                call.args[0].startswith("CREATE VECTOR INDEX") for call in connection.exec_driver_sql.call_args_list
+            ) is (case == "duplicate")
         else:
             with pytest.raises(SQLAlchemyError):
                 await create_vector_index(connection, index)

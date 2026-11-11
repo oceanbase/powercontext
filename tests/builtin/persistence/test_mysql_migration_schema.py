@@ -129,7 +129,7 @@ def extended_bundle(tmp_path: Path) -> MigrationBundle:
     (directory / "versions/fixture_next.py").write_text(
         "from alembic import op\n"
         "revision = 'fixture_next'\n"
-        "down_revision = 'p0004'\n"
+        "down_revision = 'p0005'\n"
         f"def upgrade():\n    op.execute({_NEXT_TABLE!r})\n",
         encoding="utf-8",
     )
@@ -137,11 +137,33 @@ def extended_bundle(tmp_path: Path) -> MigrationBundle:
     (directory / "mysql_wrappers/fixture_next.py").write_text(
         "from alembic import context\n"
         "revision = 'fixture_next'\n"
-        "down_revision = 'p0004'\n"
+        "down_revision = 'p0005'\n"
         "def upgrade():\n    context.config.attributes['execute_revision'](revision)\n",
         encoding="utf-8",
     )
     return MigrationBundle(directory)
+
+
+@pytest.mark.parametrize("table_charset", ["gbk", "utf8mb4"])
+def test_registered_additions_preserve_declared_encodings(table_charset: str) -> None:
+    """Model inheritance to check emitted SQL; native tests cover execution/recovery."""
+    from unittest.mock import Mock
+
+    from powercontext.builtin.persistence.migrations.mysql_schema import _parse_table
+
+    schema = MySQLSchema(server_bundle())
+    connection = Mock(spec=Connection)
+    for statement in schema.statements("s1400"):
+        if not statement.startswith("ALTER TABLE pc_artifacts ADD COLUMN"):
+            continue
+        schema.execute(connection, statement, {}, revision="s1400")
+        emitted = connection.exec_driver_sql.call_args.args[0]
+        clause = emitted.split(" ADD COLUMN ", 1)[1]
+        _, observed = _parse_table(f"CREATE TABLE pc_artifacts ({clause}) DEFAULT CHARSET={table_charset}")
+        for name, column in observed["columns"].items():
+            expected = schema.required("s1400")["tables"]["pc_artifacts"]["columns"][name]
+            assert column == expected
+        assert "DEFAULT NULL" in emitted
 
 
 def test_registered_next_revision_uses_the_same_recognition_and_sqlite_executor(
@@ -150,21 +172,20 @@ def test_registered_next_revision_uses_the_same_recognition_and_sqlite_executor(
     schema = MySQLSchema(extended_bundle)
     layouts = json.loads((extended_bundle.snapshot_directory / "mysql_layouts.json").read_text())
     tables = _show_tables(citations=2, drop_family_check=True)
-    for revision in ("p0004",):
+    for revision in ("p0004", "p0005"):
         for statement in layouts["revisions"][revision]:
             tables[statement.split()[2]] = statement
     source = _ReflectedDatabase(tables)
     inventory = _inventory(source)
-    assert schema.identify(inventory) == "p0004"
-    recovery = schema.recovery(inventory, "p0004")
-    assert recovery.revision == "fixture_next"
+    assert schema.identify(inventory) == "p0005"
+    recovery = schema.recovery(inventory, "p0005")
     assert recovery.pending_statements == (_NEXT_TABLE,)
     source.tables["pc_extension_marker"] = _NEXT_TABLE
     inventory = _inventory(source)
     assert schema.identify(inventory) == "fixture_next"
     schema.verify(inventory, "fixture_next")
-    assert schema.recovery(inventory, "p0004").completed_revision == "fixture_next"
-    assert extended_bundle.pending("p0003") == ("p0004", "fixture_next")
+    assert schema.recovery(inventory, "p0005").completed_revision == "fixture_next"
+    assert extended_bundle.pending("p0004") == ("p0005", "fixture_next")
     source.tables["pc_schema_revision"] = (
         "CREATE TABLE pc_schema_revision (version_num VARCHAR(32) NOT NULL, PRIMARY KEY (version_num))"
     )
@@ -213,11 +234,11 @@ def test_mysql_execution_registration_rejects_incomplete_history_before_opening_
         del manifest["mysql_wrappers"]
     elif change == "predecessor":
         wrapper = extended_bundle.directory / "mysql_wrappers/fixture_next.py"
-        wrapper.write_text(wrapper.read_text().replace("'p0004'", "'p0003'"), encoding="utf-8")
+        wrapper.write_text(wrapper.read_text().replace("'p0005'", "'p0004'"), encoding="utf-8")
     elif change == "unbound":
         manifest["revision_resources"]["fixture_next"].remove("mysql_wrappers/fixture_next.py")
     else:
-        manifest["mysql_wrappers"]["p0004"] = "mysql_wrappers/fixture_next.py"
+        manifest["mysql_wrappers"]["p0005"] = "mysql_wrappers/fixture_next.py"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     target = tmp_path / "absent-seekdb"
     evidence = tmp_path / "absent-evidence"

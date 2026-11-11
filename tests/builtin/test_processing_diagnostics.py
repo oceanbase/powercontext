@@ -33,6 +33,12 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
 )
 from powercontext.builtin.artifacts.memory.extraction import MemoryExtractionCandidate, _selected_evidence
+from powercontext.builtin.artifacts.topic_memory.errors import (
+    TopicMemoryCapabilityError,
+    TopicMemoryProjectionError,
+    TopicMemoryStorageInvariantError,
+)
+from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGenerationError
 from powercontext.builtin.inference.errors import (
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -53,6 +59,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_block_code,
     classify_processing_error,
     safe_classify_processing_error,
 )
@@ -203,6 +210,7 @@ def test_budget_failure_reports_safe_accounting_fields() -> None:
     pipeline = SimpleNamespace(
         estimator=character_token_estimator(),
         extraction_instructions="extract",
+        input_renderer=None,
     )
     value = SimpleNamespace(
         evidence=(object(), object(), object()),
@@ -407,3 +415,122 @@ def test_console_filter_renders_the_new_processing_fields() -> None:
     assert 'processing_stage="generation"' in processing_context
     assert 'failure_reason="rate_limit"' in processing_context
     assert 'cause_exception_type="ModelHTTPError"' in processing_context
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("embedding_unavailable", ProcessingStage.EMBEDDING, ProcessingFailureReason.CONFIGURATION),
+        ("input_budget_exceeded", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.CONTEXT_OVERFLOW),
+        (
+            "reduction_input_budget_exceeded",
+            ProcessingStage.BUSINESS_VALIDATION,
+            ProcessingFailureReason.CONTEXT_OVERFLOW,
+        ),
+        ("window_provider_budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("window_attempt_limit", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("reduction_output_budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("invalid_plan", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_evidence", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_proposal", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_reconciliation", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_reduction", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_target", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_temporary", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_work_item", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("unsupported_evidence", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("reduction_did_not_progress", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("duplicate_target", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("identity_merge", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("proposal_limit", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("incomplete_target", ProcessingStage.PERSISTENCE, ProcessingFailureReason.STORAGE_FAILURE),
+        (
+            "source_complexity_limit",
+            ProcessingStage.BUSINESS_VALIDATION,
+            None,
+        ),
+        ("related_history_limit", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("source_window_changed", None, None),
+        ("invalid_window", None, None),
+        ("duplicate_operation", None, None),
+        ("window_attempt_superseded", None, None),
+        ("target_did_not_converge", None, None),
+        ("unaccepted_invocation", None, None),
+        ("invalid_invocation", None, None),
+        ("invalid_work_reservation", None, None),
+        ("invalid_stage_budget", None, ProcessingFailureReason.CONFIGURATION),
+        ("invalid_max_tokens", None, ProcessingFailureReason.CONFIGURATION),
+        ("output_budget_exceeded", None, ProcessingFailureReason.CONFIGURATION),
+    ],
+)
+def test_topic_memory_generation_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(TopicMemoryGenerationError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_topic_memory_code_keeps_unknown_classification() -> None:
+    assert classify_processing_error(TopicMemoryGenerationError("unknown_future_code")) is None
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("content", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("chunks", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("lexical", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("vector-incomplete", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("fts", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("vector-unconfigured", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("embedding-profile", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("embedding-values", ProcessingStage.EMBEDDING, ProcessingFailureReason.INVALID_OUTPUT),
+    ],
+)
+def test_topic_memory_projection_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(TopicMemoryProjectionError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_topic_memory_projection_code_keeps_reason_unknown() -> None:
+    diagnostics = classify_processing_error(TopicMemoryProjectionError("future-code"))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is None
+    assert diagnostics.failure_location == "future-code"
+
+
+def test_topic_memory_storage_invariant_errors_classify_as_persistence() -> None:
+    diagnostics = classify_processing_error(TopicMemoryStorageInvariantError("missing-publication", ("scope",)))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is ProcessingFailureReason.STORAGE_FAILURE
+    assert diagnostics.failure_location == "missing-publication"
+
+
+def test_topic_memory_capability_errors_classify_as_configuration() -> None:
+    diagnostics = classify_processing_error(TopicMemoryCapabilityError("vector"))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+    assert diagnostics.failure_location == "vector"
+
+
+def test_durable_blocks_classify_only_for_topic_memory() -> None:
+    diagnostics = classify_block_code("topic_memory", "window_attempt_limit")
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.GENERATION
+    assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+    assert diagnostics.failure_location == "window_attempt_limit"
+    assert classify_block_code("memory", "window_attempt_limit") is None
+    assert classify_block_code("topic_memory", "") is None

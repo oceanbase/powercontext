@@ -21,7 +21,7 @@ import logging
 import shlex
 from typing import Any
 
-from .client import PowerContextError, PowerContextHTTPError
+from .client import MEMORY_PROTOCOL_RECOVERY, PowerContextError, PowerContextHTTPError
 from .helpers import (
     DEFAULT_RETRIEVAL_LIMIT,
     as_int,
@@ -70,6 +70,13 @@ def _emit_failure_diagnostic(provider: Any, event: str, error: PowerContextError
 def _domain_error_result(error: BaseException) -> str | None:
     if not isinstance(error, PowerContextHTTPError):
         return None
+    if error.status == 422 and error.code == "legacy_memory_operation_unsupported":
+        return json.dumps({
+            "error": "This request uses the unsupported legacy Memory collection protocol.",
+            "code": error.code,
+            "status": error.status,
+            "recovery": MEMORY_PROTOCOL_RECOVERY,
+        })
     outcome = {
         404: "not_found",
         409: "conflict",
@@ -362,6 +369,35 @@ def group_command(provider: Any, group: str, args: list[str]) -> str:
     return operation_command(provider, operation, args[1:])
 
 
+def memory_protocol_status(client: Any) -> dict[str, Any]:
+    """Check the semantic declaration independently of liveness and readiness."""
+    result = {
+        "ok": False,
+        "code": "memory_protocol_unverified",
+        "recovery": MEMORY_PROTOCOL_RECOVERY,
+    }
+    method = getattr(client, "get_server_info", None)
+    if callable(method):
+        try:
+            info = method()
+            contracts = info.get("feature_contracts") if isinstance(info, dict) else None
+            memory = contracts.get("memory.explicit") if isinstance(contracts, dict) else None
+            version = memory.get("version") if isinstance(memory, dict) else None
+            if (
+                isinstance(version, dict)
+                and type(version.get("major")) is int
+                and version["major"] == 1
+                and type(version.get("minor")) is int
+                and version["minor"] >= 0
+            ):
+                result = {"ok": True, "code": "memory_protocol_compatible"}
+            else:
+                result["code"] = "memory_protocol_mismatch"
+        except PowerContextError as error:
+            result["error"] = str(error)
+    return result
+
+
 def status_command(provider: Any) -> str:
     result: dict[str, Any] = {
         "scope_id": provider._scope_id,
@@ -377,6 +413,7 @@ def status_command(provider: Any) -> str:
                 except PowerContextError as error:
                     _emit_failure_diagnostic(provider, "status", error)
                     result[name] = {"error": str(error)}
+    result["memory_protocol"] = memory_protocol_status(provider._client)
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

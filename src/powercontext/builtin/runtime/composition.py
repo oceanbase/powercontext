@@ -20,7 +20,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
 from datetime import timedelta
 from functools import partial
 from ipaddress import ip_address
@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
     require_atomic_memory_pipeline,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -96,6 +97,18 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
+from powercontext.builtin.inference.input_encoding import INPUT_ENCODING_SCHEMA_V2
+from powercontext.builtin.inference.observability import (
+    ProviderObservationReport,
+    ProviderObservationSource,
+    ProviderObserver,
+    bind_provider_observer,
+    current_provider_observer,
+    observe_http_client,
+    provider_name,
+    suppress_provider_observation,
+)
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
@@ -162,6 +175,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
+from powercontext.builtin.runtime.atomic_memory_input import render_atomic_memory_input
 from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
 from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
@@ -183,6 +197,7 @@ from powercontext.builtin.runtime.decision_projection import (
 from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
+from powercontext.builtin.runtime.input_preparation import render_input
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import DreamOperationCapability, MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_contracts import (
@@ -222,9 +237,11 @@ from powercontext.builtin.sources import (
 )
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
-from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
+from powercontext.sources import AdapterSourceDefinition, Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
+    import httpx2
+    from anthropic import AsyncAnthropic
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
@@ -246,6 +263,9 @@ class BuiltinConfigurationError(RuntimeError):
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
             "inference-profile": "validated inference profile is incomplete",
+            "inference-protection-injected-provider": (
+                "enforcing inference protection requires owned provider transports; custom inference injection is unsupported"
+            ),
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
@@ -504,6 +524,11 @@ def _artifact_merge_application(contexts: RelationalContexts, config: RuntimeCon
     )
 
 
+def _validate_protected_inference(protection: InferenceProtectionConfig, *dependencies: object) -> None:
+    if protection.mode == "enforcing" and any(dependency is not None for dependency in dependencies):
+        raise BuiltinConfigurationError("inference-protection-injected-provider")
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -531,6 +556,8 @@ async def open_builtin_runtime(
     model_usage_observer: Callable[[int, int, int, int], None] | None = None,
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
+    provider_observer: ProviderObserver | None = None,
+    worker_provider_observer: Callable[[ProviderObservationReport | None], None] | None = None,
     topic_memory_search_observer: Callable[[str, bool], None] | None = None,
     tracing: RuntimeTracing | None = None,
     artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
@@ -545,6 +572,7 @@ async def open_builtin_runtime(
     cursor_secret: bytes | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
     recall_effort_sink: RecallEffortSink | None = None,
+    dispatch_processing: bool = True,
     _archive_recovery: bool = False,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime.
@@ -552,6 +580,10 @@ async def open_builtin_runtime(
     Recall efforts use the scoped relational statistics recorder by default.
     An explicit ``recall_effort_sink`` replaces that recorder rather than adding
     a second observation. A disabled gate invokes neither recorder nor sink.
+
+    Set ``dispatch_processing=False`` for offline maintenance. This skips supervisor
+    startup without changing deployment configuration, manifest validation, or archive
+    recovery behavior.
 
     ``worker_initializer`` is an optional bootstrap for automatically composed spawn
     workers. A ``WorkerInitializerPreparation`` can own per-launch resources through
@@ -561,7 +593,22 @@ async def open_builtin_runtime(
     """
 
     async with AsyncExitStack() as resources:
+        _validate_protected_inference(
+            config.inference.protection,
+            candidate_pipeline,
+            experience_pipeline,
+            experience_generator,
+            profile_generator,
+            skill_generator,
+            dream_generator,
+            handoff_pipeline,
+            embedding_model,
+            memory_reranker,
+            decision_model,
+            memory_write_gate,
+        )
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
+        resources.enter_context(bind_provider_observer(provider_observer or current_provider_observer()))
         resolved_decision_request_sanitizer = decision_request_sanitizer
         _validate_processing_source_registry(config, artifact_processing_bindings, configured_source_registry)
         prompt_demonstrators: dict[str, DemonstrationGenerator] = {}
@@ -736,6 +783,7 @@ async def open_builtin_runtime(
             worker_entrypoint_wrapper=worker_entrypoint_wrapper,
             worker_model_usage_observer=worker_model_usage_observer,
             source_registry=configured_source_registry,
+            worker_provider_observer=worker_provider_observer,
         )
         log_safely(
             logger,
@@ -776,6 +824,7 @@ async def open_builtin_runtime(
         )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
+                inference_protection=config.inference.protection,
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
                 provider=contexts,
                 primary_database=contexts.database,
@@ -891,6 +940,7 @@ async def open_builtin_runtime(
                 contexts,
                 processing_bindings,
                 tracing=tracing,
+                dispatch_processing=dispatch_processing,
                 recovery=_archive_recovery,
                 processing_observer=processing_observer,
             )
@@ -929,7 +979,20 @@ def _validate_processing_source_registry(
         type(source_registry) is not SourceDefinitionRegistry
         or len(definitions) != len(builtin_definitions)
         or any(
-            definition is not expected for definition, expected in zip(definitions, builtin_definitions, strict=True)
+            # A host may replace only the evidence declaration while keeping the
+            # builtin adapter, version and projections. `memory_evidence` is
+            # deliberately excluded: it is the dimension this registration adds.
+            not (
+                definition is expected
+                or (
+                    type(definition) is AdapterSourceDefinition
+                    and type(expected) is AdapterSourceDefinition
+                    and definition.adapter is expected.adapter
+                    and definition.version == expected.version
+                    and definition.projections is expected.projections
+                )
+            )
+            for definition, expected in zip(definitions, builtin_definitions, strict=True)
         )
     ):
         raise BuiltinConfigurationError("artifact-processing-source-registry")
@@ -949,6 +1012,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None,
     source_registry: SourceDefinitionRegistry = BUILTIN_SOURCE_REGISTRY,
+    worker_provider_observer: Callable[[ProviderObservationReport | None], None] | None = None,
 ) -> tuple[ArtifactProcessingBinding, ...]:
     configured = list(bindings)
     _validate_processing_registrations(configured)
@@ -1028,6 +1092,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                     initializer=worker_initializer,
                     entrypoint_wrapper=worker_entrypoint_wrapper,
                     collect_model_usage=worker_model_usage_observer is not None,
+                    collect_provider_observations=worker_provider_observer is not None,
                 ),
                 max_workers=getattr(config.runtime, f"{prefix}_max_workers"),
                 worker_timeout_seconds=getattr(config.runtime, f"{prefix}_worker_timeout_seconds"),
@@ -1045,6 +1110,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 else None,
                 worker_model_usage_observer=worker_model_usage_observer,
                 work_failure=record_topic_memory_work_failure if family == "topic-memory" else None,
+                worker_provider_observer=worker_provider_observer,
             )
         )
     _validate_processing_registrations(configured)
@@ -1084,10 +1150,11 @@ async def _open_artifact_processing_supervisor(
     bindings: Sequence[ArtifactProcessingBinding],
     *,
     tracing: RuntimeTracing | None = None,
+    dispatch_processing: bool = True,
     recovery: bool = False,
     processing_observer: Callable[[str, str, float], None] | None = None,
 ) -> AsyncIterator[ArtifactProcessingSupervisors | None]:
-    if recovery or config.runtime.artifact_processing_role == "api" or not bindings:
+    if not dispatch_processing or recovery or config.runtime.artifact_processing_role == "api" or not bindings:
         yield None
         return
     groups = (
@@ -1446,6 +1513,7 @@ async def _dream_generator(
         disable_provider_retries=True,
         streaming=settings.generation_streaming,
         stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+        protection=settings.protection,
     )
     model_settings = cast(ModelSettings, dict(settings.generation_model_settings))
     model_settings["max_tokens"] = min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
@@ -1567,6 +1635,7 @@ async def _generation_pipelines(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
         generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
         generation_limits = InferenceLimits(
@@ -1606,6 +1675,22 @@ async def _generation_pipelines(
                 )
             )
         )
+        memory_estimator = character_token_estimator()
+        input_policy = PrivacyPolicy(settings.protection)
+        memory_modes = {
+            stage: settings.input_encoding_mode(stage) for stage in ("atomic_memory.extract", "atomic_memory.reconcile")
+        }
+        memory_input_renderer = (
+            None
+            if all(mode == "off" for mode in memory_modes.values())
+            else partial(
+                render_atomic_memory_input,
+                modes=memory_modes,
+                estimator=memory_estimator,
+                policy=input_policy,
+            )
+        )
+        memory_send_renderer = None if memory_input_renderer is None else partial(memory_input_renderer, observe=True)
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
@@ -1615,6 +1700,8 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            output_check=validate_extraction_output,
+            input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1626,6 +1713,7 @@ async def _generation_pipelines(
             name="atomic_memory_reconciliation",
             prompt_key="atomic_memory.reconcile",
             output_check=validate_reconciliation_decision,
+            input_renderer=memory_send_renderer,
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1636,6 +1724,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_incubation",
             prompt_key="experience.incubate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.incubate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.incubate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.incubate") != "off"
+                else None
+            ),
         )
         explicit_experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1646,6 +1747,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_generation",
             prompt_key="experience.generate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.generate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.generate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.generate") != "off"
+                else None
+            ),
         )
         skill_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1670,8 +1784,9 @@ async def _generation_pipelines(
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
             reconciler=UsageReportingStructuredGenerator(memory_reconciler),
-            estimator=character_token_estimator(),
+            estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            input_renderer=memory_input_renderer,
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
@@ -1717,6 +1832,7 @@ async def _generation_pipelines(
                 instrumentation=instrumentation,
                 streaming=settings.generation_streaming,
                 stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+                protection=settings.protection,
             )
         if rerank_provider_model is not None and rerank_model is not None:
             rerank_values = (
@@ -1840,6 +1956,7 @@ async def _generation_decision(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
     if decision_provider_model is None or decision_model is None:
         return None, None
@@ -1944,25 +2061,23 @@ async def _open_pydantic_ai_model(
     disable_provider_retries: bool = False,
     streaming: Literal["auto", "disabled"] = "disabled",
     stream_idle_timeout_seconds: float = 60.0,
+    protection: InferenceProtectionConfig | None = None,
 ) -> tuple[Model, Model]:
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
 
     if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
-    inferred_model = (
-        infer_model(model_name)
-        if base_url is None and not headers and not disable_provider_retries
-        else infer_model(
-            model_name,
-            provider_factory=_provider_factory(
-                base_url,
-                headers,
-                workload="generation",
-                resources=resources,
-                disable_retries=disable_provider_retries,
-            ),
-        )
+    inferred_model = infer_model(
+        model_name,
+        provider_factory=_provider_factory(
+            base_url,
+            headers,
+            workload="generation",
+            resources=resources,
+            disable_retries=disable_provider_retries,
+            protection=protection,
+        ),
     )
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model
@@ -1999,9 +2114,41 @@ def _provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
     disable_retries: bool = False,
+    protection: InferenceProtectionConfig | None = None,
 ) -> Callable[[str], Provider[Any]]:
-    create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
-    if not disable_retries:
+    if protection is not None and protection.mode != "disabled":
+        create_provider = _protected_provider_factory(
+            base_url,
+            headers,
+            workload=workload,
+            resources=resources,
+            protection=protection,
+            disable_retries=disable_retries or protection.mode == "enforcing",
+        )
+    else:
+        create_provider = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
+
+    def create(name: str) -> Provider[Any]:
+        provider = create_provider(name)
+        observer = current_provider_observer()
+        if observer is not None:
+            import httpx2
+
+            client = getattr(provider, "_own_http_client", None)
+            # Explicit SDK clients above are newly owned by this Runtime as well.
+            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic", "openai-codex"}:
+                client = getattr(provider.client, "_client", None)
+            supported = False
+            if isinstance(client, httpx2.AsyncClient):
+                with suppress(Exception):
+                    observe_http_client(client)
+                    supported = True
+            ProviderObservationSource(provider_name(provider.name), workload, observer).emit(
+                "coverage", outcome="available" if supported else "unavailable"
+            )
+        return provider
+
+    if not disable_retries or (protection is not None and protection.mode != "disabled"):
         return create
 
     def bounded(provider_name: str) -> Provider[Any]:
@@ -2019,6 +2166,57 @@ def _provider_factory(
     return bounded
 
 
+def _protected_provider_factory(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    workload: Literal["generation", "embedding"],
+    resources: AsyncExitStack,
+    protection: InferenceProtectionConfig,
+    disable_retries: bool,
+) -> Callable[[str], Provider[Any]]:
+    """Own the final transport, including SDK defaults and auxiliary models."""
+
+    import httpx2
+
+    from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
+
+    def create(provider_name: str) -> Provider[Any]:
+        # Explicit client injection avoids SDK cached clients, redirect behavior,
+        # hidden transport retries and provider-side request inspection bypasses.
+        client = httpx2.AsyncClient(
+            transport=ProtectedAsyncTransport(protection),
+            follow_redirects=False,
+            headers={"Accept-Encoding": "identity"},
+        )
+        resources.push_async_callback(client.aclose)
+        if provider_name in {"openai", "openai-chat", "openai-responses"}:
+            from openai import AsyncOpenAI
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            sdk = AsyncOpenAI(
+                base_url=None if base_url is None else str(base_url),
+                api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
+                default_headers=_resolve_headers(headers),
+                http_client=client,
+            )
+            if disable_retries:
+                sdk.max_retries = 0
+            resources.push_async_callback(sdk.close)
+            return OpenAIProvider(openai_client=sdk)
+        if provider_name == "anthropic" and workload == "generation":
+            from pydantic_ai.providers.anthropic import AnthropicProvider
+
+            sdk = _anthropic_client(base_url, headers, http_client=client)
+            if disable_retries:
+                sdk.max_retries = 0
+            resources.push_async_callback(sdk.close)
+            return AnthropicProvider(anthropic_client=sdk)
+        raise BuiltinConfigurationError("inference-endpoint-provider")
+
+    return create
+
+
 def _unbounded_provider_factory(
     base_url: AnyHttpUrl | None,
     headers: Mapping[str, SecretStr],
@@ -2026,19 +2224,23 @@ def _unbounded_provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
 ) -> Callable[[str], Provider[Any]]:
+    import httpx2
     from pydantic_ai.providers import infer_provider
-
-    if base_url is None and not headers:
-        return infer_provider
-
     from pydantic_ai.providers.openai import OpenAIProvider
 
     def create_provider(provider_name: str) -> Provider[Any]:
+        if base_url is None and not headers:
+            if provider_name == "openai-codex" and workload == "generation":
+                from powercontext.builtin.inference.codex import codex_cli_provider
+
+                return codex_cli_provider(resources)
+            if provider_name != "anthropic" or not os.getenv("ANTHROPIC_BASE_URL"):
+                return infer_provider(provider_name)
         if provider_name in {"openai", "openai-chat", "openai-responses"}:
             if headers:
                 from openai import AsyncOpenAI
 
-                http_client = _endpoint_http_client(follow_redirects=False) if base_url is not None else None
+                http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
                 client = AsyncOpenAI(
                     base_url=None if base_url is None else str(base_url),
                     api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
@@ -2048,48 +2250,58 @@ def _unbounded_provider_factory(
                 resources.push_async_callback(client.close)
                 return OpenAIProvider(openai_client=client)
             if base_url is not None and _is_loopback_endpoint(base_url):
-                from openai import AsyncOpenAI
-
-                client = AsyncOpenAI(
-                    base_url=str(base_url),
-                    api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
-                    http_client=_endpoint_http_client(follow_redirects=False),
-                )
-                resources.push_async_callback(client.close)
-                return OpenAIProvider(openai_client=client)
+                http_client = httpx2.AsyncClient(follow_redirects=False)
+                resources.push_async_callback(http_client.aclose)
+                return OpenAIProvider(base_url=str(base_url), http_client=http_client)
             return OpenAIProvider(base_url=str(base_url))
         if provider_name == "anthropic" and workload == "generation":
-            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            if headers:
-                default_headers = _resolve_headers(headers)
-                api_key = _pop_header(default_headers, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
-                has_authorization = any(name.casefold() == "authorization" for name in default_headers)
-                client = AsyncAnthropic(
-                    base_url=None if base_url is None else str(base_url),
-                    # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
-                    api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                    default_headers=default_headers,
-                    http_client=_endpoint_http_client(follow_redirects=False) if base_url is not None else None,
-                )
-                resources.push_async_callback(client.close)
-                return AnthropicProvider(anthropic_client=client)
-            return AnthropicProvider(
-                base_url=str(base_url),
-                api_key=os.getenv("ANTHROPIC_API_KEY") or "api-key-not-set",
-            )
+            client = _anthropic_client(base_url, headers)
+            resources.push_async_callback(client.close)
+            return AnthropicProvider(anthropic_client=client)
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
 
 
-def _endpoint_http_client(*, follow_redirects: bool):
-    """Create the SDK transport with an explicit redirect policy for custom endpoints."""
+def _anthropic_client(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    http_client: httpx2.AsyncClient | None = None,
+) -> AsyncAnthropic:
+    import httpx2
+    from anthropic import AsyncAnthropic
 
-    import httpx
+    endpoint = str(base_url) if base_url is not None else os.getenv("ANTHROPIC_BASE_URL")
+    custom_endpoint = endpoint is not None and urlsplit(endpoint).hostname != "api.anthropic.com"
+    resolved = _resolve_headers(headers)
+    header_api_key = _pop_header(resolved, "x-api-key")
+    api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
+    has_authorization = any(name.casefold() == "authorization" for name in resolved)
+    if api_key and has_authorization:
+        resolved["X-Api-Key"] = api_key
+    if http_client is None and endpoint is not None:
+        http_client = httpx2.AsyncClient(follow_redirects=False)
+    if api_key and not has_authorization and (base_url is not None or custom_endpoint or header_api_key is not None):
+        http_client = http_client or httpx2.AsyncClient()
+        http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
+    return AsyncAnthropic(
+        base_url=endpoint,
+        api_key=api_key or (None if has_authorization else "api-key-not-set"),
+        default_headers=resolved,
+        http_client=http_client,
+    )
 
-    return httpx.AsyncClient(follow_redirects=follow_redirects)
+
+def _anthropic_api_key_header(request: httpx2.Request, *, api_key: str) -> httpx2.Request:
+    """Keep custom endpoints compatible with the pre-v2 Anthropic authentication header."""
+
+    if request.headers.get("Authorization") == f"Bearer {api_key}":
+        del request.headers["Authorization"]
+        request.headers["X-Api-Key"] = api_key
+    return request
 
 
 def _is_loopback_endpoint(endpoint: AnyHttpUrl | str | None) -> bool:
@@ -2206,6 +2418,7 @@ async def _embedding_models(
         workload="embedding",
         resources=resources,
         disable_retries=disable_provider_retries,
+        protection=settings.protection,
     )
 
     def provider_factory(provider_name: str) -> Provider[Any]:
@@ -2276,6 +2489,7 @@ def _minimax_embedding_models(
             profile=profile,
             batch_size=settings.embedding_batch_size,
             timeout_seconds=settings.embedding_timeout_seconds,
+            protection=settings.protection,
         )
         resources.push_async_callback(model.aclose)
         return model
@@ -2287,7 +2501,8 @@ def _minimax_embedding_models(
 
 def _embedding_readiness_probe(model: EmbeddingModel) -> ReadinessProbe:
     async def probe_embedding() -> None:
-        await model.embed(("PowerContext readiness probe",))
+        with suppress_provider_observation():
+            await model.embed(("PowerContext readiness probe",))
 
     return CachedReadinessProbe(dependency_readiness_probe(probe_embedding))
 

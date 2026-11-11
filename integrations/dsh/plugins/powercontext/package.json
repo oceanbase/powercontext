@@ -3,6 +3,25 @@
   "version": "0.0.2",
   "description": "DeepSeek Harness plugin that exposes PowerContext through native MCP tools and uses HTTP for host lifecycle hooks.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oceanbase/powercontext.git",
+    "directory": "integrations/dsh/plugins/powercontext"
+  },
+  "homepage": "https://github.com/oceanbase/powercontext/tree/master/integrations/dsh/plugins/powercontext",
+  "bugs": "https://github.com/oceanbase/powercontext/issues",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "memory",
+    "powercontext"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -23,7 +42,8 @@
     "lib/invariant.js",
     "lib/index.d.ts",
     "lib/invariant.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "skills"
   ],
   "dsh": {
     "bundle": {
@@ -37,6 +57,7 @@
     "test:e2e": "vitest run tests/e2e",
     "test:e2e:runtime": "pnpm --dir tests/runtime test",
     "test:all": "vitest run",
+    "test:package": "pnpm build && node --test tests/pack-release.test.mjs",
     "pack:release": "pnpm build && node scripts/pack-release.mjs"
   },
   "peerDependencies": {
@@ -46,7 +67,6 @@
     "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-skill": "*",
     "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/schemastery": "*"
   },
@@ -69,9 +89,6 @@
     "@deepseek-ai/dsh-session": {
       "optional": true
     },
-    "@deepseek-ai/dsh-skill": {
-      "optional": true
-    },
     "@deepseek-ai/dsh-system-prompt": {
       "optional": true
     },
@@ -82,11 +99,15 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "^24.3.0",
+    "cross-spawn": "^7.0.6",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20"
+  },
+  "powercontext": {
+    "memoryProtocol": "atomic-artifact-v1"
   }
 }

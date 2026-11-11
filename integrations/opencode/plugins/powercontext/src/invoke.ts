@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY } from './memory-compatibility.ts'
 import type { JsonObject, PowerContextClient } from './client.ts'
 import { InvalidResponseError, ServerResponseError, UnknownOperationError } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
@@ -24,6 +25,7 @@ export interface ToolResult {
   ok: boolean
   code?: string
   message?: string
+  recovery?: string
   status?: number
   request_id?: string
   etag?: string
@@ -57,6 +59,10 @@ function hasSecret(value: unknown): boolean {
 function errorResult(error: unknown): ToolResult {
   if (error instanceof MemoryOperationError) return { ok: false, code: error.code, message: error.message }
   if (error instanceof ServerResponseError) {
+    if (error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported') return {
+      ok: false, code: error.code, message: 'This request uses the unsupported legacy Memory collection protocol.',
+      recovery: MEMORY_PROTOCOL_RECOVERY, status: 422, request_id: error.requestId,
+    }
     if (error.statusCode === 401) {
       return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed.', status: 401 }
     }
@@ -82,6 +88,15 @@ function errorResult(error: unknown): ToolResult {
   return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable; continue the task.' }
 }
 
+export function scopedPayload(operationId: OperationId, payload: JsonObject, scopeId: string): JsonObject {
+  const mode = OPERATIONS[operationId].scopeMode
+  return mode === 'selection'
+    ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
+    : mode === 'current' || operationId === 'get_atomic_memory_state'
+      ? { ...payload, scope_id: scopeId }
+      : payload
+}
+
 export async function invokeOperation(
   client: PowerContextClient,
   operationId: OperationId,
@@ -89,12 +104,7 @@ export async function invokeOperation(
   scopeId: string,
   signal?: AbortSignal,
 ): Promise<ToolResult> {
-  const mode = OPERATIONS[operationId].scopeMode
-  const body = mode === 'selection'
-    ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
-    : mode === 'current' || operationId === 'get_atomic_memory_state'
-      ? { ...payload, scope_id: scopeId }
-      : payload
+  const body = scopedPayload(operationId, payload, scopeId)
   if (operationMutates(operationId) && hasSecret(body)) {
     return { ok: false, code: 'secret_rejected', message: 'Refused to send secret-like content to PowerContext.' }
   }

@@ -1,3 +1,8 @@
+---
+title: RFC 1502：Scope 与 Source 发现
+description: Scope 与 Source 发现的设计提案，提供指定字段查询、精确过滤和分页，并列举一个 Scope 内的公开 Source。
+---
+
 + Proposal Name: `scope_source_discovery`
 + Start Date: 2026-09-08
 + RFC PR: [oceanbase/powercontext#1502](https://github.com/oceanbase/powercontext/pull/1502)

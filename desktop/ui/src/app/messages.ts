@@ -109,7 +109,7 @@ export const messages = {
     inventoryDescription:
       "此视图将展示当前精确 Scope 的库存和用量。尚未接入数据；未知值不表示为零。",
     sessionDescription:
-      "此视图将展示本次 Desktop 会话的有限请求汇总。当前尚未提供请求统计或安全诊断摘要复制。",
+      "分别查看本次 Desktop 会话的 HTTP 请求和原生操作汇总，并显式预览、复制安全诊断摘要。",
     home: "总览",
     connections: "连接",
     memories: "记忆",
@@ -210,12 +210,36 @@ export const messages = {
     envCaptureRecall: "保存 / 召回",
     envNote: "配置存在不代表宿主已加载。",
     viewDiagnostics: "查看诊断",
-    gettingStarted: "开始使用",
-    gettingStartedHint: "在当前精确范围保存一条记忆，再通过全文检索找回。",
-    stepSave: "保存一条记忆",
-    stepSaveHint: "在当前精确 Scope 下保存项目文档。",
-    stepSearch: "搜索并核对引用",
-    stepSearchHint: "使用全文检索找到记忆，并查看完整引用。",
+    guideTitle: "开始使用 PowerContext",
+    guideIntro:
+      "先准备一个 Server。选定 Scope 后，就可以保存、查找和复制记忆。",
+    guideLocalTitle: "在本机设置",
+    guidePersonal: "个人使用",
+    guideLocalHint:
+      "适合还没有 Server 的用户。先查看本机准备说明，了解独立安装、配置和运行 Server 的步骤。",
+    guideLocalOpen: "查看本机设置",
+    guideExistingHint:
+      "已有本机或远程 Server 时，添加地址和认证方式，再检查并启用连接。",
+    guideAddConnection: "添加连接",
+    guideLocalUnavailable:
+      "当前版本尚未接入本机安装与恢复；可查看本机准备说明，或连接已有 Server。",
+    guideSavedLabel: "已保存的连接",
+    guideReviewProfile: "查看已保存的配置",
+    guideSavedHint:
+      "选择配置后，先核对并检查，再明确启用。重新打开 Desktop 不会自动恢复连接或 Scope。",
+    guideMemoryTitle: "在当前 Scope 使用记忆",
+    guideMemoryHint:
+      "保存文本，通过关键词查找，再阅读和复制精确版本及引用。搜索结果不代表完整目录。",
+    guideInfo: "基本记忆功能不需要配置模型。仅打开引导不会安装软件或启动服务。",
+    guideDismiss: "收起引导",
+    guideRevisit: "重新查看引导",
+    guideAfterConnection: "连接之后",
+    guideStepConnect: "确认连接",
+    guideStepConnectHint: "检查实际地址、认证方式与兼容性，再明确启用。",
+    guideStepScope: "选择 Scope",
+    guideStepScopeHint: "核对完整 scope_id，确定记忆要存放的精确范围。",
+    guideStepMemory: "保存并找回",
+    guideStepMemoryHint: "写一条记忆，再搜索、阅读和复制。",
     openMemories: "打开记忆",
     overviewBoundary: "浏览范围不会修改 Agent 绑定；退出桌面不会停止 Server。",
     noActiveTitle: "尚未连接服务",
@@ -321,7 +345,7 @@ export const messages = {
     inventoryDescription:
       "This view will show inventory and usage for the current exact Scope. Data is not connected yet; unknown values are not zero.",
     sessionDescription:
-      "This view will show bounded request summaries for this Desktop session. Request statistics and safe diagnostic summary copying are not available yet.",
+      "Inspect HTTP request and native-operation summaries for this Desktop session, then explicitly preview and copy safe diagnostics.",
     home: "Overview",
     connections: "Connections",
     memories: "Memories",
@@ -429,14 +453,39 @@ export const messages = {
     envCaptureRecall: "Capture / recall",
     envNote: "A configuration existing does not mean the host has loaded it.",
     viewDiagnostics: "View diagnostics",
-    gettingStarted: "Getting started",
-    gettingStartedHint:
-      "Save a memory in the current exact scope, then find it with full-text search.",
-    stepSave: "Save a memory",
-    stepSaveHint: "Save project documents under the current exact Scope.",
-    stepSearch: "Search and verify references",
-    stepSearchHint:
-      "Find memories with full-text search and read the complete reference.",
+    guideTitle: "Get started with PowerContext",
+    guideIntro:
+      "Prepare a Server first. After selecting a Scope, you can save, find and copy memories.",
+    guideLocalTitle: "Set up on this computer",
+    guidePersonal: "Personal use",
+    guideLocalHint:
+      "For users without a Server. Review local preparation guidance for installing, configuring and running a Server independently.",
+    guideLocalOpen: "View local setup",
+    guideExistingHint:
+      "Already have a local or remote Server? Add its address and authentication, then check and explicitly activate the connection.",
+    guideAddConnection: "Add connection",
+    guideLocalUnavailable:
+      "Local installation and recovery are not integrated in this version. Read the local preparation guidance or connect an existing Server.",
+    guideSavedLabel: "Saved connection",
+    guideReviewProfile: "Review saved profile",
+    guideSavedHint:
+      "Review and check the selected profile, then explicitly activate it. Reopening Desktop does not restore a connection or Scope automatically.",
+    guideMemoryTitle: "Use memories in the current Scope",
+    guideMemoryHint:
+      "Save text, find it by keyword, then read and copy the exact version and reference. Search results are not a full catalog.",
+    guideInfo:
+      "Basic memory features do not require a model. Opening this guide does not install software or start services.",
+    guideDismiss: "Dismiss guide",
+    guideRevisit: "Revisit guide",
+    guideAfterConnection: "After connecting",
+    guideStepConnect: "Confirm the connection",
+    guideStepConnectHint:
+      "Check the actual address, authentication and compatibility, then explicitly activate it.",
+    guideStepScope: "Select a Scope",
+    guideStepScopeHint:
+      "Check the complete scope_id to choose the exact destination for memories.",
+    guideStepMemory: "Save and find again",
+    guideStepMemoryHint: "Write a memory, then search, read and copy it.",
     openMemories: "Open memories",
     overviewBoundary:
       "Browsing scopes does not change Agent bindings; exiting Desktop does not stop the Server.",

@@ -1,0 +1,36 @@
+{
+  "id": "chatcmpl-DuLdVFrPbAOC3f0eWQVTpsjwZoeQ4",
+  "object": "chat.completion",
+  "created": 1782321909,
+  "model": "gpt-4o-mini-2024-07-18",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The sum of 2 and 3 is 5, and the product of 2 and 3 is 6.",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 176,
+    "completion_tokens": 26,
+    "total_tokens": 202,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": "fp_0d8f5eee12"
+}

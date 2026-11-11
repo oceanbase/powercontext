@@ -36,6 +36,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, SHARED_METADATA
+from powercontext.builtin.runtime.atomic_memory_processing import related_window_match
 from powercontext.builtin.tags import TagFilter
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 
@@ -188,6 +189,90 @@ def test_vector_search_filters_and_complete_threshold_enumeration(migration_back
                 assert {h.artifact_ref.artifact_id for h in expanded} == expected
 
     asyncio.run(scenario())
+
+
+DIRECTIONS = {"billing": (1.0, 0.0, 0.0), "deploy": (0.0, 1.0, 0.0), "between": (0.8, 0.6, 0.0)}
+
+
+class DirectedEmbedding:
+    profile = EmbeddingProfile(profile_id="window-related", model="fixture", dimension=3, normalization="unit")
+
+    async def embed(self, texts, /):
+        # The first word of each fixture text names its direction.
+        return EmbeddingResult(vectors=tuple(DIRECTIONS[text.split()[1].casefold()] for text in texts))
+
+
+def test_unindexed_items_match_the_related_threshold_the_index_applies(migration_backend: MigrationBackend) -> None:
+    # Window candidates are compared before publication, so an in-memory match must equal complete enumeration.
+    texts = (
+        "Billing invoices are stored in PostgreSQL.",
+        "Billing retries failed charges hourly.",
+        "Deploy jobs never run on Friday afternoons.",
+        "Between releases, invoices in PostgreSQL are archived.",
+        "Deploy windows close at noon for the billing freeze.",
+    )
+
+    async def scenario():
+        model = DirectedEmbedding()
+        index = migration_index(migration_backend.config, model.profile)
+        preparer = AtomicMemoryProjectionPublisher(index, embedding_model=model)
+        prepared = {}
+        async with migration_profile(migration_backend.config, load_vector_extension=True) as profile:
+            async with profile.database.transaction() as connection:
+                await index.initialize(connection)
+                await _initialize_related_authority(connection)
+                for n, text in enumerate(texts):
+                    prepared[f"memory-{n}"] = value = await preparer.prepare(
+                        AtomicMemoryContent(kind="fact", text=text)
+                    )
+                    await index.replace_many(
+                        connection,
+                        "scope",
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=f"memory-{n}", revision=1),
+                                state_version=0,
+                                prepared=value,
+                                tag_keys=(),
+                            ),
+                        ),
+                    )
+            outcomes = []
+            async with profile.database.transaction() as connection:
+                if isinstance(migration_backend.config, SQLiteConfig):
+                    driver = (await connection.get_raw_connection()).driver_connection
+                    assert driver is not None
+                    await driver.create_function("power", 2, None)
+                for query, direction in (("billing invoices in PostgreSQL", "billing"), ("deploy on Friday", "deploy")):
+                    for mode in ("fts", "vector", "hybrid"):
+                        request = AtomicMemoryRelatedRequest(
+                            query=query,
+                            filters=AtomicMemoryIndexFilter(),
+                            mode=mode,
+                            query_vector=None if mode == "fts" else DIRECTIONS[direction],
+                            embedding_profile=None if mode == "fts" else model.profile,
+                            max_distance=None if mode == "fts" else 0.5,
+                        )
+                        hits, _ = await index.enumerate_related_with_heads(connection, "scope", request)
+                        matched = {
+                            identity
+                            for identity, value in prepared.items()
+                            if related_window_match(request, value.kind, value.text, value.embedding)
+                        }
+                        outcomes.append((query, mode, {hit.artifact_ref.artifact_id for hit in hits}, matched))
+            return outcomes
+
+    outcomes = asyncio.run(scenario())
+
+    assert all(indexed == matched for _, _, indexed, matched in outcomes)
+    assert {(query, mode): indexed for query, mode, indexed, _ in outcomes} == {
+        ("billing invoices in PostgreSQL", "fts"): {"memory-0", "memory-3"},
+        ("billing invoices in PostgreSQL", "vector"): {"memory-0", "memory-1"},
+        ("billing invoices in PostgreSQL", "hybrid"): {"memory-0", "memory-1", "memory-3"},
+        ("deploy on Friday", "fts"): {"memory-2", "memory-4"},
+        ("deploy on Friday", "vector"): {"memory-2", "memory-4"},
+        ("deploy on Friday", "hybrid"): {"memory-2", "memory-4"},
+    }
 
 
 @pytest.mark.parametrize("corruption", ["missing", "older-profile", "newer-profile", "older-format", "newer-format"])

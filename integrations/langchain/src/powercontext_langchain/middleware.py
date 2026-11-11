@@ -28,10 +28,11 @@ from pydantic import TypeAdapter, ValidationError
 from typing_extensions import override
 
 from powercontext.client import ClientError, ServerResponseError
-from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContextStatus
+from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
 from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
+from .tracing import genai_client_context, recall_content_observation
 
 _LOGGER = logging.getLogger("powercontext.langchain")
 
@@ -58,9 +59,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     response.
     """
 
-    def __init__(self, *, auto_capture: bool = False) -> None:
+    def __init__(self, *, auto_capture: bool = False, trace_content: bool = False) -> None:
         super().__init__()
         self.auto_capture = auto_capture
+        self.trace_content = trace_content
         self._configuration_error_logged = False
         self._sync_in_async_logged = False
 
@@ -133,15 +135,21 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     async def _prepare(self, query: str, scope: PowerContextScope | None) -> str | None:
         try:
             config = resolve_config(scope)
-            async with open_client(config) as client:
-                scope_id = await resolve_server_scope(client, config)
-                request = PrepareContextRequest(
-                    scope_id=scope_id,
-                    query=query[:_MAX_QUERY_CHARS],
-                    max_bytes=config.max_bytes,
-                    **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
-                )
-                prepared = await client.prepare_context(request)
+            with (
+                recall_content_observation(query[:_MAX_QUERY_CHARS], enabled=self.trace_content) as record_output,
+                genai_client_context(),
+            ):
+                async with open_client(config) as client:
+                    scope_id = await resolve_server_scope(client, config)
+                    request = PrepareContextRequest(
+                        scope_id=scope_id,
+                        query=query[:_MAX_QUERY_CHARS],
+                        max_bytes=config.max_bytes,
+                        **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
+                    )
+                    prepared = await client.prepare_context(request)
+                    if isinstance(prepared, PreparedContext):
+                        record_output(prepared.content, str(prepared.status))
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain recall skipped: request validation failed.")
             return None
@@ -152,6 +160,9 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
             _LOGGER.debug("PowerContext LangChain recall skipped after an unexpected error.", exc_info=True)
             return None
 
+        if not isinstance(prepared, PreparedContext):
+            _LOGGER.debug("PowerContext LangChain recall skipped: unexpected context envelope.")
+            return None
         if prepared.status == PreparedContextStatus.EMPTY:
             return None
         return prepared.content
@@ -165,15 +176,16 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
         try:
             config = resolve_config(scope)
             content, metadata = _source_content(user_text, assistant_text)
-            async with open_client(config) as client:
-                scope_id = await resolve_server_scope(client, config)
-                request = CaptureContentSourceRequest(
-                    scope_id=scope_id,
-                    source_id=_source_id(scope_id, user_text, assistant_text),
-                    content=content,
-                    metadata=metadata,
-                )
-                await client.capture_content_source(request)
+            with genai_client_context():
+                async with open_client(config) as client:
+                    scope_id = await resolve_server_scope(client, config)
+                    request = CaptureContentSourceRequest(
+                        scope_id=scope_id,
+                        source_id=_source_id(scope_id, user_text, assistant_text),
+                        content=content,
+                        metadata=metadata,
+                    )
+                    await client.capture_content_source(request)
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain capture skipped: request validation failed.")
         except ClientError as exc:

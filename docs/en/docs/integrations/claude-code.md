@@ -1,7 +1,7 @@
 ---
-status: community
 title: Claude Code
 description: Install the PowerContext Claude Code plugin and configure recall, prompt capture, and authentication.
+status: community
 ---
 
 # Claude Code
@@ -86,10 +86,12 @@ For each user prompt, the Hook:
 3. strictly validates `powercontext.prepared-context.v1` and injects it unchanged through `additionalContext`;
 4. independently captures the prompt as ordinary Content Source evidence.
 
-Recall bounds its query before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent
-as submitted, while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the
-last 8,192 bytes. A long prompt therefore narrows the query instead of failing the recall. Capture is independent and
-keeps its own limit.
+Recall scrubs recognized credentials and trims whitespace before bounding the query: text of at most 8,192 characters
+and 8,192 UTF-8 bytes is retained; longer text is cut to the last 8,192 characters and then to the last 8,192 bytes.
+A long prompt therefore narrows the query instead of failing the recall. Capture has its own limit. When credential
+scrubbing changes the prompt, the entire capture event is skipped; the rewritten text is not stored as a Source.
+These rules recognize specific credential patterns and the configured credential, not all sensitive information;
+see [automatic prompt privacy](index.md#automatic-prompt-privacy).
 
 Bootstrap context is a separate, opt-in `SessionStart` path. Enable it before launching Claude Code:
 
@@ -219,19 +221,22 @@ native MCP URL; the host's own MCP policy still applies. See [Connect to a remot
 ## Understand failure behavior
 
 Recall and capture are independent and fail open. A failed recall does not prevent prompt capture, and a failed
-capture does not remove valid recalled context. In every case Claude Code continues processing the current prompt.
+capture does not remove valid recalled context. Both need the current Scope: when Scope resolution fails, the Hook
+neither recalls nor captures and reports the failure as a `scope_resolve` event. In every case Claude Code continues
+processing the current prompt.
 
 | Condition | Hook behavior |
 | --- | --- |
 | Empty Prepared Context | Injects nothing and records the `empty` outcome |
 | HTTP 401 | Injects nothing and records `authentication_failed` |
-| HTTP 404 | Injects nothing and records `version_mismatch` |
+| HTTP 404 without an error code from a required route | Injects nothing and records `version_mismatch` |
 | HTTP 503 or unavailable Server | Injects nothing and records `server_unavailable` |
+| Another HTTP error, including a coded 404 such as `scope_not_found` | Injects nothing and records `invalid_response` with the status and any error code |
 | Unknown schema, malformed JSON, or oversized response | Injects nothing and records `invalid_response` |
 
-Diagnostics contain the outcome and safe numeric metadata only. They omit the prompt, scope, prepared content,
-Authorization value, and response body. The plugin rejects redirects and enforces both response-size and wall-clock
-limits.
+Diagnostics contain only the outcome, safe numeric metadata, and any error code the Server returned. They omit the
+prompt, scope, prepared content, Authorization value, and response body. The plugin rejects redirects and enforces
+both response-size and wall-clock limits.
 
 ## Diagnose or roll back
 

@@ -1,3 +1,8 @@
+---
+title: "RFC 0080: Memory search reranking"
+description: A proposal for optional listwise Memory reranking over a bounded retrieval pool while preserving exact result identities and revisions.
+---
+
 - Proposal Name: `memory_search_reranking`
 - Start Date: 2026-08-06
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md),

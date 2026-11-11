@@ -20,17 +20,19 @@ import asyncio
 import json
 from dataclasses import dataclass
 
-import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from powercontext.builtin.artifacts.memory import JevMemoryReranker, JevRerankConfig
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
 )
+from powercontext.builtin.inference.models import InferenceUsage
 
 
 @dataclass(frozen=True)
@@ -47,8 +49,8 @@ def _config(**overrides) -> JevRerankConfig:
     })
 
 
-def _response(score=0.8, **overrides) -> httpx.Response:
-    return httpx.Response(
+def _response(score=0.8, **overrides) -> httpx2.Response:
+    return httpx2.Response(
         200,
         json={
             "model": "jev-1.13.0",
@@ -69,7 +71,7 @@ def test_ranks_keep_original_identity_and_stable_ties_with_reported_usage():
         return _response({"first": 0.2, "second": 0.9, "third": 0.9}[body["state"]["candidate"]])
 
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), auth=("other", "credential")) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond), auth=("other", "credential")) as client:
             result = await JevMemoryReranker(_config(), client).rerank(
                 "query", tuple(_Text(text) for text in ("first", "second", "third")), 2
             )
@@ -87,7 +89,7 @@ def test_ranks_keep_original_identity_and_stable_ties_with_reported_usage():
 @pytest.mark.parametrize(
     ("response", "error"),
     [
-        (httpx.Response(429), InferenceUnavailableError),
+        (httpx2.Response(429), InferenceUnavailableError),
         (_response(1.1), InvalidInferenceOutputError),
         (_response(model="jev-1.14.0"), InvalidInferenceOutputError),
         (_response(usage={}), InvalidInferenceOutputError),
@@ -95,7 +97,7 @@ def test_ranks_keep_original_identity_and_stable_ties_with_reported_usage():
 )
 def test_unavailable_or_unusable_results_expose_provider_failure(response, error):
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda _: response)) as client:
             with pytest.raises(error):
                 await JevMemoryReranker(_config(), client).rerank("query", (_Text("one"), _Text("two")), 2)
 
@@ -104,10 +106,10 @@ def test_unavailable_or_unusable_results_expose_provider_failure(response, error
 
 def test_partial_failure_does_not_return_a_successful_decision():
     async def scenario():
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(
                 lambda request: (
-                    _response() if json.loads(request.content)["state"]["candidate"] == "one" else httpx.Response(429)
+                    _response() if json.loads(request.content)["state"]["candidate"] == "one" else httpx2.Response(429)
                 )
             )
         ) as client:
@@ -115,6 +117,90 @@ def test_partial_failure_does_not_return_a_successful_decision():
                 await JevMemoryReranker(_config(max_concurrency=1), client).rerank(
                     "query", (_Text("one"), _Text("two")), 2
                 )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("order", [("success", "first", "second"), ("second", "success", "first")])
+def test_concurrent_privacy_refusals_preserve_all_completed_usage(order):
+    async def scenario():
+        def respond(request):
+            candidate = json.loads(request.content)["state"]["candidate"]
+            if candidate == "success":
+                return _response()
+            usage = {
+                "first": InferenceUsage(requests=1, input_tokens=11, output_tokens=2),
+                "second": InferenceUsage(requests=1, input_tokens=13, output_tokens=3),
+            }[candidate]
+            raise InferencePrivacyError("before_release", "block", ("forbidden_content",), usage=usage)
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
+            with pytest.raises(InferencePrivacyError) as caught:
+                await JevMemoryReranker(_config(), client).rerank("query", tuple(_Text(text) for text in order), 2)
+        assert caught.value.phase == "before_release"
+        assert caught.value.usage is not None
+        assert caught.value.usage.requests == 3
+        assert caught.value.usage.input_tokens == 44
+        assert caught.value.usage.output_tokens == 6
+        assert caught.value.usage.incomplete is False
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("order", [("unavailable", "success", "refusal"), ("refusal", "success", "unavailable")])
+def test_completed_privacy_refusal_takes_precedence_over_sibling_provider_failure(order):
+    async def scenario():
+        def respond(request):
+            candidate = json.loads(request.content)["state"]["candidate"]
+            if candidate == "unavailable":
+                return httpx2.Response(429)
+            if candidate == "success":
+                return _response()
+            raise InferencePrivacyError(
+                "before_release",
+                "block",
+                ("forbidden_content",),
+                usage=InferenceUsage(requests=1, input_tokens=11, output_tokens=2),
+            )
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
+            with pytest.raises(InferencePrivacyError) as caught:
+                await JevMemoryReranker(_config(), client).rerank("query", tuple(_Text(text) for text in order), 2)
+        assert caught.value.phase == "before_release"
+        assert caught.value.reason_codes == ("forbidden_content",)
+        assert caught.value.usage is not None
+        assert caught.value.usage.requests == 2
+        assert caught.value.usage.input_tokens == 31
+        assert caught.value.usage.output_tokens == 3
+        assert caught.value.usage.incomplete is True
+
+    asyncio.run(scenario())
+
+
+def test_caller_cancellation_wins_over_a_completed_sibling_privacy_refusal():
+    async def scenario():
+        refused = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def respond(request):
+            if json.loads(request.content)["state"]["candidate"] == "refusal":
+                refused.set()
+                raise InferencePrivacyError("before_release", "block", ("forbidden_content",))
+            try:
+                await asyncio.Event().wait()
+            finally:
+                finished.set()
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
+            task = asyncio.create_task(
+                JevMemoryReranker(_config(), client).rerank("query", (_Text("pending"), _Text("refusal")), 1)
+            )
+            async with asyncio.timeout(1):
+                await refused.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert finished.is_set()
 
     asyncio.run(scenario())
 
@@ -134,7 +220,7 @@ def test_total_deadline_includes_waiting_candidates_and_cancels_requests():
                 active -= 1
             return _response()
 
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
             reranker = JevMemoryReranker(_config(timeout_seconds=0.03, max_concurrency=1), client)
             results = await asyncio.gather(
                 *(reranker.rerank("query", (_Text("one"), _Text("two")), 1) for _ in range(2)),
@@ -159,7 +245,7 @@ def test_caller_cancellation_propagates_and_releases_pending_calls():
                 finished.set()
             return _response()
 
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
             task = asyncio.create_task(JevMemoryReranker(_config(), client).rerank("query", (_Text("one"),), 1))
             await asyncio.wait_for(started.wait(), 1)
             task.cancel()
@@ -172,8 +258,8 @@ def test_caller_cancellation_propagates_and_releases_pending_calls():
 
 def test_oversized_utf8_request_fails_without_sending_content():
     async def scenario():
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(lambda _: pytest.fail("unexpected request"))
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(lambda _: pytest.fail("unexpected request"))
         ) as client:
             with pytest.raises(InferenceConfigurationError, match="exceeds max_request_bytes"):
                 await JevMemoryReranker(_config(max_request_bytes=1), client).rerank("query", (_Text("evidence"),), 1)
@@ -186,10 +272,10 @@ def test_redirect_does_not_send_credentials_or_evidence_to_another_host():
 
     def respond(request):
         requests.append(str(request.url))
-        return httpx.Response(307, headers={"Location": "https://other.example/systemone"})
+        return httpx2.Response(307, headers={"Location": "https://other.example/systemone"})
 
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), follow_redirects=True) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond), follow_redirects=True) as client:
             with pytest.raises(InferenceConfigurationError):
                 await JevMemoryReranker(_config(), client).rerank("query", (_Text("one"),), 1)
         assert requests == ["https://api.typesafe.ai/v1/systemone"]

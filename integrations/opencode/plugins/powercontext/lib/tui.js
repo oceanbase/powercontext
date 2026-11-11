@@ -69,6 +69,17 @@ var ServerResponseError = class extends ClientError {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	get_recall_manifest: {
+		method: "POST",
+		path: "/v1/recall/manifest",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_atomic_memories: {
 		method: "POST",
 		path: "/v1/atomic-memory/list",
@@ -221,6 +232,83 @@ const OPERATIONS = {
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_artifact_plugins: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_plugin: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins/{binding_name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	enable_all_artifact_plugins: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/enable-all",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	reload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	enable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	disable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	unload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
 		emptyStatuses: []
 	},
 	get_capabilities: {
@@ -444,6 +532,17 @@ const OPERATIONS = {
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1420,6 +1519,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_connection_identity: {
+		method: "GET",
+		path: "/v1/connection/identity",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_access_principal: {
 		method: "GET",
 		path: "/v1/access/me",
@@ -1511,6 +1621,182 @@ const OPERATIONS = {
 	list_access_audit: {
 		method: "POST",
 		path: "/v1/access/audit/list",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_capabilities: {
+		method: "POST",
+		path: "/v1/source-management/capabilities",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/source-management/add",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_status: {
+		method: "POST",
+		path: "/v1/source-management/status",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/target-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instances: {
+		method: "POST",
+		path: "/v1/source-management/instances",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instance_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/instance-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_configure: {
+		method: "POST",
+		path: "/v1/source-management/configure",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	load_source_write_plugin: {
+		method: "POST",
+		path: "/v1/source-management/write/load",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_open: {
+		method: "POST",
+		path: "/v1/source-management/channel/open",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_catalog: {
+		method: "POST",
+		path: "/v1/source-management/channel/catalog",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_poll: {
+		method: "POST",
+		path: "/v1/source-management/channel/poll",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_reply: {
+		method: "POST",
+		path: "/v1/source-management/channel/reply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_close: {
+		method: "POST",
+		path: "/v1/source-management/channel/close",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_instance_exchange: {
+		method: "POST",
+		path: "/v1/source-management/instances/{instance_id}/{operation}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["instance_id", "operation"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
 		location: "body",
 		scopeMode: "none",
 		pathParameters: [],
@@ -1813,6 +2099,27 @@ var PowerContextClient = class {
 };
 
 //#endregion
+//#region src/memory-compatibility.ts
+const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup opencode for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
+function record(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function memoryProtocolCheck(contracts, projection = "server-info") {
+	const memory = record(contracts) ? contracts["memory.explicit"] : void 0;
+	const version = record(memory) ? projection === "openapi" ? memory : memory.version : void 0;
+	return record(version) && version.major === 1 && Number.isInteger(version.minor) && Number(version.minor) >= 0 ? {
+		ok: true,
+		code: "memory_protocol_compatible",
+		message: "The Server declares Atomic Memory protocol v1. Write behavior was not tested."
+	} : {
+		ok: false,
+		code: "memory_protocol_mismatch",
+		message: "The Server does not declare the Atomic Memory protocol required by this plugin. Health checks alone do not establish compatibility.",
+		recovery: MEMORY_PROTOCOL_RECOVERY
+	};
+}
+
+//#endregion
 //#region src/memory-operations.ts
 var MemoryOperationError = class extends Error {
 	code;
@@ -1936,6 +2243,14 @@ function errorResult(error) {
 		message: error.message
 	};
 	if (error instanceof ServerResponseError) {
+		if (error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported") return {
+			ok: false,
+			code: error.code,
+			message: "This request uses the unsupported legacy Memory collection protocol.",
+			recovery: MEMORY_PROTOCOL_RECOVERY,
+			status: 422,
+			request_id: error.requestId
+		};
 		if (error.statusCode === 401) return {
 			ok: false,
 			code: "authentication_failed",
@@ -1973,9 +2288,9 @@ function errorResult(error) {
 		message: "PowerContext is unavailable; continue the task."
 	};
 }
-async function invokeOperation(client, operationId, payload, scopeId, signal) {
+function scopedPayload(operationId, payload, scopeId) {
 	const mode = OPERATIONS[operationId].scopeMode;
-	const body = mode === "selection" ? {
+	return mode === "selection" ? {
 		...payload,
 		selection: {
 			mode: "exact",
@@ -1985,6 +2300,9 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 		...payload,
 		scope_id: scopeId
 	} : payload;
+}
+async function invokeOperation(client, operationId, payload, scopeId, signal) {
+	const body = scopedPayload(operationId, payload, scopeId);
 	if (operationMutates(operationId) && hasSecret(body)) return {
 		ok: false,
 		code: "secret_rejected",
@@ -2056,14 +2374,20 @@ async function handleReview(tokens, runtime, scopeId, signal) {
 async function handleDoctor(runtime, scopeId, signal) {
 	const live = await invokeOperation(runtime.client, "get_liveness", {}, scopeId, signal);
 	const ready = await invokeOperation(runtime.client, "get_readiness", {}, scopeId, signal);
-	const ok = live.ok && ready.ok;
+	const info = await invokeOperation(runtime.client, "get_server_info", {}, scopeId, signal);
+	const memory = info.ok ? memoryProtocolCheck(info.data?.feature_contracts) : {
+		...info,
+		recovery: "Memory compatibility is unverified. Check the discovery endpoint and its permissions. " + MEMORY_PROTOCOL_RECOVERY
+	};
+	const ok = live.ok && ready.ok && memory.ok;
 	return {
 		kind: ok ? "success" : "error",
 		text: formatResult({
 			ok,
 			data: {
 				live,
-				ready
+				ready,
+				memory
 			}
 		})
 	};
@@ -2123,6 +2447,7 @@ const DEFAULTS = {
 	allowInsecureHttp: false,
 	scopeId: void 0,
 	authorization: void 0,
+	promptRecall: true,
 	capturePrompts: true,
 	requestTimeoutMs: 3e3,
 	httpBudgetMs: 6e3,
@@ -2179,6 +2504,7 @@ function resolveConfig(env = process.env) {
 		allowInsecureHttp: transport.allowInsecureHttp,
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
+		promptRecall: envBoolean(env, "POWERCONTEXT_OPENCODE_PROMPT_RECALL") ?? DEFAULTS.promptRecall,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS") ?? DEFAULTS.capturePrompts,
 		requestTimeoutMs,
 		httpBudgetMs,
@@ -2306,23 +2632,20 @@ var StatusTimeoutError = class extends Error {
 		this.name = "StatusTimeoutError";
 	}
 };
-function httpOutcome(status) {
+function httpOutcome(status, code) {
 	if (status === 401) return "authentication_failed";
-	if (status === 404) return "version_mismatch";
+	if (status === 404 && code === void 0) return "version_mismatch";
 	if (status === 503) return "server_unavailable";
 	return "invalid_response";
 }
-function scopeFailureOutcome(error) {
+function requestFailureOutcome(error) {
 	if (error instanceof StatusTimeoutError) return "server_unavailable";
-	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode);
+	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode, error.code);
 	if (error instanceof UnavailableError) return "server_unavailable";
 	return "invalid_response";
 }
-function statsFailureOutcome(result) {
-	if (result.code === "authentication_failed") return "authentication_failed";
-	if (result.code === "unavailable") return "server_unavailable";
-	if (typeof result.status === "number") return httpOutcome(result.status);
-	return "invalid_response";
+async function loadStats(client, period, scopeId, signal) {
+	return (await client.request("get_stats", scopedPayload("get_stats", { period }, scopeId), signal)).value;
 }
 function textNode(text, color, onMouseUp) {
 	const node = createElement("text");
@@ -2358,35 +2681,27 @@ async function loadStatuslineStatus(runtime, sessionID, cwd, signal) {
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 	try {
-		const [today, month] = await Promise.all([withTimeout(invokeOperation(runtime.client, "get_stats", { period: "today" }, scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(invokeOperation(runtime.client, "get_stats", { period: "30d" }, scopeId, signal), STATUS_TIMEOUT_MS)]);
-		if (!today.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(today))
-		};
-		if (!month.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(month))
-		};
-		const todayTotals = tokenTotals(today.data);
-		const monthTotals = tokenTotals(month.data);
+		const [today, month] = await Promise.all([withTimeout(loadStats(runtime.client, "today", scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(loadStats(runtime.client, "30d", scopeId, signal), STATUS_TIMEOUT_MS)]);
+		const todayTotals = tokenTotals(today);
+		const monthTotals = tokenTotals(month);
 		if (!todayTotals || !monthTotals) return {
 			connected: false,
 			label: failureLabel("invalid_response")
 		};
 		return {
 			connected: true,
-			label: formatPowerContextStatus(today.data, month.data),
+			label: formatPowerContextStatus(today, month),
 			todayReduction: todayTotals.token_reduction,
 			monthReduction: monthTotals.token_reduction
 		};
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 }
