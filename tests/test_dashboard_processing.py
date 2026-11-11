@@ -62,6 +62,80 @@ def test_memory_source_reader_is_bound_to_exact_revision(dashboard, monkeypatch,
     assert "Original note." not in crossed.text
 
 
+@pytest.mark.parametrize("public_reads", [False, True])
+def test_memory_source_buttons_open_each_recorded_source(tmp_path, monkeypatch, public_reads):
+    from powercontext.builtin.artifacts.atomic_memory.extraction import (
+        AtomicMemoryCandidate,
+        AtomicMemoryExtractionOutput,
+    )
+    from powercontext.builtin.inference import GenerationResult
+    from powercontext.builtin.runtime import CaptureSource
+    from powercontext.builtin.scope import ScopeDraft
+
+    class CombinedPipeline:
+        async def generate(self, request, /):
+            return GenerationResult(
+                output=AtomicMemoryExtractionOutput(
+                    candidates=(
+                        AtomicMemoryCandidate(
+                            kind="fact",
+                            text="Both sources support this fact.",
+                            description="Combined source evidence",
+                            evidence_ids=tuple(item.evidence_id for item in request.evidence),
+                        ),
+                    )
+                )
+            )
+
+    async def scenario():
+        async with open_dream_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/buttons.db")),
+            candidate_pipeline=atomic_memory_pipeline(CombinedPipeline()),
+        ) as runtime:
+            scope = (
+                await runtime.scopes.create(
+                    ScopeDraft(title="Multiple source buttons", summary="Exact evidence", idempotency_key="buttons")
+                )
+            ).scope_id
+            for index in range(2):
+                await runtime.sources.for_scope(scope).capture(
+                    CaptureSource(source_id=f"source-{index}", content=f"Evidence body {index}.", metadata={})
+                )
+            await runtime.atomic_memory.for_scope(scope).flush()
+            memory = (await runtime.atomic_memory.for_scope(scope).list()).items[0]
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            if not public_reads:
+                app.state.dashboard_runtime = runtime
+            else:
+                monkeypatch.setattr("powercontext.server.dashboard.api._builtin_runtime", lambda request: None)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
+                page = await client.get(
+                    "/dashboard/notes",
+                    params={
+                        "scope": scope,
+                        "artifact": memory.ref.artifact_id,
+                        "revision": memory.ref.revision,
+                        "lang": "en",
+                    },
+                )
+                assert page.status_code == 200, page.text
+                direct = page.text.split('aria-label="Sources for this revision"', 1)[1]
+                direct = direct.split('<details class="supporting-details"', 1)[0]
+                buttons = re.findall(r'<a class="evidence-link" href="([^"]+)"', direct)
+                assert len(buttons) == 2
+                for index, button in enumerate(buttons):
+                    destination = unescape(button)
+                    assert urlsplit(destination).path == f"/dashboard/evidence/source-{index}"
+                    evidence = await client.get(destination, headers={"HX-Request": "true"})
+                    assert evidence.status_code == 200, evidence.text
+                    assert f"Evidence body {index}." in evidence.text
+
+    asyncio.run(scenario())
+
+
 def test_memory_source_login_returns_to_the_exact_memory(dashboard):
     scope = create_scope(dashboard, "Memory evidence login")["scope_id"]
     artifact = _revised_memory(dashboard, scope)
@@ -231,7 +305,9 @@ def test_processing_dream_displays_persisted_outcome_and_inputs(tmp_path, outcom
         ) as runtime:
             scope, source, citation = await seed(runtime)
             accepted = await runtime.dream.for_scope(scope).create(
-                CreateDreamRunRequest(operation="refine_experience", artifacts=(citation,), idempotency_key="dashboard")
+                CreateDreamRunRequest(
+                    operation="refine_experience", artifacts=(citation,), sources=(source,), idempotency_key="dashboard"
+                )
             )
             app = create_app(application=runtime)
             app.include_router(router, prefix="/dashboard")
@@ -292,6 +368,26 @@ def test_processing_dream_displays_persisted_outcome_and_inputs(tmp_path, outcom
                 assert filtered.status_code == 200, filtered.text
                 assert (run.run_id in filtered.text) == (outcome == "failed")
                 assert ("processing-runs-table" in filtered.text) == (outcome == "failed")
+                from datetime import UTC, datetime
+
+                for params in (
+                    {"record_type": "attempts", "run_status": "succeeded"},
+                    {"record_type": "attempts", "processing_day": datetime.now(UTC).date().isoformat()},
+                    {"record_type": "dreams", "run_status": run.status},
+                    {"record_type": "dreams", "run_status": run.status, "run_id": run.run_id},
+                ):
+                    selected = await client.get("/dashboard/processing", params={"scope": scope, **params})
+                    assert selected.status_code == 200, selected.text
+                    source_links = [
+                        url
+                        for url in links(selected.text, "/dashboard/processing")
+                        if parse_qs(urlsplit(url).query).get("source_id") == [source.source_id]
+                    ]
+                    assert source_links, params
+                    for destination in source_links:
+                        opened = await client.get(destination)
+                        assert opened.status_code == 200, (destination, opened.text)
+                        assert "Replayed the write with key K" in opened.text
                 if outcome == "failed":
                     assert LABELS["processing_table_inputs"] in filtered.text
                     assert LABELS["processing_operation_refine_experience"] in filtered.text

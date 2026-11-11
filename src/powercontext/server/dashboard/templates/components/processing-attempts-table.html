@@ -32,7 +32,7 @@ limitations under the License.
         <section class="processing-history-row">
           <h4 class="processing-history-label"><span class="processing-step-number">1</span>{{ t.processing_history_input }}</h4>
           <div class="processing-history-content">
-            {% for source in item.source_previews %}<div class="mb-3">{% if source.preview is not none %}<p class="processing-input-body">{{ source.preview|truncate(200,true) }}</p>{% else %}<p class="text-secondary">{{ t.processing_attempt_source_unavailable }}</p>{% endif %}{% if source.source_type == 'content' %}<a href="{{ link(record_type='sources',source_id=source.source_id,processing_attempts_cursor=none) }}">{{ t.processing_attempt_source_detail }} →</a>{% endif %}</div>{% else %}<p class="text-secondary mb-0">{{ t.processing_inputs_unknown }}</p>{% endfor %}
+            {% for source in item.source_previews %}<div class="mb-3">{% if source.preview is not none %}<p class="processing-input-body">{{ source.preview|truncate(200,true) }}</p>{% else %}<p class="text-secondary">{{ t.processing_attempt_source_unavailable }}</p>{% endif %}{% if source.source_type == 'content' %}<a href="{{ link(record_type='sources',run_status=none,processing_day=none,source_id=source.source_id,processing_attempts_cursor=none) }}">{{ t.processing_attempt_source_detail }} →</a>{% endif %}</div>{% else %}<p class="text-secondary mb-0">{{ t.processing_inputs_unknown }}</p>{% endfor %}
           </div>
         </section>
         <section class="processing-history-row">
