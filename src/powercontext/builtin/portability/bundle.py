@@ -1829,6 +1829,8 @@ async def _validate_selected_scopes(connection: AsyncConnection, scopes: tuple[s
 def _validate_record_safe(record: _Record, /) -> None:
     """Reject secret-shaped configuration and host paths without echoing content."""
 
+    # Source payloads are preserved evidence: capture metadata such as `cwd` is history, not host configuration.
+    host_paths = record.record_type != "source"
     for field, value in record.payload.items():
         encoded = cast(dict[str, object], value).get("base64") if isinstance(value, dict) else None
         if isinstance(encoded, str):
@@ -1838,12 +1840,12 @@ def _validate_record_safe(record: _Record, /) -> None:
                 raise
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            _validate_safe_value(decoded, field)
+            _validate_safe_value(decoded, field, host_paths=host_paths)
         else:
-            _validate_safe_value(value, field)
+            _validate_safe_value(value, field, host_paths=host_paths)
 
 
-def _validate_safe_value(value: object, key: str | None = None) -> None:
+def _validate_safe_value(value: object, key: str | None = None, *, host_paths: bool) -> None:
     normalized = "" if key is None else key.casefold().replace("-", "_")
     sensitive_suffixes = ("_api_key", "_credential", "_credentials", "_password", "_secret", "_token")
     if (normalized in _SENSITIVE_KEYS or normalized.endswith(sensitive_suffixes)) and value is not None and value != "":
@@ -1851,7 +1853,8 @@ def _validate_safe_value(value: object, key: str | None = None) -> None:
     if normalized == "authorization" and isinstance(value, str) and value.casefold().startswith(("bearer ", "basic ")):
         raise BundleFormatError("bundle contains a credential-shaped field")
     if (
-        isinstance(value, str)
+        host_paths
+        and isinstance(value, str)
         and (
             normalized.endswith(("_path", "_directory", "_home", "_root"))
             or normalized in {"cwd", "directory", "home", "path", "root", "working_directory", "workspace"}
@@ -1861,10 +1864,10 @@ def _validate_safe_value(value: object, key: str | None = None) -> None:
         raise BundleFormatError("bundle contains an absolute host path")
     if isinstance(value, dict):
         for child_key, child in value.items():
-            _validate_safe_value(child, str(child_key))
+            _validate_safe_value(child, str(child_key), host_paths=host_paths)
     elif isinstance(value, list):
         for child in value:
-            _validate_safe_value(child, key)
+            _validate_safe_value(child, key, host_paths=host_paths)
 
 
 @contextmanager
