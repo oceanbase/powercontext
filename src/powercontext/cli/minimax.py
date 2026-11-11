@@ -538,7 +538,10 @@ class MiniMaxInstaller:
             raise SetupError("MiniMax has no effective PowerContext MCP endpoint")
         endpoint = _endpoint(entry)
         endpoint, allowed = resolve_client_transport("minimax", server_url=endpoint)
-        checks = server_diagnostics(server_url=endpoint, allow_insecure_http=allowed)
+        authorization = next(
+            (value for key, value in entry.get("headers", {}).items() if key.lower() == "authorization"), None
+        )
+        checks = server_diagnostics(server_url=endpoint, allow_insecure_http=allowed, authorization=authorization)
 
         async def probe():
             import httpx

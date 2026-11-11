@@ -111,6 +111,61 @@ def _spans(received):
     ]
 
 
+def _wait_for_failure_stats(client, scope, family, trace_id):
+    # Child and supervisor spans can arrive before the supervisor reaps the
+    # worker and publishes retry diagnostics.
+    deadline = time.monotonic() + 20
+    while True:
+        stats = client.post(
+            "/v1/stats",
+            json={"selection": {"mode": "exact", "scope_ids": [scope]}, "include_processing": True},
+        )
+        assert stats.status_code == 200
+        failed = next(row for row in stats.json()["by_scope"][0]["processing"] if row["family"] == family)
+        if (
+            failed["last_error_worker_id"] and failed["last_error_trace_id"] == trace_id
+        ) or time.monotonic() >= deadline:
+            return failed
+        time.sleep(0.05)
+
+
+def test_wait_for_failure_stats_requires_the_observed_attempt(monkeypatch):
+    class Response:
+        status_code = 200
+
+        def __init__(self, worker_id, trace_id):
+            self.worker_id = worker_id
+            self.trace_id = trace_id
+
+        def json(self):
+            return {
+                "by_scope": [
+                    {
+                        "processing": [
+                            {
+                                "family": "topic-memory",
+                                "last_error_worker_id": self.worker_id,
+                                "last_error_trace_id": self.trace_id,
+                            }
+                        ]
+                    }
+                ]
+            }
+
+    class Client:
+        responses = iter([Response(None, None), Response("previous", "old"), Response("current", "expected")])
+
+        def post(self, path, *, json):
+            assert path == "/v1/stats"
+            assert json["selection"]["scope_ids"] == ["scope"]
+            return next(self.responses)
+
+    monkeypatch.setattr(time, "sleep", lambda _delay: None)
+    result = _wait_for_failure_stats(Client(), "scope", "topic-memory", "expected")
+    assert result["last_error_worker_id"] == "current"
+    assert result["last_error_trace_id"] == "expected"
+
+
 def _blocked_worker(_assignment: ArtifactProcessingWorkAssignment):
     raise ArtifactProcessingBlockedError(
         ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
@@ -306,13 +361,8 @@ def test_builtin_spawned_worker_exports_model_and_execution_spans_to_otlp(
                 )
                 if timeout:
                     assert outcomes["powercontext.operation.outcome"] == "failure"
-                    stats = client.post(
-                        "/v1/stats",
-                        json={"selection": {"mode": "exact", "scope_ids": [scope]}, "include_processing": True},
-                    )
-                    assert stats.status_code == 200
-                    failed = next(row for row in stats.json()["by_scope"][0]["processing"] if row["family"] == family)
-                    assert failed["last_error_worker_id"]
+                    failed = _wait_for_failure_stats(client, scope, family, execution.trace_id.hex())
+                    assert failed["last_error_worker_id"], failed
                     assert failed["last_error_trace_id"] == execution.trace_id.hex()
                     assert outcomes["powercontext.error.category"] == "timeout"
                 else:

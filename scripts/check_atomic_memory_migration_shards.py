@@ -22,10 +22,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-GROUPS = ("scope-search", "background-metrics", "clean-migration", "startup-snapshot", "long-query")
+from run_atomic_memory_clean_migration import assigned_nodes, read_durations
+
+GROUPS = ("scope-search", "background-metrics", "clean-migration", "grant-migration", "startup-snapshot", "long-query")
 
 
-def verify_group(paths: list[Path], shards: int) -> int:
+def verify_group(paths: list[Path], shards: int, durations: dict[str, float] | None = None) -> int:
     """Require matching collections and successful, disjoint execution of every node."""
     collection: list[str] | None = None
     passed: list[str] = []
@@ -64,7 +66,7 @@ def verify_group(paths: list[Path], shards: int) -> int:
         if nodes != collection:
             message = f"{path}: full collections differ between shards"
             raise ValueError(message)
-        if actual != nodes[index::shards]:
+        if actual != assigned_nodes(nodes, index, shards, durations):
             message = f"{path}: passed nodes differ from the assigned shard"
             raise ValueError(message)
         indices.add(index)
@@ -75,14 +77,14 @@ def verify_group(paths: list[Path], shards: int) -> int:
     return len(passed)
 
 
-def verify_reports(directory: Path, shards: int) -> None:
+def verify_reports(directory: Path, shards: int, durations: dict[str, float] | None = None) -> None:
     """Verify every acceptance group in exactly one artifact per expected shard."""
     artifacts = sorted(path for path in directory.iterdir() if path.is_dir())
     if len(artifacts) != shards:
         message = f"expected {shards} shard artifacts, found {len(artifacts)}"
         raise ValueError(message)
     for group in GROUPS:
-        count = verify_group([artifact / group / "summary.json" for artifact in artifacts], shards)
+        count = verify_group([artifact / group / "summary.json" for artifact in artifacts], shards, durations)
         print(f"{group}: all {count} OceanBase cases passed exactly once without skips.", flush=True)
 
 
@@ -92,11 +94,12 @@ def main() -> int:
         "--reports", type=Path, required=True, help="Directory containing one artifact directory per shard"
     )
     parser.add_argument("--shards", type=int, required=True)
+    parser.add_argument("--durations", type=Path, help="The same duration baseline used by the migration jobs")
     args = parser.parse_args()
     if args.shards < 1:
         parser.error("--shards must be positive")
     try:
-        verify_reports(args.reports, args.shards)
+        verify_reports(args.reports, args.shards, read_durations(args.durations))
     except (OSError, TypeError, ValueError) as error:
         print(f"Shard verification failed: {error}", file=sys.stderr)
         return 1

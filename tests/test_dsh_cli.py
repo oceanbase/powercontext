@@ -118,7 +118,8 @@ def test_doctor_dsh_requires_the_plugin_id_field(monkeypatch, server_checks) -> 
     assert "plugin: failed - PowerContext DSH plugin is not registered" in result.output
 
 
-def test_doctor_dsh_reports_an_installed_plugin(monkeypatch, server_checks) -> None:
+@pytest.mark.parametrize("protocol, expected_exit", [(None, 1), ("collection-v1", 1), ("atomic-artifact-v1", 0)])
+def test_doctor_dsh_reports_an_installed_plugin(monkeypatch, server_checks, protocol, expected_exit) -> None:
     import powercontext.cli.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
@@ -128,11 +129,16 @@ def test_doctor_dsh_reports_an_installed_plugin(monkeypatch, server_checks) -> N
         lambda *_args, **_kwargs: "- id: powercontext-dsh\n  name: powercontext-dsh\n",
     )
 
+    monkeypatch.setattr(
+        "powercontext.cli.dsh_transport.read_dsh_settings", lambda **kwargs: {"memoryProtocol": protocol}
+    )
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == expected_exit
     payload = json.loads(result.output)["hosts"]["dsh"]
-    assert payload["ok"] is True
+    assert payload["ok"] is (expected_exit == 0)
+    if expected_exit:
+        assert "powercontext setup dsh" in payload["checks"]["plugin_memory_protocol"]["detail"]
     plugin = payload["checks"]["plugin"]
     assert plugin["ok"] is True
     assert plugin["checks"]["registration"] == "present"
@@ -156,7 +162,7 @@ def test_doctor_dsh_does_not_expose_host_config_or_claim_to_check_its_server(mon
         lambda *_args, **_kwargs: f"- id: powercontext-dsh\n  config:\n    baseUrl: http://unreachable/{marker}\n",
     )
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert marker not in result.output
     checks = json.loads(result.output)["hosts"]["dsh"]["checks"]["plugin"]["checks"]
     assert checks["server_liveness"] == "not_checked"

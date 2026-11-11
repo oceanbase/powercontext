@@ -38,8 +38,6 @@ uv tool install --force "powercontext[cli,server]==1.5.1"
 Use `powercontext-v1.5.1` for Agent integration refs. Upgrade Server, SDK, CLI and integrations together, and reopen Agent sessions.
 
 - Source evidence and locator storage require registered migrations through `v1_5_0_004`. Immutable schema revision names retain their original `1.5.0` numbering; an application version bump does not rename them.
-- Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance.
-- The policy remains `upgrade-required`. Normal publication requires all twelve installed-1.3.0 upgrade configurations across SQLite, seekDB and OceanBase against the exact target artifact. The separate 1.4.0 bridge and intermediate releases are not automatically certified by that matrix.
 - SDK callers injecting MiniMax embedding or Jev reranking clients must use `httpx2.AsyncClient`. Custom Atomic Memory prompts should follow the current extraction/reconciliation contracts.
 - Windows installation remains experimental. Desktop signing, local setup integration and clean-machine acceptance are separate requirements. Official MiniMax CLI 0.6.9/0.7.2 plugin-only invocation remains unqualified in the documented affected environment; consult the integration guide for qualified configurations.
 
@@ -81,8 +79,6 @@ uv tool install --force "powercontext[cli,server]==1.5.1"
 Agent 集成使用 `powercontext-v1.5.1` ref。Server、SDK、CLI 与集成需协调升级，并重新打开 Agent 会话。
 
 - Source 证据与定位信息需要执行登记迁移，推进至 `v1_5_0_004`。不可变 schema revision 保留原始 `1.5.0` 编号，不随应用版本更新而重命名。
-- 数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。
-- 升级策略仍为 `upgrade-required`。正常发布必须针对精确目标产物，通过已安装 1.3.0 在 SQLite、seekDB、OceanBase 上的全部十二种升级配置验收。该矩阵不自动认证独立的 1.4.0 桥接或中间发行版本。
 - 自行注入 MiniMax Embedding 或 Jev 重排客户端的 SDK 调用方需使用 `httpx2.AsyncClient`。自定义 Atomic Memory Prompt 应遵循当前提取与协调契约。
 - Windows 安装仍为试验性支持。Desktop 签名、本地安装整合及干净机器验收需独立完成。官方 MiniMax CLI 0.6.9/0.7.2 在已记录的受影响环境中，仍未通过仅插件路径调用验收；可用配置请参照集成指南。
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -130,6 +130,22 @@ async def _isolated_database(backend: str, tmp_path: Path) -> AsyncIterator[Data
                 await connection.exec_driver_sql(f"DROP DATABASE `{name}`")
 
 
+@pytest.fixture(scope="module")
+def search_database(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[DatabaseConfig]:
+    # These cases exercise Scope authorization and snapshots, not schema migration.
+    # Reuse the schema while each case creates its own Scope and idempotency keys.
+    # Keep the management connection's creation and cleanup on the same event loop.
+    with asyncio.Runner() as runner:
+        context = _isolated_database(request.param, tmp_path_factory.mktemp("search-snapshots"))
+        database = runner.run(context.__aenter__())
+        try:
+            yield database
+        finally:
+            runner.run(context.__aexit__(None, None, None))
+
+
 @asynccontextmanager
 async def _server(database: DatabaseConfig, provider: str, tmp_path: Path, embedding: _Embedding):
     settings = ServerSettings(
@@ -169,7 +185,9 @@ async def _server(database: DatabaseConfig, provider: str, tmp_path: Path, embed
 async def _seed(admin: PowerContextClient):
     scope_id = (
         await admin.create_scope(
-            CreateScopeRequest(title="Search snapshot", summary="Concurrent access", idempotency_key="snapshot")
+            CreateScopeRequest(
+                title="Search snapshot", summary="Concurrent access", idempotency_key=f"snapshot-{uuid4().hex}"
+            )
         )
     ).scope_id
     remembered = await admin.remember_memory(
@@ -180,7 +198,7 @@ async def _seed(admin: PowerContextClient):
             "subject": {"type": VIEWER.type, "id": VIEWER.id},
             "resource": {"type": "scope", "scope_id": scope_id},
             "role": "scope.viewer",
-            "idempotency_key": "viewer-scope",
+            "idempotency_key": f"viewer-scope-{scope_id}",
         })
     )
     return scope_id, remembered.records[0], binding
@@ -189,7 +207,7 @@ async def _seed(admin: PowerContextClient):
 async def _revoke_and_create(admin: PowerContextClient, scope_id: str, binding):
     revoked = await admin.revoke_access_binding(
         RevokeAccessBindingRequest(
-            binding_id=binding.binding_id, expected_version=binding.version, idempotency_key="revoke-viewer"
+            binding_id=binding.binding_id, expected_version=binding.version, idempotency_key=f"revoke-viewer-{scope_id}"
         )
     )
     assert revoked.state == "revoked"
@@ -206,16 +224,15 @@ async def _assert_current_access_revoked(viewer: PowerContextClient, scope_id: s
         await viewer.get_artifact(scope_id, "atomic-memory", created.artifact.artifact_id)
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "oceanbase", "seekdb"])
+@pytest.mark.parametrize("search_database", ["sqlite", "oceanbase", "seekdb"], indirect=True)
 @pytest.mark.parametrize("provider", ["builtin", "casbin"])
 @pytest.mark.parametrize("mode", ["vector", "hybrid"])
-def test_search_rechecks_access_after_query_embedding(backend: str, provider: str, mode: str, tmp_path: Path) -> None:
+def test_search_rechecks_access_after_query_embedding(
+    search_database: DatabaseConfig, provider: str, mode: str, tmp_path: Path
+) -> None:
     async def scenario() -> None:
         embedding = _Embedding()
-        async with (
-            _isolated_database(backend, tmp_path) as database,
-            _server(database, provider, tmp_path, embedding) as (_, admin, viewer),
-        ):
+        async with _server(search_database, provider, tmp_path, embedding) as (_, admin, viewer):
             scope_id, _, binding = await _seed(admin)
             embedding.pause_query = True
             pending = asyncio.create_task(
@@ -390,17 +407,14 @@ def test_authorized_artifact_reads_preserve_exact_revision_digest_and_etags(tmp_
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "oceanbase", "seekdb"])
+@pytest.mark.parametrize("search_database", ["sqlite", "oceanbase", "seekdb"], indirect=True)
 @pytest.mark.parametrize("provider", ["builtin", "casbin"])
 @pytest.mark.parametrize("mode", ["text", "vector", "hybrid"])
 def test_search_pins_access_and_content_without_blocking_writers(
-    backend: str, provider: str, mode: str, tmp_path: Path, monkeypatch
+    search_database: DatabaseConfig, provider: str, mode: str, tmp_path: Path, monkeypatch
 ) -> None:
     async def scenario() -> None:
-        async with (
-            _isolated_database(backend, tmp_path) as database,
-            _server(database, provider, tmp_path, _Embedding()) as (_, admin, viewer),
-        ):
+        async with _server(search_database, provider, tmp_path, _Embedding()) as (_, admin, viewer):
             scope_id, original, binding = await _seed(admin)
             filters = AtomicMemoryAccess.filters
             authorized = asyncio.Event()
