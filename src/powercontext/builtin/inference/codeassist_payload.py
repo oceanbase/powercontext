@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from powercontext.builtin.inference.model_payload import json_unsigned_integer
+
 _REQUEST_FIELDS = frozenset({
     "contents",
     "systemInstruction",
@@ -101,7 +103,7 @@ def request_reason(value: dict[str, object]) -> str | None:
     generation = request.get("generationConfig", {})
     if not isinstance(generation, dict) or set(generation) - _GENERATION_FIELDS:
         return "content_field_unsupported"
-    if generation.get("candidateCount", 1) != 1:
+    if "candidateCount" in generation and json_unsigned_integer(generation.get("candidateCount")) != 1:
         return "multiple_choices_unsupported"
     tools = request.get("tools", [])
     if not isinstance(tools, list) or any(
