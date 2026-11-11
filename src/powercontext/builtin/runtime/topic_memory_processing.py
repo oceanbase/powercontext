@@ -105,6 +105,7 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_REQUESTS,
     MAX_TOPIC_MEMORY_WORK_TOKENS,
     RECOVERABLE_TOPIC_MEMORY_REJECTIONS,
+    TOPIC_MEMORY_HEAD_CONFLICT,
     TopicMemoryWorkBudget,
     require_topic_memory_work_available,
 )
@@ -586,12 +587,17 @@ class TopicMemoryProcessor:
                 else:
                     await budget.record_failure(error.code)
                 raise
+            except RevisionConflictError:
+                # A concurrent replace or Dream moved a Topic head after this attempt read it.
+                # Recording the cause hands the attempt back; its reservations stay charged. Only a
+                # generated proposal can target an existing head, and every stage reserves before its
+                # call, so each recomputation spends from the frontier's request and token ceilings.
+                await budget.record_failure(TOPIC_MEMORY_HEAD_CONFLICT)
+                return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.HEAD_CONFLICT)
         except ArtifactProcessingLeadershipLostError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST)
         except GenerationConflictError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
-        except RevisionConflictError:
-            return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.HEAD_CONFLICT)
         finally:
             self._document_vectors.reset(vector_token)
             self._work_budget.reset(token)

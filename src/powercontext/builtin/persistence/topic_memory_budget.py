@@ -63,6 +63,20 @@ RECOVERABLE_TOPIC_MEMORY_REJECTIONS = frozenset({
 })
 
 
+# The last error of an attempt whose publication lost the Topic head CAS to a concurrent
+# replace or Dream. The next attempt rereads the head and recomputes (RFC 1614 section 5.3).
+TOPIC_MEMORY_HEAD_CONFLICT = "head_conflict"
+
+
+def _spent_attempts(row: Mapping[Any, Any]) -> int:
+    """Attempts charged to the ceiling; a head conflict hands its attempt to the recomputation.
+
+    The conflicted attempt's provider reservations stay charged, so the request and token
+    ceilings still bound how often a moving head can make the window recompute.
+    """
+    return int(row["attempts"]) - (row.get("last_error_code") == TOPIC_MEMORY_HEAD_CONFLICT)
+
+
 def exhausted_reason(row: Mapping[Any, Any]) -> str:
     """Why this frontier stops, or "" while another attempt may still be spent.
 
@@ -73,7 +87,7 @@ def exhausted_reason(row: Mapping[Any, Any]) -> str:
     code = str(row["failure_code"])
     if code and code not in RECOVERABLE_TOPIC_MEMORY_REJECTIONS:
         return code
-    if row["attempts"] >= MAX_TOPIC_MEMORY_WORK_ATTEMPTS:
+    if _spent_attempts(row) >= MAX_TOPIC_MEMORY_WORK_ATTEMPTS:
         # Name the rejection that kept recurring; the ceiling only says how many
         # attempts were spent on it.
         return code or "window_attempt_limit"
@@ -276,7 +290,7 @@ class TopicMemoryWorkBudget:
                     update(table)
                     .where(*self._key())
                     .values(
-                        attempts=row["attempts"] + 1,
+                        attempts=_spent_attempts(row) + 1,
                         attempt_id=self.attempt_id,
                         source_through=max(self.source_through, row["source_through"]),
                     )

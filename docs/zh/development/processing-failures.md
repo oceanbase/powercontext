@@ -77,7 +77,7 @@ Topic Memory 的 operation 级覆盖：
 | `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
 | `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
 | `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
-| Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。 |
+| Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。Topic head 冲突将 `head_conflict` 记为该次尝试的最后错误，不消耗 window 尝试次数。 |
 | Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
 
 前两个落地切片覆盖 Memory / Atomic Memory 与 Topic Memory：provider 失败、预算耗尽、提取/对账/领域校验
