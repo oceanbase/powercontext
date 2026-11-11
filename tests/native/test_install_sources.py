@@ -250,7 +250,7 @@ def test_latest_without_a_stable_release_preserves_installed_prerelease(installa
 
     output = install("--region", "cn", success=False)
 
-    assert "Installation failed" in output
+    assert "Could not select the latest stable PowerContext release" in output
     assert version() == "1.2.0rc1"
 
 

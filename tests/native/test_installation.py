@@ -218,6 +218,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         system_path = os.defpath
     installer += ["--no-hosts", "--version", str(version)]
     if environment.startswith("bootstrap"):
+        env["UV_PYTHON_BIN_DIR"] = str(tmp_path / "python bin")
         if sys.platform == "win32":
             env["PATH"] = system_path
             env["UV_PYTHON_NO_REGISTRY"] = "1"
@@ -240,6 +241,14 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
         )
     run(installer, tmp_path, env, "install")
+    if environment.startswith("bootstrap"):
+        python3 = Path(env["UV_PYTHON_BIN_DIR"]) / ("python3.exe" if sys.platform == "win32" else "python3")
+        run(
+            [str(python3), "-c", "import sys; assert sys.version_info >= (3, 11)"],
+            tmp_path,
+            env,
+            "python3-hook-runtime",
+        )
     if environment == "existing":
         # A fresh tool/cache forces resolution; exact reinstallation may legitimately reuse the existing tool.
         failed_source_env = {
