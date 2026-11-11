@@ -40,7 +40,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.builtin.tags import ArtifactTagTarget
+from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.sources import SourceRef, SourceSequenceLocator
 from tests.e2e.dream_support import memory_source_text
 
@@ -579,6 +579,9 @@ def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_
                 *(f"canary-{index:02}" for index in range(20)),
                 *(f"pause-{index:02}" for index in range(8)),
             }
+            for label, expected in (("zz-shared-0", (merged.ref,)), ("pause-19", ())):
+                hits = (await memory.search("Database rollout", tag_filter=TagFilter(tags=(label,)))).hits
+                assert tuple(hit.hit.artifact_ref for hit in hits) == expected
             for original in originals:
                 retained = await contexts.records.get_tags(
                     SCOPE, ArtifactTagTarget(family="atomic-memory", artifact_id=original.ref.artifact_id)

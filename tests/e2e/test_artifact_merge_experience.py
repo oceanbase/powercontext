@@ -660,20 +660,20 @@ def test_merge_tags_beyond_the_label_limit_are_bounded_deterministic_and_restora
                 else AtomicMemoryContent(kind="rule", text="Keep every rollout check.")
             )
 
-            async def merged_tags(selected) -> set[str]:
+            async def merged_tags(selected) -> tuple[str, set[str]]:
                 result = await merge.merge(tuple(item.as_read() for item in selected), content)
                 target = ArtifactTagTarget(family=family, artifact_id=result.primary.ref.artifact_id)
-                return set((await records.get_tags(target)).tags)
+                return target.artifact_id, set((await records.get_tags(target)).tags)
 
-            first = await merged_tags(inputs)
+            result_id, first = await merged_tags(inputs)
             assert first == expected
-            undo = await merge.restore(inputs[0].ref.artifact_id)
+            undo = await merge.restore(result_id, operation="undo_merge")
             assert len(undo.restored) == len(inputs)
             for original, assigned in zip(inputs, labels, strict=True):
                 target = ArtifactTagTarget(family=family, artifact_id=original.ref.artifact_id)
                 assert set((await records.get_tags(target)).tags) == set(assigned)
             restored = [await merge.get(item.ref.artifact_id) for item in reversed(inputs)]
             assert all(item.state.lifecycle_state == "active" for item in restored)
-            assert await merged_tags(restored) == first
+            assert (await merged_tags(restored))[1] == first
 
     asyncio.run(scenario())
