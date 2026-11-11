@@ -121,10 +121,10 @@ does not freeze a snapshot across requests.
 - Tags are Scope-local discovery metadata, not permissions or trusted instructions. They are not added to model prompts,
   Skill package frontmatter, or publication/import payloads. Published copies start without the source target's tags.
 - Inactive memories retain their authoritative tags. Rebuilding active search projections does not delete them.
-- A merge result starts with tags drawn from its inputs. When the inputs together carry more than 32 normalized
-  labels, the result keeps 32: labels carried by more inputs first, then normalized key order. The selection does not
-  depend on input order, so repeating the same merge assigns the same tags. The merged inputs keep their complete tag
-  sets, and restoration makes them active with those tags.
+- A merge result starts with tags drawn from its inputs. When the inputs carry more than 32 distinct normalized labels,
+  the result keeps 32: labels carried by more inputs first, then code point order of the normalized key. The selection
+  does not depend on input order, so repeating the same merge assigns the same tags. The merged inputs keep their
+  complete tag sets, and restoration makes them active with those tags.
 
 All assignments live in `pc_artifact_tags`, with a foreign key to the owning Artifact head. The table retains the full
 normalized key and indexes a 32-byte SHA-256 key fingerprint. This preserves the parent column lengths required by

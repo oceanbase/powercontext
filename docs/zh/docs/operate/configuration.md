@@ -50,7 +50,7 @@ MemoryWriteGate 采用 fail-open 策略，只裁决写入，不修改权威历�
 `MEMORY_WRITE_GATE_PRIVACY_BOUNDARY=hosted_redacted` 和显式的 `MEMORY_WRITE_GATE_SANITIZER=known_secrets`。
 内置 sanitizer 覆盖已知的敏感环境变量/Codex 值及有限的 provider 前缀，不是通用的 PII 或口令检测器。sanitizer
 默认是 `none`；hosted-redacted 组合在未选择 sanitizer 时会以命名配置错误失败。
-合并结果仍遵守每个 Artifact 最多 32 个标签的限制。输入标签合计超过此上限时，结果保留确定性选出的 32 个，
+合并结果仍遵守每个 Artifact 最多 32 个标签的限制。输入标签按规范化键去重后超过 32 个时，结果保留确定性选出的 32 个，
 合并及其 Source 窗口照常提交。选择顺序见[使用标签整理内容](../workflows/manage-artifact-tags.md#标签规则与存储)。
 
 ## 用户数据
