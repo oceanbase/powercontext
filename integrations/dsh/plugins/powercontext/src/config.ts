@@ -33,6 +33,8 @@ export interface PluginConfig {
   flushMaxCalls?: number
   /** Explicit owner assertion for an otherwise unverified local Web host. */
   ownerLocal?: boolean
+  updateChannel?: 'stable' | 'preview'
+  updateHold?: boolean
 }
 
 export interface ResolvedConfig {
@@ -50,6 +52,8 @@ export interface ResolvedConfig {
   flushMaxCalls: number
   /** Explicit owner assertion for a local Web host; undefined means automatic only. */
   ownerLocal?: boolean
+  updateChannel?: 'stable' | 'preview'
+  updateHold?: boolean
 }
 
 export type ConfigSource = 'environment' | 'plugin' | 'saved' | 'default'
@@ -133,6 +137,12 @@ export function resolveConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedConfig {
   const transport = resolveTransport('dsh', env, config.baseUrl, config.allowInsecureHttp, DEFAULTS.baseUrl)
+  if (config.updateChannel !== undefined && config.updateChannel !== 'stable' && config.updateChannel !== 'preview') {
+    throw new Error('updateChannel must be stable or preview')
+  }
+  if (config.updateHold !== undefined && typeof config.updateHold !== 'boolean') {
+    throw new Error('updateHold must be a boolean')
+  }
   const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes
   if (maxBytes < 512 || maxBytes > 32768) {
     throw new Error('maxBytes must be between 512 and 32768')
@@ -158,5 +168,7 @@ export function resolveConfig(
     flushOnCapture: envBoolean(env, 'POWERCONTEXT_DSH_FLUSH_ON_CAPTURE') ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
     flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
     ownerLocal: ownerLocal(env, config.ownerLocal),
+    updateChannel: config.updateChannel,
+    updateHold: config.updateHold,
   }
 }

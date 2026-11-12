@@ -135,9 +135,10 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 | 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
 | 红色 | 连接、DSH 认证或必要能力失败 |
 
-点击后打开只读诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
+点击后打开诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
 本地存储中，无法读取偏好时回退到中文。默认视图保留连接状态、Server 地址、工作目录和 Scope；会话 ID、
 部署方式、认证配置来源（不显示认证值）、就绪依赖、context schema 和自动处理观测放在可展开的“技术详情”中。
+页脚分别显示正在运行的 DSH 插件版本和连接的 Server 版本。
 页脚通过 Host 读取 `GET /v1/server-info` 的 `package_version`，显示当前 Server 包版本。旧 Server 不支持该接口、
 读取失败或连接观测过期时显示“未知”，不会替换为插件版本或 API 合约版本。版本读取有界且不影响就绪判断。
 面板复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、发送诊断 prompt 或轮询 `/pc doctor`。
@@ -175,6 +176,21 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 
 更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
 订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
+
+### 检查 PowerContext 更新
+
+在版本区点击 **检查更新**。检查会查询 PowerContext 的正式发布信息，即使 Server 离线也可以使用。
+默认仅检查稳定版本。可在插件补丁中设置 `updateChannel: preview` 以包含预览版本，或设置
+`updateHold: true` 以锁定当前插件版本。
+
+如果正在运行的 Server 已与目标版本匹配，且 DSH 能在符合条件的 npm 源中确认该版本可用且兼容，可点击
+**更新插件** 让 DSH 在当前 profile 后台安装。请先等待正在运行的会话结束。安装期间可关闭面板，再打开查看进度。
+如 DSH 提示重新加载或重启，只有加载新插件后才会显示新的运行版本。如果 registry 尚未提供该版本，请稍后重试。
+本地源码链接、压缩包和自定义 registry 安装沿用各自的更新流程。
+
+面板提供 [Server 升级指引](../get-started/install-and-run.md#更新或替换安装)。请按当前部署方式更新和重启
+Server，并在需要时按现有流程迁移数据库。
+
 
 ## 诊断运行中的配置
 

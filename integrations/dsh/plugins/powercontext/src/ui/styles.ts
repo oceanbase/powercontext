@@ -113,9 +113,18 @@ export const STATUS_STYLES = `
 .pc-stage-message { margin: 2px 0 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
 .pc-stage-meta { margin: 2px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
 .pc-coverage { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 15px; overflow-wrap: anywhere; }
-.pc-panel-foot > span { min-width: 0; overflow-wrap: anywhere; }
-.pc-panel-foot .pc-mono { text-align: end; flex: 1; }
-.pc-panel-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
+.pc-panel-foot { flex: none; display: grid; gap: 5px; padding: 6px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; }
+.pc-versions { display: flex; align-items: center; gap: 8px; }
+.pc-version-list { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px; margin: 0; }
+.pc-version-list dd { margin: 0; max-width: 110px; overflow-wrap: anywhere; text-align: end; color: var(--dsw-alias-label-primary, CanvasText); }
+.pc-panel-foot .pc-update-check { flex: none; width: 44px; height: 44px; }
+.pc-panel-foot .pc-update-button { flex: none; min-height: 44px; white-space: nowrap; }
+.pc-panel-foot button:active:not(:disabled) { background: var(--dsw-alias-interactive-bg-active, ButtonFace); }
+.pc-panel-foot button:disabled { opacity: .5; cursor: not-allowed; }
+.pc-update-message { margin: 0; }
+.pc-update-links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.pc-panel-foot a { color: inherit; text-underline-offset: 2px; }
+.pc-panel-foot a:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
 .pc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes pc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .42; } }
 @media (prefers-reduced-motion: reduce) {

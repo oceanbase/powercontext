@@ -22,6 +22,7 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+import { VersionFooter } from './update-panel.tsx'
 
 const LocaleContext = createContext<Locale>('zh-CN')
 function useText() {
@@ -368,10 +369,9 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
             )}
           </div>
 
-          <footer className="pc-panel-foot">
-            <span>{t('serverVersion')}</span>
-            <span className="pc-mono">{snapshot.error !== null || state === 'stale' ? t('unknown') : data?.server.package_version ?? t('unknown')}</span>
-          </footer>
+          <VersionFooter locale={props.locale} pluginVersion={data?.plugin_version}
+            serverVersion={snapshot.error !== null || state === 'stale' || data?.server.liveness.state === 'failed'
+              ? null : data?.server.package_version} />
         </div>
       )}
     </div>

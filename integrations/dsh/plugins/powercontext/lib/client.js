@@ -878,9 +878,18 @@ const STATUS_STYLES = `
 .pc-stage-message { margin: 2px 0 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
 .pc-stage-meta { margin: 2px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
 .pc-coverage { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 15px; overflow-wrap: anywhere; }
-.pc-panel-foot > span { min-width: 0; overflow-wrap: anywhere; }
-.pc-panel-foot .pc-mono { text-align: end; flex: 1; }
-.pc-panel-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
+.pc-panel-foot { flex: none; display: grid; gap: 5px; padding: 6px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; }
+.pc-versions { display: flex; align-items: center; gap: 8px; }
+.pc-version-list { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px; margin: 0; }
+.pc-version-list dd { margin: 0; max-width: 110px; overflow-wrap: anywhere; text-align: end; color: var(--dsw-alias-label-primary, CanvasText); }
+.pc-panel-foot .pc-update-check { flex: none; width: 44px; height: 44px; }
+.pc-panel-foot .pc-update-button { flex: none; min-height: 44px; white-space: nowrap; }
+.pc-panel-foot button:active:not(:disabled) { background: var(--dsw-alias-interactive-bg-active, ButtonFace); }
+.pc-panel-foot button:disabled { opacity: .5; cursor: not-allowed; }
+.pc-update-message { margin: 0; }
+.pc-update-links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.pc-panel-foot a { color: inherit; text-underline-offset: 2px; }
+.pc-panel-foot a:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
 .pc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes pc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .42; } }
 @media (prefers-reduced-motion: reduce) {
@@ -888,6 +897,304 @@ const STATUS_STYLES = `
   .pc-trigger, .pc-panel, .pc-icon-button, .pc-text-button { transition: none; }
 }
 `;
+
+//#endregion
+//#region src/update-contract.ts
+const UPDATE_ROUTE = "/powercontext/updates";
+const UPDATE_ACTION_HEADER = "x-powercontext-update-action";
+const UPDATE_PLAN_HEADER = "x-powercontext-update-plan";
+const RELEASES_URL = "https://github.com/oceanbase/powercontext/releases";
+const UPDATE_PHASES = [
+	"idle",
+	"checking",
+	"current",
+	"available",
+	"manual",
+	"server_first",
+	"artifact_unavailable",
+	"incompatible",
+	"held",
+	"check_failed",
+	"installing",
+	"restart_required",
+	"updated",
+	"restored",
+	"install_failed",
+	"busy",
+	"unconfirmed"
+];
+const SERVER_UPDATE_STATES = [
+	"unknown",
+	"current",
+	"available",
+	"artifact_unavailable"
+];
+/** Releases use the same numeric version in Python and npm, with different RC spellings. */
+function releaseVersion(value) {
+	if (typeof value !== "string" || value.length > 64) return null;
+	const parts = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:(?:(a|b|rc)|-(alpha|beta|rc)\.)(0|[1-9]\d{0,8}))?$/.exec(value);
+	if (!parts) return null;
+	const stage = parts[4] ?? {
+		alpha: "a",
+		beta: "b",
+		rc: "rc"
+	}[parts[5]];
+	const core = parts.slice(1, 4).join(".");
+	const npmStage = stage === "a" ? "alpha" : stage === "b" ? "beta" : stage;
+	return {
+		python: stage ? core + stage + parts[6] : core,
+		npm: stage ? core + "-" + npmStage + "." + parts[6] : core,
+		prerelease: Boolean(stage),
+		order: [
+			...parts.slice(1, 4).map(Number),
+			stage === "a" ? 0 : stage === "b" ? 1 : stage === "rc" ? 2 : 3,
+			Number(parts[6] ?? 0)
+		]
+	};
+}
+function parseUpdateSnapshot(value) {
+	if (typeof value !== "object" || value === null) return null;
+	const item = value;
+	if (!UPDATE_PHASES.includes(item.phase) || !SERVER_UPDATE_STATES.includes(item.server_state)) return null;
+	const version = (v) => typeof v === "string" && /^[\da-zA-Z.+-]{1,64}$/.test(v) ? v : null;
+	return {
+		phase: item.phase,
+		plugin_version: version(item.plugin_version),
+		plugin_target: releaseVersion(item.plugin_target)?.npm ?? null,
+		server_target: releaseVersion(item.server_target)?.python ?? null,
+		server_state: item.server_state,
+		plan: typeof item.plan === "string" && /^[a-f0-9-]{36}$/.test(item.plan) ? item.plan : null,
+		release_tag: typeof item.release_tag === "string" && /^powercontext-v[\da-z.]{1,64}$/.test(item.release_tag) ? item.release_tag : null
+	};
+}
+
+//#endregion
+//#region src/ui/update-panel.tsx
+const DOCS = "https://powercontext.oceanbase.io";
+const labels = {
+	"zh-CN": {
+		plugin: "DSH 插件版本",
+		check: "检查更新",
+		update: "更新插件至",
+		notes: "发布说明",
+		serverGuide: "Server 升级指南",
+		pluginGuide: "插件更新指南",
+		idle: "",
+		checking: "正在检查发布版本…",
+		current: "插件已是最新版本。",
+		available: "安装后可能需要重新加载或重启 DSH。",
+		manual: "此安装方式需要手动更新，请保留原安装渠道。",
+		server_first: "请先确认连接的 Server 已升级到匹配版本。",
+		artifact_unavailable: "所用渠道尚无对应的插件包，请稍后再查。",
+		incompatible: "此版本不适用于当前 DSH，请查看发布说明。",
+		held: "已锁定插件更新，请检查插件配置。",
+		check_failed: "检查未完成，请检查网络或重新登录 DSH 后重试。",
+		plan_changed: "更新检查已过期或安装状态已变化，请重新检查。",
+		installing: "DSH 正在后台安装插件…",
+		restart_required: "已安装，请重新加载或重启 DSH 以启用新版本。",
+		updated: "已确认新插件版本生效。",
+		restored: "安装未完成，已恢复原插件版本。",
+		install_failed: "安装失败，请在 DSH 的插件设置中检查当前安装。",
+		busy: "DSH 仍有会话在运行，请在会话结束后重试。",
+		unconfirmed: "安装结果未确认，请先在 DSH 的插件设置中检查版本。",
+		serverMissing: "发布包尚不可用",
+		serverCurrent: "Server 已是最新版本"
+	},
+	en: {
+		plugin: "DSH plugin version",
+		check: "Check for updates",
+		update: "Update plugin to",
+		notes: "Release notes",
+		serverGuide: "Server upgrade guide",
+		pluginGuide: "Plugin update guide",
+		idle: "",
+		checking: "Checking releases…",
+		current: "The plugin is up to date.",
+		available: "A DSH reload or restart may be needed after installation.",
+		manual: "Update manually using the original installation source.",
+		server_first: "First confirm the connected Server is on the matching version.",
+		artifact_unavailable: "The plugin package is unavailable on this channel. Check again later.",
+		incompatible: "This release cannot run on this DSH version. See the release notes.",
+		held: "Plugin updates are on hold. Check the plugin configuration.",
+		check_failed: "The check did not finish. Check the network or sign in to DSH again.",
+		plan_changed: "The check expired or the installation changed. Check again.",
+		installing: "DSH is installing the plugin in the background…",
+		restart_required: "Installed. Reload or restart DSH to use the new version.",
+		updated: "The new plugin version is active.",
+		restored: "Installation did not complete. The previous plugin was restored.",
+		install_failed: "Installation failed. Check the current installation in DSH Plugins.",
+		busy: "A DSH session is running. Try again when it finishes.",
+		unconfirmed: "The install result is unknown. Check the version in DSH Plugins before retrying.",
+		serverMissing: "Release package unavailable",
+		serverCurrent: "Server is up to date"
+	}
+};
+async function requestUpdate(signal, action, plan) {
+	try {
+		const headers = { accept: "application/json" };
+		if (action) headers[UPDATE_ACTION_HEADER] = action;
+		if (plan) headers[UPDATE_PLAN_HEADER] = plan;
+		const response = await fetch(UPDATE_ROUTE, {
+			method: action ? "POST" : "GET",
+			headers,
+			signal,
+			credentials: "same-origin",
+			cache: "no-store",
+			redirect: "error"
+		});
+		return {
+			status: response.status,
+			snapshot: response.ok ? parseUpdateSnapshot(await response.json()) : null
+		};
+	} catch {
+		return { snapshot: null };
+	}
+}
+function VersionFooter({ locale, pluginVersion, serverVersion }) {
+	const text$1 = labels[locale];
+	const [snapshot, setSnapshot] = (0, react.useState)(null);
+	const [sending, setSending] = (0, react.useState)(false);
+	const [notice, setNotice] = (0, react.useState)(null);
+	const pending = (0, react.useRef)(null);
+	const phase = snapshot?.phase ?? "idle";
+	const working = phase === "checking" || phase === "installing";
+	(0, react.useEffect)(() => () => pending.current?.abort(), []);
+	(0, react.useEffect)(() => {
+		if (sending) return;
+		const lifetime = new AbortController();
+		let timer;
+		let failures = 0;
+		const poll = async () => {
+			const { snapshot: state } = await requestUpdate(AbortSignal.any([lifetime.signal, AbortSignal.timeout(5e3)]));
+			if (lifetime.signal.aborted) return;
+			if (state) {
+				setSnapshot(state);
+				if (state.phase !== "idle") setNotice(null);
+				if (state.phase !== "checking" && state.phase !== "installing") return;
+				failures = 0;
+			} else if (!working) return;
+			else if (++failures >= 8) {
+				setNotice(phase === "installing" ? "unconfirmed" : "check_failed");
+				setSnapshot(null);
+				return;
+			}
+			timer = setTimeout(() => {
+				poll();
+			}, failures > 0 ? 2e3 : 1e3);
+		};
+		poll();
+		return () => {
+			lifetime.abort();
+			clearTimeout(timer);
+		};
+	}, [
+		sending,
+		working,
+		phase
+	]);
+	const submit = async () => {
+		if (pending.current || working) return;
+		const plan = phase === "available" && snapshot?.plan && snapshot.plugin_target ? snapshot.plan : void 0;
+		const lifetime = new AbortController();
+		pending.current = lifetime;
+		setSending(true);
+		setNotice(null);
+		const result = await requestUpdate(AbortSignal.any([lifetime.signal, AbortSignal.timeout(6e3)]), plan ? "install" : "check", plan);
+		if (lifetime.signal.aborted) return;
+		pending.current = null;
+		setSending(false);
+		if (result.snapshot) setSnapshot(result.snapshot);
+		else {
+			setSnapshot(null);
+			setNotice(result.status === 409 ? "plan_changed" : plan ? "unconfirmed" : "check_failed");
+		}
+	};
+	const target = phase === "available" && snapshot?.plan ? snapshot.plugin_target : null;
+	const checkLabel = target ? text$1.update + " " + target : text$1.check;
+	const busy = sending || working;
+	const message = !notice && phase === "server_first" && snapshot?.plugin_target ? text$1.server_first + " (" + snapshot.plugin_target + ")" : text$1[notice ?? phase];
+	const docs = DOCS + (locale === "zh-CN" ? "/zh" : "/en");
+	const upgradeAnchor = locale === "zh-CN" ? "#更新或替换安装" : "#update-or-replace-an-installation";
+	const serverState = snapshot?.server_state;
+	const serverTarget = snapshot?.server_target;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
+		className: "pc-panel-foot",
+		"data-pc-update-state": notice ?? phase,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "pc-versions",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+					className: "pc-version-list",
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: text$1.plugin }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+							className: "pc-mono",
+							children: snapshot?.plugin_version ?? pluginVersion ?? texts[locale].unknown
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: texts[locale].serverVersion }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+							className: "pc-mono",
+							children: serverVersion ?? texts[locale].unknown
+						})
+					]
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					className: target ? "pc-text-button pc-update-button" : "pc-icon-button pc-update-check",
+					type: "button",
+					"aria-label": checkLabel,
+					"aria-busy": busy,
+					title: checkLabel,
+					disabled: busy || phase === "restart_required",
+					onClick: () => {
+						submit();
+					},
+					children: target ? checkLabel : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+						width: "15",
+						height: "15",
+						viewBox: "0 0 16 16",
+						fill: "none",
+						stroke: "currentColor",
+						strokeWidth: "1.4",
+						strokeLinecap: "round",
+						strokeLinejoin: "round",
+						"aria-hidden": "true",
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M13.5 3v4h-4M13.2 6.5a5.4 5.4 0 1 0-.4 4.4" })
+					})
+				})]
+			}),
+			message && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: "pc-update-message",
+				role: "status",
+				children: message
+			}),
+			snapshot?.release_tag && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "pc-update-links",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+					href: RELEASES_URL + "/tag/" + snapshot.release_tag,
+					target: "_blank",
+					rel: "noreferrer",
+					children: text$1.notes
+				}), phase === "manual" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+					href: docs + "/docs/integrations/dsh",
+					target: "_blank",
+					rel: "noreferrer",
+					children: text$1.pluginGuide
+				})]
+			}),
+			(serverTarget || serverState === "current" || phase === "server_first") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "pc-update-server",
+				children: [serverTarget && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: "pc-mono",
+					children: [serverTarget, " · "]
+				}), serverState === "available" || phase === "server_first" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+					href: docs + "/docs/get-started/install-and-run" + upgradeAnchor,
+					target: "_blank",
+					rel: "noreferrer",
+					children: text$1.serverGuide
+				}) : serverState === "current" ? text$1.serverCurrent : text$1.serverMissing]
+			})
+		]
+	});
+}
 
 //#endregion
 //#region src/ui/client.tsx
@@ -1548,12 +1855,10 @@ function StatusPanel(props) {
 						})
 					]
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
-					className: "pc-panel-foot",
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("serverVersion") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "pc-mono",
-						children: snapshot.error !== null || state === "stale" ? t("unknown") : data?.server.package_version ?? t("unknown")
-					})]
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(VersionFooter, {
+					locale: props.locale,
+					pluginVersion: data?.plugin_version,
+					serverVersion: snapshot.error !== null || state === "stale" || data?.server.liveness.state === "failed" ? null : data?.server.package_version
 				})
 			]
 		})]
