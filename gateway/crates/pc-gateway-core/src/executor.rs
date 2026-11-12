@@ -91,6 +91,8 @@ pub enum ManagedOutcome {
     },
     Withheld {
         reason_codes: Vec<String>,
+        /// Whether refreshing context can recover this outcome.
+        retryable: bool,
     },
     SendIndeterminate,
     NotSent {
@@ -107,6 +109,18 @@ pub enum ManagedOutcome {
 }
 
 impl ManagedOutcome {
+    // Keep recovery classification beside the executor's context refresh handling.
+    fn withheld(reason_codes: Vec<String>) -> Self {
+        let retryable = !reason_codes.is_empty()
+            && reason_codes
+                .iter()
+                .all(|reason| reason == CONTEXT_REFRESH_REQUIRED);
+        Self::Withheld {
+            reason_codes,
+            retryable,
+        }
+    }
+
     /// One terminal interpretation shared by lifecycle snapshots and evidence.
     pub(crate) fn terminal(&self) -> crate::ExecutionTerminal {
         use crate::ExecutionTerminal;
@@ -328,9 +342,7 @@ where
                         continue;
                     }
                     CheckDecision::Withhold => {
-                        return ManagedOutcome::Withheld {
-                            reason_codes: result.reason_codes,
-                        }
+                        return ManagedOutcome::withheld(result.reason_codes)
                     }
                 },
             };
@@ -418,11 +430,7 @@ where
                                     reason_codes: r.reason_codes,
                                 }
                             }
-                            Ok(r) => {
-                                return ManagedOutcome::Withheld {
-                                    reason_codes: r.reason_codes,
-                                }
-                            }
+                            Ok(r) => return ManagedOutcome::withheld(r.reason_codes),
                             Err(e) => return ManagedOutcome::GatePaused(classify_gate_error(e)),
                         }
                     }
@@ -442,6 +450,7 @@ where
             Err(_) => {
                 return ManagedOutcome::Withheld {
                     reason_codes: vec!["invalid_response_encoding".into()],
+                    retryable: false,
                 }
             }
         };
@@ -451,6 +460,7 @@ where
             Err(_) => {
                 return ManagedOutcome::Withheld {
                     reason_codes: vec!["invalid_response_encoding".into()],
+                    retryable: false,
                 }
             }
         };
@@ -562,9 +572,7 @@ where
                             reason_codes: result.reason_codes,
                         }
                     }
-                    CheckDecision::Withhold => ManagedOutcome::Withheld {
-                        reason_codes: result.reason_codes,
-                    },
+                    CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
                 },
             };
         }
@@ -806,6 +814,7 @@ fn restore_protocol_response<R: WireRenderer>(
         .restore_response(request, raw.body)
         .ok_or_else(|| ManagedOutcome::Withheld {
             reason_codes: vec!["response_identity_unavailable".into()],
+            retryable: false,
         })?;
     if raw.body.len() > pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT {
         return Err(indeterminate_outcome(
@@ -821,6 +830,7 @@ fn indeterminate_outcome(reason: SendIndeterminateReason) -> ManagedOutcome {
     match reason {
         SendIndeterminateReason::BufferLimitExceeded => ManagedOutcome::Withheld {
             reason_codes: vec!["response_buffer_limit_exceeded".into()],
+            retryable: false,
         },
         _ => ManagedOutcome::SendIndeterminate,
     }

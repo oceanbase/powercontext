@@ -10,6 +10,8 @@ Requests with uncertain delivery are not automatically resent. When Core is unre
 
 The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions. The Gateway does not serve the Anthropic Messages API.
 
+Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executor marks them retryable, in which case they return HTTP 409. Currently, only a nonempty reason list containing exclusively `context-refresh-required` is retryable. Admission expiry also returns HTTP 409. A retry after upstream generation may spend provider quota again.
+
 ## Memory
 
 In a combined UDS deployment, recall injection is enabled by default for requests with a conversation ID. The Gateway prepares context once per new user message and reuses it for tool continuations in that turn. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.

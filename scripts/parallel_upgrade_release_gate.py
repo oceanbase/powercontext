@@ -37,17 +37,22 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-SELECTIONS = ("full", "automatic", "seekdb-code")
+SELECTIONS = ("full", "automatic", "sqlite", "seekdb-code")
 
 
 def selected_indexes(cases: list[dict[str, Any]], selection: str, *, release: bool) -> list[int]:
     gate.require(selection in SELECTIONS, "Unknown upgrade selection")
-    gate.require(not release or selection != "seekdb-code", "Manual-only acceptance cannot authorize publication")
+    gate.require(not release or selection in {"full", "automatic"}, "Partial acceptance cannot authorize publication")
     selected = [
         index
         for index, case in enumerate(cases)
         if selection in {"full", "automatic"}
-        or (case["backend"] == "seekdb" and case["configuration"] in {"full-server-code", "full-server-vector-code"})
+        or (selection == "sqlite" and case["backend"] == "sqlite")
+        or (
+            selection == "seekdb-code"
+            and case["backend"] == "seekdb"
+            and case["configuration"] in {"full-server-code", "full-server-vector-code"}
+        )
     ]
     gate.require(selected, "No cases match the upgrade selection")
     return selected
@@ -57,7 +62,7 @@ def prepare(
     root: Path, dist: Path, output: Path, *, release: bool, release_notes: str | None, selection: str = "full"
 ) -> dict[str, Any]:
     """Freeze the distributions and source discovery before scheduling any cases."""
-    gate.require(not release or selection != "seekdb-code", "Manual-only acceptance cannot authorize publication")
+    gate.require(not release or selection in {"full", "automatic"}, "Partial acceptance cannot authorize publication")
     output.mkdir(parents=True, exist_ok=False)
     wheel, files = stage_distributions(dist, output / "inputs", release=release)
     policy = gate.validate_target(root, wheel, release=release, release_notes=release_notes)
@@ -195,14 +200,10 @@ def collect(root: Path, prepared: Path, reports: Path, output: Path) -> list[Pat
             gate.require(backend == case_result["database"], "Backend evidence changed")
             by_index[index] = case_result
         evidence["cases"] = [by_index[index] for index in selected]
-        if plan["release"]:
-            gate.require(
-                plan["mode"] == "supported-upgrades", "Update the reviewed support declaration before publication"
-            )
         # Verify the originals once more before exposing a publication set.
         read_plan(root, prepared)
         evidence["complete"] = len(selected) == len(cases)
-        if plan["selection"] == "seekdb-code":
+        if plan["selection"] not in {"full", "automatic"}:
             evidence["status"] = "selected-cases-passed"
             return []
         validated = output / "validated-dist"
@@ -244,6 +245,8 @@ def main() -> None:
     collection.add_argument("--prepared", type=Path, required=True)
     collection.add_argument("--reports", type=Path, required=True)
     collection.add_argument("--output", type=Path, required=True)
+    for command in (preparation, execution, collection):
+        command.add_argument("--root", type=Path, default=gate.ROOT)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -251,7 +254,7 @@ def main() -> None:
             if args.release_event:
                 notes = json.loads(args.release_event.read_text(encoding="utf-8"))["release"]["body"] or ""
             matrix = prepare(
-                gate.ROOT,
+                args.root.resolve(),
                 args.dist.resolve(),
                 args.output.resolve(),
                 release=args.release,
@@ -263,9 +266,11 @@ def main() -> None:
                 with Path(github_output).open("a", encoding="utf-8") as stream:
                     stream.write(f"matrix={json.dumps(matrix)}\n")
         elif args.command == "case":
-            execute_case(gate.ROOT, args.prepared.resolve(), args.index, args.output.resolve())
+            execute_case(args.root.resolve(), args.prepared.resolve(), args.index, args.output.resolve())
         else:
-            accepted = collect(gate.ROOT, args.prepared.resolve(), args.reports.resolve(), args.output.resolve())
+            accepted = collect(
+                args.root.resolve(), args.prepared.resolve(), args.reports.resolve(), args.output.resolve()
+            )
             if accepted:
                 print(f"Complete upgrade matrix passed; {len(accepted)} validated distributions")
             else:

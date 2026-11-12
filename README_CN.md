@@ -9,7 +9,7 @@
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
 
-[网站](https://powercontext.oceanbase.io/zh/) · [快速开始](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/) · [手动启动](docs/zh/docs/get-started/manual-start.md) · [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/) · [评测](https://powercontext.oceanbase.io/zh/benchmarks/) · [接口](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)
+[网站](https://powercontext.oceanbase.io/zh/) · [快速开始](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/) · [手动启动](https://powercontext.oceanbase.io/zh/docs/get-started/manual-start/) · [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/) · [评测](https://powercontext.oceanbase.io/zh/benchmarks/) · [接口](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)
 
 ## PowerContext 是什么？
 
@@ -25,7 +25,7 @@
 
 工作很少会由开始它的人或 Agent 独自完成。你把任务交给 Agent，Agent 推进一部分，之后可能由你或其他人接手。推理过程和当前状态却常常留在那段对话里。PowerContext 把它们从对话里移出来，变成可以查看、带版本号的 Artifact：
 
-![你和 Agent 交接工作，并基于已存储的上下文继续推进](docs/assets/readme-workflow.svg)
+![你和 Agent 交接工作，并基于已存储的上下文继续推进](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-workflow.svg)
 
 每一项内容都属于一个 **Scope**——一条独立的 Source 日志、一套 Memory 生命周期、一个评审收件箱和一份 Handoff 历史。Scope ID 只用于选取数据，它不证明用户身份、不授予工具访问权限，也不授权执行。
 
@@ -38,7 +38,7 @@ Scope
 └── Topic Memory      # 由符合条件的 Source 后台提取
 ```
 
-*下方录屏使用实际运行的 Dashboard 和原生桌面预览的暗色主题，内容为合成演示记录。*
+*下方录屏使用实际运行的 Dashboard 和原生桌面预览的浅色主题，内容为合成演示记录。*
 
 ### Memory —— 活得比会话更久的决定与约束
 
@@ -47,7 +47,7 @@ Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约
 > "别重构老的 auth 模块 —— 移动端还在用。"
 > 这么贵的上下文，不应该依赖有人每个会话都重讲一遍。
 
-![暗色 Dashboard 操作录屏：搜索项目记忆并查看已保存版本](docs/assets/readme-dashboard-demo-zh.gif)
+![浅色 Dashboard 操作录屏：搜索项目记忆并查看已保存版本](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-demo-zh.gif)
 
 ### Handoff —— 当前状态，不是整段对话记录
 
@@ -59,7 +59,7 @@ Handoff 用一个四步循环记录工作接续：
 
 `handoff_current_work` 抓取一个已经检查过的边界，返回一份临时的 Prepared Handoff。只有在你希望留下里程碑时，提交它才会生成持久的 Revision。接收方解析这份 Handoff 并记录确认回执；任务结果则作为 Source 证据保存最终状态与检查项。[Handoff Report](https://powercontext.oceanbase.io/zh/docs/workflows/use-handoff-report/) 会把每个选定 Scope 中最新的一份 Handoff Revision 投影出来供查看与导出——只读，且从不改写 Memory。
 
-![暗色 Dashboard 操作录屏：打开交接记录并查看已保存版本](docs/assets/readme-dashboard-handoff-zh.gif)
+![浅色 Dashboard 操作录屏：打开交接记录并查看已保存版本](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-handoff-zh.gif)
 
 ### Experience —— 有用的做法，评审后再复用
 
@@ -73,9 +73,9 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 连接 Server、选择精确的 Scope 后，即可搜索其中的记忆，打开结果读取已保存的具体版本，或为下次会话记录便签。[桌面预览](desktop/README.zh.md)用于内部验证；签名分发和各平台的发行验收仍需单独完成。
 
-![暗色原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](docs/assets/readme-desktop-demo-zh.gif)
+![浅色原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-desktop-demo-zh.gif)
 
-[运行指标](docs/zh/docs/operate/observability.md)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
+[运行指标](https://powercontext.oceanbase.io/zh/docs/operate/observability/)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
 
 ## 为什么选 PowerContext？
 
@@ -103,7 +103,7 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 ## 效果怎么样
 
-![PowerContext 与基线在 LoCoMo 准确率和 SWE-bench Pro 每 100 题输入 token 消耗上的对比](docs/assets/readme-benchmark-summary.svg)
+![PowerContext 与基线在 LoCoMo 准确率和 SWE-bench Pro 每 100 题输入 token 消耗上的对比](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-benchmark-summary.svg)
 
 - **长对话记忆（LoCoMo；类别 1–4 的 1,540 个计分问题）：准确率 90.78%**，全量上下文重放为 52.9% —— 相对后者 **+37.88 个百分点**。
 - **编码任务（SWE-bench Pro 配对对照）：开启 PowerContext 后每 100 题约消耗 2.2532 亿输入 token，关闭时约为 3.0218 亿** —— 输入 token 约减少 **25.4%**，即每 100 题约少用 7,686 万。
@@ -119,7 +119,7 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 ## 快速开始
 
-如果希望自己一步一步配置并启动 PowerContext，请查看[手动启动文档](docs/zh/docs/get-started/manual-start.md)。
+如果希望自己一步一步配置并启动 PowerContext，请查看[手动启动文档](https://powercontext.oceanbase.io/zh/docs/get-started/manual-start/)。
 
 PowerContext 把可长期复用的项目上下文放在单次对话之外。一次完整体验可以概括为：
 
@@ -127,7 +127,7 @@ PowerContext 把可长期复用的项目上下文放在单次对话之外。一�
 Agent 输入 → Source 证据 → Memory / Topic Memory → PreparedContext → 新会话或新 Agent
 ```
 
-PowerContext 1.5.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
+PowerContext 1.5.1 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
 
 请选择与你目标匹配的路径：
 
@@ -140,7 +140,7 @@ PowerContext 1.5.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [
 ### 1. 安装并运行配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
 ```
@@ -170,11 +170,11 @@ powercontext capabilities
 接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 使修改后的配置生效。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 ```
 
-在新 Codex 会话发送第一条消息前，打开 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。`UserPromptSubmit` Hook 未启用时，即使 MCP 连通，也不会自动采集输入或召回上下文。检查与恢复步骤见[首次会话 Hook 信任](docs/zh/docs/integrations/codex.md#首次会话-hook-信任)。完成下面的首次验收后，可按[能力与触发指南](docs/zh/docs/get-started/quickstart.md#5-选择下一项工作流) 体验七类 Artifact、Source 和 Tag。基础记忆无需独立的 Server 模型 API；Agent 仍使用自己的模型。
+在新 Codex 会话发送第一条消息前，打开 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。`UserPromptSubmit` Hook 未启用时，即使 MCP 连通，也不会自动采集输入或召回上下文。检查与恢复步骤见[首次会话 Hook 信任](https://powercontext.oceanbase.io/zh/docs/integrations/codex/#首次会话-hook-信任)。完成下面的首次验收后，可按[能力与触发指南](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/#5-选择下一项工作流) 体验七类 Artifact、Source 和 Tag。基础记忆无需独立的 Server 模型 API；Agent 仍使用自己的模型。
 
 ### 2. 验收第一条端到端结果
 
@@ -203,7 +203,7 @@ uv sync --locked --group notebooks
 uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 ```
 
-先从 [01 · 让新会话用上项目约定](examples/jupyter/01_memory_across_sessions.ipynb)开始，再通过 [22 篇中文 Jupyter 教程与完整团队工作流](examples/jupyter/README.md)亲手运行 Memory、上下文、交接、Experience、Skill 和真实 Agent。前七篇不需要模型或 API Key。
+先从 [01 · 让新会话用上项目约定](examples/jupyter/01_memory_across_sessions.ipynb)开始，再通过 [22 篇中文 Jupyter 教程（其中一篇是完整团队工作流）](examples/jupyter/README.md)亲手运行 Memory、上下文、交接、Experience、Skill 和真实 Agent。前七篇不需要模型或 API Key。
 
 ### 常见问题
 
@@ -211,8 +211,8 @@ uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 - Python 依赖下载缓慢或失败时，可先为 [uv](https://docs.astral.sh/uv/configuration/indexes/) 配置包索引（镜像源）再重试。
 - 要体验自动 Memory 提取和 Topic Memory，请选择**完整记忆能力**并准备独立的 Generation、Embedding API 凭据；Agent 官方订阅不会自动给 PowerContext Server 提供这些凭据。选择**基础记忆**则可显式保存与召回，无需额外模型 API。
 - 选择 seekdb 且缺少依赖时，会在确认后后台增量安装。
-- 可选的召回充分性门控会按 Scope 记录每日搜索工作量和字节预算遗漏，供后续策略评估使用。记录范围与失败行为见[配置说明](docs/zh/docs/operate/configuration.md)。
-- Server 部署在另一台机器上时，请使用 HTTPS 或参考[远程连接说明](docs/zh/docs/operate/connect-remote-server.md)。配置向导会从参数或环境变量识别远端 HTTP 地址并要求显式确认；自动化场景使用 `--allow-insecure-http`。
+- 可选的召回充分性门控会按 Scope 记录每日搜索工作量和字节预算遗漏，供后续策略评估使用。记录范围与失败行为见[配置说明](https://powercontext.oceanbase.io/zh/docs/operate/configuration/)。
+- Server 部署在另一台机器上时，请使用 HTTPS 或参考[远程连接说明](https://powercontext.oceanbase.io/zh/docs/operate/connect-remote-server/)。配置向导会从参数或环境变量识别远端 HTTP 地址并要求显式确认；自动化场景使用 `--allow-insecure-http`。
 
 ## 接入你的 Agent
 
@@ -260,6 +260,8 @@ make test
 - [管理上下文](https://powercontext.oceanbase.io/zh/docs/workflows/)
 - [部署与运维](https://powercontext.oceanbase.io/zh/docs/operate/)
 - [开发与 API](https://powercontext.oceanbase.io/zh/docs/develop/)
+- [Python API 参考](https://powercontext.oceanbase.io/zh/modules/)
+- [RFC](https://powercontext.oceanbase.io/zh/rfcs/)
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 

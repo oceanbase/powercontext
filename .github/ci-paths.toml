@@ -1,5 +1,7 @@
 # Shared runtime and dependency changes can affect every consumer.
 # Patterns use Python fnmatch semantics: * also matches path separators.
+nightly_suites = ["database", "oceanbase_acceptance", "seekdb_lock"]
+
 full = [
   "Makefile", "tox.ini",
   ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
@@ -12,7 +14,7 @@ full = [
 
 # These files still receive the always-running preflight checks.
 ignore = [
-  "AGENTS.md", "REVIEW.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
+  "AGENTS.md", "REVIEW.md", "CLAUDE.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
   ".github/ISSUE_TEMPLATE/**", ".github/pull_request_template.md", ".github/CODEOWNERS",
   ".github/dependabot.yml", ".licenserc.yaml",
   "scripts/ci_queue_report.py",
@@ -25,15 +27,17 @@ gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
+  "scripts/ci_nightly_report.py", ".github/workflows/nightly-report.yml",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/generate_integration_lifecycle.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
   ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
-  "scripts/publish_desktop_release.py",
+  "scripts/publish_desktop_release.py", "scripts/prepare_desktop_product.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
   "evaluation/performance/input_encoding/**",
@@ -50,6 +54,7 @@ database = [
   ".github/workflows/e2e-harness.yml", ".github/actions/setup-upgrade-oceanbase/**",
   "tests/native/test_oceanbase_engine_recovery.py",
   "tests/*migration*.py", "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
 hermes = ["integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py"]
@@ -60,8 +65,16 @@ cindy = [
   "integrations/dsh/plugins/powercontext/pnpm-lock.yaml", "integrations/dsh/plugins/powercontext/pnpm-workspace.yaml",
   "integrations/dsh/plugins/powercontext/tsconfig.json",
 ]
-pi = ["integrations/pi/**", "tests/*pi_*"]
-opencode = ["integrations/opencode/**", "tests/*opencode*"]
+# The Pi service chain reuses the cross-host Pi RPC client and the ZCode acceptance wire fixtures.
+pi = [
+  "integrations/pi/**", "tests/*pi_*", "tests/e2e/cross_host_work_continuity/pi.py",
+  "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+]
+# The OpenCode service chain reuses the ZCode acceptance wire fixtures.
+opencode = [
+  "integrations/opencode/**", "tests/*opencode*", "tests/e2e/zcode_acceptance/protocol.py",
+  "tests/e2e/zcode_acceptance/runner.py",
+]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
 website = [
@@ -73,10 +86,19 @@ website = [
 docs_tests = ["docs/**", "README*.md"]
 native = ["tests/native/**", "tests/test_service*.py", "tests/test_cursor_secret.py", "tests/test_server.py"]
 harness = [
+  "scripts/oceanbase_ci.py",
   "e2e/**", "integrations/bub/**", "scripts/scan_e2e_evidence.sh", "tests/test_e2e_workflow_contract.py",
   ".github/workflows/e2e-harness.yml",
+]
+oceanbase_acceptance = [
+  "scripts/oceanbase_ci.py",
+  "e2e/bub/compose*.yaml", "e2e/bub/run.sh",
+  ".github/workflows/e2e-harness.yml", "tests/test_e2e_workflow_contract.py",
   "tests/e2e/test_atomic_memory_search_authorization_snapshot.py", "tests/e2e/test_atomic_memory_read_snapshot.py",
-  "tests/e2e/test_runtime_server.py",
+  "tests/e2e/atomic_memory_migration_backend.py", "tests/e2e/test_runtime_server.py",
+  "tests/e2e/test_server_metrics_oceanbase.py", "tests/e2e/test_portable_archive.py",
+  "tests/e2e/server_storage.py", "tests/e2e/dream_support.py", "tests/builtin/persistence/contract.py",
+  "tests/e2e/atomic_memory_migration_fixture.py", "tests/legacy_memory.py",
 ]
 # ZCode acceptance also exercises the Pi plugin and cross-host handoff fixtures.
 zcode = [
@@ -85,6 +107,7 @@ zcode = [
 ]
 kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
 upgrade = [
+  "scripts/oceanbase_ci.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
   "release/**", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
   "scripts/ci_release_smoke.py", "scripts/ci_ops_bundle_smoke.py", "scripts/capture_release_schema.py",
@@ -119,11 +142,13 @@ managed_resources = [
   ".github/workflows/managed-resource-candidates.yml",
 ]
 candidate_replay = [
+  "scripts/oceanbase_ci.py",
   "src/powercontext/builtin/persistence/**", "src/powercontext/builtin/artifacts/**", "pyproject.toml", "uv.lock",
   "tests/builtin/persistence/**", "scripts/replay_candidate_migration.py",
   ".github/workflows/candidate-schema-replay.yml", ".github/actions/setup-upgrade-oceanbase/**",
 ]
 release_schema = [
+  "scripts/oceanbase_ci.py",
   "scripts/capture_release_schema.py", "scripts/upgrade_database_probe.py", "scripts/upgrade_process.py",
   "tests/release_upgrades/test_full_server.py", ".github/workflows/capture-release-schema.yml",
   ".github/actions/setup-upgrade-oceanbase/**",
@@ -141,6 +166,18 @@ skill_guidance = [
   ".github/workflows/skill-guidance.yml",
 ]
 
+# Audited SQLite/in-memory tests retain ordinary unit/e2e coverage. Exact paths
+# avoid exempting future native tests matched by the broad database patterns.
+# Exclusions affect direct matches only; shared and full-scope rules take precedence.
+# Remove a file from this list if it gains native database cases.
+[exclusions]
+database = [
+  "tests/builtin/runtime/test_recall_sufficiency.py",
+  "tests/builtin/runtime/test_statistics.py", "tests/builtin/runtime/test_model_usage_recorder.py",
+  "tests/builtin/runtime/test_prepared_context.py", "tests/e2e/test_recall_sufficiency_gate.py",
+  "tests/e2e/test_context_text_assembly.py",
+]
+
 # Packaged guidance and its generators are inputs to the native host tests.
 [shared.guidance]
 patterns = [
@@ -155,7 +192,7 @@ suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
   "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "opendal",
-  "website", "native", "harness", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
+  "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
   "managed_resources",
 ]
 
@@ -173,7 +210,7 @@ suites = ["zcode"]
 
 [shared.node_cache]
 patterns = [".github/actions/cache-pnpm/**"]
-suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"]
+suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 
 [shared.docs_deploy]
 patterns = [".github/workflows/deploy-docs.yml"]
@@ -202,9 +239,10 @@ website = ["check-website", "website-link-validation-windows"]
 docs_tests = ["docs-tests"]
 native = ["native-service"]
 harness = ["harness-validation"]
+oceanbase_acceptance = ["harness-validation"]
 zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
-upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
+upgrade = ["upgrade-acceptance"]
 observability = ["worker-observability"]
 packaging = ["isolated-installations", "script-installation"]
 desktop = ["desktop-validation"]
@@ -214,3 +252,7 @@ release_schema = ["release-schema"]
 seekdb_lock = ["seekdb-lock"]
 skill_guidance = ["skill-guidance"]
 gateway = ["gateway-validation"]
+
+# Native prerequisites join the result gate only on scheduled or manual runs.
+[nightly_checks]
+upgrade = ["seekdb-managed-startup"]

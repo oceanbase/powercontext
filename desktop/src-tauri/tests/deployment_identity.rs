@@ -34,6 +34,8 @@ use tokio::{
     time::{Duration, timeout},
 };
 
+const LEGACY_PROFILE_ID: &str = "synthetic-authenticated-legacy-fixture";
+
 struct State {
     discovery: (u16, Value),
     identity_response: Option<(u16, Value)>,
@@ -217,10 +219,24 @@ impl Fixture {
             Arc::new(NativeVault),
         )
         .unwrap();
-        let manager = Arc::new(if compatibility.is_some() {
-            ConnectionManager::new(repository)
-        } else {
-            common::connection_manager(repository)
+        let manager = Arc::new(match compatibility {
+            Some(LEGACY_PROFILE_ID) => {
+                let mut profile = common::compatibility_profile();
+                profile.id = LEGACY_PROFILE_ID.into();
+                // Exercise legacy-client evidence without qualifying a historical Server release.
+                let client_contract =
+                    std::mem::replace(&mut profile.contract_sha256, "0".repeat(64));
+                profile.authenticated_clients = Some(std::collections::BTreeMap::from([(
+                    client_contract,
+                    "Synthetic authenticated legacy HTTP fixture; not release qualification".into(),
+                )]));
+                profile.operations.retain(|operation| {
+                    !matches!(operation.as_str(), "get_connection_identity" | "get_stats")
+                });
+                ConnectionManager::with_compatibility(repository, vec![profile])
+            }
+            Some(_) => ConnectionManager::new(repository),
+            None => common::connection_manager(repository),
         });
         let saved = manager.save_profile(serde_json::from_value(json!({"id":null,"revision":null,"name":"Synthetic",
             "endpoint":endpoint,"authentication":if authenticated {"bearer"} else {"unauthenticated_loopback"},
@@ -270,54 +286,99 @@ impl Fixture {
 }
 
 #[tokio::test]
-async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
-    for compatibility in ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"] {
-        let fixture = Fixture::with_profile(true, Some(compatibility)).await;
-        fixture.state.lock().unwrap().discovery.1["feature_contracts"]
-            .as_object_mut()
+async fn authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
+    let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let generation = fixture.select().await;
+    let report = fixture.manager.state().unwrap().active.unwrap().report;
+    assert!(report.connection_identity.is_none());
+    assert!(!report.anonymous_access);
+    assert_eq!(report.supported_operations.len(), 11);
+    assert!(
+        !report
+            .supported_operations
+            .iter()
+            .any(|op| op == "get_connection_identity")
+    );
+    assert_eq!(
+        fixture
+            .manager
+            .remember(generation, "legacy authenticated note")
+            .await
             .unwrap()
-            .remove("connection.identity");
-        let generation = fixture.select().await;
-        let report = fixture.manager.state().unwrap().active.unwrap().report;
-        assert!(report.connection_identity.is_none());
-        assert!(!report.anonymous_access);
-        assert_eq!(report.supported_operations.len(), 11);
-        assert!(
-            !report
-                .supported_operations
-                .iter()
-                .any(|op| op == "get_connection_identity")
-        );
+            .record
+            .status,
+        WriteStatus::Succeeded
+    );
+    fixture.state.lock().unwrap().principal = Some("changed-principal".into());
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+    );
+}
+
+#[tokio::test]
+async fn historical_authenticated_evidence_cannot_authorize_an_unqualified_client() {
+    let directory = tempfile::tempdir().unwrap();
+    let manager = ConnectionManager::new(
+        ProfileRepository::open(
+            directory.path().join("profiles.json"),
+            Arc::new(NativeVault),
+        )
+        .unwrap(),
+    );
+    let current_contract = common::compatibility_profile().contract_sha256;
+    let historical: Vec<_> = manager
+        .state()
+        .unwrap()
+        .compatibility_profiles
+        .into_iter()
+        .filter(|profile| {
+            profile.contract_sha256 != current_contract
+                && profile
+                    .authenticated_clients
+                    .as_ref()
+                    .is_some_and(|clients| {
+                        !clients.is_empty() && !clients.contains_key(&current_contract)
+                    })
+        })
+        .collect();
+    assert!(!historical.is_empty());
+    for profile in historical {
+        let fixture = Fixture::with_profile(true, Some(&profile.id)).await;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let active = state.active.unwrap();
+        assert!(active.report.identity.value.is_some());
+        assert!(!active.report.compatibility_verified);
+        assert!(active.report.supported_operations.is_empty());
         assert_eq!(
             fixture
                 .manager
-                .remember(generation, "legacy authenticated note")
-                .await
-                .unwrap()
-                .record
-                .status,
-            WriteStatus::Succeeded
-        );
-        fixture.state.lock().unwrap().principal = Some("changed-principal".into());
-        assert_eq!(
-            fixture
-                .manager
-                .search_memory(generation, "private")
+                .scopes(active.generation, "", None)
                 .await
                 .err()
                 .unwrap()
                 .code,
-            SafeError::StaleContext
-        );
-        fixture.assert_disconnected(generation);
-        assert!(
-            !fixture
-                .state
-                .lock()
-                .unwrap()
-                .requests
-                .iter()
-                .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+            SafeError::CompatibilityUnverified
         );
     }
 }
@@ -325,7 +386,7 @@ async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal
 #[tokio::test]
 async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
     for bearer in [false, true] {
-        let fixture = Fixture::with_profile(bearer, Some("sqlite-atomic-112db11e-v1")).await;
+        let fixture = Fixture::with_profile(bearer, Some(LEGACY_PROFILE_ID)).await;
         fixture.state.lock().unwrap().principal = None;
         let state = fixture.manager.check(&fixture.id, true).await.unwrap();
         let report = state.active.unwrap().report;
@@ -648,7 +709,7 @@ async fn review_observation_denial_preserves_qualified_memory_and_deployment_fen
 
 #[tokio::test]
 async fn review_current_product_cannot_downgrade_to_principal_when_identity_feature_is_missing() {
-    let fixture = Fixture::with_profile(true, Some("sqlite-identity-stats-7d89a97a-v1")).await;
+    let fixture = Fixture::new(true).await;
     fixture.state.lock().unwrap().discovery.1["feature_contracts"]
         .as_object_mut()
         .unwrap()
@@ -742,7 +803,7 @@ async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
 #[tokio::test]
 async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
     for status in [404, 401, 403, 503] {
-        let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
+        let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
         let generation = fixture.activate().await;
         fixture.state.lock().unwrap().discovery = (status, json!({}));
         assert!(fixture.manager.scopes(generation, "", None).await.is_err());
@@ -752,7 +813,7 @@ async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
 
 #[tokio::test]
 async fn a_legacy_session_requires_explicit_recheck_when_discovery_appears() {
-    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
+    let fixture = Fixture::with_profile(true, Some(LEGACY_PROFILE_ID)).await;
     fixture.state.lock().unwrap().discovery = (404, json!({}));
     let generation = fixture.activate().await;
     assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
@@ -1317,6 +1378,91 @@ async fn runtime_drops_late_results_on_replacement_disconnect_or_cancel() {
                 assert_eq!(result.err().unwrap().code, SafeError::StaleContext);
             }
             _ => unreachable!(),
+        }
+    }
+}
+
+#[tokio::test]
+async fn local_handoff_fences_default_and_exact_scope_reads_with_the_observed_deployment() {
+    for path in ["/v1/scopes/default", "/v1/scopes/scope-a"] {
+        let fixture = Fixture::new(false).await;
+        let before = fixture.manager.state().unwrap();
+        let endpoint = before.profiles[0].endpoint.clone();
+        fixture.state.lock().unwrap().pause = Some(path.into());
+        let manager = fixture.manager.clone();
+        let handoff = tokio::spawn(async move {
+            manager
+                .connect_local(
+                    before.generation,
+                    endpoint,
+                    common::PROFILE_ID.into(),
+                    "synthetic".into(),
+                )
+                .await
+        });
+        fixture.entered().await;
+        assert!(fixture.manager.state().unwrap().active.is_none());
+        fixture.replace();
+        fixture.release.notify_one();
+        let error = timeout(Duration::from_secs(5), handoff)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap();
+        assert_eq!(error.code, SafeError::StaleContext, "{path}");
+        fixture.assert_disconnected(before.generation);
+        if path == "/v1/scopes/default" {
+            assert!(
+                !fixture
+                    .state
+                    .lock()
+                    .unwrap()
+                    .requests
+                    .iter()
+                    .any(|request| request == "/v1/scopes/scope-a")
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn local_scope_retention_requires_the_same_deployment_and_rechecks_it_after_the_exact_read() {
+    for replace_during_read in [false, true] {
+        let fixture = Fixture::new(false).await;
+        let before = fixture.manager.state().unwrap();
+        let selected = fixture
+            .manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "synthetic".into(),
+            )
+            .await
+            .unwrap();
+        let id = selected.active.as_ref().unwrap().connection_id.clone();
+        let refreshed = fixture.manager.check(&id, false).await.unwrap();
+        assert_eq!(refreshed.active.unwrap().scope.unwrap().scope_id, "scope-a");
+        if replace_during_read {
+            fixture.state.lock().unwrap().pause = Some("/v1/scopes/scope-a".into());
+            let manager = fixture.manager.clone();
+            let recheck = tokio::spawn(async move { manager.check(&id, false).await });
+            fixture.entered().await;
+            fixture.replace();
+            fixture.release.notify_one();
+            let error = timeout(Duration::from_secs(5), recheck)
+                .await
+                .unwrap()
+                .unwrap()
+                .err()
+                .unwrap();
+            assert_eq!(error.code, SafeError::StaleContext);
+            fixture.assert_disconnected(refreshed.generation);
+        } else {
+            fixture.replace();
+            let replaced = fixture.manager.check(&id, false).await.unwrap();
+            assert!(replaced.active.unwrap().scope.is_none());
         }
     }
 }

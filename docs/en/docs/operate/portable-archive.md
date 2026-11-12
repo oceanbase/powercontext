@@ -139,6 +139,11 @@ Format version 1 carries the portable relational representation of these support
 | Profile policies, Prompt revisions, and Topic Memory publication metadata | Target-specific embedding configuration |
 | Work contracts, task outcomes, Handoff boundaries and receipts stored as Sources | Credentials, bearer tokens, provider secrets, and host-local Skill installation state |
 
+Source records are preserved verbatim as evidence, including capture metadata such as the absolute working directory
+(`cwd`) that agent integrations record with each prompt. Treat a bundle as containing those paths before sharing it.
+Export and restore reject credential-shaped fields in every record, and absolute host paths in records other than
+Sources.
+
 The archive has a versioned manifest (`format_version`, producer version, scopes, counts, exclusions, and total
 checksum) plus NDJSON records. Per-record digests compare canonical content for conflicts; the total digest verifies
 the record stream. It is the authoritative round-trip format. CSV may be produced separately for bounded

@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -103,6 +104,84 @@ def test_controlled_model_drives_native_catalog_names(tool: str) -> None:
         call = response.json()["choices"][0]["message"]["tool_calls"][0]
         assert call["function"]["name"] == tool
         assert json.loads(call["function"]["arguments"]) == {"source_id": "synthetic-contract"}
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_controlled_model_replays_unacknowledged_calls_before_advancing(tmp_path, stream: bool) -> None:
+    def message(response: httpx.Response) -> dict[str, Any]:
+        response.raise_for_status()
+        if stream:
+            chunk = next(line[6:] for line in response.text.splitlines() if line.startswith("data: "))
+            return json.loads(chunk)["choices"][0]["delta"]
+        return response.json()["choices"][0]["message"]
+
+    async def check() -> None:
+        model = HostModelFixture()
+        result = tmp_path / "receiver-action.json"
+        model.plan([
+            ("Bash", {"command": "verify"}),
+            ("record_task_outcome", lambda: json.loads(result.read_text())),
+        ])
+        body = {
+            "model": "fixture",
+            "stream": stream,
+            "messages": [{"role": "user", "content": "Verify and record the result."}],
+            "tools": [{"type": "function", "function": {"name": name}} for name in ("Bash", "record_task_outcome")],
+        }
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=model.app), base_url="http://fixture") as client:
+            first = message(await client.post("/v1/chat/completions", json=body))
+            title = message(await client.post("/v1/chat/completions", json={**body, "tools": []}))
+            assert "tool_calls" not in title
+            replay = message(await client.post("/v1/chat/completions", json=body))
+            assert replay == first
+            call = first["tool_calls"][0]
+            assert call["function"]["name"] == "Bash"
+            result.write_text('{"source_id":"outcome"}', encoding="utf-8")
+            body["messages"].extend([
+                first,
+                {"role": "tool", "tool_call_id": call["id"], "content": '{"status":"passed"}'},
+            ])
+            second = message(await client.post("/v1/chat/completions", json=body))
+            assert second["tool_calls"][0]["function"]["name"] == "record_task_outcome"
+
+            # A new plan may resume the same session, including all previous tool results.
+            model.plan([("Bash", {"command": "verify again"})])
+            resumed = message(await client.post("/v1/chat/completions", json=body))
+            assert resumed["tool_calls"][0]["id"] not in {call["id"], second["tool_calls"][0]["id"]}
+            replay = message(await client.post("/v1/chat/completions", json=body))
+            assert replay == resumed
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (AssertionError("receiver_action_result_missing"), "receiver_action_result_missing"),
+        (FileNotFoundError("private-profile-path"), "fixture_action_failed"),
+        (AssertionError("private provider response"), "fixture_action_failed"),
+    ],
+)
+def test_controlled_model_reports_terminal_prerequisite_failure_without_provider_retry(error, expected) -> None:
+    def failed_action():
+        raise error
+
+    async def check() -> None:
+        model = HostModelFixture()
+        model.plan([("record_task_outcome", failed_action)])
+        body = {
+            "model": "fixture",
+            "messages": [],
+            "tools": [{"type": "function", "function": {"name": "record_task_outcome"}}],
+        }
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=model.app), base_url="http://fixture") as client:
+            for _ in range(2):
+                response = await client.post("/v1/chat/completions", json=body)
+                assert response.status_code == 400
+                assert response.json() == {"error": {"message": expected}}
+                assert model.failure_code == expected
 
     asyncio.run(check())
 

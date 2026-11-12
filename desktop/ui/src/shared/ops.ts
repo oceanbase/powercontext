@@ -17,6 +17,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
+  DesktopState,
   OpsApprovalInput,
   OpsCancelInput,
   OpsInspectionReply,
@@ -35,8 +36,10 @@ export const subscribeOpsProgress = (receive: (event: OpsProgress) => void) =>
     receive(event.payload),
   );
 
-/** Fixed Ops v1 operations; executable, binding and complete plans remain native. */
+/** Fixed Ops v1 operations and explicit setup handoff; executable, binding and complete plans remain native. */
 export const opsApi = {
+  connect: (generation: number) =>
+    invoke<DesktopState>("connect_local_server", { generation }),
   references: () => invoke<OpsReferences>("ops_references"),
   inspect: () => invoke<OpsInspectionReply>("ops_inspect"),
   configValidate: () => invoke<OpsValidationReply>("ops_config_validate"),

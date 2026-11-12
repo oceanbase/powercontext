@@ -249,7 +249,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 if block_original {
                     StatusCode::FORBIDDEN
                 } else {
-                    StatusCode::CONFLICT
+                    StatusCode::BAD_REQUEST
                 }
             );
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)

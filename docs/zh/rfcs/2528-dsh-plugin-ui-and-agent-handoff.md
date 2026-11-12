@@ -5,12 +5,14 @@ description: 通过插件实现 DSH 连接状态、现有 Dashboard 内嵌及向
 
 - Proposal Name: `dsh_plugin_ui_and_agent_handoff`
 - Start Date: 2026-11-06
-- Status: Draft
+- Status: 部分实现 — 仅 PR 1-2；Dashboard 内嵌与交接仍属后续工作
 - RFC PR: [oceanbase/powercontext#2528](https://github.com/oceanbase/powercontext/pull/2528)
 - Tracking Issue: [oceanbase/powercontext#2514](https://github.com/oceanbase/powercontext/issues/2514)
 - Related RFCs: [RFC 0048](0048_handoff_artifact.md)、[RFC 1223](1223_human_agent_work_continuity.md)、[RFC 1345](1345_scope_organization_and_agent_integration.md)、[RFC 1783](1783-handoff-session-rollover.md) 和 [RFC 1629](1629_dashboard_profile_and_handoff_markdown_export.md)
 
 # Summary
+
+实现状态：PR 1-2 的浏览器入口、带认证的状态桥、setup 能力报告和侧栏诊断已实现。Dashboard 内嵌（PR 3）、Handoff 流程（PR 4-7）、目标启动/适配器及 pet 集成不在本次范围内。
 
 扩展 PowerContext DSH 插件，提供连接状态入口、现有 Dashboard 的内嵌展示，以及从最新回复交给其他 Agent 继续工作的动作。用户仍通过 `powercontext setup` 安装。插件使用现有 DSH Client 扩展位置和自身的 Host HTTP 接口；在通过验证的本机部署中，由 Node Host 代码通过受限系统启动器和目标应用支持的链接打开目标。
 

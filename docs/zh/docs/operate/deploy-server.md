@@ -214,7 +214,7 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 
 固定长度和 chunked/SSE provider 响应的默认缓冲上限均为 1 MiB。传输器显式设置的缓冲上限可以进一步收紧该值。输入 `payload_bytes` **不声明**输出额度。 Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。 UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
 
-响应缓冲超限时丢弃响应，返回 HTTP 409 和 `response_buffer_limit_exceeded`。不会释放 provider 正文，也不会自动重发。执行观察保留 `PossiblySent` 与 `Withheld` 终态： provider 可能已经计费。这不代表收到了完整响应，也不承诺零费用。该观察仅在进程内可见；本阶段尚未导出含尝试次数、执行终态与发送状态的可读取调用记录。 G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://github.com/oceanbase/powercontext/pull/2506)，并通过导出记录的回归测试后才能验收。更小的完整响应仍须通过 `before_release` 才能释放。
+响应缓冲超限时丢弃响应，返回 HTTP 400 和 `response_buffer_limit_exceeded`。不会释放 provider 正文，也不会自动重发。执行观察保留 `PossiblySent` 与 `Withheld` 终态： provider 可能已经计费。这不代表收到了完整响应，也不承诺零费用。该观察仅在进程内可见；本阶段尚未导出含尝试次数、执行终态与发送状态的可读取调用记录。 G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://github.com/oceanbase/powercontext/pull/2506)，并通过导出记录的回归测试后才能验收。更小的完整响应仍须通过 `before_release` 才能释放。
 
 透明 Core/MCP 转发继续使用部署正文上限，不消耗模型输入额度。 `PC_GATEWAY_MAX_CONCURRENT`（默认 64）分别限制模型调用与 fallback 调用，活跃的 fallback SSE 连接不会耗尽模型并发许可。两类合计最多可持有配置值两倍的许可，不含豁免的健康探测；该设置不是进程全局并发上限。每个许可随响应 body 持有，直到 body drop； `/healthz` 豁免两类并发限制。已知 Content-Length 的 fallback 超限请求在转发前返回 413。未知长度超限会产生 body error：前缀可能已经到达 Core，转发失败时代理返回 502。这不是成功截断，Gateway 不会通过完整缓冲 MCP 流来强制统一错误状态码。
 

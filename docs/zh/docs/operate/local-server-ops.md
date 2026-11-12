@@ -184,6 +184,8 @@ Resume 先通过包含 `resume: { operationId, expectedAttempt }` 的新 preflig
 
 ### 配置桥接资源
 
+产品构建可通过[桌面端产品资源](../../development/desktop-product-resources.md)随包携带 helper，并自动部署到 `PowerContext/Ops/bundles/<清单SHA-256>`。下述固定 `bundle` 目录仅用于不含 `ops/` 的旧包；随包资源损坏不会回退到它。两种布局均在卸载 Desktop 时保留独立 Ops。
+
 可信原生安装器或打包器将独立 Ops 分发包发布到固定当前用户目录：
 
 - Windows：`%LOCALAPPDATA%\PowerContext\Ops\bundle`。

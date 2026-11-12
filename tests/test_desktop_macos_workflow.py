@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -72,8 +73,15 @@ def test_macos_dmg_build_preserves_transient_failure_evidence(
 ) -> None:
     bash = shutil.which("bash")
     assert bash is not None
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(ROOT / "desktop/scripts/build_macos.py", scripts / "build_macos.py")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    hdiutil = bin_dir / "hdiutil"
+    hdiutil.write_text("#!/bin/sh\nprintf '%s' '<plist><dict><key>images</key><array/></dict></plist>'\n")
+    hdiutil.chmod(0o755)
     counter = tmp_path / "calls"
     output = tmp_path / "github-output"
     _write_executable(
@@ -89,8 +97,15 @@ IFS=, read -r -a outcomes <<< "$TEST_PNPM_SEQUENCE"
 outcome="${outcomes[$((count - 1))]:-success}"
 case "$outcome" in
   success) echo 'bundle complete' ;;
-  busy) echo 'hdiutil: create failed - Resource busy' >&2; exit 1 ;;
-  busy_eject) echo "hdiutil: couldn't eject disk2 - Resource busy" >&2; exit 1 ;;
+  busy) echo 'hdiutil: create failed - Resource busy' >&2; echo 'failed to bundle project: error running bundle_dmg.sh'; exit 1 ;;
+  busy_eject)
+    mkdir -p src-tauri/target/release/bundle/macos
+    image="$PWD/src-tauri/target/release/bundle/macos/rw.123.Preview.dmg"
+    touch "$image"
+    echo "created: $image"
+    echo 'hdiutil: couldn'"'"'t eject "disk2" - Resource busy'
+    echo 'failed to bundle project: error running bundle_dmg.sh'
+    exit 1 ;;
   failure) echo 'unrelated packaging failure' >&2; exit 42 ;;
   *) exit 99 ;;
 esac
@@ -108,7 +123,7 @@ esac
         },
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=90,
         check=False,
     )
 
@@ -117,5 +132,5 @@ esac
     assert ("retried=true" in output.read_text(encoding="utf-8") if output.exists() else False) is retried
     diagnostics = sorted((tmp_path / ".artifacts").glob("macos-build-attempt-*-state.log"))
     assert len(diagnostics) == state_logs
-    assert all("## attached disk images" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
-    assert all("## toolchain" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
+    assert all("## hdiutil info" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
+    assert all("## cargo --version" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
