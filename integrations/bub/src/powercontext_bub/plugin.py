@@ -188,8 +188,11 @@ class PowerContextPlugin:
         finally:
             _BUILDING_PROMPT.reset(token)
         prompt = to_content(built or content_of(message))
-        # ``text`` is what the sender wrote when ``content`` wraps it with channel metadata (Bub after 0.6.1).
-        recall_text = field_of(message, "text") or field_of(message, "content")
+        # ``text`` is what the sender wrote when ``content`` wraps it with channel metadata (Bub after 0.6.1); only an
+        # absent or None ``text`` means ``content`` is that text. An empty ``text`` recalls nothing rather than the
+        # replied-to message and metadata in the envelope.
+        text = field_of(message, "text")
+        recall_text = field_of(message, "content") if text is None else text
         capture_state = state.get(STATE_KEY)
         if isinstance(capture_state, dict) and isinstance(recall_text, str):
             # A steered message reaches the model with its text parts joined as built; the turn's message passes

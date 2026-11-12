@@ -36,6 +36,10 @@ from powercontext_bub.plugin import PowerContextPlugin, PowerContextSettings
 _ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = json.loads((_ROOT / "tests/fixtures/recall_query_bound.json").read_text(encoding="utf-8"))
 QUESTION = "How should we deploy the migrations?"
+REPLY_ENVELOPE = json.dumps({
+    "message": "",
+    "reply_to_message": {"text": "The support escalation policy sends urgent incidents to the incident commander."},
+})
 
 
 def _expand(segments: list[dict[str, Any]]) -> str:
@@ -157,6 +161,21 @@ def test_recall_query_is_the_sender_text_when_the_content_wraps_it(framework: Bu
     assert _recall_queries(framework, message) == [QUESTION]
 
 
+@pytest.mark.parametrize(
+    ("sender_text", "queries"),
+    [({"text": ""}, []), ({"text": "  "}, []), ({"text": None}, [REPLY_ENVELOPE]), ({}, [REPLY_ENVELOPE])],
+    ids=["empty", "blank", "none", "absent"],
+)
+def test_recall_falls_back_to_the_content_only_without_a_sender_text(
+    framework: BubFramework, sender_text: dict[str, Any], queries: list[str]
+) -> None:
+    # An empty ``text`` is still what the sender wrote; recalling the envelope would match the replied-to message.
+    # Without ``text``, the content is the sender's own words, even when it is JSON.
+    message = {"session_id": "telegram:42", "channel": "telegram", "chat_id": "42", "content": REPLY_ENVELOPE}
+
+    assert _recall_queries(framework, {**message, **sender_text}) == queries
+
+
 def test_recall_skips_a_message_without_text(framework: BubFramework) -> None:
     assert _recall_queries(framework, _cli_message("")) == []
 
@@ -226,7 +245,7 @@ def run_turn(monkeypatch, tmp_path: Path, framework: BubFramework):
     }.items():
         monkeypatch.setenv(name, value)
 
-    def run(message: ChannelMessage) -> None:
+    def run(message: Any) -> None:
         async def turn() -> None:
             async with framework.running():
                 await framework.process_inbound(message)
@@ -247,6 +266,18 @@ def test_turn_recall_maps_a_prompt_built_from_several_text_parts(framework: BubF
     run_turn(_cli_message(QUESTION))
 
     assert [prepared.query for prepared in RecordingClient.prepared] == [QUESTION]
+
+
+def test_turn_with_an_empty_sender_text_skips_recall(run_turn) -> None:
+    run_turn({
+        "session_id": "telegram:42",
+        "channel": "telegram",
+        "chat_id": "42",
+        "content": REPLY_ENVELOPE,
+        "text": "",
+    })
+
+    assert RecordingClient.prepared == []
 
 
 def test_steered_follow_up_recalls_with_its_own_text(framework: BubFramework, run_turn) -> None:
