@@ -157,6 +157,52 @@ the Server default/workspace binding, or set it to an existing Scope intentional
 Environment overrides take precedence over plugin patch values, which take precedence over defaults. They must be
 present in the process launching DSH; changing another terminal's environment does not update a running host.
 
+## Optional long-term memory for dsh-pet
+
+DSH Web pet chat can recall older preferences from a dedicated PowerContext Scope while keeping the pet's
+native persona, recent window and local history. The adapter is separate from the ordinary DSH agent plugin
+and is off by default. The initial qualified combination is DSH Web `0.2.2-rc.1`, dsh-pet `0.4.8`,
+and the adapter and Server from the same PowerContext checkout or release. This feature does not enable
+memory for standalone pets or DSH Desktop.
+
+Create a [separate Scope](../workflows/scopes-and-access.md) for each pet on the Server. Use the exact pet
+instance ID (the built-in default is `main`) and Scope ID. The selected Web profile must already contain one
+enabled dsh-pet entry. Configure generation and [Memory processing](../get-started/configure-models.md)
+on that Server to turn eligible text exchanges into searchable Memory.
+
+```bash
+powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
+  --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
+```
+
+Replace `<PET_SCOPE_ID>` with the actual ID, without the angle brackets. Repeat `--dsh-pet-bind` for other
+pets, with a different Scope each time. The bindings supplied to `on` are the complete set for that profile.
+Remote Servers require HTTPS and authentication; use the normal URL-bound DSH credential configuration.
+With access enforcement enabled, the credential needs Scope read and contribution access.
+Omitting the pet options leaves existing pet configuration alone. A missing, disabled, ambiguous or unqualified
+pet does not block ordinary DSH setup. Read the separate `dsh_pet_memory` result if you requested `on`.
+
+Restart the Web host, then run `powercontext doctor dsh --profile web`. Provider registration,
+recall, pending delivery and Source acceptance are separate observations. A Source acceptance does not
+mean the Server extracted a Memory. Recall is limited to the bound Scope; an empty result, outage or
+timeout leaves the original chat input intact. If the single provider slot is occupied, the adapter leaves it alone.
+
+Opting in sends newly completed text questions and replies to the configured Server. That Server may
+process the text with its configured model providers, and recalled text is passed to the pet's chat model.
+Attachments and past local history are excluded. The private local queue retains up to 128 records per
+binding and skips records older than seven days. Retrying an already queued record reuses its Source
+identity and payload. Changing the Server identity or Scope never sends the old queue to the new destination.
+
+```bash
+powercontext setup dsh --profile web --dsh-pet-memory off
+powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
+```
+
+The first command stops recall, capture and delivery. The second also discards unsent records for this profile.
+Neither retracts a request the Server already accepted. Clearing the pet's local chat does not clear this queue
+or delete remote Sources or Memories. Restarting or enabling the exact same binding again can retry its remaining
+pending records; run one DSH Web host per profile.
+
 ## Sidebar status and diagnostics
 
 The sidebar control appears above the account area. Its color and accessible label are always paired:
