@@ -13,6 +13,24 @@ description: 为日志、指标和 Trace 添加运行事件，保持字段一致
 Desktop 宿主的进程内测量与原生安全导出遵循独立的 [Desktop 会话观察契约](desktop-session-observations.md)，
 不会配置 Server 日志或 tracing。
 
+## 只读处理状态检查
+
+`ProcessingStatusApplication` 是后端检查层，不是 Dashboard 或 HTTP 端点。
+调用方必须执行既有的当前 Scope 读取授权。它在 Runtime 生命周期保护下开启一致读快照，不进入会 flush usage
+的 scoped operation，不派发工作、不调用 readiness 或模型，也不物化 legacy 诊断记录。
+
+| 路径 | 权威证据 | 含义 |
+|---|---|---|
+| Memory / Atomic Memory、Experience、Profile Source 窗口 | `SourceCursorRepository`、journal head | 只表示输入消费；position 与 intent generation 不是同一单位。 |
+| invocation 进度 | 通过 `project_processing_observation` 投影的 processing intents | requested/handled、dirty/clean 计数；确认调用不证明产物发布。 |
+| Topic Memory | 当前 cursor/head/target、budget、匹配的持久化 block 与 lease | 只读 frontier 投影；legacy 耗尽不伪造 block ID 或失败时间。 |
+| Dream 路径（含 tag revision） | 按 Family 过滤的持久化 run 和独立 pending 查询 | 历史结果及结果引用；失败不等于当前持久阻塞，running 记录不证明 executor 存活。 |
+| executor 可见性 | 针对准确 Scope 与 binding 的 `observe_scope` | 独立、带时间戳的进程内观测；重启后或外部 worker 的缺失观测保持 unavailable。 |
+
+最新十条 Dream 记录是有界历史窗口，不是待处理工作数量。查询先按 operation 或 tag target Family 过滤再限制条数。
+独立查询 pending 工作，避免新成功记录掩盖旧 queued run。显式操作 Family 的 Source 消费不适用；缺失观测不变成零
+或 healthy。不计算产物完成百分比。HTTP 契约以及 Dashboard 状态分节/详情展示是独立交付，不由此检查层提供。
+
 ## 新增 operational event
 
 使用 module logger 和 `powercontext._logging.log_safely`。Message 使用固定文本，批准的诊断值放入 structured fields。

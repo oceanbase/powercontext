@@ -296,7 +296,7 @@ an output allowance. Core's response configuration, content checks and the JSON/
 own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling
 is a separate direction and is not model-body capacity.
 
-A response buffer overflow discards the response and returns HTTP 409 with `response_buffer_limit_exceeded`.
+A response buffer overflow discards the response and returns HTTP 400 with `response_buffer_limit_exceeded`.
 No provider content is released and the call is not retried. The execution observation retains `PossiblySent`
 and a `Withheld` terminal: the provider may already have charged for the call. This is not proof of a complete
 response or of zero cost. This observation is process-local; this stage does not export a readable call record
