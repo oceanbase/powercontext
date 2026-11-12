@@ -2236,9 +2236,20 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     checkout = tmp_path / "powercontext"
     plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
     plugin.mkdir(parents=True)
-    (plugin / "package.json").write_text('{"name": "powercontext-dsh"}', encoding="utf-8")
+    (plugin / "package.json").write_text(
+        json.dumps({
+            "name": "powercontext-dsh",
+            "version": "0.1.0",
+            "exports": {"./client": "./lib/client.js", "./assets/*": "./lib/assets/*"},
+            "dsh": {"client": {"platform": "web"}},
+        }),
+        encoding="utf-8",
+    )
     (plugin / "lib").mkdir()
     (plugin / "lib" / "index.js").write_text("export const name = 'powercontext-dsh'\n", encoding="utf-8")
+    (plugin / "lib" / "client.js").write_text("export const inject = ['slots']\n", encoding="utf-8")
+    (plugin / "lib" / "assets").mkdir()
+    (plugin / "lib" / "assets" / "powercontext.svg").write_text("<svg/>", encoding="utf-8")
     shutil.copytree(
         Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
         plugin / "skills",
@@ -2258,6 +2269,14 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     assert json.loads(result.output)["hosts"]["dsh"]["result"] == {
         "plugin": "powercontext-dsh",
         "plugin_path": str(plugin),
+        "capabilities": {
+            "package": "powercontext-dsh",
+            "version": "0.1.0",
+            "host_bundle": "present",
+            "browser_client": "present",
+            "client_declaration": "present",
+            "asset_export": "present",
+        },
         "data_dir": str(tmp_path / "data"),
         "authorization_state": "not_configured",
         "profile": "web",
