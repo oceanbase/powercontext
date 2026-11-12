@@ -1811,6 +1811,36 @@ def test_execution_deadline_matches_terminal_budget_diagnostics(
         asyncio.run(scenario())
 
 
+def test_dependency_timeout_preserves_timeout_diagnostics(database: DatabaseConfig, caplog) -> None:
+    class TimedOutGenerator(Generator):
+        async def generate(self, value):
+            await super().generate(value)
+            raise TimeoutError("private-dependency-timeout")
+
+    async def scenario() -> None:
+        generator = TimedOutGenerator()
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
+        ) as runtime:
+            scope, _, citation = await seed(runtime)
+            accepted = await runtime.dream.for_scope(scope).create(
+                CreateDreamRunRequest(
+                    operation="refine_experience", artifacts=(citation,), idempotency_key="dependency-timeout"
+                )
+            )
+            await process_pending(runtime)
+            run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
+            assert (run.status, run.error, run.candidate, run.attempt_count) == ("failed", "generation_failed", None, 1)
+            (record,) = [entry for entry in caplog.records if getattr(entry, "event", None) == "dream.attempt.failed"]
+            assert record.exception_type == "TimeoutError"
+            assert record.failure_reason == "timeout"
+            assert not hasattr(record, "processing_stage")
+            assert "private-dependency-timeout" not in caplog.text
+
+    with caplog.at_level(logging.WARNING, logger="powercontext.builtin.dream.service"):
+        asyncio.run(scenario())
+
+
 def test_provider_exceeding_output_budget_leaves_no_candidate(database: DatabaseConfig) -> None:
     class OversizedGenerator(Generator):
         async def generate(self, value):

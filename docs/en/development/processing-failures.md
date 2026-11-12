@@ -93,7 +93,7 @@ Experience, Profile, Skill, and Handoff operation-level coverage:
 | `experience.incubate` | Business validation | Partial | Bounded input and out-of-window evidence carry explicit diagnostics; structural limits do not establish context overflow. |
 | `profile.generate` | Business validation | Partial | Invalid Markdown carries the input count and original validation exception type without exposing the content. |
 | Experience / Skill typed generation | Output parsing | Partial | Invalid typed results use the shared schema mapping; unclassified provider details remain unknown. |
-| Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity before preserving the existing retry or terminal outcome. Evidence caps and inactive Memory do not imply context or storage failure. |
+| Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity. Evidence limits, unavailable evidence, and rejected request targets carry `business_validation` and their failure location. |
 | `handoff.generate` | Business validation | Partial | Objective, citation, rollover, and byte-limit violations are invalid output, not model resource exhaustion. |
 | Publication / persistence | Persistence | Missing | These slices do not yet classify all storage entry points. |
 | Usage accounting | Usage accounting | Missing | Accounting failures remain separate from processing outcomes. |
@@ -104,10 +104,11 @@ persisted run outcome and retry policy remain authoritative; the failure record 
 not a new durable failure history. Durable-block classification currently covers Topic Memory only;
 Dream uses its existing Run outcomes and attempt logs, not a durable scheduler block.
 
-A bare timeout caught at the Dream execution boundary retains the terminal Run code `budget_exceeded`.
-Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded`, matching
-that execution-budget outcome while retaining `exception_type=TimeoutError`. This stage identifies
-Dream's execution-budget owner, not proof that a model call was active when the deadline elapsed.
+A timeout from Dream's own execution deadline produces the terminal Run code `budget_exceeded`.
+Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded` and
+`exception_type=TimeoutError`. The stage identifies the owner of the execution budget. A bare
+`TimeoutError` raised before that deadline expires follows the terminal `generation_failed` path
+and logs `timeout` without inferring a stage.
 Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
 retryable within the existing Run budget.
 

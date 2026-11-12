@@ -220,11 +220,11 @@ def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
     return None
 
 
-def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:  # noqa: C901 - bounded vocabulary
+def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
     """Classify the bounded Dream and Evidence rejection vocabulary."""
 
     value = code.lower()
-    if value in {"capability_unavailable", "unsupported_target"}:
+    if value == "capability_unavailable":
         return ProcessingDiagnostics(
             stage=ProcessingStage.GENERATION,
             reason=ProcessingFailureReason.CONFIGURATION,
@@ -242,8 +242,14 @@ def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:  # noqa
             reason=ProcessingFailureReason.USAGE_LIMIT,
             failure_location=value,
         )
+    if value == "invalid_generation_output":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
     if value in {
-        "invalid_generation_output",
+        "unsupported_target",
         "invalid_target",
         "invalid_dream_operation",
         "invalid_artifact_family",
@@ -251,41 +257,18 @@ def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:  # noqa
         "evidence_unavailable",
         "reference_not_found",
         "invalid_memory_citation",
+        "policy_changed",
+        "evidence_limit_exceeded",
+        "memory_entry_inactive",
+        "source_not_eligible",
+        "scope_not_found",
     }:
-        return ProcessingDiagnostics(
-            stage=ProcessingStage.BUSINESS_VALIDATION,
-            reason=ProcessingFailureReason.INVALID_OUTPUT,
-            failure_location=value,
-        )
-    if value == "policy_changed":
         return ProcessingDiagnostics(
             stage=ProcessingStage.BUSINESS_VALIDATION,
             failure_location=value,
         )
     if value in {"artifact_conflict", "attempt_conflict", "tag_precondition_failed"}:
         return ProcessingDiagnostics(failure_location=value)
-    if value == "evidence_limit_exceeded":
-        return ProcessingDiagnostics(
-            stage=ProcessingStage.BUSINESS_VALIDATION,
-            failure_location=value,
-        )
-    if value == "memory_entry_inactive":
-        return ProcessingDiagnostics(
-            stage=ProcessingStage.BUSINESS_VALIDATION,
-            failure_location=value,
-        )
-    if value == "source_not_eligible":
-        return ProcessingDiagnostics(
-            stage=ProcessingStage.BUSINESS_VALIDATION,
-            reason=ProcessingFailureReason.INVALID_OUTPUT,
-            failure_location=value,
-        )
-    if value == "scope_not_found":
-        return ProcessingDiagnostics(
-            stage=ProcessingStage.PERSISTENCE,
-            reason=ProcessingFailureReason.STORAGE_FAILURE,
-            failure_location=value,
-        )
     if value in {"access_revoked", "access_unavailable", "dream_request_unavailable", "generation_failed"}:
         return ProcessingDiagnostics(failure_location=value)
     if value in {"idempotency_conflict", "needs_evidence"}:

@@ -561,25 +561,25 @@ def test_durable_blocks_classify_only_for_topic_memory() -> None:
     ("code", "stage", "reason"),
     [
         ("capability_unavailable", ProcessingStage.GENERATION, ProcessingFailureReason.CONFIGURATION),
-        ("unsupported_target", ProcessingStage.GENERATION, ProcessingFailureReason.CONFIGURATION),
+        ("unsupported_target", ProcessingStage.BUSINESS_VALIDATION, None),
         ("budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
         ("capacity_exceeded", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.USAGE_LIMIT),
         ("invalid_generation_output", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("invalid_target", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("invalid_dream_operation", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("invalid_artifact_family", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("invalid_idempotency_key", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("evidence_unavailable", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("reference_not_found", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
-        ("invalid_memory_citation", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_target", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_dream_operation", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_artifact_family", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_idempotency_key", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("evidence_unavailable", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("reference_not_found", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_memory_citation", ProcessingStage.BUSINESS_VALIDATION, None),
         ("policy_changed", ProcessingStage.BUSINESS_VALIDATION, None),
         ("artifact_conflict", None, None),
         ("attempt_conflict", None, None),
         ("tag_precondition_failed", None, None),
-        ("scope_not_found", ProcessingStage.PERSISTENCE, ProcessingFailureReason.STORAGE_FAILURE),
+        ("scope_not_found", ProcessingStage.BUSINESS_VALIDATION, None),
         ("evidence_limit_exceeded", ProcessingStage.BUSINESS_VALIDATION, None),
         ("memory_entry_inactive", ProcessingStage.BUSINESS_VALIDATION, None),
-        ("source_not_eligible", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("source_not_eligible", ProcessingStage.BUSINESS_VALIDATION, None),
         ("access_revoked", None, None),
         ("access_unavailable", None, None),
         ("dream_request_unavailable", None, None),
@@ -638,7 +638,7 @@ def test_evidence_resolution_error_classifies_by_code() -> None:
 
     assert diagnostics is not None
     assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
-    assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+    assert diagnostics.reason is None
     assert diagnostics.failure_location == "reference_not_found"
 
 

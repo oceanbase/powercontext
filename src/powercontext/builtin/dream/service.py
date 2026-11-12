@@ -298,22 +298,25 @@ class DreamService:
             if record.run.terminal:
                 await self._complete_invocation(connection)
                 return True
+        deadline: asyncio.Timeout | None = None
         try:
             async with self._transaction() as connection:
                 remaining = _remaining_seconds(record, await database_now(connection))
-            async with asyncio.timeout(max(remaining, 0)):
+            deadline = asyncio.timeout(max(remaining, 0))
+            async with deadline:
                 await self._execute(record)
         except (ArtifactProcessingLeadershipLostError, InvocationAlreadyHandled):
             raise
         except (InferenceTimeoutError, InferenceUnavailableError) as error:
             self._log_attempt_failure(record, error)
             await self._fail_or_retry(record, _error_code(error), retry=True)
-        except TimeoutError as error:
-            self._log_attempt_failure(record, error, classification_error=DreamError("budget_exceeded"))
-            await self._fail_or_retry(record, "budget_exceeded", retry=False)
         except Exception as error:
-            self._log_attempt_failure(record, error)
-            await self._fail_or_retry(record, _error_code(error), retry=False)
+            if isinstance(error, TimeoutError) and deadline is not None and deadline.expired():
+                self._log_attempt_failure(record, error, classification_error=DreamError("budget_exceeded"))
+                await self._fail_or_retry(record, "budget_exceeded", retry=False)
+            else:
+                self._log_attempt_failure(record, error)
+                await self._fail_or_retry(record, _error_code(error), retry=False)
         return True
 
     def _log_attempt_failure(
