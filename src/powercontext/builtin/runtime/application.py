@@ -3866,7 +3866,9 @@ class ScopedAtomicMemoryApplication:
             raise InvalidBaseAccessRequestError(
                 "idempotency_key", "must be 1 to 256 printable ASCII characters, no spaces"
             )
-        principal = None if context is None or context.principal is None else context.principal
+        # Without an access service every caller shares the Scope's one key namespace,
+        # whatever principal the context happens to name.
+        principal = None if context is None or context.access is None else context.principal
         receipt = await self._runtime._records().create_keyed_atomic_memory(
             self.scope_id,
             values[0],

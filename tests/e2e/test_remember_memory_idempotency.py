@@ -30,7 +30,7 @@ import pytest
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.persistence.family_management import AtomicMemoryManagementWriter
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.records import InvalidBaseAccessRequestError
+from powercontext.builtin.records import BaseValueConflictError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.client import PowerContextClient
@@ -227,6 +227,28 @@ def test_in_process_create_applies_the_same_key_rule() -> None:
             assert (await memory.list()).items == ()
             first = await memory.create(content, idempotency_key="sdk-1")
             assert await memory.create(content, idempotency_key="sdk-1") == first
+
+    asyncio.run(scenario())
+
+
+def test_in_process_keys_share_one_namespace_without_access_control() -> None:
+    """A context that names a principal but carries no access service does not split the namespace."""
+    from powercontext.artifacts.search import ArtifactSearchExecutionContext
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(ScopeDraft(title="Keys", summary="SDK keys", idempotency_key="keys"))
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            content = (AtomicMemoryContent(kind="preference", text="Use pnpm"),)
+            named = ArtifactSearchExecutionContext(principal=PrincipalRef(type="user", id="alice"), trusted_local=True)
+
+            first = await memory.create(content, idempotency_key="shared")
+            assert await memory.create(content, idempotency_key="shared", context=named) == first
+            assert len((await memory.list()).items) == 1
+            with pytest.raises(BaseValueConflictError):
+                other = (AtomicMemoryContent(kind="preference", text="Use npm"),)
+                await memory.create(other, idempotency_key="shared", context=named)
 
     asyncio.run(scenario())
 
