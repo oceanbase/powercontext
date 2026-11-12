@@ -224,6 +224,16 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             env["UV_PYTHON_NO_REGISTRY"] = "1"
         else:
             env["PATH"] = str(utilities_without_python_or_uv(tmp_path, system_path))
+        if environment == "bootstrap-global":
+            # A discoverable executable need not be a runnable Python interpreter.
+            unusable_python = tmp_path / "unusable-python"
+            unusable_python.mkdir()
+            executable = "/usr/bin/false"
+            if sys.platform == "win32":
+                executable = os.path.join(os.environ["SYSTEMROOT"], "System32", "whoami.exe")
+            name = "python3.exe" if sys.platform == "win32" else "python3"
+            shutil.copy2(executable, unusable_python / name)
+            env["PATH"] = str(unusable_python) + os.pathsep + env["PATH"]
         env.update(TZ="Asia/Shanghai", LC_ALL="C", LANG="en_US.UTF-8")
         if environment == "bootstrap-global":
             env["POWERCONTEXT_INSTALL_REGION"] = "cn"
