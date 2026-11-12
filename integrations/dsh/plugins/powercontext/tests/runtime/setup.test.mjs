@@ -37,8 +37,6 @@ test('setup validates native include trees observed by a real DSH startup', { ti
     writeFileSync(join(source, 'package.json'), JSON.stringify({
       name: 'powercontext-dsh', version: '1.0.0', type: 'module', main: './lib/index.js',
       dsh: { bundle: { patch: './cordis.patch.yml' } },
-      // The fixture impersonates the PowerContext DSH plugin, so it must declare the
-      // Memory contract the CLI verifies on every setup (atomic-artifact-v1).
       powercontext: { memoryProtocol: 'atomic-artifact-v1' },
     }))
     const recording = join(home, 'received.jsonl')

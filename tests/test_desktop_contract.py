@@ -79,6 +79,20 @@ def test_desktop_bundle_qualifies_the_current_contract() -> None:
         assert re.fullmatch(r"[0-9a-f]{64}", profile["artifactSha256"]), profile["id"]
 
 
+def test_local_setup_catalog_digest_matches_the_ops_model(tmp_path: Path) -> None:
+    """The Rust handoff must accept catalog defaults normalized by actual Ops."""
+    from powercontext.ops.resources import ResourceCatalog
+
+    fixture = REPOSITORY_ROOT / "desktop/src-tauri/tests/fixtures/local-setup-catalog.json"
+    content = fixture.read_bytes()
+    catalog = tmp_path / "catalog.json"
+    catalog.write_bytes(content)
+    catalog.chmod(0o600)
+    resource = ResourceCatalog.read(catalog, hashlib.sha256(content).hexdigest()).resources[0]
+    assert resource.files[-1].executable is False
+    assert resource.digest == "1a41e4f4b604815d6b6ed2a76679786a1f5795aed2549542aeeb643094f12c7e"
+
+
 def test_bundled_desktop_contract_has_a_qualified_business_profile() -> None:
     native = REPOSITORY_ROOT / "desktop/src-tauri/src"
     contract = json.loads((native / "transport/operations.json").read_text(encoding="utf-8"))

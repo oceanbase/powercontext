@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -2327,13 +2327,13 @@ function requireService(ctx, name$1) {
 //#endregion
 //#region src/memory-compatibility.ts
 const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup dsh for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
-function record$1(value) {
+function record$2(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function memoryProtocolCheck(contracts, projection = "server-info") {
-	const memory = record$1(contracts) ? contracts["memory.explicit"] : void 0;
-	const version = record$1(memory) ? projection === "openapi" ? memory : memory.version : void 0;
-	return record$1(version) && version.major === 1 && Number.isInteger(version.minor) && Number(version.minor) >= 0 ? {
+	const memory = record$2(contracts) ? contracts["memory.explicit"] : void 0;
+	const version = record$2(memory) ? projection === "openapi" ? memory : memory.version : void 0;
+	return record$2(version) && version.major === 1 && Number.isInteger(version.minor) && Number(version.minor) >= 0 ? {
 		ok: true,
 		code: "memory_protocol_compatible",
 		message: "The Server declares Atomic Memory protocol v1. Write behavior was not tested."
@@ -2636,7 +2636,7 @@ const CONFIGURATION_CODES = new Set([
 	"provider-rejected",
 	"pydantic-rejected"
 ]);
-function record(value) {
+function record$1(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function check(operation, code, message, recovery, state = "failed") {
@@ -2673,8 +2673,8 @@ function transportFailure(error) {
 		"The request was cancelled.",
 		"Run /pc doctor again when the current cancellation has completed."
 	];
-	const detail = record(cause) && record(cause.cause) ? cause.cause : cause;
-	const code = record(detail) ? detail.code : void 0;
+	const detail = record$1(cause) && record$1(cause.cause) ? cause.cause : cause;
+	const code = record$1(detail) ? detail.code : void 0;
 	if (code === "ECONNREFUSED") return [
 		"connection_refused",
 		"The configured endpoint refused the connection.",
@@ -2777,6 +2777,7 @@ function configuration(config, cwd) {
 				configured: Boolean(config.authorization),
 				source: config.sources.authorization
 			},
+			owner_local: config.ownerLocal === true ? "explicit" : config.ownerLocal === false ? "disabled" : "not_configured",
 			scope: {
 				source: config.sources.scopeId,
 				selection: config.scopeId ? "explicit" : cwd?.trim() ? "workspace_then_default" : "server_default"
@@ -2801,7 +2802,7 @@ function dependencyStatus(value) {
 function readiness(response) {
 	const operation = "get_readiness";
 	const body = response.value;
-	if (!record(body) || !record(body.checks) || ![
+	if (!record$1(body) || !record$1(body.checks) || ![
 		"ready",
 		"degraded",
 		"not_ready"
@@ -2827,7 +2828,7 @@ function readiness(response) {
 function capabilities(response) {
 	const operation = "get_capabilities";
 	const body = response.value;
-	if (response.status !== 200 || !record(body) || typeof body.memory_extraction !== "boolean" || typeof body.handoff_generation !== "boolean" || ![
+	if (response.status !== 200 || !record$1(body) || typeof body.memory_extraction !== "boolean" || typeof body.handoff_generation !== "boolean" || ![
 		"source_types",
 		"artifact_families",
 		"search_modes",
@@ -2843,7 +2844,7 @@ function capabilities(response) {
 function routes(response, flush) {
 	const operation = "openapi_document";
 	const body = response.value;
-	if (response.status !== 200 || !record(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record(body.paths)) invalid(operation, response, "openapi");
+	if (response.status !== 200 || !record$1(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record$1(body.paths)) invalid(operation, response, "openapi");
 	const memory = memoryProtocolCheck(body["x-powercontext-feature-contracts"], "openapi");
 	if (!memory.ok) return {
 		...check(operation, memory.code, memory.message, memory.recovery),
@@ -2855,9 +2856,9 @@ function routes(response, flush) {
 	const missing = required.filter((id) => {
 		const spec = OPERATIONS[id];
 		const path = paths[spec.path];
-		if (!record(path)) return true;
+		if (!record$1(path)) return true;
 		const declaration = path[spec.method.toLowerCase()];
-		return !record(declaration) || declaration.operationId !== id;
+		return !record$1(declaration) || declaration.operationId !== id;
 	});
 	return missing.length ? {
 		...check(operation, "required_route_undeclared", "The Server contract is missing required operation declarations.", "Compare the listed operations with the Server release and proxy contract endpoint; install matching Server/plugin refs."),
@@ -2871,7 +2872,7 @@ function routes(response, flush) {
 }
 function nativeMcpCatalog(catalog, scope) {
 	const operation = "native_mcp_catalog";
-	if (!record(catalog) || typeof catalog.schemas !== "function") return check(operation, "tool_catalog_unavailable", "The DSH tool catalog is unavailable, so native MCP visibility was not checked.", "Run /pc doctor from a DSH session with the tools service available.", "skipped");
+	if (!record$1(catalog) || typeof catalog.schemas !== "function") return check(operation, "tool_catalog_unavailable", "The DSH tool catalog is unavailable, so native MCP visibility was not checked.", "Run /pc doctor from a DSH session with the tools service available.", "skipped");
 	let schemas;
 	try {
 		schemas = catalog.schemas(scope);
@@ -2879,7 +2880,7 @@ function nativeMcpCatalog(catalog, scope) {
 		return check(operation, "tool_catalog_unreadable", "The DSH tool catalog could not be read, so native MCP visibility is unknown.", "Inspect the active DSH tool registry and native MCP client configuration.", "degraded");
 	}
 	if (!Array.isArray(schemas)) return check(operation, "tool_catalog_invalid", "The DSH tool catalog returned an invalid schema list.", "Update the active DSH tools runtime and inspect its tool registry.", "degraded");
-	const mcpTools = schemas.flatMap((schema) => record(schema) && typeof schema.name === "string" ? [schema.name] : []).filter((name$1) => name$1.startsWith("mcp__"));
+	const mcpTools = schemas.flatMap((schema) => record$1(schema) && typeof schema.name === "string" ? [schema.name] : []).filter((name$1) => name$1.startsWith("mcp__"));
 	const powerContextTools = mcpTools.filter((name$1) => name$1.startsWith("mcp__powercontext__"));
 	if (powerContextTools.some((name$1) => ["mcp__powercontext__revise_memory_entry", "mcp__powercontext__retire_memory_entry"].includes(name$1))) return check(operation, "legacy_memory_operation_unsupported", "The running tool catalog still exposes legacy Memory collection mutations.", MEMORY_PROTOCOL_RECOVERY);
 	if (powerContextTools.length) return {
@@ -2906,7 +2907,7 @@ async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 	}
 	checks.liveness = await probe("get_liveness", async () => {
 		const response = await runtime.client.request("get_liveness", {}, signal);
-		if (response.status !== 200 || !record(response.value) || response.value.status !== "ok") invalid("get_liveness", response, "liveness");
+		if (response.status !== 200 || !record$1(response.value) || response.value.status !== "ok") invalid("get_liveness", response, "liveness");
 		return observed("get_liveness", response, "live", "The PowerContext liveness response is valid.");
 	});
 	checks.readiness = await probe("get_readiness", async () => readiness(await runtime.client.request("get_readiness", {}, signal, { readinessResponse: true })));
@@ -3395,7 +3396,7 @@ async function resolveScopeId(client, cwd, configuredScopeId, signal) {
 //#endregion
 //#region src/status.ts
 const STATUS_SESSION_LIMIT = 64;
-const STATUS_STALE_AFTER_MS = 3e5;
+const STATUS_STALE_AFTER_MS$1 = 3e5;
 const OPERATIONS$1 = {
 	scope: "resolve_scope_binding",
 	prepare: "prepare_context",
@@ -3458,7 +3459,7 @@ var RuntimeStatus = class {
 		this.sessions.delete(key);
 		this.sessions.set(key, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
-		const record$2 = (stage, result) => {
+		const record$3 = (stage, result) => {
 			if (this.sessions.get(key) !== attempt) return;
 			attempt.stages[stage] = {
 				...result,
@@ -3471,10 +3472,10 @@ var RuntimeStatus = class {
 				if (this.sessions.get(key) !== attempt) return;
 				attempt.scope_key = fingerprint(scopeId);
 				attempt.scope_id = /^[a-zA-Z0-9_-]{1,128}$/.test(scopeId) ? scopeId : "(redacted)";
-				record$2("scope", { state: "resolved" });
+				record$3("scope", { state: "resolved" });
 			},
-			record: record$2,
-			skip: (stage, reason) => record$2(stage, {
+			record: record$3,
+			skip: (stage, reason) => record$3(stage, {
 				state: "skipped",
 				code: reason,
 				message: SKIP_REASONS[reason]
@@ -3487,7 +3488,7 @@ var RuntimeStatus = class {
 				}
 				const { state: _state, operation: _operation, ...failure } = operationFailure(OPERATIONS$1[stage], observedError);
 				const confirmation = writeAttempted ? writeFailureConfirmation(observedError) : void 0;
-				record$2(stage, {
+				record$3(stage, {
 					...failure,
 					state: "unavailable",
 					...confirmation ? { confirmation } : {}
@@ -3499,7 +3500,7 @@ var RuntimeStatus = class {
 		const attempt = sessionId ? this.sessions.get(sessionKey(sessionId, cwd)) : void 0;
 		const now = this.now();
 		const age = attempt ? Math.max(0, now - attempt.started_at) : null;
-		const staleReason = !attempt ? void 0 : !currentScope ? "scope_unverified" : !attempt.scope_key ? "scope_not_observed" : attempt.scope_key !== fingerprint(currentScope) ? "scope_changed" : age >= STATUS_STALE_AFTER_MS ? "age_limit" : void 0;
+		const staleReason = !attempt ? void 0 : !currentScope ? "scope_unverified" : !attempt.scope_key ? "scope_not_observed" : attempt.scope_key !== fingerprint(currentScope) ? "scope_changed" : age >= STATUS_STALE_AFTER_MS$1 ? "age_limit" : void 0;
 		const stages = attempt?.stages ?? initialStages();
 		return {
 			observation: "local_automatic_path",
@@ -3510,7 +3511,7 @@ var RuntimeStatus = class {
 			turn: attempt?.turn ?? null,
 			started_at: attempt ? new Date(attempt.started_at).toISOString() : null,
 			age_ms: age,
-			stale_after_ms: STATUS_STALE_AFTER_MS,
+			stale_after_ms: STATUS_STALE_AFTER_MS$1,
 			observed_scope: attempt?.scope_id ?? null,
 			stages: Object.fromEntries(Object.entries(stages).map(([stage, value]) => [stage, {
 				...value,
@@ -3679,7 +3680,8 @@ const DEFAULTS = {
 	maxBytes: 8e3,
 	capturePrompts: true,
 	flushOnCapture: false,
-	flushMaxCalls: 4
+	flushMaxCalls: 4,
+	ownerLocal: void 0
 };
 function envString(env, name$1) {
 	const value = env[name$1]?.trim();
@@ -3715,6 +3717,11 @@ function contextAssembly(raw, fallback) {
 	if (value === void 0) return void 0;
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext context assembly must be a JSON object");
 	return structuredClone(value);
+}
+function ownerLocal(env, configured) {
+	const value = envBoolean(env, "POWERCONTEXT_DSH_OWNER_LOCAL") ?? configured;
+	if (value !== void 0 && typeof value !== "boolean") throw new Error("ownerLocal must be a boolean");
+	return value;
 }
 function storedAuthorization(env, baseUrl) {
 	const configuredHome = env.DSH_HOME;
@@ -3752,7 +3759,8 @@ function resolveConfig(config = {}, env = process.env) {
 		maxBytes,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_DSH_CAPTURE_PROMPTS") ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
 		flushOnCapture: envBoolean(env, "POWERCONTEXT_DSH_FLUSH_ON_CAPTURE") ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
-		flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls
+		flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
+		ownerLocal: ownerLocal(env, config.ownerLocal)
 	};
 }
 
@@ -4463,6 +4471,568 @@ function registerGuidance(ctx) {
 }
 
 //#endregion
+//#region src/status-contract.ts
+/**
+* Wire contract between the plugin Host status bridge and its browser entry.
+*
+* The Host owns every field below. The browser parser reconstructs exactly the
+* documented fields instead of spreading the response, so an accidentally added
+* credential, path, or provider payload cannot reach the diagnostics panel.
+*/
+const STATUS_SCHEMA = "powercontext.dsh-status.v1";
+const STATUS_STALE_AFTER_MS = 3e4;
+/** Only a bounded package version may cross the Host/browser allowlist. */
+function packageVersion(value) {
+	return typeof value === "string" && /^[0-9][0-9A-Za-z.+_-]{0,127}$/.test(value) ? value : null;
+}
+
+//#endregion
+//#region src/status-bridge.ts
+const STATUS_ROUTE_PATH = "/powercontext/status";
+/** Longest the bridge holds a status response open for its first bounded probe. */
+const STATUS_FIRST_PROBE_WAIT_MS = 2e3;
+/** A completed observation is reusable for this long before another probe starts. */
+const READY_PROBE_TTL_MS = 1e4;
+const FAILED_PROBE_TTL_MS = 5e3;
+const SCOPE_TTL_MS = 3e4;
+const MAX_SESSION_ID = 256;
+function record(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function safeScopeId(value) {
+	return value && /^[a-zA-Z0-9_-]{1,128}$/.test(value) ? value : null;
+}
+function safeDependencies(value) {
+	if (!record(value)) return void 0;
+	const dependencies = {};
+	for (const [name$1, state] of Object.entries(value)) {
+		if (!/^[a-zA-Z0-9_.:-]{1,64}$/.test(name$1) || typeof state !== "string") continue;
+		dependencies[name$1] = state.slice(0, 128);
+	}
+	return Object.keys(dependencies).length > 0 ? dependencies : void 0;
+}
+function unknownProbe() {
+	return {
+		state: "unknown",
+		observed_at: null
+	};
+}
+function okProbe(observedAt) {
+	return {
+		state: "ok",
+		observed_at: observedAt
+	};
+}
+function failedProbe(operation, error, observedAt) {
+	const failure = operationFailure(operation, error);
+	return {
+		state: "failed",
+		...failure.code ? { code: failure.code } : {},
+		...failure.message ? { message: failure.message } : {},
+		...failure.recovery ? { recovery: failure.recovery } : {},
+		...failure.http_status === void 0 ? {} : { http_status: failure.http_status },
+		...failure.request_id === void 0 ? {} : { request_id: failure.request_id },
+		observed_at: observedAt
+	};
+}
+function probePayload(probe, now) {
+	return {
+		state: probe.state,
+		...probe.code === void 0 ? {} : { code: probe.code },
+		...probe.message === void 0 ? {} : { message: probe.message },
+		...probe.recovery === void 0 ? {} : { recovery: probe.recovery },
+		...probe.http_status === void 0 ? {} : { http_status: probe.http_status },
+		...probe.request_id === void 0 ? {} : { request_id: probe.request_id },
+		observed_at: probe.observed_at === null ? null : new Date(probe.observed_at).toISOString(),
+		age_ms: probe.observed_at === null ? null : Math.max(0, now - probe.observed_at),
+		...probe.dependencies === void 0 ? {} : { dependencies: probe.dependencies }
+	};
+}
+/** Loopback only: the bridge is for the owner's local DSH host, never a remote/shared one. */
+/** Resolve the owner-local mode a request may use, or null when it must be rejected. */
+function resolveDeployment(facts) {
+	if (facts.ssh) return null;
+	if (facts.desktop) return {
+		mode: "desktop",
+		ownerLocal: "automatic"
+	};
+	if (facts.ownerLocal === true) return {
+		mode: "owner_local_web",
+		ownerLocal: "explicit"
+	};
+	return null;
+}
+/**
+* Reject a request unless it reaches a verified local owner surface. Loopback
+* alone is not proof: an SSH-forwarded host or loopback reverse proxy shares
+* the address. Desktop is automatic; plain Web requires an explicit owner
+* assertion. DSH requestRejection still runs first and is never weakened.
+*/
+function deploymentRejection(request$2, facts) {
+	if (!isLoopbackAddress(request$2.socket.remoteAddress)) return {
+		status: 403,
+		code: "local_only",
+		message: "PowerContext status is available only to the local DSH owner."
+	};
+	if (facts.ssh) return {
+		status: 403,
+		code: "ssh_untrusted",
+		message: "This DSH host was launched through SSH; remote and shared hosts are not supported."
+	};
+	if (facts.desktop || facts.ownerLocal === true) return void 0;
+	if (facts.ownerLocal === false) return {
+		status: 403,
+		code: "owner_local_disabled",
+		message: "Owner-local Web access is explicitly disabled for this PowerContext plugin."
+	};
+	return {
+		status: 403,
+		code: "owner_local_unverified",
+		message: "Set ownerLocal: true or POWERCONTEXT_DSH_OWNER_LOCAL=true only when this Web host is your own local deployment."
+	};
+}
+/** Read supported launch facts without assuming every composition provides the snapshot. */
+function localDeploymentFacts(ctx, ownerLocal$1) {
+	const environment = ctx.get("launchEnvironment");
+	const read = (name$1) => {
+		try {
+			const value = environment?.getFrom?.(name$1, ["process"])?.value;
+			return value !== void 0 ? value : process.env[name$1];
+		} catch {
+			return process.env[name$1];
+		}
+	};
+	const profile = ctx.get("profileContext");
+	return {
+		ssh: ["SSH_CONNECTION", "SSH_TTY"].some((name$1) => (read(name$1) ?? "").trim() !== ""),
+		desktop: profile?.name === "desktop",
+		ownerLocal: ownerLocal$1
+	};
+}
+function isLoopbackAddress(value) {
+	if (!value) return false;
+	const address = value.toLowerCase().startsWith("::ffff:") ? value.slice(7) : value;
+	if (address === "::1") return true;
+	const octets = address.split(".");
+	return octets.length === 4 && octets[0] === "127" && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255);
+}
+function readEndpoint(config) {
+	try {
+		const url = new URL(config.baseUrl);
+		return {
+			origin: url.origin,
+			pathPrefix: url.pathname !== "/"
+		};
+	} catch {
+		return {
+			origin: "",
+			pathPrefix: false
+		};
+	}
+}
+/**
+* The authenticated plugin-owned status bridge. It performs only read-only
+* health/readiness/capability and Scope resolution calls: never prepare,
+* capture, generation, MCP, or `/pc doctor`.
+*/
+var StatusBridge = class {
+	options;
+	now;
+	packageVersion = null;
+	liveness = unknownProbe();
+	readiness = unknownProbe();
+	capabilities = unknownProbe();
+	connectionState = "connecting";
+	lastCompletedAt = null;
+	nextProbeAt = 0;
+	generation = 0;
+	inFlight = null;
+	abort = new AbortController();
+	scopes = /* @__PURE__ */ new Map();
+	disposed = false;
+	constructor(options) {
+		this.options = options;
+		this.now = options.now ?? Date.now;
+	}
+	/** Stop pending probes; called by the plugin effect's disposer. */
+	dispose() {
+		this.disposed = true;
+		this.abort.abort();
+		this.inFlight = null;
+		this.scopes.clear();
+	}
+	/**
+	* Read the current connection, Scope, and local automatic-path observations.
+	* @param sessionId - optional selector for the owner's active DSH Session.
+	*/
+	async status(sessionId) {
+		const waiting = this.ensureProbe();
+		if (waiting !== null) await this.waitFor(waiting, STATUS_FIRST_PROBE_WAIT_MS);
+		const now = this.now();
+		const session = this.resolveSession(sessionId);
+		const scope = session === null || session.unavailable ? {
+			scopeId: null,
+			state: "not_attempted",
+			observed_at: now
+		} : await this.resolveScope(session, now);
+		const runtime = this.runtime(session, scope);
+		const endpoint = readEndpoint(this.options.config);
+		const connection = this.connection(now);
+		const notices = [];
+		if (session === null) notices.push("no_active_session");
+		else if (session.unavailable) notices.push("session_unavailable");
+		else if (scope.state === "unresolved") notices.push("scope_unresolved");
+		if (session === null && sessionId !== void 0) notices.push("session_service_unavailable");
+		return {
+			schema: STATUS_SCHEMA,
+			observed_at: new Date(now).toISOString(),
+			plugin_version: this.options.pluginVersion ?? PLUGIN_VERSION,
+			deployment: {
+				kind: "local",
+				mode: this.options.deployment?.mode ?? "desktop",
+				owner_local: this.options.deployment?.ownerLocal ?? "automatic",
+				ssh: false,
+				bridge: "available",
+				client: "packaged"
+			},
+			configuration: {
+				endpoint_origin: endpoint.origin,
+				endpoint_source: this.options.config.sources.baseUrl,
+				path_prefix: endpoint.pathPrefix,
+				authorization_configured: Boolean(this.options.config.authorization),
+				authorization_source: this.options.config.sources.authorization,
+				scope_source: this.options.config.sources.scopeId,
+				request_timeout_ms: this.options.config.requestTimeoutMs
+			},
+			connection,
+			session: this.sessionPayload(session, scope),
+			runtime,
+			server: {
+				package_version: this.packageVersion,
+				liveness: probePayload(this.liveness, now),
+				readiness: probePayload(this.readiness, now),
+				capabilities: probePayload(this.capabilities, now)
+			},
+			capabilities: this.capabilityPayload(),
+			notices
+		};
+	}
+	connection(now) {
+		const failure = this.connectionState === "failed" ? [
+			this.liveness,
+			this.readiness,
+			this.capabilities
+		].find((probe) => probe.state === "failed") : void 0;
+		return {
+			state: this.connectionState,
+			observed_at: this.lastCompletedAt === null ? null : new Date(this.lastCompletedAt).toISOString(),
+			age_ms: this.lastCompletedAt === null ? null : Math.max(0, now - this.lastCompletedAt),
+			stale: this.lastCompletedAt !== null && now - this.lastCompletedAt >= STATUS_STALE_AFTER_MS,
+			stale_after_ms: STATUS_STALE_AFTER_MS,
+			generation: this.generation,
+			in_flight: this.inFlight !== null,
+			...failure?.code === void 0 ? {} : { code: failure.code },
+			...failure?.message === void 0 ? {} : { message: failure.message },
+			...failure?.recovery === void 0 ? {} : { recovery: failure.recovery },
+			...failure?.http_status === void 0 ? {} : { http_status: failure.http_status }
+		};
+	}
+	capabilityPayload() {
+		const value = this.capabilities;
+		const contextVersions = Array.isArray(value.contextVersions) ? value.contextVersions.filter((item) => typeof item === "string").slice(0, 32) : [];
+		return {
+			prepared_context: contextVersions.includes(PREPARED_CONTEXT_SCHEMA),
+			context_versions: contextVersions,
+			memory_extraction: typeof value.memoryExtraction === "boolean" ? value.memoryExtraction : null,
+			handoff_generation: typeof value.handoffGeneration === "boolean" ? value.handoffGeneration : null
+		};
+	}
+	resolveSession(sessionId) {
+		if (sessionId === void 0) return null;
+		const id = sessionId.trim();
+		if (!id || id.length > MAX_SESSION_ID || !/^[a-zA-Z0-9._:-]+$/.test(id)) return {
+			id,
+			unavailable: true
+		};
+		if (this.options.sessions === void 0) return {
+			id,
+			unavailable: true
+		};
+		const session = this.options.sessions.get(id);
+		if (session === void 0) return {
+			id,
+			unavailable: true
+		};
+		const cwd = session.header?.cwd;
+		return {
+			id,
+			unavailable: false,
+			...typeof cwd === "string" && isAbsolute(cwd) ? { cwd } : {}
+		};
+	}
+	async resolveScope(session, now) {
+		const key = `${session.id}\u0000${session.cwd ?? ""}`;
+		const cached = this.scopes.get(key);
+		if (cached !== void 0 && now - cached.observed_at < SCOPE_TTL_MS) return cached;
+		try {
+			const valid = safeScopeId(await this.options.resolveScope(session.cwd, this.abort.signal));
+			const observation = valid === null ? {
+				scopeId: null,
+				state: "unresolved",
+				code: "scope_unavailable",
+				message: "The Server did not return a usable Scope for this Session.",
+				observed_at: now
+			} : {
+				scopeId: valid,
+				state: "resolved",
+				observed_at: now
+			};
+			this.scopes.set(key, observation);
+			return observation;
+		} catch (error) {
+			const failure = operationFailure("resolve_scope_binding", error);
+			const observation = {
+				scopeId: null,
+				state: "unresolved",
+				...failure.code ? { code: failure.code } : {},
+				...failure.message ? { message: failure.message } : {},
+				observed_at: now
+			};
+			this.scopes.set(key, observation);
+			return observation;
+		}
+	}
+	runtime(session, scope) {
+		const status = this.options.status;
+		if (session === null || session.unavailable) return new RuntimeStatus().read(void 0, void 0);
+		return status?.read(session.id, session.cwd, scope.scopeId ?? void 0) ?? new RuntimeStatus().read(void 0, void 0);
+	}
+	sessionPayload(session, scope) {
+		if (session === null || session.unavailable) return null;
+		return {
+			id: session.id,
+			scope_id: scope.scopeId,
+			scope_state: scope.state,
+			...scope.code === void 0 ? {} : { scope_code: scope.code },
+			...scope.message === void 0 ? {} : { scope_message: scope.message },
+			...session.cwd === void 0 ? {} : { cwd: session.cwd }
+		};
+	}
+	ensureProbe() {
+		if (this.disposed) return null;
+		if (this.inFlight !== null) return this.inFlight;
+		if (this.now() < this.nextProbeAt) return null;
+		const started = this.probe();
+		this.inFlight = started;
+		return started;
+	}
+	async waitFor(probe, milliseconds) {
+		let timer;
+		await Promise.race([probe, new Promise((resolve$1) => {
+			timer = setTimeout(resolve$1, milliseconds);
+		})]);
+		if (timer !== void 0) clearTimeout(timer);
+	}
+	async probe() {
+		this.generation += 1;
+		this.packageVersion = null;
+		try {
+			const liveness = await this.probeLiveness();
+			if (this.disposed) return;
+			this.liveness = liveness;
+			if (liveness.state !== "ok") {
+				this.readiness = unknownProbe();
+				this.capabilities = unknownProbe();
+				this.connectionState = "failed";
+				return;
+			}
+			await this.readPackageVersion();
+			const readiness$1 = await this.probeReadiness();
+			if (this.disposed) return;
+			this.readiness = readiness$1;
+			if (readiness$1.state !== "ok") {
+				this.capabilities = unknownProbe();
+				this.connectionState = "failed";
+				return;
+			}
+			const capabilities$1 = await this.probeCapabilities();
+			if (this.disposed) return;
+			this.capabilities = capabilities$1;
+			this.connectionState = capabilities$1.state === "ok" ? "ready" : "failed";
+		} catch (error) {
+			this.liveness = failedProbe("get_liveness", error, this.now());
+			this.readiness = unknownProbe();
+			this.capabilities = unknownProbe();
+			this.connectionState = "failed";
+		} finally {
+			if (!this.disposed) {
+				const now = this.now();
+				this.lastCompletedAt = now;
+				this.nextProbeAt = now + (this.connectionState === "ready" ? READY_PROBE_TTL_MS : FAILED_PROBE_TTL_MS);
+			}
+			this.inFlight = null;
+		}
+	}
+	async readPackageVersion() {
+		try {
+			const response = await this.options.client.request("get_server_info", {}, combineSignals([this.abort.signal, AbortSignal.timeout(1e3)]));
+			if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+		} catch {
+			this.packageVersion = null;
+		}
+	}
+	async probeLiveness() {
+		const observedAt = this.now();
+		try {
+			const response = await this.options.client.request("get_liveness", {}, this.abort.signal);
+			const value = response.value;
+			if (response.status !== 200 || !record(value) || value.status !== "ok") throw new TypeError("Liveness requires HTTP 200 and status ok");
+			return okProbe(observedAt);
+		} catch (error) {
+			return failedProbe("get_liveness", error, this.now());
+		}
+	}
+	async probeReadiness() {
+		try {
+			const value = (await this.options.client.request("get_readiness", {}, this.abort.signal, { readinessResponse: true })).value;
+			if (!record(value) || !record(value.checks) || typeof value.status !== "string" || ![
+				"ready",
+				"degraded",
+				"not_ready"
+			].includes(value.status) || Object.values(value.checks).some((check$1) => typeof check$1 !== "string")) throw new TypeError("Readiness response does not match its schema");
+			const dependencies = safeDependencies(value.checks);
+			const observedAt = this.now();
+			if (value.status === "ready") return {
+				...okProbe(observedAt),
+				...dependencies ? { dependencies } : {}
+			};
+			const failed = dependencies ? Object.entries(dependencies).filter(([, state]) => !["ready", "disabled"].includes(state)).map(([name$1]) => name$1) : [];
+			return {
+				state: "failed",
+				code: value.status === "not_ready" ? "not_ready" : "degraded",
+				message: failed.length > 0 ? `The Server reports ${value.status}: ${failed.join(", ")}.` : `The Server reports ${value.status}.`,
+				recovery: failed.length > 0 ? `Check the Server readiness dependencies: ${failed.join(", ")}.` : "Inspect the running Server readiness and service logs.",
+				...dependencies ? { dependencies } : {},
+				observed_at: observedAt
+			};
+		} catch (error) {
+			return failedProbe("get_readiness", error, this.now());
+		}
+	}
+	async probeCapabilities() {
+		try {
+			const response = await this.options.client.request("get_capabilities", {}, this.abort.signal);
+			const value = response.value;
+			if (response.status !== 200 || !record(value) || typeof value.memory_extraction !== "boolean" || typeof value.handoff_generation !== "boolean" || ![
+				"source_types",
+				"artifact_families",
+				"search_modes",
+				"context_versions"
+			].every((key) => Array.isArray(value[key]) && value[key].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
+			const contextVersions = value.context_versions.slice(0, 32);
+			const observedAt = this.now();
+			if (!contextVersions.includes(PREPARED_CONTEXT_SCHEMA)) return {
+				state: "failed",
+				code: "unsupported_context_schema",
+				message: "The Server does not advertise the PreparedContext schema required by this plugin.",
+				recovery: "Install matching PowerContext Server and DSH plugin versions.",
+				contextVersions,
+				memoryExtraction: value.memory_extraction,
+				handoffGeneration: value.handoff_generation,
+				observed_at: observedAt
+			};
+			return {
+				...okProbe(observedAt),
+				contextVersions,
+				memoryExtraction: value.memory_extraction,
+				handoffGeneration: value.handoff_generation
+			};
+		} catch (error) {
+			return failedProbe("get_capabilities", error, this.now());
+		}
+	}
+};
+function sendJson(response, status, payload) {
+	if (response.writableEnded) return;
+	response.statusCode = status;
+	response.setHeader("content-type", "application/json; charset=utf-8");
+	response.setHeader("cache-control", "no-store");
+	response.setHeader("x-content-type-options", "nosniff");
+	response.end(JSON.stringify(payload));
+}
+function sendMethodNotAllowed(response) {
+	response.statusCode = 405;
+	response.setHeader("allow", "GET");
+	response.end();
+}
+function createStatusRouteHandler(bridge, connection, facts = {
+	ssh: false,
+	desktop: true,
+	ownerLocal: void 0
+}) {
+	return async (request$2, response) => {
+		const rejection = connection.requestRejection(request$2);
+		if (rejection !== void 0) {
+			sendJson(response, rejection, {
+				code: rejection === 401 ? "dsh_authentication_required" : "dsh_forbidden",
+				message: "DSH authentication is required before reading PowerContext status."
+			});
+			return;
+		}
+		const deployment = deploymentRejection(request$2, facts);
+		if (deployment !== void 0) {
+			sendJson(response, deployment.status, {
+				code: deployment.code,
+				message: deployment.message
+			});
+			return;
+		}
+		if (request$2.method !== "GET") {
+			sendMethodNotAllowed(response);
+			return;
+		}
+		try {
+			const sessionIds = new URL(String(request$2.url), "http://localhost").searchParams.getAll("session_id");
+			const sessionId = sessionIds.length > 1 ? void 0 : sessionIds[0];
+			sendJson(response, 200, await bridge.status(sessionId));
+		} catch {
+			sendJson(response, 500, {
+				code: "status_bridge_error",
+				message: "The PowerContext status bridge could not complete its read-only checks."
+			});
+		}
+	};
+}
+/**
+* Register the optional Host bridge. Headless compositions without `webServer`
+* or `connection` never enter this callback, so tools and lifecycle hooks stay
+* available unchanged.
+*/
+function registerStatusBridge(ctx, runtime) {
+	if (typeof ctx.inject !== "function") return;
+	ctx.inject(["webServer", "connection"], (host) => {
+		const ui = host;
+		const sessions = ui.get("sessions");
+		const deploymentFacts = localDeploymentFacts(ui, runtime.config.ownerLocal);
+		const deployment = resolveDeployment(deploymentFacts);
+		const bridge = new StatusBridge({
+			config: runtime.config,
+			client: runtime.client,
+			status: runtime.status,
+			resolveScope: runtime.resolveScope,
+			...sessions === void 0 ? {} : { sessions },
+			...deployment === null ? {} : { deployment }
+		});
+		host.effect(() => ui.webServer.register({
+			kind: "exact",
+			path: STATUS_ROUTE_PATH,
+			handler: createStatusRouteHandler(bridge, ui.connection, deploymentFacts)
+		}), "powercontext: GET /powercontext/status");
+		host.effect(() => () => bridge.dispose(), "powercontext: status bridge disposal");
+	});
+}
+
+//#endregion
 //#region src/index.ts
 const name = PLUGIN_NAME;
 const inject = [
@@ -4606,6 +5176,7 @@ async function apply(ctx, config) {
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
+	registerStatusBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }
 

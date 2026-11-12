@@ -1057,7 +1057,6 @@ def test_desktop_registration_does_not_boot_and_requires_an_enabled_bundle(dsh_p
 def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
     dsh_profile, tmp_path, monkeypatch, server_checks
 ):
-    import powercontext.cli.dsh as dsh
     from powercontext.cli.system import doctor_app
 
     desktop = dsh_profile.parent / "desktop"
@@ -1068,11 +1067,6 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
         "- insert:\n    - id: powercontext-dsh\n      name: powercontext-dsh\n"
         "      config:\n        baseUrl: http://desktop.example\n",
     )
-    # Doctor verifies the installed plugin's declared Memory protocol. Give the
-    # Web profile a real, resolvable bundle that declares it, so the explicit
-    # --profile web route is observed through a healthy diagnostic rather than an
-    # unverified-plugin failure. The Desktop profile keeps its empty bundle list
-    # and its own baseUrl: if doctor read it by mistake, the check would degrade.
     source = plugin_source(tmp_path)
     manifest = source / "package.json"
     metadata = json.loads(manifest.read_text())
@@ -1081,7 +1075,6 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
     shutil.copytree(source, dsh_profile / "node_modules/powercontext-dsh")
     (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
     monkeypatch.setenv("DSH_PROFILE", "desktop")
-    monkeypatch.setattr(dsh, "_run_dsh", lambda *_args, **_kwargs: "id: powercontext-dsh\n")
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--profile", "web", "--json"])
     assert result.exit_code == 0, result.output
     host = json.loads(result.stdout)["hosts"]["dsh"]
