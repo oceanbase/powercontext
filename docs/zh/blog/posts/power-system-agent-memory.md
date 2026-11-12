@@ -62,7 +62,7 @@ pin: false
 
 先看整体结构：
 
-![面向电力系统的 LangGraph 多智能体技术架构](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.svg)
+![面向电力系统的 LangGraph 多智能体技术架构](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.png)
 
 *图 1：面向电力系统的 Agent Runtime。LangGraph 统一编排业务智能体，并调用上下文、记忆和任务管理能力；底层连接本地模型、知识服务、数据与领域算法。*
 

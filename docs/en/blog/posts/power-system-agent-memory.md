@@ -56,7 +56,7 @@ This stack already covers the main capabilities required to run the business age
 
 ## 03 Overall architecture: LangGraph orchestrates; the Runtime manages context, memory, and tasks
 
-![LangGraph multi-agent architecture for a power system](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.svg)
+![LangGraph multi-agent architecture for a power system](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.png)
 
 *Figure 1. The Agent Runtime for a power system. LangGraph orchestrates business agents and calls context, memory, and task capabilities; the lower layers connect local models, knowledge services, data, and domain algorithms.*
 
