@@ -34,12 +34,10 @@ test('setup validates native include trees observed by a real DSH startup', { ti
     const source = join(home, 'recording-powercontext')
     mkdirSync(join(source, 'lib'), { recursive: true })
     cpSync(join(fixture.root, 'integrations/dsh/plugins/powercontext/skills'), join(source, 'skills'), { recursive: true })
-    const pluginMetadata = JSON.parse(readFileSync(
-      join(fixture.root, 'integrations/dsh/plugins/powercontext/package.json'), 'utf8'))
     writeFileSync(join(source, 'package.json'), JSON.stringify({
       name: 'powercontext-dsh', version: '1.0.0', type: 'module', main: './lib/index.js',
       dsh: { bundle: { patch: './cordis.patch.yml' } },
-      powercontext: { memoryProtocol: pluginMetadata.powercontext.memoryProtocol },
+      powercontext: { memoryProtocol: 'atomic-artifact-v1' },
     }))
     const recording = join(home, 'received.jsonl')
     writeFileSync(join(source, 'lib/index.js'),
