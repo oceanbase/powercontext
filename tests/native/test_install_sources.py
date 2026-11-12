@@ -266,7 +266,8 @@ def test_latest_ignores_calling_project_configuration(installation, filename, co
 
 
 @pytest.mark.parametrize("configuration", ["user", "explicit"])
-def test_latest_preserves_configured_index_over_project_index(installation, configuration):
+@pytest.mark.parametrize("generate_hashes", [False, True])
+def test_latest_preserves_configured_index_over_project_index(installation, configuration, generate_hashes):
     install, version, index, env = installation
     project = Path(env["HOME"]).parent
     (project / "uv.toml").write_text(
@@ -276,6 +277,8 @@ def test_latest_preserves_configured_index_over_project_index(installation, conf
     config = Path(env["XDG_CONFIG_HOME"]) / "uv/uv.toml" if configuration == "user" else project / "selected.toml"
     config.parent.mkdir(parents=True, exist_ok=True)
     content = f'[[index]]\nurl = "{index.base_url}/cn/simple"\ndefault = true\n'
+    if generate_hashes:
+        content += "\n[pip]\ngenerate-hashes = true\n"
     config.write_text(content, encoding="utf-8")
 
     install("--region", "global", extra={"UV_CONFIG_FILE": config.name} if configuration == "explicit" else {})

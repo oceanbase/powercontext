@@ -357,7 +357,7 @@ try {
         # Ignore the invoking project's settings while retaining user and explicit uv configuration.
         [IO.File]::WriteAllText((Join-Path $TempDir 'uv.toml'), '')
         $ResolveArgs = @('pip', 'compile', '--project', $TempDir, '--no-deps', '--upgrade', '--prerelease', 'disallow',
-            '--python', $Python.Trim(), '--no-python-downloads', '--no-header', '--no-annotate',
+            '--python', $Python.Trim(), '--no-python-downloads', '--no-header', '--no-annotate', '--no-generate-hashes',
             '--output-file', $ReleaseOutput, $ReleaseInput)
         if ($IndexUrl) { $ResolveArgs += @('--default-index', $IndexUrl) }
         & $Uv @ResolveArgs | Out-Null
