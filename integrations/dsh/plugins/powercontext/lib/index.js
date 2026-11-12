@@ -15,13 +15,15 @@
  */
 
 import { createRequire } from "node:module";
-import { readFileSync, statSync } from "node:fs";
+import { accessSync, closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
+import { spawn, spawnSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -2654,12 +2656,12 @@ function transportFailure(error) {
 function operationFailure(operation, error) {
 	const rejection = authenticationRejection(error);
 	if (rejection && !(error instanceof ServerResponseError)) {
-		const result = operationFailure(operation, rejection);
+		const result$1 = operationFailure(operation, rejection);
 		const body = bodyFailureDetails(error);
 		return {
-			...result,
+			...result$1,
 			...body,
-			message: result.message + (body.response_body_error ? ` Reading the response body also failed (${body.response_body_error}).` : ""),
+			message: result$1.message + (body.response_body_error ? ` Reading the response body also failed (${body.response_body_error}).` : ""),
 			...error instanceof InvalidResponseError && error.issue ? { protocol_issue: error.issue } : {}
 		};
 	}
@@ -2674,17 +2676,17 @@ function operationFailure(operation, error) {
 	}
 	if (error instanceof ServerResponseError) {
 		const code = publicErrorCode(error.code);
-		let result;
-		if (error.statusCode === 401) result = check(operation, "authentication_failed", "The Server rejected authentication for this operation.", "Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.");
-		else if (error.statusCode === 403) result = check(operation, "authorization_failed", "The authenticated principal is not allowed to perform this operation.", "Check the principal permissions for this operation and selected Scope on the running Server.");
-		else if (error.statusCode === 422 && code === "legacy_memory_operation_unsupported") result = check(operation, code, "The request uses the unsupported legacy Memory collection protocol.", MEMORY_PROTOCOL_RECOVERY);
-		else if (error.statusCode === 404 && error.code === void 0) result = check(operation, "required_route_missing", "The required operation returned HTTP 404 without a domain error code.", "Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.");
-		else if (error.statusCode === 404 && code === "scope_not_found") result = check(operation, code, "The Server could not find the requested Scope.", "Check POWERCONTEXT_DSH_SCOPE_ID first, then the session workspace binding and Server default Scope. Select an existing Scope explicitly; Doctor does not change bindings.");
-		else if (error.statusCode === 404) result = code ? check(operation, code, "The Server returned a recognized domain-level HTTP 404 for this operation.", "Inspect the selected resource and Scope in the Server. This domain response does not establish a missing HTTP route.") : check(operation, "unclassified_not_found", "The operation returned HTTP 404 with an unrecognized error code.", "Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.");
-		else if (error.statusCode === 503) result = check(operation, code ?? "service_unavailable", "The Server returned HTTP 503 for this operation.", "Inspect the separate readiness dependency results and the running Server logs for this operation.");
-		else result = check(operation, code ?? "http_error", "The Server returned an HTTP error for this operation.", "Use this operation, HTTP status and request ID to locate the request in the Server logs.");
+		let result$1;
+		if (error.statusCode === 401) result$1 = check(operation, "authentication_failed", "The Server rejected authentication for this operation.", "Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.");
+		else if (error.statusCode === 403) result$1 = check(operation, "authorization_failed", "The authenticated principal is not allowed to perform this operation.", "Check the principal permissions for this operation and selected Scope on the running Server.");
+		else if (error.statusCode === 422 && code === "legacy_memory_operation_unsupported") result$1 = check(operation, code, "The request uses the unsupported legacy Memory collection protocol.", MEMORY_PROTOCOL_RECOVERY);
+		else if (error.statusCode === 404 && error.code === void 0) result$1 = check(operation, "required_route_missing", "The required operation returned HTTP 404 without a domain error code.", "Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.");
+		else if (error.statusCode === 404 && code === "scope_not_found") result$1 = check(operation, code, "The Server could not find the requested Scope.", "Check POWERCONTEXT_DSH_SCOPE_ID first, then the session workspace binding and Server default Scope. Select an existing Scope explicitly; Doctor does not change bindings.");
+		else if (error.statusCode === 404) result$1 = code ? check(operation, code, "The Server returned a recognized domain-level HTTP 404 for this operation.", "Inspect the selected resource and Scope in the Server. This domain response does not establish a missing HTTP route.") : check(operation, "unclassified_not_found", "The operation returned HTTP 404 with an unrecognized error code.", "Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.");
+		else if (error.statusCode === 503) result$1 = check(operation, code ?? "service_unavailable", "The Server returned HTTP 503 for this operation.", "Inspect the separate readiness dependency results and the running Server logs for this operation.");
+		else result$1 = check(operation, code ?? "http_error", "The Server returned an HTTP error for this operation.", "Use this operation, HTTP status and request ID to locate the request in the Server logs.");
 		return {
-			...result,
+			...result$1,
 			http_status: error.statusCode,
 			...requestId(error.requestId)
 		};
@@ -2764,15 +2766,15 @@ function readiness(response) {
 		if (typeof value === "string") dependencies[name$1] = dependencyStatus(value);
 	}
 	const failed = Object.keys(dependencies).filter((name$1) => !["ready", "disabled"].includes(dependencies[name$1]));
-	const result = observed(operation, response, String(body.status), "Validated the Server readiness response.");
+	const result$1 = observed(operation, response, String(body.status), "Validated the Server readiness response.");
 	if (body.status !== "ready" || failed.length) {
-		result.state = body.status === "degraded" ? "degraded" : "failed";
-		result.code = body.status === "ready" ? "inconsistent_readiness" : String(body.status);
-		result.message = failed.length ? "Readiness dependency checks failed: " + failed.join(", ") + "." : "The Server reports " + String(body.status) + "; no recognized failing dependency was provided.";
-		result.recovery = failed.length ? failed.map((name$1) => DEPENDENCY_RECOVERY[name$1]).join(" ") : "Inspect the running Server readiness and service logs; unrecognized dependency details are withheld.";
+		result$1.state = body.status === "degraded" ? "degraded" : "failed";
+		result$1.code = body.status === "ready" ? "inconsistent_readiness" : String(body.status);
+		result$1.message = failed.length ? "Readiness dependency checks failed: " + failed.join(", ") + "." : "The Server reports " + String(body.status) + "; no recognized failing dependency was provided.";
+		result$1.recovery = failed.length ? failed.map((name$1) => DEPENDENCY_RECOVERY[name$1]).join(" ") : "Inspect the running Server readiness and service logs; unrecognized dependency details are withheld.";
 	}
 	return {
-		...result,
+		...result$1,
 		dependencies
 	};
 }
@@ -2848,9 +2850,9 @@ async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 		if (!config.valid || !config.timeoutValid) return check(operation, "invalid_configuration", "Not checked because the plugin configuration is invalid.", "Correct the configuration check first.", "skipped");
 		try {
 			signal?.throwIfAborted();
-			const result = await run();
+			const result$1 = await run();
 			signal?.throwIfAborted();
-			return result;
+			return result$1;
 		} catch (error) {
 			if (signal?.aborted) return operationFailure(operation, signal.reason instanceof Error && signal.reason.name === "TimeoutError" ? signal.reason : new DOMException("Diagnostic cancelled", "AbortError"));
 			return operationFailure(operation, error);
@@ -3265,25 +3267,25 @@ function injectScope(operationId, payload, scopeId) {
 		scope_id: scopeId
 	} : payload;
 }
-function encodeSuccess(result) {
-	if (result.kind === "bytes") return {
+function encodeSuccess(result$1) {
+	if (result$1.kind === "bytes") return {
 		ok: true,
-		status: result.status,
-		...requestIdField(result.requestId),
-		data: { bytes_base64: Buffer.from(result.value).toString("base64") }
+		status: result$1.status,
+		...requestIdField(result$1.requestId),
+		data: { bytes_base64: Buffer.from(result$1.value).toString("base64") }
 	};
-	if (result.kind === "text") return {
+	if (result$1.kind === "text") return {
 		ok: true,
-		status: result.status,
-		...requestIdField(result.requestId),
-		data: { markdown: result.value }
+		status: result$1.status,
+		...requestIdField(result$1.requestId),
+		data: { markdown: result$1.value }
 	};
 	return {
 		ok: true,
-		status: result.status,
-		...requestIdField(result.requestId),
-		...result.etag === void 0 ? {} : { etag: result.etag },
-		data: result.value
+		status: result$1.status,
+		...requestIdField(result$1.requestId),
+		...result$1.etag === void 0 ? {} : { etag: result$1.etag },
+		data: result$1.value
 	};
 }
 async function invokeOperation(client, operationId, payload, scopeId, signal, onFailure) {
@@ -3410,10 +3412,10 @@ var RuntimeStatus = class {
 		this.sessions.delete(key);
 		this.sessions.set(key, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
-		const record$3 = (stage, result) => {
+		const record$3 = (stage, result$1) => {
 			if (this.sessions.get(key) !== attempt) return;
 			attempt.stages[stage] = {
-				...result,
+				...result$1,
 				operation: OPERATIONS$1[stage],
 				observed_at: this.now()
 			};
@@ -3476,13 +3478,13 @@ var RuntimeStatus = class {
 
 //#endregion
 //#region src/commands.ts
-function formatResult(result) {
-	return JSON.stringify(result, null, 2);
+function formatResult(result$1) {
+	return JSON.stringify(result$1, null, 2);
 }
-function asResult(result) {
+function asResult(result$1) {
 	return {
-		kind: result.ok ? "success" : "error",
-		text: formatResult(result)
+		kind: result$1.ok ? "success" : "error",
+		text: formatResult(result$1)
 	};
 }
 async function call(runtime, cwd, operationId, payload, signal) {
@@ -3814,7 +3816,7 @@ function httpFailureCode(status) {
 		default: return status >= 500 ? "unavailable" : "http_error";
 	}
 }
-function fail(res, code, status = 502) {
+function fail$1(res, code, status = 502) {
 	if (res.destroyed) return;
 	if (res.headersSent) {
 		res.destroy();
@@ -3850,13 +3852,13 @@ async function protectMcpEndpoint(ctx, endpoint) {
 			response.on("error", () => res.destroy());
 			if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
 				response.resume();
-				fail(res, "redirect_rejected");
+				fail$1(res, "redirect_rejected");
 				return;
 			}
 			const status = response.statusCode ?? 502;
 			if (status < 200 || status >= 400) {
 				response.resume();
-				fail(res, httpFailureCode(status), status);
+				fail$1(res, httpFailureCode(status), status);
 				return;
 			}
 			res.writeHead(response.statusCode ?? 502, headersForForwarding(response.headers));
@@ -3864,7 +3866,7 @@ async function protectMcpEndpoint(ctx, endpoint) {
 		});
 		upstreams.add(upstream);
 		upstream.once("close", () => upstreams.delete(upstream));
-		upstream.on("error", () => fail(res, "mcp_transport_unavailable"));
+		upstream.on("error", () => fail$1(res, "mcp_transport_unavailable"));
 		req.once("aborted", () => upstream.destroy());
 		req.on("error", () => upstream.destroy());
 		res.once("close", () => upstream.destroy());
@@ -4040,8 +4042,8 @@ function buildSourceId(scopeId, sessionId, turnId, prompt) {
 async function flushThrough(client, config, scopeId, position, signal) {
 	for (let i = 0; i < config.flushMaxCalls; i += 1) {
 		if (signal?.aborted) throw new RequestNotSentError("", signal.reason);
-		const result = await client.request("flush_memory", { scope_id: scopeId }, signal);
-		const cursor = result.kind === "json" && result.value && typeof result.value === "object" ? result.value.current_cursor : void 0;
+		const result$1 = await client.request("flush_memory", { scope_id: scopeId }, signal);
+		const cursor = result$1.kind === "json" && result$1.value && typeof result$1.value === "object" ? result$1.value.current_cursor : void 0;
 		if (typeof cursor === "number" && cursor >= position) return true;
 	}
 	return false;
@@ -4076,7 +4078,7 @@ async function captureUserPrompt(input) {
 	observation?.record("capture", { state: "running" });
 	try {
 		if (input.signal?.aborted) throw new RequestNotSentError("", input.signal.reason);
-		const result = await input.client.request("capture_content_source", {
+		const result$1 = await input.client.request("capture_content_source", {
 			scope_id: input.scopeId,
 			source_id: buildSourceId(input.scopeId, input.sessionId, input.turnId, input.prompt),
 			content: input.prompt,
@@ -4088,8 +4090,8 @@ async function captureUserPrompt(input) {
 				turn_id: input.turnId
 			}
 		}, input.signal);
-		position = result.kind === "json" ? sourcePosition(result.value) : void 0;
-		captureStatus = result.status;
+		position = result$1.kind === "json" ? sourcePosition(result$1.value) : void 0;
+		captureStatus = result$1.status;
 	} catch (error) {
 		observation?.fail("capture", error, true, input.signal);
 		observation?.skip("flush", authenticationRejection(error) ? "capture_rejected" : "capture_not_confirmed");
@@ -4143,16 +4145,16 @@ function messagesToText(messages) {
 }
 function isRuntimeContextSnapshot(message) {
 	if (!message || typeof message !== "object") return false;
-	const source = message.source;
-	if (!source || typeof source !== "object") return false;
-	const value = source;
+	const source$1 = message.source;
+	if (!source$1 || typeof source$1 !== "object") return false;
+	const value = source$1;
 	return value.kind === "runtime-context" || value.kind === "plugin" && value.plugin === "@deepseek-ai/dsh-system-prompt" && value.form === "snapshot";
 }
 function isHostSkillMessage(message) {
 	if (!message || typeof message !== "object") return false;
-	const source = message.source;
-	if (!source || typeof source !== "object") return false;
-	const kind = source.kind;
+	const source$1 = message.source;
+	if (!source$1 || typeof source$1 !== "object") return false;
+	const kind = source$1.kind;
 	return kind === "skill-catalog" || kind === "skill-invocation";
 }
 function messagesToQuery(messages) {
@@ -4161,8 +4163,8 @@ function messagesToQuery(messages) {
 function messagesToUserPrompt(messages) {
 	return messagesToText(messages.filter((message) => {
 		if (!message || typeof message !== "object") return false;
-		const source = message.source;
-		return !!source && typeof source === "object" && source.kind === "user";
+		const source$1 = message.source;
+		return !!source$1 && typeof source$1 === "object" && source$1.kind === "user";
 	}));
 }
 function formatUntrustedContext(content) {
@@ -4173,19 +4175,19 @@ async function recallContent(input, query, scopeId, observation) {
 	let response;
 	try {
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
-		const result = await input.client.request("prepare_context", {
+		const result$1 = await input.client.request("prepare_context", {
 			scope_id: scopeId,
 			query: boundedRecallQuery(query),
 			max_bytes: input.config.maxBytes,
 			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);
-		response = result;
+		response = result$1;
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
-		const prepared = validatePreparedContext(result.kind === "json" ? result.value : void 0, "/v1/context/prepare", input.config.maxBytes);
+		const prepared = validatePreparedContext(result$1.kind === "json" ? result$1.value : void 0, "/v1/context/prepare", input.config.maxBytes);
 		if (prepared.status === "empty") {
 			observation?.record("prepare", {
 				state: "empty",
-				http_status: result.status,
+				http_status: result$1.status,
 				content_bytes: 0
 			});
 			logSafely(input.log, {
@@ -4206,7 +4208,7 @@ async function recallContent(input, query, scopeId, observation) {
 		});
 		observation?.record("prepare", {
 			state: "ready",
-			http_status: result.status,
+			http_status: result$1.status,
 			content_bytes: prepared.content_bytes
 		});
 		return prepared.content ?? void 0;
@@ -4984,6 +4986,1388 @@ function registerStatusBridge(ctx, runtime) {
 }
 
 //#endregion
+//#region src/handoff/errors.ts
+const ERRORS = {
+	not_found: [404, "The requested record is unavailable."],
+	not_ready: [409, "The handoff is not ready for this action."],
+	stale_preflight: [409, "Preflight conditions changed. Check the selected response and run preflight again."],
+	binding_mismatch: [409, "The destination no longer matches the saved directory, Server, Scope, or target. Run preflight again."],
+	idempotency_conflict: [409, "The request conflicts with an existing operation. Read its state before continuing."],
+	integration_unavailable: [503, "The required handoff integration is unavailable."],
+	capacity_exceeded: [429, "Handoff bookkeeping reached its capacity."],
+	payload_invalid: [400, "The handoff request or package is invalid."],
+	outcome_unknown: [409, "The outcome is unknown. Check the target before choosing to retry."],
+	cancelled: [409, "The operation was cancelled."],
+	deployment_unsupported: [403, "Handoff requires a verified owner-local DSH deployment."]
+};
+var HandoffError = class extends Error {
+	code;
+	status;
+	constructor(code) {
+		super(ERRORS[code][1]);
+		this.code = code;
+		this.status = ERRORS[code][0];
+	}
+};
+function handoffError(error) {
+	return error instanceof HandoffError ? error : new HandoffError("integration_unavailable");
+}
+
+//#endregion
+//#region src/handoff/records.ts
+function keyFor(...parts) {
+	return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+function privateDirectory(path) {
+	if (!isAbsolute(path)) throw new HandoffError("integration_unavailable");
+	try {
+		mkdirSync(path, { mode: 448 });
+	} catch (error) {
+		if (error.code !== "EEXIST") throw error;
+	}
+	const info = lstatSync(path);
+	if (!info.isDirectory() || (info.mode & 63) !== 0 || info.uid !== process.getuid?.()) throw new HandoffError("integration_unavailable");
+}
+/** A store is used under the Host's single-writer lease. Each record is published by atomic rename. */
+var HandoffRecords = class {
+	root;
+	schema;
+	maxRecords;
+	maxRecordBytes;
+	constructor(root, schema, maxRecords = 512, maxRecordBytes = 256 * 1024) {
+		this.root = root;
+		this.schema = schema;
+		this.maxRecords = maxRecords;
+		this.maxRecordBytes = maxRecordBytes;
+	}
+	read(key) {
+		const path = this.path(key);
+		let fd;
+		try {
+			fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		} catch (error) {
+			if (error.code === "ENOENT") return void 0;
+			throw error;
+		}
+		try {
+			const info = fstatSync(fd);
+			if (!info.isFile() || info.nlink !== 1 || (info.mode & 63) !== 0 || info.uid !== process.getuid?.() || info.size > this.maxRecordBytes) throw new HandoffError("integration_unavailable");
+			const value = JSON.parse(readFileSync(fd, "utf8"));
+			if (value === null || typeof value !== "object" || !("schema" in value) || value.schema !== this.schema) throw new HandoffError("integration_unavailable");
+			return value;
+		} finally {
+			closeSync(fd);
+		}
+	}
+	save(key, value, create = false) {
+		const path = this.path(key);
+		const body = JSON.stringify(value);
+		if (Buffer.byteLength(body) > this.maxRecordBytes) throw new HandoffError("capacity_exceeded");
+		if (create) {
+			const directory$1 = opendirSync(this.root);
+			try {
+				let count = 0;
+				for (let item = directory$1.readSync(); item !== null; item = directory$1.readSync()) if (/^[0-9a-f]{64}\.json$/.test(item.name) && ++count >= this.maxRecords) throw new HandoffError("capacity_exceeded");
+			} finally {
+				directory$1.closeSync();
+			}
+		}
+		const temporary = join(this.root, `.${randomUUID()}.tmp`);
+		const fd = openSync(temporary, "wx", 384);
+		try {
+			try {
+				writeFileSync(fd, body);
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temporary, path);
+			const directory$1 = openSync(this.root, constants.O_RDONLY);
+			try {
+				fsyncSync(directory$1);
+			} finally {
+				closeSync(directory$1);
+			}
+		} finally {
+			try {
+				unlinkSync(temporary);
+			} catch (error) {
+				if (error.code !== "ENOENT") throw error;
+			}
+		}
+	}
+	path(key) {
+		if (!/^[0-9a-f]{64}$/.test(key)) throw new HandoffError("not_found");
+		privateDirectory(this.root);
+		return join(this.root, `${key}.json`);
+	}
+};
+
+//#endregion
+//#region src/handoff/preflight.ts
+const SCHEMA$1 = "powercontext.dsh-preflight.v1";
+const ACTIVE = new Set([
+	"checking_agent",
+	"checking_integration",
+	"installing",
+	"verifying"
+]);
+const CHECK_TIMEOUT_MS$1 = 2e4;
+const INSTALL_TIMEOUT_MS = 12e4;
+function preflightRecords(root) {
+	return new HandoffRecords(root, SCHEMA$1);
+}
+function sameSource(a, b) {
+	return a.sessionId === b.sessionId && a.messageId === b.messageId && a.throughSeq === b.throughSeq && a.cwd === b.cwd && a.workspaceObservedAt === b.workspaceObservedAt;
+}
+function sameBinding(a, b) {
+	return a.preflightId === b.preflightId && a.revision === b.revision && sameSource(a.source, b.source) && a.targetId === b.targetId && a.targetVersion === b.targetVersion && a.adapterVersion === b.adapterVersion && a.effectiveCwd === b.effectiveCwd && a.serverIdentity === b.serverIdentity && a.connectionRef === b.connectionRef && a.connectionGeneration === b.connectionGeneration && a.scopeId === b.scopeId;
+}
+function directory(cwd) {
+	try {
+		if (!isAbsolute(cwd)) throw new Error();
+		const path = realpathSync(cwd);
+		const info = statSync(path, { bigint: true });
+		if (!info.isDirectory()) throw new Error();
+		accessSync(path, constants.R_OK | constants.X_OK);
+		return {
+			path,
+			identity: `${info.dev}:${info.ino}:${info.birthtimeNs}`
+		};
+	} catch {
+		throw new HandoffError("binding_mismatch");
+	}
+}
+function view(record$3) {
+	const { preflightId, revision, source: source$1, targetId, state, agent, installation, integration, nextAction, code, updatedAt, binding } = record$3;
+	return {
+		preflightId,
+		revision,
+		source: source$1,
+		targetId,
+		state,
+		agent,
+		installation,
+		integration,
+		nextAction,
+		code,
+		updatedAt,
+		binding
+	};
+}
+var PreflightService = class {
+	options;
+	checks = /* @__PURE__ */ new Map();
+	installs = /* @__PURE__ */ new Map();
+	constructor(options) {
+		this.options = options;
+	}
+	/** Wait for Host-owned work before releasing the storage lease on unload. */
+	async drain() {
+		await Promise.allSettled([...Array.from(this.checks.values(), (check$1) => check$1.done), ...this.installs.values()]);
+	}
+	async create(context, input) {
+		this.options.authority.requireLocal();
+		const id = keyFor(context.ownerId, input.requestId);
+		const previous = this.options.records.read(id);
+		if (previous) {
+			if (previous.targetId !== input.targetId || !sameSource(previous.source, input.source)) throw new HandoffError("idempotency_conflict");
+			return this.checks.get(id)?.done ?? this.get(context, id, input.source.sessionId);
+		}
+		const adapter = this.options.catalog.require(input.targetId);
+		await this.options.authority.verifySource(context, input.source, true);
+		context.signal.throwIfAborted();
+		if (this.options.records.read(id)) return this.create(context, input);
+		const record$3 = {
+			schema: SCHEMA$1,
+			ownerId: context.ownerId,
+			preflightId: id,
+			source: input.source,
+			targetId: adapter.id,
+			revision: 1,
+			state: "checking_agent",
+			updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+		};
+		this.options.records.save(id, record$3, true);
+		return this.run(context, record$3, (call$1, set) => this.inspect(call$1, record$3, adapter, set));
+	}
+	get(context, id, sessionId) {
+		const record$3 = this.read(context, id, sessionId);
+		return view(this.recovered(record$3));
+	}
+	cancel(context, id, sessionId) {
+		const record$3 = this.read(context, id, sessionId);
+		if (record$3.state === "cancelled") return view(record$3);
+		this.checks.get(id)?.controller.abort();
+		return view(this.update(record$3, {
+			state: "cancelled",
+			code: "cancelled",
+			nextAction: void 0,
+			...record$3.state === "installing" ? {
+				installation: "unknown",
+				integration: "unknown"
+			} : {}
+		}));
+	}
+	async decide(context, id, sessionId, input) {
+		this.options.authority.requireLocal();
+		const record$3 = this.read(context, id, sessionId);
+		if (record$3.decision?.expectedRevision === input.expectedRevision) {
+			if (record$3.decision.action !== input.action || Boolean(record$3.decision.confirmOriginal) !== Boolean(input.confirmOriginal)) throw new HandoffError("idempotency_conflict");
+			return this.checks.get(id)?.done ?? view(this.recovered(record$3));
+		}
+		if (record$3.revision !== input.expectedRevision) throw new HandoffError("stale_preflight");
+		if (this.checks.has(id)) throw new HandoffError("not_ready");
+		if (input.action === "decline" && record$3.state === "needs_install_consent") return view(this.update(record$3, {
+			state: "cancelled",
+			code: "cancelled",
+			nextAction: void 0,
+			decision: input
+		}));
+		if (input.action === "install" && record$3.state !== "needs_install_consent" || input.action === "verify" && record$3.state !== "needs_user_action" || input.action === "decline" || input.confirmOriginal && (input.action !== "verify" || record$3.nextAction !== "reselect_source")) throw new HandoffError("not_ready");
+		context.signal.throwIfAborted();
+		const adapter = this.options.catalog.require(record$3.targetId);
+		const installing = input.action === "install";
+		const updated = this.update(record$3, {
+			state: installing ? "installing" : "verifying",
+			decision: input,
+			confirmedOriginal: record$3.confirmedOriginal || input.confirmOriginal,
+			nextAction: void 0,
+			code: void 0
+		});
+		return this.run(context, updated, async (call$1, set) => {
+			if (installing) {
+				await this.options.authority.verifySource(call$1, record$3.source, true);
+				const result$1 = await this.waitForInstall(call$1, adapter, record$3);
+				if (call$1.signal.aborted) {
+					const current = this.read(context, id, sessionId);
+					const cancelled = current.state === "cancelled" || !this.options.signal.aborted && context.signal.aborted;
+					return view(this.update(current, {
+						state: cancelled ? "cancelled" : "unknown",
+						installation: result$1.state,
+						integration: "unknown",
+						code: cancelled ? "cancelled" : "outcome_unknown",
+						nextAction: cancelled ? void 0 : "check_target"
+					}));
+				}
+				if (result$1.state === "needs_user_action") return set({
+					state: "needs_user_action",
+					installation: result$1.state,
+					nextAction: result$1.action
+				});
+				if (result$1.state === "failed") return set({
+					state: "failed",
+					installation: result$1.state,
+					code: "not_ready"
+				});
+				if (result$1.state === "unknown") return set({
+					state: "unknown",
+					installation: result$1.state,
+					code: "outcome_unknown",
+					nextAction: "check_target"
+				});
+				set({
+					state: "verifying",
+					installation: "completed"
+				});
+			}
+			return this.inspect(call$1, updated, adapter, set);
+		}, installing ? INSTALL_TIMEOUT_MS + CHECK_TIMEOUT_MS$1 : CHECK_TIMEOUT_MS$1);
+	}
+	async validateForPrepare(context, input) {
+		this.options.authority.requireLocal();
+		const record$3 = this.read(context, input.preflightId, input.source.sessionId);
+		if (record$3.revision !== input.expectedRevision || !sameSource(record$3.source, input.source)) throw new HandoffError("stale_preflight");
+		if (record$3.state !== "ready" || !record$3.binding) throw new HandoffError("not_ready");
+		await this.revalidate(context, record$3, record$3.binding, !record$3.confirmedOriginal);
+		if (this.read(context, input.preflightId, input.source.sessionId).revision !== record$3.revision) throw new HandoffError("stale_preflight");
+		return record$3.binding;
+	}
+	async validateForLaunch(context, binding) {
+		this.options.authority.requireLocal();
+		const record$3 = this.read(context, binding.preflightId, binding.source.sessionId);
+		if (!record$3.binding || !sameBinding(record$3.binding, binding)) throw new HandoffError("binding_mismatch");
+		return this.revalidate(context, record$3, binding);
+	}
+	async revalidate(context, record$3, binding, latest) {
+		const call$1 = {
+			...context,
+			signal: AbortSignal.any([
+				context.signal,
+				this.options.signal,
+				AbortSignal.timeout(CHECK_TIMEOUT_MS$1)
+			])
+		};
+		if (latest !== void 0) await this.options.authority.verifySource(call$1, binding.source, latest);
+		const adapter = this.options.catalog.require(binding.targetId);
+		const target = await adapter.detect(call$1.signal);
+		if (target.state !== "present" || !record$3.detection || !this.matches(adapter, target, record$3.detection) || (await adapter.checkIntegration(target, call$1.signal)).state !== "ready") throw new HandoffError("binding_mismatch");
+		const live = await this.resolve(call$1, adapter, target, binding.source);
+		if (latest !== void 0) await this.options.authority.verifySource(call$1, binding.source, latest);
+		call$1.signal.throwIfAborted();
+		if (live.directoryIdentity !== record$3.directoryIdentity || live.targetConfigurationGeneration !== record$3.targetConfigurationGeneration || !sameBinding(binding, {
+			...binding,
+			...live.binding,
+			targetVersion: target.version,
+			adapterVersion: adapter.version
+		})) throw new HandoffError("binding_mismatch");
+		return {
+			adapter,
+			target,
+			assertDirectory: () => {
+				const current = directory(binding.source.cwd);
+				if (current.path !== binding.effectiveCwd || current.identity !== record$3.directoryIdentity) throw new HandoffError("binding_mismatch");
+			}
+		};
+	}
+	async inspect(context, record$3, adapter, set) {
+		const target = await adapter.detect(context.signal);
+		if (target.state === "missing") return set({
+			state: "needs_user_action",
+			agent: "missing",
+			nextAction: "install_agent"
+		});
+		if (target.state === "unsupported") return set({
+			state: "failed",
+			agent: "unsupported",
+			code: "integration_unavailable"
+		});
+		if (target.state !== "present") return set({
+			state: "unknown",
+			agent: "unknown",
+			code: "outcome_unknown",
+			nextAction: "check_target"
+		});
+		const detection = {
+			configurationKey: target.configurationKey,
+			targetVersion: target.version,
+			adapterVersion: adapter.version
+		};
+		set({
+			state: record$3.state === "checking_agent" ? "checking_integration" : "verifying",
+			agent: "present",
+			detection
+		});
+		const integration = await adapter.checkIntegration(target, context.signal);
+		if (integration.state === "needs_user_action") return set({
+			state: "needs_user_action",
+			integration: integration.state,
+			nextAction: integration.action
+		});
+		if (integration.state === "unknown") return set({
+			state: "unknown",
+			integration: "unknown",
+			code: "outcome_unknown",
+			nextAction: "check_target"
+		});
+		if (integration.state !== "ready") {
+			if (integration.repairable && record$3.decision?.action !== "install") return set({
+				state: "needs_install_consent",
+				integration: integration.state,
+				nextAction: integration.state === "missing" ? "install_integration" : "repair_integration"
+			});
+			return set({
+				state: "needs_user_action",
+				integration: integration.state,
+				nextAction: "configure_target"
+			});
+		}
+		const live = await this.resolve(context, adapter, target, record$3.source);
+		await this.options.authority.verifySource(context, record$3.source, !record$3.confirmedOriginal);
+		return set({
+			state: "ready",
+			integration: "ready",
+			directoryIdentity: live.directoryIdentity,
+			targetConfigurationGeneration: live.targetConfigurationGeneration,
+			binding: {
+				preflightId: record$3.preflightId,
+				revision: 0,
+				source: record$3.source,
+				targetId: adapter.id,
+				targetVersion: target.version,
+				adapterVersion: adapter.version,
+				...live.binding
+			}
+		});
+	}
+	async resolve(context, adapter, target, source$1) {
+		const before = directory(source$1.cwd);
+		const actual = await adapter.resolveEnvironment(target, before.path, context.signal);
+		const connection = await this.options.authority.sourceConnection(context, source$1);
+		const effective = directory(actual.effectiveCwd);
+		const current = directory(source$1.cwd);
+		if (before.path !== current.path || before.identity !== current.identity || effective.path !== current.path || effective.identity !== current.identity || !connection.serverIdentity || !connection.scopeId || !connection.connectionRef || !Number.isSafeInteger(connection.connectionGeneration) || actual.serverIdentity !== connection.serverIdentity || actual.scopeId !== connection.scopeId) throw new HandoffError("binding_mismatch");
+		if (!actual.newSession || !actual.unsentPrefill || !actual.packageAccess || !actual.configurationGeneration) throw new HandoffError("integration_unavailable");
+		const { serverIdentity, connectionRef, connectionGeneration, scopeId } = connection;
+		return {
+			binding: {
+				serverIdentity,
+				connectionRef,
+				connectionGeneration,
+				scopeId,
+				effectiveCwd: effective.path
+			},
+			directoryIdentity: effective.identity,
+			targetConfigurationGeneration: actual.configurationGeneration
+		};
+	}
+	matches(adapter, target, prior) {
+		return adapter.version === prior.adapterVersion && target.version === prior.targetVersion && target.configurationKey === prior.configurationKey;
+	}
+	async waitForInstall(context, adapter, record$3) {
+		const target = await adapter.detect(context.signal);
+		if (target.state !== "present" || !record$3.detection || !this.matches(adapter, target, record$3.detection)) throw new HandoffError("stale_preflight");
+		const check$1 = await adapter.checkIntegration(target, context.signal);
+		context.signal.throwIfAborted();
+		if (check$1.state === "ready") return { state: "completed" };
+		if (check$1.state === "needs_user_action") return check$1;
+		if (check$1.state === "unknown") return { state: "unknown" };
+		if (check$1.state !== record$3.integration || !check$1.repairable) throw new HandoffError("stale_preflight");
+		const key = target.configurationKey;
+		let pending = this.installs.get(key);
+		if (!pending) {
+			pending = this.install(adapter, target, record$3);
+			this.installs.set(key, pending);
+			const clear = () => {
+				if (this.installs.get(key) === pending) this.installs.delete(key);
+			};
+			pending.then(clear, clear);
+		}
+		return pending;
+	}
+	async install(adapter, target, record$3) {
+		const signal = AbortSignal.any([this.options.signal, AbortSignal.timeout(INSTALL_TIMEOUT_MS)]);
+		let started = false;
+		try {
+			const check$1 = await adapter.checkIntegration(target, signal);
+			signal.throwIfAborted();
+			if (check$1.state === "ready") return { state: "completed" };
+			if (check$1.state === "needs_user_action") return check$1;
+			if (check$1.state === "unknown") return { state: "unknown" };
+			if (check$1.state !== record$3.integration || !check$1.repairable) throw new HandoffError("stale_preflight");
+			started = true;
+			const result$1 = await adapter.installIntegration(target, signal);
+			return signal.aborted ? { state: "unknown" } : result$1;
+		} catch (error) {
+			if (!started && !signal.aborted) throw error;
+			return { state: "unknown" };
+		}
+	}
+	read(context, id, sessionId) {
+		const record$3 = this.options.records.read(id);
+		if (!record$3 || record$3.ownerId !== context.ownerId || record$3.source.sessionId !== sessionId) throw new HandoffError("not_found");
+		return record$3;
+	}
+	recovered(record$3) {
+		return ACTIVE.has(record$3.state) && !this.checks.has(record$3.preflightId) ? {
+			...record$3,
+			state: "unknown",
+			code: "outcome_unknown",
+			nextAction: "check_target"
+		} : record$3;
+	}
+	update(record$3, patch) {
+		const revision = record$3.revision + 1;
+		const next = {
+			...record$3,
+			...patch,
+			revision,
+			updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+			...patch.binding ? { binding: {
+				...patch.binding,
+				revision
+			} } : {}
+		};
+		this.options.records.save(record$3.preflightId, next);
+		return next;
+	}
+	run(context, record$3, work, timeoutMs = CHECK_TIMEOUT_MS$1) {
+		const id = record$3.preflightId;
+		const controller = new AbortController();
+		const deadline = AbortSignal.timeout(timeoutMs);
+		const signal = AbortSignal.any([
+			context.signal,
+			controller.signal,
+			this.options.signal,
+			deadline
+		]);
+		let current = record$3;
+		const done = Promise.resolve().then(() => work({
+			...context,
+			signal
+		}, (patch) => {
+			signal.throwIfAborted();
+			current = this.update(current, patch);
+			return view(current);
+		})).catch((error) => {
+			if (controller.signal.aborted) return this.get(context, id, record$3.source.sessionId);
+			const code = handoffError(error).code;
+			if (deadline.aborted || signal.aborted && current.state === "installing") return view(this.update(current, {
+				state: "unknown",
+				code: "outcome_unknown",
+				nextAction: "check_target"
+			}));
+			if (signal.aborted) return view(this.update(current, {
+				state: "cancelled",
+				code: "cancelled"
+			}));
+			if (code === "stale_preflight") return view(this.update(current, {
+				state: "needs_user_action",
+				code,
+				nextAction: "reselect_source"
+			}));
+			return view(this.update(current, {
+				state: "failed",
+				code,
+				nextAction: "run_preflight_again"
+			}));
+		}).finally(() => {
+			this.checks.delete(id);
+		});
+		this.checks.set(id, {
+			controller,
+			done
+		});
+		return done;
+	}
+};
+
+//#endregion
+//#region src/handoff/launch.ts
+const SCHEMA = "powercontext.dsh-launch-attempts.v1";
+const MAX_ATTEMPTS = 64;
+const CHECK_TIMEOUT_MS = 3e4;
+function launchRecords(root) {
+	return new HandoffRecords(root, SCHEMA);
+}
+function result(attempt, state) {
+	return {
+		...attempt,
+		state,
+		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+		...state === "unknown" ? { code: "outcome_unknown" } : state === "cancelled" ? { code: "cancelled" } : state === "failed" ? { code: "not_ready" } : {}
+	};
+}
+function publicAttempt({ launchAttemptId, state, createdAt, updatedAt, code }) {
+	return {
+		launchAttemptId,
+		state,
+		createdAt,
+		updatedAt,
+		code
+	};
+}
+function packageExists(bundle) {
+	try {
+		if (!isAbsolute(bundle.packagePath) || !/^[0-9a-f]{64}$/.test(bundle.packageSha256)) return false;
+		const info = lstatSync(bundle.packagePath);
+		if (!info.isFile() || info.size === 0) return false;
+		accessSync(bundle.packagePath, constants.R_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+var LaunchService = class {
+	options;
+	pending = /* @__PURE__ */ new Map();
+	constructor(options) {
+		this.options = options;
+	}
+	async drain() {
+		await Promise.allSettled(Array.from(this.pending.values(), (item) => item.done));
+	}
+	list(context, deliveryId, sessionId) {
+		const key = keyFor(context.ownerId, deliveryId);
+		return this.read(context, key, sessionId)?.attempts.map((attempt) => this.recover(key, attempt)) ?? [];
+	}
+	async cancelPending(context, deliveryId, sessionId) {
+		const key = keyFor(context.ownerId, deliveryId);
+		const active = this.pending.get(key);
+		if (active?.input.sessionId === sessionId && !active.dispatched) {
+			active.controller.abort();
+			await active.done.catch(() => void 0);
+		}
+		return this.list(context, deliveryId, sessionId);
+	}
+	async launch(context, deliveryId, input) {
+		this.options.requireLocal();
+		const key = keyFor(context.ownerId, deliveryId);
+		const record$3 = this.read(context, key, input.sessionId);
+		if (record$3 && record$3.targetId !== input.targetId) throw new HandoffError("binding_mismatch");
+		const existing = record$3?.attempts.find((attempt) => attempt.requestId === input.requestId);
+		if (existing) {
+			if (existing.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
+			return this.recover(key, existing);
+		}
+		const active = this.pending.get(key);
+		if (active) {
+			if (active.input.sessionId !== input.sessionId) throw new HandoffError("not_found");
+			if (active.input.requestId !== input.requestId || active.input.targetId !== input.targetId || active.input.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
+			return active.done;
+		}
+		const last = record$3?.attempts.at(-1);
+		if (last?.launchAttemptId !== input.retryOf) throw new HandoffError(last?.state === "unknown" || last?.state === "requested" ? "outcome_unknown" : "idempotency_conflict");
+		if (record$3 && record$3.attempts.length >= MAX_ATTEMPTS) throw new HandoffError("capacity_exceeded");
+		context.signal.throwIfAborted();
+		const pending = {
+			controller: new AbortController(),
+			input,
+			dispatched: false,
+			done: Promise.resolve().then(() => this.run(context, key, deliveryId, record$3, pending)).finally(() => {
+				this.pending.delete(key);
+			})
+		};
+		this.pending.set(key, pending);
+		return pending.done;
+	}
+	async run(context, key, deliveryId, previous, pending) {
+		const { input } = pending;
+		const deadline = AbortSignal.timeout(CHECK_TIMEOUT_MS);
+		const signal = AbortSignal.any([
+			context.signal,
+			pending.controller.signal,
+			this.options.signal,
+			deadline
+		]);
+		const call$1 = {
+			...context,
+			signal
+		};
+		signal.throwIfAborted();
+		const bundle = await this.options.delivery.getForLaunch(call$1, deliveryId);
+		if (bundle.source.sessionId !== input.sessionId || bundle.deliveryId !== deliveryId) throw new HandoffError("not_found");
+		if (bundle.binding.targetId !== input.targetId || !sameSource(bundle.source, bundle.binding.source) || previous && (bundle.packageSha256 !== previous.packageSha256 || bundle.receiptAttempt.receiptAttemptId !== previous.receiptAttemptId)) throw new HandoffError("binding_mismatch");
+		const record$3 = {
+			schema: SCHEMA,
+			ownerId: context.ownerId,
+			sessionId: bundle.source.sessionId,
+			deliveryId,
+			targetId: bundle.binding.targetId,
+			packageSha256: bundle.packageSha256,
+			receiptAttemptId: bundle.receiptAttempt.receiptAttemptId,
+			attempts: (previous?.attempts ?? []).map((attempt$1) => attempt$1.state === "requested" ? {
+				...attempt$1,
+				...result(attempt$1, "unknown")
+			} : attempt$1)
+		};
+		const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+		const attempt = {
+			launchAttemptId: randomUUID(),
+			requestId: input.requestId,
+			retryOf: input.retryOf,
+			state: "requested",
+			createdAt,
+			updatedAt: createdAt
+		};
+		try {
+			signal.throwIfAborted();
+			const { adapter, target, assertDirectory } = await this.options.preflight.validateForLaunch(call$1, bundle.binding);
+			if (!packageExists(bundle) || !await adapter.canReadPackage(target, bundle, signal)) throw new HandoffError("not_ready");
+			if (!isDeepStrictEqual(await this.options.delivery.getForLaunch(call$1, deliveryId), bundle)) throw new HandoffError("binding_mismatch");
+			if (!packageExists(bundle)) throw new HandoffError("not_ready");
+			assertDirectory();
+			const launch = this.options.plan(adapter.id, bundle.binding.effectiveCwd, adapter.launchIntent(target, bundle));
+			signal.throwIfAborted();
+			this.options.requireLocal();
+			record$3.attempts.push(attempt);
+			this.options.records.save(key, record$3, previous === void 0);
+			pending.dispatched = true;
+			let state;
+			try {
+				state = await launch.dispatch();
+			} catch {
+				state = "unknown";
+			}
+			const completed = result(attempt, state);
+			record$3.attempts[record$3.attempts.length - 1] = {
+				...attempt,
+				...completed
+			};
+			try {
+				this.options.records.save(key, record$3);
+			} catch {
+				throw new HandoffError("outcome_unknown");
+			}
+			return publicAttempt(completed);
+		} catch (error) {
+			if (!signal.aborted || deadline.aborted || pending.dispatched) throw error;
+			const cancelled = result(attempt, "cancelled");
+			record$3.attempts.push({
+				...attempt,
+				...cancelled
+			});
+			this.options.records.save(key, record$3, previous === void 0);
+			return publicAttempt(cancelled);
+		}
+	}
+	read(context, key, sessionId) {
+		const record$3 = this.options.records.read(key);
+		if (record$3 && (record$3.ownerId !== context.ownerId || record$3.sessionId !== sessionId)) throw new HandoffError("not_found");
+		return record$3;
+	}
+	recover(key, attempt) {
+		if (attempt.state === "requested" && !this.pending.get(key)?.dispatched) return publicAttempt({
+			...attempt,
+			state: "unknown",
+			code: "outcome_unknown"
+		});
+		return publicAttempt(attempt);
+	}
+};
+
+//#endregion
+//#region src/handoff/native-launch.ts
+const DESTINATIONS = {
+	"codex-desktop": [
+		"codex://threads/new",
+		"path",
+		"prompt"
+	],
+	"claude-desktop": [
+		"claude://code/new",
+		"folder",
+		"q"
+	],
+	"claude-code-cli": [
+		"claude-cli://open",
+		"cwd",
+		"q"
+	]
+};
+const SAFE_ENV = {
+	PATH: "/usr/bin:/bin",
+	LANG: "C"
+};
+const OPEN_TIMEOUT_MS = 3e3;
+function nativeLaunchUrl(target, cwd, { draft }) {
+	const route = DESTINATIONS[target];
+	if (!route || !isAbsolute(cwd) || /[\x00-\x1f\x7f]/u.test(cwd) || typeof draft !== "string" || !draft.trim() || /[\x00-\x08\x0b-\x1f\x7f]|[\uD800-\uDFFF]/u.test(draft) || Buffer.byteLength(draft) > 2048 || hasSecretContent("capture_content_source", draft)) throw new HandoffError("payload_invalid");
+	const [base, cwdKey, draftKey] = route;
+	const uri = `${base}?${cwdKey}=${encodeURIComponent(cwd)}&${draftKey}=${encodeURIComponent(draft)}`;
+	if (Buffer.byteLength(uri) > 4096) throw new HandoffError("payload_invalid");
+	return uri;
+}
+const planNativeLaunch = (target, cwd, intent) => {
+	if (process.platform !== "darwin") throw new HandoffError("deployment_unsupported");
+	const uri = nativeLaunchUrl(target, cwd, intent);
+	return { dispatch() {
+		return new Promise((resolve$1) => {
+			const child = spawn("/usr/bin/open", [uri], {
+				shell: false,
+				env: SAFE_ENV,
+				stdio: "ignore",
+				cwd: "/"
+			});
+			let started = false;
+			const timer = setTimeout(() => {
+				child.kill();
+				resolve$1("unknown");
+			}, OPEN_TIMEOUT_MS);
+			child.once("spawn", () => {
+				started = true;
+			});
+			child.once("error", () => {
+				clearTimeout(timer);
+				resolve$1(started ? "unknown" : "failed");
+			});
+			child.once("exit", (code, signal) => {
+				clearTimeout(timer);
+				resolve$1(signal !== null || code === null ? "unknown" : code === 0 ? "opened" : "failed");
+			});
+		});
+	} };
+};
+
+//#endregion
+//#region src/handoff/routes.ts
+const MAX_CONTROL_BYTES = 64 * 1024;
+const MAX_EXPORT_BYTES = 2 * 1024 * 1024;
+const BODY_TIMEOUT_MS = 1e4;
+const PREFIX = "/powercontext";
+const TOKEN = /^[A-Za-z0-9._:-]{1,256}$/;
+const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch))?)?$/;
+function json(response, status, value) {
+	if (response.destroyed || response.writableEnded) return;
+	response.statusCode = status;
+	response.setHeader("content-type", "application/json; charset=utf-8");
+	response.end(JSON.stringify(value));
+}
+function fail() {
+	throw new HandoffError("payload_invalid");
+}
+function object$1(value, allowed) {
+	if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).every((key) => allowed.includes(key))) return fail();
+	return value;
+}
+function token(value) {
+	if (typeof value !== "string" || !TOKEN.test(value)) return fail();
+	return value;
+}
+function int(value, min) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min) return fail();
+	return value;
+}
+function source(value) {
+	const { sessionId, messageId, throughSeq, cwd, workspaceObservedAt } = object$1(value, [
+		"sessionId",
+		"messageId",
+		"throughSeq",
+		"cwd",
+		"workspaceObservedAt"
+	]);
+	if (typeof cwd !== "string" || cwd.length > 4096 || !isAbsolute(cwd) || /[\x00-\x1f\x7f]/u.test(cwd) || typeof workspaceObservedAt !== "string" || workspaceObservedAt.length > 64 || !Number.isFinite(Date.parse(workspaceObservedAt))) return fail();
+	return {
+		sessionId: token(sessionId),
+		messageId: token(messageId),
+		throughSeq: int(throughSeq, 0),
+		cwd,
+		workspaceObservedAt
+	};
+}
+function routeBody(request$2, signal) {
+	if (request$2.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json" || request$2.headers["content-encoding"] !== void 0 || Number(request$2.headers["content-length"]) > MAX_CONTROL_BYTES) {
+		request$2.resume();
+		return Promise.reject(new HandoffError("payload_invalid"));
+	}
+	const lifetime = AbortSignal.any([signal, AbortSignal.timeout(BODY_TIMEOUT_MS)]);
+	return new Promise((resolve$1, reject) => {
+		const chunks = [];
+		let size = 0;
+		const cleanup = () => {
+			request$2.off("data", data).off("end", end).off("error", stop).off("close", stop);
+			lifetime.removeEventListener("abort", stop);
+		};
+		const stop = () => {
+			cleanup();
+			request$2.resume();
+			reject(new HandoffError("payload_invalid"));
+		};
+		const data = (chunk) => {
+			size += chunk.length;
+			if (size > MAX_CONTROL_BYTES) stop();
+			else chunks.push(chunk);
+		};
+		const end = () => {
+			cleanup();
+			try {
+				resolve$1(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))));
+			} catch {
+				reject(new HandoffError("payload_invalid"));
+			}
+		};
+		if (lifetime.aborted) return stop();
+		request$2.on("data", data).once("end", end).once("error", stop).once("close", stop);
+		lifetime.addEventListener("abort", stop, { once: true });
+	});
+}
+function requireWriteOrigin(request$2, desktop) {
+	const site = request$2.headers["sec-fetch-site"];
+	const origin = request$2.headers.origin;
+	if (site !== void 0 && site !== "same-origin") throw new HandoffError("deployment_unsupported");
+	if (origin === void 0 || desktop && origin === "dsh-app://app") return;
+	const url = URL.canParse(origin) ? new URL(origin) : null;
+	if (!url || url.protocol !== "http:" && url.protocol !== "https:" || url.origin !== origin || url.host !== request$2.headers.host) throw new HandoffError("deployment_unsupported");
+}
+function requireService$1(service) {
+	if (service === void 0) throw new HandoffError("integration_unavailable");
+	return service;
+}
+function sameSession(delivery, sessionId) {
+	if (delivery.source.sessionId !== sessionId) throw new HandoffError("not_found");
+	return delivery;
+}
+function createHandoffHandler(options) {
+	return async (request$2, response) => {
+		response.setHeader("cache-control", "no-store");
+		response.setHeader("x-content-type-options", "nosniff");
+		const controller = new AbortController();
+		const close = () => {
+			if (!response.writableFinished) controller.abort();
+		};
+		response.once("close", close);
+		const signal = AbortSignal.any([controller.signal, options.signal]);
+		try {
+			const rejection = options.requestRejection(request$2);
+			if (rejection !== void 0) return json(response, rejection, { code: rejection === 401 ? "dsh_authentication_required" : "dsh_forbidden" });
+			if (deploymentRejection(request$2, options.facts) || [
+				"forwarded",
+				"x-forwarded-for",
+				"x-forwarded-host",
+				"x-forwarded-proto"
+			].some((name$1) => request$2.headers[name$1] !== void 0)) throw new HandoffError("deployment_unsupported");
+			options.requireLocal();
+			const ownerId = options.authenticatedOwner(request$2);
+			if (ownerId === void 0) return json(response, 403, { code: "dsh_forbidden" });
+			const context = {
+				ownerId,
+				signal
+			};
+			const raw = request$2.url ?? "";
+			if (!raw.startsWith(PREFIX + "/")) throw new HandoffError("not_found");
+			const question = raw.indexOf("?");
+			const path = question === -1 ? raw : raw.slice(0, question);
+			const route = ROUTES.exec(path.slice(14));
+			if (!route) throw new HandoffError("not_found");
+			const [, resource, id, action] = route;
+			if (resource === "targets" && id || resource === "preflights" && action && !["install", "cancel"].includes(action) || resource === "deliveries" && action === "install") throw new HandoffError("not_found");
+			const method = resource === "targets" || action === "export" || id && !action ? "GET" : "POST";
+			if (request$2.method !== method) {
+				response.setHeader("allow", method);
+				return json(response, 405, { code: "method_not_allowed" });
+			}
+			if (resource === "targets") {
+				if (question !== -1) return fail();
+				return json(response, 200, { targets: options.catalog.list() });
+			}
+			const query = new URLSearchParams(question === -1 ? "" : raw.slice(question + 1));
+			if (method === "POST" && question !== -1) return fail();
+			const querySession = () => {
+				if (query.size !== 1) return fail();
+				return token(query.get("sessionId"));
+			};
+			if (method === "POST") requireWriteOrigin(request$2, options.facts.desktop);
+			const value = method === "POST" ? await routeBody(request$2, signal) : void 0;
+			signal.throwIfAborted();
+			if (resource === "preflights") {
+				if (!id) {
+					const body$1 = object$1(value, [
+						"requestId",
+						"source",
+						"targetId"
+					]);
+					const input = {
+						requestId: token(body$1.requestId),
+						source: source(body$1.source),
+						targetId: token(body$1.targetId)
+					};
+					options.catalog.require(input.targetId);
+					return json(response, 200, await requireService$1(options.services().preflight).create(context, input));
+				}
+				const preflight = requireService$1(options.services().preflight);
+				if (!action) return json(response, 200, preflight.get(context, id, querySession()));
+				if (action === "cancel") return json(response, 200, preflight.cancel(context, id, token(object$1(value, ["sessionId"]).sessionId)));
+				const body = object$1(value, [
+					"sessionId",
+					"expectedRevision",
+					"consent",
+					"verify",
+					"confirmOriginal"
+				]);
+				if (body.confirmOriginal !== void 0 && (body.verify !== true || body.confirmOriginal !== true)) return fail();
+				const decision = typeof body.consent === "boolean" && body.verify === void 0 ? body.consent ? "install" : "decline" : body.verify === true && body.consent === void 0 ? "verify" : fail();
+				return json(response, 200, await preflight.decide(context, id, token(body.sessionId), {
+					action: decision,
+					expectedRevision: int(body.expectedRevision, 1),
+					confirmOriginal: body.confirmOriginal === true
+				}));
+			}
+			const services = options.services();
+			const delivery = requireService$1(services.delivery);
+			const aggregate = (item$1) => {
+				let preflight = null;
+				try {
+					preflight = services.preflight?.get(context, item$1.binding.preflightId, item$1.source.sessionId) ?? null;
+				} catch (error) {
+					if (handoffError(error).code !== "not_found") throw error;
+				}
+				return {
+					preflight,
+					delivery: item$1,
+					launchAttempts: services.launch?.list(context, item$1.deliveryId, item$1.source.sessionId) ?? []
+				};
+			};
+			if (!id) {
+				const body = object$1(value, [
+					"requestId",
+					"preflightId",
+					"expectedRevision",
+					"source",
+					"workInput"
+				]);
+				const input = {
+					requestId: token(body.requestId),
+					preflightId: token(body.preflightId),
+					expectedRevision: int(body.expectedRevision, 1),
+					source: source(body.source),
+					...body.workInput === void 0 ? {} : { workInput: body.workInput }
+				};
+				return json(response, 200, aggregate(await delivery.prepare(context, input)));
+			}
+			if (action === "launch") {
+				const body = object$1(value, [
+					"sessionId",
+					"requestId",
+					"targetId",
+					"retryOf"
+				]);
+				return json(response, 200, await requireService$1(services.launch).launch(context, id, {
+					sessionId: token(body.sessionId),
+					requestId: token(body.requestId),
+					targetId: token(body.targetId),
+					...body.retryOf === void 0 ? {} : { retryOf: token(body.retryOf) }
+				}));
+			}
+			const sessionId = method === "GET" ? querySession() : token(object$1(value, ["sessionId"]).sessionId);
+			const item = sameSession(await delivery.get(context, id), sessionId);
+			if (action === "cancel") {
+				const [prepared] = await Promise.all([delivery.cancelPreparation(context, id), services.launch?.cancelPending(context, id, sessionId)]);
+				return json(response, 200, aggregate(prepared));
+			}
+			if (action === "export") {
+				const { bytes } = await delivery.exportPackage(context, id);
+				if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > MAX_EXPORT_BYTES) return fail();
+				response.setHeader("content-type", "application/json");
+				response.setHeader("content-disposition", "attachment; filename=\"powercontext-handoff.json\"");
+				response.setHeader("content-length", bytes.length);
+				response.end(bytes);
+				return;
+			}
+			return json(response, 200, aggregate(item));
+		} catch (error) {
+			const safe = signal.aborted ? new HandoffError("cancelled") : handoffError(error);
+			json(response, safe.status, {
+				code: safe.code,
+				message: safe.message
+			});
+		} finally {
+			response.off("close", close);
+		}
+	};
+}
+
+//#endregion
+//#region src/handoff/targets.ts
+const NATIVE_TARGET_IDS = [
+	"codex-desktop",
+	"claude-desktop",
+	"claude-code-cli"
+];
+const TARGETS = [
+	[
+		"codex-desktop",
+		"Codex Desktop",
+		"desktop"
+	],
+	[
+		"claude-desktop",
+		"Claude Desktop (Code)",
+		"desktop"
+	],
+	[
+		"claude-code-cli",
+		"Claude Code CLI",
+		"cli"
+	],
+	[
+		"dsh",
+		"DeepSeek Harness",
+		"host"
+	],
+	[
+		"minimax-code",
+		"MiniMax Code",
+		"host"
+	],
+	[
+		"zcode",
+		"ZCode",
+		"host"
+	],
+	[
+		"kimi-code",
+		"Kimi Code",
+		"host"
+	],
+	[
+		"hermes",
+		"Hermes Agent",
+		"host"
+	],
+	[
+		"pi",
+		"Pi Coding Agent",
+		"host"
+	],
+	[
+		"openclaw",
+		"OpenClaw",
+		"host"
+	],
+	[
+		"opencode",
+		"OpenCode",
+		"host"
+	],
+	[
+		"workbuddy",
+		"WorkBuddy",
+		"host"
+	],
+	[
+		"bub",
+		"Bub",
+		"evaluation"
+	],
+	[
+		"pydantic-ai",
+		"Pydantic AI",
+		"framework"
+	],
+	[
+		"langchain",
+		"LangChain",
+		"framework"
+	],
+	[
+		"langgraph",
+		"LangGraph",
+		"framework"
+	]
+];
+var TargetCatalog = class {
+	adapters = /* @__PURE__ */ new Map();
+	constructor(adapters = [], platform = process.platform) {
+		for (const adapter of adapters) {
+			if (!NATIVE_TARGET_IDS.includes(adapter.id) || this.adapters.has(adapter.id)) throw new Error("Invalid or duplicate handoff adapter");
+			if (adapter.qualification.platform === platform) this.adapters.set(adapter.id, adapter);
+		}
+	}
+	list() {
+		return TARGETS.map(([targetId, name$1, kind]) => {
+			const adapter = this.adapters.get(targetId);
+			return {
+				targetId,
+				name: name$1,
+				kind,
+				qualification: adapter?.qualification ?? null,
+				availability: adapter ? "requires_preflight" : "unavailable",
+				action: adapter ? "preflight" : kind === "framework" ? "developer_setup" : kind === "evaluation" ? "evaluation_only" : "manual_setup_or_export"
+			};
+		});
+	}
+	require(targetId) {
+		if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError("payload_invalid");
+		const adapter = this.adapters.get(targetId);
+		if (!adapter) throw new HandoffError("integration_unavailable");
+		return adapter;
+	}
+};
+
+//#endregion
+//#region src/handoff/host.ts
+const COLLECTIONS = [
+	"/powercontext/targets",
+	"/powercontext/preflights",
+	"/powercontext/deliveries"
+];
+const MAX_SOURCE_EVENTS = 512;
+function loopbackHost(value) {
+	if (!value) return false;
+	return value === "localhost" || isLoopbackAddress(value.replace(/^\[|\]$/gu, ""));
+}
+function selectedReply(events, id, throughSeq) {
+	const settled = new Set(events.filter((event) => event.type === "turn/end" && event.data?.reason?.kind === "completed").map((event) => event.data?.turn));
+	const candidates = events.filter((event) => event.type === "assistant/message" && event.data?.turn !== void 0 && settled.has(event.data.turn) && !event.data.interrupted && event.data.message?.content?.some((part) => part.type === "text" && Boolean(part.text?.trim())));
+	const selected = candidates.find((event) => event.data?.message?.id === id && event.seq <= throughSeq);
+	if (selected === void 0 || events.some((event) => event.seq > selected.seq && event.seq <= throughSeq && (!["step/end", "turn/end"].includes(event.type) || event.data?.turn !== selected.data?.turn)) || candidates.some((event) => event.seq > selected.seq && event.data?.turn === selected.data?.turn)) throw new HandoffError("stale_preflight");
+	return {
+		selected,
+		latest: candidates.at(-1)
+	};
+}
+/** An owner-local Host session is the authority for the selected response and effective directory. */
+function verifyHostSource(host, context, source$1, requireLatest) {
+	context.signal.throwIfAborted();
+	const session = host.get("sessions")?.get(source$1.sessionId);
+	if (!session || session.header.id !== source$1.sessionId || session.header.origin === "subagent") throw new HandoffError("not_found");
+	const workingDirectory = host.get("workingDirectory");
+	if (!workingDirectory?.get) throw new HandoffError("integration_unavailable");
+	if (workingDirectory.get(session) !== source$1.cwd || !Number.isSafeInteger(session.seq) || source$1.throughSeq >= session.seq || requireLatest && session.seq - source$1.throughSeq > MAX_SOURCE_EVENTS) throw new HandoffError("stale_preflight");
+	const start = Math.max(0, source$1.throughSeq - 32);
+	const end = Math.min(session.seq, start + MAX_SOURCE_EVENTS);
+	const events = session.snapshotEvents(start, end);
+	const cutoff = events.find((event) => event.seq === source$1.throughSeq);
+	if (!cutoff || !Number.isSafeInteger(cutoff.time) || Date.parse(source$1.workspaceObservedAt) !== cutoff.time) throw new HandoffError("stale_preflight");
+	const { selected, latest } = selectedReply(events, source$1.messageId, source$1.throughSeq);
+	if (requireLatest && (selected !== latest || end !== session.seq)) throw new HandoffError("stale_preflight");
+}
+function lockWriter(root) {
+	if (process.platform !== "darwin") throw new HandoffError("deployment_unsupported");
+	privateDirectory(root);
+	const fd = openSync(join(root, "host.lock"), constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 384);
+	try {
+		const info = fstatSync(fd);
+		if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 63) !== 0) throw new HandoffError("integration_unavailable");
+		if (spawnSync("/usr/bin/lockf", [
+			"-t",
+			"0",
+			"3"
+		], {
+			stdio: [
+				"ignore",
+				"ignore",
+				"ignore",
+				fd
+			],
+			env: { LANG: "C" },
+			timeout: 1e3,
+			cwd: "/"
+		}).status !== 0) throw new HandoffError("integration_unavailable");
+		return () => closeSync(fd);
+	} catch (error) {
+		closeSync(fd);
+		throw error;
+	}
+}
+function connectionKey(root) {
+	const fd = openSync(join(root, "connection-key"), constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 384);
+	try {
+		const info = fstatSync(fd);
+		if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 63) !== 0 || info.size !== 0 && info.size !== 32) throw new HandoffError("integration_unavailable");
+		if (info.size === 32) return readFileSync(fd);
+		const key = randomBytes(32);
+		writeFileSync(fd, key);
+		fsyncSync(fd);
+		return key;
+	} finally {
+		closeSync(fd);
+	}
+}
+function object(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new HandoffError("integration_unavailable");
+	return value;
+}
+function identifier(value) {
+	if (typeof value !== "string" || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw new HandoffError("integration_unavailable");
+	return value;
+}
+function sourceConnection(host, runtime, key) {
+	const config = runtime.config;
+	const connectionRef = keyFor(config.baseUrl);
+	return async (context, source$1) => {
+		const session = host.get("sessions")?.get(source$1.sessionId);
+		const headerScope = session && session.header.cwd !== source$1.cwd ? runtime.resolveScope(session.header.cwd, context.signal) : void 0;
+		const [identity, readiness$1, capabilities$1, scope, originalScope] = await Promise.all([
+			runtime.client.request("get_connection_identity", {}, context.signal),
+			runtime.client.request("get_readiness", {}, context.signal, { readinessResponse: true }),
+			runtime.client.request("get_capabilities", {}, context.signal),
+			runtime.resolveScope(source$1.cwd, context.signal),
+			headerScope
+		]);
+		context.signal.throwIfAborted();
+		if (headerScope !== void 0 && originalScope !== scope) throw new HandoffError("binding_mismatch");
+		const connection = object(identity.value);
+		const serverIdentity = identifier(connection.server_id);
+		const auth = connection.authentication;
+		const access = connection.access_mode;
+		const principal = connection.principal === null ? null : object(connection.principal);
+		if (auth !== "disabled" && auth !== "authenticated" || access !== "disabled" && access !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access === "enforced" && auth !== "authenticated" || object(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
+		const sourceTypes = object(capabilities$1.value).source_types;
+		if (!Array.isArray(sourceTypes) || !sourceTypes.includes("content")) throw new HandoffError("integration_unavailable");
+		const generation = createHmac("sha256", key).update(JSON.stringify([
+			connectionRef,
+			config.authorization,
+			config.allowInsecureHttp,
+			config.scopeId,
+			serverIdentity,
+			auth,
+			access,
+			principal?.type,
+			principal?.id
+		])).digest("hex");
+		return {
+			serverIdentity,
+			scopeId: identifier(scope),
+			connectionRef,
+			connectionGeneration: Number.parseInt(generation.slice(0, 13), 16)
+		};
+	};
+}
+/** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
+function registerHandoffBridge(ctx, runtime, assembly = {}) {
+	if (typeof ctx.inject !== "function") return;
+	ctx.inject(["webServer", "connection"], (host) => {
+		const ui = host;
+		const facts = localDeploymentFacts(ui, runtime.config.ownerLocal);
+		const profile = ui.get("profileContext");
+		const lifetime = new AbortController();
+		const catalog = new TargetCatalog(assembly.adapters);
+		const requireLocal = () => {
+			if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) throw new HandoffError("deployment_unsupported");
+		};
+		let services;
+		let release;
+		const handler = createHandoffHandler({
+			facts,
+			requireLocal,
+			catalog,
+			signal: lifetime.signal,
+			requestRejection: (request$2) => ui.connection.requestRejection(request$2),
+			authenticatedOwner: (request$2) => {
+				const admission = ui.connection.admit?.(request$2);
+				if (ui.connection.admit && admission?.peer?.principal?.kind !== "owner") return void 0;
+				return `local-owner:${process.getuid?.() ?? "host"}`;
+			},
+			services: () => {
+				if (services !== void 0) return services;
+				if (!assembly.delivery && !assembly.adapters?.length) return {};
+				if (!profile || !isAbsolute(profile.home)) throw new HandoffError("integration_unavailable");
+				const ownerRoot = join(homedir(), ".powercontext-dsh-handoff");
+				const unlock = lockWriter(ownerRoot);
+				try {
+					const root = join(ownerRoot, keyFor(profile.home, profile.name));
+					privateDirectory(root);
+					const preflight = new PreflightService({
+						catalog,
+						signal: lifetime.signal,
+						records: preflightRecords(join(root, "preflights")),
+						authority: {
+							requireLocal,
+							sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
+							verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
+						}
+					});
+					const delivery = assembly.delivery?.({
+						gate: preflight,
+						root,
+						signal: lifetime.signal
+					});
+					const launch = delivery && new LaunchService({
+						preflight,
+						delivery,
+						requireLocal,
+						plan: planNativeLaunch,
+						records: launchRecords(join(root, "launch-attempts")),
+						signal: lifetime.signal
+					});
+					release = unlock;
+					services = {
+						preflight,
+						delivery,
+						launch
+					};
+					return services;
+				} catch (error) {
+					unlock();
+					throw error;
+				}
+			}
+		});
+		for (const path of COLLECTIONS) host.effect(() => ui.webServer.register({
+			kind: path === COLLECTIONS[0] ? "exact" : "prefix",
+			path,
+			handler
+		}), `powercontext: ${path}`);
+		host.effect(() => async () => {
+			lifetime.abort();
+			await Promise.allSettled([services?.preflight?.drain(), services?.launch?.drain()]);
+			release?.();
+		}, "powercontext: handoff bridge disposal");
+	});
+}
+
+//#endregion
 //#region src/index.ts
 const name = PLUGIN_NAME;
 const inject = [
@@ -5035,9 +6419,9 @@ function createRuntime(ctx, config) {
 }
 function createSessionScopeResolver(runtime) {
 	const cache = /* @__PURE__ */ new Map();
-	const keyFor = (sessionId, cwd) => sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ""}`;
+	const keyFor$1 = (sessionId, cwd) => sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ""}`;
 	const resolve$1 = async (request$2, refresh) => {
-		const key = keyFor(request$2.sessionId, request$2.cwd);
+		const key = keyFor$1(request$2.sessionId, request$2.cwd);
 		const cached = cache.get(key);
 		if (!refresh && cached && cached.cwd === request$2.cwd) return cached.scopeId;
 		cache.delete(key);
@@ -5128,6 +6512,7 @@ async function apply(ctx, config) {
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
+	registerHandoffBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }
 

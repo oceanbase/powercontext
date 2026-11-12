@@ -219,6 +219,32 @@ Updating the plugin is an install-and-restart operation; the existing profile an
 preserved. Uninstalling it removes the browser entry, the `/powercontext/status` route, subscriptions, and
 timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
 
+## Cross-agent handoff Host foundation
+
+The plugin owns the authenticated `/powercontext/targets`, `/powercontext/preflights` and
+`/powercontext/deliveries` routes described in [RFC 2528](../../rfcs/2528-dsh-plugin-ui-and-agent-handoff.md).
+They require the owner's DSH authentication and a local Desktop or explicitly owner-local Web Host
+bound to loopback. Shared, proxied, remote, SSH and unverified deployments cannot use these routes.
+Handoff availability is separate from the sidebar's Server connection status.
+
+A preflight checks the exact selected reply, effective directory, target runtime and PowerContext
+integration, Server identity, connection configuration and Scope. A missing application requires
+manual setup. Installing or repairing its PowerContext integration requires explicit consent for
+the observed configuration, followed by verification in that destination. If the source reply
+changes during installation, choose the original reply explicitly or start a new preflight.
+Cancelling stops continuation and preserves installation changes that already took effect.
+
+Launch requires an existing complete delivery and checks its saved binding and package again. The
+Host persists the attempt before calling the fixed macOS opener. `opened` means the OS accepted
+the request. The receiving draft, user send and PowerContext acknowledgement are separate events.
+An interrupted or ambiguous attempt appears as `unknown`. Check the destination before explicitly
+retrying with a new request ID that names the previous attempt. A retry reuses the same saved package
+and receipt identity. The Host never reopens automatically after a restart.
+
+The capability catalog only offers native preflight for registered, qualified adapters. Codex Desktop,
+Claude Desktop Code, and Claude Code CLI require individual adapters and actual host acceptance.
+When the delivery service is absent, delivery operations return `integration_unavailable`.
+
 ## Diagnose the running configuration
 
 Run `/pc doctor` inside the affected DSH session. Its report identifies configuration provenance and checks
