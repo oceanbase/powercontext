@@ -470,6 +470,81 @@ fn bundle_and_packaged_pins_reject_tampering_and_extra_files() {
         Some(OpsBridgeError::IntegrityFailure)
     );
 }
+
+#[test]
+fn packaged_ops_runs_without_a_user_provisioned_bundle_and_rejects_damage() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    assert!(!f.support.join("bundle").exists());
+    fs::write(f.resources.join("ops/entry.py"), b"corrupt").unwrap();
+    assert_eq!(
+        host.inspect().bridge_error,
+        Some(OpsBridgeError::IntegrityFailure)
+    );
+}
+
+#[test]
+fn damaged_packaged_ops_never_falls_back_to_a_user_bundle() {
+    let f = Fixture::new();
+    fs::create_dir(f.resources.join("ops")).unwrap();
+    assert!(f.host().inspect().bridge_error.is_some());
+    fs::remove_dir(f.resources.join("ops")).unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+}
+
+#[test]
+fn packaged_ops_repairs_only_its_cache_and_preserves_it_when_app_resources_are_removed() {
+    let f = Fixture::new();
+    let original = fs::read(f.support.join("bundle/entry.py")).unwrap();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let provision: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.resources.join("ops-provision.json")).unwrap()).unwrap();
+    let cache = f
+        .support
+        .join("bundles")
+        .join(provision["bundle_manifest_sha256"].as_str().unwrap());
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let journal = f.support.join("operator-journal");
+    fs::write(&journal, b"preserve").unwrap();
+    fs::write(cache.join("entry.py"), b"damaged").unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let damaged = fs::read_dir(f.support.join("bundles"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("damaged-")
+        })
+        .unwrap();
+    assert_eq!(fs::read(damaged.join("entry.py")).unwrap(), b"damaged");
+    fs::remove_dir_all(&f.resources).unwrap();
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    assert_eq!(fs::read(journal).unwrap(), b"preserve");
+}
+
+#[test]
+fn concurrent_packaged_provisioning_returns_busy_and_can_retry() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(f.support.join("bundles/provision.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    assert_eq!(host.inspect().bridge_error, Some(OpsBridgeError::Busy));
+    drop(lock);
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+}
+
 fn child(
     script: &str,
     deadline: Duration,
@@ -929,8 +1004,8 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         .expect("set externally approved manifest pin");
     assert!(trust::is_digest(&pin));
     let f = Fixture::new();
-    let bundle = f.support.join("bundle");
-    fs::remove_dir_all(&bundle).unwrap();
+    fs::remove_dir_all(f.support.join("bundle")).unwrap();
+    let bundle = f.resources.join("ops");
     copy(&source, &bundle);
     fs::write(
         f.resources.join("ops-provision.json"),
@@ -971,4 +1046,150 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         host.inspect().bridge_error,
         Some(OpsBridgeError::IntegrityFailure)
     );
+}
+
+#[test]
+fn reopening_preserves_approved_action_and_rejects_different_recovery_options() {
+    let f = Fixture::new();
+    let host = f.host();
+    let approval = f.approve(&host);
+    let approval_id = approval.approval_id.clone();
+    let (send, receive) = mpsc::channel();
+    let result = host
+        .apply(approval, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    let progress = receive.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(progress.approval_id.as_deref(), Some(approval_id.as_str()));
+    let reopened = f.host();
+    let references = reopened.references().unwrap();
+    let reference = &references.operations[0];
+    assert_eq!(reference.operation_id, result.operation_id);
+    assert_eq!(reference.operation, Some(OpsOperation::RemoveRegistration));
+    assert_eq!(reference.options.as_ref().unwrap().wire_value(), json!({}));
+    assert!(matches!(
+        reopened.preflight(OpsPreflightInput {
+            operation: OpsOperation::Register,
+            options: OpsOptions {
+                start_on_login: Some(false),
+                ..Default::default()
+            },
+            resume: Some(OpsResumeReference {
+                operation_id: result.operation_id,
+                expected_attempt: 1
+            })
+        }),
+        Err(OpsBridgeError::InvalidInput)
+    ));
+}
+
+#[test]
+fn legacy_operation_references_remain_queryable_without_inventing_an_action() {
+    let f = Fixture::new();
+    let host = f.host();
+    let result = host.apply(f.approve(&host), |_| {}).unwrap();
+    let path = f.support.join("bridge-operations.json");
+    let mut document: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for field in ["operation", "options"] {
+        document["operations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+    }
+    fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let reopened = f.host();
+    assert!(
+        reopened.references().unwrap().operations[0]
+            .operation
+            .is_none()
+    );
+    assert_eq!(
+        reopened
+            .operation_status(OpsStatusInput {
+                operation_id: result.operation_id
+            })
+            .unwrap()
+            .outcome,
+        OpsOutcome::Succeeded
+    );
+}
+
+#[test]
+fn local_handoff_requires_independent_positive_ownership_and_service_facts() {
+    let mut components: OpsComponents = serde_json::from_value(json!({
+        "managerOwnership":"owned", "manager":"active", "registration":"installed", "definition":"current",
+        "configuration":"valid", "liveness":"live", "resources":"present", "installationId":"personal-a",
+        "endpoint":"http://127.0.0.1:8123"
+    })).unwrap();
+    assert_eq!(
+        OpsHost::owned_endpoint(&components).unwrap(),
+        "http://127.0.0.1:8123"
+    );
+    components.manager_ownership = Some(OpsManagerOwnership::Foreign);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.manager_ownership = Some(OpsManagerOwnership::Owned);
+    components.resources = Some(OpsRuntimeResources::MissingExecutable);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.resources = Some(OpsRuntimeResources::Present);
+    components.installation_id = None;
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+}
+
+#[test]
+fn local_qualification_is_bound_to_the_pinned_catalog_and_observed_resource_digest() {
+    let f = Fixture::new();
+    // This valid catalog omits ResourceFile.executable=false. Python's ResourceCatalog accepts it.
+    let catalog = include_bytes!("../../tests/fixtures/local-setup-catalog.json").to_vec();
+    let digest = "1a41e4f4b604815d6b6ed2a76679786a1f5795aed2549542aeeb643094f12c7e";
+    fs::create_dir_all(f.resources.join("server")).unwrap();
+    fs::write(f.resources.join("server/catalog.json"), &catalog).unwrap();
+    let provision = f.resources.join("ops-provision.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&provision).unwrap()).unwrap();
+    value["binding_mode"] = "managed_catalog".into();
+    value["catalog_sha256"] = trust::sha256(&catalog).into();
+    fs::write(provision, serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut components: OpsComponents =
+        serde_json::from_value(json!({"resourceId":"resource-a", "resourceDigest":digest}))
+            .unwrap();
+    let host = f.host();
+    let mut qualifications = vec![crate::connections::session::CompatibilityProfile {
+        authenticated_clients: None,
+        id: "qualified-profile-a".into(),
+        server_commit: "d".repeat(40),
+        artifact_sha256: "e".repeat(64),
+        contract_sha256: "synthetic-fixture".into(),
+        operations: vec![],
+        evidence: "Synthetic catalog identity only; not platform qualification".into(),
+    }];
+    assert_eq!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications)
+            .unwrap(),
+        ("qualified-profile-a".into(), "1.4.2".into())
+    );
+    qualifications[0].artifact_sha256 = "f".repeat(64);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].artifact_sha256 = "e".repeat(64);
+    qualifications[0].server_commit = "f".repeat(40);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].server_commit = "d".repeat(40);
+    components.resource_digest = Some("a".repeat(64));
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
 }

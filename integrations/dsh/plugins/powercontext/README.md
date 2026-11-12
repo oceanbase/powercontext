@@ -2,6 +2,21 @@
 
 This plugin is a thin DeepSeek Harness integration for a running PowerContext Server. It does not embed storage or start the Server.
 
+The package has two independent Host faces and one optional browser face:
+
+- `lib/index.js` (the package root) contains the native MCP registration, lifecycle hooks, commands, and Host bridge.
+- `lib/client.js` is the `./client` browser entry declared through `dsh.client`; DSH serves it as a module-loader
+  factory and shows the sidebar connection status. It is optional for headless hosts: without it the root entry
+  continues to provide tools, recall, capture, and diagnostics.
+- `lib/assets/powercontext.svg` is the packaged client mark exported through `./assets/*`.
+
+The sidebar control reuses the plugin's in-memory `RuntimeStatus` for recall/capture/flush/injection observations
+and the existing liveness, readiness, and capability operations for connectivity. It does not call a model or poll
+`/pc doctor`. For a local Web host, set `ownerLocal: true` in the plugin patch (or
+`POWERCONTEXT_DSH_OWNER_LOCAL=true`) to affirm that the loopback host is your own. Desktop is identified by the
+managed `desktop` profile context; an Electron executable running a Web profile is not Desktop authority.
+SSH-forwarded, remote, shared, and unconfigured Web hosts are rejected rather than labeled local.
+
 ## Install from npm
 
 Once the desired version is published on npm, open **Plugins → Add plugin** in DeepSeek Harness Web or Desktop,
@@ -106,8 +121,8 @@ make js-api-generate-check
 
 The plugin resolves an explicit Scope, a durable workspace binding, or the Server default. Environment overrides use
 the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAPTURE_PROMPTS`, and `FLUSH_ON_CAPTURE`.
-`timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Context returned by recall
-is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
+`timeoutMs`, `requestTimeoutMs`, `maxBytes`, `flushMaxCalls`, and `ownerLocal` are plugin patch settings. Context
+returned by recall is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
 
 Remote HTTP is rejected by default. For an explicitly trusted plaintext connection, set
 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.

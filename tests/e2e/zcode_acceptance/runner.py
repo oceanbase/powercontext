@@ -96,7 +96,8 @@ def serve(app: Any) -> Iterator[str]:
     thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 15
+        # Match RestartableServer: a loaded host can stall a Server's startup, and a thread that exits fails at once.
+        deadline = time.monotonic() + 45
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert server.started, "server_startup_failed"
@@ -286,6 +287,8 @@ class AcceptanceRun:
         if resume:
             args.extend(["--resume", resume])
         completed = self.process(args, environment=environment)
+        if self.model is not None and self.model.failure_code:
+            raise AssertionError(self.model.failure_code)
         events = _cli_events(completed.stdout, failed=completed.returncode != 0)
         self.last_events = events
         if self.live:

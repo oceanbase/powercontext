@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const OUTPUTS = ['index.js', 'index.d.ts', 'invariant.js', 'invariant.d.ts']
+const OUTPUTS = ['index.js', 'index.d.ts', 'invariant.js', 'invariant.d.ts', 'client.js', 'client.d.ts']
 
 export function normalizeBuildOutput() {
   for (const name of OUTPUTS) {

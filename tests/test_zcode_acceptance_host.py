@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.e2e.zcode_acceptance.host import NativeHost
-from tests.e2e.zcode_acceptance.runner import AcceptanceRun
+from tests.e2e.zcode_acceptance.runner import AcceptanceRun, serve
 
 
 def make_host(tmp_path, source: str) -> NativeHost:
@@ -169,3 +169,36 @@ def test_nonzero_cli_exit_stays_failed_and_retains_only_safe_diagnostics(
         "native_assertion": native_assertion,
     }
     assert "private" not in json.dumps(run.summary)
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_fixture_prerequisite_failure_survives_cli_exit(tmp_path, exit_code):
+    run = AcceptanceRun(tmp_path / "runs", live=False, model_config=None, generation_env=None)
+    run.workspace.mkdir(parents=True)
+    run.node = getattr(sys, "_base_executable", sys.executable)
+    run.cli = tmp_path / "host.py"
+    assert run.model is not None
+
+    def missing_result():
+        raise AssertionError("receiver_action_result_missing")
+
+    with serve(run.model.app) as endpoint:
+        run.cli.write_text(
+            "import json, sys, urllib.error, urllib.request\n"
+            "body = {'model': 'fixture', 'messages': [], "
+            "'tools': [{'type': 'function', 'function': {'name': 'Bash'}}]}\n"
+            f"request = urllib.request.Request({endpoint + '/v1/chat/completions'!r}, "
+            "data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})\n"
+            "try:\n"
+            "    urllib.request.urlopen(request, timeout=5)\n"
+            "except urllib.error.HTTPError as error:\n"
+            "    assert error.code == 400\n"
+            "print(json.dumps({'type': 'result', 'sessionId': 'fixture-session'}))\n"
+            f"sys.exit({exit_code})\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(AssertionError, match=r"^receiver_action_result_missing$"), run.scenario(1):
+            run.invoke("Verify the fixture.", actions=[("Bash", missing_result)])
+
+    assert run.summary["scenarios"][0]["status"] == "failed"
+    assert run.summary["scenarios"][0]["stable_error_code"] == "receiver_action_result_missing"
