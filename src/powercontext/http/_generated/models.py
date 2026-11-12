@@ -3420,47 +3420,6 @@ class ReplaceMemoryArtifactEntry(BaseModel):
     text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
 
 
-class Kind10(StrEnum):
-    SEQUENCE = "sequence"
-
-
-class SourceSequenceLocator(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["sequence"]
-    sequence: Annotated[StrictInt, Field(ge=0)]
-
-
-class Kind11(StrEnum):
-    LINE_RANGE = "line_range"
-
-
-class SourceLineRangeLocator(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["line_range"]
-    start_line: Annotated[StrictInt, Field(ge=1)]
-    end_line: Annotated[StrictInt, Field(ge=1)]
-    heading_path: Annotated[
-        StrictStr | None,
-        Field(
-            description="Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.",
-            max_length=1024,
-        ),
-    ] = Field(default=None, exclude_if=lambda value: value is None)
-
-    @model_validator(mode="after")
-    def _validate_source_line_range(self):
-        from powercontext.sources import SourceLineRangeLocator
-
-        SourceLineRangeLocator.model_validate(self.model_dump(mode="json"))
-        return self
-
-
-class SourceLocator(RootModel[SourceSequenceLocator | SourceLineRangeLocator]):
-    root: Annotated[SourceSequenceLocator | SourceLineRangeLocator, Field(discriminator="kind")]
 class Status6(StrEnum):
     STARTED = "started"
     SUCCEEDED = "succeeded"
@@ -3570,6 +3529,49 @@ class ConsumptionState(StrEnum):
     CONSUMED = "consumed"
     UNCONSUMED = "unconsumed"
     NOT_APPLICABLE = "not_applicable"
+
+
+class Kind10(StrEnum):
+    SEQUENCE = "sequence"
+
+
+class SourceSequenceLocator(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["sequence"]
+    sequence: Annotated[StrictInt, Field(ge=0)]
+
+
+class Kind11(StrEnum):
+    LINE_RANGE = "line_range"
+
+
+class SourceLineRangeLocator(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["line_range"]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+    heading_path: Annotated[
+        StrictStr | None,
+        Field(
+            description="Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.",
+            max_length=1024,
+        ),
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def _validate_source_line_range(self):
+        from powercontext.sources import SourceLineRangeLocator
+
+        SourceLineRangeLocator.model_validate(self.model_dump(mode="json"))
+        return self
+
+
+class SourceLocator(RootModel[SourceSequenceLocator | SourceLineRangeLocator]):
+    root: Annotated[SourceSequenceLocator | SourceLineRangeLocator, Field(discriminator="kind")]
 
 
 class SourceTypeReference(BaseModel):
