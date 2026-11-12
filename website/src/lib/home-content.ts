@@ -24,6 +24,15 @@ type HomeAction = {
   label: string;
 };
 
+export type MemoryState = 'active' | 'forgotten' | 'merged' | 'retired';
+
+export type HomeSessionWindow = {
+  title: string;
+  action: string;
+  action_done: string;
+  result_label: string;
+};
+
 export type HomeContent = {
   onboarding: {
     title: string;
@@ -32,6 +41,8 @@ export type HomeContent = {
     preview_note: string;
     repository_label: string;
     guide_label: string;
+    copy_label: string;
+    copied_label: string;
     steps: Array<{
       title: string;
       description: string;
@@ -46,7 +57,27 @@ export type HomeContent = {
     }>;
     title: string;
     visual_label: string;
+    dashboard: {
+      title: string;
+      scope: string;
+      list_label: string;
+      revision_label: string;
+      current_label: string;
+      state_label: string;
+      sources_label: string;
+      states: Record<MemoryState, string>;
+      entries: Array<{
+        id: string;
+        title: string;
+        revision: number;
+        state: MemoryState;
+      }>;
+      body: string;
+      sources: string[];
+    };
   };
+  /** Photo credit template with `{author}` and `{source}` placeholders. */
+  photo_credit: string;
   hero: {
     action: HomeAction;
     learn_more: HomeAction;
@@ -55,6 +86,38 @@ export type HomeContent = {
       contributors_label: string;
       contribute_label: string;
       license_label: string;
+    };
+    cursors: {
+      visitor: string;
+      claude_code: string;
+      codex: string;
+      opencode: string;
+    };
+    figure: {
+      description: string;
+      figure: string;
+      title: string;
+      hint: string;
+      readout: {
+        from: string;
+        to: string;
+      };
+      /** Work Contract, Prepared Handoff, Acknowledgement, Task Outcome. */
+      steps: [string, string, string, string];
+    };
+    sessions: {
+      ending: HomeSessionWindow & {
+        lines: string[];
+        result: string;
+      };
+      next: HomeSessionWindow & {
+        prompt: string;
+        waiting: string;
+        received: Array<{
+          label: string;
+          value: string;
+        }>;
+      };
     };
     label: string;
     lead: string;
@@ -72,6 +135,11 @@ export type HomeContent = {
     lead: string;
     output_label: string;
     runtime_label: string;
+    status: {
+      official: string;
+      community: string;
+      evaluation: string;
+    };
     title: string[];
     visual_label: string;
   };

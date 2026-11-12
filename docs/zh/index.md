@@ -19,6 +19,52 @@ home:
       contributors_label: 查看全部贡献者
       contribute_label: 参与贡献
       license_label: Apache-2.0 开源
+    cursors:
+      visitor: 你
+      claude_code: Claude Code
+      codex: Codex
+      opencode: OpenCode
+    figure:
+      description: 一张转台载着项目 Scope 和其中的 Memory 卡片、Source 便签、审核托盘与 Handoff 卡匣，从即将结束的会话一侧转到下一次会话一侧。
+      figure: 图 1
+      title: 交接转台
+      hint: 选择一侧，转动转台
+      readout:
+        from: 当前会话 · Handoff 已准备
+        to: 下一次会话 · Handoff 已确认
+      steps:
+        - Work Contract
+        - Prepared Handoff
+        - Acknowledgement
+        - Task Outcome
+    sessions:
+      ending:
+        title: Claude Code
+        action: 交接
+        action_done: 已交接
+        lines:
+          - 用 PowerContext 交接这项工作。
+          - 检查 41 项通过 · 1 项受阻
+          - 已保存 atomic-memory/m_k2f9@2
+        result_label: 已准备
+        result: handoff/h_7c3d@3
+      next:
+        title: Codex
+        action: 确认接手
+        action_done: 已确认
+        prompt: 继续这个 PowerContext Handoff。
+        waiting: 等待 Handoff…
+        result_label: 已接受
+        received:
+          - label: 目标
+            value: 重试失败的 Webhook
+          - label: 记忆
+            value: 4 条
+          - label: 来源
+            value: 3 个链接
+          - label: 下一步
+            value: 解决签名校验受阻
+  photo_credit: 摄影：{author}，来自 {source}
   onboarding:
     title: 从安装到第一条记忆
     lead: 先部署 Server，通过向导选择所需能力，再接入 Agent。完整指南覆盖本机使用和从其他设备访问。
@@ -26,6 +72,8 @@ home:
     preview_note: 本站安装命令使用 oceanbase/powercontext 的官方 master 分支。
     repository_label: 查看当前源码分支
     guide_label: 按完整指南开始
+    copy_label: 复制命令
+    copied_label: 已复制
     steps:
       - title: 安装 PowerContext
         description: 准备 Python 3.11 或更高版本、Git 和 uv，在运行 Server 的机器上安装本分支。
@@ -59,6 +107,45 @@ home:
           - 当前目标
           - 来源链接
           - 下一步
+    dashboard:
+      title: PowerContext Dashboard
+      scope: payments-api
+      list_label: 记忆
+      revision_label: 版本
+      current_label: 当前版本
+      state_label: 状态
+      sources_label: 来源引用
+      states:
+        active: 在役
+        forgotten: 已遗忘
+        merged: 已合并
+        retired: 已退役
+      entries:
+        - id: m_k2f9
+          title: Webhook 失败后按指数退避重试，最多五次
+          revision: 3
+          state: active
+        - id: m_p41x
+          title: 签名密钥从 Vault 读取，不写进 .env
+          revision: 1
+          state: active
+        - id: m_w8tz
+          title: 重试队列放在 Redis
+          revision: 2
+          state: retired
+        - id: m_c3ha
+          title: Webhook POST 使用幂等键
+          revision: 1
+          state: merged
+        - id: m_j06n
+          title: 预发环境部署需人工审批
+          revision: 1
+          state: forgotten
+      body: Webhook 投递失败后从 2 秒开始指数退避重试，最多五次。第五次仍失败时，事件转入死信列表等待处理。
+      sources:
+        - Claude Code 会话 · 重试方案
+        - "拉取请求 #482 的评审"
+        - Task Outcome · 部分完成
   ecosystem:
     title:
       - 工作换了 Agent，
@@ -80,4 +167,8 @@ home:
       - name: Skill
         description: 已导出的流程
     output_label: 换一个 Agent，继续当前工作
+    status:
+      official: 官方
+      community: 社区
+      evaluation: 评估
 ---

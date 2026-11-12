@@ -14,17 +14,11 @@
  * limitations under the License.
  */
 
-import { ArrowRight } from 'lucide-react';
-import Link from 'next/link';
-import { buttonVariants } from 'fumadocs-ui/components/ui/button';
-import { DocsDescription, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
-import { AgentArtifactFlow } from '@/components/agent-artifact-flow';
-import { ContextFlow } from '@/components/context-flow';
-import { GitHubStarButton } from '@/components/github-star-button';
-import { HomeContributors } from '@/components/home-contributors';
+import { HomeHero } from '@/components/home/home-hero';
+import { ContinuitySection, EcosystemSection, OnboardingSection } from '@/components/home/home-sections';
+import { RevealOnScroll } from '@/components/home/reveal';
 import { SiteFooter } from '@/components/site-footer';
-import { SpiralVisual } from '@/components/spiral-visual';
 import { getHomeContent } from '@/lib/home-content';
 import { githubRepository } from '@/lib/github-stars';
 import type { Language } from '@/lib/i18n';
@@ -32,128 +26,26 @@ import { baseOptions } from '@/lib/site';
 import { repositoryUrl } from '@/lib/urls';
 import githubStars from '../../.generated/github-stars.json';
 import githubContributors from '../../.generated/github-contributors.json';
-
-function normalizeHref(href: string) {
-  return `/${href.replace(/^\/+/, '').replace(/\/$/, '')}`;
-}
+import './home/home.css';
 
 export async function HomePage({ lang }: { lang: Language }) {
   const home = await getHomeContent(lang);
   const repository = githubRepository(repositoryUrl);
   const contributors: Array<{ login: string; avatar: string }> = githubContributors.repository === repository
     ? githubContributors.contributors : [];
-  const community = home.hero.community;
 
   return (
-    <HomeLayout {...baseOptions(lang)}>
-      <main>
-        <section className="pc-kv">
-          <div className="mx-auto grid w-full max-w-(--fd-layout-width) items-center gap-12 px-4 py-16 lg:grid-cols-2 lg:py-20">
-            <header className="grid gap-4">
-              <p className="text-fd-primary">{home.hero.label}</p>
-              <DocsTitle>
-                {home.hero.title.map((line) => <span className="block" key={line}>{line}</span>)}
-              </DocsTitle>
-              <DocsDescription className="mb-0">
-                {home.hero.lead}{' '}
-                <Link className="whitespace-nowrap text-fd-primary hover:underline" href={normalizeHref(home.hero.learn_more.href)}>
-                  {home.hero.learn_more.label}
-                </Link>
-              </DocsDescription>
-              <div className="flex items-center gap-3">
-                <Link
-                  className={buttonVariants({ variant: 'primary', className: 'gap-1 whitespace-nowrap' })}
-                  href={normalizeHref(home.hero.action.href)}
-                >
-                  {home.hero.action.label} <ArrowRight aria-hidden="true" className="size-4" />
-                </Link>
-                <GitHubStarButton
-                  url={repositoryUrl}
-                  label={community.star_label}
-                  lang={lang}
-                  initialCount={githubStars.repository === repository ? githubStars.count : null}
-                />
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs text-fd-muted-foreground">
-                <div className="flex items-center gap-3">
-                  <HomeContributors
-                    contributors={contributors}
-                    url={`${repositoryUrl}/graphs/contributors`}
-                    label={community.contributors_label}
-                  />
-                  <a href={`${repositoryUrl}/blob/master/CONTRIBUTING.md`} target="_blank" rel="noopener noreferrer" className="hover:text-fd-foreground hover:underline">
-                    {community.contribute_label}
-                  </a>
-                </div>
-                <a href={`${repositoryUrl}/blob/master/LICENSE`} target="_blank" rel="noopener noreferrer" className="hover:text-fd-foreground hover:underline">
-                  {community.license_label}
-                </a>
-              </div>
-            </header>
-            <div className="mx-auto hidden w-full max-w-lg lg:block">
-              <SpiralVisual />
-            </div>
-          </div>
-        </section>
-        <section className="border-y bg-fd-card/50" aria-labelledby="start-title">
-          <div className="mx-auto w-full max-w-(--fd-layout-width) px-4 py-12 md:py-16">
-            <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
-              <div className="max-w-2xl">
-                <h2 id="start-title" className="text-2xl font-semibold tracking-tight">{home.onboarding.title}</h2>
-                <p className="mt-3 leading-7 text-fd-muted-foreground">{home.onboarding.lead}</p>
-              </div>
-              <Link className={buttonVariants({ variant: 'primary' })} href={`/${lang}/docs/get-started/quickstart`}>
-                {home.onboarding.guide_label} <ArrowRight aria-hidden="true" className="size-4" />
-              </Link>
-            </div>
-            <ol className="grid gap-4 md:grid-cols-2">
-              {home.onboarding.steps.map((step, index) => (
-                <li key={step.title} className="min-w-0 rounded-lg border bg-fd-background p-5">
-                  <h3 className="flex items-center gap-3 font-medium">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-fd-primary/10 text-sm text-fd-primary">
-                      {index + 1}
-                    </span>
-                    {step.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-fd-muted-foreground">{step.description}</p>
-                  {step.command ? (
-                    <pre className="mt-4 overflow-x-auto rounded bg-fd-muted p-3 text-xs leading-6"><code>{step.command}</code></pre>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-            <p className="mt-6 text-sm leading-6 text-fd-muted-foreground">
-              <span className="font-medium text-fd-foreground">{home.onboarding.preview_label}</span>{' '}
-              {home.onboarding.preview_note}{' '}
-              <a href={repositoryUrl} className="text-fd-primary underline underline-offset-4" rel="noreferrer" target="_blank">
-                {home.onboarding.repository_label}
-              </a>
-            </p>
-          </div>
-        </section>
-        <div className="mx-auto w-full max-w-(--fd-layout-width) px-4 py-20 md:py-28">
-          <section className="grid items-start gap-10 lg:grid-cols-3">
-            <div className="prose max-w-xl">
-              <h2>{home.continuity.title}</h2>
-              <p>{home.continuity.lead}</p>
-            </div>
-            <div className="lg:col-span-2">
-              <ContextFlow label={home.continuity.visual_label} steps={home.continuity.steps} />
-            </div>
-          </section>
-          <section className="mt-28 grid gap-10 lg:grid-cols-3">
-            <div className="prose">
-              <h2>
-                {home.ecosystem.title.map((line) => <span className="block" key={line}>{line}</span>)}
-              </h2>
-              <p>{home.ecosystem.lead}</p>
-            </div>
-            <div className="lg:col-span-2">
-              <AgentArtifactFlow content={home.ecosystem} lang={lang} />
-            </div>
-          </section>
-        </div>
-      </main>
+    <HomeLayout {...baseOptions(lang)} className="pc-home">
+      <HomeHero
+        contributors={contributors}
+        home={home}
+        lang={lang}
+        stars={githubStars.repository === repository ? githubStars.count : null}
+      />
+      <OnboardingSection content={home.onboarding} lang={lang} />
+      <ContinuitySection content={home.continuity} credit={home.photo_credit} />
+      <EcosystemSection content={home.ecosystem} lang={lang} />
+      <RevealOnScroll />
       <SiteFooter lang={lang} />
     </HomeLayout>
   );

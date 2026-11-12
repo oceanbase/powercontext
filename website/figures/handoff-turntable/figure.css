@@ -1,0 +1,146 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Handoff turntable card. Appended to the scoped kit styles by build.mjs. */
+
+/* The one lit accent is the site's primary blue. */
+.hf.iso {
+  --anatomy-lit: #0b6ff4;
+  --anatomy-lit-top: #eef5ff;
+  --anatomy-lit-shade: #dce9fd;
+}
+html.dark .hf.iso {
+  --anatomy-lit: #68adff;
+  --anatomy-lit-top: #17283e;
+  --anatomy-lit-shade: #112034;
+}
+
+.hf {
+  position: relative;
+  width: 100%;
+  color: var(--anatomy-text);
+}
+.hf-plate {
+  position: relative;
+  aspect-ratio: var(--hf-ratio);
+  background: var(--anatomy-card);
+  box-shadow: 0 0 0 1px var(--anatomy-faint);
+  --anatomy-paper: var(--anatomy-card);
+  opacity: 0;
+}
+.hf-stage {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  outline: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.hf-stage:focus-visible {
+  outline: 1px solid var(--anatomy-muted);
+  outline-offset: -6px;
+}
+.hf-scale {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform: scale(0.55);
+  transform-origin: var(--hf-origin);
+}
+.hf[data-shown] .hf-plate {
+  opacity: 1;
+}
+.hf[data-shown] .hf-scale {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hf .hf-plate {
+    opacity: 1;
+  }
+  .hf .hf-scale {
+    transform: none;
+  }
+}
+.hf .hf-detent {
+  stroke-width: 1.2;
+}
+.hf .hf-pip {
+  fill: var(--anatomy-hi);
+  stroke: none;
+}
+.hf-corner {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  color: var(--anatomy-muted);
+  font-family: var(--anatomy-mono);
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.hf-corner[data-corner='fig'] {
+  top: 16px;
+  left: 18px;
+  color: var(--anatomy-text);
+}
+.hf-corner[data-corner='title'] {
+  top: 16px;
+  right: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.hf-corner[data-corner='hint'] {
+  bottom: 16px;
+  left: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.hf-corner[data-corner='readout'] {
+  right: 18px;
+  bottom: 16px;
+  color: var(--anatomy-text);
+  font-variant-numeric: tabular-nums;
+}
+.hf-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .hf-corner {
+    font-size: 9.5px;
+  }
+  .hf-corner[data-corner='fig'],
+  .hf-corner[data-corner='hint'] {
+    left: 12px;
+  }
+  .hf-corner[data-corner='title'],
+  .hf-corner[data-corner='readout'] {
+    right: 12px;
+  }
+  .hf-corner[data-corner='fig'],
+  .hf-corner[data-corner='title'] {
+    top: 12px;
+  }
+  .hf-corner[data-corner='hint'],
+  .hf-corner[data-corner='readout'] {
+    bottom: 12px;
+  }
+}
