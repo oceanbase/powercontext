@@ -193,9 +193,12 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 接收确认是独立事件。中断或结果不确定的尝试显示为 `unknown`。请先检查目标，再用新的请求 ID
 显式重试并指定上次尝试。重试沿用同一个交接包和回执身份；Host 重启后不会自动重新打开。
 
+Host 复用 PowerContext 的 Handoff 服务。经用户核对的当前工作输入或精确 Handoff Revision 通过
+已验证的连接处理；只有归属会话可以读取或导出完整的已保存包。没有核对过的输入或精确 Revision 时，
+Host 返回 `needs_input`。自动起草还需要可信的会话证据读取器和已配置的生成流程。
+
 能力目录只会为已注册且完成资格验证的适配器提供原生预检。Codex Desktop、Claude Desktop 的 Code
-会话和 Claude Code CLI 需要分别实现适配器并在真实宿主上验收。未接入交付服务时，交付操作返回
-`integration_unavailable`。
+会话和 Claude Code CLI 需要分别实现适配器并在真实宿主上验收。
 
 ## 诊断运行中的配置
 

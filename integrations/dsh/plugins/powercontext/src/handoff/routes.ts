@@ -208,9 +208,7 @@ export function createHandoffHandler(options: RouteOptions) {
         }))
       }
 
-      const services = options.services()
-      const delivery = requireService(services.delivery)
-      const aggregate = (item: DeliveryView) => {
+      const aggregate = (item: DeliveryView, services: ReturnType<RouteOptions['services']>) => {
         let preflight = null
         try { preflight = services.preflight?.get(context, item.binding.preflightId, item.source.sessionId) ?? null }
         catch (error) { if (handoffError(error).code !== 'not_found') throw error }
@@ -220,28 +218,36 @@ export function createHandoffHandler(options: RouteOptions) {
         }
       }
       if (!id) {
-        const body = object(value, ['requestId', 'preflightId', 'expectedRevision', 'source', 'workInput'])
+        const body = object(value, ['requestId', 'preflightId', 'expectedRevision', 'source', 'workInput', 'revision',
+          'supersedesDeliveryId'])
         const input: PrepareDeliveryInput = { requestId: token(body.requestId), preflightId: token(body.preflightId),
           expectedRevision: int(body.expectedRevision, 1), source: source(body.source),
-          // The delivery service owns validation of the existing Handoff fields.
-          ...(body.workInput === undefined ? {} : { workInput: body.workInput as PrepareDeliveryInput['workInput'] }),
+          // The delivery service owns Handoff field and exact reference validation.
+          ...(body.workInput === undefined ? {} : { workInput: body.workInput }),
+          ...(body.revision === undefined ? {} : { revision: body.revision as PrepareDeliveryInput['revision'] }),
+          ...(body.supersedesDeliveryId === undefined ? {} : { supersedesDeliveryId: token(body.supersedesDeliveryId) }),
         }
-        return json(response, 200, aggregate(await delivery.prepare(context, input)))
+        const services = options.services()
+        return json(response, 200, aggregate(await requireService(services.delivery).prepare(context, input), services))
       }
       if (action === 'launch') {
         const body = object(value, ['sessionId', 'requestId', 'targetId', 'retryOf'])
-        return json(response, 200, await requireService(services.launch).launch(context, id, {
-          sessionId: token(body.sessionId), requestId: token(body.requestId), targetId: token(body.targetId),
-          ...(body.retryOf === undefined ? {} : { retryOf: token(body.retryOf) }),
-        }))
+        const input = { sessionId: token(body.sessionId), requestId: token(body.requestId), targetId: token(body.targetId),
+          ...(body.retryOf === undefined ? {} : { retryOf: token(body.retryOf) }) }
+        return json(response, 200, await requireService(options.services().launch).launch(context, id, input))
       }
       const sessionId = method === 'GET' ? querySession() : token(object(value, ['sessionId']).sessionId)
+      const services = options.services()
+      const delivery = requireService(services.delivery)
       const item = sameSession(await delivery.get(context, id), sessionId)
       if (action === 'cancel') {
-        const [prepared] = await Promise.all([
-          delivery.cancelPreparation(context, id), services.launch?.cancelPending(context, id, sessionId),
+        const [prepared, launch] = await Promise.allSettled([
+          Promise.resolve().then(() => delivery.cancelPreparation(context, id)),
+          Promise.resolve().then(() => services.launch?.cancelPending(context, id, sessionId)),
         ])
-        return json(response, 200, aggregate(prepared))
+        if (prepared.status === 'rejected') throw prepared.reason
+        if (launch.status === 'rejected') throw launch.reason
+        return json(response, 200, aggregate(prepared.value, services))
       }
       if (action === 'export') {
         const { bytes } = await delivery.exportPackage(context, id)
@@ -252,7 +258,7 @@ export function createHandoffHandler(options: RouteOptions) {
         response.end(bytes)
         return
       }
-      return json(response, 200, aggregate(item))
+      return json(response, 200, aggregate(item, services))
     } catch (error) {
       const safe = signal.aborted ? new HandoffError('cancelled') : handoffError(error)
       json(response, safe.status, { code: safe.code, message: safe.message })

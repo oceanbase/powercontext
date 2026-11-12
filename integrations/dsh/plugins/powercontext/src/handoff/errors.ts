@@ -15,6 +15,8 @@
  */
 
 
+import { DeliveryError } from './contracts.ts'
+
 const ERRORS = {
   not_found: [404, 'The requested record is unavailable.'],
   not_ready: [409, 'The handoff is not ready for this action.'],
@@ -43,5 +45,6 @@ export class HandoffError extends Error {
 }
 
 export function handoffError(error: unknown): HandoffError {
-  return error instanceof HandoffError ? error : new HandoffError('integration_unavailable')
+  return error instanceof HandoffError ? error
+    : new HandoffError(error instanceof DeliveryError ? error.code : 'integration_unavailable')
 }

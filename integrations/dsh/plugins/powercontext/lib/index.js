@@ -15,10 +15,10 @@
  */
 
 import { createRequire } from "node:module";
-import { accessSync, closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -2080,9 +2080,9 @@ function isPlainObject(value) {
 }
 function queryString(payload) {
 	const params = new URLSearchParams();
-	for (const [key, value] of Object.entries(payload ?? {})) {
+	for (const [key$1, value] of Object.entries(payload ?? {})) {
 		if (value === void 0 || value === null) continue;
-		for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item));
+		for (const item of Array.isArray(value) ? value : [value]) params.append(key$1, String(item));
 	}
 	const encoded = params.toString();
 	return encoded ? `?${encoded}` : "";
@@ -2478,11 +2478,11 @@ function createDiagnosticEmitter(write, now = Date.now, cooldownMs = 6e4) {
 			"empty",
 			"skipped"
 		].includes(outcome)) {
-			const key = outcome;
+			const key$1 = outcome;
 			const timestamp = now();
-			const previous = lastEmitted.get(key);
+			const previous = lastEmitted.get(key$1);
 			if (previous !== void 0 && timestamp - previous < cooldownMs) return;
-			lastEmitted.set(key, timestamp);
+			lastEmitted.set(key$1, timestamp);
 		}
 		return write(JSON.stringify(normalized));
 	};
@@ -2503,7 +2503,7 @@ function isRecord$1(value) {
 function validatePreparedContext(response, path = "/v1/context/prepare", maxBytes = MAX_CONTEXT_BYTES) {
 	if (!isRecord$1(response)) throw new InvalidResponseError(path, void 0, void 0, "prepared_object");
 	const keys = Object.keys(response);
-	if (keys.length !== PREPARED_FIELDS.size || keys.some((key) => !PREPARED_FIELDS.has(key))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
+	if (keys.length !== PREPARED_FIELDS.size || keys.some((key$1) => !PREPARED_FIELDS.has(key$1))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
 	if (response.schema !== PREPARED_CONTEXT_SCHEMA) throw new InvalidResponseError(path, void 0, void 0, "prepared_schema");
 	const status = response.status;
 	const content = response.content;
@@ -2611,7 +2611,7 @@ function observed(operation, response, code, message) {
 function requestId(value) {
 	return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? { request_id: value } : {};
 }
-function invalid(operation, response, issue) {
+function invalid$1(operation, response, issue) {
 	throw new InvalidResponseError(operation, response.requestId, response.status, issue);
 }
 function transportFailure(error) {
@@ -2759,7 +2759,7 @@ function readiness(response) {
 		"ready",
 		"degraded",
 		"not_ready"
-	].includes(String(body.status)) || Object.values(body.checks).some((value) => typeof value !== "string") || response.status === 503 !== (body.status === "not_ready") || ![200, 503].includes(response.status)) invalid(operation, response, "readiness");
+	].includes(String(body.status)) || Object.values(body.checks).some((value) => typeof value !== "string") || response.status === 503 !== (body.status === "not_ready") || ![200, 503].includes(response.status)) invalid$1(operation, response, "readiness");
 	const dependencies = {};
 	for (const name$1 of Object.keys(DEPENDENCY_RECOVERY)) {
 		const value = body.checks[name$1];
@@ -2786,7 +2786,7 @@ function capabilities(response) {
 		"artifact_families",
 		"search_modes",
 		"context_versions"
-	].every((key) => Array.isArray(body[key]) && body[key].every((value) => typeof value === "string"))) invalid(operation, response, "capabilities");
+	].every((key$1) => Array.isArray(body[key$1]) && body[key$1].every((value) => typeof value === "string"))) invalid$1(operation, response, "capabilities");
 	if (!body.context_versions.includes(PREPARED_CONTEXT_SCHEMA)) return {
 		...check(operation, "unsupported_context_schema", "The Server does not advertise the PreparedContext schema required by this plugin.", "Install Server and plugin from the same supported release tag or checkout commit."),
 		http_status: response.status,
@@ -2797,7 +2797,7 @@ function capabilities(response) {
 function routes(response, flush) {
 	const operation = "openapi_document";
 	const body = response.value;
-	if (response.status !== 200 || !record$1(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record$1(body.paths)) invalid(operation, response, "openapi");
+	if (response.status !== 200 || !record$1(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record$1(body.paths)) invalid$1(operation, response, "openapi");
 	const memory = memoryProtocolCheck(body["x-powercontext-feature-contracts"], "openapi");
 	if (!memory.ok) return {
 		...check(operation, memory.code, memory.message, memory.recovery),
@@ -2860,7 +2860,7 @@ async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 	}
 	checks.liveness = await probe("get_liveness", async () => {
 		const response = await runtime.client.request("get_liveness", {}, signal);
-		if (response.status !== 200 || !record$1(response.value) || response.value.status !== "ok") invalid("get_liveness", response, "liveness");
+		if (response.status !== 200 || !record$1(response.value) || response.value.status !== "ok") invalid$1("get_liveness", response, "liveness");
 		return observed("get_liveness", response, "live", "The PowerContext liveness response is valid.");
 	});
 	checks.readiness = await probe("get_readiness", async () => readiness(await runtime.client.request("get_readiness", {}, signal, { readinessResponse: true })));
@@ -2891,9 +2891,9 @@ async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 		let prepared;
 		try {
 			prepared = validatePreparedContext(response.value, "/v1/context/prepare", 512);
-			if (response.status !== 200) invalid("prepare_context", response, "prepare_status");
+			if (response.status !== 200) invalid$1("prepare_context", response, "prepare_status");
 		} catch (error) {
-			if (error instanceof InvalidResponseError) invalid("prepare_context", response, error.issue);
+			if (error instanceof InvalidResponseError) invalid$1("prepare_context", response, error.issue);
 			throw error;
 		}
 		return observed("prepare_context", response, prepared.status, prepared.status === "empty" ? "The prepare route returned a valid empty result." : "The prepare route returned valid context; Doctor discarded the content without injecting it.");
@@ -3402,18 +3402,18 @@ var RuntimeStatus = class {
 		this.now = now;
 	}
 	begin(sessionId, cwd, turn) {
-		const key = sessionKey(sessionId, cwd);
+		const key$1 = sessionKey(sessionId, cwd);
 		const attempt = {
 			attempt: ++this.sequence,
 			turn: /^\d{1,20}$/.test(turn) ? turn : "(unavailable)",
 			started_at: this.now(),
 			stages: initialStages()
 		};
-		this.sessions.delete(key);
-		this.sessions.set(key, attempt);
+		this.sessions.delete(key$1);
+		this.sessions.set(key$1, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
 		const record$3 = (stage, result$1) => {
-			if (this.sessions.get(key) !== attempt) return;
+			if (this.sessions.get(key$1) !== attempt) return;
 			attempt.stages[stage] = {
 				...result$1,
 				operation: OPERATIONS$1[stage],
@@ -3422,7 +3422,7 @@ var RuntimeStatus = class {
 		};
 		return {
 			scope: (scopeId) => {
-				if (this.sessions.get(key) !== attempt) return;
+				if (this.sessions.get(key$1) !== attempt) return;
 				attempt.scope_key = fingerprint(scopeId);
 				attempt.scope_id = /^[a-zA-Z0-9_-]{1,128}$/.test(scopeId) ? scopeId : "(redacted)";
 				record$3("scope", { state: "resolved" });
@@ -3657,8 +3657,8 @@ function envBoolean(env, name$1) {
 	].includes(value)) return false;
 }
 function optionalText(value) {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed : void 0;
+	const trimmed$1 = value?.trim();
+	return trimmed$1 ? trimmed$1 : void 0;
 }
 function contextAssembly(raw, fallback) {
 	let value;
@@ -4724,8 +4724,8 @@ var StatusBridge = class {
 		};
 	}
 	async resolveScope(session, now) {
-		const key = `${session.id}\u0000${session.cwd ?? ""}`;
-		const cached = this.scopes.get(key);
+		const key$1 = `${session.id}\u0000${session.cwd ?? ""}`;
+		const cached = this.scopes.get(key$1);
 		if (cached !== void 0 && now - cached.observed_at < SCOPE_TTL_MS) return cached;
 		try {
 			const valid = safeScopeId(await this.options.resolveScope(session.cwd, this.abort.signal));
@@ -4740,7 +4740,7 @@ var StatusBridge = class {
 				state: "resolved",
 				observed_at: now
 			};
-			this.scopes.set(key, observation);
+			this.scopes.set(key$1, observation);
 			return observation;
 		} catch (error) {
 			const failure = operationFailure("resolve_scope_binding", error);
@@ -4751,7 +4751,7 @@ var StatusBridge = class {
 				...failure.message ? { message: failure.message } : {},
 				observed_at: now
 			};
-			this.scopes.set(key, observation);
+			this.scopes.set(key$1, observation);
 			return observation;
 		}
 	}
@@ -4881,7 +4881,7 @@ var StatusBridge = class {
 				"artifact_families",
 				"search_modes",
 				"context_versions"
-			].every((key) => Array.isArray(value[key]) && value[key].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
+			].every((key$1) => Array.isArray(value[key$1]) && value[key$1].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
 			const contextVersions = value.context_versions.slice(0, 32);
 			const observedAt = this.now();
 			if (!contextVersions.includes(PREPARED_CONTEXT_SCHEMA)) return {
@@ -4986,6 +4986,1586 @@ function registerStatusBridge(ctx, runtime) {
 }
 
 //#endregion
+//#region src/handoff/contracts.ts
+const errors = {
+	not_found: "The requested delivery or preflight was not found.",
+	not_ready: "The requested operation is not ready.",
+	stale_preflight: "Preflight conditions changed; verify the target again.",
+	binding_mismatch: "The source boundary or delivery binding does not match.",
+	idempotency_conflict: "This request conflicts with an existing delivery.",
+	integration_unavailable: "The delivery integration is unavailable.",
+	capacity_exceeded: "Delivery storage is full. Export and remove a delivery or increase the limit.",
+	payload_invalid: "The delivery input or package is invalid.",
+	outcome_unknown: "Preparation may have run, but no complete package can be recovered."
+};
+function isDeliveryErrorCode(value) {
+	return typeof value === "string" && Object.hasOwn(errors, value);
+}
+var DeliveryError = class extends Error {
+	code;
+	constructor(code) {
+		super(errors[code]);
+		this.name = "DeliveryError";
+		this.code = code;
+	}
+};
+
+//#endregion
+//#region src/handoff/http.generated.ts
+const HANDOFF_HTTP_SCHEMAS = {
+	ArtifactReference: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"family",
+			"artifact_id",
+			"revision"
+		],
+		"properties": {
+			"family": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 128,
+				"pattern": "^[\\x21-\\x7E]+$"
+			},
+			"artifact_id": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 128,
+				"pattern": "^[\\x21-\\x7E]+$"
+			},
+			"revision": {
+				"type": "integer",
+				"minimum": 1
+			}
+		}
+	},
+	CaptureContentSourceResponse: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"status",
+			"source",
+			"position"
+		],
+		"properties": {
+			"status": { "$ref": "CaptureStatus" },
+			"source": { "$ref": "SourceReference" },
+			"position": {
+				"type": "integer",
+				"minimum": 1
+			}
+		}
+	},
+	CaptureStatus: {
+		"type": "string",
+		"enum": ["accepted"]
+	},
+	CurrentWorkHandoff: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"schema",
+			"trust",
+			"objective",
+			"state",
+			"disposition",
+			"next_action",
+			"omissions"
+		],
+		"properties": {
+			"schema": {
+				"type": "string",
+				"enum": ["powercontext.current-work-handoff.v1"]
+			},
+			"trust": {
+				"type": "string",
+				"enum": ["untrusted_input"]
+			},
+			"objective": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"state": {
+				"type": "array",
+				"minItems": 1,
+				"maxItems": 64,
+				"items": { "$ref": "WorkClaim" }
+			},
+			"disposition": { "$ref": "HandoffDisposition" },
+			"next_action": {
+				"$ref": "WorkClaim",
+				"nullable": true
+			},
+			"omissions": {
+				"type": "array",
+				"maxItems": 64,
+				"items": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 8192,
+					"pattern": ".*\\S.*"
+				}
+			}
+		}
+	},
+	HandoffArtifactCitation: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["kind", "artifact_ref"],
+		"properties": {
+			"kind": {
+				"type": "string",
+				"enum": ["artifact"]
+			},
+			"artifact_ref": { "$ref": "ArtifactReference" }
+		}
+	},
+	HandoffCitation: { "oneOf": [{ "$ref": "HandoffSourceCitation" }, { "$ref": "HandoffArtifactCitation" }] },
+	HandoffContent: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"schema",
+			"objective",
+			"state",
+			"disposition",
+			"next_action",
+			"omissions"
+		],
+		"properties": {
+			"generation": {
+				"$ref": "HandoffGenerationMetadata",
+				"nullable": true
+			},
+			"schema": { "$ref": "HandoffSchema" },
+			"objective": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"state": {
+				"type": "array",
+				"minItems": 1,
+				"maxItems": 64,
+				"items": { "$ref": "HandoffStatement" }
+			},
+			"disposition": { "$ref": "HandoffDisposition" },
+			"next_action": {
+				"$ref": "HandoffStatement",
+				"nullable": true
+			},
+			"omissions": {
+				"type": "array",
+				"maxItems": 64,
+				"items": { "$ref": "HandoffOmission" }
+			}
+		}
+	},
+	HandoffDisposition: {
+		"type": "string",
+		"enum": [
+			"continuable",
+			"blocked",
+			"complete"
+		]
+	},
+	HandoffDraft: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"objective",
+			"state",
+			"disposition",
+			"next_action",
+			"omissions"
+		],
+		"properties": {
+			"generation": {
+				"$ref": "HandoffGenerationEnvelope",
+				"nullable": true
+			},
+			"objective": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"state": {
+				"type": "array",
+				"minItems": 1,
+				"maxItems": 64,
+				"items": { "$ref": "HandoffStatement" }
+			},
+			"disposition": { "$ref": "HandoffDisposition" },
+			"next_action": {
+				"$ref": "HandoffStatement",
+				"nullable": true
+			},
+			"omissions": {
+				"type": "array",
+				"maxItems": 64,
+				"items": { "$ref": "HandoffOmission" }
+			}
+		}
+	},
+	HandoffGenerationEnvelope: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["receipt"],
+		"properties": { "receipt": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 8192
+		} }
+	},
+	HandoffGenerationMetadata: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"scope_id",
+			"prompt_key",
+			"selection",
+			"artifact",
+			"definition_version",
+			"builtin_version",
+			"compiled_digest",
+			"original_draft_digest",
+			"edit_status"
+		],
+		"properties": {
+			"scope_id": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 256
+			},
+			"prompt_key": { "$ref": "HandoffPromptKey" },
+			"selection": {
+				"type": "string",
+				"enum": ["built_in", "artifact"]
+			},
+			"artifact": {
+				"$ref": "ArtifactReference",
+				"nullable": true
+			},
+			"definition_version": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 256
+			},
+			"builtin_version": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 256
+			},
+			"compiled_digest": {
+				"type": "string",
+				"pattern": "^[0-9a-f]{64}$"
+			},
+			"original_draft_digest": {
+				"type": "string",
+				"pattern": "^[0-9a-f]{64}$"
+			},
+			"edit_status": {
+				"type": "string",
+				"enum": ["unchanged", "edited"]
+			}
+		}
+	},
+	HandoffOmission: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["text", "citation"],
+		"properties": {
+			"text": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"citation": {
+				"$ref": "HandoffCitation",
+				"nullable": true
+			}
+		}
+	},
+	HandoffPromptKey: {
+		"type": "string",
+		"enum": ["handoff.generate"]
+	},
+	HandoffSchema: {
+		"type": "string",
+		"enum": ["powercontext.handoff.v1"]
+	},
+	HandoffSourceCitation: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["kind", "source_ref"],
+		"properties": {
+			"kind": {
+				"type": "string",
+				"enum": ["source"]
+			},
+			"source_ref": { "$ref": "SourceReference" }
+		}
+	},
+	HandoffStatement: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["text", "citations"],
+		"properties": {
+			"text": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"citations": {
+				"type": "array",
+				"minItems": 1,
+				"maxItems": 32,
+				"items": { "$ref": "HandoffCitation" }
+			}
+		}
+	},
+	PreparedHandoff: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"schema",
+			"scope_id",
+			"base",
+			"content"
+		],
+		"properties": {
+			"generation": {
+				"$ref": "HandoffGenerationEnvelope",
+				"nullable": true
+			},
+			"schema": { "$ref": "PreparedHandoffSchema" },
+			"scope_id": { "type": "string" },
+			"base": {
+				"$ref": "ArtifactReference",
+				"nullable": true
+			},
+			"content": { "$ref": "HandoffContent" }
+		}
+	},
+	PreparedHandoffSchema: {
+		"type": "string",
+		"enum": ["powercontext.prepared-handoff.v1"]
+	},
+	PreparedWorkHandoff: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["boundary", "handoff"],
+		"properties": {
+			"boundary": { "$ref": "WorkSourceReceipt" },
+			"handoff": { "$ref": "PreparedHandoff" }
+		}
+	},
+	SourceLineRangeLocator: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"kind",
+			"start_line",
+			"end_line"
+		],
+		"x-powercontext-source-line-range": true,
+		"properties": {
+			"kind": {
+				"type": "string",
+				"enum": ["line_range"]
+			},
+			"start_line": {
+				"type": "integer",
+				"minimum": 1
+			},
+			"end_line": {
+				"type": "integer",
+				"minimum": 1
+			},
+			"heading_path": {
+				"type": "string",
+				"nullable": true,
+				"maxLength": 1024
+			}
+		}
+	},
+	SourceLocator: { "oneOf": [{ "$ref": "SourceSequenceLocator" }, { "$ref": "SourceLineRangeLocator" }] },
+	SourceReference: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["name", "source_id"],
+		"properties": {
+			"name": { "type": "string" },
+			"source_id": { "type": "string" },
+			"locator": {
+				"$ref": "SourceLocator",
+				"nullable": true
+			}
+		}
+	},
+	SourceSequenceLocator: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["kind", "sequence"],
+		"properties": {
+			"kind": {
+				"type": "string",
+				"enum": ["sequence"]
+			},
+			"sequence": {
+				"type": "integer",
+				"minimum": 0
+			}
+		}
+	},
+	WorkClaim: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"text",
+			"basis",
+			"evidence"
+		],
+		"properties": {
+			"text": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 8192,
+				"pattern": ".*\\S.*"
+			},
+			"basis": { "$ref": "WorkClaimBasis" },
+			"evidence": {
+				"type": "array",
+				"maxItems": 31,
+				"items": { "$ref": "HandoffCitation" }
+			}
+		}
+	},
+	WorkClaimBasis: {
+		"type": "string",
+		"enum": ["declared", "verified"]
+	},
+	WorkSourceKind: {
+		"type": "string",
+		"enum": [
+			"work-contract",
+			"handoff-boundary",
+			"handoff-receipt",
+			"task-outcome"
+		]
+	},
+	WorkSourceReceipt: {
+		"type": "object",
+		"additionalProperties": false,
+		"required": [
+			"kind",
+			"source",
+			"position",
+			"content_digest"
+		],
+		"properties": {
+			"kind": { "$ref": "WorkSourceKind" },
+			"source": { "$ref": "SourceReference" },
+			"position": {
+				"type": "integer",
+				"minimum": 1
+			},
+			"content_digest": {
+				"type": "string",
+				"minLength": 71,
+				"maxLength": 71,
+				"pattern": "^sha256:[0-9a-f]{64}$"
+			}
+		}
+	}
+};
+
+//#endregion
+//#region src/handoff/wire.ts
+function object$2(value) {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function invalid() {
+	throw new DeliveryError("payload_invalid");
+}
+function trimmed(value, max) {
+	return typeof value === "string" && value.length > 0 && value === value.trim() && [...value].length <= max && !/[\uD800-\uDFFF]/u.test(value);
+}
+function project(schema, value, core = false, name$1) {
+	if (value === null && schema.nullable) return null;
+	if (schema.$ref) return project(HANDOFF_HTTP_SCHEMAS[schema.$ref], value, core, schema.$ref);
+	if (schema.oneOf) {
+		for (const option of schema.oneOf) try {
+			return project(option, value, core);
+		} catch (error) {
+			if (!(error instanceof DeliveryError)) throw error;
+		}
+		return invalid();
+	}
+	if (schema.type === "object") {
+		const properties = schema.properties;
+		const required = schema.required;
+		if (!object$2(value) || Object.keys(value).some((key$1) => !Object.hasOwn(properties, key$1)) || required.some((key$1) => !Object.hasOwn(value, key$1))) invalid();
+		const entries = [];
+		for (const [key$1, field] of Object.entries(properties)) {
+			if (!Object.hasOwn(value, key$1)) continue;
+			const child = project(field, value[key$1], core);
+			if (core && child === null && !required.includes(key$1)) continue;
+			entries.push([core && name$1 === "SourceReference" && key$1 === "name" ? "source_type" : key$1, child]);
+		}
+		if (schema["x-powercontext-source-line-range"]) {
+			const lines = Number(value.end_line) - Number(value.start_line) + 1;
+			if (lines < 1 || lines > 200) invalid();
+		}
+		if (name$1 === "SourceReference" && (!trimmed(value.name, 256) || !trimmed(value.source_id, 256))) invalid();
+		return Object.fromEntries(entries);
+	}
+	if (schema.type === "array") {
+		if (!Array.isArray(value) || value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? Infinity)) invalid();
+		return Array.from(value, (item) => project(schema.items, item, core));
+	}
+	if (schema.type === "integer") {
+		if (typeof value !== "number" || !Number.isSafeInteger(value) || value < (schema.minimum ?? 0)) invalid();
+		return value;
+	}
+	if (typeof value !== "string" || /[\uD800-\uDFFF]/u.test(value)) invalid();
+	if (schema.maxLength !== void 0 && [...value].length > schema.maxLength) invalid();
+	if (schema.minLength !== void 0 && [...value].length < schema.minLength) invalid();
+	if (schema.pattern && !new RegExp(schema.pattern, "u").test(value)) invalid();
+	if (schema.enum && !schema.enum.includes(value)) invalid();
+	return value;
+}
+function wire(name$1, value) {
+	return project(HANDOFF_HTTP_SCHEMAS[name$1], value, false, name$1);
+}
+function sha256(value) {
+	return createHash("sha256").update(value).digest("hex");
+}
+function preparedDigest(value) {
+	const core = project(HANDOFF_HTTP_SCHEMAS.PreparedHandoff, value, true, "PreparedHandoff");
+	return "sha256:" + sha256(JSON.stringify(core));
+}
+
+//#endregion
+//#region src/handoff/materials.ts
+const MAX_EVENTS = 512;
+const MAX_MATERIAL_BYTES = 256 * 1024;
+const MAX_WORKSPACE_BYTES = 32 * 1024;
+const MAX_WORK_INPUT_BYTES = 32 * 1024;
+function boundary(value) {
+	if (!value || !trimmed(value.sessionId, 256) || !trimmed(value.messageId, 256) || !Number.isSafeInteger(value.throughSeq) || value.throughSeq < 0 || !trimmed(value.cwd, 4096) || value.cwd.includes("\0") || !trimmed(value.workspaceObservedAt, 64) || !Number.isFinite(Date.parse(value.workspaceObservedAt))) invalid();
+	const { sessionId, messageId, throughSeq, cwd, workspaceObservedAt } = value;
+	return {
+		sessionId,
+		messageId,
+		throughSeq,
+		cwd,
+		workspaceObservedAt
+	};
+}
+function sameBoundary(a, b) {
+	return a.sessionId === b.sessionId && a.messageId === b.messageId && a.throughSeq === b.throughSeq && a.cwd === b.cwd && a.workspaceObservedAt === b.workspaceObservedAt;
+}
+function secret(value) {
+	return hasSecretContent("capture_content_source", value);
+}
+function inspectedWork(value) {
+	const work = wire("CurrentWorkHandoff", value);
+	if (!trimmed(work.objective, 8192) || !work.omissions.every((item) => trimmed(item, 8192)) || new Set(work.omissions).size !== work.omissions.length || [...work.state, ...work.next_action ? [work.next_action] : []].some((claim) => !trimmed(claim.text, 8192) || claim.basis === "verified" !== claim.evidence.length > 0) || secret(work) || Buffer.byteLength(JSON.stringify(work)) > MAX_WORK_INPUT_BYTES) invalid();
+	return work;
+}
+async function* boundedEvents(events) {
+	let remaining = MAX_EVENTS - 1;
+	for await (const event of events) {
+		yield event;
+		if (--remaining === 0) return;
+	}
+}
+async function collectMaterials(context, source$1, read, limit) {
+	const maxBytes = Math.min(limit, MAX_MATERIAL_BYTES, 192 * 1024);
+	const evidence = await read(context, source$1, {
+		maxEvents: MAX_EVENTS - 1,
+		maxBytes,
+		maxWorkspaceBytes: Math.min(maxBytes, MAX_WORKSPACE_BYTES)
+	});
+	context.signal.throwIfAborted();
+	const { selectedReply: selectedReply$1, objective } = evidence;
+	if (!sameBoundary(source$1, evidence.source) || selectedReply$1.messageId !== source$1.messageId || !Number.isSafeInteger(selectedReply$1.seq) || selectedReply$1.seq < 0 || selectedReply$1.seq > source$1.throughSeq) throw new DeliveryError("binding_mismatch");
+	const omissions = /* @__PURE__ */ new Set();
+	const note = (text) => {
+		omissions.add(text);
+	};
+	const available = (text, max) => typeof text === "string" && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !secret(text) && Buffer.byteLength(text) <= max;
+	if (!trimmed(objective, 8192) || !available(objective, Math.min(8192, maxBytes / 4))) return;
+	const reply = {
+		messageId: selectedReply$1.messageId,
+		seq: selectedReply$1.seq,
+		text: available(selectedReply$1.text, maxBytes / 3) ? selectedReply$1.text : null
+	};
+	if (reply.text === null) note("The selected reply was unavailable within the content and input limits.");
+	let workspace = null;
+	if (evidence.workspace?.observedAt === source$1.workspaceObservedAt) {
+		const { observedAt, revision, uncommittedChanges } = evidence.workspace;
+		workspace = {
+			observedAt,
+			revision: available(revision, 256) ? revision : null,
+			uncommittedChanges: available(uncommittedChanges, Math.min(MAX_WORKSPACE_BYTES, maxBytes / 4)) ? uncommittedChanges : null
+		};
+		if (Buffer.byteLength(JSON.stringify(workspace)) > MAX_WORKSPACE_BYTES) workspace.uncommittedChanges = null;
+		if (workspace.revision === null || workspace.uncommittedChanges === null) note("Workspace revision or uncommitted changes were not available.");
+	} else note("The workspace observation at the selected time was not available.");
+	const events = [];
+	const seen = new Set([selectedReply$1.seq]);
+	const content = {
+		source: source$1,
+		objective,
+		selectedReply: reply,
+		workspace,
+		events,
+		omissions: []
+	};
+	let remaining = maxBytes - Buffer.byteLength(JSON.stringify(content)) - 1024;
+	if (remaining < 0) return void 0;
+	let count = 1;
+	let checksObserved = false;
+	for await (const event of boundedEvents(evidence.events)) {
+		context.signal.throwIfAborted();
+		if (++count === MAX_EVENTS) note("The session evidence window reached the event limit.");
+		if (event.sessionId !== source$1.sessionId || !Number.isSafeInteger(event.seq) || event.seq < 0 || event.seq > source$1.throughSeq) throw new DeliveryError("binding_mismatch");
+		if (seen.has(event.seq)) continue;
+		seen.add(event.seq);
+		const { sessionId, seq, observedAt, evidence: refs, kind } = event;
+		const base = {
+			sessionId,
+			seq,
+			observedAt: trimmed(observedAt, 64) ? observedAt : void 0,
+			evidence: refs?.slice(0, 32).map((ref) => wire("HandoffCitation", ref))
+		};
+		let item;
+		if (kind === "check") {
+			checksObserved = true;
+			const { command, status, details, exitCode, revision, workspaceObservedAt } = event;
+			if (!available(command, 8192)) {
+				note("A check was observed but its command could not be included.");
+				continue;
+			}
+			if (![
+				"passed",
+				"failed",
+				"interrupted",
+				"not_run",
+				"unknown"
+			].includes(status)) invalid();
+			item = {
+				...base,
+				kind,
+				command,
+				status,
+				details: details && available(details, 8192) ? details : void 0,
+				revision: revision && available(revision, 256) ? revision : void 0,
+				workspaceObservedAt: trimmed(workspaceObservedAt, 64) ? workspaceObservedAt : void 0,
+				exitCode: Number.isSafeInteger(exitCode) ? exitCode : void 0
+			};
+			if (details && item.details === void 0) note("Some check details could not be included.");
+		} else {
+			if (!available(event.text, 8192)) {
+				note("Some task evidence was omitted because of content or input limits.");
+				continue;
+			}
+			item = {
+				...base,
+				kind,
+				text: event.text
+			};
+		}
+		const bytes = Buffer.byteLength(JSON.stringify(item)) + 1;
+		if (secret(item) || bytes > remaining) {
+			note(kind === "check" && item.kind === "check" && item.status === "failed" ? "At least one observed failure could not fit the input limits or contained sensitive material." : "Some task evidence was omitted because of content or input limits.");
+			continue;
+		}
+		remaining -= bytes;
+		events.push(item);
+	}
+	if (!checksObserved) note("No check evidence was available; whether checks ran is unknown.");
+	if (workspace && events.some((event) => event.kind === "check" && (event.revision && workspace.revision && event.revision !== workspace.revision || event.workspaceObservedAt && event.workspaceObservedAt !== workspace.observedAt))) note("Some checks describe a different revision or workspace state from the selected observation.");
+	if (events.some((event) => event.kind === "check" && !event.revision && !event.workspaceObservedAt)) note("Some checks could not be tied to an exact workspace state.");
+	for (const text of evidence.omissions?.slice(0, 16) ?? []) {
+		const size = typeof text === "string" ? Buffer.byteLength(JSON.stringify(text)) + 1 : 0;
+		if (available(text, 256) && size <= remaining) {
+			remaining -= size;
+			note(text);
+		} else note("Additional omissions reported by the Host could not be included.");
+	}
+	content.omissions = [...omissions];
+	const serialized = JSON.stringify(content);
+	if (Buffer.byteLength(serialized) > maxBytes) invalid();
+	return {
+		objective,
+		serialized
+	};
+}
+
+//#endregion
+//#region src/handoff/identity.ts
+const deliveryIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const checksumPattern = /^[0-9a-f]{64}$/;
+function verifiedBinding(value) {
+	if (!object$2(value)) invalid();
+	const { preflightId, revision, source: source$1, targetId, targetVersion, adapterVersion, effectiveCwd, serverIdentity, connectionRef, connectionGeneration, scopeId } = value;
+	if (!trimmed(preflightId, 256) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || !object$2(source$1) || !trimmed(targetId, 256) || !trimmed(targetVersion, 256) || !trimmed(adapterVersion, 256) || !trimmed(effectiveCwd, 4096) || effectiveCwd.includes("\0") || !trimmed(serverIdentity, 256) || !trimmed(connectionRef, 256) || typeof connectionGeneration !== "number" || !Number.isSafeInteger(connectionGeneration) || connectionGeneration < 0 || !trimmed(scopeId, 256)) invalid();
+	return Object.freeze({
+		preflightId,
+		revision,
+		source: Object.freeze(boundary(source$1)),
+		targetId,
+		targetVersion,
+		adapterVersion,
+		effectiveCwd,
+		serverIdentity,
+		connectionRef,
+		connectionGeneration,
+		scopeId
+	});
+}
+function receiptIdentity(value) {
+	if (!object$2(value) || typeof value.receiptAttemptId !== "string" || !deliveryIdPattern.test(value.receiptAttemptId) || value.sourceType !== "content" || value.sourceId !== "dsh-ack:" + value.receiptAttemptId) invalid();
+	return {
+		receiptAttemptId: value.receiptAttemptId,
+		sourceType: value.sourceType,
+		sourceId: value.sourceId
+	};
+}
+
+//#endregion
+//#region src/handoff/prepare.ts
+async function prepareCarrier(context, binding, input, deliveryId, resolve$1, readBoundary, markDispatched) {
+	const { client, generation } = await resolve$1(context, binding);
+	const scope = binding.scopeId;
+	const call$1 = async (operation, payload, mayWrite = false, signal = context.signal) => {
+		signal.throwIfAborted();
+		if (hasSecretContent(operation, payload)) invalid();
+		if (mayWrite) markDispatched();
+		const result$1 = await client.request(operation, {
+			...payload,
+			scope_id: scope
+		}, signal);
+		if (result$1.kind !== "json") invalid();
+		return result$1.value;
+	};
+	if (input.revision) {
+		const ref = input.revision;
+		const result$1 = await call$1("get_artifact_revision", ref);
+		if (!object$2(result$1) || result$1.scope_id !== scope || result$1.family !== ref.family || result$1.artifact_id !== ref.artifact_id || result$1.revision !== ref.revision) invalid();
+		if (!object$2(result$1.content) || result$1.content.schema !== "powercontext.handoff.v1") invalid();
+		return {
+			kind: "revision",
+			revision: ref
+		};
+	}
+	const sourceId = "dsh-delivery:" + deliveryId;
+	if (input.workInput) {
+		const result$1 = wire("PreparedWorkHandoff", await call$1("handoff_current_work", {
+			source_id: sourceId,
+			handoff: input.workInput
+		}, true));
+		return validateCarrier({
+			kind: "prepared",
+			digest: preparedDigest(result$1.handoff),
+			prepared: result$1.handoff,
+			sourceReceipts: [result$1.boundary]
+		}, binding, deliveryId);
+	}
+	if (!generation || !readBoundary) return void 0;
+	if (!Number.isSafeInteger(generation.maxInputBytes) || generation.maxInputBytes < 1024 || generation.maxOutputBytes !== void 0 && (!Number.isSafeInteger(generation.maxOutputBytes) || generation.maxOutputBytes < 512 || generation.maxOutputBytes > 32768)) throw new DeliveryError("integration_unavailable");
+	const materials = await collectMaterials(context, binding.source, readBoundary, generation.maxInputBytes);
+	if (!materials) return void 0;
+	const receipt = wire("CaptureContentSourceResponse", await call$1("capture_content_source", {
+		source_id: sourceId,
+		content: materials.serialized,
+		metadata: {
+			origin: "dsh",
+			kind: "handoff-input"
+		}
+	}, true));
+	if (receipt.source.name !== "content" || receipt.source.source_id !== sourceId) invalid();
+	const prepared = wire("PreparedHandoff", await call$1("finalize_handoff", { draft: wire("HandoffDraft", await call$1("prepare_handoff", {
+		objective: materials.objective,
+		evidence: [{
+			kind: "source",
+			source_ref: receipt.source
+		}],
+		max_bytes: generation.maxOutputBytes ?? 8e3
+	}, true, combineSignals([context.signal, AbortSignal.timeout(9e4)]))) }, true));
+	return validateCarrier({
+		kind: "prepared",
+		digest: preparedDigest(prepared),
+		prepared,
+		sourceReceipts: [receipt]
+	}, binding, deliveryId);
+}
+function validateCarrier(value, binding, deliveryId) {
+	if (!object$2(value)) invalid();
+	if (value.kind === "revision") {
+		const revision = wire("ArtifactReference", value.revision);
+		if (revision.family !== "handoff") invalid();
+		return {
+			kind: "revision",
+			revision
+		};
+	}
+	if (value.kind !== "prepared" || !Array.isArray(value.sourceReceipts) || value.sourceReceipts.length !== 1) invalid();
+	const prepared = wire("PreparedHandoff", value.prepared);
+	if (prepared.scope_id !== binding.scopeId || prepared.base !== null && prepared.base.family !== "handoff" || prepared.content.generation && prepared.content.generation.scope_id !== binding.scopeId) throw new DeliveryError("binding_mismatch");
+	const digest = preparedDigest(prepared);
+	if (value.digest !== digest || hasSecretContent("commit_handoff", { handoff: prepared })) invalid();
+	const receipt = value.sourceReceipts[0];
+	if (!object$2(receipt)) invalid();
+	const actual = "kind" in receipt ? wire("WorkSourceReceipt", receipt) : wire("CaptureContentSourceResponse", receipt);
+	if ("kind" in actual && actual.kind !== "handoff-boundary" || actual.source.name !== "content" || actual.source.source_id !== "dsh-delivery:" + deliveryId || actual.source.locator?.kind === "sequence" && actual.source.locator.sequence !== actual.position) invalid();
+	return {
+		kind: "prepared",
+		digest,
+		prepared,
+		sourceReceipts: [actual]
+	};
+}
+function knownPreparationFailure(error) {
+	if (error instanceof RequestNotSentError) return new DeliveryError("integration_unavailable");
+	if (error instanceof ServerResponseError && error.statusCode >= 400 && error.statusCode < 500 && error.statusCode !== 408 && error.statusCode !== 499) {
+		if (error.statusCode === 404) return new DeliveryError("not_found");
+		return new DeliveryError([
+			400,
+			409,
+			422
+		].includes(error.statusCode) ? "payload_invalid" : "integration_unavailable");
+	}
+}
+
+//#endregion
+//#region src/handoff/store.ts
+const DELIVERY_SCHEMA = "powercontext.dsh-delivery.v1";
+const MAX_PACKAGE_BYTES = 1081344;
+const MAX_RECORD_BYTES = 64 * 1024;
+const MAX_REQUEST_KEYS = 64;
+const states = new Set([
+	"preparing",
+	"needs_input",
+	"prepared",
+	"failed",
+	"cancelled",
+	"unknown"
+]);
+function date(value) {
+	return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+function decodeRecord(value, id) {
+	if (!object$2(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== id || !trimmed(value.ownerId, 256) || typeof value.preparationState !== "string" || !states.has(value.preparationState) || !date(value.createdAt) || !date(value.updatedAt) || typeof value.pinned !== "boolean" || typeof value.dispatched !== "boolean" || !Array.isArray(value.requests) || value.requests.length < 1 || value.requests.length > MAX_REQUEST_KEYS || value.requests.some((key$1) => !object$2(key$1) || !trimmed(key$1.id, 128) || typeof key$1.fingerprint !== "string" || !checksumPattern.test(key$1.fingerprint)) || value.error !== void 0 && !isDeliveryErrorCode(value.error) || value.expiredAt !== void 0 && !date(value.expiredAt) || value.deletedAt !== void 0 && !date(value.deletedAt) || value.supersedesDeliveryId !== void 0 && (typeof value.supersedesDeliveryId !== "string" || !deliveryIdPattern.test(value.supersedesDeliveryId))) invalid();
+	if (value.package !== void 0 && (!object$2(value.package) || typeof value.package.sha256 !== "string" || !checksumPattern.test(value.package.sha256) || typeof value.package.bytes !== "number" || !Number.isSafeInteger(value.package.bytes) || value.package.bytes < 1 || value.package.bytes > MAX_PACKAGE_BYTES)) invalid();
+	return {
+		...value,
+		binding: verifiedBinding(value.binding),
+		receiptAttempt: receiptIdentity(value.receiptAttempt)
+	};
+}
+function errno(error, code) {
+	return object$2(error) && error.code === code;
+}
+function privateEntry(stat, directory$1) {
+	if ((directory$1 ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1) || stat.uid !== process.getuid?.() || (stat.mode & 63) !== 0) invalid();
+}
+/**
+* One local Host owns a directory. Every transaction is synchronous and runs to completion
+* between awaits; each delivery's files are separate and normal requests never scan the disk.
+*/
+var DeliveryStore = class {
+	records = /* @__PURE__ */ new Map();
+	root;
+	rootStat;
+	marker;
+	constructor(directory$1) {
+		if (!isAbsolute(directory$1) || !process.getuid || !constants.O_NOFOLLOW) throw new DeliveryError("integration_unavailable");
+		const path = resolve(directory$1);
+		this.root = join(realpathSync(dirname(path)), basename(path));
+		try {
+			mkdirSync(this.root, { mode: 448 });
+		} catch (error) {
+			if (!errno(error, "EEXIST")) throw error;
+		}
+		this.rootStat = lstatSync(this.root);
+		privateEntry(this.rootStat, true);
+		this.marker = join(this.root, ".host-" + process.pid);
+		closeSync(openSync(this.marker, "wx", 384));
+		try {
+			const entries = readdirSync(this.root);
+			for (const name$1 of entries) {
+				const host = /^\.host-([1-9]\d*)$/.exec(name$1);
+				if (host && name$1 !== basename(this.marker)) {
+					try {
+						process.kill(Number(host[1]), 0);
+					} catch (error) {
+						if (!errno(error, "ESRCH")) throw error;
+						continue;
+					}
+					throw new DeliveryError("integration_unavailable");
+				}
+			}
+			for (const name$1 of entries) {
+				const id = name$1.slice(0, -12);
+				if (name$1.endsWith(".record.json") && deliveryIdPattern.test(id)) {
+					const record$3 = decodeRecord(JSON.parse(this.read(name$1, MAX_RECORD_BYTES).toString("utf8")), id);
+					this.records.set(id, record$3);
+				} else if (/^\.write-[0-9a-f-]{36}$/.test(name$1)) this.unlink(name$1);
+			}
+		} catch (error) {
+			this.close();
+			throw error;
+		}
+	}
+	checkRoot() {
+		const stat = lstatSync(this.root);
+		privateEntry(stat, true);
+		if (stat.ino !== this.rootStat.ino || stat.dev !== this.rootStat.dev) invalid();
+	}
+	read(name$1, maximum) {
+		this.checkRoot();
+		const fd = openSync(join(this.root, name$1), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		try {
+			const stat = fstatSync(fd);
+			privateEntry(stat, false);
+			if (stat.size <= 0 || stat.size > maximum) invalid();
+			const bytes = Buffer.alloc(stat.size);
+			let offset = 0;
+			while (offset < bytes.length) {
+				const size = readSync(fd, bytes, offset, bytes.length - offset, null);
+				if (!size) invalid();
+				offset += size;
+			}
+			if (readSync(fd, Buffer.alloc(1), 0, 1, null) !== 0) invalid();
+			return bytes;
+		} finally {
+			closeSync(fd);
+		}
+	}
+	syncDirectory() {
+		const fd = openSync(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+		try {
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+	}
+	unlink(name$1) {
+		this.checkRoot();
+		try {
+			unlinkSync(join(this.root, name$1));
+		} catch (error) {
+			if (!errno(error, "ENOENT")) throw error;
+		}
+	}
+	write(name$1, value, replace) {
+		this.checkRoot();
+		const path = join(this.root, name$1);
+		try {
+			const old = lstatSync(path);
+			if (!replace) invalid();
+			privateEntry(old, false);
+		} catch (error) {
+			if (!errno(error, "ENOENT")) throw error;
+		}
+		const temporary = ".write-" + randomUUID();
+		const fd = openSync(join(this.root, temporary), "wx", 384);
+		try {
+			try {
+				writeFileSync(fd, value);
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(join(this.root, temporary), path);
+			this.syncDirectory();
+		} finally {
+			this.unlink(temporary);
+		}
+	}
+	put(record$3) {
+		const bytes = Buffer.from(JSON.stringify(record$3));
+		if (bytes.length > MAX_RECORD_BYTES) throw new DeliveryError("capacity_exceeded");
+		this.write(record$3.deliveryId + ".record.json", bytes, this.records.has(record$3.deliveryId));
+		this.records.set(record$3.deliveryId, record$3);
+		return record$3;
+	}
+	packagePath(id) {
+		return join(this.root, id + ".package.json");
+	}
+	readPackage(id) {
+		return this.read(id + ".package.json", MAX_PACKAGE_BYTES);
+	}
+	writePackage(id, bytes) {
+		if (bytes.length > MAX_PACKAGE_BYTES) invalid();
+		this.write(id + ".package.json", bytes, false);
+	}
+	removePackage(id) {
+		this.unlink(id + ".package.json");
+		this.syncDirectory();
+	}
+	forget(id) {
+		this.removePackage(id);
+		this.unlink(id + ".record.json");
+		this.syncDirectory();
+		this.records.delete(id);
+	}
+	close() {
+		this.unlink(basename(this.marker));
+	}
+};
+
+//#endregion
+//#region src/handoff/delivery.ts
+const DAY = 864e5;
+const SEVEN_DAYS = 7 * DAY;
+const THIRTY_DAYS = 30 * DAY;
+const MAX_METADATA_RECORDS = 1e3;
+const defaultLimits = {
+	maxDeliveries: 100,
+	maxBytes: 50 * 1024 * 1024
+};
+function normalize(input) {
+	const fields = [
+		"requestId",
+		"preflightId",
+		"expectedRevision",
+		"source",
+		"workInput",
+		"revision",
+		"supersedesDeliveryId"
+	];
+	if (!object$2(input) || Object.keys(input).some((field) => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.supersedesDeliveryId !== void 0 && !deliveryIdPattern.test(input.supersedesDeliveryId)) invalid();
+	const revision = input.revision === void 0 ? void 0 : wire("ArtifactReference", input.revision);
+	if (revision && (revision.family !== "handoff" || input.workInput !== void 0)) invalid();
+	return {
+		requestId: input.requestId,
+		preflightId: input.preflightId,
+		expectedRevision: input.expectedRevision,
+		source: boundary(input.source),
+		workInput: input.workInput === void 0 ? void 0 : inspectedWork(input.workInput),
+		revision,
+		supersedesDeliveryId: input.supersedesDeliveryId
+	};
+}
+function key(ownerId, requestId$1) {
+	return JSON.stringify([ownerId, requestId$1]);
+}
+function sameBinding$1(a, b) {
+	return JSON.stringify(a) === JSON.stringify(b);
+}
+function packageData(record$3, carrier) {
+	return {
+		schema: DELIVERY_SCHEMA,
+		deliveryId: record$3.deliveryId,
+		source: record$3.binding.source,
+		binding: record$3.binding,
+		receiptAttempt: record$3.receiptAttempt,
+		carrier
+	};
+}
+function safeError(error) {
+	const code = object$2(error) ? error.code : void 0;
+	if (isDeliveryErrorCode(code)) return new DeliveryError(code);
+	if (code === "ENOSPC" || code === "EDQUOT") return new DeliveryError("capacity_exceeded");
+	return new DeliveryError("integration_unavailable");
+}
+/** Task 4 supplies the real gate and exact connection resolver when it wires the Host. */
+var LocalDeliveryService = class {
+	store;
+	active = /* @__PURE__ */ new Map();
+	launchReaders = /* @__PURE__ */ new Map();
+	requestIndex = /* @__PURE__ */ new Map();
+	limits;
+	options;
+	closing;
+	constructor(options) {
+		this.options = options;
+		this.limits = {
+			...defaultLimits,
+			...options.limits
+		};
+		if (Object.values(this.limits).some((limit) => !Number.isSafeInteger(limit) || limit < 1) || this.limits.maxDeliveries > MAX_METADATA_RECORDS) invalid();
+		try {
+			this.store = new DeliveryStore(options.directory);
+			try {
+				for (const record$3 of this.store.records.values()) {
+					for (const request$2 of record$3.requests) {
+						const indexKey = key(record$3.ownerId, request$2.id);
+						if (this.requestIndex.has(indexKey)) invalid();
+						this.requestIndex.set(indexKey, {
+							deliveryId: record$3.deliveryId,
+							fingerprint: request$2.fingerprint
+						});
+					}
+					if (record$3.deletedAt || record$3.expiredAt) this.store.removePackage(record$3.deliveryId);
+					else if (record$3.preparationState === "preparing") this.recover(record$3);
+				}
+			} catch (error) {
+				this.store.close();
+				throw error;
+			}
+		} catch (error) {
+			throw safeError(error);
+		}
+	}
+	get now() {
+		return this.options.now?.() ?? Date.now();
+	}
+	updated(record$3, changes) {
+		try {
+			return this.store.put({
+				...record$3,
+				...changes,
+				updatedAt: new Date(this.now).toISOString()
+			});
+		} catch (error) {
+			throw safeError(error);
+		}
+	}
+	caller(context) {
+		if (this.closing) throw new DeliveryError("integration_unavailable");
+		if (!trimmed(context.ownerId, 256)) throw new DeliveryError("not_found");
+		if (context.signal.aborted) throw new DeliveryError("not_ready");
+	}
+	owned(context, deliveryId) {
+		this.caller(context);
+		const record$3 = this.store.records.get(deliveryId);
+		if (!record$3 || record$3.ownerId !== context.ownerId || record$3.deletedAt) throw new DeliveryError("not_found");
+		return record$3;
+	}
+	replay(owner, request$2, fingerprint$1) {
+		const replay = this.requestIndex.get(key(owner, request$2));
+		if (!replay) return void 0;
+		if (replay.fingerprint !== fingerprint$1) throw new DeliveryError("idempotency_conflict");
+		const record$3 = this.store.records.get(replay.deliveryId);
+		if (!record$3 || record$3.deletedAt) throw new DeliveryError("not_found");
+		return record$3;
+	}
+	validatedPackage(record$3) {
+		if (!record$3.package || record$3.expiredAt || record$3.deletedAt) invalid();
+		const bytes = this.store.readPackage(record$3.deliveryId);
+		if (bytes.length !== record$3.package.bytes || sha256(bytes) !== record$3.package.sha256) invalid();
+		const value = JSON.parse(bytes.toString("utf8"));
+		if (!object$2(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== record$3.deliveryId || !object$2(value.source) || !sameBoundary(boundary(value.source), record$3.binding.source) || !sameBinding$1(verifiedBinding(value.binding), record$3.binding) || JSON.stringify(receiptIdentity(value.receiptAttempt)) !== JSON.stringify(record$3.receiptAttempt)) invalid();
+		return {
+			bytes,
+			carrier: validateCarrier(value.carrier, record$3.binding, record$3.deliveryId),
+			sha256: record$3.package.sha256
+		};
+	}
+	recover(record$3) {
+		let ready = false;
+		try {
+			this.validatedPackage(record$3);
+			ready = true;
+		} catch {}
+		return this.updated(record$3, ready ? {
+			preparationState: "prepared",
+			error: void 0
+		} : {
+			preparationState: "unknown",
+			error: "outcome_unknown"
+		});
+	}
+	reconcile(record$3) {
+		return record$3.preparationState === "preparing" && !this.active.has(record$3.deliveryId) ? this.recover(record$3) : record$3;
+	}
+	view(record$3) {
+		record$3 = this.reconcile(record$3);
+		let preview;
+		if (record$3.preparationState === "prepared" && !record$3.expiredAt) try {
+			const { carrier } = this.validatedPackage(record$3);
+			if (carrier.kind === "prepared") {
+				const { objective, disposition, omissions } = carrier.prepared.content;
+				preview = {
+					objective,
+					disposition,
+					omissionCount: omissions.length
+				};
+			}
+		} catch {
+			record$3 = this.updated(record$3, {
+				preparationState: "unknown",
+				error: "outcome_unknown"
+			});
+		}
+		const recovery = [];
+		if (record$3.preparationState === "prepared" && !record$3.expiredAt) recovery.push("export_package");
+		if (record$3.preparationState === "needs_input") recovery.push("supply_work_input");
+		if (record$3.expiredAt || [
+			"unknown",
+			"failed",
+			"cancelled",
+			"needs_input"
+		].includes(record$3.preparationState)) recovery.push("create_new_version");
+		return structuredClone({
+			deliveryId: record$3.deliveryId,
+			preparationState: record$3.preparationState,
+			source: record$3.binding.source,
+			binding: record$3.binding,
+			receiptAttempt: record$3.receiptAttempt,
+			createdAt: record$3.createdAt,
+			updatedAt: record$3.updatedAt,
+			pinned: record$3.pinned,
+			expired: !!record$3.expiredAt,
+			...preview ? { preview } : {},
+			...record$3.error ? { error: {
+				code: record$3.error,
+				message: new DeliveryError(record$3.error).message
+			} } : {},
+			recoveryActions: recovery
+		});
+	}
+	matchingOperation(owner, binding, input, fingerprint$1) {
+		let same;
+		let active;
+		let saved;
+		const records = [...this.store.records.values()].filter((record$3) => record$3.ownerId === owner && record$3.binding.targetId === binding.targetId && sameBoundary(record$3.binding.source, binding.source));
+		const superseded = new Set(records.map((record$3) => record$3.supersedesDeliveryId));
+		for (const record$3 of records) {
+			if (record$3.deletedAt || record$3.expiredAt || superseded.has(record$3.deliveryId)) continue;
+			if (record$3.preparationState === "unknown" || record$3.preparationState === "preparing") active ??= record$3;
+			if (!sameBinding$1(record$3.binding, binding)) continue;
+			if (record$3.preparationState === "prepared") saved = record$3;
+			if (record$3.requests.some((request$2) => request$2.fingerprint === fingerprint$1) && [
+				"prepared",
+				"preparing",
+				"needs_input",
+				"unknown"
+			].includes(record$3.preparationState)) same = record$3;
+		}
+		if (input.supersedesDeliveryId) {
+			const original = this.store.records.get(input.supersedesDeliveryId);
+			if (!original || original.deletedAt || original.ownerId !== owner) throw new DeliveryError("not_found");
+			if (original.binding.targetId !== binding.targetId || !sameBoundary(original.binding.source, binding.source)) throw new DeliveryError("binding_mismatch");
+			if (same && same.supersedesDeliveryId === original.deliveryId) return same;
+			if (original.preparationState === "preparing" || this.active.has(original.deliveryId) || active && active.deliveryId !== original.deliveryId) throw new DeliveryError("not_ready");
+			if (superseded.has(original.deliveryId)) throw new DeliveryError("idempotency_conflict");
+			return;
+		}
+		if (active?.preparationState === "unknown") {
+			if (same?.deliveryId === active.deliveryId) return active;
+			throw new DeliveryError("outcome_unknown");
+		}
+		if (active && same?.deliveryId !== active.deliveryId) throw new DeliveryError(sameBinding$1(active.binding, binding) ? "idempotency_conflict" : "binding_mismatch");
+		if (saved && !same) throw new DeliveryError("idempotency_conflict");
+		return same;
+	}
+	usage() {
+		let bytes = 0;
+		let count = 0;
+		for (const record$3 of this.store.records.values()) {
+			if (record$3.deletedAt || record$3.expiredAt) continue;
+			if (record$3.package) {
+				bytes += record$3.package.bytes;
+				count++;
+			} else if (record$3.preparationState === "preparing") {
+				bytes += Math.min(this.limits.maxBytes, MAX_PACKAGE_BYTES);
+				count++;
+			} else if (record$3.preparationState === "unknown") count++;
+		}
+		return {
+			bytes,
+			count
+		};
+	}
+	async prepare(context, input) {
+		this.caller(context);
+		const normalized = normalize(input);
+		const { requestId: requestId$1, preflightId, expectedRevision, source: source$1 } = normalized;
+		const fingerprint$1 = sha256(JSON.stringify({
+			...normalized,
+			requestId: void 0
+		}));
+		const owner = context.ownerId;
+		const replay = this.replay(owner, requestId$1, fingerprint$1);
+		if (replay) return this.view(replay);
+		const gate = this.options.preflightGate;
+		if (!gate) throw new DeliveryError("integration_unavailable");
+		let binding;
+		try {
+			binding = verifiedBinding(await gate.validateForPrepare(context, {
+				preflightId,
+				expectedRevision,
+				source: { ...source$1 }
+			}));
+		} catch (error) {
+			if (context.signal.aborted) throw new DeliveryError("not_ready");
+			throw safeError(error);
+		}
+		this.caller(context);
+		if (binding.preflightId !== preflightId || !sameBoundary(binding.source, source$1)) throw new DeliveryError("binding_mismatch");
+		if (binding.revision !== expectedRevision) throw new DeliveryError("stale_preflight");
+		const concurrentReplay = this.replay(owner, requestId$1, fingerprint$1);
+		if (concurrentReplay) return this.view(concurrentReplay);
+		const same = this.matchingOperation(owner, binding, normalized, fingerprint$1);
+		if (same) {
+			if (same.requests.length >= MAX_REQUEST_KEYS) throw new DeliveryError("capacity_exceeded");
+			const updated = this.updated(same, { requests: [...same.requests, {
+				id: requestId$1,
+				fingerprint: fingerprint$1
+			}] });
+			this.requestIndex.set(key(owner, requestId$1), {
+				deliveryId: same.deliveryId,
+				fingerprint: fingerprint$1
+			});
+			return this.view(updated);
+		}
+		const { bytes, count } = this.usage();
+		if (count >= this.limits.maxDeliveries || bytes + Math.min(this.limits.maxBytes, MAX_PACKAGE_BYTES) > this.limits.maxBytes || this.store.records.size >= MAX_METADATA_RECORDS) throw new DeliveryError("capacity_exceeded");
+		const deliveryId = randomUUID();
+		const receiptAttemptId = randomUUID();
+		const record$3 = this.updated({
+			schema: DELIVERY_SCHEMA,
+			deliveryId,
+			ownerId: owner,
+			requests: [{
+				id: requestId$1,
+				fingerprint: fingerprint$1
+			}],
+			binding,
+			receiptAttempt: {
+				receiptAttemptId,
+				sourceType: "content",
+				sourceId: "dsh-ack:" + receiptAttemptId
+			},
+			preparationState: "preparing",
+			dispatched: false,
+			pinned: false,
+			createdAt: new Date(this.now).toISOString(),
+			updatedAt: "",
+			supersedesDeliveryId: normalized.supersedesDeliveryId
+		}, {});
+		this.requestIndex.set(key(owner, requestId$1), {
+			deliveryId,
+			fingerprint: fingerprint$1
+		});
+		const operation = { controller: new AbortController() };
+		this.active.set(deliveryId, operation);
+		const signal = combineSignals([context.signal, operation.controller.signal]);
+		operation.done = this.run({
+			ownerId: owner,
+			signal
+		}, record$3, normalized);
+		return operation.done;
+	}
+	async run(context, initial, input) {
+		const id = initial.deliveryId;
+		const latest = () => this.store.records.get(id);
+		const { signal } = context;
+		let final;
+		try {
+			const carrier = await prepareCarrier(context, initial.binding, input, id, this.options.resolveConnection, this.options.readBoundary, () => {
+				signal.throwIfAborted();
+				if (!latest().dispatched) this.updated(latest(), { dispatched: true });
+			});
+			signal.throwIfAborted();
+			if (!carrier) final = this.updated(latest(), { preparationState: "needs_input" });
+			else {
+				const bytes = Buffer.from(JSON.stringify(packageData(initial, carrier)));
+				if (bytes.length > this.limits.maxBytes || bytes.length > MAX_PACKAGE_BYTES) throw new DeliveryError("capacity_exceeded");
+				const staged = this.updated(latest(), { package: {
+					bytes: bytes.length,
+					sha256: sha256(bytes)
+				} });
+				this.store.writePackage(id, bytes);
+				final = this.updated(staged, { preparationState: "prepared" });
+			}
+		} catch (error) {
+			const record$3 = latest();
+			const known = knownPreparationFailure(error);
+			if (record$3.preparationState !== "preparing") final = record$3;
+			else if (record$3.package) final = this.recover(record$3);
+			else {
+				let state;
+				let code;
+				if (record$3.dispatched && !known) {
+					state = "unknown";
+					code = error instanceof DeliveryError && error.code === "capacity_exceeded" ? error.code : "outcome_unknown";
+				} else if (signal.aborted) state = "cancelled";
+				else {
+					state = "failed";
+					code = (known ?? safeError(error)).code;
+				}
+				final = this.updated(record$3, {
+					preparationState: state,
+					error: code
+				});
+			}
+		} finally {
+			this.active.delete(id);
+		}
+		return this.view(final);
+	}
+	async get(context, deliveryId) {
+		return this.view(this.owned(context, deliveryId));
+	}
+	async list(context) {
+		this.caller(context);
+		return [...this.store.records.values()].filter((record$3) => record$3.ownerId === context.ownerId && !record$3.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((record$3) => this.view(record$3));
+	}
+	saved(record$3) {
+		record$3 = this.reconcile(record$3);
+		if (record$3.expiredAt) throw new DeliveryError("not_found");
+		if (record$3.preparationState !== "prepared") throw new DeliveryError(record$3.preparationState === "unknown" ? "outcome_unknown" : "not_ready");
+		try {
+			return this.validatedPackage(record$3);
+		} catch {
+			this.updated(record$3, {
+				preparationState: "unknown",
+				error: "outcome_unknown"
+			});
+			throw new DeliveryError("outcome_unknown");
+		}
+	}
+	launchBundle(record$3) {
+		const { carrier, sha256: sha256$1 } = this.saved(record$3);
+		return structuredClone({
+			deliveryId: record$3.deliveryId,
+			source: record$3.binding.source,
+			binding: record$3.binding,
+			packagePath: this.store.packagePath(record$3.deliveryId),
+			packageSha256: sha256$1,
+			handoffSelection: carrier.kind === "prepared" ? {
+				kind: "prepared",
+				digest: carrier.digest
+			} : {
+				kind: "revision",
+				revision: {
+					scope_id: record$3.binding.scopeId,
+					...carrier.revision
+				}
+			},
+			receiptAttempt: record$3.receiptAttempt
+		});
+	}
+	holdPath(deliveryId) {
+		this.launchReaders.set(deliveryId, (this.launchReaders.get(deliveryId) ?? 0) + 1);
+		return () => {
+			const remaining = this.launchReaders.get(deliveryId) - 1;
+			if (remaining) this.launchReaders.set(deliveryId, remaining);
+			else this.launchReaders.delete(deliveryId);
+		};
+	}
+	async getForLaunch(context, deliveryId) {
+		const bundle = this.launchBundle(this.owned(context, deliveryId));
+		queueMicrotask(this.holdPath(deliveryId));
+		return bundle;
+	}
+	/** Use when a later asynchronous step needs the path to remain on disk. */
+	async withLaunchBundle(context, deliveryId, use) {
+		const bundle = this.launchBundle(this.owned(context, deliveryId));
+		const release = this.holdPath(deliveryId);
+		try {
+			return await use(bundle);
+		} finally {
+			release();
+		}
+	}
+	async exportPackage(context, deliveryId) {
+		const { bytes, sha256: sha256$1 } = this.saved(this.owned(context, deliveryId));
+		return {
+			bytes,
+			packageSha256: sha256$1,
+			mediaType: "application/json",
+			filename: deliveryId + ".json"
+		};
+	}
+	async cancelPreparation(context, deliveryId) {
+		let record$3 = this.owned(context, deliveryId);
+		if (record$3.preparationState === "preparing") {
+			if (record$3.package) record$3 = this.recover(record$3);
+			else record$3 = this.updated(record$3, record$3.dispatched ? {
+				preparationState: "unknown",
+				error: "outcome_unknown"
+			} : { preparationState: "cancelled" });
+			this.active.get(deliveryId)?.controller.abort();
+		} else if (record$3.preparationState === "needs_input") record$3 = this.updated(record$3, { preparationState: "cancelled" });
+		return this.view(record$3);
+	}
+	async pin(context, deliveryId, pinned) {
+		const record$3 = this.owned(context, deliveryId);
+		if (record$3.expiredAt) throw new DeliveryError("not_found");
+		if (typeof pinned !== "boolean") invalid();
+		return this.view(this.updated(record$3, { pinned }));
+	}
+	async delete(context, deliveryId) {
+		const record$3 = this.owned(context, deliveryId);
+		if (this.active.has(deliveryId) || this.launchReaders.has(deliveryId)) throw new DeliveryError("not_ready");
+		this.updated(record$3, {
+			deletedAt: new Date(this.now).toISOString(),
+			package: void 0
+		});
+		try {
+			this.store.removePackage(deliveryId);
+		} catch (error) {
+			throw safeError(error);
+		}
+	}
+	/** Only the future exact ACK verifier may supply confirmedAt. No ACK state is written here. */
+	async prune(context, confirmedAt) {
+		this.caller(context);
+		for (const original of [...this.store.records.values()]) {
+			this.caller(context);
+			if (original.ownerId !== context.ownerId || original.pinned && !original.deletedAt || this.active.has(original.deliveryId) || this.launchReaders.has(original.deliveryId)) continue;
+			const id = original.deliveryId;
+			const age = this.now - Date.parse(original.deletedAt ?? original.expiredAt ?? original.updatedAt);
+			if ((original.deletedAt || original.expiredAt || [
+				"failed",
+				"cancelled",
+				"needs_input"
+			].includes(original.preparationState)) && age >= THIRTY_DAYS) try {
+				this.store.forget(id);
+				for (const request$2 of original.requests) this.requestIndex.delete(key(original.ownerId, request$2.id));
+			} catch (error) {
+				throw safeError(error);
+			}
+			else if (confirmedAt && original.preparationState === "prepared" && !original.expiredAt && !original.deletedAt) {
+				let at;
+				try {
+					at = await this.withLaunchBundle(context, id, confirmedAt);
+				} catch (error) {
+					if (error instanceof DeliveryError && error.code === "outcome_unknown") continue;
+					throw safeError(error);
+				}
+				this.caller(context);
+				if (this.store.records.get(id) !== original || this.launchReaders.has(id) || !Number.isSafeInteger(at) || at === void 0 || at < Date.parse(original.createdAt) || this.now - at < SEVEN_DAYS) continue;
+				this.updated(original, {
+					expiredAt: new Date(at).toISOString(),
+					package: void 0
+				});
+				try {
+					this.store.removePackage(id);
+				} catch (error) {
+					throw safeError(error);
+				}
+			}
+		}
+	}
+	/** Dispose on Host shutdown. Requests that may have run recover as unknown. */
+	close() {
+		if (this.launchReaders.size) return Promise.reject(new DeliveryError("not_ready"));
+		return this.closing ??= (async () => {
+			for (const operation of this.active.values()) operation.controller.abort();
+			await Promise.allSettled([...this.active.values()].map((operation) => operation.done));
+			this.store.close();
+		})();
+	}
+};
+
+//#endregion
 //#region src/handoff/errors.ts
 const ERRORS = {
 	not_found: [404, "The requested record is unavailable."],
@@ -5010,7 +6590,7 @@ var HandoffError = class extends Error {
 	}
 };
 function handoffError(error) {
-	return error instanceof HandoffError ? error : new HandoffError("integration_unavailable");
+	return error instanceof HandoffError ? error : new HandoffError(error instanceof DeliveryError ? error.code : "integration_unavailable");
 }
 
 //#endregion
@@ -5040,8 +6620,8 @@ var HandoffRecords = class {
 		this.maxRecords = maxRecords;
 		this.maxRecordBytes = maxRecordBytes;
 	}
-	read(key) {
-		const path = this.path(key);
+	read(key$1) {
+		const path = this.path(key$1);
 		let fd;
 		try {
 			fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -5059,8 +6639,8 @@ var HandoffRecords = class {
 			closeSync(fd);
 		}
 	}
-	save(key, value, create = false) {
-		const path = this.path(key);
+	save(key$1, value, create = false) {
+		const path = this.path(key$1);
 		const body = JSON.stringify(value);
 		if (Buffer.byteLength(body) > this.maxRecordBytes) throw new HandoffError("capacity_exceeded");
 		if (create) {
@@ -5096,10 +6676,10 @@ var HandoffRecords = class {
 			}
 		}
 	}
-	path(key) {
-		if (!/^[0-9a-f]{64}$/.test(key)) throw new HandoffError("not_found");
+	path(key$1) {
+		if (!/^[0-9a-f]{64}$/.test(key$1)) throw new HandoffError("not_found");
 		privateDirectory(this.root);
-		return join(this.root, `${key}.json`);
+		return join(this.root, `${key$1}.json`);
 	}
 };
 
@@ -5423,13 +7003,13 @@ var PreflightService = class {
 		if (check$1.state === "needs_user_action") return check$1;
 		if (check$1.state === "unknown") return { state: "unknown" };
 		if (check$1.state !== record$3.integration || !check$1.repairable) throw new HandoffError("stale_preflight");
-		const key = target.configurationKey;
-		let pending = this.installs.get(key);
+		const key$1 = target.configurationKey;
+		let pending = this.installs.get(key$1);
 		if (!pending) {
 			pending = this.install(adapter, target, record$3);
-			this.installs.set(key, pending);
+			this.installs.set(key$1, pending);
 			const clear = () => {
-				if (this.installs.get(key) === pending) this.installs.delete(key);
+				if (this.installs.get(key$1) === pending) this.installs.delete(key$1);
 			};
 			pending.then(clear, clear);
 		}
@@ -5533,6 +7113,124 @@ var PreflightService = class {
 };
 
 //#endregion
+//#region src/handoff/targets.ts
+const NATIVE_TARGET_IDS = [
+	"codex-desktop",
+	"claude-desktop",
+	"claude-code-cli"
+];
+const TARGETS = [
+	[
+		"codex-desktop",
+		"Codex Desktop",
+		"desktop"
+	],
+	[
+		"claude-desktop",
+		"Claude Desktop (Code)",
+		"desktop"
+	],
+	[
+		"claude-code-cli",
+		"Claude Code CLI",
+		"cli"
+	],
+	[
+		"dsh",
+		"DeepSeek Harness",
+		"host"
+	],
+	[
+		"minimax-code",
+		"MiniMax Code",
+		"host"
+	],
+	[
+		"zcode",
+		"ZCode",
+		"host"
+	],
+	[
+		"kimi-code",
+		"Kimi Code",
+		"host"
+	],
+	[
+		"hermes",
+		"Hermes Agent",
+		"host"
+	],
+	[
+		"pi",
+		"Pi Coding Agent",
+		"host"
+	],
+	[
+		"openclaw",
+		"OpenClaw",
+		"host"
+	],
+	[
+		"opencode",
+		"OpenCode",
+		"host"
+	],
+	[
+		"workbuddy",
+		"WorkBuddy",
+		"host"
+	],
+	[
+		"bub",
+		"Bub",
+		"evaluation"
+	],
+	[
+		"pydantic-ai",
+		"Pydantic AI",
+		"framework"
+	],
+	[
+		"langchain",
+		"LangChain",
+		"framework"
+	],
+	[
+		"langgraph",
+		"LangGraph",
+		"framework"
+	]
+];
+var TargetCatalog = class {
+	adapters = /* @__PURE__ */ new Map();
+	constructor(adapters = [], platform = process.platform) {
+		for (const adapter of adapters) {
+			if (!NATIVE_TARGET_IDS.includes(adapter.id) || this.adapters.has(adapter.id)) throw new Error("Invalid or duplicate handoff adapter");
+			if (adapter.qualification.platform === platform) this.adapters.set(adapter.id, adapter);
+		}
+	}
+	list() {
+		return TARGETS.map(([targetId, name$1, kind]) => {
+			const adapter = this.adapters.get(targetId);
+			return {
+				targetId,
+				name: name$1,
+				kind,
+				qualification: adapter?.qualification ?? null,
+				availability: adapter ? "requires_preflight" : "unavailable",
+				action: adapter ? "preflight" : kind === "framework" ? "developer_setup" : kind === "evaluation" ? "evaluation_only" : "manual_setup_or_export"
+			};
+		});
+	}
+	require(targetId) {
+		if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError("payload_invalid");
+		const adapter = this.adapters.get(targetId);
+		if (!adapter) throw new HandoffError("integration_unavailable");
+		return adapter;
+	}
+};
+
+//#endregion
 //#region src/handoff/launch.ts
 const SCHEMA = "powercontext.dsh-launch-attempts.v1";
 const MAX_ATTEMPTS = 64;
@@ -5578,12 +7276,12 @@ var LaunchService = class {
 		await Promise.allSettled(Array.from(this.pending.values(), (item) => item.done));
 	}
 	list(context, deliveryId, sessionId) {
-		const key = keyFor(context.ownerId, deliveryId);
-		return this.read(context, key, sessionId)?.attempts.map((attempt) => this.recover(key, attempt)) ?? [];
+		const key$1 = keyFor(context.ownerId, deliveryId);
+		return this.read(context, key$1, sessionId)?.attempts.map((attempt) => this.recover(key$1, attempt)) ?? [];
 	}
 	async cancelPending(context, deliveryId, sessionId) {
-		const key = keyFor(context.ownerId, deliveryId);
-		const active = this.pending.get(key);
+		const key$1 = keyFor(context.ownerId, deliveryId);
+		const active = this.pending.get(key$1);
 		if (active?.input.sessionId === sessionId && !active.dispatched) {
 			active.controller.abort();
 			await active.done.catch(() => void 0);
@@ -5592,15 +7290,16 @@ var LaunchService = class {
 	}
 	async launch(context, deliveryId, input) {
 		this.options.requireLocal();
-		const key = keyFor(context.ownerId, deliveryId);
-		const record$3 = this.read(context, key, input.sessionId);
+		if (!NATIVE_TARGET_IDS.includes(input.targetId)) throw new HandoffError("payload_invalid");
+		const key$1 = keyFor(context.ownerId, deliveryId);
+		const record$3 = this.read(context, key$1, input.sessionId);
 		if (record$3 && record$3.targetId !== input.targetId) throw new HandoffError("binding_mismatch");
 		const existing = record$3?.attempts.find((attempt) => attempt.requestId === input.requestId);
 		if (existing) {
 			if (existing.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
-			return this.recover(key, existing);
+			return this.recover(key$1, existing);
 		}
-		const active = this.pending.get(key);
+		const active = this.pending.get(key$1);
 		if (active) {
 			if (active.input.sessionId !== input.sessionId) throw new HandoffError("not_found");
 			if (active.input.requestId !== input.requestId || active.input.targetId !== input.targetId || active.input.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
@@ -5614,14 +7313,14 @@ var LaunchService = class {
 			controller: new AbortController(),
 			input,
 			dispatched: false,
-			done: Promise.resolve().then(() => this.run(context, key, deliveryId, record$3, pending)).finally(() => {
-				this.pending.delete(key);
+			done: Promise.resolve().then(() => this.run(context, key$1, deliveryId, record$3, pending)).finally(() => {
+				this.pending.delete(key$1);
 			})
 		};
-		this.pending.set(key, pending);
+		this.pending.set(key$1, pending);
 		return pending.done;
 	}
-	async run(context, key, deliveryId, previous, pending) {
+	async run(context, key$1, deliveryId, previous, pending) {
 		const { input } = pending;
 		const deadline = AbortSignal.timeout(CHECK_TIMEOUT_MS);
 		const signal = AbortSignal.any([
@@ -5671,7 +7370,7 @@ var LaunchService = class {
 			signal.throwIfAborted();
 			this.options.requireLocal();
 			record$3.attempts.push(attempt);
-			this.options.records.save(key, record$3, previous === void 0);
+			this.options.records.save(key$1, record$3, previous === void 0);
 			pending.dispatched = true;
 			let state;
 			try {
@@ -5685,7 +7384,7 @@ var LaunchService = class {
 				...completed
 			};
 			try {
-				this.options.records.save(key, record$3);
+				this.options.records.save(key$1, record$3);
 			} catch {
 				throw new HandoffError("outcome_unknown");
 			}
@@ -5697,17 +7396,17 @@ var LaunchService = class {
 				...attempt,
 				...cancelled
 			});
-			this.options.records.save(key, record$3, previous === void 0);
+			this.options.records.save(key$1, record$3, previous === void 0);
 			return publicAttempt(cancelled);
 		}
 	}
-	read(context, key, sessionId) {
-		const record$3 = this.options.records.read(key);
+	read(context, key$1, sessionId) {
+		const record$3 = this.options.records.read(key$1);
 		if (record$3 && (record$3.ownerId !== context.ownerId || record$3.sessionId !== sessionId)) throw new HandoffError("not_found");
 		return record$3;
 	}
-	recover(key, attempt) {
-		if (attempt.state === "requested" && !this.pending.get(key)?.dispatched) return publicAttempt({
+	recover(key$1, attempt) {
+		if (attempt.state === "requested" && !this.pending.get(key$1)?.dispatched) return publicAttempt({
 			...attempt,
 			state: "unknown",
 			code: "outcome_unknown"
@@ -5780,6 +7479,49 @@ const planNativeLaunch = (target, cwd, intent) => {
 };
 
 //#endregion
+//#region src/handoff/assembly.ts
+/** The only boundary that knows both implementations and their independent storage roots. */
+function createHandoffServices({ root, authority, catalog, client, signal, plan }) {
+	const preflight = new PreflightService({
+		authority,
+		catalog,
+		signal,
+		records: preflightRecords(join(root, "preflights"))
+	});
+	const delivery = new LocalDeliveryService({
+		directory: join(root, "deliveries"),
+		preflightGate: preflight,
+		resolveConnection: async (context, binding) => {
+			authority.requireLocal();
+			const live = await authority.sourceConnection(context, binding.source);
+			if (live.serverIdentity !== binding.serverIdentity || live.scopeId !== binding.scopeId || live.connectionRef !== binding.connectionRef || live.connectionGeneration !== binding.connectionGeneration) throw new DeliveryError("binding_mismatch");
+			return { client };
+		}
+	});
+	const launch = new LaunchService({
+		preflight,
+		delivery,
+		requireLocal: () => authority.requireLocal(),
+		plan: plan ?? planNativeLaunch,
+		records: launchRecords(join(root, "launch-attempts")),
+		signal
+	});
+	return {
+		preflight,
+		delivery,
+		launch,
+		async close() {
+			const [, , shutdown] = await Promise.allSettled([
+				preflight.drain(),
+				launch.drain(),
+				delivery.close()
+			]);
+			if (shutdown.status === "rejected") throw shutdown.reason;
+		}
+	};
+}
+
+//#endregion
 //#region src/handoff/routes.ts
 const MAX_CONTROL_BYTES = 64 * 1024;
 const MAX_EXPORT_BYTES = 2 * 1024 * 1024;
@@ -5797,7 +7539,7 @@ function fail() {
 	throw new HandoffError("payload_invalid");
 }
 function object$1(value, allowed) {
-	if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).every((key) => allowed.includes(key))) return fail();
+	if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).every((key$1) => allowed.includes(key$1))) return fail();
 	return value;
 }
 function token(value) {
@@ -5962,19 +7704,17 @@ function createHandoffHandler(options) {
 					confirmOriginal: body.confirmOriginal === true
 				}));
 			}
-			const services = options.services();
-			const delivery = requireService$1(services.delivery);
-			const aggregate = (item$1) => {
+			const aggregate = (item$1, services$1) => {
 				let preflight = null;
 				try {
-					preflight = services.preflight?.get(context, item$1.binding.preflightId, item$1.source.sessionId) ?? null;
+					preflight = services$1.preflight?.get(context, item$1.binding.preflightId, item$1.source.sessionId) ?? null;
 				} catch (error) {
 					if (handoffError(error).code !== "not_found") throw error;
 				}
 				return {
 					preflight,
 					delivery: item$1,
-					launchAttempts: services.launch?.list(context, item$1.deliveryId, item$1.source.sessionId) ?? []
+					launchAttempts: services$1.launch?.list(context, item$1.deliveryId, item$1.source.sessionId) ?? []
 				};
 			};
 			if (!id) {
@@ -5983,16 +7723,21 @@ function createHandoffHandler(options) {
 					"preflightId",
 					"expectedRevision",
 					"source",
-					"workInput"
+					"workInput",
+					"revision",
+					"supersedesDeliveryId"
 				]);
 				const input = {
 					requestId: token(body.requestId),
 					preflightId: token(body.preflightId),
 					expectedRevision: int(body.expectedRevision, 1),
 					source: source(body.source),
-					...body.workInput === void 0 ? {} : { workInput: body.workInput }
+					...body.workInput === void 0 ? {} : { workInput: body.workInput },
+					...body.revision === void 0 ? {} : { revision: body.revision },
+					...body.supersedesDeliveryId === void 0 ? {} : { supersedesDeliveryId: token(body.supersedesDeliveryId) }
 				};
-				return json(response, 200, aggregate(await delivery.prepare(context, input)));
+				const services$1 = options.services();
+				return json(response, 200, aggregate(await requireService$1(services$1.delivery).prepare(context, input), services$1));
 			}
 			if (action === "launch") {
 				const body = object$1(value, [
@@ -6001,18 +7746,23 @@ function createHandoffHandler(options) {
 					"targetId",
 					"retryOf"
 				]);
-				return json(response, 200, await requireService$1(services.launch).launch(context, id, {
+				const input = {
 					sessionId: token(body.sessionId),
 					requestId: token(body.requestId),
 					targetId: token(body.targetId),
 					...body.retryOf === void 0 ? {} : { retryOf: token(body.retryOf) }
-				}));
+				};
+				return json(response, 200, await requireService$1(options.services().launch).launch(context, id, input));
 			}
 			const sessionId = method === "GET" ? querySession() : token(object$1(value, ["sessionId"]).sessionId);
+			const services = options.services();
+			const delivery = requireService$1(services.delivery);
 			const item = sameSession(await delivery.get(context, id), sessionId);
 			if (action === "cancel") {
-				const [prepared] = await Promise.all([delivery.cancelPreparation(context, id), services.launch?.cancelPending(context, id, sessionId)]);
-				return json(response, 200, aggregate(prepared));
+				const [prepared, launch] = await Promise.allSettled([Promise.resolve().then(() => delivery.cancelPreparation(context, id)), Promise.resolve().then(() => services.launch?.cancelPending(context, id, sessionId))]);
+				if (prepared.status === "rejected") throw prepared.reason;
+				if (launch.status === "rejected") throw launch.reason;
+				return json(response, 200, aggregate(prepared.value, services));
 			}
 			if (action === "export") {
 				const { bytes } = await delivery.exportPackage(context, id);
@@ -6023,7 +7773,7 @@ function createHandoffHandler(options) {
 				response.end(bytes);
 				return;
 			}
-			return json(response, 200, aggregate(item));
+			return json(response, 200, aggregate(item, services));
 		} catch (error) {
 			const safe = signal.aborted ? new HandoffError("cancelled") : handoffError(error);
 			json(response, safe.status, {
@@ -6035,124 +7785,6 @@ function createHandoffHandler(options) {
 		}
 	};
 }
-
-//#endregion
-//#region src/handoff/targets.ts
-const NATIVE_TARGET_IDS = [
-	"codex-desktop",
-	"claude-desktop",
-	"claude-code-cli"
-];
-const TARGETS = [
-	[
-		"codex-desktop",
-		"Codex Desktop",
-		"desktop"
-	],
-	[
-		"claude-desktop",
-		"Claude Desktop (Code)",
-		"desktop"
-	],
-	[
-		"claude-code-cli",
-		"Claude Code CLI",
-		"cli"
-	],
-	[
-		"dsh",
-		"DeepSeek Harness",
-		"host"
-	],
-	[
-		"minimax-code",
-		"MiniMax Code",
-		"host"
-	],
-	[
-		"zcode",
-		"ZCode",
-		"host"
-	],
-	[
-		"kimi-code",
-		"Kimi Code",
-		"host"
-	],
-	[
-		"hermes",
-		"Hermes Agent",
-		"host"
-	],
-	[
-		"pi",
-		"Pi Coding Agent",
-		"host"
-	],
-	[
-		"openclaw",
-		"OpenClaw",
-		"host"
-	],
-	[
-		"opencode",
-		"OpenCode",
-		"host"
-	],
-	[
-		"workbuddy",
-		"WorkBuddy",
-		"host"
-	],
-	[
-		"bub",
-		"Bub",
-		"evaluation"
-	],
-	[
-		"pydantic-ai",
-		"Pydantic AI",
-		"framework"
-	],
-	[
-		"langchain",
-		"LangChain",
-		"framework"
-	],
-	[
-		"langgraph",
-		"LangGraph",
-		"framework"
-	]
-];
-var TargetCatalog = class {
-	adapters = /* @__PURE__ */ new Map();
-	constructor(adapters = [], platform = process.platform) {
-		for (const adapter of adapters) {
-			if (!NATIVE_TARGET_IDS.includes(adapter.id) || this.adapters.has(adapter.id)) throw new Error("Invalid or duplicate handoff adapter");
-			if (adapter.qualification.platform === platform) this.adapters.set(adapter.id, adapter);
-		}
-	}
-	list() {
-		return TARGETS.map(([targetId, name$1, kind]) => {
-			const adapter = this.adapters.get(targetId);
-			return {
-				targetId,
-				name: name$1,
-				kind,
-				qualification: adapter?.qualification ?? null,
-				availability: adapter ? "requires_preflight" : "unavailable",
-				action: adapter ? "preflight" : kind === "framework" ? "developer_setup" : kind === "evaluation" ? "evaluation_only" : "manual_setup_or_export"
-			};
-		});
-	}
-	require(targetId) {
-		if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError("payload_invalid");
-		const adapter = this.adapters.get(targetId);
-		if (!adapter) throw new HandoffError("integration_unavailable");
-		return adapter;
-	}
-};
 
 //#endregion
 //#region src/handoff/host.ts
@@ -6226,10 +7858,10 @@ function connectionKey(root) {
 		const info = fstatSync(fd);
 		if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 63) !== 0 || info.size !== 0 && info.size !== 32) throw new HandoffError("integration_unavailable");
 		if (info.size === 32) return readFileSync(fd);
-		const key = randomBytes(32);
-		writeFileSync(fd, key);
+		const key$1 = randomBytes(32);
+		writeFileSync(fd, key$1);
 		fsyncSync(fd);
-		return key;
+		return key$1;
 	} finally {
 		closeSync(fd);
 	}
@@ -6242,7 +7874,7 @@ function identifier(value) {
 	if (typeof value !== "string" || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw new HandoffError("integration_unavailable");
 	return value;
 }
-function sourceConnection(host, runtime, key) {
+function sourceConnection(host, runtime, key$1) {
 	const config = runtime.config;
 	const connectionRef = keyFor(config.baseUrl);
 	return async (context, source$1) => {
@@ -6265,7 +7897,7 @@ function sourceConnection(host, runtime, key) {
 		if (auth !== "disabled" && auth !== "authenticated" || access !== "disabled" && access !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access === "enforced" && auth !== "authenticated" || object(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
 		const sourceTypes = object(capabilities$1.value).source_types;
 		if (!Array.isArray(sourceTypes) || !sourceTypes.includes("content")) throw new HandoffError("integration_unavailable");
-		const generation = createHmac("sha256", key).update(JSON.stringify([
+		const generation = createHmac("sha256", key$1).update(JSON.stringify([
 			connectionRef,
 			config.authorization,
 			config.allowInsecureHttp,
@@ -6285,14 +7917,14 @@ function sourceConnection(host, runtime, key) {
 	};
 }
 /** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
-function registerHandoffBridge(ctx, runtime, assembly = {}) {
+function registerHandoffBridge(ctx, runtime, adapters = []) {
 	if (typeof ctx.inject !== "function") return;
 	ctx.inject(["webServer", "connection"], (host) => {
 		const ui = host;
 		const facts = localDeploymentFacts(ui, runtime.config.ownerLocal);
 		const profile = ui.get("profileContext");
 		const lifetime = new AbortController();
-		const catalog = new TargetCatalog(assembly.adapters);
+		const catalog = new TargetCatalog(adapters);
 		const requireLocal = () => {
 			if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) throw new HandoffError("deployment_unsupported");
 		};
@@ -6311,42 +7943,24 @@ function registerHandoffBridge(ctx, runtime, assembly = {}) {
 			},
 			services: () => {
 				if (services !== void 0) return services;
-				if (!assembly.delivery && !assembly.adapters?.length) return {};
 				if (!profile || !isAbsolute(profile.home)) throw new HandoffError("integration_unavailable");
 				const ownerRoot = join(homedir(), ".powercontext-dsh-handoff");
 				const unlock = lockWriter(ownerRoot);
 				try {
 					const root = join(ownerRoot, keyFor(profile.home, profile.name));
 					privateDirectory(root);
-					const preflight = new PreflightService({
+					services = createHandoffServices({
+						root,
 						catalog,
 						signal: lifetime.signal,
-						records: preflightRecords(join(root, "preflights")),
+						client: runtime.client,
 						authority: {
 							requireLocal,
 							sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
 							verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
 						}
 					});
-					const delivery = assembly.delivery?.({
-						gate: preflight,
-						root,
-						signal: lifetime.signal
-					});
-					const launch = delivery && new LaunchService({
-						preflight,
-						delivery,
-						requireLocal,
-						plan: planNativeLaunch,
-						records: launchRecords(join(root, "launch-attempts")),
-						signal: lifetime.signal
-					});
 					release = unlock;
-					services = {
-						preflight,
-						delivery,
-						launch
-					};
 					return services;
 				} catch (error) {
 					unlock();
@@ -6361,8 +7975,11 @@ function registerHandoffBridge(ctx, runtime, assembly = {}) {
 		}), `powercontext: ${path}`);
 		host.effect(() => async () => {
 			lifetime.abort();
-			await Promise.allSettled([services?.preflight?.drain(), services?.launch?.drain()]);
-			release?.();
+			try {
+				await services?.close();
+			} finally {
+				release?.();
+			}
 		}, "powercontext: handoff bridge disposal");
 	});
 }
@@ -6421,12 +8038,12 @@ function createSessionScopeResolver(runtime) {
 	const cache = /* @__PURE__ */ new Map();
 	const keyFor$1 = (sessionId, cwd) => sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ""}`;
 	const resolve$1 = async (request$2, refresh) => {
-		const key = keyFor$1(request$2.sessionId, request$2.cwd);
-		const cached = cache.get(key);
+		const key$1 = keyFor$1(request$2.sessionId, request$2.cwd);
+		const cached = cache.get(key$1);
 		if (!refresh && cached && cached.cwd === request$2.cwd) return cached.scopeId;
-		cache.delete(key);
+		cache.delete(key$1);
 		const scopeId = await runtime.resolveScope(request$2.cwd, request$2.signal);
-		if (scopeId) cache.set(key, {
+		if (scopeId) cache.set(key$1, {
 			cwd: request$2.cwd,
 			scopeId
 		});

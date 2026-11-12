@@ -24,11 +24,9 @@ import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PluginRuntime } from '../invoke.ts'
 import { isLoopbackAddress, localDeploymentFacts, resolveDeployment } from '../status-bridge.ts'
-import type { CallContext, DeliveryService, PreflightGate, SourceBoundary } from './contracts.ts'
+import { createHandoffServices } from './assembly.ts'
+import type { CallContext, SourceBoundary } from './contracts.ts'
 import { HandoffError } from './errors.ts'
-import { LaunchService, launchRecords } from './launch.ts'
-import { planNativeLaunch } from './native-launch.ts'
-import { PreflightService, preflightRecords } from './preflight.ts'
 import { keyFor, privateDirectory } from './records.ts'
 import { createHandoffHandler } from './routes.ts'
 import { TargetCatalog, type TargetAdapter } from './targets.ts'
@@ -205,26 +203,21 @@ function sourceConnection(host: Host, runtime: PluginRuntime, key: Buffer) {
   }
 }
 
-interface Assembly {
-  adapters?: readonly TargetAdapter[]
-  delivery?: (input: { gate: PreflightGate; root: string; signal: AbortSignal }) => DeliveryService
-}
-
 /** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
-export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, assembly: Assembly = {}): void {
+export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adapters: readonly TargetAdapter[] = []): void {
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['webServer', 'connection'], host => {
     const ui = host as Host
     const facts = localDeploymentFacts(ui, runtime.config.ownerLocal)
     const profile = ui.get('profileContext') as Profile | undefined
     const lifetime = new AbortController()
-    const catalog = new TargetCatalog(assembly.adapters)
+    const catalog = new TargetCatalog(adapters)
     const requireLocal = () => {
       if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) {
         throw new HandoffError('deployment_unsupported')
       }
     }
-    let services: ReturnType<Parameters<typeof createHandoffHandler>[0]['services']> | undefined
+    let services: ReturnType<typeof createHandoffServices> | undefined
     let release: (() => void) | undefined
     const handler = createHandoffHandler({
       facts, requireLocal, catalog, signal: lifetime.signal,
@@ -236,23 +229,18 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, asse
       },
       services: () => {
         if (services !== undefined) return services
-        if (!assembly.delivery && !assembly.adapters?.length) return {}
         if (!profile || !isAbsolute(profile.home)) throw new HandoffError('integration_unavailable')
         const ownerRoot = join(homedir(), '.powercontext-dsh-handoff')
         const unlock = lockWriter(ownerRoot)
         try {
           const root = join(ownerRoot, keyFor(profile.home, profile.name))
           privateDirectory(root)
-          const preflight = new PreflightService({
-            catalog, signal: lifetime.signal, records: preflightRecords(join(root, 'preflights')),
+          services = createHandoffServices({
+            root, catalog, signal: lifetime.signal, client: runtime.client,
             authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
               verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
           })
-          const delivery = assembly.delivery?.({ gate: preflight, root, signal: lifetime.signal })
-          const launch = delivery && new LaunchService({ preflight, delivery, requireLocal, plan: planNativeLaunch,
-            records: launchRecords(join(root, 'launch-attempts')), signal: lifetime.signal })
           release = unlock
-          services = { preflight, delivery, launch }
           return services
         } catch (error) { unlock(); throw error }
       },
@@ -264,8 +252,7 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, asse
     }
     host.effect(() => async () => {
       lifetime.abort()
-      await Promise.allSettled([services?.preflight?.drain(), services?.launch?.drain()])
-      release?.()
+      try { await services?.close() } finally { release?.() }
     }, 'powercontext: handoff bridge disposal')
   })
 }
