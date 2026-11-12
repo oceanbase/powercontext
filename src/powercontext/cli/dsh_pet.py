@@ -22,12 +22,14 @@ import json
 import os
 import shutil
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
+import typer
 
 from powercontext.cli.authorization import credential_path, read_stored_authorization
 from powercontext.cli.dsh_runtime import DshTarget
@@ -38,7 +40,10 @@ from powercontext.client import PowerContextClient
 from powercontext.http import AccessCheckRequest
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from powercontext.cli.transport import SetupTransport
+    from powercontext.http import ScopePage
 
 ADAPTER = "powercontext-dsh-pet"
 PET_VERSION = "0.4.8"
@@ -118,13 +123,70 @@ def disable_pet_memory(target: DshTarget, *, discard: bool = False) -> dict[str,
     return {"status": "disabled", "discarded_pending": discard}
 
 
-async def _verify_destination(server_url: str, bindings: dict[str, str]) -> dict[str, Any]:
+@asynccontextmanager
+async def _destination_client(server_url: str) -> AsyncIterator[PowerContextClient]:
     authorization = read_stored_authorization(credential_path("dsh"), server_url=server_url).authorization
     token = authorization.removeprefix("Bearer ") if authorization else None
     async with (
         httpx.AsyncClient(timeout=4, trust_env=False) as transport,
         PowerContextClient(server_url, token=token, http_client=transport, allow_insecure_http=False) as client,
     ):
+        yield client
+
+
+async def _list_pet_scopes(server_url: str) -> ScopePage:
+    async with _destination_client(server_url) as client:
+        return await client.list_scopes(limit=20)
+
+
+def _prompt_pet_scope(server_url: str) -> str:
+    try:
+        page = asyncio.run(_list_pet_scopes(server_url))
+    except Exception:
+        # Keep Server error bodies out of the prompt. Some credentials can use an exact Scope but cannot list Scopes.
+        typer.echo("Could not list Scopes on this Server. You can enter an existing Scope ID.")
+    else:
+        if page.items:
+            typer.echo("Choose an existing Scope dedicated to this pet:")
+            choices = {}
+            for index, scope in enumerate(page.items, start=1):
+                typer.echo(f"  {index}. {scope.title!r} (ID: {scope.scope_id!r})")
+                choices[str(index)] = scope.scope_id
+            while True:
+                choice = typer.prompt(
+                    "Scope number (0 to enter an exact ID, Enter to skip)", default="", show_default=False
+                ).strip()
+                if choice == "0":
+                    break
+                if not choice:
+                    return ""
+                if choice in choices:
+                    return choices[choice]
+                typer.echo("Choose a number from the list or enter 0.")
+        else:
+            typer.echo("No Scopes were listed. Create a dedicated Scope on this Server if you do not have one.")
+
+    return typer.prompt("Exact Scope ID (Enter to skip)", default="", show_default=False)
+
+
+def _prompt_pet_binding(target: DshTarget, server_url: str) -> dict[str, str] | None:
+    if not typer.confirm(
+        f"Enable dsh-pet long-term memory in the {target.profile} profile? "
+        f"New text questions and replies will be sent to {server_url}, "
+        "which may process them with its configured model providers.",
+        default=False,
+    ):
+        return None
+
+    pet = typer.prompt("Pet instance ID", default="main").strip()
+    if "=" in pet:
+        raise ValueError("Pet instance ID cannot contain '='.")  # noqa: TRY003
+    scope_id = _prompt_pet_scope(server_url)
+    return parse_pet_bindings([f"{pet}={scope_id}"]) if scope_id else None
+
+
+async def _verify_destination(server_url: str, bindings: dict[str, str]) -> dict[str, Any]:
+    async with _destination_client(server_url) as client:
         identity = await client.get_connection_identity()
         if identity.authentication.value == "disabled" and urlsplit(server_url).hostname not in {
             "localhost",
@@ -154,9 +216,9 @@ async def _verify_destination(server_url: str, bindings: dict[str, str]) -> dict
 
 
 def enable_pet_memory(  # noqa: C901 - perform and report each setup boundary separately.
-    target: DshTarget, main_package: Path, connection: SetupTransport, bindings: dict[str, str]
+    target: DshTarget, main_package: Path, connection: SetupTransport, bindings: dict[str, str] | None
 ) -> dict[str, Any]:
-    """Install and enable the opt-in adapter after ordinary DSH setup succeeds."""
+    """Enable the adapter with explicit bindings, or prompt for a first binding."""
     from powercontext.cli.dsh import _run_dsh, dsh_executable
 
     def unchanged(reason: str) -> dict[str, str]:
@@ -175,11 +237,22 @@ def enable_pet_memory(  # noqa: C901 - perform and report each setup boundary se
         if not (package / "lib/index.js").is_file() or not (package / "package.json").is_file():
             return unchanged("adapter_package_missing")
         root = _root(target)
-        _ensure_private_directory(root)
         path = root / "bindings.json"
+        if bindings is None and path.exists():
+            return unchanged("pet_memory_already_configured")
         previous = _object(path) if path.exists() else {}
     except (OSError, ValueError, SetupError):
         return unchanged("cannot_inspect_pet_profile")
+
+    if bindings is None:
+        try:
+            bindings = _prompt_pet_binding(target, connection.server_url)
+        except typer.Abort:
+            return unchanged("opt_in_cancelled")
+        except ValueError:
+            return unchanged("invalid_pet_or_scope_id")
+        if bindings is None:
+            return unchanged("opt_in_skipped")
 
     try:
         identity = asyncio.run(_verify_destination(connection.server_url, bindings))
@@ -187,9 +260,10 @@ def enable_pet_memory(  # noqa: C901 - perform and report each setup boundary se
         # Never surface transport, provider, or server error bodies in setup output.
         return unchanged("server_identity_scope_or_permissions_unverified")
 
-    patch = target.directory / "cordis.patch.yml"
-    original = patch.read_bytes() if patch.exists() else None
     try:
+        _ensure_private_directory(root)
+        patch = target.directory / "cordis.patch.yml"
+        original = patch.read_bytes() if patch.exists() else None
         try:
             _run_dsh("plugin", "--profile", target.profile, "add", str(package), executable=executable)
         finally:

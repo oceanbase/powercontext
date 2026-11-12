@@ -152,6 +152,7 @@ def setup(
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
     dsh_pet_bindings: dict[str, str] | None = None,
+    dsh_pet_interactive: bool = False,
     **options: Any,
 ) -> dict[str, Any]:
     from powercontext.cli.authorization import validate_setup_authorization
@@ -190,7 +191,7 @@ def setup(
         except Exception as error:
             error.add_note("Plugin installation and connection configuration completed; native activation failed.")
             raise
-        if host == "dsh" and dsh_pet_bindings is not None:
+        if host == "dsh" and (dsh_pet_bindings is not None or (dsh_pet_interactive and not json_output)):
             from powercontext.cli.dsh_pet import enable_pet_memory
             from powercontext.cli.dsh_runtime import DshProfile, DshTarget
 

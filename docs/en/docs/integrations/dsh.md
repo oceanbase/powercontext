@@ -170,6 +170,13 @@ instance ID (the built-in default is `main`) and Scope ID. The selected profile 
 enabled dsh-pet entry. Configure generation and [Memory processing](../get-started/configure-models.md)
 on that Server to turn eligible text exchanges into searchable Memory.
 
+Run `powercontext setup dsh` in a terminal to configure pet memory for the first time. If the selected profile
+already has a compatible dsh-pet enabled, setup offers to enable long-term memory. Confirm, enter the pet instance
+ID (Enter accepts `main`), and select a dedicated Scope by number or enter its exact ID. Skipping keeps pet memory
+off and ordinary DSH setup completes. Rerunning setup without pet options preserves an existing pet memory configuration.
+
+For scripts, piped input, or `--json`, opt in with both explicit options:
+
 ```bash
 powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
   --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
@@ -183,8 +190,9 @@ Replace `<PET_SCOPE_ID>` with the actual ID, without the angle brackets. Repeat 
 pets, with a different Scope each time. The bindings supplied to `on` are the complete set for that profile.
 Remote Servers require HTTPS and authentication; use the normal URL-bound DSH credential configuration.
 With access enforcement enabled, the credential needs Scope read and contribution access.
-Omitting the pet options leaves existing pet configuration alone. A missing, disabled, ambiguous or unqualified
-pet does not block ordinary DSH setup. Read the separate `dsh_pet_memory` result if you requested `on`.
+Setup uses the dsh-pet already enabled in the selected profile and only installs the PowerContext memory adapter.
+A missing, disabled, ambiguous or incompatible pet does not block ordinary DSH setup. Check the separate
+`dsh_pet_memory` result to see whether the adapter was enabled.
 
 Restart the selected host, then run `powercontext doctor dsh --profile web` or
 `powercontext doctor dsh --profile desktop`. Provider registration,

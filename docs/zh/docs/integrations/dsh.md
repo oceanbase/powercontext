@@ -135,6 +135,12 @@ DSH Web 和 Desktop 的桌宠聊天可以从独立的 PowerContext Scope 查找�
 （内置默认宠物是 `main`）和 Scope ID。选定的 profile 必须已经包含一条启用的 dsh-pet 条目。
 在 Server 配置生成模型和 [Memory 处理](../get-started/configure-models.md)，文字问答才有机会变成可查找的记忆。
 
+第一次配置时，在终端运行 `powercontext setup dsh`。如果所选 profile 已启用兼容的 dsh-pet，setup 会询问是否开启长期记忆。
+确认后，填写宠物实例 ID（回车使用 `main`），再按编号选择专用 Scope，或输入准确的 Scope ID。
+跳过时长期记忆保持关闭，普通 DSH 安装照常完成。已经配置过的桌宠记忆，重新运行 setup 时省略桌宠选项会保留原配置。
+
+在脚本、管道或 `--json` 模式中开启时，必须同时显式传入以下两个选项：
+
 ```bash
 powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
   --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
@@ -146,8 +152,8 @@ Desktop 自带的命令运行 setup。Web 和 Desktop 分别保存桌宠绑定�
 
 把 `<PET_SCOPE_ID>` 换成真实 ID，不保留尖括号。多只宠物可重复传入 `--dsh-pet-bind`，每只使用不同的 Scope。
 每次 `on` 指定的是这个 profile 的完整绑定列表。远程 Server 必须使用 HTTPS 和鉴权，沿用绑定到地址的 DSH 凭据配置。
-启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。省略桌宠选项不会改变已有设置。
-桌宠缺失、禁用、配置有歧义或未验证版本时，不影响普通 DSH 安装；显式传入 `on` 后请查看单独的 `dsh_pet_memory` 结果。
+启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。setup 使用所选 profile 已启用的 dsh-pet，只安装 PowerContext 记忆适配器。
+桌宠缺失、禁用、配置有歧义或版本不兼容时，不影响普通 DSH 安装。查看单独的 `dsh_pet_memory` 结果可确认适配器是否已开启。
 
 重启所选宿主后，运行 `powercontext doctor dsh --profile web` 或 `powercontext doctor dsh --profile desktop`。provider 注册、召回、待上传和 Source 接收各自有状态。
 Server 接收了 Source，不代表已经提取 Memory。召回只查已绑定的 Scope；空结果、断网或超时都保留原始聊天输入。

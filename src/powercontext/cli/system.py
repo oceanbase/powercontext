@@ -230,7 +230,7 @@ def setup_agents(
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
     dsh_pet_memory: Annotated[
-        str | None, typer.Option(help="DSH pet memory: on or off; omission leaves it unchanged.")
+        str | None, typer.Option(help="DSH pet memory: on or off; interactive setup can offer first-time opt-in.")
     ] = None,
     dsh_pet_bind: Annotated[
         list[str] | None, typer.Option(help="Pet memory binding PET_ID=SCOPE_ID; repeat for multiple pets.")
@@ -273,6 +273,7 @@ def setup_agents(
 
     def complete(host):
         native = native_options(host, **options)
+        pet_setup: dict[str, Any] = {}
         if host == "dsh":
             native["dsh_target"] = resolve_dsh_target(DshProfile(profile) if profile is not None else None, dsh_command)
             if dsh_pet_memory == "off":
@@ -282,6 +283,10 @@ def setup_agents(
                 return {"status": "ok", "result": {"dsh_pet_memory": result}}
             if native["dsh_target"].profile == DshProfile.DESKTOP:
                 typer.echo("Fully quit DSH Desktop before replacing its plugin.", err=True)
+            if pet_bindings is not None:
+                pet_setup["dsh_pet_bindings"] = pet_bindings
+            elif not json_output and stdin_is_tty():
+                pet_setup["dsh_pet_interactive"] = True
         if host == "kimi-code" and not scope_id and not workspace_scope and not json_output and stdin_is_tty():
             from powercontext.cli.kimi_code import kimi_home
 
@@ -294,7 +299,7 @@ def setup_agents(
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
-            **({"dsh_pet_bindings": pet_bindings} if host == "dsh" and pet_bindings else {}),
+            **pet_setup,
             **native,
         )
         checks = doctor_checks(host, **native)
