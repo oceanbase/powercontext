@@ -107,16 +107,77 @@ html.dark .hf.iso{
 
 /* Handoff turntable card. Appended to the scoped kit styles by build.mjs. */
 
-/* The one lit accent is the site's primary blue. */
+/*
+ * Tones. Every colour the drawing uses comes from a --hf-* property: set any of them
+ * on `.hf` to restyle the figure. The defaults are warm paper and ink and read the
+ * home page's tokens (--pc-paper, --pc-surface, --pc-ink, --pc-muted) where they
+ * exist. The one lit accent is the site's primary blue.
+ */
 .hf.iso {
-  --anatomy-lit: #0b6ff4;
-  --anatomy-lit-top: #eef5ff;
-  --anatomy-lit-shade: #dce9fd;
+  --hf-card: var(--pc-paper, hsl(40 30% 97%));
+  --hf-text: var(--pc-ink, hsl(22 14% 7%));
+  --hf-muted: var(--pc-muted, hsl(30 6% 40%));
+  --hf-face: hsl(40 36% 98.5%);
+  --hf-top: hsl(40 45% 99.5%);
+  --hf-shade-0: hsl(34 14% 80%);
+  --hf-shade-1: hsl(36 16% 85.5%);
+  --hf-shade-2: hsl(37 19% 90%);
+  --hf-shade-3: hsl(38 24% 94.5%);
+  --hf-hi: hsl(24 14% 14%);
+  --hf-mid: hsl(32 8% 49%);
+  --hf-lo: hsl(34 11% 68%);
+  --hf-faint: hsl(36 16% 82%);
+  --hf-dot: hsl(24 12% 20%);
+  --hf-halo: hsl(30 22% 40%);
+  --hf-halo-opacity: 0.3;
+  --hf-lit: #0b6ff4;
+  --hf-lit-top: hsl(214 100% 97%);
+  --hf-lit-shade: hsl(214 90% 92%);
 }
 html.dark .hf.iso {
-  --anatomy-lit: #68adff;
-  --anatomy-lit-top: #17283e;
-  --anatomy-lit-shade: #112034;
+  --hf-card: var(--pc-surface, hsl(24 12% 11%));
+  --hf-text: var(--pc-ink, hsl(40 30% 97%));
+  --hf-muted: var(--pc-muted, hsl(34 12% 72%));
+  --hf-face: hsl(30 9% 23%);
+  --hf-top: hsl(34 11% 28.5%);
+  --hf-shade-0: hsl(24 9% 14%);
+  --hf-shade-1: hsl(26 9% 17.5%);
+  --hf-shade-2: hsl(28 9% 21%);
+  --hf-shade-3: hsl(30 9% 24.5%);
+  --hf-hi: hsl(38 26% 90%);
+  --hf-mid: hsl(32 10% 62%);
+  --hf-lo: hsl(30 8% 44%);
+  --hf-faint: hsl(28 8% 31%);
+  --hf-dot: hsl(38 22% 88%);
+  --hf-halo: #000;
+  --hf-halo-opacity: 0.55;
+  --hf-lit: #68adff;
+  --hf-lit-top: hsl(214 46% 30%);
+  --hf-lit-shade: hsl(214 40% 22%);
+}
+.hf.iso,
+html.dark .hf.iso {
+  --anatomy-card: var(--hf-card);
+  --anatomy-paper: var(--hf-card);
+  --anatomy-text: var(--hf-text);
+  --anatomy-strong: var(--hf-text);
+  --anatomy-muted: var(--hf-muted);
+  --anatomy-face: var(--hf-face);
+  --anatomy-top: var(--hf-top);
+  --anatomy-shade-0: var(--hf-shade-0);
+  --anatomy-shade-1: var(--hf-shade-1);
+  --anatomy-shade-2: var(--hf-shade-2);
+  --anatomy-shade-3: var(--hf-shade-3);
+  --anatomy-hi: var(--hf-hi);
+  --anatomy-mid: var(--hf-mid);
+  --anatomy-lo: var(--hf-lo);
+  --anatomy-faint: var(--hf-faint);
+  --anatomy-dot: var(--hf-dot);
+  --anatomy-halo: var(--hf-halo);
+  --anatomy-halo-opacity: var(--hf-halo-opacity);
+  --anatomy-lit: var(--hf-lit);
+  --anatomy-lit-top: var(--hf-lit-top);
+  --anatomy-lit-shade: var(--hf-lit-shade);
 }
 
 .hf {
@@ -128,8 +189,11 @@ html.dark .hf.iso {
   position: relative;
   aspect-ratio: var(--hf-ratio);
   background: var(--anatomy-card);
-  box-shadow: 0 0 0 1px var(--anatomy-faint);
-  --anatomy-paper: var(--anatomy-card);
+  box-shadow: var(--hf-frame, 0 0 0 1px var(--hf-faint));
+}
+.hf-body {
+  position: absolute;
+  inset: 0;
   opacity: 0;
 }
 .hf-stage {
@@ -151,14 +215,14 @@ html.dark .hf.iso {
   transform: scale(0.55);
   transform-origin: var(--hf-origin);
 }
-.hf[data-shown] .hf-plate {
+.hf[data-shown] .hf-body {
   opacity: 1;
 }
 .hf[data-shown] .hf-scale {
   transform: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .hf .hf-plate {
+  .hf .hf-body {
     opacity: 1;
   }
   .hf .hf-scale {
@@ -183,26 +247,30 @@ html.dark .hf.iso {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
-.hf-corner[data-corner='fig'] {
-  top: 16px;
-  left: 18px;
-  color: var(--anatomy-text);
-}
 .hf-corner[data-corner='title'] {
   top: 16px;
   right: 18px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
-.hf-corner[data-corner='hint'] {
+.hf-corner[data-corner='title'] > span:first-child {
+  margin-right: 0.9em;
+  color: var(--anatomy-text);
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+.hf-corner[data-corner='status'] {
   bottom: 16px;
   left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.hf-corner [data-hint] {
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
-.hf-corner[data-corner='readout'] {
-  right: 18px;
-  bottom: 16px;
+.hf-corner [data-readout] {
   color: var(--anatomy-text);
   font-variant-numeric: tabular-nums;
 }
@@ -218,20 +286,13 @@ html.dark .hf.iso {
   .hf-corner {
     font-size: 9.5px;
   }
-  .hf-corner[data-corner='fig'],
-  .hf-corner[data-corner='hint'] {
-    left: 12px;
-  }
-  .hf-corner[data-corner='title'],
-  .hf-corner[data-corner='readout'] {
-    right: 12px;
-  }
-  .hf-corner[data-corner='fig'],
   .hf-corner[data-corner='title'] {
     top: 12px;
+    right: 12px;
   }
-  .hf-corner[data-corner='hint'],
-  .hf-corner[data-corner='readout'] {
+  .hf-corner[data-corner='status'] {
     bottom: 12px;
+    left: 12px;
+    gap: 5px;
   }
 }

@@ -28,6 +28,7 @@ import * as k from "../anatomy-kit/iso-kit.mjs";
 import * as G from "../anatomy-kit/lathe.mjs";
 import * as A from "../anatomy-kit/audit.mjs";
 import { turning } from "../anatomy-kit/turn-build.mjs";
+import { tubePieces, tubeSvg } from "../anatomy-kit/tube.mjs";
 import { DETENTS } from "./motion.mjs";
 
 export const WIDTH = 640;
@@ -35,7 +36,7 @@ export const HEIGHT = 420;
 const AZIMUTH = 52;
 const ELEVATION = 30;
 
-const BASE = { x: -106, y: -62, w: 212, d: 124, r: 9 };
+export const BASE = { x: -98, y: -60, w: 196, d: 126, r: 9 };
 const BASE_Z = -12;
 const FOOT_Z = -17;
 const BEARING_R = 40;
@@ -94,35 +95,61 @@ export function buildScene() {
     put({ name: "stand.bearing", layer: "back", at: [0, 0, 0], svg, shapes: [A.cylinder(0, 0, BEARING_R, 0, BEARING_TOP)] });
   }
 
-  // ---- Ruler strip and label plate on the bench front ---------------------
+  // ---- Drive: a worm gearbox under the rim, turned by a crank handwheel ----
   {
-    const strip = { x: -96, y: 50, w: 54, d: 6, r: 0.8 };
-    const t = k.topTicks(strip.x + 3, strip.x + strip.w - 3, 4, 5, strip.y + 0.6, 0.6, [1.8, 3.4], P);
-    const svg = S(k.slabOf(strip, 0, 0.6, P, 3), { tone: "lo", crease: "none" }) + L(t.minor, { tone: "lo" }) + L(t.major, { tone: "mid" });
-    put({ name: "stand.ruler", layer: "back", at: [strip.x + strip.w / 2, strip.y + 3, 0], svg, shapes: [A.slab(strip, 0, 0.6)] });
-  }
-  {
-    const plate = { x: 64, y: 38, w: 30, d: 9, r: 1 };
-    const z = 0.9;
-    const rules = [[plate.x + 7, 22], [plate.x + 7, 16], [plate.x + 7, 19]].map(([x0, len], i) => k.lineOnTop([x0, plate.y + 2.6 + i * 1.9], [x0 + len - 6, plate.y + 2.6 + i * 1.9], z, P)).join("");
-    const screws = [[plate.x + 2.6, plate.y + plate.d / 2], [plate.x + plate.w - 2.6, plate.y + plate.d / 2]];
-    const svg = S(k.slabOf(plate, 0, z, P, 4), { tone: "mid" }) + L(k.planOutline(k.insetPlan(plate, 1.4), z, P, 4), { tone: "faint" }) + L(rules, { tone: "lo", free: true }) + D(screws.map(([x, y]) => at([x, y, z])), { size: 0.5 });
-    put({ name: "stand.label", layer: "back", at: [plate.x + 15, plate.y + 4.5, 0], svg, shapes: [A.slab(plate, 0, z)] });
+    const DRIVE_AT = (124 * Math.PI) / 180;
+    const c = [Math.cos(DRIVE_AT) * 70, Math.sin(DRIVE_AT) * 70];
+    const plan = { x: c[0] - 7, y: c[1] - 7, w: 14, d: 14, r: 2 };
+    const BOX_TOP = 11;
+    const screws = k.corners(plan, 2.2);
+    const boxSvg = S(k.slabOf(plan, 0, BOX_TOP, P, 4, 0.6), { tone: "mid", inner: L(k.sideSeam(plan, 3.2, P, 4), { tone: "faint" }) }) + L(k.planOutline(k.insetPlan(plan, 1.2), BOX_TOP, P, 4), { tone: "faint" }) + L(screws.map(([x, y]) => k.ring(x, y, 1, BOX_TOP, P, 14)).join(""), { tone: "lo" }) + D(screws.map(([x, y]) => at([x, y, BOX_TOP])), { size: 0.42 });
+    put({ name: "stand.drive.box", layer: "front", at: [c[0], c[1], 0], svg: boxSvg, shapes: [A.slab(plan, 0, BOX_TOP)] });
+    const collar = S(k.cylinder(c[0], c[1], 3.2, BOX_TOP, 2.2, P, 32), { tone: "lo" });
+    put({ name: "stand.drive.collar", layer: "front", at: [c[0], c[1], BOX_TOP], svg: collar, shapes: [A.cylinder(c[0], c[1], 3.2, BOX_TOP, 2.2)] });
+    const WZ = BOX_TOP + 2.2;
+    const WR = 8.4;
+    const spokes = [0, 120, 240].map((deg) => {
+      const a = (deg * Math.PI) / 180 + 0.4;
+      return k.lineOnTop([c[0] + 2.4 * Math.cos(a), c[1] + 2.4 * Math.sin(a)], [c[0] + (WR - 1.6) * Math.cos(a), c[1] + (WR - 1.6) * Math.sin(a)], WZ + 1.8, P);
+    }).join("");
+    const wheel = S(k.cylinder(c[0], c[1], WR, WZ, 1.8, P, 64, 0.4), { tone: "hi", crease: "lo", inner: L(k.knurl(c[0], c[1], WR, WZ + 0.3, WZ + 1.5, 48, P), { tone: "lo" }) }) + L(k.ring(c[0], c[1], WR - 1.6, WZ + 1.8, P, 48) + k.ring(c[0], c[1], 2.4, WZ + 1.8, P, 20), { tone: "lo" }) + L(spokes, { tone: "mid" });
+    put({ name: "stand.drive.wheel", layer: "front", at: [c[0], c[1], WZ], svg: wheel, shapes: [A.cylinder(c[0], c[1], WR, WZ, 1.8)] });
+    const hub = S(k.cylinder(c[0], c[1], 2.2, WZ + 1.8, 1.2, P, 24), { tone: "mid" }) + D([at([c[0], c[1], WZ + 3])], { size: 0.45 });
+    put({ name: "stand.drive.hub", layer: "front", at: [c[0], c[1], WZ + 1.8], svg: hub, shapes: [A.cylinder(c[0], c[1], 2.2, WZ + 1.8, 1.2)] });
+    const ka = DRIVE_AT + 2.2;
+    const kx = c[0] + (WR - 1.8) * Math.cos(ka);
+    const ky = c[1] + (WR - 1.8) * Math.sin(ka);
+    const knob = S(k.cylinder(kx, ky, 1.5, WZ + 1.8, 5.4, P, 24, 0.3), { tone: "mid", inner: L(k.sideArc(kx, ky, 1.5, WZ + 3, P, 16), { tone: "faint" }) });
+    put({ name: "stand.drive.knob", layer: "front", at: [kx, ky, WZ + 1.8], svg: knob, shapes: [A.cylinder(kx, ky, 1.5, WZ + 1.8, 5.4)] });
   }
 
-  // ---- Index pawl at the front of the table ------------------------------
+  // ---- Nameplate on the bench ---------------------------------------------
   {
-    const post = radial(PAWL_AT, 60, 65, 3);
-    const arm = (() => {
-      const c = Math.cos(PAWL_AT);
-      const s = Math.sin(PAWL_AT);
-      return [[58.6, -0.5], [66, -2.4], [66, 2.4], [58.6, 0.5]].map(([r, w]) => [c * r - s * w, s * r + c * w]);
-    })();
-    const head = [Math.cos(PAWL_AT) * 63.6, Math.sin(PAWL_AT) * 63.6];
-    const postSvg = S(k.extrude(post, 0, 12.4, P, { bevel: 0.4 }), { tone: "mid", inner: L(k.ringSeam(post, 3, P), { tone: "faint" }) });
-    put({ name: "stand.pawl.post", layer: "front", at: [Math.cos(PAWL_AT) * 62, Math.sin(PAWL_AT) * 62, 0], svg: postSvg, shapes: [A.extruded(post, 0, 12.4)] });
-    const armSvg = S(k.extrude(arm, 12.4, 1.6, P, { bevel: 0.3 }), { tone: "hi", crease: "lo" }) + D([at([head[0], head[1], 14])], { size: 0.5 });
-    put({ name: "stand.pawl.arm", layer: "front", at: [Math.cos(PAWL_AT) * 61, Math.sin(PAWL_AT) * 61, 12.4], svg: armSvg, shapes: [A.extruded(arm, 12.4, 1.6)] });
+    const plate = { x: 54, y: 52, w: 26, d: 8, r: 1 };
+    const z = 0.9;
+    const rules = [[plate.x + 6.4, 15], [plate.x + 6.4, 10], [plate.x + 6.4, 13]].map(([x0, len], i) => k.lineOnTop([x0, plate.y + 2.2 + i * 1.8], [x0 + len, plate.y + 2.2 + i * 1.8], z, P)).join("");
+    const screws = [[plate.x + 2.6, plate.y + plate.d / 2], [plate.x + plate.w - 2.6, plate.y + plate.d / 2]];
+    const svg = S(k.slabOf(plate, 0, z, P, 4), { tone: "mid" }) + L(k.planOutline(k.insetPlan(plate, 1.4), z, P, 4), { tone: "faint" }) + L(rules, { tone: "lo", free: true }) + D(screws.map(([x, y]) => at([x, y, z])), { size: 0.5 });
+    put({ name: "stand.label", layer: "back", at: [plate.x + 14, plate.y + 4, 0], svg, shapes: [A.slab(plate, 0, z)] });
+  }
+
+  // ---- Index: a spring detent plunger in its housing, with a reading arm ---
+  {
+    const HOUSE_TOP = 12.4;
+    const house = radial(PAWL_AT, 60, 68, 3.6);
+    const ca = Math.cos(PAWL_AT);
+    const sa = Math.sin(PAWL_AT);
+    const arm = [[58.6, -0.5], [66, -2.4], [66, 2.4], [58.6, 0.5]].map(([r, w]) => [ca * r - sa * w, sa * r + ca * w]);
+    const head = [ca * 63.6, sa * 63.6];
+    const houseSvg = S(k.extrude(house, 0, HOUSE_TOP, P, { bevel: 0.4 }), { tone: "mid", inner: L(k.ringSeam(house, 3, P), { tone: "faint" }) });
+    put({ name: "stand.index.housing", layer: "front", at: [ca * 64, sa * 64, 0], svg: houseSvg, shapes: [A.extruded(house, 0, HOUSE_TOP)] });
+    const F = G.frameAlong([ca * 68, sa * 68, 7.4], [ca, sa, 0]);
+    const cap = G.disc(0, 1.4, 2.6, F, P);
+    const nut = G.disc(1.4, 2.4, 1.8, F, P);
+    const capSvg = S(cap, { tone: "lo" }) + S(nut, { tone: "hi", crease: "lo", inner: L(G.ribsOf(F, 1.4, 2.4, 1.8, 18, P), { tone: "lo" }) });
+    put({ name: "stand.index.cap", layer: "front", at: [ca * 69.4, sa * 69.4, 7.4], svg: capSvg, shapes: [A.disc(F, 0, 1.4, 2.6), A.disc(F, 1.4, 2.4, 1.8)] });
+    const armSvg = S(k.extrude(arm, HOUSE_TOP, 1.6, P, { bevel: 0.3 }), { tone: "hi", crease: "lo" }) + D([at([head[0], head[1], HOUSE_TOP + 1.6])], { size: 0.5 });
+    put({ name: "stand.index.arm", layer: "front", at: [ca * 61, sa * 61, HOUSE_TOP], svg: armSvg, shapes: [A.extruded(arm, HOUSE_TOP, 1.6)] });
   }
 
   // ---- Docking stations (static) -----------------------------------------
@@ -146,7 +173,8 @@ export function buildScene() {
       put({ name: `stand.${tag}.pedestal`, layer: under, at: [sigma * 76, 0, 0], svg, shapes: [A.slab(pedestal, 0, 3)] });
     }
     {
-      const svg = S(k.slabOf(riser, 3, 8, P, 4, 0.6), { tone: "mid", inner: L(k.sideSeam(riser, 6.5, P, 4), { tone: "faint" }) });
+      const screws = [[sigma * 86.4, -6.4], [sigma * 86.4, 6.4]];
+      const svg = S(k.slabOf(riser, 3, 8, P, 4, 0.6), { tone: "mid", inner: L(k.sideSeam(riser, 6.5, P, 4), { tone: "faint" }) }) + L(screws.map(([x, y]) => k.ring(x, y, 1.2, 11, P, 14)).join(""), { tone: "lo" }) + D(screws.map(([x, y]) => at([x, y, 11])), { size: 0.42 });
       put({ name: `stand.${tag}.riser`, layer, at: [sigma * 78, 0, 3], svg, shapes: [A.slab(riser, 3, 8)] });
     }
     {
@@ -173,7 +201,7 @@ export function buildScene() {
       const back = mouth.map(([x, y, z]) => [x + sigma * 3, y * 0.82, slot.z0 + 1.2 + (z - slot.z0) * 0.78]);
       const visible = sigma < 0;
       const mouthSvg = visible
-        ? `<path class="iso-shade" data-shade="0" d="${k.pathOf(mouth.map(at), true)}"/>` + L(k.pathOf(back.map(at), true), { tone: "faint" }) + L(k.pathOf(mouth.map(at), true), { tone: "lo" })
+        ? `<path class="iso-shade" data-shade="0" d="${k.pathOf(mouth.map(at), true)}"/>` + L(k.pathOf(back.map(at), true), { tone: "faint" }) + L(k.pathOf(mouth.map(at), true), { tone: "lo" }) + D([-3.6, -1.2, 1.2, 3.6].map((y) => at([inner + sigma * 3, y * 0.82, 17.4])), { size: 0.45, tone: "hi" })
         : "";
       const win = [];
       for (const [wx, wz] of [[64, 15.2], [76, 15.2], [76, 19.8], [64, 19.8]]) win.push([sigma * wx, 8.5, wz]);
@@ -182,6 +210,47 @@ export function buildScene() {
       const top = L(k.planOutline(k.insetPlan(head, 1.8), HEAD_TOP, P, 4), { tone: "faint" }) + L(screws.map(([x, y]) => k.ring(x, y, 1.2, HEAD_TOP, P, 14)).join(""), { tone: "lo" });
       const svg = S(k.slabOf(head, 11, HEAD_TOP - 11, P, 4, 0.8), { tone: "mid", inner: L(k.sideSeam(head, 13.6, P, 4), { tone: "faint" }) }) + mouthSvg + winSvg + top + D(screws.map(([x, y]) => at([x, y, HEAD_TOP])), { size: 0.42 });
       put({ name: `stand.${tag}.head`, layer, at: [sigma * 70, 0, 11], svg, shapes: [A.slab(head, 11, HEAD_TOP - 11)] });
+    }
+    // Guide rails either side of the mouth: the cartridge's contact face lines up between them.
+    for (const side of [-1, 1]) {
+      const rail = plan(58.7, 59.5, side < 0 ? -8.4 : 6.8, 1.6, 0);
+      const svg = S(k.slabOf(rail, 11.6, 12.4, P, 2, 0.2), { tone: "hi", crease: "lo" });
+      put({ name: `stand.${tag}.guide.${side < 0 ? "a" : "b"}`, layer, at: [rail.x + rail.w / 2, rail.y + 0.8, 11.6], svg, shapes: [A.slab(rail, 11.6, 12.4)] });
+    }
+    // Signal cable: from a port on the riser, through a strap, into a terminal block.
+    {
+      const x0 = sigma * 78;
+      const CR = 0.9;
+      const block = plan(70, 86, 33, 10, 1.2);
+      const BLOCK_TOP = 7;
+      const terms = [[x0 - 3.6, 38], [x0 + 3.6, 38]];
+      const blockSvg = S(k.slabOf(block, 0, BLOCK_TOP, P, 4, 0.5), { tone: "mid", inner: L(k.sideSeam(block, 2.2, P, 4), { tone: "faint" }) }) + L(k.planOutline(k.insetPlan(block, 1.4), BLOCK_TOP, P, 4), { tone: "faint" }) + L(terms.map(([x, y]) => k.ring(x, y, 1.6, BLOCK_TOP, P, 18)).join(""), { tone: "lo" }) + D(terms.map(([x, y]) => at([x, y, BLOCK_TOP])), { size: 0.5, tone: "hi" });
+      put({ name: `stand.${tag}.terminal`, layer, at: [x0, 38, 0], svg: blockSvg, shapes: [A.slab(block, 0, BLOCK_TOP)] });
+      const name = `stand.${tag}.cable`;
+      const route = G.fillet([[x0, 10, 7], [x0, 22, 7], [x0, 26, 2.6], [x0, 33, 2.6]], 3, 10);
+      const total = G.pathLength(route);
+      const strap = { x: x0 - 2.6, y: 28.6, w: 5.2, d: 2, r: 0.6 };
+      const at3 = (y) => {
+        let walked = 0;
+        for (let i = 1; i < route.length; i++) {
+          const a = route[i - 1];
+          const b = route[i];
+          const len = G.len3(G.sub3(b, a));
+          if ((a[1] - y) * (b[1] - y) <= 0 && Math.abs(b[1] - a[1]) > 1e-9) return walked + (len * (y - a[1])) / (b[1] - a[1]);
+          walked += len;
+        }
+        return null;
+      };
+      const PORT = 1.2;
+      const gaps = [[0, PORT], [at3(strap.y), at3(strap.y + strap.d)], [total - PORT, total]];
+      R.route(name, route, CR, { owner: name, limp: true, gaps });
+      tubePieces(route, CR, P, { maxLength: 8, gaps }).forEach((piece, index) => put({ name: `${name}:${index}`, layer: Math.max(...piece.points.map((q) => q[2])) + CR <= BEARING_TOP ? "back" : layer, route: name, chunk: index, at: piece.mid, svg: tubeSvg(piece, { tone: "mid" }), shapes: [A.tube(piece.points, piece.radii, { name: `${name}:${index}`, owner: name })] }));
+      const portF = G.frameAlong([x0, 10, 7], [0, 1, 0]);
+      put({ name: `${name}.port`, layer, at: [x0, 10.6, 7], svg: S(G.disc(0, PORT, 1.7, portF, P), { tone: "lo" }), shapes: [A.disc(portF, 0, PORT, 1.7, { owner: name })] });
+      const glandF = G.frameAlong([x0, 33, 2.6], [0, -1, 0]);
+      put({ name: `${name}.gland`, layer, at: [x0, 32.4, 2.6], svg: S(G.disc(0, PORT, 1.6, glandF, P), { tone: "lo" }), shapes: [A.disc(glandF, 0, PORT, 1.6, { owner: name })] });
+      const strapSvg = S(k.slabOf(strap, 0, 4.6, P, 3, 0.3), { tone: "mid" }) + D([at([strap.x + 1, strap.y + 1, 4.6]), at([strap.x + strap.w - 1, strap.y + 1, 4.6])], { size: 0.4 });
+      put({ name: `${name}.strap`, layer, at: [x0, strap.y + 1, 0], svg: strapSvg, shapes: [A.slab(strap, 0, 4.6, { owner: name })] });
     }
     {
       const [lx, ly] = [sigma * 70, -3.2];
@@ -234,18 +303,19 @@ export function buildScene() {
     const B = { x0: -44, y0: -38, x1: -8, y1: -10 };
     const FLOOR_TOP = TOP + 1.2;
     const WALL = 1.4;
-    const WALL_TOP = FLOOR_TOP + 11.6;
+    const WALL_TOP = FLOOR_TOP + 10.2;
     slab("memory.floor", { x: B.x0, y: B.y0, w: B.x1 - B.x0, d: B.y1 - B.y0, r: 0.5 }, TOP, 1.2, { tone: "lo" });
     slab("memory.wall.back", { x: B.x0, y: B.y0, w: B.x1 - B.x0, d: WALL, r: 0 }, FLOOR_TOP, WALL_TOP - FLOOR_TOP, { bevel: 0.3 });
     slab("memory.wall.front", { x: B.x0, y: B.y1 - WALL, w: B.x1 - B.x0, d: WALL, r: 0 }, FLOOR_TOP, WALL_TOP - FLOOR_TOP, { bevel: 0.3 });
     slab("memory.wall.left", { x: B.x0, y: B.y0 + WALL, w: WALL, d: B.y1 - B.y0 - 2 * WALL, r: 0 }, FLOOR_TOP, WALL_TOP - FLOOR_TOP, { bevel: 0.3 });
     slab("memory.wall.right", { x: B.x1 - WALL, y: B.y0 + WALL, w: WALL, d: B.y1 - B.y0 - 2 * WALL, r: 0 }, FLOOR_TOP, WALL_TOP - FLOOR_TOP, { bevel: 0.3 });
-    const holder = [[-27.6, FLOOR_TOP + 6], [-20.4, FLOOR_TOP + 6], [-20.4, FLOOR_TOP + 10.4], [-27.6, FLOOR_TOP + 10.4]];
-    prism("memory.holder", { o: [0, 0, 0], a: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] }, holder.map(([x, z]) => [z, x]), B.y1, B.y1 + 0.5, { tone: "hi", crease: "lo", details: { dots: [[-27, FLOOR_TOP + 8.2], [-21, FLOOR_TOP + 8.2]].map(([x, z]) => ({ at: [B.y1 + 0.5, z, x], normal: [0, 1, 0], size: 0.4 })) } });
+    const holder = [[-27.6, FLOOR_TOP + 4], [-20.4, FLOOR_TOP + 4], [-20.4, FLOOR_TOP + 8.2], [-27.6, FLOOR_TOP + 8.2]];
+    prism("memory.holder", { o: [0, 0, 0], a: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] }, holder.map(([x, z]) => [z, x]), B.y1, B.y1 + 0.5, { tone: "hi", crease: "lo", details: { dots: [[-27, FLOOR_TOP + 6.1], [-21, FLOOR_TOP + 6.1]].map(([x, z]) => ({ at: [B.y1 + 0.5, z, x], normal: [0, 1, 0], size: 0.4 })) } });
+    slab("memory.follower", { x: -14.6, y: B.y0 + WALL + 0.6, w: 3.6, d: B.y1 - B.y0 - 2 * WALL - 1.2, r: 0.4 }, FLOOR_TOP, 7.4, { bevel: 0.3, details: { dots: [{ at: [FLOOR_TOP + 7.4, -12.8, (B.y0 + B.y1) / 2], normal: [0, 0, 1], size: 0.5 }] } });
     const CARD_T = 0.6;
     const yIn0 = B.y0 + WALL + 0.3;
     const yIn1 = B.y1 - WALL - 0.3;
-    const CARD_TOP = FLOOR_TOP + 16.4;
+    const CARD_TOP = FLOOR_TOP + 14.4;
     for (let i = 0; i < 8; i++) {
       const x = B.x0 + WALL + 2.2 + i * 3.6;
       const guide = i === 0;

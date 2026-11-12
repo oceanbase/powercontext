@@ -26,8 +26,15 @@ export const OPENING = { duration: 1800, fade: 200, scale: 0.55 };
 /** A turn between stations after the opening. */
 export const TURN_MS = 1400;
 
-/** Table angles at which the four Handoff steps sit under the index pawl. */
-export const DETENTS = [180, 120, 60, 0];
+/**
+ * Table angles at which each of the four Handoff steps, in loop order, sits under
+ * the index arm: Work Contract, Prepared Handoff, Acknowledgement, Task Outcome.
+ * The handoff turn spans the middle of the loop: it leaves the ending session's
+ * station with the Prepared Handoff under the arm and arrives at the next
+ * session's station on Acknowledgement. Work Contract (before) and Task Outcome
+ * (after) are marked on the rim on either side of that arc.
+ */
+export const DETENTS = [240, 180, 0, -60];
 
 const bezier = (x1, y1, x2, y2) => {
   const ax = 3 * x1 - 3 * x2 + 1;
