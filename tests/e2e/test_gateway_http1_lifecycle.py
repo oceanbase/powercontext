@@ -281,7 +281,7 @@ def test_real_core_uds_model_disconnect_delivery_and_fallback(tmp_path, short_tm
                         path, headers={"Authorization": f"Bearer {_KEY}"}, json=body | {"stream": stream}
                     )
                     if stream and protocol == "openai-chat":
-                        assert response.status_code == 409, response.text
+                        assert response.status_code == 400, response.text
                         assert response.json() == {"decision": "withhold", "reason_codes": ["carrier_unsupported"]}
                         assert "已检查" not in response.text
                         assert response.headers["connection"] == "close"
