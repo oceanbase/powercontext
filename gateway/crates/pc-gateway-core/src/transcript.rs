@@ -384,6 +384,75 @@ fn parts_text(parts: &[Value]) -> String {
     texts.join("\n")
 }
 
+/// 规范化记录是否完整呈现了这一回合：没有截断或省略的内容，也没有记录无法呈现的部件（图片、文件、内置工具或
+/// 无法识别的条目）。复用前缀抽取记忆时模型看到整个回合，只有记录完整时，Source 才覆盖模型作为证据看到的内容。
+pub(crate) fn represents_turn(
+    request: &CanonicalRequest,
+    transcript: &str,
+    list_key: &str,
+) -> bool {
+    let Ok(record) = serde_json::from_str::<Value>(transcript) else {
+        return false;
+    };
+    if record.get("omitted_steps").is_some() || has_elided_text(&record) {
+        return false;
+    }
+    let Some(start) = request
+        .messages
+        .iter()
+        .rposition(|m| matches!(m.role, Role::User))
+    else {
+        return false;
+    };
+    request.messages[start..]
+        .iter()
+        .enumerate()
+        .all(|(index, message)| {
+            if index > 0 && is_responses(list_key) {
+                message.content.first().is_some_and(textual_item)
+            } else {
+                message.content.iter().all(textual_part)
+            }
+        })
+}
+
+fn textual_part(part: &Value) -> bool {
+    part.is_string()
+        || matches!(
+            part.get("type").and_then(Value::as_str),
+            Some("text" | "input_text" | "output_text")
+        )
+}
+
+fn textual_item(item: &Value) -> bool {
+    match classify(item) {
+        ItemKind::Ignored | ItemKind::ClientCall => true,
+        ItemKind::Message => item.get("content").is_none_or(|content| match content {
+            Value::Array(parts) => parts.iter().all(textual_part),
+            other => other.is_string(),
+        }),
+        ItemKind::CallOutput => match item.get("output") {
+            None | Some(Value::String(_)) => true,
+            Some(Value::Array(parts)) => parts.iter().all(textual_part),
+            Some(_) => false,
+        },
+        ItemKind::HostedCall | ItemKind::Unknown => false,
+    }
+}
+
+/// 记录里是否有被截断或省略的文本（见 [`bounded`] 与 [`without_binary`] 的标记）。
+fn has_elided_text(value: &Value) -> bool {
+    match value {
+        Value::String(text) => {
+            (text.contains("\n[truncated ") && text.ends_with(" bytes]"))
+                || text.contains("[binary data omitted]")
+        }
+        Value::Array(items) => items.iter().any(has_elided_text),
+        Value::Object(map) => map.values().any(has_elided_text),
+        _ => false,
+    }
+}
+
 /// 截断到 [`MAX_FIELD_BYTES`]（按字符边界），并注明省略的字节数。
 fn bounded(text: String, losses: &mut CaptureLosses) -> String {
     if text.len() <= MAX_FIELD_BYTES {
@@ -695,6 +764,43 @@ mod tests {
         );
         for absent in ["call_1", "cu_1", "mcp_1", "base64", "gAAAA", "opaque"] {
             assert!(!text.contains(absent), "{absent} in {text}");
+        }
+    }
+
+    #[test]
+    fn only_a_lossless_record_represents_the_turn() {
+        let item = |value: Value| CanonicalMessage {
+            role: Role::Tool,
+            content: vec![value],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        };
+        let response = r#"{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}"#;
+        let represented = |extra: Option<Value>| {
+            let mut request = chat_turn(&[]);
+            request.messages.extend([
+                item(serde_json::json!({"type": "function_call", "call_id": "c", "name": "run", "arguments": "{}"})),
+                item(serde_json::json!({"type": "function_call_output", "call_id": "c", "output": "ok"})),
+                item(serde_json::json!({"type": "reasoning", "encrypted_content": "gAAAA"})),
+            ]);
+            request.messages.extend(extra.map(item));
+            let text = turn_transcript(&request, response, "input").unwrap();
+            represents_turn(&request, &text.text, "input")
+        };
+        assert!(represented(None));
+        for lossy in [
+            serde_json::json!({"type": "computer_call_output", "call_id": "c",
+                "output": {"type": "computer_screenshot", "image_url": "data:image/png;base64,AAAA"}}),
+            serde_json::json!({"type": "function_call_output", "call_id": "c",
+                "output": [{"type": "input_image", "image_url": "https://example.com/a.png"}]}),
+            serde_json::json!({"type": "mcp_call", "name": "search_docs", "server_label": "docs",
+                "arguments": "{}", "output": "3 results"}),
+            serde_json::json!({"type": "frobnicate", "data": "opaque"}),
+            serde_json::json!({"type": "function_call_output", "call_id": "c", "output": "x".repeat(MAX_FIELD_BYTES + 1)}),
+        ] {
+            assert!(!represented(Some(lossy.clone())), "{lossy}");
         }
     }
 

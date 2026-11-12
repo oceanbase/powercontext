@@ -88,6 +88,7 @@ fn call(base: &str) -> ManagedCall {
         degrade_policy: DegradePolicy::PassthroughWithoutMemory,
         inject_context: true,
         include_code: false,
+        capture_prefix: false,
         conversation_id: None,
         sediment: true,
         prepared_contexts: vec![],
