@@ -640,29 +640,32 @@ async fn denied_send_or_release_never_returns_recorded_content() {
 }
 
 #[tokio::test]
-async fn release_withhold_returns_bad_request_without_releasing_or_resending_content() {
+async fn send_or_release_withhold_returns_bad_request_without_releasing_or_resending_content() {
     for (route, protocol, fixture) in [
         ("chat/completions", "chat", "fantasy_chat_simple"),
         ("responses", "responses", "fantasy_responses_simple"),
     ] {
-        for streaming in [false, true] {
-            let gateway = Gateway::start(
-                vec![Reply::fixture(fixture, 0)],
-                Some(("before_release", "withhold")),
-            )
-            .await;
-            let response = gateway
-                .post(route, &request(protocol, "simple", streaming))
-                .await;
-            assert_eq!(response.status(), 400);
-            assert_eq!(response.headers()["content-type"], "application/json");
-            assert_eq!(
-                response.json::<Value>().await.unwrap(),
-                json!({
-                    "decision": "withhold", "reason_codes": ["target_unsupported"],
-                })
-            );
-            assert_eq!(gateway.peers.sent.lock().unwrap().len(), 1);
+        for phase in ["before_send", "before_release"] {
+            for streaming in [false, true] {
+                let gateway =
+                    Gateway::start(vec![Reply::fixture(fixture, 0)], Some((phase, "withhold")))
+                        .await;
+                let response = gateway
+                    .post(route, &request(protocol, "simple", streaming))
+                    .await;
+                assert_eq!(response.status(), 400);
+                assert_eq!(response.headers()["content-type"], "application/json");
+                assert_eq!(
+                    response.json::<Value>().await.unwrap(),
+                    json!({
+                        "decision": "withhold", "reason_codes": ["target_unsupported"],
+                    })
+                );
+                assert_eq!(
+                    gateway.peers.sent.lock().unwrap().len(),
+                    usize::from(phase == "before_release")
+                );
+            }
         }
     }
 }
