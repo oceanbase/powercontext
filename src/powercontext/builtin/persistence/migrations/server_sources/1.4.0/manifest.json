@@ -49,12 +49,12 @@
       "schemas/mysql-v1_5_0_004.json"
     ],
     "v1_5_0_005": [
-      "schemas/sqlite-v1_5_0_004.json",
-      "schemas/mysql-v1_5_0_004.json"
-    ],
-    "v1_5_0_006": [
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
+    ],
+    "v1_5_0_006": [
+      "schemas/sqlite-v1_5_0_006.json",
+      "schemas/mysql-v1_5_0_006.json"
     ]
   },
   "sqlite_baselines": {
@@ -95,10 +95,10 @@
       "cfafc8c1d4f0207e5d04febca1e3f9f9a91948d15fb85678de3765d8e772efdc"
     ],
     "v1_5_0_005": [
-      "ee5b35394d8617240c94500b9b8df9d28053db8b318fdfbb2424d1588d7ad212"
+      "8eaad66e83e2c4a21079612f3997db91769e04375537f981319eb58d90600f8b"
     ],
     "v1_5_0_006": [
-      "7992e4ef47e26370a9533a8d46817a815e9a69f5250a761d809597efa43f55c8"
+      "5a1647cf2c1ff63ceb62b57f7ae9166f28f40c672044eca2e48bad0bc358a403"
     ]
   },
   "affected_objects": [

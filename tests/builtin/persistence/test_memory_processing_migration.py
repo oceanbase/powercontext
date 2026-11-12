@@ -47,7 +47,7 @@ def test_processing_upgrade_is_additive_and_keeps_old_history_unknown(tmp_path, 
         )
     old_evidence = json.loads(old.evidence_path.read_text())
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration(embedding))
-    assert upgraded.plan().revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
+    assert upgraded.plan().revisions == ("v1_5_0_005", "v1_5_0_006")
     result = apply(upgraded)
     assert result.revision == "v1_5_0_006" and result.backup_state == "completed"
     assert upgraded.verify().state == "ready"
