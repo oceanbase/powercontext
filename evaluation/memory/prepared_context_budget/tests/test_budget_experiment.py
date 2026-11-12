@@ -60,6 +60,29 @@ def test_the_pinned_report_replays_byte_for_byte(tmp_path: Path) -> None:
     assert run["definitions_sha256"] == _manifest().definitions_sha256
 
 
+def test_the_run_manifest_records_path_arguments_relative_to_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["--manifest", str(_MANIFEST), "--output", "out"]) == 0
+
+    run = json.loads((tmp_path / "out" / "run-manifest.json").read_text(encoding="utf-8"))
+    # The manifest is a replay record, so its arguments must not depend on the machine that produced it.
+    assert run["command"] == [
+        "run.py",
+        "--manifest",
+        "evaluation/memory/prepared_context_budget/fixtures/budget-v1.json",
+        "--output",
+        "out",
+    ]
+
+
+def test_the_pinned_run_manifest_names_no_absolute_path() -> None:
+    command = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))["command"]
+
+    assert [argument for argument in command if Path(argument).is_absolute()] == []
+
+
 def test_infeasible_minimums_are_reported_instead_of_overrunning_the_budget() -> None:
     # 16 candidates cannot all receive a 64-byte minimum inside 512 bytes once the envelope is counted.
     nothing = _result("default-infeasible-512")

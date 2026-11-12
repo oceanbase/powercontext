@@ -31,6 +31,7 @@ from .experiment import CaseResult, Decision, sensitivity
 from .manifest import Manifest
 
 REPORT_SCHEMA_VERSION = "powercontext.prepared-context-budget-report.v1"
+_PATH_OPTIONS = ("--manifest", "--output")
 _SOURCES = (
     "src/powercontext/builtin/runtime/prepared_context.py",
     "src/powercontext/builtin/runtime/prepared_text.py",
@@ -76,7 +77,7 @@ def run_manifest(manifest: Manifest, repo_root: Path, command: Sequence[str]) ->
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "command": list(command),
+        "command": _relative_arguments(command, repo_root),
         "manifest_path": _relative(manifest.path, repo_root),
         "manifest_sha256": manifest.sha256,
         "definitions_path": _relative(manifest.definitions_path, repo_root),
@@ -200,6 +201,31 @@ def _relative(path: Path, root: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _relative_arguments(command: Sequence[str], repo_root: Path) -> list[str]:
+    """Record path arguments the way the other manifest paths are recorded, so replay is repository-relative."""
+
+    arguments: list[str] = []
+    pending = False
+    for argument in command:
+        if pending:
+            arguments.append(_recorded_path(argument, repo_root))
+            pending = False
+        elif argument in _PATH_OPTIONS:
+            arguments.append(argument)
+            pending = True
+        elif "=" in argument and argument.split("=", 1)[0] in _PATH_OPTIONS:
+            option, value = argument.split("=", 1)
+            arguments.append(f"{option}={_recorded_path(value, repo_root)}")
+        else:
+            arguments.append(argument)
+    return arguments
+
+
+def _recorded_path(value: str, repo_root: Path) -> str:
+    path = Path(value)
+    return _relative(path if path.is_absolute() else repo_root / path, repo_root)
 
 
 def _git(repo_root: Path, *arguments: str) -> str | None:

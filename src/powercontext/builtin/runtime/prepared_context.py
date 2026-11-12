@@ -155,12 +155,9 @@ class _BudgetArtifactRef(ArtifactRef):
 
     @override
     def __eq__(self, other: object) -> bool:
-        # Pydantic normally compares model types too; freezing must not change origin equality.
-        return isinstance(other, ArtifactRef) and (self.family, self.artifact_id, self.revision) == (
-            other.family,
-            other.artifact_id,
-            other.revision,
-        )
+        # Pydantic normally compares model types too; freezing must not change origin equality. Comparing the dumped
+        # fields instead of a literal field list keeps equality in step with the inherited field-derived ``__hash__``.
+        return isinstance(other, ArtifactRef) and self.model_dump() == other.model_dump()
 
 
 class _BudgetArtifactAddress(ArtifactAddress):
@@ -218,7 +215,8 @@ class PreparedContextBudgetRecord:
 class PreparedContextBudgetTrace:
     """Budget records of one successful build, in the order the Builder visited the candidates.
 
-    ``content_bytes`` is the complete rendered envelope, ``0`` for an empty result.
+    ``content_bytes`` is the rendered envelope of this build's history share, ``0`` for an empty result. When code
+    evidence shares the preparation, the trace comes from the history sub-build, so code bytes are excluded.
     """
 
     path: Literal["default", "assembly"]
