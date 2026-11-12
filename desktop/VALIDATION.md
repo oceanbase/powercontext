@@ -2948,3 +2948,24 @@ cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --exam
 ```
 
 The exact wheel is retained under `.git/pr2557-wheel/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. The earlier report is preserved under `.git/pr2557-maintenance/real-server-before.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
+
+## Server 74082534 Dashboard protocol qualification
+
+`sqlite-dashboard-74082534-v1` qualifies all thirteen declared Desktop protocol operations against Server commit `74082534e86c67dd1ea3c3fff52bbb8f1c48ea68`. The rebase onto master changed the merged HTTP contract, so this record replaces the previous digest for contract-based selection. Historical records retain their original operation sets and evidence.
+
+OpenAPI SHA-256: `250c6be5d0b35e41eeb2d708c4dd00c36df80f4025ab7eb83a4cdb9a85ed46c3`.
+Wheel: `powercontext-1.5.2.dev71+g74082534e-py3-none-any.whl`.
+Wheel SHA-256: `0e610250ed08ebe73cb0309d2abb6a4e086369c2b2f38e85baa231bda772aecc`.
+All 816 packaged runtime files match the recorded Git commit bytes, including the service bootstrap and integration lifecycle packages.
+
+On 2026-11-13, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The native `server_probe` used the normal ConnectionManager and this bundled product record without `ci-fixtures`. Checks cover save/search/exact reads, Scope pagination, statistics, lost write responses without replay, identity changes, revocation and Server survival after client exit. The enforced-provider case also passed scoped native authorization without Server observation permission.
+
+Commands executed from the repository root:
+
+```bash
+uv build --cache-dir .git/pr2557-uv-cache --wheel --out-dir .git/pr2557-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+.venv/bin/python desktop/tests/real_server.py --product-qualification sqlite-dashboard-74082534-v1 --wheel .git/pr2557-wheel/powercontext-1.5.2.dev71+g74082534e-py3-none-any.whl
+```
+
+The exact wheel is retained under `.git/pr2557-wheel/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
