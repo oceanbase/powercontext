@@ -103,7 +103,7 @@ def test_setup_and_default_doctor_reuse_the_selected_native_target(
 
 
 @pytest.fixture
-def pet_setup_boundary(setup_boundary, monkeypatch):
+def pet_setup_boundary(setup_boundary, monkeypatch, server_checks):
     from powercontext.cli import dsh_pet, system
     from powercontext.client import PowerContextClient
 
@@ -165,7 +165,7 @@ def pet_setup_boundary(setup_boundary, monkeypatch):
             yield client
 
     monkeypatch.setattr(dsh_pet, "_destination_client", destination)
-    args = ["setup", "dsh", "--profile", "web", "--source", str(plugin), "--server-url", "http://127.0.0.1:8000"]
+    args = ["setup", "dsh", "--profile", "web", "--source", str(plugin), "--server-url", "http://127.0.0.1:1"]
     settings = Path(os.environ["DSH_HOME"]) / "profiles/web/.powercontext-dsh-pet/bindings.json"
     return args, packages, settings, paths
 
