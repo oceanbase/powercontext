@@ -40,6 +40,7 @@ type LifecycleDependencies = {
 };
 
 const MAX_SESSION_SCOPES = 32;
+const MAX_TRACKED_RUNS = 64;
 const CLOSING_BUDGET_MS = 1000;
 
 type FlushProgress = {
@@ -127,6 +128,27 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     });
   };
   const sessionScopes = new Map<string, Set<string>>();
+  // OpenClaw supplies a run's active projects to `before_prompt_build` but not to `agent_end`; capture resolves
+  // with the projects of the run it captures, so it reaches the same project binding as that run's recall.
+  const runProjectKeys = new Map<string, readonly string[]>();
+  const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
+    if (!runId || !projectKeys) {
+      return;
+    }
+    runProjectKeys.delete(runId);
+    runProjectKeys.set(runId, [...projectKeys]);
+    if (runProjectKeys.size > MAX_TRACKED_RUNS) {
+      runProjectKeys.delete(runProjectKeys.keys().next().value!);
+    }
+  };
+  const takeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
+    if (!runId) {
+      return undefined;
+    }
+    const projectKeys = runProjectKeys.get(runId);
+    runProjectKeys.delete(runId);
+    return projectKeys;
+  };
   const pendingPositions = new Map<string, number>();
   const confirmedCursors = new Map<string, number>();
   const clearConfirmedPending = (scopeId: string): boolean => {
@@ -389,6 +411,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   };
 
   api.on("before_prompt_build", async (event, ctx) => {
+    rememberRunProjects(ctx.runId, ctx.activeProjectKeys);
     const config = deps.getConfig();
     const agentId = readAgentId(ctx.agentId);
     if (
@@ -442,6 +465,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   });
 
   api.on("agent_end", async (event, ctx) => {
+    const runProjects = takeRunProjects(ctx.runId ?? event.runId);
     const agentId = readAgentId(ctx.agentId);
     if (!event.success || !agentId) {
       return;
@@ -451,7 +475,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         agentId,
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-        activeProjectKeys: ctx.activeProjectKeys,
+        activeProjectKeys: ctx.activeProjectKeys ?? runProjects,
         channel: ctx.channel ?? ctx.messageProvider,
         messages: event.messages,
         eventIdentity: lifecycleEventIdentity(event.messages, { runId: event.runId }),

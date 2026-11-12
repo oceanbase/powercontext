@@ -573,6 +573,35 @@ describe("PowerContext lifecycle", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  it("captures a turn under the projects its prompt was built with", async () => {
+    const harness = createLifecycleHarness();
+    const beforePromptBuild = harness.hooks.get("before_prompt_build")!;
+    const agentEnd = harness.hooks.get("agent_end")!;
+    const session = { agentId: "main", sessionId: "session-1", sessionKey: "agent:main:telegram:direct:user-1" };
+    const turn = async (runId: string, content: string, endProjects?: string[]) => {
+      const messages = [{ role: "user", content }];
+      await beforePromptBuild(
+        { messages, prompt: content },
+        { ...session, runId, activeProjectKeys: ["/workspace/project-a"] },
+      );
+      // OpenClaw's `agent_end` context carries the run but not its active projects.
+      await agentEnd(
+        { success: true, runId, messages },
+        { ...session, runId, ...(endProjects ? { activeProjectKeys: endProjects } : {}) },
+      );
+    };
+
+    await turn("run-1", "recall and capture this");
+    harness.config.autoRecall = false;
+    await turn("run-2", "capture this without recall");
+    // Projects the host supplies to `agent_end` itself take precedence.
+    await turn("run-3", "capture this under the reported project", ["/workspace/project-b"]);
+
+    expect(harness.prepareRequests.map((request) => request.scope_id)).toEqual(["scp_project_a"]);
+    expect(harness.capturedScopes).toEqual(["scp_project_a", "scp_project_a", "scp_project_b"]);
+    expect(harness.warnings).toEqual([]);
+  });
+
   it("keeps capture and flush on one resolved Scope during compaction", async () => {
     const harness = createLifecycleHarness();
     const beforeCompaction = harness.hooks.get("before_compaction");
