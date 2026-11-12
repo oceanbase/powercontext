@@ -38,8 +38,6 @@ REFERENCE_PREFIXES = {
     "README.md": (*INSTALL_REFERENCES, r"PowerContext "),
     "README_CN.md": (*INSTALL_REFERENCES, r"PowerContext "),
     "README_JP.md": (*INSTALL_REFERENCES, r"PowerContext "),
-    "docs/en/docs/get-started/quickstart.md": (*INSTALL_REFERENCES, r"PowerContext "),
-    "docs/zh/docs/get-started/quickstart.md": (*INSTALL_REFERENCES, r"PowerContext "),
     "docs/en/docs/get-started/manual-start.md": INSTALL_REFERENCES,
     "docs/zh/docs/get-started/manual-start.md": INSTALL_REFERENCES,
     "docs/en/docs/get-started/install-and-run.md": (
