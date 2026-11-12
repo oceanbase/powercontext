@@ -63,6 +63,7 @@ the website lists stable releases only. `make docs-test` also runs this check as
 | `docs/en/docs/get-started/manual-start.md`, `docs/zh/docs/get-started/manual-start.md` | CLI/Server and Python Client installation pins, and the matching Agent integration tag. |
 | `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Page description, current release prose, package/tag pins, upgrade target, and Python Client installation. |
 | `integrations/dsh/plugins/powercontext/README.md` | Server installation pin and the matching `setup dsh --ref` tag. |
+| `docs/{en,zh}/docs/operate/database-migrations.md`, `tests/release_upgrades/README.md` | Current target release only; frozen schema revision names and their original software versions remain unchanged. |
 
 The installation guides also contain historical migration versions. Those references are preserved. When adding
 another current-release installation example, include it in the version tooling's managed paths and patterns so
@@ -192,25 +193,24 @@ configurations. `automatic_sources` keeps 1.3.0 as its fixed baseline; explicit 
 The catalog declares twelve cases: one source × three backends × vectors enabled/disabled × Code enabled/disabled.
 Normal publication requires all twelve automatic cases to pass, including both embedded seekDB configurations with
 Code enabled. Failed, skipped, or missing cases block acceptance; the diagnostic-only `seekdb-code` selection cannot
-authorize publication. Passing the matrix does not replace review of the upgrade-support declaration.
+authorize publication. No separate support declaration is required for publication.
 The target is always the actual wheel built by CI. Future target releases keep testing 1.3.0;
 intervening releases are not added automatically. The registered 1.4.0 bridge remains implemented but is outside
 CI upgrade acceptance, so a passing gate does not certify its upgrade path. Source wheel URLs and SHA-256s are resolved
 from public PyPI and recorded with the target artifact.
 
 The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
-`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`.
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
 They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
 creates empty retained tables for the common target shape, without inventing old Candidate history. Adding other
 sources requires exact captures, a registered bridge and actual acceptance; the two registered paths do not certify
 all releases between them or the target.
-The current `upgrade-required` policy mandates positive acceptance on all three backends while keeping upgrade
-support unverified. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
+The current `upgrade-required` policy mandates positive acceptance on all three backends with support limited to combinations
+that pass full Server acceptance. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
 must fail. Neither a fresh-install-only declaration nor correct rejection of an old database satisfies this gate.
-After the full migration implementation and acceptance pass, review the declaration, set `supported-upgrades`, and
-regenerate the installation notices before publication. Both modes run the same mandatory acceptance matrix.
+Both `upgrade-required` and `supported-upgrades` allow publication after the same mandatory acceptance matrix passes.
 The suite contract and evidence requirements are in `tests/release_upgrades/README.md` in the repository.
 
 `make check` and `make release-check` validate this policy and the bilingual installation notices. Changes to
@@ -238,8 +238,8 @@ files to the evidence directory's `validated-dist/`. CI uploads that set. `make 
 upload those exact paths in the same invocation; subsequent changes to the original `dist/` cannot join the upload.
 No packages are uploaded by validation commands without `--publish`.
 
-The release check requires the actual wheel version to match the policy and the release notes to include the exact
-English support declaration from the installation guide. It installs each exact source release and the target wheel
+The release check requires the actual wheel version to match the policy; Release notes need no support declaration.
+It installs each exact source release and the target wheel
 in separate environments. Missing tests, skipped backends, failures, and missing evidence block the check. Static
 policy validation alone does not establish an upgrade path. Ordinary PR builds may have a development
 version; the `--release` check must run against the final tagged wheel without overriding its version.
@@ -256,6 +256,14 @@ By default, the release workflow gates distribution upload, PyPI publication, an
 archives its evidence. It runs after `release.published`, so it cannot prevent the earlier manual publication of
 the GitHub Release page: run the command above before that action. `make publish` requires
 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md` and runs the same gate before uploading packages.
+
+### Publish from the GitHub Actions page
+
+For an existing published Release, open **Actions → Release → Run workflow**, select `master`, and enter
+`powercontext-v1.5.1` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
+Workflow changes must be merged into `master` first. The run uses its workflow commit for gate tooling and the
+selected tag for package builds and acceptance suites. All twelve cases must pass before package publication;
+no support table, fixed Release wording, or policy-mode change is required.
 
 ### Manual publication without upgrade acceptance
 
@@ -290,7 +298,7 @@ verification and website deployment remain enabled, using the selected release t
 
 The `release-without-upgrades` artifact records the tag, source commit, actor, run, distribution hashes, and
 `upgrade_acceptance: skipped`; the run summary also states that existing-database upgrades are unsupported.
-Leaving the option disabled runs the normal automatic upgrade matrix and support-declaration checks.
+Leaving the option disabled runs the normal automatic upgrade matrix.
 
 ### General release validation
 

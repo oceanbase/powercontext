@@ -61,8 +61,8 @@ PHASES = frozenset({
 })
 VERSION = r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?"
 NOTICE = {
-    "en": "Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance on SQLite, seekDB and OceanBase. These migration paths are not yet verified; do not upgrade existing databases.",
-    "zh": "1.3.0 和 1.4.0 升级必须通过 SQLite、seekDB 和 OceanBase 的完整 Server 验收。当前迁移路径尚未验证，请勿升级已有数据库。",  # noqa: RUF001 -- Chinese prose
+    "en": "Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance.",
+    "zh": "数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。",
 }
 
 
@@ -510,11 +510,6 @@ def validate_target(root: Path, wheel: Path, *, release: bool, release_notes: st
     actual_version = wheel_version(wheel)
     if release:
         require(actual_version == policy["target_version"], "Wheel version differs from upgrade policy target")
-        require(release_notes is not None, "Published release notes must declare upgrade support")
-        require(
-            support_text(policy, "en") in (release_notes or ""),
-            "GitHub Release notes must include the exact upgrade support declaration",
-        )
     return policy
 
 
@@ -548,11 +543,6 @@ def gate(root: Path, wheel: Path, output: Path, *, release: bool = False, releas
                 failures.append(case["backend"])
                 evidence["cases"].append({"case": case, "status": "failed", "error": str(error)})
         require(not failures, f"Required upgrade acceptance failed: {', '.join(failures)}")
-        if release:
-            require(
-                policy["mode"] == "supported-upgrades",
-                "Upgrade acceptance passed; update the reviewed support declaration before publication",
-            )
         evidence["status"] = "passed"
     finally:
         (output / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -41,6 +41,6 @@ uv run --locked --no-dev --group resource-build python scripts/desktop_candidate
 
 CI 消费实际目录和归档，用随附 Python 启动一次性的 SQLite Server，并通过独立 Ops 入口检查本机状态。这不包括真实 HTTP 下载或注册服务。候选资源目录特意指向 `candidate.invalid`。
 
-最终平台打包负责人负责 Windows x64 签名和 macOS 双架构签名、公证，将获准的独立 Ops helper 安装到[当前用户固定位置](../docs/operate/local-server-ops.md#配置桥接资源)。卸载 Desktop 必须保留独立 helper、服务状态和用户数据。Windows 保留供 Server 服务使用的 `pythonw.exe` 及用于控制台的 `python.exe`。候选包嵌入资源摘要但不安装独立 helper。helper 配置、干净机安装修复、重启或登录、原生服务生命周期由 [#2108](https://github.com/oceanbase/powercontext/issues/2108) 和 [#2109](https://github.com/oceanbase/powercontext/issues/2109) 负责验收。
+产品打包使用[桌面端产品资源](desktop-product-resources.md)流程，嵌入独立 helper 和获准的长期 Server 下载目录。原生代码在首次使用时把 helper 部署到当前用户私有的摘要目录，卸载 Desktop 时保留。候选工作流仍只嵌入摘要，需要外部配置 helper。Windows 保留服务使用的 `pythonw.exe` 和控制台使用的 `python.exe`。Windows x64、macOS 双架构的签名、干净机安装修复、重启／登录和原生服务生命周期仍由 [#2108](https://github.com/oceanbase/powercontext/issues/2108) 和 [#2109](https://github.com/oceanbase/powercontext/issues/2109) 验收。
 
 最终平台构建应使用经批准的不可变资源 URL；签名改变嵌套代码字节后，重新生成受影响的文件清单、归档、资源目录和配置摘要。把最终摘要嵌入 Desktop 后再签外层包。记录候选清单摘要，并单独记录经过验收的最终包与资源摘要；候选与签名件的字节可以不同。最终验收须在同一 Desktop 和 Server 组合上覆盖身份、Scope 与 Memory、统计、运行观察，以及本机设置直到默认 Scope。不得用重建 wheel 或测试专用构件替代 [#2101](https://github.com/oceanbase/powercontext/issues/2101) 资格。发布和回下载使用同一批最终签名并通过验收的字节。
