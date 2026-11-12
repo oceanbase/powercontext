@@ -23,6 +23,7 @@ import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -39,7 +40,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.context_bindings import ContextBindingError
 from powercontext.builtin.runtime.context_reuse import (
     MAX_REUSE_DEPENDENCIES,
+    ContextReuseChange,
     ContextReuseError,
+    ContextReuseInvalidation,
     prepare_reuse,
 )
 from powercontext.builtin.runtime.prepared_code import CodeEvidenceRef
@@ -121,6 +124,10 @@ def _code_runtime(tmp_path: Path):
     return Fixture()
 
 
+def _code_change(change: Literal["changed", "removed"]) -> ContextReuseInvalidation:
+    return ContextReuseInvalidation("complete", (ContextReuseChange("code", change),), truncated=False)
+
+
 def test_code_reuse_revalidates_cited_files_only(tmp_path):
     async def scenario():
         async with _code_runtime(tmp_path) as (scoped, root, fixture):
@@ -141,19 +148,26 @@ def test_code_reuse_revalidates_cited_files_only(tmp_path):
             # Editing a cited file invalidates it; restoring the bytes makes it valid again.
             budget = root / "src/sample/budget.py"
             budget.write_text(FILES["src/sample/budget.py"] + "# edited\n")
-            with pytest.raises(ContextReuseError, match="source-changed"):
+            with pytest.raises(ContextReuseError, match="source-changed") as edited:
                 await scoped.validate_reuse(prepared.reuse.binding)
+            # The explanation counts changed cited files without naming any path.
+            explanation = edited.value.invalidation
+            assert explanation == _code_change("changed")
+            assert explanation is not None
+            assert "budget" not in explanation.to_json()
             budget.write_text(FILES["src/sample/budget.py"])
             await scoped.validate_reuse(prepared.reuse.binding)
 
             # A removed cited file and an unavailable repository both fail closed.
             budget.unlink()
-            with pytest.raises(ContextReuseError, match="source-changed"):
+            with pytest.raises(ContextReuseError, match="source-changed") as removed:
                 await scoped.validate_reuse(prepared.reuse.binding)
+            assert removed.value.invalidation == _code_change("removed")
             budget.write_text(FILES["src/sample/budget.py"])
             root.rename(root.with_name("moved"))
-            with pytest.raises(ContextReuseError, match="code-unavailable"):
+            with pytest.raises(ContextReuseError, match="code-unavailable") as unavailable:
                 await scoped.validate_reuse(prepared.reuse.binding)
+            assert unavailable.value.invalidation is None
             root.with_name("moved").rename(root)
 
     asyncio.run(scenario())
@@ -169,8 +183,9 @@ def test_a_cited_file_that_leaves_the_git_inventory_stops_reuse(tmp_path):
             _git(root, "rm", "--cached", "-q", "src/sample/budget.py")
             (root / ".gitignore").write_text("src/sample/budget.py\n")
             await asyncio.to_thread(fixture.service.index, fixture.scope_id, full=True)
-            with pytest.raises(ContextReuseError, match="source-changed"):
+            with pytest.raises(ContextReuseError, match="source-changed") as removed:
                 await scoped.validate_reuse(prepared.reuse.binding)
+            assert removed.value.invalidation == _code_change("removed")
 
     asyncio.run(scenario())
 
