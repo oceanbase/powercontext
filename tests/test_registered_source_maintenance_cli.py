@@ -66,7 +66,7 @@ def test_release140_compatibility_commands_preserve_source_and_share_full_upgrad
     planned = CliRunner().invoke(cli, [*arguments, "plan", "--backup", "skip"])
     assert planned.exit_code == 0, planned.output
     plan = json.loads(planned.output)
-    assert plan["source_revision"] == "r1400" and plan["target_revision"] == "v1_5_0_004"
+    assert plan["source_revision"] == "r1400" and plan["target_revision"] == "v1_5_0_005"
     assert plan["readiness_scope"] == "server"
     assert plan["compatibility_steps"] == []
     full = CliRunner().invoke(cli, ["server", "db-migrate", "plan", "--backup", "skip"])

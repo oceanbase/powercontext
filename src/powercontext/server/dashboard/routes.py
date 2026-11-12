@@ -40,6 +40,7 @@ from powercontext.server.dashboard.navigation import (
 )
 from powercontext.server.dashboard.page import load_builtin_page
 from powercontext.server.dashboard.pagination import PAGE_SIZE
+from powercontext.server.dashboard.plugin_pages import plugin_pages
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import set_scope, source_view
 from powercontext.server.dashboard.review import load_review, load_review_inspection, submit_review
@@ -370,10 +371,13 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             page=return_page,
         ),
         "reading_return": request_reading_return(request),
+        "page_title": None,
+        "plugin_page": None,
     }
     if ctx["return_to"]:
         ctx["return_to"] = with_language(ctx["return_to"], ctx["language"])
     ctx["link"] = links(request, ctx)
+    ctx["plugin_pages"] = plugin_pages(request, ctx["language"])
     return ctx
 
 

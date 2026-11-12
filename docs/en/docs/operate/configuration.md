@@ -118,6 +118,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
+| `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |

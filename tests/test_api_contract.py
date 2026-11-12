@@ -40,9 +40,11 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateArtifactRequest,
+    CreateBuiltinArtifactRequest,
     CreateMemoryArtifactContent,
     CreateMemoryArtifactEntry,
     CreateMemoryArtifactRequest,
+    CreatePluginArtifactRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
     EntryChangeOperation,
@@ -326,7 +328,6 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     assert set(properties) == {
         "artifact_dreaming",
         "artifact_dreaming_operations",
-        "custom_artifact_schemas",
         "source_types",
         "artifact_families",
         "memory_extraction",
@@ -904,6 +905,10 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
 
     expected_operations = {
         ("/v1/scopes/{scope_id}/artifacts/{family}/search", "post"): "search_artifacts",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/merges", "post"): "merge_artifacts",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance", "get"): "get_artifact_governance",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget", "post"): "forget_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations", "post"): "restore_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
         (
@@ -928,6 +933,7 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
             "get",
         ): "get_atomic_memory_state",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions", "get"): "list_artifact_revisions",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering", "get"): "get_artifact_rendering",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
             "get",
@@ -989,10 +995,15 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     source = schemas["CreateSourceRequest"]
     assert source["required"] == ["content"]
     assert set(source["properties"]) == {"source_type", "content"}
-    assert source["properties"]["source_type"]["enum"] == ["content"]
+    assert source["properties"]["source_type"]["pattern"] == "^[a-z][a-z0-9._-]*$"
+    assert schemas["SourceType"]["enum"] == ["content"]
     assert source["properties"]["source_type"]["default"] == "content"
 
-    artifact = schemas["CreateArtifactRequest"]
+    assert schemas["CreateArtifactRequest"]["oneOf"] == [
+        {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
+        {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
+    ]
+    artifact = schemas["CreateBuiltinArtifactRequest"]
     assert len(artifact["oneOf"]) == 8
     assert {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"} in artifact["oneOf"]
     assert artifact["discriminator"]["propertyName"] == "family"
@@ -1005,24 +1016,28 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
         "CreateExperienceArtifactRequest",
         "CreateSkillArtifactRequest",
         "CreateHandoffArtifactRequest",
+        "CreatePluginArtifactRequest",
     ):
         family_request = schemas[name]
         assert family_request["required"] == ["family", "content"]
         assert set(family_request["properties"]) == {"family", "content"}
         assert not {"scope_id", "source_id", "artifact_id"} & set(family_request["properties"])
 
-    assert CreateSourceRequest(content="evidence").source_type is SourceType.CONTENT
-    assert (
-        CreateArtifactRequest(
+    assert CreateSourceRequest(content="evidence").source_type == SourceType.CONTENT
+    memory_request = CreateArtifactRequest(
+        root=CreateBuiltinArtifactRequest(
             root=CreateMemoryArtifactRequest(
                 family="memory",
                 content=CreateMemoryArtifactContent(
                     entries=[CreateMemoryArtifactEntry(kind="preference", text="Use Chinese")]
                 ),
             )
-        ).root.family
-        == "memory"
-    )
+        )
+    ).root
+    assert isinstance(memory_request, CreateBuiltinArtifactRequest)
+    assert memory_request.root.family == "memory"
+    plugin_request = CreateArtifactRequest.model_validate({"family": "document", "content": {"title": "x"}})
+    assert isinstance(plugin_request.root, CreatePluginArtifactRequest)
     memory_entry = schemas["CreateMemoryArtifactEntry"]["properties"]
     assert memory_entry["kind"]["minLength"] == 1
     assert memory_entry["kind"]["maxLength"] == 128
@@ -1038,6 +1053,8 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
         (CreateSourceRequest, {"scope_id": "scope", "content": "evidence"}),
         (CreateSourceRequest, {"source_id": "source", "content": "evidence"}),
         (CreateArtifactRequest, {"artifact_id": "artifact", "family": "memory", "content": {}}),
+        # A built-in family name never falls through to the plugin branch.
+        (CreateArtifactRequest, {"family": "memory", "content": {"title": "x"}}),
     ):
         with pytest.raises(ValidationError):
             model.model_validate(payload)

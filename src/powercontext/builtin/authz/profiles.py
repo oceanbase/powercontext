@@ -140,8 +140,8 @@ ARTIFACT_FAMILY_PROFILES: dict[str, ArtifactFamilyAccessProfile] = {
 }
 
 
-def register_custom_artifact_access_family(family: str) -> None:
-    """Use framework-owned read/write semantics for a persisted custom family."""
+def register_plugin_artifact_family(family: str) -> None:
+    """Give a loaded plugin family the framework's read and write semantics."""
 
     if family not in ARTIFACT_FAMILY_PROFILES:
         ARTIFACT_FAMILY_PROFILES[family] = ArtifactFamilyAccessProfile(

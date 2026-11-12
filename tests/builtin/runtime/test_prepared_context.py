@@ -395,7 +395,8 @@ def test_profile_budget_preserves_exact_origin_and_literal_snapshot(max_bytes) -
     [
         None,
         {"format": "json"},
-        {"sections": [{"family": "skill", "limit": 1}]},
+        {"sections": [{"family": "Skill", "limit": 1}]},
+        {"sections": [{"family": "memory", "limit": 1, "search": {"mode": "fts"}}]},
         {"sections": [{"family": "memory", "limit": 1}, {"family": "memory", "limit": 2}]},
         {"sections": [{"family": "experience", "limit": 3}]},
         {"sections": [{"family": "profile", "limit": 1}, {"family": "profile", "limit": 1}]},

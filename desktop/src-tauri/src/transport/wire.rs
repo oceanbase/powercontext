@@ -444,16 +444,6 @@ pub struct ArtifactRevision {
     pub family: String,
     #[serde(rename = "artifact_id")]
     pub artifact_id: String,
-    /// Persisted schema version for a custom Artifact family.
-    #[ts(optional)]
-    #[ts(type = "string | null")]
-    #[serde(
-        rename = "schema_version",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub schema_version: Option<Option<String>>,
     #[serde(rename = "revision")]
     pub revision: i64,
     #[ts(type = "Record<string, unknown>")]
@@ -523,7 +513,6 @@ impl ArtifactRevision {
             scope_id,
             family,
             artifact_id,
-            schema_version: None,
             revision,
             content,
             sources,
@@ -873,12 +862,6 @@ impl CandidateInventoryStatistics {
 #[serde(deny_unknown_fields)]
 pub struct Capabilities {
     #[ts(optional)]
-    #[serde(
-        rename = "custom_artifact_schemas",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub custom_artifact_schemas: Option<Vec<CustomArtifactFamilySchema>>,
-    #[ts(optional)]
     #[serde(rename = "prompts", skip_serializing_if = "Option::is_none")]
     pub prompts: Option<std::collections::HashMap<String, PromptCapability>>,
     /// Whether asynchronous Artifact Dream execution is configured.
@@ -946,7 +929,6 @@ impl Capabilities {
         context_versions: Vec<PreparedContextSchema>,
     ) -> Capabilities {
         Capabilities {
-            custom_artifact_schemas: None,
             prompts: None,
             artifact_dreaming: None,
             artifact_dreaming_operations: None,
@@ -1106,44 +1088,6 @@ impl ContractVersion {
     #[allow(clippy::too_many_arguments)]
     pub fn new(major: i64, minor: i64) -> ContractVersion {
         ContractVersion { major, minor }
-    }
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
-pub struct CustomArtifactFamilySchema {
-    #[serde(rename = "family")]
-    pub family: String,
-    #[serde(rename = "schema_version")]
-    pub schema_version: String,
-    #[ts(type = "Record<string, unknown>")]
-    #[serde(rename = "content_schema")]
-    pub content_schema: std::collections::HashMap<String, serde_json::Value>,
-    /// Legacy persisted text fields; new plugins use search.
-    #[serde(rename = "search_fields")]
-    pub search_fields: Vec<String>,
-    /// Persistent declarative indexes and supported search modes.
-    #[ts(type = "Record<string, unknown>")]
-    #[ts(optional)]
-    #[serde(rename = "search", skip_serializing_if = "Option::is_none")]
-    pub search: Option<std::collections::HashMap<String, serde_json::Value>>,
-}
-
-impl CustomArtifactFamilySchema {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        family: String,
-        schema_version: String,
-        content_schema: std::collections::HashMap<String, serde_json::Value>,
-        search_fields: Vec<String>,
-    ) -> CustomArtifactFamilySchema {
-        CustomArtifactFamilySchema {
-            family,
-            schema_version,
-            content_schema,
-            search_fields,
-            search: None,
-        }
     }
 }
 
@@ -3046,7 +2990,6 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ContextProtectionCapabilities as ts_rs::TS>::decl(config),
         <ContextProtectionCapabilitiesLimits as ts_rs::TS>::decl(config),
         <ContractVersion as ts_rs::TS>::decl(config),
-        <CustomArtifactFamilySchema as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),
         <Effect as ts_rs::TS>::decl(config),
         <ExactScopeSelection as ts_rs::TS>::decl(config),
