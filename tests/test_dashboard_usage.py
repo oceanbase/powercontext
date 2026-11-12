@@ -140,6 +140,46 @@ def test_feedback_is_reported_idempotent_and_scope_bound(dashboard, tmp_path):
     assert form["reason"] not in forged.text
 
 
+def test_editing_feedback_keeps_the_saved_reason_unless_cleared(dashboard, tmp_path):
+    scope = create_scope(dashboard, "Edited feedback")["scope_id"]
+    _, url = prepare(dashboard, scope)
+    endpoint = "/dashboard/usage/feedback?lang=en"
+    reported = form_for(dashboard.get(url), scope, url)
+    saved = dashboard.post(endpoint, data=reported, headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert saved.status_code == 303, saved.text
+
+    editor = dashboard.get(url)
+    assert editor.status_code == 200, editor.text
+    prefilled = re.search(r'<textarea[^>]*name="reason"[^>]*>(.*?)</textarea>', editor.text, re.S)
+    assert prefilled is not None, editor.text
+    assert prefilled[1].strip() == reported["reason"]
+
+    # Editing only the adoption keeps the reported explanation instead of silently clearing it.
+    revised = {**form_for(editor, scope, url), "adoption": "no", "reason": prefilled[1].strip()}
+    changed = dashboard.post(endpoint, data=revised, headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert changed.status_code == 303, changed.text
+    reopened = dashboard.get(url)
+    assert reopened.status_code == 200, reopened.text
+    assert reported["reason"] in reopened.text
+    with sqlite3.connect(tmp_path / "data.db") as connection:
+        rows = connection.execute(
+            "SELECT json_extract(payload, '$.reason') FROM pc_context_usage_feedback"
+            " WHERE scope_id=? ORDER BY created_at DESC, feedback_id DESC",
+            (scope,),
+        ).fetchall()
+    assert [row[0] for row in rows] == [reported["reason"], reported["reason"]]
+
+    # An explicit clear still works.
+    cleared = dashboard.post(
+        endpoint,
+        data={**form_for(reopened, scope, url), "adoption": "no", "reason": ""},
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert cleared.status_code == 303, cleared.text
+    assert reported["reason"] not in dashboard.get(url).text
+
+
 def test_viewer_cannot_submit_feedback_or_read_another_scope(dashboard, monkeypatch):
     scope = create_scope(dashboard, "Private preparation")["scope_id"]
     _, url = prepare(dashboard, scope)
