@@ -328,7 +328,16 @@ try {
         $Python = & $Uv python find --system --no-project --no-python-downloads 3.12
         if ($LASTEXITCODE -ne 0 -or -not $Python) { throw 'Installed Python was not found.' }
     }
-    if (-not (Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue)) {
+    $Python3 = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $Python3Available = $false
+    if ($Python3) {
+        try {
+            & $Uv python find --no-project --no-python-downloads $Python3.Source *> $null
+            $Python3Available = $LASTEXITCODE -eq 0
+        }
+        catch { $Python3Available = $false }
+    }
+    if (-not $Python3Available) {
         $ManagedPython = $null
         try {
             $ManagedPython = & $Uv python find --managed-python --no-project --no-python-downloads 3.12 2>$null

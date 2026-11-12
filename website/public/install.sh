@@ -305,7 +305,8 @@ ensure_python() {
 }
 
 ensure_python3() {
-    if ! command -v python3 >/dev/null 2>&1 &&
+    if { ! command -v python3 >/dev/null 2>&1 ||
+        ! "$UV_BIN" python find --no-project --no-python-downloads "$(command -v python3)" >/dev/null 2>&1; } &&
         "$UV_BIN" python find --managed-python --no-project --no-python-downloads 3.12 >/dev/null 2>&1; then
         # uv normally exposes only python3.12; Claude Code hooks need python3.
         "$UV_BIN" python install --default 3.12 || fail "Could not expose the installed Python as python3."
