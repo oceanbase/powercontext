@@ -183,6 +183,7 @@ function configuration(config: ResolvedConfig, cwd?: string) {
       observation: 'running_plugin',
       endpoint: { ...(origin ? { origin } : {}), source: config.sources.baseUrl, path_prefix: pathPrefix },
       authorization: { configured: Boolean(config.authorization), source: config.sources.authorization },
+      owner_local: config.ownerLocal === true ? 'explicit' : config.ownerLocal === false ? 'disabled' : 'not_configured',
       scope: { source: config.sources.scopeId, selection: config.scopeId ? 'explicit' : cwd?.trim() ? 'workspace_then_default' : 'server_default' },
       request_timeout_ms: config.requestTimeoutMs,
     },

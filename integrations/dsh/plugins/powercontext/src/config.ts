@@ -31,6 +31,8 @@ export interface PluginConfig {
   capturePrompts?: boolean
   flushOnCapture?: boolean
   flushMaxCalls?: number
+  /** Explicit owner assertion for an otherwise unverified local Web host. */
+  ownerLocal?: boolean
 }
 
 export interface ResolvedConfig {
@@ -46,6 +48,8 @@ export interface ResolvedConfig {
   capturePrompts: boolean
   flushOnCapture: boolean
   flushMaxCalls: number
+  /** Explicit owner assertion for a local Web host; undefined means automatic only. */
+  ownerLocal?: boolean
 }
 
 export type ConfigSource = 'environment' | 'plugin' | 'saved' | 'default'
@@ -62,6 +66,7 @@ const DEFAULTS: ResolvedConfig = {
   capturePrompts: true,
   flushOnCapture: false,
   flushMaxCalls: 4,
+  ownerLocal: undefined,
 }
 
 function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -94,6 +99,14 @@ function contextAssembly(raw: string | undefined, fallback?: Record<string, unkn
     throw new Error('PowerContext context assembly must be a JSON object')
   }
   return structuredClone(value as Record<string, unknown>)
+}
+
+function ownerLocal(env: NodeJS.ProcessEnv, configured: boolean | undefined): boolean | undefined {
+  const value = envBoolean(env, 'POWERCONTEXT_DSH_OWNER_LOCAL') ?? configured
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new Error('ownerLocal must be a boolean')
+  }
+  return value
 }
 
 function storedAuthorization(env: NodeJS.ProcessEnv, baseUrl: string): string | undefined {
@@ -144,5 +157,6 @@ export function resolveConfig(
     capturePrompts: envBoolean(env, 'POWERCONTEXT_DSH_CAPTURE_PROMPTS') ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
     flushOnCapture: envBoolean(env, 'POWERCONTEXT_DSH_FLUSH_ON_CAPTURE') ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
     flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
+    ownerLocal: ownerLocal(env, config.ownerLocal),
   }
 }

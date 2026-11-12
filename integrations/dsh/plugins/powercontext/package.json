@@ -1,7 +1,7 @@
 {
   "name": "powercontext-dsh",
-  "version": "0.0.2",
-  "description": "DeepSeek Harness plugin that exposes PowerContext through native MCP tools and uses HTTP for host lifecycle hooks.",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin that exposes PowerContext through native MCP tools, lifecycle hooks, and an optional sidebar status client.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -35,7 +35,12 @@
       "default": "./lib/invariant.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": {
+      "types": "./lib/client.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./assets/*": "./lib/assets/*"
   },
   "files": [
     "lib/index.js",
@@ -43,15 +48,26 @@
     "lib/index.d.ts",
     "lib/invariant.d.ts",
     "cordis.patch.yml",
-    "skills"
+    "skills",
+    "lib/client.js",
+    "lib/client.d.ts",
+    "lib/assets"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-session"
+      ]
     }
   },
   "scripts": {
-    "build": "tsdown && node scripts/normalize-build-output.mjs",
+    "build": "node scripts/clean-build.mjs && tsdown && node scripts/wrap-client.mjs && node scripts/copy-assets.mjs && node scripts/normalize-build-output.mjs",
     "prepare": "node scripts/prepare.mjs",
     "test": "vitest run --exclude=tests/e2e/**",
     "test:e2e": "vitest run tests/e2e",
@@ -99,6 +115,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "^24.3.0",
+    "@types/react": "^18.3.12",
     "cross-spawn": "^7.0.6",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",

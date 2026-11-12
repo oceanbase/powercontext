@@ -138,6 +138,12 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "harbor-context-evaluation-harness/harbor-integration.png",
         "harbor-context-evaluation-harness/history-continuation.png",
         "harbor-context-evaluation-harness/task-batching.png",
+        # The competition article deliberately shares English architecture figures.
+        "three-days-four-thousand-evaluations/trial-and-submission.png",
+        "three-days-four-thousand-evaluations/submission-lifecycle.png",
+        "three-days-four-thousand-evaluations/preparation-and-verifiers.png",
+        "three-days-four-thousand-evaluations/shared-dependencies.png",
+        "three-days-four-thousand-evaluations/recovery-and-delivery.png",
     }
     han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
     for language in ("en", "zh"):
