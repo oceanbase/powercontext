@@ -604,6 +604,7 @@ const texts = {
 		"dashboardExternal": "在浏览器中打开",
 		"dashboardBridgeUnavailable": "无法检查 Dashboard。请确认 DSH 登录和插件 Host 接口后重试。",
 		"dashboardContainerUnavailable": "右侧 Browser 容器不可用。请确认当前会话和 DSH Browser 插件已启用。",
+		"dashboardLoopbackMismatch": "DSH Web 和 Dashboard 的本地地址不匹配，右侧面板无法保持登录。请使用相同的协议和主机名（例如都用 127.0.0.1，端口可以不同）。",
 		"dashboardDisabled": "Dashboard 未开启。请在 Server 配置中明确启用后重试；插件不会自动修改配置或重启服务。",
 		"dashboardAuthentication": "Dashboard 认证未通过。请检查 Server token；右侧页面的登录仍需手动完成。",
 		"dashboardServerUnavailable": "Server 或 Dashboard 路由不可达。检查 Server 启动日志；自定义认证 Provider 与 Dashboard 同时启用的组合不受支持，需由配置和日志确认。",
@@ -698,6 +699,7 @@ const texts = {
 		"dashboardExternal": "Open in browser",
 		"dashboardBridgeUnavailable": "Could not check Dashboard. Verify the DSH sign-in and plugin Host route, then retry.",
 		"dashboardContainerUnavailable": "The right-panel Browser is unavailable. Check the current conversation and that the DSH Browser plugin is enabled.",
+		"dashboardLoopbackMismatch": "The local addresses differ, so Dashboard sign-in cannot persist in the DSH Web panel. Use the same scheme and hostname for both (for example, 127.0.0.1). Ports may differ.",
 		"dashboardDisabled": "Dashboard is off. Enable it explicitly in Server configuration, then retry; the plugin does not change configuration or restart Server.",
 		"dashboardAuthentication": "Dashboard authentication failed. Check the Server token; sign-in in the right panel remains manual.",
 		"dashboardServerUnavailable": "The Server or Dashboard route is unreachable. Check Server startup logs. Dashboard with a custom authentication provider is unsupported; confirm that cause from configuration and logs.",
@@ -882,6 +884,7 @@ const STATUS_STYLES = `
 .pc-dashboard-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
 @media (pointer: coarse) { .pc-dashboard-button { min-height: 44px; } }
 .pc-dashboard-notice { margin: 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
+.pc-dashboard-entry a.pc-text-button { text-align: center; text-decoration: none; }
 .pc-summary { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); border-radius: 10px; background: var(--dsw-alias-bg-l2, rgba(127,127,127,.05)); }
 .pc-summary .pc-dot { position: static; margin-top: 5px; }
 .pc-summary-copy { min-width: 0; flex: 1; }
@@ -983,6 +986,14 @@ const dashboardTextKey = {
 	scope_unresolved: "dashboardScopeUnresolved",
 	bridge_unavailable: "dashboardBridgeUnavailable"
 };
+function isLoopbackWebSite({ protocol, hostname }) {
+	return (protocol === "http:" || protocol === "https:") && (hostname === "localhost" || hostname === "localhost." || hostname === "[::1]" || /^127(?:\.\d+){3}$/.test(hostname));
+}
+/** Web's iframe needs a same-site context for the Dashboard's Strict session cookie. */
+function hasMismatchedLoopbackSite(dsh, dashboardUrl) {
+	const dashboard = new URL(dashboardUrl);
+	return isLoopbackWebSite(dsh) && isLoopbackWebSite(dashboard) && (dsh.protocol !== dashboard.protocol || dsh.hostname !== dashboard.hostname);
+}
 /** The browser reads a credential-free URL selected by the authenticated Host. */
 async function readDashboard(sessionId, fetcher = fetch, signal) {
 	const url = sessionId === void 0 ? DASHBOARD_ROUTE : `${DASHBOARD_ROUTE}?${new URLSearchParams({ session_id: sessionId })}`;
@@ -1373,6 +1384,11 @@ function StatusPanel(props) {
 			setExternalDashboard(result.url);
 			return;
 		}
+		if (hasMismatchedLoopbackSite(window.location, result.url)) {
+			setDashboardNotice("dashboardLoopbackMismatch");
+			setExternalDashboard(result.url);
+			return;
+		}
 		if (!openDashboard(result.url)) {
 			setDashboardNotice("dashboardContainerUnavailable");
 			setExternalDashboard(result.url);
@@ -1640,12 +1656,11 @@ function StatusPanel(props) {
 									role: "status",
 									children: t(dashboardNotice)
 								}),
-								externalDashboard !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
+								externalDashboard !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
 									className: "pc-text-button",
-									onClick: () => {
-										window.open(externalDashboard, "_blank", "noopener,noreferrer");
-									},
+									href: externalDashboard,
+									target: "_blank",
+									rel: "noopener noreferrer",
 									children: t("dashboardExternal")
 								})
 							]

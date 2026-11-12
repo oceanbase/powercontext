@@ -20,7 +20,7 @@ import { dashboardAvailability, createDashboardRouteHandler } from '../src/dashb
 import { DASHBOARD_SCHEMA, parseDashboardPayload } from '../src/dashboard-contract.ts'
 import type { ResolvedConfig } from '../src/config.ts'
 import type { StatusBridge } from '../src/status-bridge.ts'
-import { readDashboard } from '../src/ui/dashboard.ts'
+import { hasMismatchedLoopbackSite, readDashboard } from '../src/ui/dashboard.ts'
 
 const config = {
   baseUrl: 'http://127.0.0.1:18000', requestTimeoutMs: 1_000,
@@ -123,6 +123,18 @@ describe('Dashboard bridge boundary', () => {
 })
 
 describe('Dashboard browser contract', () => {
+  it.each([
+    ['http://127.0.0.1:13080', 'http://localhost:18080', true],
+    ['http://localhost:13080', 'http://127.0.0.1:18080', true],
+    ['http://[::1]:13080', 'http://localhost:18080', true],
+    ['https://localhost:13080', 'http://localhost:18080', true],
+    ['http://127.0.0.1:13080', 'http://127.0.0.1:18080', false],
+    ['http://localhost:13080', 'http://localhost:18080', false],
+    ['dsh-app://app', 'http://localhost:18080', false],
+  ])('checks whether %s and %s are mismatched loopback sites', (dsh, dashboard, expected) => {
+    expect(hasMismatchedLoopbackSite(new URL(dsh), `${dashboard}/dashboard/home?scope=scope-a`)).toBe(expected)
+  })
+
   it('uses the authenticated DSH route with only the Session selector', async () => {
     const payload = { schema: DASHBOARD_SCHEMA, state: 'available', session_id: 'session-1',
       scope_id: 'scope-a', url: 'http://127.0.0.1:18000/dashboard/home?scope=scope-a' }

@@ -2,10 +2,10 @@
 
 ## Build and environment
 
-- Source branch: task 2 rebased onto the open, unmerged #2569 head `a9ae5671b462313494de87ee632089207d837947`. RFC #2528 is merged. The host acceptance archive was built before that rebase, when #2569 was at `7bdbc7b7bb95b5bc1cffb905715ddf47897552fa`; its intervening commit changes only `tests/test_dsh_transport.py`, not the plugin or Server. The test used an isolated worktree and did not edit DSH source.
+- Source baseline for the November 11 runs: task 2 built on #2569 at `7bdbc7b7bb95b5bc1cffb905715ddf47897552fa`. RFC #2528 is merged. #2569 was later squash-merged as `05a50973`; task 2 targets `master`. The tests used an isolated worktree and did not edit DSH source.
 - DSH Web CLI and mounted Desktop app: official `0.2.2-rc.1` release. Desktop DMG `deepseek-harness-0.2.2-rc.1-mac-arm64.dmg`, SHA-256 `c3a594d8990e96fb440f5bb63d72414c42c3e27b691b8056822a71ee97816028`.
 - PowerContext Server: `1.5.2.dev15+g7bdbc7b7b.d20261111`, isolated home and database at `/tmp/dsh-dashboard-task2/pc-data`, bound to `127.0.0.1:18080`.
-- Final plugin archive: `powercontext-dsh-0.1.0.tgz`, SHA-256 `48656ad3b0db0836df575aaf10f38bc31d7bc88a122a4414b79fa7bb8a688e11`. It was installed independently into isolated DSH Web and Desktop profiles. Both installed `lib/client.js` files matched the final build at SHA-256 `0974dc190fad3fac38ddc68712b1bb023e5e9b4bfd835b8983731d3041b52948`.
+- Plugin archive for the November 11 runs: `powercontext-dsh-0.1.0.tgz`, SHA-256 `48656ad3b0db0836df575aaf10f38bc31d7bc88a122a4414b79fa7bb8a688e11`. It was installed independently into isolated DSH Web and Desktop profiles. Both installed `lib/client.js` files matched the build at SHA-256 `0974dc190fad3fac38ddc68712b1bb023e5e9b4bfd835b8983731d3041b52948`. The table below refers to this archive.
 - Browser and Desktop profiles, Server token, and workspaces were temporary test fixtures. The test token was generated locally and was never placed in a Dashboard URL, page script, or log.
 
 ## Real host observations
@@ -27,10 +27,17 @@
 
 The Dashboard was rendered inside DSH on both surfaces. Opening the same URL in an external browser was not used as an embedding pass criterion.
 
+## Web loopback regression — 2026-11-12
+
+Installed `powercontext-dsh-0.1.0.tgz` (SHA-256 `48f14e44b77636fbc521415e8ecbaf689fd92e478b2d9989a2d6697385386418`) in the isolated DSH Web `0.2.2-rc.1` profile. The installed browser bundle matched the build. The code was based on `master` at `923e3d4c`. The local Server required a token.
+
+- DSH at `http://127.0.0.1:13080`, Dashboard at `http://localhost:18080`: the panel showed address guidance and an external link, with no Dashboard iframe. The Host API still reported ready. Following the link as a top-level navigation preserved the selected workspace-b Scope in the sign-in return URL.
+- DSH at `http://localhost:13080`, Dashboard at `http://localhost:18080`: the right Browser iframe rendered the Dashboard sign-in form with the same Scope in its return field. This regression check stopped at the login form; the earlier runs exercised token entry.
+
 ## Automated checks
 
-- `pnpm test:all`: 531 plugin tests passed on the final source, including disabled Dashboard, no selected session, two Scope selectors, authentication before unresolved Scope, invalid route content, network failure, DSH authorization, and URL/credential rejection.
-- `pnpm test:package`: release archive install/load passed.
+- `pnpm test:all`: 538 plugin tests passed, including the loopback regression, disabled Dashboard, no selected session, two Scope selectors, authentication before unresolved Scope, invalid route content, network failure, DSH authorization, and URL/credential rejection.
+- `pnpm pack:release` and `node --test tests/pack-release.test.mjs`: release archive built, installed, and loaded.
 - `uv run pytest tests/test_dashboard.py tests/test_dashboard_profile_handoff.py -q`: 88 passed. The login regression covers a non-default Scope and preserved language/theme query.
 - `uv run pytest tests/test_dsh_transport.py -q` after rebasing onto #2569's new test-only commit: 60 passed, 49 skipped.
 - `make check`: passed, including lock check, hooks, type checks, and 61 integration-manifest tests.

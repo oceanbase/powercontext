@@ -236,6 +236,11 @@ the Dashboard path and selected Scope, never a token. The Browser signs in direc
 token authentication is enabled; DSH's Server credential is not copied into the page. Sign-in returns to the
 selected Scope. A failed sign-in stays on the Dashboard login page for correction.
 
+For local DSH Web, use the same scheme and loopback hostname for DSH and the Server Dashboard; the ports may
+differ. For example, use `http://127.0.0.1` for both. If one uses `localhost` and the other uses `127.0.0.1`,
+the iframe cannot keep the Dashboard sign-in cookie. The panel explains the mismatch and offers **Open in browser**
+for the same Scope.
+
 If Dashboard is disabled, the panel says to enable it in Server configuration. A rejected Host credential or an
 unavailable Server is reported separately; the API connection status is not changed by Dashboard availability.
 If the DSH Browser container is unavailable, the panel keeps diagnostics open, reports that it could not open

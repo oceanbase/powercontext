@@ -31,6 +31,19 @@ export const dashboardTextKey: Record<DashboardRead['state'], TextKey> = {
   bridge_unavailable: 'dashboardBridgeUnavailable',
 }
 
+function isLoopbackWebSite({ protocol, hostname }: Pick<URL, 'protocol' | 'hostname'>): boolean {
+  return (protocol === 'http:' || protocol === 'https:')
+    && (hostname === 'localhost' || hostname === 'localhost.' || hostname === '[::1]'
+      || /^127(?:\.\d+){3}$/.test(hostname))
+}
+
+/** Web's iframe needs a same-site context for the Dashboard's Strict session cookie. */
+export function hasMismatchedLoopbackSite(dsh: Pick<URL, 'protocol' | 'hostname'>, dashboardUrl: string): boolean {
+  const dashboard = new URL(dashboardUrl)
+  return isLoopbackWebSite(dsh) && isLoopbackWebSite(dashboard)
+    && (dsh.protocol !== dashboard.protocol || dsh.hostname !== dashboard.hostname)
+}
+
 /** The browser reads a credential-free URL selected by the authenticated Host. */
 export async function readDashboard(
   sessionId: string | undefined,

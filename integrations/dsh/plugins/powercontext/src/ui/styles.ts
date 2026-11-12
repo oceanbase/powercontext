@@ -89,6 +89,7 @@ export const STATUS_STYLES = `
 .pc-dashboard-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
 @media (pointer: coarse) { .pc-dashboard-button { min-height: 44px; } }
 .pc-dashboard-notice { margin: 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
+.pc-dashboard-entry a.pc-text-button { text-align: center; text-decoration: none; }
 .pc-summary { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); border-radius: 10px; background: var(--dsw-alias-bg-l2, rgba(127,127,127,.05)); }
 .pc-summary .pc-dot { position: static; margin-top: 5px; }
 .pc-summary-copy { min-width: 0; flex: 1; }

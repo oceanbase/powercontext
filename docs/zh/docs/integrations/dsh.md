@@ -190,6 +190,10 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 启用 token 认证时，用户直接在 Dashboard 浏览器容器内登录；DSH 的 Server 凭据不会注入页面。登录后返回
 所选 Scope；登录失败可在原登录页更正。
 
+在本地使用 DSH Web 时，DSH 与 Server Dashboard 应使用相同的协议和回环主机名，端口可以不同。例如，两者都用
+`http://127.0.0.1`。若一边用 `localhost`、另一边用 `127.0.0.1`，内嵌页面无法保持 Dashboard 登录。
+面板会提示地址不匹配，并提供**在浏览器中打开**，保留所选 Scope。
+
 Dashboard 未开启时，面板提示在 Server 配置中开启。Host 凭据被拒绝或 Server 不可用会分别提示；Dashboard
 可用性不会改变 API 连接状态。DSH Browser 容器不可用时，面板保留诊断入口、提示无法打开侧栏，并提供
 **在浏览器中打开**。Browser 导航失败由 DSH Browser 标签页显示，恢复 Server 后可刷新。PowerContext Server 不支持 Dashboard 与自定义认证

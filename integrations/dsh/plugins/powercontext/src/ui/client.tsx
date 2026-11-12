@@ -22,7 +22,7 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
-import { dashboardTextKey, readDashboard } from './dashboard.ts'
+import { dashboardTextKey, hasMismatchedLoopbackSite, readDashboard } from './dashboard.ts'
 
 const LocaleContext = createContext<Locale>('zh-CN')
 function useText() {
@@ -209,6 +209,11 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
       setExternalDashboard(result.url)
       return
     }
+    if (hasMismatchedLoopbackSite(window.location, result.url)) {
+      setDashboardNotice('dashboardLoopbackMismatch')
+      setExternalDashboard(result.url)
+      return
+    }
     if (!openDashboard(result.url)) {
       setDashboardNotice('dashboardContainerUnavailable')
       setExternalDashboard(result.url)
@@ -390,9 +395,9 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
                 {dashboardBusy ? t('dashboardChecking') : t('dashboardOpen')}
               </button>
               {dashboardNotice !== null && <p className="pc-dashboard-notice" role="status">{t(dashboardNotice)}</p>}
-              {externalDashboard !== null && <button type="button" className="pc-text-button" onClick={() => {
-                window.open(externalDashboard, '_blank', 'noopener,noreferrer')
-              }}>{t('dashboardExternal')}</button>}
+              {externalDashboard !== null && <a className="pc-text-button" href={externalDashboard} target="_blank" rel="noopener noreferrer">
+                {t('dashboardExternal')}
+              </a>}
             </section>
             <div className={`pc-summary pc-summary-${state}`} role="status" aria-live="polite" aria-busy={snapshot.loading}>
               <Dot state={state} />
