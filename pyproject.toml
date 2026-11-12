@@ -147,7 +147,6 @@ resource-build = [
     "alembic>=1.16,<2",
     "apscheduler>=3.11,<4",
     "anyio>=4,<5",
-    "authlib>=1.7,<2",
     "click>=8.1,<9",
     "filelock>=3.16,<4",
     "httpx>=0.28,<1",
