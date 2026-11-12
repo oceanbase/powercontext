@@ -119,7 +119,20 @@ def running_gateway(
     with (directory / "gateway.log").open("w+") as output:
         process = subprocess.Popen([binary], env=environment, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
         try:
-            with httpx.Client(base_url=f"http://{address}", trust_env=False, timeout=5) as client:
+            # The acceptance cases send a burst of rejected requests and then a raw
+            # socket probe. On a busy shared runner the gateway can close an idle
+            # HTTP/1.1 connection between two probes, and a pooled client that
+            # reuses that half-closed connection fails with
+            # ``RemoteProtocolError: Server disconnected without sending a
+            # response`` even though the gateway is healthy (run 43194760158,
+            # ``tests (3.13, e2e)``, enforcing/responses). Keep no idle
+            # connections in the pool so every probe starts on a fresh socket.
+            with httpx.Client(
+                base_url=f"http://{address}",
+                trust_env=False,
+                timeout=5,
+                limits=httpx.Limits(max_keepalive_connections=0),
+            ) as client:
                 deadline = time.monotonic() + 20
                 while True:
                     if process.poll() is not None or time.monotonic() >= deadline:
