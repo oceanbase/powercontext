@@ -235,8 +235,9 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # Allow end-to-end suites' subprocess tails to finish on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 40 }}
+    # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
+    # also need time for subprocess tails on internal runners.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
@@ -1052,6 +1053,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
     timeout-minutes: 20
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    env:
+      OPENCODE_VERSION: '1.19.5'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1067,6 +1070,35 @@ jobs:
           cache-dependency-glob: integrations/opencode/plugins/powercontext/pnpm-lock.yaml
       - name: Test OpenCode package
         run: make opencode-test
+
+      - name: Install the pinned OpenCode host
+        run: |
+          package="opencode-$(node -p 'process.platform + "-" + process.arch')"
+          # OpenCode's default x64 build needs AVX2; its own installer falls back to the baseline build without it.
+          if [ "$package" = opencode-linux-x64 ] && ! grep -qw avx2 /proc/cpuinfo; then
+            package=opencode-linux-x64-baseline
+          fi
+          npm install --prefix "$RUNNER_TEMP/opencode-host" \
+            --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
+            "$package@$OPENCODE_VERSION"
+          cli="$RUNNER_TEMP/opencode-host/node_modules/$package/bin/opencode"
+          test "$("$cli" --version)" = "$OPENCODE_VERSION"
+          echo "OPENCODE_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Run OpenCode with the PowerContext plugin against a real Server
+        # Without the binary the cases skip, so refuse to run without it.
+        run: |
+          test -x "$OPENCODE_CLI_BIN"
+          uv run pytest tests/e2e/test_opencode_service_chain.py --basetemp "$RUNNER_TEMP/opencode-e2e"
+
+      - name: Upload OpenCode host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: opencode-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/opencode-e2e/**/opencode.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify OpenCode guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[opencode]"

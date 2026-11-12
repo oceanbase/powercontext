@@ -19,8 +19,9 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
-import { desktopApi } from "../src/shared/ipc";
 import { opsApi } from "../src/shared/ops";
+import { desktopApi } from "../src/shared/ipc";
+import { localText } from "../src/app/local-server-messages";
 import { messages } from "../src/app/messages";
 import type { DesktopState } from "../src/generated/ipc";
 
@@ -35,9 +36,8 @@ vi.mock("../src/shared/ipc", () => ({
   },
 }));
 vi.mock("../src/shared/ops", () => ({
-  opsApi: {
-    inspect: vi.fn(),
-  },
+  subscribeOpsProgress: vi.fn().mockResolvedValue(() => {}),
+  opsApi: { references: vi.fn(), inspect: vi.fn() },
 }));
 const disconnected: DesktopState = {
   generation: 0,
@@ -49,19 +49,16 @@ const disconnected: DesktopState = {
   lastWrite: null,
 };
 beforeEach(() => {
-  vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
   vi.mocked(opsApi.inspect).mockResolvedValue({
-    outcome: "succeeded",
-    components: {
-      support: "supported",
-      registration: "installed",
-      definition: "current",
-      managerOwnership: "owned",
-      manager: "active",
-      liveness: "live",
-      readiness: "verified_during_operation",
-    },
+    outcome: "unknown",
+    bridgeError: "unavailable",
   });
+  vi.mocked(opsApi.references).mockResolvedValue({
+    bindingAvailable: false,
+    loginStartChoice: false,
+    operations: [],
+  });
+  vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
 });
 afterEach(() => {
   cleanup();
@@ -110,21 +107,20 @@ test.each(["zh", "en"] as const)(
       within(region).getByRole("heading", { name: "Local Server", level: 2 }),
     );
     expect(
-      within(region).getByRole("heading", { name: t.localServerUnavailable }),
-    ).toBeTruthy();
-    expect(within(region).getByText(t.localServerUnavailableHint)).toBeTruthy();
-    expect(within(region).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(region).getAllByRole("button")).toHaveLength(2);
-    await user.click(
-      within(region).getByRole("button", { name: t.localServerInspect }),
-    );
-    expect(opsApi.inspect).toHaveBeenCalledOnce();
-    expect(
       within(region).getByRole("heading", {
-        name: t.localServerInspectionTitle,
+        name: localText(language, "unavailable"),
       }),
     ).toBeTruthy();
-    expect(within(region).getByText("active")).toBeTruthy();
+    expect(
+      within(region).getByText(localText(language, "unavailableHint")),
+    ).toBeTruthy();
+    expect(
+      (
+        within(region).getByRole("button", {
+          name: localText(language, "install"),
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(
       screen
         .getByRole("button", { name: t.settings })
@@ -155,7 +151,7 @@ test.each(["loading", "error"])(
     await user.click(screen.getByRole("button", { name: "设置与诊断" }));
     const region = screen.getByRole("region", { name: "Local Server" });
     expect(
-      within(region).getByText(messages.zh.localServerUnavailableHint),
+      within(region).getByText(localText("zh", "unavailableHint")),
     ).toBeTruthy();
     expect(
       within(region)

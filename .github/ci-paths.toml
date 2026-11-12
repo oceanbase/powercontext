@@ -70,7 +70,11 @@ pi = [
   "integrations/pi/**", "tests/*pi_*", "tests/e2e/cross_host_work_continuity/pi.py",
   "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
 ]
-opencode = ["integrations/opencode/**", "tests/*opencode*"]
+# The OpenCode service chain reuses the ZCode acceptance wire fixtures.
+opencode = [
+  "integrations/opencode/**", "tests/*opencode*", "tests/e2e/zcode_acceptance/protocol.py",
+  "tests/e2e/zcode_acceptance/runner.py",
+]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
 website = [
