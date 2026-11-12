@@ -100,7 +100,9 @@ step is omitted. Injected prepare content, provider reasoning ciphertext, IDs, s
 are outside the profile, and `data:` binary content becomes a placeholder with its media type and size. Excluding
 them does not itself make this projection partial.
 
-A turn over the 200,000-character Source content limit is split, in order, into several Sources. Each part is a
+So that Core's normal extraction can process each Source on its own (default input budget 24,000 estimated tokens),
+a turn over 12,000 tokens by Core's character estimate (of the escaped text: one token per 4 ASCII characters or per
+other character) is split, in order, into several Sources. Each part is a
 complete JSON document with `part` and `parts`. A single step that does not fit has its longest text field split into
 consecutive steps of the same type, and the later pieces carry `"continued": true`. Splitting loses nothing, so every
 part declares `complete`. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal

@@ -19,7 +19,8 @@
 //! 文本；字段不截断，步骤不省略。只有推理密文、各类 ID、状态、用量等传输元数据不进入记录，二进制数据（截图、
 //! 图片、文件）记为带字节数的占位文本。用户文本取自注入前的请求，不含准备结果。
 //!
-//! Source 正文有长度上限（[`MAX_SOURCE_CHARS`]）。超出时，记录按顺序拆成几段，每段都是独立的 Source。
+//! 每个 Source 都要能被 Core 的普通抽取单独处理：估算规模超过 [`MAX_SOURCE_TOKENS`] 时，记录按顺序拆成几段，
+//! 每段都是独立的 Source。
 
 use crate::capture_coverage::declaration;
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role};
@@ -28,8 +29,21 @@ use serde_json::{Map, Value};
 
 /// 投影名称，见捕获覆盖声明契约。
 pub(crate) const PROJECTION: &str = "gateway-turn-text.v2";
-/// 一个 Source 正文的字符数上限（契约中 `CaptureContentSourceRequest.content` 的 `maxLength`）。
-pub(crate) const MAX_SOURCE_CHARS: usize = 200_000;
+/// 一段 Source 的估算 token 上限。Core 的 Atomic Memory 抽取默认只接受 24,000 个估算 token 的输入，其中还有
+/// 指令和输出格式；Source 正文在输入里是转义后的 JSON 字符串，这里按转义后的文本估算，留出余量。
+pub(crate) const MAX_SOURCE_TOKENS: usize = 12_000;
+/// Core 的字符估算：ASCII 字符 4 个单位，其他字符 16 个单位，每 16 个单位一个 token（与
+/// `character_token_estimator` 一致：ASCII 4 字符一个 token，非 ASCII 1 字符一个 token）。
+const UNITS_PER_TOKEN: usize = 16;
+
+/// 文本作为 JSON 字符串转义后在 Core 估算中的单位数。
+fn units(text: &str) -> usize {
+    serde_json::to_string(text)
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii() { 4 } else { 16 })
+        .sum()
+}
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -121,13 +135,14 @@ pub(crate) fn turn_transcript(
     })
 }
 
-/// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段：每段是
+/// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段，每段的估算规模都不超过 [`MAX_SOURCE_TOKENS`]：每段是
 /// `{"kind": "gateway_turn", "part": i, "parts": n, "steps": [...]}`，用户文本作为第一段的第一个步骤（`user`），
 /// 助手文本作为最后一段的最后一个步骤；单个步骤放不下时，它最长的文本字段按字符拆成连续的几个同类步骤，
 /// 后续部分带 `"continued": true`。
 fn split(transcript: &Transcript) -> Option<Vec<String>> {
+    let budget = MAX_SOURCE_TOKENS * UNITS_PER_TOKEN;
     let whole = serde_json::to_string(transcript).ok()?;
-    if whole.chars().count() <= MAX_SOURCE_CHARS {
+    if units(&whole) <= budget {
         return Some(vec![whole]);
     }
     let mut entries = vec![serde_json::json!({"type": "user", "text": transcript.user})];
@@ -136,7 +151,7 @@ fn split(transcript: &Transcript) -> Option<Vec<String>> {
     }
     entries.push(serde_json::json!({"type": "assistant", "text": transcript.assistant}));
     // 段的外层（kind、part、parts、括号与分隔符）留出余量。
-    let budget = MAX_SOURCE_CHARS - 200;
+    let budget = budget - 200 * 16;
     let pieces: Vec<Value> = entries
         .into_iter()
         .flat_map(|entry| fit(entry, budget))
@@ -144,7 +159,7 @@ fn split(transcript: &Transcript) -> Option<Vec<String>> {
     let mut groups: Vec<Vec<Value>> = vec![Vec::new()];
     let mut used = 0;
     for piece in pieces {
-        let size = piece.to_string().chars().count() + 1;
+        let size = units(&piece.to_string()) + 4;
         if used + size > budget && !groups.last().is_some_and(Vec::is_empty) {
             groups.push(Vec::new());
             used = 0;
@@ -168,9 +183,9 @@ fn split(transcript: &Transcript) -> Option<Vec<String>> {
         .collect()
 }
 
-/// 把一个放不下的步骤按其最长的字符串字段拆成连续的几个步骤，每个都不超过 `budget` 个字符。
+/// 把一个放不下的步骤按其最长的字符串字段拆成连续的几个步骤，每个的估算单位数都不超过 `budget`。
 fn fit(entry: Value, budget: usize) -> Vec<Value> {
-    if entry.to_string().chars().count() < budget {
+    if units(&entry.to_string()) < budget {
         return vec![entry];
     }
     let Some(fields) = entry.as_object() else {
@@ -186,15 +201,30 @@ fn fit(entry: Value, budget: usize) -> Vec<Value> {
     let mut shell = fields.clone();
     shell.insert(key.clone(), Value::from(""));
     shell.insert("continued".into(), Value::from(true));
-    // JSON 转义最多把一个字符变成 6 个（`\uXXXX`），按最坏情况取每块的字符数。
-    let room = budget.saturating_sub(Value::Object(shell).to_string().chars().count()) / 6;
-    let chars: Vec<char> = text.chars().collect();
-    chars
-        .chunks(room.max(1))
+    let room = budget
+        .saturating_sub(units(&Value::Object(shell).to_string()))
+        .max(1);
+    // 每个字符在步骤 JSON 里转义一次、在 Source 字符串里再转义一次后的单位数。
+    let cost = |c: char| units(&Value::from(c.to_string()).to_string()) - units("\"\"");
+    let mut chunks = vec![String::new()];
+    let mut used = 0;
+    for c in text.chars() {
+        let size = cost(c);
+        if used + size > room && !chunks.last().is_some_and(String::is_empty) {
+            chunks.push(String::new());
+            used = 0;
+        }
+        used += size;
+        if let Some(chunk) = chunks.last_mut() {
+            chunk.push(c);
+        }
+    }
+    chunks
+        .into_iter()
         .enumerate()
         .map(|(index, chunk)| {
             let mut piece = fields.clone();
-            piece.insert(key.clone(), Value::from(chunk.iter().collect::<String>()));
+            piece.insert(key.clone(), Value::from(chunk));
             if index > 0 {
                 piece.insert("continued".into(), Value::from(true));
             }
@@ -580,7 +610,7 @@ mod tests {
 
     #[test]
     fn a_turn_is_recorded_in_full_and_declares_the_complete_projection() {
-        let long = "文".repeat(50_000);
+        let long = "文".repeat(10_000);
         let projection =
             turn_transcript(&chat_turn(std::slice::from_ref(&long)), FINAL, "messages").unwrap();
         let transcript = single(&projection);
@@ -608,14 +638,17 @@ mod tests {
         // 一个单独就放不下的工具输出，拆成连续的几个步骤。
         request.messages.push(request.messages[1].clone());
         request.messages.push(request.messages[2].clone());
-        let huge = "y".repeat(MAX_SOURCE_CHARS * 2);
+        let huge = "y\n".repeat(MAX_SOURCE_TOKENS * 3);
         request.messages.last_mut().unwrap().content = vec![Value::from(huge.as_str())];
         let projection = turn_transcript(&request, FINAL, "messages").unwrap();
         let count = projection.parts.len();
         assert!(count > 2);
         let mut entries = Vec::new();
         for (index, part) in projection.parts.iter().enumerate() {
-            assert!(part.chars().count() <= MAX_SOURCE_CHARS);
+            assert!(
+                units(part) <= MAX_SOURCE_TOKENS * UNITS_PER_TOKEN,
+                "each part fits Core's default extraction budget"
+            );
             let part: Value = serde_json::from_str(part).unwrap();
             assert_eq!(part["kind"], "gateway_turn");
             assert_eq!(part["part"], index + 1);
