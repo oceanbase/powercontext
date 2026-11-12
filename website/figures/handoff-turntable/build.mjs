@@ -31,7 +31,7 @@ import * as k from "../anatomy-kit/iso-kit.mjs";
 import * as A from "../anatomy-kit/audit.mjs";
 import * as TA from "../anatomy-kit/turn-audit.mjs";
 import { TURN_CSS } from "../anatomy-kit/turn.mjs";
-import { buildScene, HEIGHT, HUB, P, WIDTH } from "./scene.mjs";
+import { BASE, buildScene, HEIGHT, HUB, P, WIDTH } from "./scene.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -57,8 +57,7 @@ if (has("--audit")) {
 }
 
 const layerOf = (name) => R.items.filter((item) => item.layer === name).sort((a, b) => a.key - b.key).map((item) => item.svg).join("");
-const BASE_PLAN = { x: -106, y: -62, w: 212, d: 124, r: 9 };
-const back = `<path class="iso-halo" d="${k.haloOf(BASE_PLAN, -17, 12, P)}"/>` + layerOf("back");
+const back = `<path class="iso-halo" d="${k.haloOf(BASE, -17, 12, P)}"/>` + layerOf("back");
 const front = layerOf("front");
 const liveSvg = out.layerSvg("table", { width: WIDTH, height: HEIGHT });
 const live = liveSvg.slice(liveSvg.indexOf(">") + 1, liveSvg.lastIndexOf("</svg>"));
@@ -124,7 +123,7 @@ if (has("--preview") || verify || has("--check")) {
     figure: "Fig 1",
     title: "Handoff turntable",
     hint: "Click to hand off",
-    readout: { from: "session ending · Work Contract", to: "next session · Task Outcome" },
+    readout: { from: "Ending session · Handoff prepared", to: "Next session · Handoff acknowledged" },
     steps: ["Work Contract", "Prepared Handoff", "Acknowledgement", "Task Outcome"],
   };
   // --check pages carry the kit's unscoped CSS, for turn-check, which re-renders layers outside `.hf`.
@@ -144,5 +143,5 @@ function markup(a, labels) {
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
   const vb = `0 0 ${a.width} ${a.height}`;
   const origin = `${((a.hub[0] / a.width) * 100).toFixed(3)}% ${((a.hub[1] / a.height) * 100).toFixed(3)}%`;
-  return `<div class="hf iso" style="--hf-origin:${origin};--hf-ratio:${a.width}/${a.height}"><div class="hf-plate"><span class="hf-corner" data-corner="fig">${esc(labels.figure)}</span><span class="hf-corner" data-corner="title">${esc(labels.title)}</span><div class="hf-stage" role="button" tabindex="0" aria-label="${esc(labels.hint)}"><div class="hf-scale iso-turn"><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg" viewBox="${vb}" role="img" aria-label="${esc(labels.description)}">${a.back}</svg><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg iso-live iso-layer" data-live="table" viewBox="${vb}" aria-hidden="true">${a.live}</svg><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg iso-layer" viewBox="${vb}" aria-hidden="true">${a.front}</svg></div></div><span class="hf-corner" data-corner="hint">${esc(labels.hint)}</span><span class="hf-corner" data-corner="readout" data-readout aria-hidden="true">${esc(labels.readout.to)}</span><span class="hf-status" aria-live="polite"></span></div></div>`;
+  return `<div class="hf iso" style="--hf-origin:${origin};--hf-ratio:${a.width}/${a.height}"><div class="hf-plate"><div class="hf-body"><span class="hf-corner" data-corner="title"><span>${esc(labels.figure)}</span><span>${esc(labels.title)}</span></span><div class="hf-stage" role="button" tabindex="0" aria-label="${esc(labels.hint)}"><div class="hf-scale iso-turn"><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg" viewBox="${vb}" aria-hidden="true">${a.back}</svg><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg iso-live iso-layer" data-live="table" viewBox="${vb}" aria-hidden="true">${a.live}</svg><svg xmlns="http://www.w3.org/2000/svg" class="iso-svg iso-layer" viewBox="${vb}" aria-hidden="true">${a.front}</svg></div></div><span class="hf-corner" data-corner="status" aria-hidden="true"><span data-hint>${esc(labels.hint)}</span><span data-readout>${esc(labels.readout.to)}</span></span></div><span class="hf-status">${esc(labels.description)}</span><span class="hf-status" aria-live="polite"></span></div></div>`;
 }

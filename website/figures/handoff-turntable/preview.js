@@ -19,11 +19,11 @@
 // load, then a click or Enter/Space turns the table to the other station.
 // `window.__hfSpeed` (set by a preload) slows time for contact sheets.
 const root = document.querySelector(".hf");
-const plate = root.querySelector(".hf-plate");
+const plate = root.querySelector(".hf-body");
 const scaler = root.querySelector(".hf-scale");
 const stage = root.querySelector(".hf-stage");
 const readout = root.querySelector("[data-readout]");
-const status = root.querySelector(".hf-status");
+const status = root.querySelector(".hf-status[aria-live]");
 const still = matchMedia("(prefers-reduced-motion: reduce)");
 const now = () => performance.now() * (window.__hfSpeed ?? 1);
 let angle = SIDES.to;

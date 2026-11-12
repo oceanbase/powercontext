@@ -71,7 +71,7 @@ const STYLE = {
   '--hf-ratio': `${art.width} / ${art.height}`,
 } as CSSProperties;
 const VIEW_BOX = `0 0 ${art.width} ${art.height}`;
-const NOSCRIPT = '<style>.hf .hf-plate{opacity:1}.hf .hf-scale{transform:none}</style>';
+const NOSCRIPT = '<style>.hf .hf-body{opacity:1}.hf .hf-scale{transform:none}</style>';
 
 /**
  * The isometric handoff turntable: a rotary table (one Scope) carrying a card-file
@@ -91,7 +91,7 @@ export function HandoffFigure({
   ref?: Ref<HandoffFigureHandle>;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const plateRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const scaleRef = useRef<HTMLDivElement>(null);
   const readoutRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
@@ -153,7 +153,7 @@ export function HandoffFigure({
   const reveal = useCallback(() => {
     const e = engine.current;
     e.shown = true;
-    if (plateRef.current) plateRef.current.style.opacity = '';
+    if (bodyRef.current) bodyRef.current.style.opacity = '';
     if (scaleRef.current) scaleRef.current.style.transform = '';
     rootRef.current?.setAttribute('data-shown', '');
   }, []);
@@ -176,7 +176,7 @@ export function HandoffFigure({
       draw(SIDES.from);
       const finished = await animate((ms) => {
         const pose = openingAt(ms);
-        if (plateRef.current) plateRef.current.style.opacity = String(pose.opacity);
+        if (bodyRef.current) bodyRef.current.style.opacity = String(pose.opacity);
         if (scaleRef.current) scaleRef.current.style.transform = `scale(${pose.scale})`;
         draw(pose.done ? SIDES.to : pose.angle);
         return pose.done;
@@ -244,30 +244,36 @@ export function HandoffFigure({
   return (
     <div ref={rootRef} className={['hf iso', className].filter(Boolean).join(' ')} style={STYLE}>
       <noscript dangerouslySetInnerHTML={{ __html: NOSCRIPT }} />
-      <div ref={plateRef} className="hf-plate">
-        <span className="hf-corner" data-corner="fig">{labels.figure}</span>
-        <span className="hf-corner" data-corner="title">{labels.title}</span>
-        <div
-          className="hf-stage"
-          role="button"
-          tabIndex={0}
-          aria-label={labels.hint}
-          aria-describedby={describedBy}
-          onClick={toggle}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            toggle();
-          }}
-        >
-          <div ref={scaleRef} className="hf-scale iso-turn">
-            <svg className="iso-svg" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.back }} />
-            <svg className="iso-svg iso-live iso-layer" data-live="table" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.live }} />
-            <svg className="iso-svg iso-layer" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.front }} />
+      <div className="hf-plate">
+        <div ref={bodyRef} className="hf-body">
+          <span className="hf-corner" data-corner="title">
+            <span>{labels.figure}</span>
+            <span>{labels.title}</span>
+          </span>
+          <div
+            className="hf-stage"
+            role="button"
+            tabIndex={0}
+            aria-label={labels.hint}
+            aria-describedby={describedBy}
+            onClick={toggle}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              toggle();
+            }}
+          >
+            <div ref={scaleRef} className="hf-scale iso-turn">
+              <svg className="iso-svg" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.back }} />
+              <svg className="iso-svg iso-live iso-layer" data-live="table" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.live }} />
+              <svg className="iso-svg iso-layer" viewBox={VIEW_BOX} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art.front }} />
+            </div>
           </div>
+          <span className="hf-corner" data-corner="status" aria-hidden="true">
+            <span data-hint>{labels.hint}</span>
+            <span ref={readoutRef} data-readout suppressHydrationWarning>{labels.readout.to}</span>
+          </span>
         </div>
-        <span className="hf-corner" data-corner="hint" aria-hidden="true">{labels.hint}</span>
-        <span ref={readoutRef} className="hf-corner" data-corner="readout" aria-hidden="true" suppressHydrationWarning>{labels.readout.to}</span>
         <span id={describedBy} className="hf-status">{labels.description}</span>
         <span ref={statusRef} className="hf-status" aria-live="polite" />
       </div>
