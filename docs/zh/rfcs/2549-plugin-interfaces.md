@@ -811,7 +811,8 @@ class SearchResult(BaseModel):
   接口返回，供程序使用。同一 revision 在同一插件版本下的展示结果不变，core 可以按 family、ID、revision 和插件版本缓存。
   内置 family 不提供这个接口。
 - **检索**：通用检索接口把 `SearchArtifactsRequest` 的全部字段（`query`、`query_vector`、`indexes`、`mode`、`filters`、
-  `admission`、`fusion`、`rerank`、`min_score` 等）原样交给 `search_artifacts`，由插件按自己的索引解释；插件不支持的参数
+  `admission`、`fusion`、`rerank`、`min_score` 等，`include_scores` 除外，它只决定 core 是否返回分数）原样交给
+  `search_artifacts`，由插件按自己的索引解释；插件不支持的参数
   抛出 `InvalidContent`，接口返回 422。core 只保留命中中调用者有权读取的 active 当前 revision，按插件给出的顺序返回
   精确 revision，`include_scores` 时附带插件给出的分数。插件因此不能借检索返回调用者看不到的数据。
 - **Prepared Context**：`assembly.sections` 可以列出插件 family。core 以 Prepared Context 的 `query`、该项的 `limit` 和

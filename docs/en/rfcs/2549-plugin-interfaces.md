@@ -939,7 +939,8 @@ class SearchResult(BaseModel):
   read APIs still return the original `content` for programs. A revision's presentation does not change under the same
   plugin version, so core may cache it by family, ID, revision, and plugin version. Built-in families do not offer this API.
 - **Search**: the generic search API passes every field of `SearchArtifactsRequest` (`query`, `query_vector`, `indexes`,
-  `mode`, `filters`, `admission`, `fusion`, `rerank`, `min_score`, and so on) unchanged to `search_artifacts`, which
+  `mode`, `filters`, `admission`, `fusion`, `rerank`, `min_score`, and so on, except `include_scores`, which only decides
+  whether core returns scores) unchanged to `search_artifacts`, which
   interprets them against the plugin's own indexes; a plugin raises `InvalidContent` for controls it does not support, and
   the API returns 422. Core keeps only matches that are active current revisions the caller may read, returns the exact
   revisions in the plugin's order, and adds the plugin's scores when `include_scores` is set. A plugin therefore cannot
