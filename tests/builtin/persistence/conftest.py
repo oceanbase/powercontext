@@ -16,11 +16,32 @@
 
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from powercontext.builtin.persistence import schema
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+
+
+@pytest.fixture
+def mock_installed_evidence_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep native index tests independent of the separately tested evidence migration."""
+    monkeypatch.setattr(schema, "apply_atomic_memory_evidence_migration", AsyncMock())
+
+
+@pytest.fixture
+def mock_provisioned_mysql_connection(
+    monkeypatch: pytest.MonkeyPatch, mock_installed_evidence_schema: None
+) -> MagicMock:
+    """Run synchronous index probes with existing tables and a stable engine pool."""
+    connection = MagicMock()
+    inspector = MagicMock()
+    inspector.get_table_names.return_value = []
+    inspector.has_table.return_value = True
+    monkeypatch.setattr(schema, "inspect", lambda _connection: inspector)
+    return connection
 
 
 @pytest.fixture

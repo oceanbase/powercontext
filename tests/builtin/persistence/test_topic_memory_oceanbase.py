@@ -127,7 +127,7 @@ def test_oceanbase_fts_startup_recovers_from_ddl_lock_conflict(conflict_on, crea
 
         async def create(statement):
             nonlocal conflicted
-            index_name = statement.split()[3]
+            index_name = statement.split(" ON ", 1)[0].split()[-1]
             # A duplicate CREATE is an error even if another initializer won.
             assert index_name not in created
             if conflict_on in index_name and not conflicted:
@@ -193,10 +193,19 @@ def test_oceanbase_vector_startup_recovers_from_ddl_lock_conflict() -> None:
         connection = AsyncMock(spec=AsyncConnection)
         connection.dialect = mysql.dialect()
         connection.scalar.return_value = "VECTOR(3)"
-        connection.run_sync.side_effect = [
-            OperationalError("CREATE VECTOR INDEX", None, MySQLOperationalError(1205, "DDL lock conflict")),
-            None,
-        ]
+        conflicted = False
+
+        async def create(statement):
+            nonlocal conflicted
+            if statement.startswith("SHOW CREATE"):
+                result = MagicMock()
+                result.first.return_value = ("table", "CREATE TABLE `table` ()")
+                return result
+            if not conflicted:
+                conflicted = True
+                raise OperationalError(statement, None, MySQLOperationalError(1205, "DDL lock conflict"))
+
+        connection.exec_driver_sql.side_effect = create
         profile = EmbeddingProfile(
             profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
         )
@@ -222,7 +231,15 @@ def test_oceanbase_vector_startup_preserves_failures_and_bounds_lock_retries(fai
                 MySQLOperationalError(1205 if failure == "persistent-lock" else failure, "DDL failed"),
             )
         )
-        connection.run_sync.side_effect = error if failure == "persistent-lock" else [error, None]
+
+        async def create(statement):
+            if statement.startswith("SHOW CREATE"):
+                result = MagicMock()
+                result.first.return_value = ("table", "CREATE TABLE `table` ()")
+                return result
+            raise error
+
+        connection.exec_driver_sql.side_effect = create
         profile = EmbeddingProfile(
             profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
         )
@@ -257,12 +274,12 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
 
         create_statements = [call.args[0] for call in connection.exec_driver_sql.await_args_list]
         query_statements = [
-            str(call.args[0].compile(dialect=mysql.dialect())) for call in connection.execute.await_args_list[1:]
+            str(call.args[0].compile(dialect=mysql.dialect())) for call in connection.execute.await_args_list[2:]
         ]
         assert create_statements == [
-            "CREATE FULLTEXT INDEX ix_pc_topic_memory_active_topics_fts "
+            "CREATE FULLTEXT INDEX IF NOT EXISTS ix_pc_topic_memory_active_topics_fts "
             "ON pc_topic_memory_active_topics (searchable_text) WITH PARSER SPACE",
-            "CREATE FULLTEXT INDEX ix_pc_topic_memory_active_chunks_fts "
+            "CREATE FULLTEXT INDEX IF NOT EXISTS ix_pc_topic_memory_active_chunks_fts "
             "ON pc_topic_memory_active_chunks (searchable_text) WITH PARSER SPACE",
         ]
         assert "MATCH (pc_topic_memory_active_topics.searchable_text) AGAINST" in query_statements[0]

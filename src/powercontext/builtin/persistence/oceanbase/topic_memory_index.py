@@ -57,6 +57,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchRequest,
     TopicMemoryStorageInvariantError,
 )
+from powercontext.builtin.persistence.oceanbase.schema import create_vector_index
 from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
@@ -154,13 +155,14 @@ class OceanBaseTopicMemoryFTSIndex:
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "mysql":
             raise TopicMemoryCapabilityError("oceanbase-fts")
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.name, _TOPIC_FTS_INDEX)
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.name, _CHUNK_FTS_INDEX)
-        await connection.execute(
-            select(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id)
-            .where(match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against="powercontext"))
-            .limit(1)
-        )
+        for table, index_name in (
+            (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE, _TOPIC_FTS_INDEX),
+            (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE, _CHUNK_FTS_INDEX),
+        ):
+            await self._ensure_index(connection, table.name, index_name)
+            await connection.execute(
+                select(table.c.artifact_id).where(match(table.c.searchable_text, against="powercontext")).limit(1)
+            )
 
     async def replace(
         self,
@@ -339,7 +341,7 @@ class OceanBaseTopicMemoryFTSIndex:
                 return
             try:
                 await connection.exec_driver_sql(
-                    f"CREATE FULLTEXT INDEX {index_name} ON {table_name} (searchable_text) WITH PARSER SPACE"
+                    f"CREATE FULLTEXT INDEX IF NOT EXISTS {index_name} ON {table_name} (searchable_text) WITH PARSER SPACE"
                 )
             except OperationalError as error:
                 # OceanBase maps a NOWAIT DDL lock conflict to MySQL 1205.
@@ -422,7 +424,7 @@ class OceanBaseTopicMemoryVectorIndex:
                 )
         for attempt in range(len(_INDEX_DDL_RETRY_DELAYS) + 1):
             try:
-                await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
+                await create_vector_index(connection, self._topic_index)
             except OperationalError as error:
                 if (
                     error.orig is None
