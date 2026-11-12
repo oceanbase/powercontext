@@ -96,7 +96,8 @@ def serve(app: Any) -> Iterator[str]:
     thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 15
+        # Match RestartableServer: a loaded host can stall a Server's startup, and a thread that exits fails at once.
+        deadline = time.monotonic() + 45
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert server.started, "server_startup_failed"

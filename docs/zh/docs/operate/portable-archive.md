@@ -119,6 +119,10 @@ powercontext archive restore ./backups/payments.pcb --yes
 | Profile policy、Prompt revision 和 Topic Memory 发布元数据 | 目标环境的 embedding 配置 |
 | 作为 Source 保存的 Work contract、task outcome、Handoff boundary 和 receipt | Credential、bearer token、provider secret 和 host-local Skill 安装状态 |
 
+Source record 作为 evidence 原样保留，包括 capture metadata，例如 Agent 集成随每条 prompt 记录的绝对工作目录（`cwd`）。
+分享归档前，请把这些路径视为归档内容的一部分。
+导出和恢复会拒绝任何 record 中形似 credential 的字段，以及 Source 以外 record 中的主机绝对路径。
+
 归档包含带版本的 manifest（`format_version`、producer version、scope、数量、排除项和总 checksum）以及 NDJSON record。
 逐条 digest 用于比较 canonical 内容是否冲突，总 digest 用于校验 record 流。
 它是权威的 round-trip 格式。CSV 可以单独用于有边界的分析，但无法保留不可变 revision、lineage 或 evidence reference，

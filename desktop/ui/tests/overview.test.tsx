@@ -25,9 +25,11 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/app/App";
+import { opsApi } from "../src/shared/ops";
 import { desktopApi } from "../src/shared/ipc";
 import { messages, type Language } from "../src/app/messages";
 import { connectionMessages } from "../src/app/connection-messages";
+import { localText } from "../src/app/local-server-messages";
 import { answerConfirmation } from "./confirmation";
 import type { DesktopState, ScopePage } from "../src/generated/ipc";
 
@@ -46,6 +48,10 @@ vi.mock("../src/shared/ipc", () => ({
     cancelMemory: vi.fn().mockResolvedValue(undefined),
     cancelScopes: vi.fn().mockResolvedValue(undefined),
   },
+}));
+vi.mock("../src/shared/ops", () => ({
+  subscribeOpsProgress: vi.fn().mockResolvedValue(() => {}),
+  opsApi: { references: vi.fn(), inspect: vi.fn() },
 }));
 const profile = {
   id: "first",
@@ -111,6 +117,15 @@ const selected: DesktopState = {
   active: { ...connected.active!, generation: 3, scope },
 };
 beforeEach(() => {
+  vi.mocked(opsApi.inspect).mockResolvedValue({
+    outcome: "unknown",
+    bridgeError: "unavailable",
+  });
+  vi.mocked(opsApi.references).mockResolvedValue({
+    bindingAvailable: false,
+    loginStartChoice: false,
+    operations: [],
+  });
   vi.mocked(desktopApi.state).mockResolvedValue(empty);
 });
 afterEach(() => {
@@ -164,7 +179,9 @@ test.each(["zh", "en"] as const)(
     expect(document.activeElement).toBe(
       local.getByRole("heading", { name: t.localServer }),
     );
-    expect(local.getByText(t.localServerUnavailableHint)).toBeTruthy();
+    expect(
+      await local.findByText(localText(language, "unavailableHint")),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: t.home }));
     await user.click(
       guide(language).getByRole("button", { name: t.guideAddConnection }),
