@@ -74,6 +74,9 @@ RFC #2549 已经为热加载和自定义接口铺好了基础：
   部署者应先安装依赖，再替换插件目录。
 - **多实例**：每个 Server 实例各自扫描自己机器上的插件目录。代码由部署者分发到各实例；在各实例都完成扫描之前，不同实例
   可能短暂使用不同版本。
+- **数据升级由插件负责**：插件可以在声明中提供 `upgrade(ctx)`，core 在每次加载一个插件版本时调用一次，由插件自己判断
+  是否需要升级、怎样升级。插件数据存在哪里、是什么格式，core 不知道，也不检查兼容性；新版本读不了或消费不了旧数据，由
+  插件负责。插件可以在代码中兼容旧格式，也可以在 `upgrade` 中统一改写，或者两者结合。
 
 ## 2. 插件自定义接口
 
@@ -262,6 +265,32 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
   各实例是否一致。
 - 后台调用只在领导者的 Worker 中执行，使用领导者本机的快照；同步调用在接收请求的实例上执行，使用该实例当前的快照。
 
+### 1.6 插件数据升级
+
+```python
+async def upgrade(ctx: PluginContext) -> None:
+    """每次加载本版本时调用；自行判断已有数据是否需要升级。"""
+
+plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_seconds=600)
+```
+
+- **调用时机**：每次加载一个插件版本都会调用，包括 Server 启动时加载和热加载切换到新版本，不只在首次安装时调用。插件
+  自己记录数据的版本（例如写在专属存储中，或写进 Artifact 内容），与代码中的版本比较后决定做什么。
+- **在哪里执行**：新宿主进程在 `create(ctx)` 之前执行 `upgrade(ctx)`，完成后才报告就绪；声明了 `upgrade` 的插件，宿主
+  进程在加载时立即启动。新版本就绪之前，core 不向它转发同步调用和接口请求，也不用新快照派发后台调用。
+- **失败**：`upgrade` 抛出异常或超过 `upgrade_timeout_seconds`（默认 600 秒）时，按新版本检查失败处理：热加载时继续使用
+  旧版本；Server 启动时插件为 `failed`。
+- **上下文**：专属存储、模型和日志；`ctx.reads(scope_id)` 与 `ctx.writer(scope_id)` 以插件自身的身份执行，与 Worker
+  相同，不检查调用者权限，用于把旧格式的 Artifact 改写为新版本。core 不提供"列出插件数据所在的 Scope"，插件按自己的记录
+  遍历。Artifact 的历史版本不可修改，读取历史版本的代码仍需兼容旧格式。
+- **重复与并发**：每个 Server 实例、每次加载都会调用，core 不在实例之间协调。`upgrade` 必须可以重复执行，也可以在多个
+  实例上同时执行；需要互斥时，由插件在专属存储中自己加锁。
+- **新旧版本并存**：多实例逐个完成扫描、热加载切换的过程中，旧版本可能仍在读写同一份数据。插件应先做新旧版本都能使用的
+  变更，等旧版本不再运行后，在后续版本中再清理。
+- **不支持降级**：core 不记录插件的数据版本，也不阻止加载更旧的代码；旧代码读不了新数据，由插件负责。
+- **Source 定义**：core 按名称和版本登记 Source 定义，新旧版本可以并存。新版本插件仍需读取旧版本的 Source 时，应继续
+  声明旧版本的定义。
+
 ## 2. 插件自定义接口
 
 ### 2.1 声明
@@ -438,7 +467,7 @@ class PluginPages(BaseModel):
 | 新增 | `/dashboard/plugins/{name}`、`/dashboard/plugins/{name}/ui/...`、`/dashboard/plugins/{name}/api/...`、`/dashboard/plugins/_client.js` |
 | 新增 | 插件声明 `mcp=True` 的路由作为 MCP 工具出现在 Server 的 MCP 端点 |
 | 新增 | `powercontext.plugins`：`PluginApi`、`Route`、`ApiRequest`、`BinaryResponse`、`ApiError`、`Caller`、`PluginPages`；上下文的 `require`、`reads`、`writer`、`sources`、`scopes` |
-| 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api` 和 `pages` 字段 |
+| 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api`、`pages`、`upgrade` 和 `upgrade_timeout_seconds` 字段 |
 | 调整 | `GET /v1/plugins`、`GET /v1/plugins/{name}` 的响应增加 `version_digest`、`declaration_digest`、`state`、`activated_at`、最近一次检查失败的分类、路由列表和页面信息 |
 | 新增 | 环境变量 `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS`（默认 60，0 关闭热加载）、`POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`（默认 32 MiB） |
 
@@ -449,7 +478,7 @@ class PluginPages(BaseModel):
 | 字段 | 含义 |
 | --- | --- |
 | `plugin_name` | 插件名 |
-| `plugin_event` | `loaded`、`updated`、`removed`、`check_failed` |
+| `plugin_event` | `loaded`、`updated`、`removed`、`check_failed`、`upgrade_failed` |
 | `version_digest` | 本次生效的快照内容摘要 |
 | `declaration_digest` | 本次生效的声明摘要 |
 | `plugin_route` | 自定义接口的路由模板（例如 `GET /knowledge-bases/{kb_id}/documents/{source_id}/original`），不含实际参数值 |
@@ -494,6 +523,9 @@ class PluginPages(BaseModel):
 | 插件页面使用独立端口或域名 | 也能隔离来源，但部署者要额外配置端口、证书和反向代理；沙箱 iframe 不需要额外配置 |
 | 插件页面由插件代码在服务端渲染 | 页面能直接拿到数据，但每次页面请求都要进入宿主进程，并且要定义模板和转义规则；静态页面加接口调用更简单 |
 | 所有插件路由自动成为 MCP 工具 | 不需要额外声明，但工具数量随插件增长，占用 Agent 的上下文，二进制路由也不适合作为工具；改为按路由开启，只开放 JSON 路由 |
+| core 记录插件的数据版本，调用时传入旧版本号（Moodle、Home Assistant） | 插件不必自己记录版本，但那些项目中被迁移的数据由宿主保管；本提案中插件专属存储的位置和格式只有插件知道，Artifact 内容的格式也由插件定义，core 记录的版本号无法反映这些数据的实际状态 |
+| core 按阶段执行插件提供的迁移脚本（Kong 的 up / teardown） | 能处理多实例滚动升级，但要求 core 理解插件的存储并提供迁移运行器和命令；本提案只调用一个钩子，把"先做兼容变更、旧版本停止后再清理"作为对插件的要求 |
+| 插件数据升级由插件在钩子中自行判断（本提案，与 Backstage、WordPress 相同） | core 只约定调用时机和失败处理，不感知插件数据；代价是兼容性完全由插件保证，core 不兜底 |
 | 插件接口不提供 MCP 工具 | 实现最少，但 Agent 是 PowerContext 的主要使用方，插件的领域操作（例如跨知识库检索）对 Agent 不可用。现有 MCP 工具本来就由 HTTP 接口生成，插件路由可以复用同一机制 |
 
 # 先例
@@ -506,6 +538,10 @@ class PluginPages(BaseModel):
 - **VS Code Webview**：扩展的界面运行在 iframe 中，通过 `postMessage` 与扩展通信，并要求设置 CSP。插件页面的消息协议与之类似。
 - **Dify 插件的 Endpoint 扩展**：插件可以声明 HTTP 端点，由 Dify 挂载并转发请求。本提案的自定义接口同样由宿主统一挂载，
   并由 core 完成认证和授权。
+- **插件数据升级**：Backstage 的后端插件在初始化时自行执行数据库迁移，框架明确不负责插件的结构迁移；WordPress 的激活钩子
+  在插件更新时不一定触发，插件的通行做法是自己保存数据版本、每次加载时比较。本提案的 `upgrade` 采用同样的分工，并在每次
+  加载时都调用。Kong 把插件迁移分成不破坏旧数据的 up 和清理用的 teardown，以支持新旧节点并存，本提案把这一点作为对插件
+  的要求。Moodle 和 Home Assistant 由宿主记录版本并传入旧版本号，适用于数据由宿主保管的场景。
 - **Gunicorn 等进程管理器的平滑重载**：先启动新的工作进程，再让旧进程处理完已有请求后退出。宿主进程的替换采用同样的顺序。
 - **PowerContext 现有基础**：RFC #2549 的宿主进程、已激活插件记录、用户修改规则和插件专属存储；Supervisor 的 binding、
   租约 fence 和退避；Scope 的创建接口与幂等键；Dashboard 的会话与服务端调用方式。

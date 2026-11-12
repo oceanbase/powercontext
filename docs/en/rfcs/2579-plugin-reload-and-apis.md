@@ -91,6 +91,11 @@ Deployers work on the plugin directory directly:
   before replacing the plugin directory.
 - **Multiple instances**: each Server instance scans the plugin directory on its own machine. Deployers distribute the
   code to every instance; until every instance has scanned, instances may briefly run different versions.
+- **Plugins upgrade their own data**: a plugin can provide `upgrade(ctx)` in its declaration. Core calls it once every
+  time it loads a plugin version, and the plugin decides whether and how to upgrade. Core does not know where plugin data
+  lives or what format it has, and does not check compatibility; if a new version cannot read or consume old data, that
+  is the plugin's responsibility. A plugin can stay compatible with old formats in code, rewrite them once in `upgrade`,
+  or both.
 
 ## 2. Plugin-defined APIs
 
@@ -311,6 +316,38 @@ The active plugin record lives only in each process's memory and is not synchron
 - Background calls run only in the leader's Workers, on the leader's local snapshots; synchronous calls run on the
   instance that receives the request, on that instance's current snapshot.
 
+### 1.6 Plugin data upgrades
+
+```python
+async def upgrade(ctx: PluginContext) -> None:
+    """Called each time this version loads; decides whether existing data needs upgrading."""
+
+plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_seconds=600)
+```
+
+- **When**: on every load of a plugin version, both at Server startup and when hot reload switches to a new version, not
+  only on first install. The plugin records the version of its data itself (for example in its dedicated storage or in
+  Artifact content) and compares it with the version in its code to decide what to do.
+- **Where**: a new host process runs `upgrade(ctx)` before `create(ctx)` and reports ready only afterwards; plugins that
+  declare `upgrade` start their host process as soon as they load. Until the new version is ready, core forwards no
+  synchronous calls or API requests to it and dispatches no background calls with the new snapshot.
+- **Failure**: if `upgrade` raises or exceeds `upgrade_timeout_seconds` (600 seconds by default), core treats the new
+  version as failing its check: hot reload keeps the old version, and at Server startup the plugin is `failed`.
+- **Context**: dedicated storage, models, and the logger. `ctx.reads(scope_id)` and `ctx.writer(scope_id)` act as the
+  plugin itself, as in a Worker, without checking a caller's permissions, so the plugin can rewrite old-format Artifacts as
+  new revisions. Core does not list the Scopes that hold plugin data; the plugin walks its own records. Earlier Artifact
+  revisions are immutable, so code that reads history still has to understand old formats.
+- **Repetition and concurrency**: every Server instance calls `upgrade` on every load, and core does not coordinate
+  instances. `upgrade` must be safe to run repeatedly and on several instances at once; a plugin that needs mutual
+  exclusion takes a lock in its dedicated storage.
+- **Old and new versions side by side**: while instances finish scanning one by one, or while hot reload switches over,
+  the old version may still read and write the same data. Plugins should first make changes both versions can use, and
+  clean up in a later version once the old one no longer runs.
+- **No downgrades**: core does not record plugin data versions and does not stop older code from loading; if older code
+  cannot read newer data, that is the plugin's responsibility.
+- **Source Definitions**: core registers Source Definitions by name and version, so old and new versions coexist. A new
+  plugin version that still needs to read Sources of an old version keeps declaring the old Definition.
+
 ## 2. Plugin-defined APIs
 
 ### 2.1 Declaration
@@ -513,7 +550,7 @@ the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins
 | Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/_client.js` |
 | Added | Routes a plugin declares with `mcp=True` appear as MCP tools on Server's MCP endpoint |
 | Added | `powercontext.plugins`: `PluginApi`, `Route`, `ApiRequest`, `BinaryResponse`, `ApiError`, `Caller`, `PluginPages`; the context's `require`, `reads`, `writer`, `sources`, and `scopes` |
-| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api` and `pages` fields |
+| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, and `upgrade_timeout_seconds` fields |
 | Changed | Responses of `GET /v1/plugins` and `GET /v1/plugins/{name}` add `version_digest`, `declaration_digest`, `state`, `activated_at`, the category of the latest check failure, the route list, and page information |
 | Added | Environment variables `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` (default 60; 0 disables hot reload) and `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` (default 32 MiB) |
 
@@ -525,7 +562,7 @@ plugins' own routes.
 | Field | Meaning |
 | --- | --- |
 | `plugin_name` | Plugin name |
-| `plugin_event` | `loaded`, `updated`, `removed`, `check_failed` |
+| `plugin_event` | `loaded`, `updated`, `removed`, `check_failed`, `upgrade_failed` |
 | `version_digest` | Content digest of the snapshot that took effect |
 | `declaration_digest` | Declaration digest that took effect |
 | `plugin_route` | Route template of a plugin API (for example, `GET /knowledge-bases/{kb_id}/documents/{source_id}/original`), without actual parameter values |
@@ -579,6 +616,9 @@ plugins' own routes.
 | Plugin pages on a separate port or domain | Also isolates the origin, but deployers must configure extra ports, certificates, and reverse proxies; a sandboxed iframe needs no extra configuration |
 | Server-side rendering of plugin pages by plugin code | Pages get data directly, but every page request enters the host process, and templates and escaping rules would need to be defined; static pages plus API calls are simpler |
 | Making every plugin route an MCP tool automatically | Needs no extra declaration, but the number of tools grows with plugins and crowds Agents' context, and binary routes do not suit tools; instead routes opt in, and only JSON routes can |
+| Core records each plugin's data version and passes the old version to the plugin (Moodle, Home Assistant) | Plugins need not track versions, but in those projects the host keeps the data being migrated. Here only the plugin knows where its dedicated storage is and what it holds, and the plugin defines its Artifact content format, so a version recorded by core would not reflect the actual state of that data |
+| Core runs plugin-provided migrations in phases (Kong's up and teardown) | Handles rolling upgrades across instances, but requires core to understand plugin storage and provide a migration runner and commands. This proposal calls one hook and asks plugins to make compatible changes first and clean up after the old version stops |
+| Plugins decide how to upgrade data in a hook (this proposal, as in Backstage and WordPress) | Core only defines when the hook runs and how failures are handled, and knows nothing about plugin data; the cost is that compatibility rests entirely with the plugin, with no fallback in core |
 | No MCP tools for plugin APIs | Least to implement, but Agents are PowerContext's main users, and a plugin's domain operations (such as searching across knowledge bases) would be unavailable to them. Existing MCP tools are already generated from HTTP APIs, and plugin routes can reuse the same mechanism |
 
 # Prior art
@@ -596,6 +636,12 @@ plugins' own routes.
   expected to set a CSP. The plugin page message protocol is similar.
 - **Dify plugin endpoints**: plugins can declare HTTP endpoints that Dify mounts and forwards to. This proposal's plugin
   APIs are likewise mounted by the host, with authentication and authorization done by core.
+- **Plugin data upgrades**: Backstage backend plugins run their own database migrations during initialization, and the
+  framework explicitly does not handle plugin schema migrations. WordPress activation hooks do not reliably run when a
+  plugin updates, so plugins commonly store their own data version and compare it on every load. `upgrade` follows the
+  same division of work and runs on every load. Kong splits plugin migrations into a non-destructive `up` and a cleanup
+  `teardown` so old and new nodes can run side by side; this proposal states that as a requirement on plugins. Moodle and
+  Home Assistant record versions in the host and pass the old version in, which suits data the host keeps.
 - **Graceful reloads in process managers such as Gunicorn**: start new workers first, then let old workers finish
   existing requests and exit. Host process replacement follows the same order.
 - **Existing PowerContext foundations**: RFC #2549's host processes, active plugin record, user-change rules, and
