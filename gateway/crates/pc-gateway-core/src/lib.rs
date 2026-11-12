@@ -30,6 +30,7 @@ mod executor;
 mod gate_client;
 mod http_gate_client;
 mod lifecycle;
+mod prefix_store;
 mod replay_cache;
 mod transcript;
 mod uds_gate_client;
@@ -38,6 +39,7 @@ pub use executor::*;
 pub use gate_client::*;
 pub use http_gate_client::*;
 pub use lifecycle::*;
+pub use prefix_store::{PrefixEntry, PREFIX_TTL_MS};
 pub use uds_gate_client::*;
 
 mod evidence;

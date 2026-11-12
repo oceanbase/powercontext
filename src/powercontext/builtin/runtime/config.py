@@ -327,6 +327,11 @@ class InferenceConfig(BaseModel):
     generation_streaming: Literal["auto", "disabled"] = "disabled"
     generation_stream_idle_timeout_seconds: float = Field(default=60.0, gt=0)
     generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
+    # Opt-in: extract Atomic Memory over the agent's cached conversation prefix through a gateway on the same host.
+    prefix_extraction_gateway_url: AnyHttpUrl | None = None
+    prefix_extraction_gateway_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    # Price of a cached input token relative to an uncached one for the agent's target.
+    prefix_extraction_cached_input_ratio: float = Field(default=0.1, gt=0, le=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -378,7 +383,13 @@ class InferenceConfig(BaseModel):
             raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
 
-    @field_validator("generation_headers", "embedding_headers", "rerank_headers", "decision_headers")
+    @field_validator(
+        "generation_headers",
+        "embedding_headers",
+        "rerank_headers",
+        "decision_headers",
+        "prefix_extraction_gateway_headers",
+    )
     @classmethod
     def validate_headers(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
         normalized_names: set[str] = set()
@@ -414,6 +425,17 @@ class InferenceConfig(BaseModel):
             raise ValueError(  # noqa: TRY003
                 "embedding_model, embedding_profile_id, and embedding_dimension must be configured together"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_prefix_extraction(self) -> Self:
+        if self.generation_model is None and (
+            self.prefix_extraction_gateway_url is not None or self.prefix_extraction_gateway_headers
+        ):
+            # Normal extraction is the fallback, so it must be configured.
+            raise ValueError("prefix extraction requires generation_model")  # noqa: TRY003
+        if self.prefix_extraction_gateway_headers and self.prefix_extraction_gateway_url is None:
+            raise ValueError("prefix_extraction_gateway_headers requires prefix_extraction_gateway_url")  # noqa: TRY003
         return self
 
     @model_validator(mode="after")

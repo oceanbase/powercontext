@@ -658,6 +658,7 @@ name = "pc-gateway-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "getrandom 0.4.3",
  "pc-gateway-evidence",
  "pc-gateway-protocol",
  "pc-gateway-transport",

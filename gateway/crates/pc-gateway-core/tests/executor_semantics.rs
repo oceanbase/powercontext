@@ -274,6 +274,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         degrade_policy: degrade,
         inject_context: false,
         include_code: false,
+        capture_prefix: false,
         conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
@@ -4195,4 +4196,112 @@ async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_rel
             }
         }
     }
+}
+
+// ---------- #2413：为复用缓存前缀的记忆抽取保留回合前缀 ----------
+
+#[tokio::test]
+async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
+    let output = serde_json::json!([
+        reasoning_item(),
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(output.clone()),
+            responses_output(output.clone()),
+        ],
+        2,
+    );
+    for capture_prefix in [true, false] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        c.capture_prefix = capture_prefix;
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    assert!(
+        metadata[1].get("prefix_handle").is_none(),
+        "without opt-in nothing is kept"
+    );
+    let handle = metadata[0]["prefix_handle"].as_str().unwrap().to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.conversation_id, "conversation-a");
+    assert_eq!(prefix.target_profile, "openai:test");
+    assert_eq!(
+        prefix.request_body,
+        transport.sends.lock().unwrap()[0],
+        "the prefix is the exact body sent upstream"
+    );
+    assert_eq!(serde_json::Value::from(prefix.response_output), output);
+    assert!(executor.prefix(&handle, "project:other").is_none());
+    // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
+    assert_eq!(metadata[0]["prefix_input_tokens"], 10);
+    assert_eq!(metadata[0]["prefix_output_tokens"], 2);
+}
+
+#[tokio::test]
+async fn a_turn_the_source_does_not_fully_represent_keeps_no_prefix() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(3),
+        (0..3).map(|_| responses_output(output.clone())).collect(),
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let image =
+        serde_json::json!({"type": "input_image", "image_url": "https://example.com/a.png"});
+    let long = "x".repeat(crate_max_field_bytes() + 1);
+    for case in ["injected", "image", "truncated"] {
+        let mut c = tool_loop_call(
+            if case == "truncated" {
+                &long
+            } else {
+                "fix the bug"
+            },
+            0,
+            true,
+        );
+        c.sediment = true;
+        c.capture_prefix = true;
+        c.inject_context = case == "injected";
+        if case == "image" {
+            c.request.messages[0].content.push(image.clone());
+        }
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }), "{case}");
+    }
+    // 注入的记忆块、Source 无法呈现的图片、截断的文本都不在 Source 里：不保留前缀，Core 走普通抽取。
+    for (case, metadata) in ["injected", "image", "truncated"]
+        .iter()
+        .zip(gate.captured_metadata.lock().unwrap().iter())
+    {
+        assert!(metadata.get("prefix_handle").is_none(), "{case}");
+    }
+}
+
+/// 规范化记录中单个字段的字节上限（与 transcript 模块一致）。
+fn crate_max_field_bytes() -> usize {
+    8 * 1024
 }
