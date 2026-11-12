@@ -37,10 +37,10 @@ async function until(check, description) {
   throw new Error('Timed out: ' + description)
 }
 
-async function fixture(t) {
+async function fixture(t, profileName = 'web') {
   const home = await mkdtemp(join(tmpdir(), 'pc-pet-adapter-'))
   t.after(() => rm(home, { force: true, recursive: true }))
-  const profile = { name: 'web', dir: join(home, 'profiles/web') }
+  const profile = { name: profileName, dir: join(home, 'profiles', profileName) }
   const root = join(profile.dir, '.powercontext-dsh-pet')
   await mkdir(root, { recursive: true, mode: 0o700 })
   const settings = join(root, 'bindings.json')
@@ -106,8 +106,8 @@ async function fixture(t) {
   }
 }
 
-test('lost capture response reuses the same stored payload and cannot drain on another Server identity', async t => {
-  const f = await fixture(t)
+test('Desktop reuses the stored payload after losing a response and cannot drain to a new Server identity', async t => {
+  const f = await fixture(t, 'desktop')
   await f.configure()
   f.loseResponse(true)
   f.start()

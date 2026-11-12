@@ -203,8 +203,8 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
 
 .PHONY: dsh-pet-runtime-test
-dsh-pet-runtime-test: ## Exercise the packed pet adapter in the pinned DSH Web Host.
-	@DSH_PET_TEST_BIN="$${DSH_PET_TEST_BIN:-$$(command -v dsh)}" node --test integrations/dsh/plugins/dsh-pet/tests/web.test.mjs
+dsh-pet-runtime-test: ## Exercise the packed pet adapter in pinned DSH Web (or set DSH_PET_TEST_DESKTOP_APP).
+	@DSH_PET_TEST_BIN="$${DSH_PET_TEST_BIN:-$$(command -v dsh)}" node --test integrations/dsh/plugins/dsh-pet/tests/runtime.test.mjs
 
 .PHONY: dsh-runtime-test
 dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.

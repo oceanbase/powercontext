@@ -230,7 +230,7 @@ def setup_agents(
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
     dsh_pet_memory: Annotated[
-        str | None, typer.Option(help="DSH Web pet memory: on or off; omission leaves it unchanged.")
+        str | None, typer.Option(help="DSH pet memory: on or off; omission leaves it unchanged.")
     ] = None,
     dsh_pet_bind: Annotated[
         list[str] | None, typer.Option(help="Pet memory binding PET_ID=SCOPE_ID; repeat for multiple pets.")

@@ -126,12 +126,13 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 
 ## 可选：为 dsh-pet 开启长期记忆
 
-DSH Web 的桌宠聊天可以从独立的 PowerContext Scope 查找旧偏好，原有的人设、近期窗口和本地聊天记录照常使用。
-适配器与普通 DSH Agent 插件分开，默认关闭。首个验收组合是 DSH Web `0.2.2-rc.1`、dsh-pet `0.4.8`，
-以及来自同一个 PowerContext checkout 或发行版本的适配器与 Server。本功能暂不支持独立桌宠模式或 DSH Desktop。
+DSH Web 和 Desktop 的桌宠聊天可以从独立的 PowerContext Scope 查找旧偏好，原有的人设、近期窗口和本地聊天记录照常使用。
+适配器与普通 DSH Agent 插件分开，默认关闭。首个组合是 DSH `0.2.2-rc.1`、dsh-pet `0.4.8`，
+以及来自同一个 PowerContext checkout 或发行版本的适配器与 Server。Desktop 验收覆盖 macOS arm64 应用。
+独立桌宠模式不使用此适配器。
 
 先在 Server 上为每只宠物创建一个[独立 Scope](../workflows/scopes-and-access.md)。使用确切的宠物实例 ID
-（内置默认宠物是 `main`）和 Scope ID。选定的 Web profile 必须已经包含一条启用的 dsh-pet 条目。
+（内置默认宠物是 `main`）和 Scope ID。选定的 profile 必须已经包含一条启用的 dsh-pet 条目。
 在 Server 配置生成模型和 [Memory 处理](../get-started/configure-models.md)，文字问答才有机会变成可查找的记忆。
 
 ```bash
@@ -139,12 +140,16 @@ powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
   --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
 ```
 
+Desktop 请改用 `--profile desktop`。先打开已安装的 DSH Desktop 初始化 profile，再完全退出，然后用
+Desktop 自带的命令运行 setup。Web 和 Desktop 分别保存桌宠绑定与待上传队列；
+需要使用哪个 profile，就对哪个 profile 配置。
+
 把 `<PET_SCOPE_ID>` 换成真实 ID，不保留尖括号。多只宠物可重复传入 `--dsh-pet-bind`，每只使用不同的 Scope。
 每次 `on` 指定的是这个 profile 的完整绑定列表。远程 Server 必须使用 HTTPS 和鉴权，沿用绑定到地址的 DSH 凭据配置。
 启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。省略桌宠选项不会改变已有设置。
 桌宠缺失、禁用、配置有歧义或未验证版本时，不影响普通 DSH 安装；显式传入 `on` 后请查看单独的 `dsh_pet_memory` 结果。
 
-重启 Web Host 后，运行 `powercontext doctor dsh --profile web`。provider 注册、召回、待上传和 Source 接收各自有状态。
+重启所选宿主后，运行 `powercontext doctor dsh --profile web` 或 `powercontext doctor dsh --profile desktop`。provider 注册、召回、待上传和 Source 接收各自有状态。
 Server 接收了 Source，不代表已经提取 Memory。召回只查已绑定的 Scope；空结果、断网或超时都保留原始聊天输入。
 若记忆单槽已有其它 provider，适配器不抢占。
 
@@ -158,9 +163,9 @@ powercontext setup dsh --profile web --dsh-pet-memory off
 powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
 ```
 
-第一条命令停止召回、采集和上传，第二条还会丢弃该 profile 的未发送记录。两条命令都不能撤回已被 Server 接收的请求。
+第一条命令停止召回、采集和上传，第二条还会丢弃该 profile 的未发送记录。要操作 Desktop 的配置，请把命令中的 profile 改为 `desktop`。两条命令都不能撤回已被 Server 接收的请求。
 清空桌宠聊天不会清空这个队列，也不会删除远端 Source 或 Memory。重启后或用完全相同的绑定重新启用时，
-未过期的待上传记录可能继续重试。同一个 profile 请只运行一个 DSH Web Host。
+未过期的待上传记录可能继续重试。同一个 profile 请只运行一个 DSH Host。
 
 ## 侧栏状态与诊断
 

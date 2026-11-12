@@ -2657,7 +2657,7 @@ function run(slot, root, home) {
 function apply(ctx) {
 	const memory = record(record(ctx.get(PET_SERVICE))?.memory);
 	const profile = record(ctx.get("profileContext"));
-	if (typeof memory?.register !== "function" || typeof memory.list !== "function" || typeof profile?.dir !== "string" || profile.name !== "web") return;
+	if (typeof memory?.register !== "function" || typeof memory.list !== "function" || typeof profile?.dir !== "string" || profile.name !== "web" && profile.name !== "desktop") return;
 	const root = join(profile.dir, ".powercontext-dsh-pet");
 	const home = dirname(dirname(profile.dir));
 	ctx.effect(() => run(memory, root, home));

@@ -30,7 +30,7 @@ from uuid import uuid4
 import httpx
 
 from powercontext.cli.authorization import credential_path, read_stored_authorization
-from powercontext.cli.dsh_runtime import DshProfile, DshTarget
+from powercontext.cli.dsh_runtime import DshTarget
 from powercontext.cli.dsh_transport import read_dsh_settings
 from powercontext.cli.installation import SetupError, write_bytes, write_json
 from powercontext.cli.transport import is_remote_http
@@ -162,8 +162,6 @@ def enable_pet_memory(  # noqa: C901 - perform and report each setup boundary se
     def unchanged(reason: str) -> dict[str, str]:
         return {"status": "unchanged", "reason": reason}
 
-    if target.profile != DshProfile.WEB:
-        return unchanged("pet_memory_requires_qualified_web_profile")
     try:
         pet, _ = _installed(target)
         if pet.get("entry") != "enabled":
@@ -256,12 +254,10 @@ def _binding_observation(item: dict[str, Any]) -> dict[str, Any]:
     return observed
 
 
-def pet_memory_diagnostic(target: DshTarget):  # noqa: C901 - static and runtime observations remain separate.
+def pet_memory_diagnostic(target: DshTarget):
     """Separate installed and configured status from observations made by a running host."""
     from powercontext.cli.system import Diagnostic, DiagnosticStatus
 
-    if target.profile != DshProfile.WEB:
-        return Diagnostic(DiagnosticStatus.SKIPPED, "Pet memory is qualified for DSH Web only.")
     try:
         pet, adapter = _installed(target)
     except (OSError, ValueError, SetupError):
@@ -306,5 +302,5 @@ def pet_memory_diagnostic(target: DshTarget):  # noqa: C901 - static and runtime
             DiagnosticStatus.OK, "Pet memory provider observed; Source acceptance is not extraction.", checks
         )
     return Diagnostic(
-        DiagnosticStatus.DEGRADED, "Pet memory configured; check the running Web host and provider slot.", checks
+        DiagnosticStatus.DEGRADED, "Pet memory configured; check the running DSH host and provider slot.", checks
     )

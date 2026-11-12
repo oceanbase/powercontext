@@ -17,7 +17,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -25,6 +25,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 import { startPowerContextServer, unusedPort } from '../../powercontext/scripts/e2e-server.mjs'
+import { startDesktop } from './desktop-host.mjs'
 
 const exec = promisify(execFile)
 const repo = resolve(import.meta.dirname, '../../../../..')
@@ -33,7 +34,9 @@ const fact = 'The favorite tea of the synthetic pet is silver hibiscus.'
 const correction = 'Correction: the favorite tea of the synthetic pet is cedar rooibos.'
 const question = 'What is the favorite tea of the synthetic pet?'
 const outageTurn = 'Unique synthetic exchange while the adapter Server route is down.'
-const dsh = process.env.DSH_PET_TEST_BIN
+const desktopApp = process.env.DSH_PET_TEST_DESKTOP_APP
+const profile = desktopApp ? 'desktop' : 'web'
+const dsh = desktopApp ? join(desktopApp, 'Contents/Resources/runtime/cli/bin/dsh') : process.env.DSH_PET_TEST_BIN
 
 async function until(check, description, timeout = 25_000) {
   const deadline = Date.now() + timeout
@@ -131,11 +134,11 @@ async function fixtureModel() {
   }
 }
 
-test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host', {
-  skip: !dsh && 'Set DSH_PET_TEST_BIN to the pinned DSH 0.2.2-rc.1 CLI',
-  timeout: 240_000,
+test('packaged pet adapter captures, extracts and recalls in real DSH ' + profile, {
+  skip: !dsh && 'Set DSH_PET_TEST_BIN or DSH_PET_TEST_DESKTOP_APP for DSH 0.2.2-rc.1',
+  timeout: 300_000,
 }, async t => {
-  const root = await mkdtemp(join(tmpdir(), 'pc-dsh-pet-web-'))
+  const root = await mkdtemp(join(tmpdir(), 'pc-dsh-pet-' + profile + '-'))
   t.after(() => rm(root, { force: true, recursive: true }))
   const model = await fixtureModel()
   t.after(model.close)
@@ -152,6 +155,21 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
     POWERCONTEXT_CLIENT_CONFIG_FILE: join(root, 'clients.json'),
   }
   const run = (file, args) => exec(file, args, { cwd: repo, env, timeout: 120_000 })
+  const profileDir = join(env.DSH_HOME, 'profiles', profile)
+  if (desktopApp) {
+    // Desktop reserves this profile. Let the actual installed application initialize
+    // it once; the CLI must refuse to invent it or substitute an npm runtime.
+    await mkdir(join(root, 'Documents'))
+    const firstLaunch = await startDesktop(desktopApp, root, env)
+    try {
+      await until(async () => {
+        const initialized = await readFile(join(profileDir, 'package.json'), 'utf8').catch(() => '')
+        return initialized && (await firstLaunch.appRenderer())
+      }, 'Desktop initialized its reserved profile', 80_000)
+    } finally {
+      await firstLaunch.stop()
+    }
+  }
   const server = await startPowerContextServer({ env: {
     OPENAI_API_KEY: 'pet-' + 'test-fixture',
     POWERCONTEXT_SERVER_INFERENCE: JSON.stringify({
@@ -202,23 +220,26 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
   const second = await createScope('Synthetic pet two', [first.scope_id])
   const scope = first.scope_id
   assert.ok(scope && second.scope_id)
-  await run(dsh, ['plugin', '--profile', 'web', 'add', 'dsh-pet@0.4.8'])
+  await run(dsh, ['plugin', '--profile', profile, 'add', 'dsh-pet@0.4.8'])
   const pack = await run('npm', ['pack', petPackage, '--pack-destination', root, '--ignore-scripts', '--json'])
   const archive = join(root, JSON.parse(pack.stdout)[0].filename)
-  await run(dsh, ['plugin', '--profile', 'web', 'add', archive])
-  const packagePath = join(env.DSH_HOME, 'profiles/web/node_modules/powercontext-dsh-pet')
+  await run(dsh, ['plugin', '--profile', profile, 'add', archive])
+  const packagePath = join(profileDir, 'node_modules/powercontext-dsh-pet')
   assert.equal(JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')).name, 'powercontext-dsh-pet')
   assert.equal((await readFile(join(packagePath, 'lib/index.js'))).length > 0, true)
 
   const cli = resolve(repo, '.venv/bin/powercontext')
-  const baseSetup = ['setup', 'dsh', '--profile', 'web', '--dsh-command', dsh, '--source', repo,
+  const baseSetup = ['setup', 'dsh', '--profile', profile, '--dsh-command', dsh, '--source', repo,
     '--server-url', proxyUrl, '--json']
   const setup = await run(cli, [...baseSetup, '--dsh-pet-memory', 'on',
     '--dsh-pet-bind', 'main=' + scope, '--dsh-pet-bind', 'second=' + second.scope_id])
   assert.equal(JSON.parse(setup.stdout).hosts.dsh.result.dsh_pet_memory.status, 'enabled', setup.stdout)
+  const otherProfile = desktopApp ? 'web' : 'desktop'
+  await assert.rejects(access(join(env.DSH_HOME, 'profiles', otherProfile, '.powercontext-dsh-pet/bindings.json')),
+    { code: 'ENOENT' })
   assert.equal((await run(dsh, ['--version'])).stdout.trim(), '0.2.2-rc.1')
   // Boot the packed adapter, not the local checkout that setup can also install.
-  await run(dsh, ['plugin', '--profile', 'web', 'add', archive])
+  await run(dsh, ['plugin', '--profile', profile, 'add', archive])
 
   const petHome = join(env.DSH_HOME, 'dsh-pet')
   await mkdir(petHome, { recursive: true })
@@ -230,15 +251,20 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
   const configurePet = rounds => writeFile(join(petHome, 'main-config.jsonc'),
     JSON.stringify({ ...petConfig, chatMemoryRounds: rounds }))
   await configurePet(1)
-  const patch = join(root, 'model-patch.json')
+  const patch = desktopApp ? join(profileDir, 'cordis.patch.yml') : join(root, 'model-patch.json')
   await writeFile(patch, JSON.stringify([
     { id: 'llm-deepseek', config: { baseURL: model.url + '/v1', apiKeyEnv: 'DEEPSEEK_API_KEY', thinking: 'disabled' } },
   ]))
-  const statusFile = join(env.DSH_HOME, 'profiles/web/.powercontext-dsh-pet/status.json')
+  const statusFile = join(profileDir, '.powercontext-dsh-pet/status.json')
   const status = async () => JSON.parse(await readFile(statusFile, 'utf8').catch(() => '{}'))
 
   let child
+  let desktop
   async function stopHost() {
+    if (desktop) {
+      await desktop.stop()
+      desktop = undefined
+    }
     if (!child || child.exitCode !== null || child.signalCode !== null) return
     const exited = once(child, 'exit')
     child.kill('SIGTERM')
@@ -250,6 +276,12 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
   let web
   async function boot() {
     await rm(statusFile, { force: true })
+    if (desktopApp) {
+      desktop = await startDesktop(desktopApp, root, env)
+      await until(desktop.appRenderer, 'packaged Desktop renderer')
+      await until(async () => (await status()).provider === 'registered', 'Desktop memory provider registration')
+      return
+    }
     const port = await unusedPort()
     web = 'http://127.0.0.1:' + port
     child = spawn(dsh, ['web', '--patch', patch, '--host', '127.0.0.1', '--port', String(port), '--no-open'], {
@@ -271,19 +303,28 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
   }
 
   async function chat(pet, text) {
-    const response = await fetch(web + '/dsh-pet-7340/chat?surface=web&pet=' + pet, {
+    const route = '/dsh-pet-7340/chat?surface=' + profile + '&pet=' + encodeURIComponent(pet)
+    const request = {
       method: 'POST',
-      headers: { cookie, origin: web, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text }),
-      signal: AbortSignal.timeout(20_000),
-    })
-    const result = await response.json()
-    assert.equal(response.status, 200, JSON.stringify(result))
+    }
+    const { status, result } = desktop
+      ? await desktop.evaluate(`(async () => {
+        const response = await fetch(${JSON.stringify(route)}, ${JSON.stringify(request)})
+        return { status: response.status, result: await response.json() }
+      })()`)
+      : await fetch(web + route, {
+        ...request, headers: { ...request.headers, cookie, origin: web }, signal: AbortSignal.timeout(20_000),
+      }).then(async response => ({ status: response.status, result: await response.json() }))
+    assert.equal(status, 200, JSON.stringify(result))
     assert.equal(result.ok, true, JSON.stringify(result))
     return result
   }
 
   await boot()
+  const doctor = await run(cli, ['doctor', 'dsh', '--profile', profile, '--dsh-command', dsh, '--json'])
+  assert.equal(JSON.parse(doctor.stdout).hosts.dsh.checks.dsh_pet_memory.checks.runtime, 'registered')
   await chat('main', fact)
   const sources = () => api(server.baseUrl, '/v1/scopes/' + scope + '/sources')
   await until(async () => (await sources()).items.some(item => item.source_id.startsWith('dsh-pet:')),
@@ -344,7 +385,7 @@ test('packaged pet adapter captures, extracts and recalls in a real DSH Web Host
     return captured.length === 1 && attempts.filter(id => id === captured[0].source_id).length >= 2
   }, 'real Server receives exact retry after restart and lost response', 45_000)
 
-  await run(cli, ['setup', 'dsh', '--profile', 'web', '--dsh-command', dsh, '--dsh-pet-memory', 'off', '--json'])
+  await run(cli, ['setup', 'dsh', '--profile', profile, '--dsh-command', dsh, '--dsh-pet-memory', 'off', '--json'])
   await until(async () => (await status()).provider === 'off', 'provider disabled without stopping chat')
   const native = await replay('I do not know.')
   await configurePet(100)
