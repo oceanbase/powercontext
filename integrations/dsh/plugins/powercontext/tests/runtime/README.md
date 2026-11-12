@@ -142,8 +142,9 @@ selects each session through the host's persisted current-session entry, reloads
 reported conversation and Scope, and checks that both exact `session_id` selectors reached the bridge. It restores
 the prior selection and closes only its own Chrome target.
 
-Set `DSH_CHECK_UPDATES=1` with a linked checkout installed to exercise the version check against the published
-PowerContext release metadata. The harness checks both running versions and the manual update path. For native
+With a linked checkout installed, set `DSH_CHECK_UPDATES=1` to click the check icon or
+`DSH_CHECK_UPDATES=auto` to wait for the Host's automatic check. The harness checks the compact footer, the running
+Server version in Technical details, and the manual update path against published release metadata. For native
 install acceptance, use an eligible registry install in an isolated profile, verify the target in the panel,
 close and reopen it during installation, and read back the active version after reload or restart. Record
 whether the registry and packages were controlled fixtures or publicly published artifacts.

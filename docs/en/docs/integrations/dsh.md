@@ -173,9 +173,8 @@ switches to English; an explicit choice persists in the current browser's local 
 fallback. The compact view shows connection state, Server address, workspace and Scope. Expand **Technical details**
 for the conversation ID, deployment mode, authentication source (never the credential), readiness dependencies,
 context schema and automatic-path observations.
-The footer shows the running plugin version separately from the connected Server version.
-The footer reads `package_version` from `GET /v1/server-info` through the Host and shows the current Server package
-version. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
+The footer shows the running plugin version. **Technical details** shows the connected Server's package version
+from `GET /v1/server-info`. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
 the plugin version or API contract version. The bounded metadata read does not determine readiness.
 The panel reuses the same in-memory `RuntimeStatus` as `/pc`, rather than reconstructing history from logs.
 It never calls a model, sends a diagnostic prompt, or polls `/pc doctor`.
@@ -222,17 +221,19 @@ timers. A headless host or a package without the browser entry keeps the tools a
 
 ### Check for PowerContext updates
 
-Select **Check for updates** in the version footer. The check queries published PowerContext releases and still works
-when the Server is offline. It follows stable releases by default; set `updateChannel: preview` in the plugin patch
-to include prereleases, or set `updateHold: true` to keep the installed plugin version.
+The local DSH Host checks published PowerContext releases shortly after startup and every hour, even when the panel
+is closed or the Server is offline. To check immediately, use the refresh icon in the version footer. The footer
+links to the release notes, and the control's tooltip describes the check or installation state. Checks never install
+an update. The default channel is stable; set `updateChannel: preview` in the plugin patch to include prereleases,
+or set `updateHold: true` to keep the installed plugin version.
 
 When the matching Server is already running and DSH can verify the exact compatible package on an eligible npm source,
-select **Update plugin** to let DSH install it in the current profile. Finish active turns first. You can close the
-panel while installation runs; reopen it to check progress. If DSH asks for a reload or restart, the running version
+the icon becomes **Update**. Select it to let DSH install the plugin in the current profile. Finish active turns first.
+You can close the panel while installation runs; reopen it to check progress. If DSH asks for a reload or restart, the running version
 changes only once the new plugin loads. If the registry does not have the package yet, check again later. Linked
 checkouts, archives, and custom registries retain their existing update workflow.
 
-The panel links to the [Server upgrade guide](../get-started/install-and-run.md#update-or-replace-an-installation).
+**Technical details** links to the [Server upgrade guide](../get-started/install-and-run.md#update-or-replace-an-installation).
 Use the deployment's supported process for updating, restarting, and, when required, migrating its database.
 
 

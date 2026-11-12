@@ -22,7 +22,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from './errors.ts'
 import { officialRelease, serverDistributionAvailable } from './release-updates.ts'
 import { packageVersion } from './status-contract.ts'
 import { compareVersions, releaseVersion, UPDATE_ACTION_HEADER, UPDATE_PLAN_HEADER, UPDATE_ROUTE, type UpdateSnapshot } from './update-contract.ts'
-import { deploymentRejection, localDeploymentFacts, readServerPackageVersion, sendJson, type DeploymentFacts, type UiHostContext } from './status-bridge.ts'
+import { deploymentRejection, localDeploymentFacts, readServerPackageVersion, resolveDeployment, sendJson, type DeploymentFacts, type UiHostContext } from './status-bridge.ts'
 
 interface Bundle {
   name: string
@@ -57,7 +57,11 @@ export interface NativePluginManager {
 }
 
 const PUBLIC_REGISTRIES = new Set(['https://registry.npmjs.org/', 'https://registry.npmmirror.com/'])
-const PLAN_TTL_MS = 5 * 60_000
+export const UPDATE_CHECK_INTERVAL_MS = 60 * 60_000
+export const UPDATE_STARTUP_DELAY_MS = 15_000
+const UPDATE_BUSY_RETRY_MS = 60_000
+// Keep an hourly offer valid until the next check can replace it.
+const PLAN_TTL_MS = UPDATE_CHECK_INTERVAL_MS + 5 * 60_000
 const CHECK_COOLDOWN_MS = 5_000
 
 function publicRegistry(registry: Registry): registry is string {
@@ -140,9 +144,26 @@ export class DshUpdates {
       || this.now() - this.ledger.checkedAt < CHECK_COOLDOWN_MS) return current
     this.ledger.checkedAt = this.now()
     this.ledger.plan = null
-    this.ledger.snapshot = { ...updateLedger().snapshot, phase: 'checking' }
+    this.ledger.snapshot = { ...current, phase: 'checking', plan: null }
     void this.resolveCheck().catch(() => this.phase('check_failed'))
     return this.read()
+  }
+
+  /** Schedule the same read-only check once per hour, independent of the panel. */
+  scheduleChecks(): () => void {
+    let timer: ReturnType<typeof setTimeout>
+    const remaining = () => this.ledger.checkedAt + UPDATE_CHECK_INTERVAL_MS - this.now()
+    const schedule = (delay: number) => {
+      timer = setTimeout(tick, delay)
+      timer.unref()
+    }
+    const tick = () => {
+      if (remaining() <= 0) this.check()
+      const delay = remaining()
+      schedule(delay > 0 ? delay : UPDATE_BUSY_RETRY_MS)
+    }
+    schedule(Math.max(UPDATE_STARTUP_DELAY_MS, remaining()))
+    return () => clearTimeout(timer)
   }
 
   install(id: string): UpdateSnapshot | null {
@@ -301,5 +322,9 @@ export function registerUpdateBridge(ctx: Context, runtime: PluginRuntime): void
       path: UPDATE_ROUTE,
       handler: createUpdateRouteHandler(updates, ui.connection, facts),
     }), 'powercontext: update route')
+    const profile = ui.get('profileContext') as { name?: string } | undefined
+    if (resolveDeployment(facts) && profile?.name === (facts.desktop ? 'desktop' : 'web')) {
+      host.effect(() => updates.scheduleChecks(), 'powercontext: hourly update check')
+    }
   })
 }

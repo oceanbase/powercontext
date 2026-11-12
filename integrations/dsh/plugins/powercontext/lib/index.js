@@ -5096,7 +5096,10 @@ async function serverDistributionAvailable(release, fetcher = fetch) {
 //#endregion
 //#region src/update-bridge.ts
 const PUBLIC_REGISTRIES = new Set(["https://registry.npmjs.org/", "https://registry.npmmirror.com/"]);
-const PLAN_TTL_MS = 5 * 6e4;
+const UPDATE_CHECK_INTERVAL_MS = 60 * 6e4;
+const UPDATE_STARTUP_DELAY_MS = 15e3;
+const UPDATE_BUSY_RETRY_MS = 6e4;
+const PLAN_TTL_MS = UPDATE_CHECK_INTERVAL_MS + 5 * 6e4;
 const CHECK_COOLDOWN_MS = 5e3;
 function publicRegistry(registry) {
 	if (registry === null) return false;
@@ -5165,11 +5168,28 @@ var DshUpdates = class {
 		this.ledger.checkedAt = this.now();
 		this.ledger.plan = null;
 		this.ledger.snapshot = {
-			...updateLedger().snapshot,
-			phase: "checking"
+			...current,
+			phase: "checking",
+			plan: null
 		};
 		this.resolveCheck().catch(() => this.phase("check_failed"));
 		return this.read();
+	}
+	/** Schedule the same read-only check once per hour, independent of the panel. */
+	scheduleChecks() {
+		let timer;
+		const remaining = () => this.ledger.checkedAt + UPDATE_CHECK_INTERVAL_MS - this.now();
+		const schedule = (delay) => {
+			timer = setTimeout(tick, delay);
+			timer.unref();
+		};
+		const tick = () => {
+			if (remaining() <= 0) this.check();
+			const delay = remaining();
+			schedule(delay > 0 ? delay : UPDATE_BUSY_RETRY_MS);
+		};
+		schedule(Math.max(UPDATE_STARTUP_DELAY_MS, remaining()));
+		return () => clearTimeout(timer);
 	}
 	install(id) {
 		if (this.read().phase !== "available" || this.ledger.plan?.id !== id) return null;
@@ -5318,6 +5338,8 @@ function registerUpdateBridge(ctx, runtime) {
 			path: UPDATE_ROUTE,
 			handler: createUpdateRouteHandler(updates, ui.connection, facts)
 		}), "powercontext: update route");
+		const profile = ui.get("profileContext");
+		if (resolveDeployment(facts) && profile?.name === (facts.desktop ? "desktop" : "web")) host.effect(() => updates.scheduleChecks(), "powercontext: hourly update check");
 	});
 }
 

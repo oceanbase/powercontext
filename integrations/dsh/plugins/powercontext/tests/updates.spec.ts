@@ -16,7 +16,7 @@
 
 import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DshUpdates, createUpdateRouteHandler, updateLedger, type NativePluginManager } from '../src/update-bridge.ts'
+import { DshUpdates, createUpdateRouteHandler, updateLedger, UPDATE_CHECK_INTERVAL_MS, UPDATE_STARTUP_DELAY_MS, type NativePluginManager } from '../src/update-bridge.ts'
 import { UPDATE_ACTION_HEADER, UPDATE_PLAN_HEADER } from '../src/update-contract.ts'
 
 const NAME = 'powercontext-dsh'
@@ -35,7 +35,7 @@ function release(python = '1.5.1', npm = python, prerelease = false) {
 
 function fixture(options: {
   version?: string; server?: string | null; channel?: 'stable' | 'preview'; held?: boolean; busy?: boolean
-  releases?: ReturnType<typeof release>[]; source?: string; incompatible?: boolean; absent?: boolean; badWheel?: boolean
+  releases?: ReturnType<typeof release>[]; source?: string; incompatible?: boolean; absent?: boolean; badWheel?: boolean; clock?: () => number
 } = {}) {
   const ledger = updateLedger()
   const version = options.version ?? '1.5.0'
@@ -65,7 +65,7 @@ function fixture(options: {
   const host = (running = version) => new DshUpdates({
     ledger, pluginVersion: running, channel: options.channel ?? 'stable', held: options.held ?? false,
     manager: () => manager, serverVersion: async () => server, canInstall: () => !options.busy,
-    fetch: fetcher, now: () => now,
+    fetch: fetcher, now: options.clock ?? (() => now),
   })
   return { host, manager, fetcher, setServer: (value: string | null) => { server = value }, tick: (ms: number) => { now += ms } }
 }
@@ -77,6 +77,52 @@ async function check(updates: DshUpdates, phase: string) {
 }
 
 describe('DSH release checks and updates', () => {
+  it('checks after startup and once per hour without a panel or an automatic install', async () => {
+    vi.useFakeTimers()
+    const f = fixture({ clock: Date.now })
+    const updates = f.host()
+    const stop = updates.scheduleChecks()
+    try {
+      await vi.advanceTimersByTimeAsync(UPDATE_STARTUP_DELAY_MS - 1)
+      expect(updates.read().phase).toBe('idle')
+      await vi.advanceTimersByTimeAsync(1)
+      const initial = updates.read()
+      expect(initial.phase).toBe('available')
+      expect(initial.plan).toBeTruthy()
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS - 1)
+      expect(updates.read()).toMatchObject({ phase: 'available', plan: initial.plan })
+      expect(f.fetcher).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(updates.read().plan).not.toBe(initial.plan)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+      expect(f.manager.updateBundle).not.toHaveBeenCalled()
+      stop()
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+      vi.useRealTimers()
+    }
+  })
+
+  it('reschedules an hourly check relative to a manual check', async () => {
+    vi.useFakeTimers()
+    const f = fixture({ clock: Date.now })
+    const updates = f.host()
+    const stop = updates.scheduleChecks()
+    try {
+      await vi.advanceTimersByTimeAsync(1_000)
+      updates.check()
+      await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS - 1)
+      expect(f.fetcher).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+    } finally {
+      stop()
+      vi.useRealTimers()
+    }
+  })
+
   it('checks stable by default and reports independently when the Server is already current', async () => {
     const f = fixture({ version: '1.5.1' })
     const result = await check(f.host(), 'current')
@@ -131,7 +177,7 @@ describe('DSH release checks and updates', () => {
     const f = fixture()
     const host = f.host()
     const result = await check(host, 'available')
-    f.tick(5 * 60_000)
+    f.tick(UPDATE_CHECK_INTERVAL_MS + 6 * 60_000)
     expect(host.install(result.plan!)).toBeNull()
     const fresh = await check(host, 'available')
     f.setServer('1.5.0')

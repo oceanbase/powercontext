@@ -878,22 +878,32 @@ const STATUS_STYLES = `
 .pc-stage-message { margin: 2px 0 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
 .pc-stage-meta { margin: 2px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
 .pc-coverage { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 15px; overflow-wrap: anywhere; }
-.pc-panel-foot { flex: none; display: grid; gap: 5px; padding: 6px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; }
-.pc-versions { display: flex; align-items: center; gap: 8px; }
-.pc-version-list { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px; margin: 0; }
-.pc-version-list dd { margin: 0; max-width: 110px; overflow-wrap: anywhere; text-align: end; color: var(--dsw-alias-label-primary, CanvasText); }
-.pc-panel-foot .pc-update-check { flex: none; width: 44px; height: 44px; }
-.pc-panel-foot .pc-update-button { flex: none; min-height: 44px; white-space: nowrap; }
-.pc-panel-foot button:active:not(:disabled) { background: var(--dsw-alias-interactive-bg-active, ButtonFace); }
-.pc-panel-foot button:disabled { opacity: .5; cursor: not-allowed; }
-.pc-update-message { margin: 0; }
-.pc-update-links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.pc-panel-foot a { color: inherit; text-underline-offset: 2px; }
-.pc-panel-foot a:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
+.pc-panel-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 5px 14px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); font-size: 12px; line-height: 17px; }
+.pc-release-link { color: var(--dsw-static-deepseek-600, LinkText); text-decoration: none; font-weight: 500; }
+[data-ds-dark-theme] .pc-release-link { color: var(--dsw-alias-link, LinkText); }
+.pc-panel-foot .pc-release-link { flex: none; white-space: nowrap; }
+.pc-release-link:focus-visible, .pc-update-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
+.pc-version-actions { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.pc-running-version { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary, CanvasText); }
+.pc-running-version .pc-mono { color: var(--dsw-alias-label-primary, CanvasText); }
+.pc-panel-foot .pc-update-check { flex: none; width: 30px; height: 30px; }
+.pc-update-button { flex: none; min-height: 28px; padding: 0 9px; border: 0; border-radius: 6px; font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; color: var(--dsw-static-neutral-bluish-00, HighlightText); background: var(--dsw-static-deepseek-600, Highlight); }
+@media (hover: hover) {
+  .pc-release-link:hover, .pc-update-button:hover { filter: brightness(.9); }
+  [data-ds-dark-theme] .pc-release-link:hover { filter: brightness(1.1); }
+}
+.pc-update-button:active:not(:disabled) { filter: brightness(.9); }
+.pc-update-button:disabled { opacity: .5; cursor: not-allowed; }
+.pc-update-guide { grid-column: 2; font-size: 11px; color: var(--dsw-alias-label-secondary, CanvasText); }
+.pc-update-check[aria-busy="true"] svg { animation: pc-update-spin 1.1s linear infinite; }
+@keyframes pc-update-spin { to { transform: rotate(360deg); } }
+@media (pointer: coarse) {
+  .pc-panel-foot .pc-update-check, .pc-update-button { min-height: 44px; min-width: 44px; }
+}
 .pc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes pc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .42; } }
 @media (prefers-reduced-motion: reduce) {
-  .pc-dot-connecting { animation: none; }
+  .pc-dot-connecting, .pc-update-check[aria-busy="true"] svg { animation: none; }
   .pc-trigger, .pc-panel, .pc-icon-button, .pc-text-button { transition: none; }
 }
 `;
@@ -973,9 +983,10 @@ function parseUpdateSnapshot(value) {
 const DOCS = "https://powercontext.oceanbase.io";
 const labels = {
 	"zh-CN": {
-		plugin: "DSH 插件版本",
+		version: "版本：",
 		check: "检查更新",
-		update: "更新插件至",
+		update: "更新",
+		updateTo: "更新插件至",
 		notes: "发布说明",
 		serverGuide: "Server 升级指南",
 		pluginGuide: "插件更新指南",
@@ -997,13 +1008,13 @@ const labels = {
 		install_failed: "安装失败，请在 DSH 的插件设置中检查当前安装。",
 		busy: "DSH 仍有会话在运行，请在会话结束后重试。",
 		unconfirmed: "安装结果未确认，请先在 DSH 的插件设置中检查版本。",
-		serverMissing: "发布包尚不可用",
-		serverCurrent: "Server 已是最新版本"
+		serverMissing: "发布包尚不可用"
 	},
 	en: {
-		plugin: "DSH plugin version",
+		version: "Version: ",
 		check: "Check for updates",
-		update: "Update plugin to",
+		update: "Update",
+		updateTo: "Update plugin to",
 		notes: "Release notes",
 		serverGuide: "Server upgrade guide",
 		pluginGuide: "Plugin update guide",
@@ -1025,8 +1036,7 @@ const labels = {
 		install_failed: "Installation failed. Check the current installation in DSH Plugins.",
 		busy: "A DSH session is running. Try again when it finishes.",
 		unconfirmed: "The install result is unknown. Check the version in DSH Plugins before retrying.",
-		serverMissing: "Release package unavailable",
-		serverCurrent: "Server is up to date"
+		serverMissing: "Release package unavailable"
 	}
 };
 async function requestUpdate(signal, action, plan) {
@@ -1050,8 +1060,8 @@ async function requestUpdate(signal, action, plan) {
 		return { snapshot: null };
 	}
 }
-function VersionFooter({ locale, pluginVersion, serverVersion }) {
-	const text$1 = labels[locale];
+/** Read the Host snapshot only while the status panel is open. */
+function useVersionUpdates(open) {
 	const [snapshot, setSnapshot] = (0, react.useState)(null);
 	const [sending, setSending] = (0, react.useState)(false);
 	const [notice, setNotice] = (0, react.useState)(null);
@@ -1060,27 +1070,37 @@ function VersionFooter({ locale, pluginVersion, serverVersion }) {
 	const working = phase === "checking" || phase === "installing";
 	(0, react.useEffect)(() => () => pending.current?.abort(), []);
 	(0, react.useEffect)(() => {
-		if (sending) return;
+		if (open) return;
+		pending.current?.abort();
+		pending.current = null;
+		setSending(false);
+	}, [open]);
+	(0, react.useEffect)(() => {
+		if (!open || sending) return;
 		const lifetime = new AbortController();
 		let timer;
 		let failures = 0;
 		const poll = async () => {
+			if (document.hidden) {
+				timer = setTimeout(() => {
+					poll();
+				}, 15e3);
+				return;
+			}
 			const { snapshot: state } = await requestUpdate(AbortSignal.any([lifetime.signal, AbortSignal.timeout(5e3)]));
 			if (lifetime.signal.aborted) return;
 			if (state) {
 				setSnapshot(state);
 				if (state.phase !== "idle") setNotice(null);
-				if (state.phase !== "checking" && state.phase !== "installing") return;
 				failures = 0;
-			} else if (!working) return;
-			else if (++failures >= 8) {
+			} else if (working && ++failures >= 8) {
 				setNotice(phase === "installing" ? "unconfirmed" : "check_failed");
 				setSnapshot(null);
-				return;
 			}
+			const fast = state?.phase === "checking" || state?.phase === "installing" || !state && working && failures < 8;
 			timer = setTimeout(() => {
 				poll();
-			}, failures > 0 ? 2e3 : 1e3);
+			}, fast ? failures > 0 ? 2e3 : 1e3 : 15e3);
 		};
 		poll();
 		return () => {
@@ -1088,12 +1108,13 @@ function VersionFooter({ locale, pluginVersion, serverVersion }) {
 			clearTimeout(timer);
 		};
 	}, [
+		open,
 		sending,
 		working,
 		phase
 	]);
 	const submit = async () => {
-		if (pending.current || working) return;
+		if (!open || pending.current || working || phase === "restart_required") return;
 		const plan = phase === "available" && snapshot?.plan && snapshot.plugin_target ? snapshot.plan : void 0;
 		const lifetime = new AbortController();
 		pending.current = lifetime;
@@ -1109,45 +1130,48 @@ function VersionFooter({ locale, pluginVersion, serverVersion }) {
 			setNotice(result.status === 409 ? "plan_changed" : plan ? "unconfirmed" : "check_failed");
 		}
 	};
+	return {
+		snapshot,
+		phase,
+		notice,
+		busy: sending || working,
+		submit
+	};
+}
+function VersionFooter({ locale, pluginVersion, updates }) {
+	const text$1 = labels[locale];
+	const description = (0, react.useId)();
+	const { snapshot, phase, notice, busy, submit } = updates;
 	const target = phase === "available" && snapshot?.plan ? snapshot.plugin_target : null;
-	const checkLabel = target ? text$1.update + " " + target : text$1.check;
-	const busy = sending || working;
+	const actionLabel = target ? text$1.updateTo + " " + target : text$1.check;
 	const message = !notice && phase === "server_first" && snapshot?.plugin_target ? text$1.server_first + " (" + snapshot.plugin_target + ")" : text$1[notice ?? phase];
-	const docs = DOCS + (locale === "zh-CN" ? "/zh" : "/en");
-	const upgradeAnchor = locale === "zh-CN" ? "#更新或替换安装" : "#update-or-replace-an-installation";
-	const serverState = snapshot?.server_state;
-	const serverTarget = snapshot?.server_target;
+	const version = snapshot?.plugin_version ?? pluginVersion ?? texts[locale].unknown;
+	const release = snapshot?.release_tag ? RELEASES_URL + "/tag/" + snapshot.release_tag : RELEASES_URL;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
 		className: "pc-panel-foot",
 		"data-pc-update-state": notice ?? phase,
 		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+				className: "pc-release-link",
+				href: release,
+				target: "_blank",
+				rel: "noreferrer",
+				children: text$1.notes
+			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: "pc-versions",
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-					className: "pc-version-list",
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: text$1.plugin }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-							className: "pc-mono",
-							children: snapshot?.plugin_version ?? pluginVersion ?? texts[locale].unknown
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: texts[locale].serverVersion }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-							className: "pc-mono",
-							children: serverVersion ?? texts[locale].unknown
-						})
-					]
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					className: target ? "pc-text-button pc-update-button" : "pc-icon-button pc-update-check",
+				className: "pc-version-actions",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					className: target ? "pc-update-button" : "pc-icon-button pc-update-check",
 					type: "button",
-					"aria-label": checkLabel,
+					"aria-label": actionLabel,
+					"aria-describedby": description,
 					"aria-busy": busy,
-					title: checkLabel,
+					title: message ? actionLabel + " · " + message : actionLabel,
 					disabled: busy || phase === "restart_required",
 					onClick: () => {
 						submit();
 					},
-					children: target ? checkLabel : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+					children: target ? text$1.update : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
 						width: "15",
 						height: "15",
 						viewBox: "0 0 16 16",
@@ -1159,41 +1183,69 @@ function VersionFooter({ locale, pluginVersion, serverVersion }) {
 						"aria-hidden": "true",
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M13.5 3v4h-4M13.2 6.5a5.4 5.4 0 1 0-.4 4.4" })
 					})
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: "pc-running-version",
+					title: text$1.version + version,
+					children: [text$1.version, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: "pc-mono",
+						"data-pc-plugin-version": true,
+						children: version
+					})]
 				})]
 			}),
-			message && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: "pc-update-message",
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: "pc-sr-only",
+				id: description,
 				role: "status",
 				children: message
-			}),
-			snapshot?.release_tag && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: "pc-update-links",
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
-					href: RELEASES_URL + "/tag/" + snapshot.release_tag,
-					target: "_blank",
-					rel: "noreferrer",
-					children: text$1.notes
-				}), phase === "manual" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
-					href: docs + "/docs/integrations/dsh",
-					target: "_blank",
-					rel: "noreferrer",
-					children: text$1.pluginGuide
-				})]
-			}),
-			(serverTarget || serverState === "current" || phase === "server_first") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: "pc-update-server",
-				children: [serverTarget && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-mono",
-					children: [serverTarget, " · "]
-				}), serverState === "available" || phase === "server_first" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
-					href: docs + "/docs/get-started/install-and-run" + upgradeAnchor,
-					target: "_blank",
-					rel: "noreferrer",
-					children: text$1.serverGuide
-				}) : serverState === "current" ? text$1.serverCurrent : text$1.serverMissing]
 			})
 		]
 	});
+}
+function UpdateDetails({ locale, serverVersion, updates }) {
+	const text$1 = labels[locale];
+	const { snapshot, phase } = updates;
+	const docs = DOCS + (locale === "zh-CN" ? "/zh" : "/en");
+	const anchor = locale === "zh-CN" ? "#更新或替换安装" : "#update-or-replace-an-installation";
+	const serverTarget = snapshot?.server_target;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+		/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: "pc-key",
+			children: texts[locale].serverVersion
+		}),
+		/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: "pc-value pc-mono",
+			"data-pc-server-version": true,
+			children: serverVersion ?? texts[locale].unknown
+		}),
+		/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: "pc-update-guide",
+			children: [
+				serverTarget && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: "pc-mono",
+					children: [serverTarget, " · "]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+					className: "pc-release-link",
+					href: docs + "/docs/get-started/install-and-run" + anchor,
+					target: "_blank",
+					rel: "noreferrer",
+					children: text$1.serverGuide
+				}),
+				snapshot?.server_state === "artifact_unavailable" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [" · ", text$1.serverMissing] })
+			]
+		}),
+		phase === "manual" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: "pc-update-guide",
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+				className: "pc-release-link",
+				href: docs + "/docs/integrations/dsh",
+				target: "_blank",
+				rel: "noreferrer",
+				children: text$1.pluginGuide
+			})
+		})
+	] });
 }
 
 //#endregion
@@ -1280,7 +1332,8 @@ function SessionSection({ data }) {
 		})
 	});
 }
-function TechnicalDetails({ data }) {
+function TechnicalDetails({ data, updates, serverVersion }) {
+	const locale = (0, react.useContext)(LocaleContext);
 	const t = useText();
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
 		className: "pc-details",
@@ -1375,6 +1428,11 @@ function TechnicalDetails({ data }) {
 								]
 							})]
 						}, key)),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(UpdateDetails, {
+							locale,
+							serverVersion,
+							updates
+						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: "pc-key",
 							children: t("dependencies")
@@ -1519,6 +1577,7 @@ function StatusPanel(props) {
 	const sessionId = useSessions((state$1) => activeSessionId(state$1));
 	const snapshot = useStatus((value) => value);
 	const [open, setOpen] = (0, react.useState)(false);
+	const updates = useVersionUpdates(open);
 	const [clockTick, setClockTick] = (0, react.useState)(() => Date.now());
 	const [anchor, setAnchor] = (0, react.useState)({
 		left: 12,
@@ -1529,6 +1588,7 @@ function StatusPanel(props) {
 	const panelId = (0, react.useId)();
 	const state = displayState(snapshot, Math.max(clockTick, snapshot.last_success_at ?? 0));
 	const data = snapshot.data;
+	const serverVersion = snapshot.error !== null || state === "stale" || data?.server.liveness.state === "failed" ? null : data?.server.package_version;
 	(0, react.useEffect)(() => {
 		setSession(sessionId);
 	}, [sessionId, setSession]);
@@ -1847,7 +1907,11 @@ function StatusPanel(props) {
 								})
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionSection, { data }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TechnicalDetails, { data })
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TechnicalDetails, {
+								data,
+								updates,
+								serverVersion
+							})
 						] }),
 						data === null && snapshot.error === null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 							className: "pc-empty",
@@ -1858,7 +1922,7 @@ function StatusPanel(props) {
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(VersionFooter, {
 					locale: props.locale,
 					pluginVersion: data?.plugin_version,
-					serverVersion: snapshot.error !== null || state === "stale" || data?.server.liveness.state === "failed" ? null : data?.server.package_version
+					updates
 				})
 			]
 		})]
