@@ -303,6 +303,7 @@ class Route(BaseModel):
     access: Literal["authenticated", "scope.read", "scope.contribute"]
     scope_param: str | None = None              # access 为 Scope 权限时必填：作为 Scope ID 的路径参数
     body: Literal["none", "json", "binary"] = "none"
+    max_body_bytes: int | None = None           # 本路由的请求体上限；JSON 默认 1 MiB，二进制默认取部署上限
     request_model: type[BaseModel] | None = None    # body 为 json 时用于校验和生成接口描述
     response_model: type[BaseModel] | None = None
     timeout_seconds: float = 30
@@ -318,8 +319,11 @@ class PluginApi(BaseModel):
   在检查子进程中校验。
 - `access` 为 `scope.read` 或 `scope.contribute` 时，`scope_param` 必须是 `path` 中的参数；core 检查调用者对该 Scope 的
   权限，通过后把它作为 `ApiRequest.scope_id`。`access` 为 `authenticated` 时不能设置 `scope_param`，`scope_id` 为空。
-- 需要写核心数据的路由必须声明 `scope.contribute`。路由本身不能声明 `server.admin`；需要管理员权限的操作在处理函数中用
-  `ctx.require("server.admin")` 检查，或由 core 在 `ctx.scopes` 中检查。
+- 写核心数据之前，必须确认调用者对目标 Scope 的 `scope.contribute`：路由声明 `access="scope.contribute"`，或在处理函数中
+  调用 `ctx.require("scope.contribute", scope_id)`。后一种适合路径中没有 Scope ID 的路由，例如知识库这类把 Scope 隐藏在
+  插件自己 ID 之后的接口。`ctx.writer` 和 `ctx.sources.submit` 只对本次请求中已经确认过的 Scope 可用。
+- 路由本身不能声明 `server.admin`；需要管理员权限的操作在处理函数中用 `ctx.require("server.admin")` 检查，或由 core 在
+  `ctx.scopes` 中检查。
 
 ### 2.2 请求与响应
 
@@ -347,8 +351,10 @@ class ApiError(Exception):
 - 处理函数返回 `response_model` 的实例（序列化为 JSON，状态码 200）、`BinaryResponse`，或 `None`（204）。
 - 抛出 `ApiError` 时按其状态码返回，状态码必须在 400–499 之间，且不能是 401 或 403（认证和授权由 core 决定）；
   抛出其他异常返回 500，只记录异常类型。
-- 请求和响应大小有上限：JSON 请求体 1 MiB，二进制请求体和响应由 `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` 决定
-  （默认 32 MiB）。超出时 core 直接返回 413，不调用插件。
+- 请求和响应大小有上限：路由可以用 `max_body_bytes` 声明自己的请求体上限，不声明时 JSON 为 1 MiB、二进制为部署上限。
+  部署上限 `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`（默认 32 MiB）同时限制所有插件路由的请求体和响应，路由声明
+  的值超过它时按部署上限执行。插件路由不受 Server 通用请求体上限 `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` 约束，
+  只受部署上限约束，这样部署者为插件上传放大上限时，不必放大所有接口的上限。超出时 core 直接返回 413，不调用插件。
 - 超过 `timeout_seconds` 返回 504；宿主进程不可用返回 503；插件或路由不存在返回 404。
 - core 不为插件接口提供幂等键或请求记录，重试语义由插件定义；需要幂等时，插件在请求中要求调用方提供幂等键。
 
@@ -361,8 +367,8 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 | --- | --- |
 | `ctx.require(action, scope_id=None)` | 检查调用者是否具备 `scope.read`、`scope.contribute`（需要 `scope_id`）或 `server.admin`，不具备时抛出异常，接口返回 403。用于 `authenticated` 路由和跨 Scope 的操作 |
 | `ctx.reads(scope_id)` | 指定 Scope 的 Artifact 只读视图，读取前按调用者权限检查；可用 `reads(...).reads(family)` 读取其他 family |
-| `ctx.writer(scope_id)` | Artifact 插件的写入器，范围为指定 Scope 和本插件的 family；只能用于 `scope.contribute` 路由的 `request.scope_id` |
-| `ctx.sources.submit(scope_id, definition, value)` | Source 插件提交一条本插件定义的 Source，执行与 Source 写入接口相同的校验、`resolve` 和 Projection，返回 `SourceRef`；只能用于 `scope.contribute` 路由的 `request.scope_id` |
+| `ctx.writer(scope_id)` | Artifact 插件的写入器，范围为指定 Scope 和本插件的 family；只能用于本次请求中已确认 `scope.contribute` 的 Scope |
+| `ctx.sources.submit(scope_id, definition, value)` | 提交一条本插件定义的 Source（Source 插件，或声明了 `definitions` 的 Artifact 插件），执行与 Source 写入接口相同的校验、`resolve` 和 Projection，返回 `SourceRef`；只能用于本次请求中已确认 `scope.contribute` 的 Scope |
 | `ctx.scopes.create(*, title, summary, idempotency_key, parent_scope_id=None)` | 以调用者身份创建 Scope，复用 `POST /v1/scopes` 的实现：需要调用者具备 `server.admin`，调用者成为新 Scope 的管理员，相同幂等键返回同一个 Scope |
 | `ctx.scopes.update(scope_id, *, expected_version, title=None, summary=None)` | 以调用者身份修改 Scope 的标题和摘要，权限与 `PUT /v1/scopes/{scope_id}` 相同；只能修改本插件创建的 Scope |
 | `ctx.scopes.list()` | 列出本插件创建、调用者可见的 Scope |
@@ -371,7 +377,10 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 
 - 自定义接口中的写入以调用者身份进行，权限与通用接口相同：新建需要 Scope 的贡献权限，结果归属于调用者；修改已有 Artifact
   需要调用者对它的写权限（`artifact.write`）。core 在每个写操作执行时检查，不满足即抛出异常，接口返回 403。
-- 每个新建或改变内容的写操作，core 都按 RFC #2549 的用户修改规则记录 `lineage_only` Content Source。
+- 自定义接口中的写入不是 RFC #2549 的用户修改：core 不自动记录 `lineage_only` Content Source，写入器也只能引用本次调用
+  窗口中的 Source，而接口调用没有窗口，所以新版本不带出处。需要记录"谁做了什么"时，插件把这次操作作为本插件定义的 Source
+  提交，由 `generate` 写入新版本并引用它；修改基于的版本在 `generate` 中核对，已变化时放弃这次修改。知识库示例的切块编辑
+  就是这样实现的。
 - 一次请求最多开启一个写事务块，块内写操作在一个事务中提交，与 RFC #2549 的写事务规则相同。
 - 处理函数不能推进游标或 checkpoint，也不能写其他插件的 family。
 - 专属存储不按 Scope 隔离（见 RFC #2549 参考级说明 1.2）。处理函数按 `request.scope_id` 读写自己的数据，不能只凭路径中的

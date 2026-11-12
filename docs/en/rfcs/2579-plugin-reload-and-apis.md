@@ -360,6 +360,7 @@ class Route(BaseModel):
     access: Literal["authenticated", "scope.read", "scope.contribute"]
     scope_param: str | None = None              # required for Scope access: the path parameter holding the Scope ID
     body: Literal["none", "json", "binary"] = "none"
+    max_body_bytes: int | None = None           # this route's body limit; 1 MiB for JSON, the deployment limit for binary
     request_model: type[BaseModel] | None = None    # validates a json body and describes the API
     response_model: type[BaseModel] | None = None
     timeout_seconds: float = 30
@@ -376,9 +377,12 @@ class PluginApi(BaseModel):
 - When `access` is `scope.read` or `scope.contribute`, `scope_param` must be a parameter in `path`; core checks the
   caller's permission on that Scope and, once it passes, sets it as `ApiRequest.scope_id`. When `access` is
   `authenticated`, `scope_param` must not be set and `scope_id` is empty.
-- Routes that write core data must declare `scope.contribute`. A route cannot declare `server.admin` itself; operations
-  that need administrator permission are checked in the handler with `ctx.require("server.admin")`, or by core inside
-  `ctx.scopes`.
+- Before writing core data, the caller's `scope.contribute` on the target Scope must be confirmed: either the route
+  declares `access="scope.contribute"`, or the handler calls `ctx.require("scope.contribute", scope_id)`. The second suits
+  routes without a Scope ID in the path, such as knowledge base APIs that keep the Scope behind the plugin's own IDs.
+  `ctx.writer` and `ctx.sources.submit` work only for Scopes confirmed earlier in the same request.
+- A route cannot declare `server.admin` itself; operations that need administrator permission are checked in the handler
+  with `ctx.require("server.admin")`, or by core inside `ctx.scopes`.
 
 ### 2.2 Requests and responses
 
@@ -407,9 +411,12 @@ class ApiError(Exception):
   (204).
 - An `ApiError` returns its status, which must be 400–499 and cannot be 401 or 403 (core decides authentication and
   authorization); any other exception returns 500 with only the exception type logged.
-- Request and response sizes are limited: 1 MiB for JSON request bodies, and `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`
-  (default 32 MiB) for binary request bodies and responses. Core returns 413 without calling the plugin when a limit is
-  exceeded.
+- Request and response sizes are limited. A route may declare its own body limit with `max_body_bytes`; without it, JSON
+  bodies are limited to 1 MiB and binary bodies to the deployment limit. The deployment limit
+  `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` (default 32 MiB) bounds every plugin route's request bodies and responses,
+  and a route that declares more gets the deployment limit. Plugin routes are bounded by this limit instead of Server's
+  general `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES`, so deployers can allow larger plugin uploads without raising
+  the limit for every API. Core returns 413 without calling the plugin when a limit is exceeded.
 - Exceeding `timeout_seconds` returns 504; an unavailable host process returns 503; a missing plugin or route returns 404.
 - Core provides no idempotency keys or request records for plugin APIs, and the plugin defines retry semantics; when it
   needs idempotency, the plugin requires callers to supply an idempotency key in the request.
@@ -423,8 +430,8 @@ in RFC #2549). Besides the RFC #2549 context (dedicated storage, models, logger)
 | --- | --- |
 | `ctx.require(action, scope_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), or `server.admin`, and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations |
 | `ctx.reads(scope_id)` | A read-only Artifact view of the given Scope, checked against the caller's permissions before reading; `reads(...).reads(family)` reads other families |
-| `ctx.writer(scope_id)` | The Artifact plugin's writer, scoped to the given Scope and the plugin's family; usable only with `request.scope_id` of a `scope.contribute` route |
-| `ctx.sources.submit(scope_id, definition, value)` | Submits one Source of a definition this Source plugin provides, with the same validation, `resolve`, and Projections as the Source write APIs, and returns a `SourceRef`; usable only with `request.scope_id` of a `scope.contribute` route |
+| `ctx.writer(scope_id)` | The Artifact plugin's writer, scoped to the given Scope and the plugin's family; usable only for a Scope whose `scope.contribute` was confirmed in this request |
+| `ctx.sources.submit(scope_id, definition, value)` | Submits one Source of a definition this plugin provides (a Source plugin, or an Artifact plugin that declares `definitions`), with the same validation, `resolve`, and Projections as the Source write APIs, and returns a `SourceRef`; usable only for a Scope whose `scope.contribute` was confirmed in this request |
 | `ctx.scopes.create(*, title, summary, idempotency_key, parent_scope_id=None)` | Creates a Scope as the caller, reusing the implementation of `POST /v1/scopes`: the caller needs `server.admin`, becomes the administrator of the new Scope, and the same idempotency key returns the same Scope |
 | `ctx.scopes.update(scope_id, *, expected_version, title=None, summary=None)` | Changes a Scope's title and summary as the caller, with the same permission as `PUT /v1/scopes/{scope_id}`; only for Scopes this plugin created |
 | `ctx.scopes.list()` | Lists the Scopes this plugin created that the caller can see |
@@ -435,8 +442,11 @@ Write rules:
   contribute permission on the Scope, and the caller owns the result; changing an existing Artifact needs the caller's
   write permission on it (`artifact.write`). Core checks each write operation as it runs and raises when the check
   fails, so the API returns 403.
-- For every write that creates or changes content, core records a `lineage_only` Content Source under RFC #2549's
-  user-change rules.
+- Writes in plugin APIs are not RFC #2549 user changes: core records no `lineage_only` Content Source, and the writer can
+  reference only Sources of the current invocation window, which an API call does not have, so the new revision carries
+  no provenance. To record who did what, the plugin submits the operation as a Source it defines, and `generate` writes the
+  new revision referencing it; `generate` checks the revision the change was based on and drops the change if it moved.
+  The knowledge base example's chunk edits work this way.
 - A request opens at most one write transaction block, and the writes in it commit in one transaction, under RFC
   #2549's write transaction rules.
 - Handlers cannot advance cursors or checkpoints, and cannot write another plugin's family.
