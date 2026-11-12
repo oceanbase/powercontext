@@ -287,6 +287,15 @@ CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
 
 For the full Server, follow [database migrations](../operate/database-migrations.md) to plan, apply, and verify the registered Server bundle with an explicit evidence directory and coordination mode. Start `powercontext server run` only after the database is ready. Server startup checks readiness and does not initialize OceanBase schemas or automatically migrate existing databases. SDK callers can retry initialization using the same URL after provisioning. Creating missing tables requires table-creation privileges; an existing fully initialized database does not acquire a new database-creation privilege requirement. Initialization never drops or recreates an existing database, never switches to another database after a failure, and does not authorize schema upgrades. Concurrent creation uses idempotent database/table DDL and handles duplicate-index creation races. This does not provide coordination for existing-schema migrations or change embedded seekDB's process-ownership restrictions.
 
+### Standalone seekdb server
+
+A standalone seekdb server uses this same `oceanbase` kind and `mysql+aoceanbase://` URL format; it is not a new
+storage kind. Maintenance recognizes it when `ob_compatibility_mode` is missing or empty and `VERSION()` contains
+`-OceanBase seekdb-`. No `pylibseekdb` installation or local engine path is needed. The selected database must
+already exist: PowerContext does not create it, does not enable embedded seekDB Code storage, and does not start
+`powercontext server run` until the explicit `db-migrate` commands with `--evidence-dir <path>` and
+`--lock-coordination single-host` report the database ready.
+
 For Python callers, `OceanBaseProfile.open()` resolves an omitted URL database and provisions it when necessary. `OceanBaseProfile.open_existing()` connects only to an already provisioned database, and `attach()` requires a caller-owned engine that already selects an existing database; neither replaces that engine or provisions a different connection target. Read-only inspection (`plan`, `verify`, and the `db-migrate` inspection commands) never creates a missing OceanBase or embedded seekDB database; explicit writable seekDB maintenance can provision its configured database before applying its bundle.
 
 Read-only seekDB inspection requires an initialized instance directory. A missing or empty path is rejected before starting the native engine, without creating parent directories or storage files. A file or a nonempty directory without recognized native storage is also rejected without changing its contents. Ordinary startup still initializes new instances.
