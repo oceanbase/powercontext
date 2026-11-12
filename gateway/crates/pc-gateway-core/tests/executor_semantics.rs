@@ -1319,7 +1319,7 @@ async fn sediment_captures_released_turn_synchronously() {
     assert_eq!(
         metadata[0]["powercontext_capture_coverage"],
         serde_json::json!({
-            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v2",
             "unit": "gateway_turn_projection", "status": "complete", "reasons": []
         })
     );
@@ -2743,316 +2743,62 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
 }
 
 #[tokio::test]
-async fn responses_call_coverage_requires_a_measurable_payload() {
-    for (item, name, arguments, measurable) in [
-        (
-            serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
-                "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}}),
-            "apply_patch_call",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "payload": {"text": "hidden"}}),
-            "future_tool_call",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "arguments": "visible", "payload": "hidden"}),
-            "future_tool_call",
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run"}),
-            "run",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": null}),
-            "run",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": ""}),
-            "run",
-            "",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "ls"}),
-            "run",
-            "ls",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "computer_call", "call_id": "call_0", "action": {"type": "screenshot"}}),
-            "computer_call",
-            "{\"type\":\"screenshot\"}",
-            true,
-        ),
-    ] {
-        for clipped in [false, true] {
-            let (executor, _renderer, transport, gate) = harness(
-                allow_runs(2),
-                vec![
-                    responses_output(serde_json::json!([item.clone()])),
-                    responses_output(serde_json::json!([
-                        {"type": "message", "role": "assistant", "content": "done"}
-                    ])),
-                ],
-                2,
-            );
-            let output = if clipped {
-                "x".repeat(8193)
-            } else {
-                "ok".into()
-            };
-            let output_item = serde_json::json!({
-                "type": format!("{}_output", item["type"].as_str().unwrap()),
-                "call_id": "call_0", "output": output
-            });
-            for step in 0..2 {
-                let mut c = tool_loop_call("fix the bug", step, true);
-                c.inject_context = false;
-                c.sediment = true;
-                if step == 1 {
-                    c.request.messages[1].content = vec![item.clone()];
-                    c.request.messages[2].content = vec![output_item.clone()];
-                }
-                let outcome = executor
-                    .run(
-                        request_control(),
-                        c,
-                        &pc_gateway_protocol::OpenAiResponsesRenderer,
-                        &NoopEvidenceSink,
-                    )
-                    .await;
-                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
-                assert_eq!(gate.captured.lock().unwrap().len(), step);
-            }
-            let sent: serde_json::Value =
-                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
-            assert_eq!(sent["input"][1], item);
-            assert_eq!(sent["input"][2], output_item);
-            let captured = gate.captured.lock().unwrap();
-            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-            let projected_output = if clipped {
-                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
-            } else {
-                output
-            };
-            assert_eq!(
-                body,
-                serde_json::json!({
-                    "kind": "gateway_turn", "user": "fix the bug",
-                    "steps": [
-                        {"type": "tool_call", "name": name, "arguments": arguments},
-                        {"type": "tool_output", "output": projected_output}
-                    ],
-                    "assistant": "done"
-                })
-            );
-            let mut reasons = Vec::new();
-            if clipped {
-                reasons.push("field_byte_limit");
-            }
-            if !measurable {
-                reasons.push("unmeasured_projection");
-            }
-            assert_eq!(
-                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
-                serde_json::json!({
-                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
-                    "unit": "gateway_turn_projection",
-                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
-                    "reasons": reasons
-                }),
-                "item: {item}"
-            );
-        }
-    }
-}
-
-#[tokio::test]
-async fn responses_hosted_call_without_projected_payload_is_unmeasured() {
+async fn a_captured_turn_keeps_every_call_field_and_output_uncut() {
+    let call_item = serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
+        "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}});
+    let long = "x".repeat(50_000);
+    let output_item =
+        serde_json::json!({"type": "apply_patch_call_output", "call_id": "call_0", "output": long});
     let (executor, _renderer, _transport, gate) = harness(
-        allow_runs(1),
-        vec![responses_output(serde_json::json!([
-            {"type": "code_interpreter_call", "output": "tool result"},
-            {"type": "message", "role": "assistant", "content": "done"}
-        ]))],
+        allow_runs(2),
+        vec![
+            responses_output(serde_json::json!([call_item.clone()])),
+            responses_output(serde_json::json!([
+                {"type": "message", "role": "assistant", "content": "done"}
+            ])),
+        ],
         2,
     );
-    let mut c = tool_loop_call("fix the bug", 0, true);
-    c.inject_context = false;
-    c.sediment = true;
-    let outcome = executor
-        .run(
-            request_control(),
-            c,
-            &pc_gateway_protocol::OpenAiResponsesRenderer,
-            &NoopEvidenceSink,
-        )
-        .await;
-    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, true);
+        c.inject_context = false;
+        c.sediment = true;
+        if step == 1 {
+            c.request.messages[1].content = vec![call_item.clone()];
+            c.request.messages[2].content = vec![output_item.clone()];
+        }
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
     let captured = gate.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
     let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
     assert_eq!(
         body,
         serde_json::json!({
             "kind": "gateway_turn", "user": "fix the bug",
             "steps": [
-                {"type": "tool_call", "name": "code_interpreter_call", "arguments": ""},
-                {"type": "tool_output", "output": "tool result"}
+                {"type": "tool_call", "name": "apply_patch_call",
+                 "arguments": "{\"diff\":\"@@\\n-old\\n+new\",\"path\":\"example.py\",\"type\":\"update_file\"}"},
+                {"type": "tool_output", "output": long}
             ],
             "assistant": "done"
         })
     );
-    let metadata = gate.captured_metadata.lock().unwrap();
     assert_eq!(
-        metadata[0]["powercontext_capture_coverage"]["status"],
-        "unknown"
+        gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
+        serde_json::json!({
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v2",
+            "unit": "gateway_turn_projection", "status": "complete", "reasons": []
+        })
     );
-    assert_eq!(
-        metadata[0]["powercontext_capture_coverage"]["reasons"],
-        serde_json::json!(["unmeasured_projection"])
-    );
-}
-
-#[tokio::test]
-async fn responses_output_coverage_requires_a_measurable_payload() {
-    for (output, projected_output, measurable) in [
-        (
-            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
-                "approve": false, "reason": "Denied because production data"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
-                "approve": true, "output": "visible", "reason": "Unprojected decision"}),
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "payload": "hidden"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "output": "visible", "payload": "hidden"}),
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": null}),
-            "null",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": ""}),
-            "",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "custom_tool_call_output", "call_id": "call_0", "output": "ok"}),
-            "ok",
-            true,
-        ),
-    ] {
-        for clipped in [false, true] {
-            let assistant = if clipped {
-                "x".repeat(8193)
-            } else {
-                "done".into()
-            };
-            let (executor, _renderer, transport, gate) = harness(
-                allow_runs(2),
-                vec![
-                    responses_output(serde_json::json!([output.clone()])),
-                    responses_output(serde_json::json!([
-                        {"type": "message", "role": "assistant", "content": assistant}
-                    ])),
-                ],
-                2,
-            );
-            for step in 0..2 {
-                let mut c = tool_loop_call("fix the bug", step, true);
-                c.inject_context = false;
-                c.sediment = true;
-                if step == 1 {
-                    if output["type"] == "mcp_approval_response" {
-                        c.request.messages[1].content = vec![serde_json::json!({
-                            "type": "mcp_approval_request", "id": "approval-1",
-                            "name": "run", "server_label": "docs", "arguments": "{}"
-                        })];
-                    } else if output["type"] == "custom_tool_call_output" {
-                        c.request.messages[1].content = vec![serde_json::json!({
-                            "type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "{}"
-                        })];
-                    }
-                    c.request.messages[2].content = vec![output.clone()];
-                }
-                let outcome = executor
-                    .run(
-                        request_control(),
-                        c,
-                        &pc_gateway_protocol::OpenAiResponsesRenderer,
-                        &NoopEvidenceSink,
-                    )
-                    .await;
-                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
-                assert_eq!(gate.captured.lock().unwrap().len(), step);
-            }
-            let sent: serde_json::Value =
-                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
-            assert_eq!(sent["input"][2], output);
-            let captured = gate.captured.lock().unwrap();
-            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-            let projected_assistant = if clipped {
-                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
-            } else {
-                assistant
-            };
-            assert_eq!(
-                body,
-                serde_json::json!({
-                    "kind": "gateway_turn", "user": "fix the bug",
-                    "steps": [
-                        {"type": "tool_call", "name": "run", "arguments": "{}"},
-                        {"type": "tool_output", "output": projected_output}
-                    ],
-                    "assistant": projected_assistant
-                })
-            );
-            let mut reasons = Vec::new();
-            if clipped {
-                reasons.push("field_byte_limit");
-            }
-            if !measurable {
-                reasons.push("unmeasured_projection");
-            }
-            assert_eq!(
-                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
-                serde_json::json!({
-                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
-                    "unit": "gateway_turn_projection",
-                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
-                    "reasons": reasons
-                }),
-                "output: {output}"
-            );
-        }
-    }
 }
 
 #[tokio::test]
@@ -4252,56 +3998,77 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
 }
 
 #[tokio::test]
-async fn a_turn_the_source_does_not_fully_represent_keeps_no_prefix() {
+async fn an_injected_turn_keeps_its_prefix_and_a_source_without_the_injection() {
     let output = serde_json::json!([
         {"id": "msg_1", "type": "message", "role": "assistant",
          "content": [{"type": "output_text", "text": "done", "annotations": []}]}
     ]);
-    let (executor, _renderer, _transport, gate) = harness(
-        allow_runs(3),
-        (0..3).map(|_| responses_output(output.clone())).collect(),
-        2,
-    );
+    let (executor, _renderer, transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
-    let image =
-        serde_json::json!({"type": "input_image", "image_url": "https://example.com/a.png"});
-    let long = "x".repeat(crate_max_field_bytes() + 1);
-    for case in ["injected", "image", "truncated"] {
-        let mut c = tool_loop_call(
-            if case == "truncated" {
-                &long
-            } else {
-                "fix the bug"
-            },
-            0,
-            true,
-        );
-        c.sediment = true;
-        c.capture_prefix = true;
-        c.inject_context = case == "injected";
-        if case == "image" {
-            c.request.messages[0].content.push(image.clone());
-        }
-        let outcome = executor
-            .run(
-                request_control(),
-                c,
-                &pc_gateway_protocol::OpenAiResponsesRenderer,
-                &NoopEvidenceSink,
-            )
-            .await;
-        assert!(matches!(outcome, ManagedOutcome::Released { .. }), "{case}");
-    }
-    // 注入的记忆块、Source 无法呈现的图片、截断的文本都不在 Source 里：不保留前缀，Core 走普通抽取。
-    for (case, metadata) in ["injected", "image", "truncated"]
-        .iter()
-        .zip(gate.captured_metadata.lock().unwrap().iter())
-    {
-        assert!(metadata.get("prefix_handle").is_none(), "{case}");
-    }
+    let mut c = tool_loop_call("fix the bug", 0, true);
+    c.sediment = true;
+    c.capture_prefix = true;
+    c.inject_context = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    // 前缀是实际发出的请求，含注入块；Source 取自注入前的请求，不含注入块。
+    let handle = gate.captured_metadata.lock().unwrap()[0]["prefix_handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.request_body, transport.sends.lock().unwrap()[0]);
+    assert!(String::from_utf8_lossy(&prefix.request_body).contains("memory-snapshot-1"));
+    assert!(!gate.captured.lock().unwrap()[0]
+        .1
+        .contains("memory-snapshot-1"));
 }
 
-/// 规范化记录中单个字段的字节上限（与 transcript 模块一致）。
-fn crate_max_field_bytes() -> usize {
-    8 * 1024
+#[tokio::test]
+async fn an_oversized_turn_is_captured_as_ordered_parts_with_the_handle_on_the_last() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
+    let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
+    c.inject_context = false;
+    c.sediment = true;
+    c.capture_prefix = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let captured = gate.captured.lock().unwrap().clone();
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    let count = captured.len();
+    assert!(count >= 3);
+    let turn = captured[0].0.rsplit_once('-').unwrap().0.to_owned();
+    for (index, ((source_id, content), metadata)) in captured.iter().zip(&metadata).enumerate() {
+        assert_eq!(source_id, &format!("{turn}-{}of{count}", index + 1));
+        assert!(content.chars().count() <= 200_000);
+        assert_eq!(
+            metadata["turn"],
+            serde_json::json!({"source_id": turn, "part": index + 1, "parts": count})
+        );
+        assert_eq!(
+            metadata.get("prefix_handle").is_some(),
+            index + 1 == count,
+            "only the last part carries the handle"
+        );
+    }
 }

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import cast
 
 import httpx
 import pytest
@@ -165,6 +166,8 @@ def test_a_gateway_turn_is_extracted_over_its_prefix_without_resending_the_trans
     assert "deploys only on Tuesdays" not in instruction
     assert "a" * 32 not in instruction
     assert "prefix_input_tokens" not in instruction
+    # Memory injected into the conversation is marked; the instruction excludes it as evidence.
+    assert "BEGIN_POWERCONTEXT_<NAME>" in instruction
     assert any(
         getattr(record, "event", None) == "atomic_memory.prefixed_extraction"
         and getattr(record, "outcome", None) == "success"
@@ -234,6 +237,47 @@ def test_a_prefix_that_would_cost_more_is_not_used(tmp_path, caplog, prefix_toke
 def test_windows_without_a_single_prefixed_turn_use_normal_extraction(tmp_path, sources) -> None:
     gateway = _Gateway(500, {})
     extractor = _flush(tmp_path, gateway, sources)
+
+    assert gateway.requests == []
+    assert extractor.calls == 1
+
+
+def _part(index: int, count: int, *, handle: bool) -> dict[str, object]:
+    source = _turn(f"turn-1-{index}of{count}", handle="a" * 32 if handle else None)
+    # Each part is a slice of one long turn; together they fit the extraction budget.
+    source["content"] = json.dumps({
+        "kind": "gateway_turn",
+        "part": index,
+        "parts": count,
+        "steps": [{"type": "tool_output", "output": "echo release\n" * 700}],
+    })
+    metadata = cast("dict[str, object]", source["metadata"])
+    metadata["turn"] = {"source_id": "turn-1", "part": index, "parts": count}
+    if not handle:
+        del metadata["prefix_input_tokens"], metadata["prefix_output_tokens"]
+    return source
+
+
+def test_a_turn_captured_in_parts_is_extracted_over_the_prefix_of_its_last_part(tmp_path) -> None:
+    candidate = {**CANDIDATE, "evidence_ids": ["source:1", "source:3"]}
+    gateway = _Gateway(200, {"text": json.dumps({"candidates": [candidate]}), "usage": {}})
+    extractor = _flush(
+        tmp_path, gateway, [_part(1, 3, handle=False), _part(2, 3, handle=False), _part(3, 3, handle=True)]
+    )
+
+    assert extractor.calls == 0
+    assert gateway.memories == [CANDIDATE["text"]]
+    (request,) = gateway.requests
+    assert request["handle"] == "a" * 32
+    instruction = request["instruction"]
+    assert isinstance(instruction, str)
+    for evidence_id in ("source:1", "source:2", "source:3"):
+        assert f'"evidence_id": "{evidence_id}"' in instruction
+
+
+def test_a_window_with_only_some_parts_of_a_turn_uses_normal_extraction(tmp_path) -> None:
+    gateway = _Gateway(500, {})
+    extractor = _flush(tmp_path, gateway, [_part(2, 3, handle=False), _part(3, 3, handle=True)])
 
     assert gateway.requests == []
     assert extractor.calls == 1

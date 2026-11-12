@@ -32,7 +32,7 @@ use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
-use crate::transcript::{represents_turn, turn_transcript};
+use crate::transcript::turn_transcript;
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -503,47 +503,51 @@ where
                                 .map(simple_digest)
                                 .unwrap_or_else(|| simple_digest(&release_body))
                         });
-                        let mut metadata = serde_json::json!({
-                            "kind": "gateway_turn",
-                            "target_profile": call.target_profile,
-                            "powercontext_capture_coverage": transcript.coverage,
-                        });
-                        // 只有 Source 完整呈现了模型将看到的这一回合时才保留前缀：注入的记忆块、截断或省略的内容
-                        // 都不在 Source 里，不能被当作这一回合的证据。
-                        let represented = call.prepared_contexts.is_empty()
-                            && represents_turn(
-                                &pristine_request,
-                                &transcript.text,
-                                renderer.message_list_key(),
-                            );
-                        if let Some(prefix) = represented
-                            .then(|| {
-                                self.keep_prefix(
-                                    &call,
-                                    &payload.bytes,
-                                    &release_body,
-                                    renderer.message_list_key(),
-                                )
-                            })
-                            .flatten()
-                        {
-                            for (key, value) in prefix {
-                                metadata[key] = value;
+                        let source_id = format!("gw-turn-{digest}");
+                        // 保留前缀供 Core 复用缓存抽取：句柄写在这一回合最后一段 Source 的元数据里。注入的准备块在
+                        // 前缀里、不在 Source 里，Core 的抽取指令说明标记内的内容不是证据。
+                        let prefix = self.keep_prefix(
+                            &call,
+                            &payload.bytes,
+                            &release_body,
+                            renderer.message_list_key(),
+                        );
+                        let count = transcript.parts.len();
+                        for (index, content) in transcript.parts.into_iter().enumerate() {
+                            let mut metadata = serde_json::json!({
+                                "kind": "gateway_turn",
+                                "target_profile": call.target_profile,
+                                "powercontext_capture_coverage": transcript.coverage,
+                            });
+                            let part_id = if count > 1 {
+                                metadata["turn"] = serde_json::json!({
+                                    "source_id": source_id,
+                                    "part": index + 1,
+                                    "parts": count,
+                                });
+                                format!("{source_id}-{}of{count}", index + 1)
+                            } else {
+                                source_id.clone()
+                            };
+                            if index + 1 == count {
+                                for (key, value) in prefix.iter().flatten() {
+                                    metadata[*key] = value.clone();
+                                }
                             }
-                        }
-                        let capture = CaptureContentSourceRequest {
-                            scope_id: call.scope_id.clone(),
-                            source_id: format!("gw-turn-{digest}"),
-                            content: transcript.text,
-                            metadata: Some(metadata),
-                        };
-                        match self.gate.capture(capture).await {
-                            Ok(_) => {}
-                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
-                            Err(GateError::GateRejected(409)) => {
-                                evidence.record_not_sent(0, "sediment_duplicate")
+                            let capture = CaptureContentSourceRequest {
+                                scope_id: call.scope_id.clone(),
+                                source_id: part_id,
+                                content,
+                                metadata: Some(metadata),
+                            };
+                            match self.gate.capture(capture).await {
+                                Ok(_) => {}
+                                // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
+                                Err(GateError::GateRejected(409)) => {
+                                    evidence.record_not_sent(0, "sediment_duplicate")
+                                }
+                                Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                             }
-                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {

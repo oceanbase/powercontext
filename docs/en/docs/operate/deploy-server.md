@@ -327,10 +327,12 @@ needs both sides:
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
   memory, for at most 30 minutes and at most 64 turns. It records an opaque handle in the captured Source's metadata,
   with the input and output token counts of that final response.
-  The request and response never enter the Source, evidence, or logs. A prefix is kept only when the captured Source
-  represents the whole turn the model would read: no memory was injected into it, no field was truncated or step
-  omitted, and it holds no images, files, provider-hosted tool calls, or unrecognized items. Other turns use normal
-  extraction.
+  The request and response never enter the Source, evidence, or logs. The captured Source records the turn in full
+  (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
+  call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
+  reasoning, IDs, and other transport metadata are left out, and binary data becomes a placeholder with its size.
+  Injected memory blocks are not in the Source. A turn over the Source's 200,000-character limit is captured as
+  consecutive Sources; their metadata `turn` names the turn and the part, and the handle is on the last part.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
@@ -339,17 +341,20 @@ Cached input is not free: the provider still bills it at a reduced rate. When a 
 such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final
 response's output tokens at the full rate, plus the cached input tokens multiplied by
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` (default `0.1`). Normal extraction costs its
-instructions plus the Source evidence. The Server uses the prefix only when that estimate is lower. This usually
+instructions plus the Source evidence. The window must hold exactly one whole turn: one Source, or every part of one
+turn in order. The Server uses the prefix only when that estimate is lower. This usually
 holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
 kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
 that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
-not changed. The request passes the Server's normal `before_send` and `before_release` checks. An enforcing Server withholds a
+not changed. The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
+memory blocks the gateway injected; the extraction instruction states that content between `BEGIN_POWERCONTEXT_*` and
+`END_POWERCONTEXT_*` markers is not evidence for the turn. An enforcing Server withholds a
 request that replays the provider's encrypted reasoning, so with Codex and similar clients extraction then falls back
 to normal extraction. It is not injected and is not captured. The Server validates the reply with the same schema
 and rules as normal extraction.
 
-Any other case falls back to normal extraction: a window with several Sources or no handle, a prefix that is not
+Any other case falls back to normal extraction: a window that is not exactly one whole turn or has no handle, a prefix that is not
 estimated to cost less or whose size is unknown, an expired or unknown
 handle, a target mismatch, a withheld or blocked check, a provider or gateway error, or a reply that fails validation.
 Each attempt is logged as `atomic_memory.prefixed_extraction`; see

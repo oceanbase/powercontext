@@ -15,11 +15,13 @@
 """Atomic Memory extraction over the agent's cached conversation prefix.
 
 A gateway deployed with Core keeps the request and response of each terminal agent turn for a short time and records
-an opaque handle and the prefix's token counts in the turn's Source metadata. For a window holding exactly that one turn, Core asks the gateway to
-append its extraction instruction to that prefix, so the provider reads the conversation from its prompt cache instead
-of Core sending the transcript again. Cached input is still billed at a reduced rate, so the path is used only when
-the cached prefix plus Core's instruction is estimated to cost less than normal extraction of the same Source. The gateway runs Core's normal context checks on that request. Anything this
-path cannot complete raises :class:`PrefixedExtractionUnavailable`, and the caller extracts the normal way.
+an opaque handle and the prefix's token counts in the turn's Source metadata. A turn too long for one Source is
+captured as consecutive parts, and the handle is on the last. For a window holding exactly one turn, Core asks the
+gateway to append its extraction instruction to that prefix, so the provider reads the conversation from its prompt
+cache instead of Core sending the transcript again. Cached input is still billed at a reduced rate, so the path is used
+only when the cached prefix plus Core's instruction is estimated to cost less than normal extraction of the same
+Sources. The gateway runs Core's normal context checks on that request. Anything this path cannot complete raises
+:class:`PrefixedExtractionUnavailable`, and the caller extracts the normal way.
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ PREFIX_HANDLE_KEY = "prefix_handle"
 PREFIX_INPUT_TOKENS_KEY = "prefix_input_tokens"
 PREFIX_OUTPUT_TOKENS_KEY = "prefix_output_tokens"
 _GATEWAY_METADATA_KEYS = {PREFIX_HANDLE_KEY, PREFIX_INPUT_TOKENS_KEY, PREFIX_OUTPUT_TOKENS_KEY}
+# Part of a turn captured as several Sources: ``{"source_id": <turn>, "part": i, "parts": n}``.
+TURN_KEY = "turn"
 EXTRACT_PATH = "/gateway/v1/extract"
 
 # Gateway refusals that name their cause; other refusals are reported by kind.
@@ -67,22 +71,40 @@ class PrefixedExtractionUnavailable(InferenceError):
         super().__init__(f"prefixed extraction unavailable: {reason}")
 
 
-def prefix_handle(value: AtomicMemoryExtractionInput) -> str | None:
-    """The gateway prefix handle of a window that holds exactly one gateway turn."""
-
-    if len(value.evidence) != 1:
-        return None
-    source = value.evidence[0].source_metadata
+def _metadata(evidence: AtomicMemoryEvidence) -> dict[str, Any]:
+    source = evidence.source_metadata
     metadata = source.get("metadata") if isinstance(source, dict) else None
-    handle = metadata.get(PREFIX_HANDLE_KEY) if isinstance(metadata, dict) else None
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _one_turn(evidence: tuple[AtomicMemoryEvidence, ...]) -> bool:
+    """Whether the evidence is one whole gateway turn: a single Source, or all parts of one turn in order."""
+
+    if len(evidence) == 1:
+        return TURN_KEY not in _metadata(evidence[0])
+    turns = [turn for item in evidence if isinstance(turn := _metadata(item).get(TURN_KEY), dict)]
+    if len(turns) != len(evidence):
+        return False
+    first = turns[0]
+    return all(
+        turn.get("source_id") == first.get("source_id")
+        and turn.get("parts") == len(evidence)
+        and turn.get("part") == index
+        for index, turn in enumerate(turns, start=1)
+    )
+
+
+def prefix_handle(value: AtomicMemoryExtractionInput) -> str | None:
+    """The gateway prefix handle of a window that holds exactly one gateway turn, which its last Source carries."""
+
+    if not value.evidence or not _one_turn(value.evidence):
+        return None
+    handle = _metadata(value.evidence[-1]).get(PREFIX_HANDLE_KEY)
     return handle if isinstance(handle, str) and handle else None
 
 
 def _prefix_tokens(evidence: AtomicMemoryEvidence) -> tuple[int, int] | None:
-    source = evidence.source_metadata
-    metadata = source.get("metadata") if isinstance(source, dict) else None
-    if not isinstance(metadata, dict):
-        return None
+    metadata = _metadata(evidence)
     cached, uncached = metadata.get(PREFIX_INPUT_TOKENS_KEY), metadata.get(PREFIX_OUTPUT_TOKENS_KEY)
     if _count(cached) and _count(uncached):
         return cached, uncached
@@ -112,8 +134,8 @@ class GatewayPrefixedExtractor:
             raise PrefixedExtractionUnavailable("no_prefix")
         selection = current_prompt("atomic_memory.extract")
         instructions = self.instructions if selection is None else selection.compiled_instructions
-        instruction = prefixed_instruction(instructions, value.evidence[0], AtomicMemoryExtractionOutput)
-        tokens = _prefix_tokens(value.evidence[0])
+        instruction = prefixed_instruction(instructions, value.evidence, AtomicMemoryExtractionOutput)
+        tokens = _prefix_tokens(value.evidence[-1])
         if tokens is None:
             raise PrefixedExtractionUnavailable("prefix_size_unknown")
         cached, uncached = tokens
@@ -144,30 +166,35 @@ class GatewayPrefixedExtractor:
 
 
 def prefixed_instruction(
-    instructions: str, evidence: AtomicMemoryEvidence, output_type: type[AtomicMemoryExtractionOutput]
+    instructions: str, evidence: tuple[AtomicMemoryEvidence, ...], output_type: type[AtomicMemoryExtractionOutput]
 ) -> str:
     """The user message appended to the prefix.
 
     The output format is stated in the message because a response-format field would change the cached request.
-    The Source record keeps the provenance and timing the normal extraction input carries, without the transcript.
+    The Source records keep the provenance and timing the normal extraction input carries, without the transcript.
     """
 
-    metadata = evidence.source_metadata
-    if isinstance(metadata, dict) and isinstance(metadata.get("metadata"), dict):
-        inner = {key: item for key, item in metadata["metadata"].items() if key not in _GATEWAY_METADATA_KEYS}
-        metadata = {**metadata, "metadata": inner}
-    record = {
-        "evidence_id": evidence.evidence_id,
-        "journal_position": evidence.journal_position,
-        "source_metadata": metadata,
-    }
+    records = []
+    for item in evidence:
+        metadata = item.source_metadata
+        if isinstance(metadata, dict) and isinstance(metadata.get("metadata"), dict):
+            inner = {key: value for key, value in metadata["metadata"].items() if key not in _GATEWAY_METADATA_KEYS}
+            metadata = {**metadata, "metadata": inner}
+        records.append({
+            "evidence_id": item.evidence_id,
+            "journal_position": item.journal_position,
+            "source_metadata": metadata,
+        })
     return "\n\n".join((
         instructions,
         "The conversation above is the Source evidence for this extraction. Only its most recent user turn is "
         "evidence: the last user message before this one and everything after it. Earlier turns are context only; "
-        "do not extract a fact that only they support. This message is not evidence. Cite the evidence_id of the "
-        "Source record below.",
-        "Source record:\n" + json.dumps(record, ensure_ascii=False, sort_keys=True),
+        "do not extract a fact that only they support. Content between a BEGIN_POWERCONTEXT_<NAME> marker and its "
+        "END_POWERCONTEXT_<NAME> marker was supplied by PowerContext from existing memory or context: it is not "
+        "evidence for this turn, and a fact that only it supports must not be extracted. This message is not "
+        "evidence. Cite the evidence_id of the Source records below; a turn captured in several parts is listed in "
+        "order, and a fact may cite every part that supports it.",
+        "Source records:\n" + json.dumps(records, ensure_ascii=False, sort_keys=True),
         "Reply with only a JSON object that matches this JSON Schema, without code fences or other text:\n"
         + json.dumps(output_type.model_json_schema(), sort_keys=True),
     ))
