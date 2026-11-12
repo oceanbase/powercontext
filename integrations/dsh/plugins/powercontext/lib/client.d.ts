@@ -220,6 +220,7 @@ interface StatusFace {
   };
   setSession: (sessionId: string | undefined) => void;
   refresh: () => void;
+  openDashboard: (url: string) => boolean;
 }
 interface FooterActionProps {
   wide: boolean;

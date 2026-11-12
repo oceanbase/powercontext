@@ -39,6 +39,11 @@ from powercontext.builtin.artifacts.handoff import (
     PrepareHandoff,
     PrepareHandoffHint,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import Source, SourceMaterialization, SourceRef
 
@@ -380,6 +385,12 @@ def test_prepare_rejects_pipeline_contract_violations(
             )
 
         assert caught.value.code == code
+        diagnostics = classify_processing_error(caught.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+        assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+        assert diagnostics.failure_location == code
+        assert await service.latest() is None
 
     asyncio.run(scenario())
 

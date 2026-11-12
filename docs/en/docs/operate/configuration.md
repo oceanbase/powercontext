@@ -59,8 +59,9 @@ changes authoritative history. For a hosted decision backend, set `MEMORY_WRITE_
 and explicitly select `MEMORY_WRITE_GATE_SANITIZER=known_secrets`. The sanitizer covers known sensitive environment/Codex
 values and a bounded set of provider-key prefixes; it is not a general PII or password detector. The sanitizer selection
 defaults to `none`, and hosted-redacted composition fails with a named configuration error until one is selected.
-The existing limit of 32 tags per Artifact still applies. If merged input tags exceed it, the whole merge fails;
-Source processing also retains the window without partial publication or cursor advancement.
+The existing limit of 32 tags per Artifact still applies to a merge result. When its inputs carry more than 32 distinct
+normalized labels, the result keeps a deterministic selection of 32, and the merge and its Source window commit
+normally. See [Organize with tags](../workflows/manage-artifact-tags.md#label-rules-and-storage) for the selection order.
 
 ## User data
 

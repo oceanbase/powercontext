@@ -49,10 +49,10 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
 | Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Experience | Partial | N/A | Partial | Missing | Missing | Missing |
-| Profile | Partial | N/A | Partial | Missing | Missing | Missing |
-| Skill | Partial | N/A | Partial | Missing | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
+| Experience | Partial | N/A | Partial | Partial | Missing | Missing |
+| Profile | Partial | N/A | Partial | Partial | Missing | Missing |
+| Skill | Partial | N/A | Partial | Partial | Missing | Missing |
+| Handoff | Partial | N/A | Partial | Partial | Missing | Missing |
 | Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
 
 Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒度跟踪：
@@ -80,9 +80,27 @@ Topic Memory 的 operation 级覆盖：
 | Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。Topic head 冲突将 `head_conflict` 记为该次尝试的最后错误，不消耗 window 尝试次数。 |
 | Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
 
-前两个落地切片覆盖 Memory / Atomic Memory 与 Topic Memory：provider 失败、预算耗尽、提取/对账/领域校验
-均有分类，安全计数字段可从子 Worker 传播到 supervisor 日志。其他 Family 在各自切片落地前保持现有行为；
-每次切片在同一变更中更新本矩阵。
+Experience、Profile、Skill 与 Handoff 的 operation 级覆盖：
+
+| Operation | Stage | 状态 | 说明 |
+|---|---|---|---|
+| `experience.incubate` | Business validation | Partial | 有界输入和窗口外证据携带明确诊断；结构上限不证明模型上下文溢出。 |
+| `profile.generate` | Business validation | Partial | 无效 Markdown 携带输入数量与原始校验异常类型，不暴露内容。 |
+| Experience / Skill typed generation | Output parsing | Partial | 无效 typed 结果使用共享 schema 映射；无法分类的 provider 细节保持 unknown。 |
+| Dream（`refine_experience`、`revise_profile`、`derive_skill`、`revise_skill`） | Generation / business validation | Partial | 捕获的 attempt 失败通过 `dream.attempt.failed` 记录，复用 worker/request 身份。证据超过上限、证据不可用或请求目标不受支持时，记录 `business_validation` 和失败位置。 |
+| `handoff.generate` | Business validation | Partial | objective、引用、rollover、字节上限违规均为无效输出，不是模型资源耗尽。 |
+| Publication / persistence | Persistence | Missing | 这些切片尚未分类全部存储入口。 |
+| Usage accounting | Usage accounting | Missing | 账务失败仍与处理结果分离。 |
+
+矩阵描述分类覆盖情况，不表示整个 issue 已完成。Dream 失败记录只包含有界诊断字段，不含异常文本或证据正文。
+持久化 run 结果和重试规则仍是权威状态；日志属于观测，不新增持久化失败历史。当前 durable block 分类只覆盖
+Topic Memory；Dream 使用既有 Run 结果和 attempt 日志，不产生持久化调度阻塞。
+
+Dream 自身的执行期限耗尽时，Run 以 `budget_exceeded` 终止。对应 attempt 日志记录
+`generation` / `usage_limit` 和 `failure_location=budget_exceeded`，与执行预算结果一致，同时保留
+`exception_type=TimeoutError`。这里的 stage 表示执行预算的归属。期限尚未耗尽时抛出的裸
+`TimeoutError` 走 `generation_failed` 终止路径，日志记录 `timeout`，省略未知阶段。
+Provider 的 `InferenceTimeoutError` 保留操作对应的 stage 和 `timeout` 原因，仍可在既有 Run 预算内重试。
 
 ## 落地顺序
 
