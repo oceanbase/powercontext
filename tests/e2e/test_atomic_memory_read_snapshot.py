@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Iterator
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -41,8 +40,10 @@ class _Embedding:
         return EmbeddingResult(vectors=((1.0, 0.0, 0.0),) * len(texts))
 
 
-@pytest.fixture(params=("sqlite", "oceanbase"))
-def database(request, tmp_path: Path) -> Iterator[SQLiteConfig | OceanBaseConfig]:
+@pytest.fixture(scope="module", params=("sqlite", "oceanbase"))
+def database(request, tmp_path_factory: pytest.TempPathFactory) -> Iterator[SQLiteConfig | OceanBaseConfig]:
+    # Read-snapshot cases share only schema; each search uses its own Scope.
+    tmp_path = tmp_path_factory.mktemp("atomic-read-snapshots")
     if request.param == "sqlite":
         yield SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'atomic-snapshot.db'}")
         return
@@ -69,12 +70,14 @@ def database(request, tmp_path: Path) -> Iterator[SQLiteConfig | OceanBaseConfig
 
 @pytest.mark.parametrize("mode", ["text", "vector", "hybrid"])
 def test_atomic_search_keeps_candidates_and_authority_in_one_snapshot(database, mode: str, monkeypatch) -> None:
+    scope_id = f"snapshot-{uuid4().hex}"
+
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=database), embedding_model=_Embedding()) as contexts:
-            await contexts.get("project")
-            memory = contexts.atomic_memory.for_scope("project")
+            await contexts.get(scope_id)
+            memory = contexts.atomic_memory.for_scope(scope_id)
             (created,) = await contexts.records.create_atomic_memories(
-                "project",
+                scope_id,
                 ({"kind": "fact", "text": "Alpha beta original body.", "description": "Original alpha beta fact"},),
             )
             index = contexts.atomic_memory.index
@@ -88,7 +91,7 @@ def test_atomic_search_keeps_candidates_and_authority_in_one_snapshot(database, 
                     changed = True
                     revised = await asyncio.create_task(
                         contexts.records.replace_artifact(
-                            "project",
+                            scope_id,
                             "atomic-memory",
                             created.artifact_id,
                             '"revision:1"',

@@ -265,7 +265,9 @@ def main() -> int:
         arguments.backend,
         "-vv",
         "-o",
-        f"faulthandler_timeout={0 if arguments.backend == 'seekdb' else 180}",
+        # A background stack dump can crash native-driver threads (CPython #116008).
+        # CI enforces a process deadline and captures database diagnostics instead.
+        "faulthandler_timeout=0",
         f"--junitxml={report}",
     ])
     if result:

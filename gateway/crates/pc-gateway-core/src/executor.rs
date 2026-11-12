@@ -89,6 +89,8 @@ pub enum ManagedOutcome {
     },
     Withheld {
         reason_codes: Vec<String>,
+        /// Whether refreshing context can recover this outcome.
+        retryable: bool,
     },
     SendIndeterminate,
     NotSent {
@@ -105,6 +107,18 @@ pub enum ManagedOutcome {
 }
 
 impl ManagedOutcome {
+    // Keep recovery classification beside the executor's context refresh handling.
+    fn withheld(reason_codes: Vec<String>) -> Self {
+        let retryable = !reason_codes.is_empty()
+            && reason_codes
+                .iter()
+                .all(|reason| reason == CONTEXT_REFRESH_REQUIRED);
+        Self::Withheld {
+            reason_codes,
+            retryable,
+        }
+    }
+
     /// One terminal interpretation shared by lifecycle snapshots and evidence.
     pub(crate) fn terminal(&self) -> crate::ExecutionTerminal {
         use crate::ExecutionTerminal;
@@ -128,6 +142,7 @@ pub struct Executor<G, T> {
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+    require_privacy_coverage: bool,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -150,6 +165,7 @@ where
             max_attempts,
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
+            require_privacy_coverage: true,
         }
     }
 
@@ -157,6 +173,13 @@ where
     /// cannot bypass the currently supported complete-body parser ceiling.
     pub fn with_input_limit(mut self, limit: usize) -> Self {
         self.max_input_bytes = limit.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
+    }
+
+    /// Apply enforcement discovered from the trusted Core. Non-enforcing
+    /// admission still requires Core's allow verdict, binding, and deadline.
+    pub fn with_core_enforcement(mut self, enforcing: bool) -> Self {
+        self.require_privacy_coverage = enforcing;
         self
     }
 
@@ -280,7 +303,11 @@ where
                     };
                 }
                 Ok(result) => match result.decision {
-                    CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
+                    CheckDecision::Allow => match validate_allow(
+                        &result,
+                        CheckPhase::BeforeSend,
+                        self.require_privacy_coverage,
+                    ) {
                         Ok((binding, deadline)) => Admission {
                             binding,
                             valid_until_ms: deadline,
@@ -313,9 +340,7 @@ where
                         continue;
                     }
                     CheckDecision::Withhold => {
-                        return ManagedOutcome::Withheld {
-                            reason_codes: result.reason_codes,
-                        }
+                        return ManagedOutcome::withheld(result.reason_codes)
                     }
                 },
             };
@@ -384,7 +409,11 @@ where
                         };
                         match self.gate.check(recheck).await {
                             Ok(r) if r.decision == CheckDecision::Allow => {
-                                match validate_allow(&r, CheckPhase::BeforeSend) {
+                                match validate_allow(
+                                    &r,
+                                    CheckPhase::BeforeSend,
+                                    self.require_privacy_coverage,
+                                ) {
                                     Ok((binding, deadline)) => {
                                         current = Admission {
                                             binding,
@@ -399,11 +428,7 @@ where
                                     reason_codes: r.reason_codes,
                                 }
                             }
-                            Ok(r) => {
-                                return ManagedOutcome::Withheld {
-                                    reason_codes: r.reason_codes,
-                                }
-                            }
+                            Ok(r) => return ManagedOutcome::withheld(r.reason_codes),
                             Err(e) => return ManagedOutcome::GatePaused(classify_gate_error(e)),
                         }
                     }
@@ -418,6 +443,7 @@ where
             Err(_) => {
                 return ManagedOutcome::Withheld {
                     reason_codes: vec!["invalid_response_encoding".into()],
+                    retryable: false,
                 }
             }
         };
@@ -437,12 +463,15 @@ where
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
             Ok(result) => match result.decision {
                 CheckDecision::Allow => {
-                    // P2 review：验证完整 allow（schema/phase/coverage/binding）。
-                    let (_release_binding_used, _release_deadline_used) =
-                        match validate_allow(&result, CheckPhase::BeforeRelease) {
-                            Ok(v) => v,
-                            Err(outcome) => return outcome,
-                        };
+                    // Release requires its own valid admission under the configured mode.
+                    let (_release_binding_used, _release_deadline_used) = match validate_allow(
+                        &result,
+                        CheckPhase::BeforeRelease,
+                        self.require_privacy_coverage,
+                    ) {
+                        Ok(v) => v,
+                        Err(outcome) => return outcome,
+                    };
                     // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
                     let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
                     if now_ms() >= release_deadline {
@@ -471,10 +500,11 @@ where
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
-                            content: transcript,
+                            content: transcript.text,
                             metadata: Some(serde_json::json!({
                                 "kind": "gateway_turn",
                                 "target_profile": call.target_profile,
+                                "powercontext_capture_coverage": transcript.coverage,
                             })),
                         };
                         match self.gate.capture(capture).await {
@@ -512,9 +542,7 @@ where
                         reason_codes: result.reason_codes,
                     }
                 }
-                CheckDecision::Withhold => ManagedOutcome::Withheld {
-                    reason_codes: result.reason_codes,
-                },
+                CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
             },
         }
     }
@@ -748,6 +776,7 @@ fn indeterminate_outcome(reason: SendIndeterminateReason) -> ManagedOutcome {
     match reason {
         SendIndeterminateReason::BufferLimitExceeded => ManagedOutcome::Withheld {
             reason_codes: vec!["response_buffer_limit_exceeded".into()],
+            retryable: false,
         },
         _ => ManagedOutcome::SendIndeterminate,
     }
@@ -766,12 +795,13 @@ fn content_headers(headers: &[(String, String)], content_type: &str) -> BTreeMap
     out
 }
 
-/// 验证 allow 响应的完整性：schema/phase/coverage/binding 四项缺一不可。
-/// 契约："Only allow with complete coverage permits the corresponding phase."
-/// 畸形对端返回不完整 allow 时必须暂停（fail-closed），不得替代或放行。
+/// Validate phase, binding and deadline independently of privacy enforcement.
+/// Complete privacy coverage is required unless the trusted Core explicitly
+/// advertises non-enforcing operation.
 fn validate_allow(
     result: &ContextCheckResult,
     expected_phase: CheckPhase,
+    require_privacy_coverage: bool,
 ) -> Result<(String, u64), ManagedOutcome> {
     // 1. schema 必须匹配
     if result.schema != pc_gateway_types::CONTEXT_CHECK_SCHEMA {
@@ -786,8 +816,8 @@ fn validate_allow(
             result.phase
         )));
     }
-    // 3. coverage.complete 必须为 true
-    if !result.coverage.complete {
+    // 3. Enforcing admission requires complete privacy coverage.
+    if require_privacy_coverage && !result.coverage.complete {
         return Err(ManagedOutcome::GatePaused(
             "malformed_verdict: incomplete coverage on allow".into(),
         ));

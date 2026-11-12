@@ -156,10 +156,21 @@ def session_lifecycle(run: AcceptanceRun) -> None:
             item["event_source"] == "startup" and item["stages"]["prepare"]["state"] == "skipped" for item in starts
         )
         restored = next(item for item in starts if item["event_source"] == "resume")
-        assert restored["scope_id"] == run.scope_id
-        assert restored["stages"]["prepare"]["state"] == "ready"
-        assert restored["stages"]["context_output"]["state"] == "emitted"
-        assert restored["stages"]["capture"]["state"] == "skipped"
+        evidence.append(
+            run.evidence(
+                "session-resume",
+                {
+                    "scope_matches": restored["scope_id"] == run.scope_id,
+                    "prepare": restored["stages"]["prepare"],
+                    "context_output": restored["stages"]["context_output"],
+                    "capture": restored["stages"]["capture"],
+                },
+            )
+        )
+        assert restored["scope_id"] == run.scope_id, "resume_scope_mismatch"
+        assert restored["stages"]["prepare"]["state"] == "ready", "resume_prepare_not_ready"
+        assert restored["stages"]["context_output"]["state"] == "emitted", "resume_context_not_emitted"
+        assert restored["stages"]["capture"]["state"] == "skipped", "resume_captured_source"
         assert not any(item["path"] == "/v1/memory/flush" for item in run.wire.records[start:])
         if run.model:
             assert any(

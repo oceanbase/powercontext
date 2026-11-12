@@ -220,6 +220,8 @@ validated before exposure. No raw stderr, provider exception, configuration cont
 
 ### Provisioning the bridge
 
+Product builds can embed the helper and deploy it automatically to `PowerContext/Ops/bundles/<manifest-sha256>` using [Desktop product resources](../../development/desktop-product-resources.md). The following fixed `bundle` directory is the legacy fallback for packages that omit `ops/`; invalid packaged resources never select it. Both layouts preserve Ops independently of Desktop removal.
+
 A trusted native installer/packager publishes the independent Ops bundle at the fixed current-user location:
 
 - Windows: `%LOCALAPPDATA%\PowerContext\Ops\bundle`.

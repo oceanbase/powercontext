@@ -21,8 +21,14 @@ status: community
 
 上面的动图使用 Desktop 界面演示，Web 版的入口名称相同。npm 安装只负责安装插件，不会启动或配置 PowerContext Server。
 
+同一个包还导出独立的浏览器入口 `./client`。重启后，DSH Web 和 Desktop 会在账号区域上方显示 PowerContext
+状态控件。没有显示时说明宿主没有加载浏览器入口；已有工具和生命周期行为仍可用，因此这不是 Server 故障。
+这个控件不是 Dashboard 替代品：点击只打开连接诊断，Dashboard 内嵌属于后续工作。
+
 npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
 正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
+本次实现验收使用的官方最新版本是 `0.2.2-rc.1`（2026-11-04 发布的预发布版）；只在对应真实 Web 和
+Desktop 自带 runtime 上验证过，不能据此推断其他 DSH 版本兼容。
 
 ## 启动 PowerContext Server
 
@@ -112,9 +118,63 @@ Desktop 必须使用桌面版自带的 dsh 命令，npm/pnpm 版 dsh 无权管�
 Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
 `DSH_HOME` 默认是 `~/.dsh`。使用 `powercontext setup dsh --json` 时，可从 `hosts.dsh.result.plugin_path`
 取得插件路径并记录插件 commit；`hosts.dsh.setup: "complete"` 只表示注册完成，不代表运行中的 Server 已就绪。
+插件检查还会分别报告 `browser_client`、`client_declaration`、`asset_export` 和 `host_bundle`。缺少浏览器入口时
+属于无界面安装：工具继续可用，侧栏状态不可用，不会因此误报 Server 故障。
 
 已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
 [远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
+
+## 侧栏状态与诊断
+
+侧栏控件位于账号区域上方，颜色始终配有无障碍标签：
+
+| 状态 | 含义 |
+| --- | --- |
+| 灰色 | 未配置、已禁用，或不是已验证的本机所有者宿主 |
+| 黄色 | 正在连接、重试，或过期观测正在重新核对 |
+| 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
+| 红色 | 连接、DSH 认证或必要能力失败 |
+
+点击后打开只读诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
+本地存储中，无法读取偏好时回退到中文。默认视图保留连接状态、Server 地址、工作目录和 Scope；会话 ID、
+部署方式、认证配置来源（不显示认证值）、就绪依赖、context schema 和自动处理观测放在可展开的“技术详情”中。
+页脚通过 Host 读取 `GET /v1/server-info` 的 `package_version`，显示当前 Server 包版本。旧 Server 不支持该接口、
+读取失败或连接观测过期时显示“未知”，不会替换为插件版本或 API 合约版本。版本读取有界且不影响就绪判断。
+面板复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、发送诊断 prompt 或轮询 `/pc doctor`。
+
+桥接接口是插件自有、经 DSH 认证的 `GET /powercontext/status`。DSH 原有 `requestRejection` 始终先执行，不会被削弱；
+此外还必须到达已验证的本机所有者界面：
+
+- DSH Desktop 通过 Desktop Host 提供的受管 `desktop` profile 上下文识别；用同一个 Electron 可执行程序运行
+  Web profile 不会被当作 Desktop 权限。
+- DSH Web 只有在 loopback 请求且所有者明确设置 `ownerLocal: true`（或 `POWERCONTEXT_DSH_OWNER_LOCAL=true`）时接受。
+  只应在自己的本机 Web 宿主上设置。
+- 非 loopback、SSH 启动或未配置的 Web 宿主会被拒绝。非 loopback 显示为可处理失败；SSH 启动或未配置 Web
+  显示为灰色未配置；都不会被静默标为 local。
+
+本机 Web 可在 profile 或 home 的 `cordis.patch.yml` 中加入：
+
+```yaml
+- id: powercontext-dsh
+  config:
+    ownerLocal: true
+```
+
+或在启动 `dsh web` 前设置：
+
+```bash
+POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
+```
+
+不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install、target 或 Dashboard 路由。
+
+页面可见时每十秒刷新；隐藏时暂停，恢复可见后立即重新核对；失败后从 2 秒退避到 30 秒；成功观测超过 30 秒
+会标为过期而不是继续显示绿色。DSH 的 401/403、Server 离线、readiness 依赖失败或缺少 context schema 分别显示
+不同诊断。面板只展示允许字段，不打印启动 token、Authorization 值或 Bearer header。切换会话会更新观测会话并
+丢弃上一会话的迟到响应；没有会话时如实显示，不创建会话。
+
+更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
+订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
 
 ## 诊断运行中的配置
 
@@ -142,6 +202,7 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 | `not_ready` / `degraded` | 检查报告指出的依赖，例如 `database` 或 `inference.generation`，按该项恢复提示处理。 |
 | `required_route_missing` | 指定操作返回无业务码的 404；检查代理路由、base path 和版本匹配，404 本身不能确定是版本问题。 |
 | `required_route_undeclared` | Server 的 OpenAPI 文档缺少列出的操作声明。 |
+| `memory_protocol_mismatch` / `legacy_memory_operation_unsupported` | 对齐 Server/CLI/插件协议，为实际 profile 重新 setup、重启，再搜索取得 Atomic 引用；不得移除集合 CAS。 |
 | `contract_unavailable` | 无法核对路由声明；通过同一 base path 提供 `/openapi.json`，或单独核对部署的契约。 |
 | `scope_not_found` / `unscoped` | 检查显式 Scope 覆盖、workspace binding 和 Server 默认 Scope；Doctor 不修改它们。 |
 | `invalid_response` | 响应未通过协议校验，即使 HTTP status 是 200。 |
@@ -151,10 +212,10 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 Doctor 不执行 capture、remember、flush、binding 修改或注入。契约不可读时标为未检查；
 Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下方显式验收负责。
 
-独立 CLI 的 `powercontext doctor dsh` 仅检查 Web profile 注册，并明确报告没有观察到运行中宿主的配置，
-没有执行 Server 检查。退出成功只表示注册检查通过。
-`powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
-对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
+独立 CLI 的 `powercontext doctor dsh` 检查所选 profile 的注册状态和已安装插件 Memory 协议声明，并检查 CLI
+解析到的端点上的 Server。这些检查不能观察已运行 DSH 进程的环境覆盖或工具缓存；请重启受影响的 profile，
+再在会话里运行 `/pc doctor`。已安装包未声明协议或 Server 契约不可读时，整体结果不会显示成功；注册通过本身
+不足以证明兼容。不指定 Host 的 `powercontext doctor` 使用其选定的客户端端点。
 
 ## 查看最近一次自动执行
 
@@ -388,3 +449,11 @@ Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，
 HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SERVER_URL`、`ENDPOINT`，然后才读取
 `POWERCONTEXT_CLIENT_SERVER_URL`。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
+
+
+### Memory 协议升级检查
+
+独立的 `powercontext doctor dsh` 会检查所选 Web/Desktop profile 的注册状态与已安装插件协议声明。缺少声明的旧包
+显示为未验证/degraded，并提示更新；不能仅凭包版本号或健康检查判定兼容。会话内的 `/pc doctor` 还会核对 Server 的
+Memory 协议声明、Atomic 路由及过期的原生 MCP 修改工具。恢复时保留 `legacy_memory_operation_unsupported`，不移除
+CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。
