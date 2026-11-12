@@ -793,8 +793,8 @@ class Rendering(BaseModel):
 
 class SearchRequest(BaseModel):
     scope_id: str
-    search: SearchArtifactsRequest        # 通用检索接口的完整请求，原样转交
-    max_bytes: int | None = None          # 来自 Prepared Context 时，本 family 可用的字节预算
+    search: dict[str, JsonValue]          # 通用检索接口的完整请求（JSON），原样转交
+    max_bytes: int | None = None          # 来自 Prepared Context 时，请求的字节预算
     caller: Caller | None
 
 class SearchHit(BaseModel):
@@ -814,9 +814,9 @@ class SearchResult(BaseModel):
   `admission`、`fusion`、`rerank`、`min_score` 等）原样交给 `search_artifacts`，由插件按自己的索引解释；插件不支持的参数
   抛出 `InvalidContent`，接口返回 422。core 只保留命中中调用者有权读取的 active 当前 revision，按插件给出的顺序返回
   精确 revision，`include_scores` 时附带插件给出的分数。插件因此不能借检索返回调用者看不到的数据。
-- **Prepared Context**：`assembly.sections` 可以列出插件 family。core 以 Prepared Context 的 `query` 和该项的 `limit`、
-  剩余字节预算调用 `search_artifacts`，把命中的片段作为上下文条目，与内置 family 一样带精确 revision 引用、计入字节预算
-  和回执。每项可以携带可选的 `search`，内容是检索请求中除 `query`、`limit` 以外的字段，原样转交插件；内置 family 携带
+- **Prepared Context**：`assembly.sections` 可以列出插件 family。core 以 Prepared Context 的 `query`、该项的 `limit` 和
+  请求的字节预算调用 `search_artifacts`，把命中的片段作为上下文条目按 section 顺序装填，与内置 family 一样带精确 revision
+  引用、计入字节预算和回执，超出预算的条目被截断或省略。每项可以携带可选的 `search`，内容是检索请求中除 `query`、`limit` 以外的字段，原样转交插件；内置 family 携带
   `search` 时返回 422。
 - Review 和 Recall 不对插件 family 开放，对应接口返回明确的“不支持”错误；`GET /v1/capabilities` 列出插件 family。
 
@@ -897,7 +897,7 @@ class SearchResult(BaseModel):
 | 调整 | tags 接口接受插件 family：`TaggableArtifactFamily` 从枚举改为与 `ArtifactReadFamily` 相同格式的字符串，服务端校验为内置 family 或已加载的插件 family。网络上的数据格式不变，生成的客户端少了这个枚举类型 |
 | 调整 | 通用 Artifact 读取接口支持插件 family；通用检索接口对插件 family 把完整请求交给插件的 `search_artifacts`，未实现时返回 422；`GET /v1/capabilities` 列出插件 family |
 | 新增 | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering`：插件 family 的默认展示内容，由插件的 `render_artifact` 提供 |
-| 调整 | `POST /v1/context/prepare`：`ContextAssemblySection.family` 从枚举改为字符串，可以是已加载的插件 family；新增可选的 `search`（检索请求中除 `query`、`limit` 以外的字段），只对插件 family 生效 |
+| 调整 | `POST /v1/context/prepare`：`ContextAssemblySection.family` 从枚举改为字符串，可以是已加载的插件 family；新增可选的 `search`（检索请求中除 `query`、`limit` 以外的字段），只对插件 family 生效；回执中的 `PreparedContextFamily` 从枚举改为字符串，可以是插件 family |
 | 调整 | 导出与恢复的 Artifact revision 记录格式版本加一，增加 `metadata` |
 | 调整 | 环境变量 `POWERCONTEXT_SERVER_PLUGINS_DIR` 取代 `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` |
 

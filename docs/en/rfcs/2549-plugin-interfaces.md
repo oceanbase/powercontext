@@ -921,8 +921,8 @@ class Rendering(BaseModel):
 
 class SearchRequest(BaseModel):
     scope_id: str
-    search: SearchArtifactsRequest        # the complete request of the generic search API, unchanged
-    max_bytes: int | None = None          # from Prepared Context: the byte budget left for this family
+    search: dict[str, JsonValue]          # the complete request of the generic search API as JSON, unchanged
+    max_bytes: int | None = None          # from Prepared Context: the request's byte budget
     caller: Caller | None
 
 class SearchHit(BaseModel):
@@ -945,8 +945,9 @@ class SearchResult(BaseModel):
   revisions in the plugin's order, and adds the plugin's scores when `include_scores` is set. A plugin therefore cannot
   return data the caller cannot see through search.
 - **Prepared Context**: `assembly.sections` may list plugin families. Core calls `search_artifacts` with Prepared Context's
-  `query`, the section's `limit`, and the remaining byte budget, and uses the matched passages as context entries that,
-  like built-in entries, cite exact revisions and count toward the byte budget and the receipt. A section may carry an
+  `query`, the section's `limit`, and the request's byte budget, and fills the matched passages in section order as
+  context entries that, like built-in entries, cite exact revisions and count toward the byte budget and the receipt;
+  entries beyond the budget are truncated or left out. A section may carry an
   optional `search` with the fields of a search request other than `query` and `limit`, passed on to the plugin
   unchanged; built-in families that carry `search` return 422.
 - Review and Recall are not open to plugin families; those APIs return an explicit "not supported" error, and
@@ -1049,7 +1050,7 @@ new format.
 | Changed | The tag APIs accept plugin families: `TaggableArtifactFamily` changes from an enum to a string in the `ArtifactReadFamily` format, and Server accepts built-in families or loaded plugin families. The wire format is unchanged; generated clients lose the enum type |
 | Changed | The generic Artifact read APIs support plugin families; for plugin families, the generic search API passes the complete request to the plugin's `search_artifacts` and returns 422 when it is not implemented; `GET /v1/capabilities` lists plugin families |
 | Added | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering`: the default presentation of a plugin family Artifact, provided by the plugin's `render_artifact` |
-| Changed | `POST /v1/context/prepare`: `ContextAssemblySection.family` changes from an enum to a string that may name a loaded plugin family; an optional `search` (the fields of a search request other than `query` and `limit`) applies to plugin families only |
+| Changed | `POST /v1/context/prepare`: `ContextAssemblySection.family` changes from an enum to a string that may name a loaded plugin family; an optional `search` (the fields of a search request other than `query` and `limit`) applies to plugin families only; `PreparedContextFamily` in the receipt changes from an enum to a string that may name a plugin family |
 | Changed | The format version of Artifact revision records in export and restore increases by one and adds `metadata` |
 | Changed | The environment variable `POWERCONTEXT_SERVER_PLUGINS_DIR` replaces `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` |
 
