@@ -50,3 +50,8 @@ authors:
     avatar: assets/blog/authors/tsukikage7.jpg
     socials:
       github: Tsukikage7
+  beaten:
+    name: Beaten
+    avatar: assets/blog/authors/beaten.png
+    socials:
+      github: beatenevo

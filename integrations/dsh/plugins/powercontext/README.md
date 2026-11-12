@@ -17,6 +17,13 @@ and the existing liveness, readiness, and capability operations for connectivity
 managed `desktop` profile context; an Electron executable running a Web profile is not Desktop authority.
 SSH-forwarded, remote, shared, and unconfigured Web hosts are rejected rather than labeled local.
 
+With the Server Dashboard explicitly enabled, click the sidebar PowerContext control and **Open Dashboard** to
+use the existing Dashboard in DSH's right Browser panel. The selected conversation supplies the Scope; without
+one, the panel offers an external browser entry and creates no conversation. The Host-only authenticated
+`GET /powercontext/dashboard` check reports disabled, authentication, and loading states independently of API
+health. DSH Web uses its Browser iframe; the 0.2.2-rc.1 Desktop release uses an isolated Browser webview. Token
+authentication uses the Dashboard's own sign-in page, with no token in the browser URL or plugin script.
+
 ## Install from npm
 
 Once the desired version is published on npm, open **Plugins → Add plugin** in DeepSeek Harness Web or Desktop,

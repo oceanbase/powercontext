@@ -5,6 +5,7 @@ description: Starting with coding tasks, reuse Harbor's execution and verificati
 cover: assets/blog/harbor-context-evaluation-harness/cover.png
 cover_alt: Task execution, context services, and independent evaluations connected through clear interfaces in a reusable evaluation architecture.
 date: 2026-11-05
+updated: 2026-11-11
 authors:
   - chojan-shang
 categories:
@@ -33,7 +34,7 @@ A database WAL recovery task, for example, includes database files, a runtime en
 
 ## Choosing where to extend Harbor
 
-A coding task's final score indicates whether it met the acceptance criteria, but does not fully explain the context system's contribution. Capture and recall records help identify where PowerContext participated in the run.
+Task scores show whether the code meets the acceptance criteria. Capture and recall records help us analyze how PowerContext contributed to the task.
 
 Reusing the native execution flow is simpler than implementing another framework. Tasks retain Harbor's environment and agent interfaces, Harbor Job executes them, and the Verifier checks their output as before. Task manifests declare the context behavior to observe, while the custom layer handles PowerContext integration and additional context evaluation.
 
@@ -57,26 +58,26 @@ For example, an initial session explicitly states that the search-result cache d
 
 *Figure 3: The new session prepares context through the same Scope. The task's verifier then checks whether the answer distinguishes the current and previous values.*
 
-We also adapted MemoryCode to cover more scenarios involving ongoing coding collaboration. Its mentoring exchanges contain coding conventions, rule updates, and unrelated content. Each exchange becomes a separate session. The final session writes code following the earlier conventions, and the output is evaluated with upstream object extraction and rule checks. Unlike the protocol in the original paper, our final session does not receive the original conversations. These tasks therefore test whether an agent can use context from earlier sessions to follow the established conventions. After the preliminary stage, the task resets the workspace to reduce the opportunity for an agent to recover requirements from notes left there. [MemoryCode task design](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
+We also adapted MemoryCode for ongoing coding collaboration. Its mentoring exchanges contain coding conventions, rule updates, and unrelated content. Each exchange becomes a separate session. The final session writes code following the earlier conventions, and MemoryCode's verification process checks the output.
 
-These tasks also support OFF/ON comparisons of agent behavior with and without PowerContext. The OFF arm runs the native agent without PowerContext integration. The ON arm enables the host's PowerContext integration, captures information from the initial sessions, and prepares relevant context for continuation. Both arms use the same task, host, and model configuration, and run in separate containers.
+Unlike the protocol in the original paper, our final session does not receive the original conversations. This tests whether an agent can use context from earlier sessions to follow the established conventions. After the preliminary stage, the task resets the workspace to reduce the opportunity to recover requirements from notes left there. [MemoryCode task design](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
+
+These tasks also support OFF/ON comparisons of agent behavior with and without PowerContext. The OFF group runs the native agent without PowerContext integration. The ON group enables the host's PowerContext integration, captures information from the initial sessions, and prepares relevant context for continuation. Both groups use the same task, host, and model configuration, and run in separate containers.
 
 ## Combining repeated preparation work
 
 As the task collection grows, repeatedly starting environments and installing dependencies adds to execution costs. Even a short acceptance task can spend considerable time preparing its environment. Tasks with the same environment and controllable interference can share that preparation.
 
-The Runner supports combining explicitly grouped, compatible local acceptance tasks into one Harbor multi-step task, executed sequentially in a single container. This reuse still shares filesystem and process state; separate Scopes distinguish the context data. Before adding a task to a group, we must specify which state it may retain and have the task and host adapter handle residual session records, temporary files, and other state. Tasks whose interference can be controlled may be combined, while those requiring independent environments continue to run separately. [Task grouping in the Runner](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/src/powercontext_e2e/runner.py)
+The Runner combines local acceptance tasks into one Harbor multi-step task when they are assigned to the same group and use compatible configurations. They run sequentially in a single container, with separate Scopes for context data but shared filesystem and process state. The task and host adapter clean residual session records, temporary files, and other state according to each task's retention rules. Tasks that need independent environments continue to run separately. [Task grouping in the Runner](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/src/powercontext_e2e/runner.py)
 
 [![Compatible tasks running sequentially in a shared container with separately recorded evaluation results](../../../assets/blog/harbor-context-evaluation-harness/task-batching.png)](../../../assets/blog/harbor-context-evaluation-harness/task-batching.png "View larger image")
 
 *Figure 4: Compatible tasks share one environment setup and run in sequence. Each task keeps its own context, evidence, and scores.*
 
-PowerContext's specialized evaluations of memory quality, performance, and other concerns still have their own execution flows. Scenarios suited to actual agent workflows can gradually become Harbor tasks; experiments that depend on specialized data processing and evaluation protocols remain with their respective suites. The shared framework handles repeated execution work, while each task specifies what it tests and what counts as completion.
+PowerContext's specialized evaluations of memory quality, performance, and other concerns still have their own execution flows. Scenarios suited to actual agent workflows can gradually become Harbor tasks; experiments that depend on specialized data processing and evaluation protocols remain with their respective suites.
 
 ## Conclusion
 
-We initially wanted to test whether a context system could help an agent continue longer coding work. As the tasks and integration methods grew, Harbor's execution mechanisms gave these experiments a common foundation. We extended its existing interfaces with context evaluation and execution support while retaining the ability to run native tasks.
-
-This harness makes experiments easier to organize, but each result still has to be interpreted in light of the task conditions. We therefore record task scores and context behavior separately, along with runtime configuration and evidence, so we can examine how a success or failure occurred.
+The harness uses Harbor's task execution and verification mechanisms, with PowerContext integration, cross-session tasks, and context evaluation. Task scores and context evaluations are stored separately, with runtime configuration and evidence retained for review.
 
 Thanks to [Fengzdadi](https://github.com/Fengzdadi), [knqiufan](https://github.com/knqiufan), [Russell Lin](https://github.com/russell001209-ai), [ThunGuo](https://github.com/thunguo), and everyone who contributed to the design, implementation, and validation of the E2E harness.

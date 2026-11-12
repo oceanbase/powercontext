@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import importlib
+import json
 import os
 import shlex
 import shutil
@@ -21,9 +22,12 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
+from harbor.agents.installed import acp as harbor_acp
+
 from powercontext_e2e.harbor_agent import (
     ACP_SDK_REQUIREMENT,
     BUB_ACP_SERVER_VERSION,
+    HARBOR_ACP_SDK_REQUIREMENT,
     REMOTE_BIN_DIR,
     REMOTE_SOURCE_OVERRIDE,
     _install_acp_server_command,
@@ -70,6 +74,70 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
         ACP_SDK_REQUIREMENT,
         f"bub[app]=={version('bub')}",
     }
+
+
+def test_harbor_acp_runner_completes_a_prompt_with_the_pinned_client_sdk(tmp_path: Path) -> None:
+    assert f"agent-client-protocol=={version('agent-client-protocol')}" == HARBOR_ACP_SDK_REQUIREMENT
+    # Copy as Harbor does in the task container, away from its sibling acp.py module.
+    runner = tmp_path / "acp_runner.py"
+    shutil.copy2(Path(harbor_acp.__file__).with_name("acp_runner.py"), runner)
+    server = tmp_path / "agent.py"
+    server.write_text(
+        """import json
+import sys
+from pathlib import Path
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if "id" not in request:
+        continue
+    method = request["method"]
+    if method == "initialize":
+        result = {"protocolVersion": request["params"]["protocolVersion"], "agentCapabilities": {}, "authMethods": []}
+    elif method == "session/new":
+        result = {"sessionId": "fixture-session"}
+    elif method == "session/prompt":
+        Path(__file__).with_name("prompt.json").write_text(json.dumps(request["params"]))
+        result = {"stopReason": "end_turn"}
+    else:
+        raise RuntimeError(method)
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+""",
+        encoding="utf-8",
+    )
+    launcher = tmp_path / "launch.sh"
+    launcher.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(server))}\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    logs = tmp_path / "logs"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("HARBOR_ACP_")}
+    env["HARBOR_ACP_AUTH_POLICY"] = "disabled"
+
+    result = subprocess.run(  # noqa: S603 - actual Harbor runner against a local deterministic ACP fixture
+        [
+            sys.executable,
+            str(runner),
+            "--instruction",
+            "Report fixture readiness",
+            "--logs-dir",
+            str(logs),
+            "--launcher",
+            str(launcher),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads((logs / "acp-summary.json").read_text())
+    assert "error" not in summary
+    assert summary["session"]["sessionId"] == "fixture-session"
+    assert summary["prompt_response"]["stopReason"] == "end_turn"
+    prompt = json.loads((tmp_path / "prompt.json").read_text())
+    assert prompt["prompt"] == [{"type": "text", "text": "Report fixture readiness"}]
 
 
 def test_codex_plugin_accepts_the_server_url_the_harness_writes(monkeypatch, tmp_path: Path) -> None:
