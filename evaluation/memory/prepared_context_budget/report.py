@@ -148,9 +148,10 @@ def markdown(manifest: Manifest, results: Sequence[CaseResult], decision: Decisi
 
 def write_reports(output: Path, payload: dict[str, Any], report_md: str, pinned: dict[str, Any]) -> None:
     output.mkdir(parents=True, exist_ok=True)
-    (output / "report.json").write_text(_json(payload), encoding="utf-8")
-    (output / "report.md").write_text(report_md, encoding="utf-8")
-    (output / "run-manifest.json").write_text(_json(pinned), encoding="utf-8")
+    # The pinned artifacts are replayed byte for byte, so write LF on every platform rather than the platform default.
+    (output / "report.json").write_text(_json(payload), encoding="utf-8", newline="\n")
+    (output / "report.md").write_text(report_md, encoding="utf-8", newline="\n")
+    (output / "run-manifest.json").write_text(_json(pinned), encoding="utf-8", newline="\n")
 
 
 def _json(payload: dict[str, Any]) -> str:

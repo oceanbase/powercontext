@@ -73,7 +73,7 @@ def test_the_run_manifest_records_path_arguments_relative_to_the_repository(
         "--manifest",
         "evaluation/memory/prepared_context_budget/fixtures/budget-v1.json",
         "--output",
-        str(tmp_path.resolve()),
+        tmp_path.resolve().as_posix(),
     ]
 
 
@@ -94,6 +94,17 @@ def test_the_pinned_run_manifest_names_no_absolute_path() -> None:
     command = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))["command"]
 
     assert [argument for argument in command if Path(argument).is_absolute()] == []
+
+
+def test_the_reports_are_written_with_lf_on_every_platform(tmp_path: Path) -> None:
+    # `write_text` would otherwise translate to the platform newline, so the byte-for-byte replay would only hold on
+    # LF platforms. The pinned artifacts and the run that reproduces them must agree everywhere.
+    assert main(["--manifest", str(_MANIFEST), "--output", str(tmp_path)]) == 0
+
+    for name in ("report.json", "report.md", "run-manifest.json"):
+        assert b"\r\n" not in (tmp_path / name).read_bytes()
+    for name in ("report.json", "report.md"):
+        assert (tmp_path / name).read_bytes() == (_PINNED / name).read_bytes()
 
 
 def test_infeasible_minimums_are_reported_instead_of_overrunning_the_budget() -> None:
