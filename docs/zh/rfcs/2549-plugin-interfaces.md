@@ -39,7 +39,8 @@ description: Source 和 Artifact 插件各自实现少量接口，由 PC Server 
 
 本提案取代 [Source 插件框架 RFC #2012](2012-source-plugin-system.md) 和 [Artifact 插件框架 RFC #2175](2175-artifact-plugin-system.md)
 的插件契约与管理机制。旧 Source 插件框架随 v1.5 发布，但目前没有对外发布的插件，因此本提案不保留兼容：旧的插件清单、
-管理接口、管理服务和插件管理相关的表直接移除，旧 Artifact 插件写入的自定义 Artifact 数据不迁移。旧设计中合适的部分继续
+管理接口、管理服务和插件管理相关的表直接移除，旧 Artifact 插件写入的自定义 Artifact 数据不迁移。为了不悄悄丢失数据，
+升级前的迁移检查发现旧框架留有数据时拒绝升级，由部署者在旧版本上先导出和清理（见参考级说明第 10 节）。旧设计中合适的部分继续
 沿用，包括 Source 管理接口（`pc_source_add` 等）及采集目标的身份规则，以及 core 已有的远程采集接口。
 
 本文描述目标设计，不代表主线或发布版本已经可用。接口名称和代码示例用于说明契约，最终语法以实现为准。
@@ -169,13 +170,13 @@ Server 从 `POWERCONTEXT_SERVER_PLUGINS_DIR` 加载插件。每个直接子目�
 `plugin.py` 把一个声明对象赋给模块级变量 `plugin`：
 
 ```python
-plugin = ArtifactPlugin(family="incident-report", ..., create=create)   # 或 SourcePlugin(...)
+plugin = ArtifactPlugin(family="incident-report", ..., setup=setup)   # 或 SourcePlugin(...)
 ```
 
 声明对象回答 core 在运行插件代码之前需要知道的问题：插件提供什么（Source 类型或 Artifact family）、消费什么、何时调用、
 资源上限多少。它是普通的 Python 对象，由 Pydantic 校验；没有 YAML 或其他清单文件。
 
-- **部署设置**：插件自己的凭据、外部服务地址等随部署变化的值，由插件在 `create` 中从环境变量读取。Server 不保存、
+- **部署设置**：插件自己的凭据、外部服务地址等随部署变化的值，由插件在 `setup` 中从环境变量读取。Server 不保存、
   不传递也不记录这些值。
 - **core 提供的资源**：插件需要数据库和模型时，不必另行配置，通过上下文使用 core 封装好的对象（见参考级说明 1.2）：
   - `ctx.storage`：部署所用数据库后端上的一块插件专属空间。SQLite 是数据目录下的一个单独文件，OceanBase 和 seekdb
@@ -183,7 +184,7 @@ plugin = ArtifactPlugin(family="incident-report", ..., create=create)   # 或 So
   - `ctx.models`：Server 已配置的生成模型和 embedding 模型。插件只能调用，拿不到模型的地址和凭据；调用计入现有的模型
     用量统计。
 - **启用与停用**：目录存在且检查通过，插件就可用；需要停用时移出目录并重启 Server。
-- **检查**：Server 启动时在有时限的子进程中导入 `plugin.py`，校验声明，不调用 `create`。检查失败只影响该插件。
+- **检查**：Server 启动时在有时限的子进程中导入 `plugin.py`，校验声明，不调用 `setup`。检查失败只影响该插件。
 
 ## 3. Source 插件
 
@@ -194,7 +195,7 @@ plugin = ArtifactPlugin(family="incident-report", ..., create=create)   # 或 So
 | `definitions` | 是 | `SourceDefinition` 序列，沿用现有的 Source 定义：`input_class`、`resolve` 和各 Projection |
 | `target_input` | 采集时必需 | Pydantic 模型，校验调用方添加目标时提交的输入 |
 | `identify_target(value) -> TargetIdentity` | 采集时必需 | 纯函数，把输入规范化为稳定的目标键和规范化输入 |
-| `create(ctx) -> SourceCollector` | 采集时必需 | 工厂，在 Worker 中每次调用执行一次，返回实现了 `collect` 的对象 |
+| `setup(ctx) -> SourceCollector` | 采集时必需 | 工厂，在 Worker 中每次调用执行一次，返回实现了 `collect` 的对象 |
 | `collect(request) -> CollectResult` | 采集时必需 | 按目标和 checkpoint 读取外部数据，返回 Source 和新的 checkpoint |
 
 只提供 `definitions` 的插件只扩展 Source 类型：调用方通过现有的 Source 写入接口提交内容，core 调用定义完成校验、
@@ -216,7 +217,7 @@ Source 与所有内置 Source 一样只能追加，没有修改和删除；要�
 | `collect.max_items` | 200 | 单次调用返回的 Source 条数上限 |
 | `collect.timeout_seconds` | 120 | Worker 总时限 |
 | `collect.max_workers` | 1 | 跨 Scope 的并发上限 |
-| `target_input`、`identify_target`、`create` | 采集时必填 | 见上表 |
+| `target_input`、`identify_target`、`setup` | 采集时必填 | 见上表 |
 | `scopes` | `None` | 可服务的 Scope 名单；为空表示所有 Scope |
 
 ### 3.3 示例
@@ -260,7 +261,7 @@ class XCollector:
         return result
 
 
-async def create(ctx: PluginContext) -> XCollector:
+async def setup(ctx: PluginContext) -> XCollector:
     client = await ctx.enter_async_context(XClient(os.environ["X_BEARER_TOKEN"]))
     return XCollector(client)
 
@@ -270,7 +271,7 @@ plugin = SourcePlugin(
     collect=Collect(schedule=Interval(seconds=300), timeout_seconds=120),
     target_input=TargetInput,
     identify_target=identify_target,
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -318,8 +319,10 @@ powercontext source-agent --server https://memory.example.com
 
 | 接口 | 必需 | 说明 |
 | --- | --- | --- |
-| `create(ctx) -> ArtifactGenerator` | 是 | 工厂；Worker 中每次调用执行一次，宿主进程中只执行一次后复用 |
-| `generate(request, writer) -> None` | 是 | 读取 `request.sources`（未消费的 Source 窗口），在写事务块中写入 Artifact |
+| `setup(ctx) -> ArtifactGenerator` | 是 | 插件对象的工厂（不是新建 Artifact）；Worker 中每次调用执行一次，宿主进程中只执行一次后复用 |
+| `generate(request, writer) -> None` | 配置了 `schedule` 或 `on_sources` 时是 | 读取 `request.sources`（未消费的 Source 窗口），在写事务块中写入 Artifact |
+| `render_artifact(request) -> Rendering` | 是 | 给出一个精确 revision 的默认展示内容（Markdown 或纯文本），见参考级说明第 7 节 |
+| `search_artifacts(request) -> SearchResult` | 否 | 用插件自己的索引检索，返回命中的 revision 和片段；通用检索接口和 Prepared Context 调用它 |
 | `create_artifact(request, writer) -> None` | 否 | 用户新建；`request.artifact_id` 由 core 分配 |
 | `update_artifact(request, writer) -> None` | 否 | 用户编辑指定 ID 的 Artifact，`request.expected_revision` 为调用方看到的 revision |
 | `merge_artifacts(request, writer) -> None` | 否 | 用户合并；结果的 ID 由 core 分配 |
@@ -329,6 +332,10 @@ powercontext source-agent --server https://memory.example.com
 后五个方法处理用户修改（见 4.4），每个都是可选的：没有实现的操作，对应接口返回 422，表示这个 family 不支持该操作。
 插件在这些方法中校验用户提交的内容、更新自己的存储，并通过写入器完成 core 要求的那一项写操作。
 
+core 不为插件 family 建立任何索引，也不理解 `content` 的结构：插件的内容怎样分块、是否可以全文或向量检索、怎样展示，
+只有插件知道。因此展示和检索都交给插件：`render_artifact` 必须实现，`search_artifacts` 可选，未实现时通用检索接口和
+Prepared Context 对该 family 返回 422。
+
 ### 4.2 声明
 
 | 字段 | 默认值 | 说明 |
@@ -336,15 +343,14 @@ powercontext source-agent --server https://memory.example.com
 | `family` | 必填 | 插件拥有的 Artifact family，不能与内置 family 或其他插件重复 |
 | `inputs` | `None` | `Inputs(source_types=..., projection=..., projections={...}, max_sources=50)`：消费的 Source 类型、每条 Source 交付的 Projection、单个窗口的条数上限；为空表示不消费 Source。`projection` 适用于所有类型，`projections` 按 Source 类型指定不同的 Projection，每个类型必须有其一 |
 | `on_sources` | `False` | 新 Source 到达后触发；需要 `inputs` |
-| `schedule` | `None` | `Interval(seconds=...)` 或 `Cron(expression=..., timezone=...)`；与 `on_sources` 至少配置一项 |
-| `scopes` | `None` | 可服务的 Scope 名单；不消费 Source 的插件必须填写 |
-| `search_fields` | `None` | 参与全文检索的顶层内容字段；为空表示所有顶层字符串字段 |
+| `schedule` | `None` | `Interval(seconds=...)` 或 `Cron(expression=..., timezone=...)`。`schedule` 和 `on_sources` 都不配置时插件没有后台生成，不需要实现 `generate`，Artifact 只由用户修改和插件接口写入（例如笔记） |
+| `scopes` | `None` | 可服务的 Scope 名单；配置了 `schedule` 但不消费 Source 的插件必须填写 |
 | `timeout_seconds` | 300 | 整次调用的时限 |
 | `transaction_timeout_seconds` | 30 | 写事务块的时限，不超过 `timeout_seconds` |
 | `max_workers` | 1 | 跨 Scope 的并发上限 |
 | `change_timeout_seconds` | 30 | 一次用户修改调用的时限，包括其中的写事务块 |
 | `definitions` | `()` | 插件自己的 Source 定义，随插件加载登记，规则与 Source 插件的 `definitions` 相同。插件在接口中用 `ctx.sources.submit` 提交，调用方也可以经通用 Source 写入接口提交；这样一个 Artifact 插件就能记录"用户要求做什么"，不需要另写一个 Source 插件 |
-| `create` | 必填 | 见上表 |
+| `setup` | 必填 | 见上表 |
 
 ### 4.3 示例
 
@@ -354,7 +360,8 @@ powercontext source-agent --server https://memory.example.com
 
 ```python
 from powercontext.plugins import (
-    ArtifactPlugin, ArtifactWriter, GenerateRequest, Inputs, InvalidContent, PluginContext, UpdateRequest,
+    ArtifactPlugin, ArtifactWriter, GenerateRequest, Inputs, InvalidContent, PluginContext, Rendering, RenderRequest,
+    SearchHit, SearchRequest, SearchResult, UpdateRequest,
 )
 from powercontext.sources import TextEvidence
 
@@ -393,8 +400,20 @@ class IncidentReports:
                                    expected_revision=request.expected_revision)
             await self.index.upsert(request.scope_id, written.ref.artifact_id, written.ref.revision, vector)
 
+    async def render_artifact(self, request: RenderRequest) -> Rendering:
+        report = Report.model_validate(request.artifact.content)
+        return Rendering(text=f"# {report.title}\n\n{report.summary}")
 
-async def create(ctx: PluginContext) -> IncidentReports:
+    async def search_artifacts(self, request: SearchRequest) -> SearchResult:
+        # 通用检索请求原样转交；本插件只支持向量检索
+        if request.search.mode not in (None, "vector"):
+            raise InvalidContent("only vector search is supported", field="mode")
+        vector = await self.model.embed(request.search.query)
+        hits = await self.index.nearest_many(request.scope_id, vector, limit=request.search.limit)
+        return SearchResult(hits=[SearchHit(ref=hit.ref, text=hit.summary, score=hit.score) for hit in hits])
+
+
+async def setup(ctx: PluginContext) -> IncidentReports:
     index = await ctx.enter_async_context(VectorIndex.connect(ctx.storage.engine()))
     return IncidentReports(index, Summarizer(ctx.models))
 
@@ -403,8 +422,7 @@ plugin = ArtifactPlugin(
     family="incident-report",
     inputs=Inputs(source_types=("example-ticket",), projection="powercontext.text-evidence@1"),
     on_sources=True,
-    search_fields=("title", "summary"),
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -413,14 +431,16 @@ plugin = ArtifactPlugin(
 
 ### 4.4 调用方怎么使用
 
-调用方使用现有的 Artifact 接口访问插件 family。读取接口直接读 `pc_artifacts`，不运行插件代码；修改接口由 core 鉴权、
-校验版本后，同步调用插件对应的方法：
+调用方使用现有的 Artifact 接口访问插件 family。读取接口直接读 `pc_artifacts`，不运行插件代码；展示、检索和修改接口
+由 core 鉴权后，同步调用插件对应的方法：
 
 | 用途 | 接口 | 插件方法 |
 | --- | --- | --- |
 | 浏览 | `GET /v1/scopes/{scope_id}/artifacts/{family}` | 无 |
 | 读取当前内容、指定 revision、revision 历史、tags | `GET .../{artifact_id}`、`GET .../{artifact_id}/revisions/{revision}`、`GET .../{artifact_id}/revisions`、`GET .../{artifact_id}/tags` | 无 |
-| 文本检索 | `POST /v1/scopes/{scope_id}/artifacts/{family}/search` | 无 |
+| 默认展示 | `GET .../{artifact_id}/rendering`（可带 `revision`） | `render_artifact` |
+| 检索（请求原样转交，检索方式由插件解释） | `POST /v1/scopes/{scope_id}/artifacts/{family}/search` | `search_artifacts` |
+| 为 Agent 准备上下文 | `POST /v1/context/prepare` 的 `assembly.sections` 中列出插件 family | `search_artifacts` |
 | 新建（只提交内容，ID 由 core 分配） | `POST /v1/scopes/{scope_id}/artifacts`，请求体为 `{"family": ..., "content": {...}}` | `create_artifact` |
 | 编辑（提交完整内容，`If-Match` 校验当前 revision） | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` | `update_artifact` |
 | 读取治理状态（遗忘、合并前取得 `state_version`） | `GET .../{artifact_id}/governance` | 无 |
@@ -429,7 +449,22 @@ plugin = ArtifactPlugin(
 | 恢复、恢复到旧 revision、撤销合并 | `POST .../{artifact_id}/restorations` | `restore_artifact` |
 | 修改 tags | `PUT .../{artifact_id}/tags`；按 tag 查询用 `POST /v1/scopes/{scope_id}/artifact-tags/query` | 无，由 core 处理 |
 
-修改同步返回结果。插件拒绝内容时返回 422，插件没有实现对应方法时也返回 422，宿主进程超时或不可用时返回 503。
+修改同步返回结果。插件拒绝内容或请求时返回 422，插件没有实现对应方法时也返回 422，宿主进程超时或不可用时返回 503。
+
+### 4.5 方法一览
+
+| 方法 | 适用 | 必须实现 | 调用时机 | 执行位置 |
+| --- | --- | --- | --- | --- |
+| `setup(ctx)` | 两类插件 | 是 | 宿主进程启动时一次；Worker 每次调用一次 | 宿主进程、Worker |
+| Source 定义：`input_class`、`resolve`、Projection 的 `project`、`read` | Source 插件，或声明了 `definitions` 的 Artifact 插件 | 是 | Source 写入（通用写入接口、`ctx.sources.submit`）；把 Source 交付给 `generate` 时计算 Projection | 宿主进程、Worker |
+| `identify_target`、`collect` | Source 插件 | 持续采集时是 | 添加采集目标；定时采集 | 宿主进程、Worker |
+| `generate` | Artifact 插件 | 配置了 `schedule` 或 `on_sources` 时是 | 定时，或新 Source 到达 | Worker |
+| `render_artifact` | Artifact 插件 | 是 | 默认展示接口 | 宿主进程 |
+| `search_artifacts` | Artifact 插件 | 否 | 通用检索接口；Prepared Context 中列出该 family | 宿主进程 |
+| `create_artifact`、`update_artifact`、`merge_artifacts`、`forget_artifact`、`restore_artifact` | Artifact 插件 | 否 | 对应的通用修改接口 | 宿主进程 |
+
+列出、读取当前内容或指定 revision、revision 历史、治理状态和 tags 不调用插件方法，由 core 直接从它保存的数据提供。
+必须实现的方法在宿主进程执行 `setup` 之后核对，缺少时插件加载失败，状态为 `failed`。
 
 ## 5. 调度与触发
 
@@ -493,7 +528,7 @@ class ArtifactPlugin(BaseModel):          # 字段见指南级说明 4.2
     family: str
     inputs: Inputs | None = None
     ...
-    create: Callable[[PluginContext], Awaitable[ArtifactGenerator]]
+    setup: Callable[[PluginContext], Awaitable[ArtifactGenerator]]
 
 class SourcePlugin(BaseModel):            # 字段见指南级说明 3.2
     definitions: Sequence[SourceDefinition]
@@ -502,8 +537,8 @@ class SourcePlugin(BaseModel):            # 字段见指南级说明 3.2
 ```
 
 - 插件名取自目录名，必须匹配 `^[a-z][a-z0-9-]{0,63}$`。
-- 声明在构造时校验，包括调度组合、`inputs` 与 `scopes` 的依赖、时限关系和 family 命名。`create` 必须是 async 函数。
-- 声明中除 `create`、`identify_target`、`definitions` 等代码对象外的部分可以序列化，Server 在检查子进程中得到它，
+- 声明在构造时校验，包括调度组合、`inputs` 与 `scopes` 的依赖、时限关系和 family 命名。`setup` 必须是 async 函数。
+- 声明中除 `setup`、`identify_target`、`definitions` 等代码对象外的部分可以序列化，Server 在检查子进程中得到它，
   用于注册 binding 和回答运维查询。
 - 检查时，core 记录插件目录的**代码指纹**（按文件内容计算）。Worker 和宿主进程导入插件前核对，不一致则调用失败并提示
   重启 Server，同一个 Server 进程中的调用不会混用新旧代码。
@@ -636,6 +671,7 @@ class SourceCollector(Protocol):
 
 ```python
 class ArtifactGenerator(Protocol):
+    # 配置了 schedule 或 on_sources 时必须实现
     async def generate(self, request: GenerateRequest, writer: ArtifactWriter, /) -> None: ...
 
 class GenerateRequest(BaseModel):
@@ -701,8 +737,9 @@ class ArtifactTransaction(ArtifactReads):
   `bind_handle` 的目标只能是本 family 中实际存在的 revision。
 - 内容不变时不产生 revision，与内置 Atomic Memory 的处理一致：模型判断已有记忆已经表达了新 Source 的内容时，该记忆
   不追加 revision，新 Source 也不进入它的 lineage。插件需要把新 Source 记为某个 Artifact 的证据时，应同时修改其内容。
-- 检索文本由 core 按声明的 `search_fields` 从内容中提取，插件不单独提供；同一份内容无论由插件还是用户写入，
-  检索文本都相同。
+- core 不为插件 family 提取检索文本或建立索引，检索由插件用自己的索引完成（见第 7 节）。
+- core 在每个 revision 的元数据中记录写入它的插件名和插件版本摘要，便于在多个 Server 加载了不同版本时追溯每个 revision
+  由哪个版本写入（见第 10 节）。
 - 每个写事务块的操作数、单份内容大小和总字节数有上限，超出即抛出异常并回滚，不截断、不部分提交。
 - core 不校验 `content` 的业务结构，也不保存或固化 schema。内容结构的演进由插件负责，插件可以在 `content` 中自带版本字段。
 
@@ -733,7 +770,6 @@ class ArtifactReads(Protocol):
     async def revisions(self, artifact_id: str, *, cursor: str | None = None, limit: int = 50) -> ArtifactPage: ...
     async def list(self, *, states: Collection[LifecycleState] = ("active",), tags: Collection[str] = (),
                    cursor: str | None = None, limit: int = 50) -> ArtifactPage: ...
-    async def search(self, query: str, *, limit: int = 10) -> Sequence[ArtifactSnapshot]: ...
     async def by_source(self, ref: SourceRef) -> Sequence[ArtifactSnapshot]: ...
     async def merge_inputs(self, artifact_id: str) -> Sequence[ArtifactRef]: ...
     async def tags(self, artifact_id: str) -> Sequence[str]: ...
@@ -744,7 +780,6 @@ class ArtifactReads(Protocol):
 - 快照同时携带精确 revision、lineage 和当前治理状态，插件不需要再分别读取 lineage 和生命周期。
 - `get` 可以读当前内容或指定 revision；`revisions` 列出完整历史；`merge_inputs` 读取合并结果的精确输入。
 - `list` 可以按生命周期状态和 tags 过滤，包括 deprecated、retired 和被合并冻结的 Artifact，用于查找之前已经存在的数据。
-- `search` 是 core 提供的文本检索（见第 7 节），只覆盖 active 的当前 revision；在写事务中能检索到本块已写入、尚未提交的内容。
 - `by_source` 反查 lineage 引用了某条 Source 的 Artifact，用于 Source 更新后找到需要修订的 Artifact。
 - 读取返回的快照都带精确 revision，可以直接作为写操作的 `artifact_refs` 或 `to_revision`。
 
@@ -902,10 +937,11 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 | Source 写入的输入校验、`resolve`、Projection | 宿主进程 |
 | 添加采集目标时的 `identify_target` | 宿主进程 |
 | `create_artifact`、`update_artifact`、`merge_artifacts`、`forget_artifact`、`restore_artifact` | 宿主进程 |
+| `render_artifact`、`search_artifacts` | 宿主进程 |
 | `collect`、`generate` | Supervisor Worker |
 
-- **数量与启动**：每个 Server 进程为每个加载的插件维护至多一个宿主进程，插件加载后在后台启动，之后复用。插件是否实现了
-  用户修改方法，要调用 `create` 之后才知道，所以只提供 `generate` 的 Artifact 插件也会启动宿主进程，代价是一个空闲的进程。
+- **数量与启动**：每个 Server 进程为每个加载的插件维护至多一个宿主进程，插件加载后在后台启动，之后复用。Artifact 插件
+  都要实现 `render_artifact`，Source 插件的写入要执行 `resolve`，所以每个加载的插件都有宿主进程。
   端侧模式中，`resolve` 和 Projection 在采集 Worker 内执行，不启动宿主进程。
 - **执行**：宿主进程启动时导入一次 `plugin.py` 并核对声明，写入器在宿主进程中执行。一个宿主进程可以并发处理多个请求，
   并发上限由 Server 配置决定。
@@ -919,26 +955,61 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 宿主进程的当前状态（未启动、运行中、重启退避）。路由用户请求、启动宿主进程和派发 Worker 都以这份记录为准。它不持久化，
 也不跨进程同步；Server 重启后按插件目录重新建立。运维接口只返回各进程一致的检查结果和声明，宿主进程状态通过日志和指标查看。
 
-## 7. 公开读取与检索
+## 7. 公开读取、展示与检索
 
-插件 family 的公开读取完全由 core 处理，不执行插件代码：
+读取由 core 直接提供，不执行插件代码：
 
-- list / get / revisions / tags 复用现有的通用 Artifact 读取路径。插件 family 的 `content` 按原样 JSON 返回，不需要
-  `pc_artifact_family_schemas` 中的 schema。被合并冻结、deprecated 和 retired 的 Artifact 按公共合并与生命周期规则展示。
+- list / get / revisions / governance / tags 复用现有的通用 Artifact 读取路径。插件 family 的 `content` 按插件写入时的
+  JSON 原样返回，不需要 `pc_artifact_family_schemas` 中的 schema。被合并冻结、deprecated 和 retired 的 Artifact 按公共
+  合并与生命周期规则展示。
 - list 返回的条目只含元数据，`title` 和 `summary` 对插件 family 为空；内容需要通过 get 读取。
-- search 是 core 为插件 family 提供的通用文本检索，与现有检索接口一样只接受文本 query：
-  - 写入时，core 按 `search_fields` 从内容中取出文本，经现有词法分析写入 `pc_artifact_heads.searchable_text`，并随 revision
-    保存，恢复旧 revision 时检索文本随内容一起恢复。
-  - 检索时在该列上匹配，只返回请求 Scope 中调用者有权读取的 active 当前 revision。没有可检索文本的 Artifact 不参与检索。
-  - 写入器的 `search` 使用同一实现。
-  - 各数据库后端上的检索实现和规模验证在实现 PR 中给出。
-- Review、Recall 和 Prepared Context 第一版不对插件 family 开放，对应接口返回明确的“不支持”错误；`GET /v1/capabilities`
-  列出插件 family。
+
+插件可能只在 `content` 中保存摘要或引用，把大块内容放在自己的存储中（例如知识库文档只记录切块组的摘要），这时原样返回
+的 `content` 不足以展示。展示和检索因此交给插件：
+
+```python
+class RenderRequest(BaseModel):
+    scope_id: str
+    artifact: ArtifactSnapshot            # 要展示的精确 revision
+    caller: Caller | None
+
+class Rendering(BaseModel):
+    format: Literal["markdown", "text"] = "markdown"
+    text: str
+
+class SearchRequest(BaseModel):
+    scope_id: str
+    search: SearchArtifactsRequest        # 通用检索接口的完整请求，原样转交
+    max_bytes: int | None = None          # 来自 Prepared Context 时，本 family 可用的字节预算
+    caller: Caller | None
+
+class SearchHit(BaseModel):
+    ref: ArtifactRef                      # 命中的精确 revision
+    text: str                             # 用作上下文的片段，例如一个切块
+    score: float | None = None
+    locator: dict[str, JsonValue] | None = None   # 片段在 Artifact 中的位置，例如页码、切块序号
+
+class SearchResult(BaseModel):
+    hits: Sequence[SearchHit]
+```
+
+- **展示**：`GET .../{artifact_id}/rendering` 调用 `render_artifact`，返回插件给出的默认展示内容；原始 `content` 仍由读取
+  接口返回，供程序使用。同一 revision 在同一插件版本下的展示结果不变，core 可以按 family、ID、revision 和插件版本缓存。
+  内置 family 不提供这个接口。
+- **检索**：通用检索接口把 `SearchArtifactsRequest` 的全部字段（`query`、`query_vector`、`indexes`、`mode`、`filters`、
+  `admission`、`fusion`、`rerank`、`min_score` 等）原样交给 `search_artifacts`，由插件按自己的索引解释；插件不支持的参数
+  抛出 `InvalidContent`，接口返回 422。core 只保留命中中调用者有权读取的 active 当前 revision，按插件给出的顺序返回
+  精确 revision，`include_scores` 时附带插件给出的分数。插件因此不能借检索返回调用者看不到的数据。
+- **Prepared Context**：`assembly.sections` 可以列出插件 family。core 以 Prepared Context 的 `query` 和该项的 `limit`、
+  剩余字节预算调用 `search_artifacts`，把命中的片段作为上下文条目，与内置 family 一样带精确 revision 引用、计入字节预算
+  和回执。每项可以携带可选的 `search`，内容是检索请求中除 `query`、`limit` 以外的字段，原样转交插件；内置 family 携带
+  `search` 时返回 422。
+- Review 和 Recall 不对插件 family 开放，对应接口返回明确的“不支持”错误；`GET /v1/capabilities` 列出插件 family。
 
 ## 8. 加载与生命周期
 
 - Server 启动时检查 `POWERCONTEXT_SERVER_PLUGINS_DIR` 的每个直接子目录（未设置则不加载插件）：在有时限的子进程中导入
-  `plugin.py` 并校验声明，不调用 `create`。检查通过后注册插件提供的 Source 类型或 family（读取、检索和通用合并接口），
+  `plugin.py` 并校验声明，不调用 `setup`。检查通过后注册插件提供的 Source 类型或 family（读取、检索和通用合并接口），
   有调度或触发时注册 Supervisor binding，并写入本进程的已激活插件记录。检查失败只影响该插件。
 - Server 停止时先停止接受同步调用、结束宿主进程，再按现有流程停止 Supervisor 并回收 Worker。
 - 插件只有 `loaded` 和 `failed` 两种结果，只存在于进程内存中。Server 不持久化插件的启用状态、注册代次或配置快照；
@@ -976,18 +1047,32 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 | `pc_source_cursors` | 保留；Artifact 插件的消费游标，键为 `(scope_id, plugin:<name>)` |
 | `pc_connector_checkpoints` | 保留；各采集目标的 checkpoint，键为 `(scope_id, 目标的 binding ID)` |
 | `pc_source_collect_targets` | 新增；采集目标及其规范化输入、启用状态和最近采集结果 |
-| Supervisor 的调用意图、pending、租约表 | 保留；插件 binding 与内置 binding 共用，也是 `GET /v1/plugins/{name}/scopes` 的数据来源 |
+| Supervisor 的调用意图、pending、租约表 | 保留；插件 binding 与内置 binding 共用，也是 `GET /v1/plugins/{name}/scopes` 的数据来源。插件 binding 以 `plugin:` 开头，不在数据库中登记 |
+| `pc_artifacts` 的新列 `metadata` | 新增；可为空，按与 `content` 相同的方式保存规范化 JSON 字节，存放不参与检索的附加信息。插件写入的 revision 记录插件名和插件版本摘要，内置 family 为空。不参与内容摘要的计算 |
+| `pc_artifact_fts` 与 `pc_artifact_heads.searchable_text` | 只用于内置 family；插件 family 不写入 |
 | `pc_artifact_processing_binding_states` 中为旧插件框架新增的列（期望状态、管理阶段、注册代次等） | 移除 |
 | `pc_artifact_family_schemas` | 移除 |
 | 自定义 family 声明式索引使用的搜索状态与向量索引数据 | 移除；实现 PR 确认内置 family 不依赖后删除对应表 |
-| 旧 Artifact 插件写入的 Artifact、head、lineage | 删除，不迁移 |
+| 旧 Artifact 插件写入的 Artifact、head、lineage | 不迁移；留有数据时拒绝升级，见下文 |
 | `pc_source_write_plugins` | 移除；Source 定义改由插件目录在启动时提供 |
 | Source 插件管理服务的 SQLite | 随管理服务一起移除 |
 | 插件专属存储（`plugins/<插件名>.sqlite3` 或 `powercontext_plugin_<插件名>` 库） | 不属于 core 的 schema；core 只负责分配，表结构、迁移和清理由插件和部署者负责 |
 | 插件自有的其他索引与存储 | 不属于 core，由插件和部署者管理 |
 | 端侧模式的本地 SQLite | 只保存端侧的采集目标和调度状态，不保存 Source；Source 与 checkpoint 保存在中心 |
 
-新增与移除通过一次新的数据库迁移完成，迁移说明中列出新增、删除的表、列和数据范围。
+新增与移除通过**一个新的迁移版本**完成，已发布版本的迁移资源保持不变。迁移说明中列出新增、删除的表、列和数据范围。
+迁移检查（preflight）先确认旧插件框架没有留下数据：旧 Artifact 插件 family 的 Artifact、旧插件的登记与调用意图、
+`pc_source_write_plugins` 中的 Source 插件。发现任何一项时拒绝升级，列出插件名、family 和行数，数据库保持不变；部署者
+在旧版本上导出所需内容、卸载旧插件并清理数据后再升级。只有这些表为空时，迁移才删除它们。
+
+这个版本的就绪检查（Server 每次启动时对当前数据库执行）与旧版本有两点不同：
+
+- 调用意图中以 `plugin:` 开头的 binding 视为插件 binding，不要求在数据库中登记。插件被移除后遗留的意图不处理、
+  可以在运维接口中看到，不阻止 Server 启动；同名插件重新放入后继续处理。
+- 全文索引的核对只覆盖内置 family 的数据。
+
+导出与恢复（portable archive）中 Artifact revision 记录的格式版本加一，包含 `metadata`。恢复旧格式的导出时 `metadata`
+为空；旧版本的 Server 不能恢复新格式的导出。
 
 ## 11. 接口变更
 
@@ -995,7 +1080,7 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 | --- | --- |
 | 移除 | `/v1/admin/artifact-plugins` 及其子路径；Source 插件管理服务、插件实例 Runtime、poll / reply 通道；`source load` 命令；MCP `pc_source_instances`、`pc_source_instance_set_enabled`；`plugin.yml` 与 `powercontext.yml` 清单 |
 | 移除 | 自定义 family 的声明式索引（`ArtifactSearchDeclaration`、`TextIndex` 等）、`ArtifactFamily` 的 schema 声明、`ArtifactDraft` 和旧的 Worker 插件执行器 |
-| 新增 | `powercontext.plugins`：`SourcePlugin`、`ArtifactPlugin`、`Inputs`、`Interval`、`Cron`、`PluginContext`、`PluginStorage`、`PluginModels`、写入器与读取接口、用户修改的请求模型与 `InvalidContent` |
+| 新增 | `powercontext.plugins`：`SourcePlugin`、`ArtifactPlugin`、`Inputs`、`Interval`、`Cron`、`PluginContext`、`PluginStorage`、`PluginModels`、写入器与读取接口、用户修改的请求模型与 `InvalidContent`、展示与检索的请求和结果模型 |
 | 新增 | `powercontext source-agent` 端侧采集模式，以及 `POWERCONTEXT_SOURCE_AGENT_ID`、`POWERCONTEXT_SOURCE_AGENT_TOKEN` |
 | 调整 | `POST /v1/scopes/{scope_id}/artifacts` 的请求体增加插件分支 `{"family", "content"}`，ID 由 core 分配，由插件的 `create_artifact` 处理。`CreateArtifactRequest` 改为内置分支 `CreateBuiltinArtifactRequest`（原有的按 family 区分的联合类型）与插件分支 `CreatePluginArtifactRequest` 的二选一，按 family 名选择：内置 family 名走内置分支，校验与原来相同；其他名字走插件分支，没有插件提供该 family 时返回 422。生成的 Python 客户端中，内置请求多包一层；`ArtifactCreated.family` 从内置 family 枚举改为字符串 |
 | 调整 | `POST /v1/scopes/{scope_id}/sources` 的 `source_type` 从只能是 `content` 的枚举改为字符串（默认仍为 `content`），可以是插件定义的 Source 类型，此时 `content` 是该类型的输入，由插件校验并解析为 Source；未知类型返回 404。`SourceType` 枚举保留 |
@@ -1003,7 +1088,10 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 | 新增 | `GET .../{artifact_id}/governance`、`POST /v1/scopes/{scope_id}/artifacts/{family}/merges`、`POST .../{artifact_id}/forget`、`POST .../{artifact_id}/restorations`：基于共享合并引擎注册表的通用接口，对所有登记过的 family 生效（内置为 Experience 和 Atomic Memory，以及加载的插件 family；插件 family 由插件对应的方法处理）。Atomic Memory 的专用接口保持不变 |
 | 调整 | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` 接受插件 family，请求体为 `{"content": {...}}`，由插件的 `update_artifact` 处理 |
 | 调整 | tags 接口接受插件 family：`TaggableArtifactFamily` 从枚举改为与 `ArtifactReadFamily` 相同格式的字符串，服务端校验为内置 family 或已加载的插件 family。网络上的数据格式不变，生成的客户端少了这个枚举类型 |
-| 调整 | 通用 Artifact 读取与检索接口支持插件 family；`GET /v1/capabilities` 列出插件 family |
+| 调整 | 通用 Artifact 读取接口支持插件 family；通用检索接口对插件 family 把完整请求交给插件的 `search_artifacts`，未实现时返回 422；`GET /v1/capabilities` 列出插件 family |
+| 新增 | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering`：插件 family 的默认展示内容，由插件的 `render_artifact` 提供 |
+| 调整 | `POST /v1/context/prepare`：`ContextAssemblySection.family` 从枚举改为字符串，可以是已加载的插件 family；新增可选的 `search`（检索请求中除 `query`、`limit` 以外的字段），只对插件 family 生效 |
+| 调整 | 导出与恢复的 Artifact revision 记录格式版本加一，增加 `metadata` |
 | 调整 | `pc_source_add` 的 write 用法使用插件定义，collect 用法添加采集目标；`pc_source_capabilities` 列出插件 Source 类型与目标输入；`pc_source_status` 报告目标及其最近采集结果；`pc_source_target_set_enabled` 作用于 core 保存的目标 |
 | 调整 | 环境变量 `POWERCONTEXT_SERVER_PLUGINS_DIR` 取代 `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` 和 Source 插件目录配置 |
 
@@ -1041,7 +1129,10 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
   部署时，插件应从环境变量读取 family 等标识。
 - **内容结构不受 core 治理**：core 不校验 `content` 的 schema，用户提交的内容由插件校验；历史 revision 的解释需要插件和
   应用自行保持兼容。
-- **core 检索能力有限**：core 只提供基于声明字段的通用文本检索；向量等检索需要插件自建索引，公开检索接口暂时用不到它。
+- **展示和检索依赖插件**：插件 family 的展示、检索和 Prepared Context 都要进入宿主进程，插件不可用时这些接口返回 503；
+  插件没有实现 `search_artifacts` 时，它的数据不能通过通用检索和 Prepared Context 使用。
+- **多个 Server 的插件版本可能不一致**：core 记录每个 revision 由哪个插件版本写入，但不阻止不同实例加载不同版本；新旧
+  版本能否同时读写同一份数据，由插件负责。汇总各实例当前加载的版本需要维护一张实例登记表，留给插件安装的后续提案。
 - **代码变更需要重启**：没有热加载，插件更新期间 Server 会短暂不可用。
 
 # 理由与备选
@@ -1068,6 +1159,10 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 | 端侧单独编译二进制 | 插件是带依赖的 Python 目录，冻结后的二进制无法导入插件的任意依赖，需要为每个插件和平台单独打包。同一个程序以 `source-agent` 模式启动即可 |
 | 插件专用的触发与管理接口 | 调用方要区分插件与内置能力；现有的 Source 与 Artifact 接口已经覆盖调用方需要的操作 |
 | 通用合并接口只对插件 family 开放 | 需要在接口里额外维护一份 family 白名单。能操作哪些 family 本来就由注册表决定，没有适配器的 family 无法登记；内置 family 的权限检查在引擎内，两个入口走同一套检查 |
+| core 按声明的字段为插件 family 建全文索引 | 插件作者不用自建索引，但 core 不知道内容怎样分块、是否适合全文或向量检索，建出的索引常常用不上；还要与内置 family 共用索引表，就绪检查也要区分两者。检索交给插件，core 只负责权限过滤 |
+| 读取也经过插件（例如 `read_artifact` 展开内容） | 通用读取就能拿到完整内容，但最常用的读取路径每次都要进入宿主进程，插件不可用时连读取都失败。读取保持由 core 提供，展示另设接口 |
+| 在数据库中登记插件 binding 与 family（旧 Artifact 插件框架的做法） | 能发现其他插件冒用已有 family 和遗留的调用意图，但 core 要保存并维护插件状态，还要提供解除冲突的管理操作。新框架没有稳定的插件身份，登记表能多发现的问题有限；留到插件安装与分发的提案中，与插件身份一起设计 |
+| 插件版本记在单独的表、`created_by` 或 `content` 的保留键中 | 单独的表同样要进入导出与恢复；改动 `created_by` 或 `content` 会改变已有字段的含义和内容摘要。`metadata` 列只需一次加列和导出格式升级 |
 | 本提案中支持热加载 | 需要处理多实例各自重新扫描、旧 Worker 提交的屏蔽和宿主进程切换，单独提案更清楚 |
 
 选择这一方案的原因：
@@ -1098,12 +1193,14 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 
 | 问题 | 说明 |
 | --- | --- |
-| 插件自定义检索 | 现有检索接口只接受文本 query，第一版由 core 提供通用文本检索。插件提供的检索（例如向量或混合检索）随插件自定义 API 另行提案，在宿主进程中执行 |
 | 写事务块的时限与限额默认值 | 默认 30 秒是否合适；SQLite 与 OceanBase 是否采用不同默认值；单块操作数与字节上限 |
 | 宿主进程的默认参数 | 同步调用时限、单个宿主进程的并发上限和重启退避的默认值 |
 | 专属存储的建库权限 | Server 的数据库登录没有建库权限时，除了由部署者事先建库，是否允许退回到 core 库中按插件名前缀建表 |
 | 采集目标的删除 | 第一版只支持停用和恢复。是否需要彻底删除目标及其 checkpoint，以及删除后已采集 Source 的处理 |
-| 插件 family 接入 Recall / Prepared Context | 需要定义候选内容和预算约束，建议另行提案 |
+| 插件 family 接入 Recall | Prepared Context 已接入，Recall 是否需要接入、候选内容怎样定义 |
+| 通用检索结果带片段 | 通用检索接口目前只返回精确 revision，插件返回的片段只用于 Prepared Context。是否在检索结果中增加片段和位置 |
+| family 与 Source 类型的命名 | 是否要求以插件名为前缀，从命名上避免不同插件冒用同一个 family |
+| Prepared Context 的检索控制 | 内置 family 也接受每项的 `search`，是新增的可选字段，不影响现有调用，建议另行提案。Prepared Context 中其他按功能定制的参数，移除或改名是不兼容变更，需要新的 API 版本，不在 v1 中整理 |
 | 窗口大小的回退 | 内置 Atomic Memory 在模型超时时会缩小下一次的 Source 窗口。插件无法影响窗口大小，过大的窗口会持续超时。是否允许插件以约定的异常请求缩小该 Scope 的窗口 |
 | 持续失败的窗口 | 始终失败的 Source 窗口会阻塞该 Scope 的后续调用。是否提供跳过或转入死信的运维操作，以及如何记录被跳过的输入 |
 | 消费全部 Source 类型 | `inputs.source_types` 需要逐一列出类型；内置 Atomic Memory 消费所有可用于生成的 Source。是否支持 `"*"` 表示全部类型 |
@@ -1115,4 +1212,4 @@ collect 的结构相同：输入换成该 Scope 的已启用目标及其 checkpo
 - 热加载与插件自定义 API（含插件页面）：建立在宿主进程之上，见 [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579)。
 - 后台调用也改用常驻进程，在保持接口不变的前提下复用连接和初始化结果。
 - 更多插件类型，例如为 Recall 提供候选内容、为 Prepared Context 提供文本片段。
-- 插件打包与安装工具，例如从 Git 地址或 wheel 安装到插件目录。
+- 插件安装与依赖：从 PyPI、Git 地址或 wheel 安装插件，每个插件独立的依赖环境，以及记录各实例加载的插件版本的登记表。

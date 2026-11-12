@@ -52,7 +52,9 @@ This proposal replaces the plugin contracts and management mechanisms of the
 [Artifact plugin framework RFC #2175](2175-artifact-plugin-system.md). The old Source plugin framework shipped in v1.5,
 but no plugins for it have been published, so this proposal keeps no compatibility: the old plugin manifests, management
 APIs, management service, and plugin-management tables are removed, and custom Artifact data written by old Artifact
-plugins is not migrated. Parts of the old design that work well are kept, including the Source management APIs
+plugins is not migrated. So that no data is lost silently, the migration preflight refuses to upgrade while the old
+frameworks still hold data, and the deployer exports and cleans it up on the old version first (reference section 10).
+Parts of the old design that work well are kept, including the Source management APIs
 (`pc_source_add` and others) and their collection target identity rules, and core's existing remote ingestion APIs.
 
 This document describes the target design; it does not mean the mainline or a release already provides it. Interface
@@ -196,7 +198,7 @@ is the plugin name. The directory must contain `plugin.py` and may contain other
 `plugin.py` assigns a declaration object to the module-level variable `plugin`:
 
 ```python
-plugin = ArtifactPlugin(family="incident-report", ..., create=create)   # or SourcePlugin(...)
+plugin = ArtifactPlugin(family="incident-report", ..., setup=setup)   # or SourcePlugin(...)
 ```
 
 The declaration answers what core needs to know before it runs any plugin code: what the plugin provides (Source types or
@@ -204,7 +206,7 @@ an Artifact family), what it consumes, when to call it, and its resource limits.
 by Pydantic; there is no YAML or other manifest file.
 
 - **Deployment settings**: the plugin's own values that vary by deployment, such as credentials and external service
-  addresses, are read by the plugin from environment variables in `create`. Server neither stores, passes, nor logs them.
+  addresses, are read by the plugin from environment variables in `setup`. Server neither stores, passes, nor logs them.
 - **Resources core provides**: a plugin that needs a database or models does not configure them separately; it uses
   objects core wraps for it through the context (see reference 1.2):
   - `ctx.storage`: a dedicated area for the plugin on the database backend the deployment uses. On SQLite it is a
@@ -215,7 +217,7 @@ by Pydantic; there is no YAML or other manifest file.
 - **Enabling and disabling**: if the directory exists and passes the check, the plugin is available; to disable it, move
   it out of the directory and restart Server.
 - **Check**: at startup, Server imports `plugin.py` in a time-limited child process and validates the declaration without
-  calling `create`. A failed check affects only that plugin.
+  calling `setup`. A failed check affects only that plugin.
 
 ## 3. Source plugins
 
@@ -226,7 +228,7 @@ by Pydantic; there is no YAML or other manifest file.
 | `definitions` | Yes | A sequence of `SourceDefinition`, the existing Source definition: `input_class`, `resolve`, and its Projections |
 | `target_input` | For collection | A Pydantic model validating the input a caller submits when adding a target |
 | `identify_target(value) -> TargetIdentity` | For collection | A pure function that normalizes the input into a stable target key and normalized input |
-| `create(ctx) -> SourceCollector` | For collection | A factory run once per invocation in the Worker, returning an object that implements `collect` |
+| `setup(ctx) -> SourceCollector` | For collection | A factory run once per invocation in the Worker, returning an object that implements `collect` |
 | `collect(request) -> CollectResult` | For collection | Reads external data per target and checkpoint, returning Sources and new checkpoints |
 
 A plugin that provides only `definitions` only extends Source types: callers submit content through the existing Source
@@ -251,7 +253,7 @@ callers to upload files directly comes from plugin-defined APIs, see
 | `collect.max_items` | 200 | Maximum Sources returned per invocation |
 | `collect.timeout_seconds` | 120 | Total Worker time limit |
 | `collect.max_workers` | 1 | Concurrency limit across Scopes |
-| `target_input`, `identify_target`, `create` | Required for collection | See the table above |
+| `target_input`, `identify_target`, `setup` | Required for collection | See the table above |
 | `scopes` | `None` | Scopes the plugin may serve; empty means every Scope |
 
 ### 3.3 Example
@@ -295,7 +297,7 @@ class XCollector:
         return result
 
 
-async def create(ctx: PluginContext) -> XCollector:
+async def setup(ctx: PluginContext) -> XCollector:
     client = await ctx.enter_async_context(XClient(os.environ["X_BEARER_TOKEN"]))
     return XCollector(client)
 
@@ -305,7 +307,7 @@ plugin = SourcePlugin(
     collect=Collect(schedule=Interval(seconds=300), timeout_seconds=120),
     target_input=TargetInput,
     identify_target=identify_target,
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -362,8 +364,10 @@ powercontext source-agent --server https://memory.example.com
 
 | Interface | Required | Description |
 | --- | --- | --- |
-| `create(ctx) -> ArtifactGenerator` | Yes | A factory; run once per invocation in a Worker, and only once and then reused in the host process |
-| `generate(request, writer) -> None` | Yes | Reads `request.sources` (the unconsumed Source window) and writes Artifacts in the write transaction block |
+| `setup(ctx) -> ArtifactGenerator` | Yes | The factory of the plugin object (not an Artifact create); run once per invocation in a Worker, and only once and then reused in the host process |
+| `generate(request, writer) -> None` | When `schedule` or `on_sources` is set | Reads `request.sources` (the unconsumed Source window) and writes Artifacts in the write transaction block |
+| `render_artifact(request) -> Rendering` | Yes | The default presentation (Markdown or plain text) of an exact revision; see reference section 7 |
+| `search_artifacts(request) -> SearchResult` | No | Searches with the plugin's own indexes and returns the revisions and passages it matched; the generic search API and Prepared Context call it |
 | `create_artifact(request, writer) -> None` | No | A user create; core allocates `request.artifact_id` |
 | `update_artifact(request, writer) -> None` | No | A user edit of the given Artifact; `request.expected_revision` is the revision the caller saw |
 | `merge_artifacts(request, writer) -> None` | No | A user merge; core allocates the result ID |
@@ -375,6 +379,11 @@ implement, the matching API returns 422, meaning the family does not support it.
 the content the user submitted, updates its own storage, and performs through the writer the one write operation core
 requires.
 
+Core builds no index for plugin families and does not understand the structure of `content`: only the plugin knows how
+its content is chunked, whether it suits full-text or vector search, and how to present it. Presentation and search
+therefore belong to the plugin: `render_artifact` is required, `search_artifacts` is optional, and without it the generic
+search API and Prepared Context return 422 for the family.
+
 ### 4.2 Declaration
 
 | Field | Default | Description |
@@ -382,15 +391,14 @@ requires.
 | `family` | Required | The Artifact family the plugin owns; must not duplicate a built-in family or another plugin's |
 | `inputs` | `None` | `Inputs(source_types=..., projection=..., projections={...}, max_sources=50)`: the Source types consumed, the Projection each Source is delivered in, and the maximum Sources per window; empty means the plugin consumes no Sources. `projection` applies to every type, `projections` names a different Projection per Source type, and every type needs one or the other |
 | `on_sources` | `False` | Trigger after new Sources arrive; requires `inputs` |
-| `schedule` | `None` | `Interval(seconds=...)` or `Cron(expression=..., timezone=...)`; declare at least one of this and `on_sources` |
-| `scopes` | `None` | Scopes the plugin may serve; required for plugins that consume no Sources |
-| `search_fields` | `None` | Top-level content fields indexed for full-text search; empty means every top-level string field |
+| `schedule` | `None` | `Interval(seconds=...)` or `Cron(expression=..., timezone=...)`. With neither `schedule` nor `on_sources`, the plugin has no background generation and need not implement `generate`; its Artifacts are written only by user changes and plugin APIs (notes, for example) |
+| `scopes` | `None` | Scopes the plugin may serve; required for plugins that set `schedule` but consume no Sources |
 | `timeout_seconds` | 300 | Time limit for the whole invocation |
 | `transaction_timeout_seconds` | 30 | Time limit for the write transaction block, at most `timeout_seconds` |
 | `max_workers` | 1 | Concurrency limit across Scopes |
 | `change_timeout_seconds` | 30 | Time limit for one user-change call, including its write transaction block |
 | `definitions` | `()` | The plugin's own Source Definitions, registered when the plugin loads, under the same rules as a Source plugin's `definitions`. The plugin submits them from its routes with `ctx.sources.submit`, and callers can also submit them through the generic Source write API, so one Artifact plugin can record what users asked for without a separate Source plugin |
-| `create` | Required | See the table above |
+| `setup` | Required | See the table above |
 
 ### 4.3 Example
 
@@ -402,7 +410,8 @@ configured.
 
 ```python
 from powercontext.plugins import (
-    ArtifactPlugin, ArtifactWriter, GenerateRequest, Inputs, InvalidContent, PluginContext, UpdateRequest,
+    ArtifactPlugin, ArtifactWriter, GenerateRequest, Inputs, InvalidContent, PluginContext, Rendering, RenderRequest,
+    SearchHit, SearchRequest, SearchResult, UpdateRequest,
 )
 from powercontext.sources import TextEvidence
 
@@ -441,8 +450,20 @@ class IncidentReports:
                                    expected_revision=request.expected_revision)
             await self.index.upsert(request.scope_id, written.ref.artifact_id, written.ref.revision, vector)
 
+    async def render_artifact(self, request: RenderRequest) -> Rendering:
+        report = Report.model_validate(request.artifact.content)
+        return Rendering(text=f"# {report.title}\n\n{report.summary}")
 
-async def create(ctx: PluginContext) -> IncidentReports:
+    async def search_artifacts(self, request: SearchRequest) -> SearchResult:
+        # The generic search request arrives unchanged; this plugin supports vector search only
+        if request.search.mode not in (None, "vector"):
+            raise InvalidContent("only vector search is supported", field="mode")
+        vector = await self.model.embed(request.search.query)
+        hits = await self.index.nearest_many(request.scope_id, vector, limit=request.search.limit)
+        return SearchResult(hits=[SearchHit(ref=hit.ref, text=hit.summary, score=hit.score) for hit in hits])
+
+
+async def setup(ctx: PluginContext) -> IncidentReports:
     index = await ctx.enter_async_context(VectorIndex.connect(ctx.storage.engine()))
     return IncidentReports(index, Summarizer(ctx.models))
 
@@ -451,8 +472,7 @@ plugin = ArtifactPlugin(
     family="incident-report",
     inputs=Inputs(source_types=("example-ticket",), projection="powercontext.text-evidence@1"),
     on_sources=True,
-    search_fields=("title", "summary"),
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -463,14 +483,16 @@ left by the previous attempt, and reads from the owned index defer to core's cur
 ### 4.4 How callers use it
 
 Callers access plugin families through the existing Artifact APIs. Read APIs read `pc_artifacts` directly and run no
-plugin code; for change APIs, core checks authorization and versions and then synchronously calls the matching plugin
-method:
+plugin code; for presentation, search, and change APIs, core checks authorization and then synchronously calls the
+matching plugin method:
 
 | Purpose | API | Plugin method |
 | --- | --- | --- |
 | Browse | `GET /v1/scopes/{scope_id}/artifacts/{family}` | None |
 | Read the current content, a given revision, revision history, tags | `GET .../{artifact_id}`, `GET .../{artifact_id}/revisions/{revision}`, `GET .../{artifact_id}/revisions`, `GET .../{artifact_id}/tags` | None |
-| Text search | `POST /v1/scopes/{scope_id}/artifacts/{family}/search` | None |
+| Default presentation | `GET .../{artifact_id}/rendering` (optionally with `revision`) | `render_artifact` |
+| Search (the request is passed on unchanged; the plugin interprets the search controls) | `POST /v1/scopes/{scope_id}/artifacts/{family}/search` | `search_artifacts` |
+| Prepare context for an Agent | List the plugin family in `assembly.sections` of `POST /v1/context/prepare` | `search_artifacts` |
 | Create (submit only content; core allocates the ID) | `POST /v1/scopes/{scope_id}/artifacts` with body `{"family": ..., "content": {...}}` | `create_artifact` |
 | Edit (submit complete content; `If-Match` checks the current revision) | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` | `update_artifact` |
 | Read the governance state (the `state_version` needed to forget or merge) | `GET .../{artifact_id}/governance` | None |
@@ -479,8 +501,24 @@ method:
 | Restore, restore an earlier revision, undo a merge | `POST .../{artifact_id}/restorations` | `restore_artifact` |
 | Change tags | `PUT .../{artifact_id}/tags`; query by tag with `POST /v1/scopes/{scope_id}/artifact-tags/query` | None; handled by core |
 
-Changes return their result synchronously. A plugin rejecting the content returns 422, a plugin that does not implement
-the method also returns 422, and a host process that times out or is unavailable returns 503.
+Changes return their result synchronously. A plugin rejecting the content or request returns 422, a plugin that does not
+implement the method also returns 422, and a host process that times out or is unavailable returns 503.
+
+### 4.5 Methods at a glance
+
+| Method | Applies to | Required | When core calls it | Where it runs |
+| --- | --- | --- | --- | --- |
+| `setup(ctx)` | Both plugin kinds | Yes | Once when the host process starts; once per Worker invocation | Host process, Worker |
+| Source Definitions: `input_class`, `resolve`, a Projection's `project`, `read` | Source plugins, or Artifact plugins that declare `definitions` | Yes | Source writes (the generic write API, `ctx.sources.submit`); computing Projections when delivering Sources to `generate` | Host process, Worker |
+| `identify_target`, `collect` | Source plugins | Yes, for continuous collection | Adding a collection target; scheduled collection | Host process, Worker |
+| `generate` | Artifact plugins | When `schedule` or `on_sources` is set | On schedule, or when new Sources arrive | Worker |
+| `render_artifact` | Artifact plugins | Yes | The default presentation API | Host process |
+| `search_artifacts` | Artifact plugins | No | The generic search API; Prepared Context sections that list the family | Host process |
+| `create_artifact`, `update_artifact`, `merge_artifacts`, `forget_artifact`, `restore_artifact` | Artifact plugins | No | The matching generic change APIs | Host process |
+
+Listing, reading the current content or a given revision, revision history, the governance state, and tags call no
+plugin method; core serves them from the data it stores. The host process checks the required methods after running
+`setup`; a plugin missing one fails to load and is `failed`.
 
 ## 5. Scheduling and triggers
 
@@ -554,7 +592,7 @@ class ArtifactPlugin(BaseModel):          # fields in guide 4.2
     family: str
     inputs: Inputs | None = None
     ...
-    create: Callable[[PluginContext], Awaitable[ArtifactGenerator]]
+    setup: Callable[[PluginContext], Awaitable[ArtifactGenerator]]
 
 class SourcePlugin(BaseModel):            # fields in guide 3.2
     definitions: Sequence[SourceDefinition]
@@ -564,8 +602,8 @@ class SourcePlugin(BaseModel):            # fields in guide 3.2
 
 - The plugin name comes from the directory name and must match `^[a-z][a-z0-9-]{0,63}$`.
 - A declaration is validated when constructed, including schedule combinations, the dependency between `inputs` and
-  `scopes`, time-limit relations, and family naming. `create` must be an async function.
-- The parts of a declaration other than code objects such as `create`, `identify_target`, and `definitions` are
+  `scopes`, time-limit relations, and family naming. `setup` must be an async function.
+- The parts of a declaration other than code objects such as `setup`, `identify_target`, and `definitions` are
   serializable. Server obtains them from the check child process to register bindings and answer operational queries.
 - During the check, core records the plugin directory's **code fingerprint** (computed from file contents). Workers
   and host processes check it before importing the plugin, and a mismatch fails the call and asks for a Server restart,
@@ -720,6 +758,7 @@ conflict and the call fails.
 
 ```python
 class ArtifactGenerator(Protocol):
+    # required when schedule or on_sources is set
     async def generate(self, request: GenerateRequest, writer: ArtifactWriter, /) -> None: ...
 
 class GenerateRequest(BaseModel):
@@ -795,8 +834,10 @@ Write constraints:
 - Unchanged content produces no revision, as in built-in Atomic Memory: when the model finds that an existing memory
   already expresses a new Source, that memory gets no new revision and the new Source does not enter its lineage. A
   plugin that needs a new Source recorded as evidence for an Artifact should change its content as well.
-- Core extracts search text from the content according to the declared `search_fields`; plugins do not supply it
-  separately. The same content yields the same search text whether a plugin or a user wrote it.
+- Core extracts no search text and builds no index for plugin families; plugins search with their own indexes (see
+  section 7).
+- Core records, in each revision's metadata, the name and version digest of the plugin that wrote it, so when several
+  Servers load different versions each revision can be traced to the version that wrote it (see section 10).
 - Each write transaction block has limits on operations, single content size, and total bytes; exceeding one raises and
   rolls back, with no truncation or partial commit.
 - Core does not validate the business structure of `content`, nor store or pin a schema. The plugin owns how its content
@@ -830,7 +871,6 @@ class ArtifactReads(Protocol):
     async def revisions(self, artifact_id: str, *, cursor: str | None = None, limit: int = 50) -> ArtifactPage: ...
     async def list(self, *, states: Collection[LifecycleState] = ("active",), tags: Collection[str] = (),
                    cursor: str | None = None, limit: int = 50) -> ArtifactPage: ...
-    async def search(self, query: str, *, limit: int = 10) -> Sequence[ArtifactSnapshot]: ...
     async def by_source(self, ref: SourceRef) -> Sequence[ArtifactSnapshot]: ...
     async def merge_inputs(self, artifact_id: str) -> Sequence[ArtifactRef]: ...
     async def tags(self, artifact_id: str) -> Sequence[str]: ...
@@ -844,8 +884,6 @@ class ArtifactReads(Protocol):
   inputs of a merge result.
 - `list` filters by lifecycle state and tags, including deprecated, retired, and merge-frozen Artifacts, for finding data
   that already existed.
-- `search` is core's text search (see section 7) and covers only active current revisions; inside the write transaction it
-  also finds content the block has written but not yet committed.
 - `by_source` finds the Artifacts whose lineage references a given Source, for locating Artifacts to revise after a Source
   changes.
 - Every returned snapshot carries an exact revision and can be used directly as `artifact_refs` or `to_revision` in writes.
@@ -1043,11 +1081,12 @@ long-lived host process:
 | Input validation, `resolve`, and Projections for Source writes | Host process |
 | `identify_target` when adding a collection target | Host process |
 | `create_artifact`, `update_artifact`, `merge_artifacts`, `forget_artifact`, `restore_artifact` | Host process |
+| `render_artifact`, `search_artifacts` | Host process |
 | `collect`, `generate` | Supervisor Worker |
 
 - **Count and startup**: each Server process keeps at most one host process for each loaded plugin, starts it in the
-  background once the plugin loads, and reuses it afterward. Whether a plugin implements user-change methods is known only
-  after `create` runs, so an Artifact plugin that provides only `generate` also starts one, at the cost of an idle process.
+  background once the plugin loads, and reuses it afterward. Every Artifact plugin implements `render_artifact` and
+  Source plugin writes run `resolve`, so every loaded plugin has a host process.
   In edge mode, `resolve` and Projections run inside the collection Worker, and no host process
   starts.
 - **Execution**: the host process imports `plugin.py` once at startup and compares the declaration, and the writer runs
@@ -1068,29 +1107,66 @@ persisted or synchronized across processes, and is rebuilt from the plugin direc
 operational APIs return only the check results and declarations, which are the same on every process; host process state
 is visible through logs and metrics.
 
-## 7. Public reads and search
+## 7. Public reads, presentation, and search
 
-Core serves all public reads of plugin families without running plugin code:
+Core serves reads directly, without running plugin code:
 
-- list / get / revisions / tags reuse the existing generic Artifact read paths. Plugin family `content` is returned as JSON
-  as is, without a schema in `pc_artifact_family_schemas`. Merge-frozen, deprecated, and retired Artifacts are presented
-  under the shared merge and lifecycle rules.
+- list / get / revisions / governance / tags reuse the existing generic Artifact read paths. Plugin family `content` is
+  returned as the JSON the plugin wrote, without a schema in `pc_artifact_family_schemas`. Merge-frozen, deprecated, and
+  retired Artifacts are presented under the shared merge and lifecycle rules.
 - List items carry only metadata; `title` and `summary` are empty for plugin families, and content is read with get.
-- Search is core's generic text search for plugin families and, like the existing search APIs, accepts only text queries:
-  - On write, core takes the text of the `search_fields` from the content, analyzes it with the existing lexical analysis,
-    writes it to `pc_artifact_heads.searchable_text`, and keeps it with the revision, so restoring an old revision restores
-    its search text with its content.
-  - On search, core matches that column and returns only active current revisions the caller may read in the requested
-    Scope. Artifacts without searchable text do not take part.
-  - The writer's `search` uses the same implementation.
-  - The implementation PR presents the search implementation on each database backend and validates it at scale.
-- Review, Recall, and Prepared Context are not open to plugin families in the first version; those APIs return an explicit
-  "not supported" error, and `GET /v1/capabilities` lists plugin families.
+
+A plugin may keep only digests or references in `content` and store large content in its own storage (a knowledge base
+document, for example, records only the digest of its chunk set). The `content` returned as is then cannot be presented.
+Presentation and search therefore belong to the plugin:
+
+```python
+class RenderRequest(BaseModel):
+    scope_id: str
+    artifact: ArtifactSnapshot            # the exact revision to present
+    caller: Caller | None
+
+class Rendering(BaseModel):
+    format: Literal["markdown", "text"] = "markdown"
+    text: str
+
+class SearchRequest(BaseModel):
+    scope_id: str
+    search: SearchArtifactsRequest        # the complete request of the generic search API, unchanged
+    max_bytes: int | None = None          # from Prepared Context: the byte budget left for this family
+    caller: Caller | None
+
+class SearchHit(BaseModel):
+    ref: ArtifactRef                      # the exact revision matched
+    text: str                             # a passage to use as context, such as one chunk
+    score: float | None = None
+    locator: dict[str, JsonValue] | None = None   # where the passage sits in the Artifact, such as a page or chunk number
+
+class SearchResult(BaseModel):
+    hits: Sequence[SearchHit]
+```
+
+- **Presentation**: `GET .../{artifact_id}/rendering` calls `render_artifact` and returns the plugin's default presentation;
+  read APIs still return the original `content` for programs. A revision's presentation does not change under the same
+  plugin version, so core may cache it by family, ID, revision, and plugin version. Built-in families do not offer this API.
+- **Search**: the generic search API passes every field of `SearchArtifactsRequest` (`query`, `query_vector`, `indexes`,
+  `mode`, `filters`, `admission`, `fusion`, `rerank`, `min_score`, and so on) unchanged to `search_artifacts`, which
+  interprets them against the plugin's own indexes; a plugin raises `InvalidContent` for controls it does not support, and
+  the API returns 422. Core keeps only matches that are active current revisions the caller may read, returns the exact
+  revisions in the plugin's order, and adds the plugin's scores when `include_scores` is set. A plugin therefore cannot
+  return data the caller cannot see through search.
+- **Prepared Context**: `assembly.sections` may list plugin families. Core calls `search_artifacts` with Prepared Context's
+  `query`, the section's `limit`, and the remaining byte budget, and uses the matched passages as context entries that,
+  like built-in entries, cite exact revisions and count toward the byte budget and the receipt. A section may carry an
+  optional `search` with the fields of a search request other than `query` and `limit`, passed on to the plugin
+  unchanged; built-in families that carry `search` return 422.
+- Review and Recall are not open to plugin families; those APIs return an explicit "not supported" error, and
+  `GET /v1/capabilities` lists plugin families.
 
 ## 8. Loading and lifecycle
 
 - At startup, Server checks each direct subdirectory of `POWERCONTEXT_SERVER_PLUGINS_DIR` (no plugins load if it is
-  unset): it imports `plugin.py` in a time-limited child process and validates the declaration without calling `create`.
+  unset): it imports `plugin.py` in a time-limited child process and validates the declaration without calling `setup`.
   Once the check passes, Server registers the Source types or family the plugin provides (reads, search, and the generic
   merge APIs), registers a Supervisor binding when there is a schedule or trigger, and adds the plugin to this process's
   record of active plugins. A failed check affects only that plugin.
@@ -1143,19 +1219,37 @@ Core serves all public reads of plugin families without running plugin code:
 | `pc_source_cursors` | Kept; Artifact plugin consumption cursors, keyed by `(scope_id, plugin:<name>)` |
 | `pc_connector_checkpoints` | Kept; each collection target's checkpoint, keyed by `(scope_id, the target's binding ID)` |
 | `pc_source_collect_targets` | Added; collection targets with their normalized input, enabled state, and latest collection results |
-| Supervisor invocation intent, pending, and lease tables | Kept; plugin bindings share them with built-in bindings, and they back `GET /v1/plugins/{name}/scopes` |
+| Supervisor invocation intent, pending, and lease tables | Kept; plugin bindings share them with built-in bindings, and they back `GET /v1/plugins/{name}/scopes`. Plugin bindings start with `plugin:` and are not registered in the database |
+| The new `metadata` column of `pc_artifacts` | Added; nullable, stored as canonical JSON bytes like `content`, for additional information that is never searched. Revisions plugins write record the plugin name and version digest; built-in families leave it empty. It does not take part in content digests |
+| `pc_artifact_fts` and `pc_artifact_heads.searchable_text` | Used only by built-in families; plugin families do not write them |
 | Columns the old plugin frameworks added to `pc_artifact_processing_binding_states` (desired state, management phase, registration generation, and so on) | Removed |
 | `pc_artifact_family_schemas` | Removed |
 | Search state and vector index data for custom family declarative indexes | Removed; the implementation PR confirms built-in families do not depend on them before dropping the tables |
-| Artifacts, heads, and lineage written by old Artifact plugins | Deleted, not migrated |
+| Artifacts, heads, and lineage written by old Artifact plugins | Not migrated; the upgrade is refused while any remain, see below |
 | `pc_source_write_plugins` | Removed; Source definitions come from the plugin directory at startup |
 | The Source plugin management service's SQLite | Removed with the management service |
 | Dedicated plugin storage (`plugins/<plugin name>.sqlite3` or the `powercontext_plugin_<plugin name>` database) | Not part of core's schema; core only allocates it, and the plugin and the deployer own its tables, migrations, and cleanup |
 | Other plugin-owned indexes and storage | Not part of core; managed by the plugin and the deployer |
 | The local SQLite of edge mode | Holds only the edge's collection targets and scheduling state, no Sources; Sources and checkpoints live on the central Server |
 
-Additions and removals ship as one new database migration whose notes list the tables, columns, and data
-ranges added and removed.
+Additions and removals ship as **one new migration revision**; the migration resources of released versions stay
+unchanged. Its notes list the tables, columns, and data ranges added and removed. The migration preflight first confirms the old plugin frameworks
+left no data behind: Artifacts of old Artifact plugin families, old plugin registrations and invocation intents, and
+Source plugins in `pc_source_write_plugins`. If it finds any, it refuses the upgrade, lists the plugin names, families, and
+row counts, and leaves the database unchanged; the deployer exports what they need, uninstalls the old plugins, and cleans
+up their data on the old version, then upgrades. The migration drops these tables only when they are empty.
+
+The readiness check of this revision,
+which Server runs against the current database at every startup, differs from the previous one in two ways:
+
+- Bindings of invocation intents that start with `plugin:` count as plugin bindings and need no database registration.
+  Intents a removed plugin left behind are not processed, are visible in the operational APIs, and do not stop Server
+  from starting; they are processed again once a plugin with the same name returns.
+- The full-text index check covers only built-in family data.
+
+The format version of Artifact revision records in export and restore (portable archives) increases by one and includes
+`metadata`. Restoring an export of the old format leaves `metadata` empty; older Servers cannot restore exports of the
+new format.
 
 ## 11. API changes
 
@@ -1163,7 +1257,7 @@ ranges added and removed.
 | --- | --- |
 | Removed | `/v1/admin/artifact-plugins` and its subpaths; the Source plugin management service, plugin instance Runtimes, and poll / reply channels; the `source load` command; MCP `pc_source_instances` and `pc_source_instance_set_enabled`; the `plugin.yml` and `powercontext.yml` manifests |
 | Removed | Custom family declarative indexes (`ArtifactSearchDeclaration`, `TextIndex`, and so on), `ArtifactFamily` schema declarations, `ArtifactDraft`, and the old Worker plugin executor |
-| Added | `powercontext.plugins`: `SourcePlugin`, `ArtifactPlugin`, `Inputs`, `Interval`, `Cron`, `PluginContext`, `PluginStorage`, `PluginModels`, the writer and read interfaces, and the user-change request models and `InvalidContent` |
+| Added | `powercontext.plugins`: `SourcePlugin`, `ArtifactPlugin`, `Inputs`, `Interval`, `Cron`, `PluginContext`, `PluginStorage`, `PluginModels`, the writer and read interfaces, and the user-change request models and `InvalidContent`, and the presentation and search request and result models |
 | Added | The `powercontext source-agent` edge collection mode, with `POWERCONTEXT_SOURCE_AGENT_ID` and `POWERCONTEXT_SOURCE_AGENT_TOKEN` |
 | Changed | The body of `POST /v1/scopes/{scope_id}/artifacts` gains a plugin branch `{"family", "content"}`; core allocates the ID, and the plugin's `create_artifact` handles it. `CreateArtifactRequest` becomes a choice between the built-in branch `CreateBuiltinArtifactRequest` (the former union discriminated by family) and the plugin branch `CreatePluginArtifactRequest`, selected by family name: built-in names take the built-in branch with unchanged validation; other names take the plugin branch, and a family no plugin provides returns 422. In the generated Python client, built-in requests gain one wrapping level, and `ArtifactCreated.family` changes from the built-in family enum to a string |
 | Changed | The `source_type` of `POST /v1/scopes/{scope_id}/sources` changes from an enum allowing only `content` to a string (still defaulting to `content`). It may name a Source type a plugin defines; `content` is then that type's input, which the plugin validates and resolves into a Source. Unknown types return 404. The `SourceType` enum remains |
@@ -1171,7 +1265,10 @@ ranges added and removed.
 | Added | `GET .../{artifact_id}/governance`, `POST /v1/scopes/{scope_id}/artifacts/{family}/merges`, `POST .../{artifact_id}/forget`, `POST .../{artifact_id}/restorations`: generic APIs on the shared merge engine registry that work for every registered family (Experience and Atomic Memory among built-ins, plus loaded plugin families, which the matching plugin methods handle). Atomic Memory's dedicated APIs are unchanged |
 | Changed | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` accepts plugin families with a `{"content": {...}}` body, handled by the plugin's `update_artifact` |
 | Changed | The tag APIs accept plugin families: `TaggableArtifactFamily` changes from an enum to a string in the `ArtifactReadFamily` format, and Server accepts built-in families or loaded plugin families. The wire format is unchanged; generated clients lose the enum type |
-| Changed | The generic Artifact read and search APIs support plugin families; `GET /v1/capabilities` lists plugin families |
+| Changed | The generic Artifact read APIs support plugin families; for plugin families, the generic search API passes the complete request to the plugin's `search_artifacts` and returns 422 when it is not implemented; `GET /v1/capabilities` lists plugin families |
+| Added | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering`: the default presentation of a plugin family Artifact, provided by the plugin's `render_artifact` |
+| Changed | `POST /v1/context/prepare`: `ContextAssemblySection.family` changes from an enum to a string that may name a loaded plugin family; an optional `search` (the fields of a search request other than `query` and `limit`) applies to plugin families only |
+| Changed | The format version of Artifact revision records in export and restore increases by one and adds `metadata` |
 | Changed | The write usage of `pc_source_add` uses plugin definitions, and its collect usage adds collection targets; `pc_source_capabilities` lists plugin Source types and target inputs; `pc_source_status` reports targets and their latest collection result; `pc_source_target_set_enabled` acts on targets stored by core |
 | Changed | The environment variable `POWERCONTEXT_SERVER_PLUGINS_DIR` replaces `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` and the Source plugin directory setting |
 
@@ -1220,8 +1317,13 @@ record one event.
   such as its family from environment variables.
 - **Content structure is not governed by core**: core does not validate a `content` schema, and plugins validate
   user-submitted content; plugins and applications must keep historical revisions interpretable.
-- **Core search is limited**: core provides only generic text search over declared fields; vector and other search requires
-  a plugin-owned index, which the public search APIs cannot use yet.
+- **Presentation and search depend on the plugin**: presentation, search, and Prepared Context for plugin families go
+  through the host process and return 503 when the plugin is unavailable; without `search_artifacts`, a plugin's data cannot
+  be used through generic search or Prepared Context.
+- **Servers may load different plugin versions**: core records which plugin version wrote each revision but does not stop
+  instances from loading different versions; whether old and new versions can read and write the same data at once is the
+  plugin's responsibility. Summarizing the versions each instance has loaded needs an instance registry table, which is
+  left to the follow-up plugin installation proposal.
 - **Code changes require a restart**: without hot reload, Server is briefly unavailable while plugins update.
 
 # Rationale and alternatives
@@ -1248,6 +1350,10 @@ record one event.
 | Compile a separate binary for the edge | A plugin is a Python directory with dependencies; a frozen binary cannot import arbitrary plugin dependencies and would need packaging per plugin and platform. Starting the same program in `source-agent` mode is enough |
 | Plugin-specific trigger and management APIs | Callers would have to tell plugins from built-ins; the existing Source and Artifact APIs already cover the operations callers need |
 | Generic merge APIs for plugin families only | Needs a separate family allowlist in the APIs. The registry already decides which families can be changed, and a family without an adapter cannot register; built-in permission checks live in the engine, so both entry points apply the same checks |
+| Core builds a full-text index for plugin families from declared fields | Plugin authors need no index of their own, but core does not know how content is chunked or whether it suits full-text or vector search, so the index is often useless; it would also share index tables with built-in families, and the readiness check would have to tell them apart. Search belongs to the plugin, and core only filters by permission |
+| Reads also go through the plugin (for example a `read_artifact` that expands content) | Generic reads would return complete content, but the most frequent read path would enter the host process every time, and reads would fail whenever the plugin is unavailable. Reads stay with core, and presentation has its own API |
+| Register plugin bindings and families in the database (the old Artifact plugin framework's approach) | Detects another plugin taking over an existing family and leftover invocation intents, but core must store and maintain plugin state and provide a management operation to resolve conflicts. The new framework has no stable plugin identity, so a registry would catch little more; it is left to the proposal on plugin installation and distribution, to be designed with plugin identity |
+| Record the plugin version in a separate table, in `created_by`, or under a reserved key of `content` | A separate table must also join export and restore; changing `created_by` or `content` alters the meaning of existing fields and the content digest. A `metadata` column needs only one added column and an export format upgrade |
 | Hot reload in this proposal | Requires each instance to rescan on its own, fencing commits from old Workers, and switching host processes; a separate proposal is clearer |
 
 Reasons for this choice:
@@ -1285,12 +1391,14 @@ Reasons for this choice:
 
 | Question | Notes |
 | --- | --- |
-| Plugin-defined search | The existing search APIs accept only text queries, so the first version provides generic text search in core. Search a plugin provides (for example vector or hybrid search) is left to the separate proposal for plugin-defined APIs and runs in the host process |
 | Default limits for the write transaction block | Whether 30 seconds is right; whether SQLite and OceanBase need different defaults; per-block operation and byte limits |
 | Host process defaults | Default synchronous call limit, per-host-process concurrency limit, and restart backoff |
 | Permission to create the dedicated database | When Server's database login cannot create databases, whether to allow falling back to tables prefixed by plugin name in core's database, besides the deployer creating the database in advance |
 | Deleting collection targets | The first version supports only disabling and resuming. Whether targets and their checkpoints should be deletable, and what happens to Sources already collected |
-| Plugin families in Recall / Prepared Context | Requires defining candidate content and budget constraints; a separate proposal is recommended |
+| Plugin families in Recall | Prepared Context is covered; whether Recall should be, and how its candidates are defined |
+| Passages in generic search results | The generic search API returns only exact revisions, and the passages a plugin returns are used only by Prepared Context. Whether search results should add passages and their locations |
+| Naming families and Source types | Whether they must start with the plugin name, so naming alone keeps plugins from taking over each other's families |
+| Search controls in Prepared Context | Letting built-in families accept a section's `search` too is a new optional field that leaves existing calls unaffected; a separate proposal is recommended. Removing or renaming Prepared Context's other feature-specific parameters is a breaking change that needs a new API version, so v1 leaves them as they are |
 | Shrinking the window | Built-in Atomic Memory shrinks the next Source window when the model times out. Plugins cannot affect the window size, so an oversized window keeps timing out. Whether plugins may request a smaller window for the Scope with an agreed exception |
 | Windows that keep failing | A Source window that always fails blocks later invocations in the Scope. Whether to offer an operation that skips it or moves it to a dead letter, and how to record skipped input |
 | Consuming every Source type | `inputs.source_types` must list each type; built-in Atomic Memory consumes every Source usable for generation. Whether to support `"*"` for all types |
@@ -1303,4 +1411,5 @@ Reasons for this choice:
 - Long-lived processes for background calls too, reusing connections and initialization while keeping the interfaces
   unchanged.
 - More plugin types, such as candidate content for Recall or text fragments for Prepared Context.
-- Plugin packaging and installation tools, such as installing into the plugin directory from a Git URL or a wheel.
+- Plugin installation and dependencies: installing plugins from PyPI, a Git URL, or a wheel, a separate dependency
+  environment per plugin, and a registry of the plugin versions each instance has loaded.
