@@ -3937,6 +3937,17 @@ export interface components {
             basis: components["schemas"]["WorkClaimBasis"];
             evidence: components["schemas"]["HandoffCitation"][];
         };
+        /** @enum {string} */
+        TaskStopReasonKind: "safety" | "authorization" | "capability" | "missing_evidence" | "scope";
+        /** @description A caller-recorded judgement about why continuing would have been wrong. It grants no permission, approval, or retry budget and is not success or failure evidence. */
+        TaskStopReason: {
+            kind: components["schemas"]["TaskStopReasonKind"];
+            /** @description The circumstance under which continuing would have been wrong; must be trimmed. */
+            condition: string;
+            basis: components["schemas"]["WorkClaimBasis"];
+            /** @description Use [] with declared. verified requires exact previously returned same-scope citations. */
+            evidence: components["schemas"]["HandoffCitation"][];
+        };
         TaskOutcome: {
             /** @enum {string} */
             schema: "powercontext.task-outcome.v1";
@@ -3946,6 +3957,8 @@ export interface components {
             status: components["schemas"]["TaskOutcomeStatus"];
             summary: string;
             handoff_receipt_ref?: components["schemas"]["SourceReference"];
+            /** @description Optional deliberate-stop reason, accepted only with blocked or cancelled status. */
+            stop_reason?: components["schemas"]["TaskStopReason"];
             observations: components["schemas"]["WorkClaim"][];
             checks: components["schemas"]["TaskCheck"][];
             produced_artifacts: components["schemas"]["ArtifactReference"][];

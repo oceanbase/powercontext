@@ -22,6 +22,7 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+import { dashboardTextKey, hasMismatchedLoopbackSite, readDashboard } from './dashboard.ts'
 
 const LocaleContext = createContext<Locale>('zh-CN')
 function useText() {
@@ -40,6 +41,7 @@ interface StatusFace {
   hooks: { status: StatusController }
   setSession: (sessionId: string | undefined) => void
   refresh: () => void
+  openDashboard: (url: string) => boolean
 }
 
 interface FooterActionProps {
@@ -155,10 +157,16 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const t = useText()
   const [languageOpen, setLanguageOpen] = useState(false)
   const languageRef = useRef<HTMLButtonElement>(null)
-  const { wide, useSessions, useStatus, setSession, refresh } = props
+  const { wide, useSessions, useStatus, setSession, refresh, openDashboard } = props
   const sessionId = useSessions(state => activeSessionId(state))
   const snapshot = useStatus(value => value)
   const [open, setOpen] = useState(false)
+  const [dashboardBusy, setDashboardBusy] = useState(false)
+  const [dashboardNotice, setDashboardNotice] = useState<TextKey | null>(null)
+  const [externalDashboard, setExternalDashboard] = useState<string | null>(null)
+  const dashboardRequest = useRef<AbortController | null>(null)
+  const currentSession = useRef(sessionId)
+  currentSession.current = sessionId
   const [clockTick, setClockTick] = useState(() => Date.now())
   const [anchor, setAnchor] = useState({ left: 12, bottom: 12 })
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -169,6 +177,50 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const data = snapshot.data
 
   useEffect(() => { setSession(sessionId) }, [sessionId, setSession])
+
+  useEffect(() => {
+    dashboardRequest.current?.abort()
+    dashboardRequest.current = null
+    setDashboardBusy(false)
+    setDashboardNotice(null)
+    setExternalDashboard(null)
+  }, [sessionId])
+
+  useEffect(() => () => { dashboardRequest.current?.abort() }, [])
+
+  const showDashboard = async (): Promise<void> => {
+    dashboardRequest.current?.abort()
+    const request = new AbortController()
+    dashboardRequest.current = request
+    const selected = sessionId
+    setDashboardBusy(true)
+    setDashboardNotice(null)
+    setExternalDashboard(null)
+    const result = await readDashboard(selected, fetch, request.signal)
+    if (request.signal.aborted || currentSession.current !== selected) return
+    dashboardRequest.current = null
+    setDashboardBusy(false)
+    if (result.state !== 'available' || result.url === undefined) {
+      setDashboardNotice(dashboardTextKey[result.state])
+      return
+    }
+    if (selected === undefined) {
+      setDashboardNotice('dashboardNoSession')
+      setExternalDashboard(result.url)
+      return
+    }
+    if (hasMismatchedLoopbackSite(window.location, result.url)) {
+      setDashboardNotice('dashboardLoopbackMismatch')
+      setExternalDashboard(result.url)
+      return
+    }
+    if (!openDashboard(result.url)) {
+      setDashboardNotice('dashboardContainerUnavailable')
+      setExternalDashboard(result.url)
+      return
+    }
+    setOpen(false)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -337,6 +389,16 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
           </fieldset>}
 
           <div className="pc-panel-body">
+            <section className="pc-dashboard-entry" aria-label={t('dashboard')}>
+              <div className="pc-dashboard-intro"><strong>{t('dashboard')}</strong><span>{t('dashboardIntro')}</span></div>
+              <button type="button" className="pc-dashboard-button" disabled={dashboardBusy} onClick={() => { void showDashboard() }}>
+                {dashboardBusy ? t('dashboardChecking') : t('dashboardOpen')}
+              </button>
+              {dashboardNotice !== null && <p className="pc-dashboard-notice" role="status">{t(dashboardNotice)}</p>}
+              {externalDashboard !== null && <a className="pc-text-button" href={externalDashboard} target="_blank" rel="noopener noreferrer">
+                {t('dashboardExternal')}
+              </a>}
+            </section>
             <div className={`pc-summary pc-summary-${state}`} role="status" aria-live="polite" aria-busy={snapshot.loading}>
               <Dot state={state} />
               <div className="pc-summary-copy">
@@ -407,6 +469,14 @@ export function apply(ctx: Context): void {
       hooks: { status: controller },
       setSession: sessionId => controller.setSession(sessionId),
       refresh: () => controller.refreshNow(),
+      openDashboard: url => {
+        const right = ctx.get('sidebarRight') as {
+          openTab: (kind: string, options: { params: { url: string } }) => void
+        } | undefined
+        const tabs = ctx.get('sidebarRightTabs') as { get: (kind: string) => unknown } | undefined
+        if (right === undefined || tabs?.get('browser') === undefined) return false
+        try { right.openTab('browser', { params: { url } }); return true } catch { return false }
+      },
     }),
   }, PowerContextStatus))
 }

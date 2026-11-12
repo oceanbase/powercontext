@@ -4423,6 +4423,107 @@ function registerGuidance(ctx) {
 }
 
 //#endregion
+//#region src/dashboard-contract.ts
+const DASHBOARD_ROUTE = "/powercontext/dashboard";
+const DASHBOARD_SCHEMA = "powercontext.dsh-dashboard.v1";
+
+//#endregion
+//#region src/dashboard-bridge.ts
+function send(response, status, body) {
+	if (response.writableEnded) return;
+	response.statusCode = status;
+	response.setHeader("content-type", "application/json; charset=utf-8");
+	response.setHeader("cache-control", "no-store");
+	response.setHeader("x-content-type-options", "nosniff");
+	response.end(JSON.stringify(body));
+}
+/** Read only the configured Server's Dashboard route; never return the Host's credential. */
+async function dashboardAvailability(config, bridge, sessionId, fetcher = fetch) {
+	const session = (await bridge.status(sessionId)).session;
+	const base = {
+		schema: DASHBOARD_SCHEMA,
+		state: "server_unavailable",
+		session_id: session?.id ?? null,
+		scope_id: session?.scope_id ?? null
+	};
+	if (sessionId !== void 0 && session?.id !== sessionId) return {
+		...base,
+		state: "session_unavailable"
+	};
+	const url = `${config.baseUrl.replace(/\/+$/, "")}/dashboard/home`;
+	const headers = { Accept: "text/html" };
+	if (config.authorization) headers.Authorization = config.authorization;
+	try {
+		const response = await fetcher(url, {
+			method: "GET",
+			headers,
+			redirect: "manual",
+			signal: AbortSignal.timeout(Math.max(1e3, Math.min(config.requestTimeoutMs, 8e3)))
+		});
+		await response.body?.cancel();
+		if (response.status === 404) return {
+			...base,
+			state: "disabled"
+		};
+		if (response.status === 401 || response.status === 403) return {
+			...base,
+			state: "authentication"
+		};
+		if (response.status !== 200 || response.headers.get("x-dashboard-html") !== "1") return {
+			...base,
+			state: "load_unavailable"
+		};
+		if (session !== null && session.scope_state !== "resolved") return {
+			...base,
+			state: "scope_unresolved"
+		};
+		const page = new URL(url);
+		if (session?.scope_id) page.searchParams.set("scope", session.scope_id);
+		return {
+			...base,
+			state: "available",
+			url: page.toString()
+		};
+	} catch {
+		return {
+			...base,
+			state: "server_unavailable"
+		};
+	}
+}
+/** Keep Dashboard availability separate from the API status palette. */
+function createDashboardRouteHandler(bridge, config, connection, facts, fetcher = fetch) {
+	return async (request$2, response) => {
+		const rejection = connection.requestRejection(request$2);
+		if (rejection !== void 0) {
+			send(response, rejection, { code: rejection === 401 ? "dsh_authentication_required" : "dsh_forbidden" });
+			return;
+		}
+		const deployment = deploymentRejection(request$2, facts);
+		if (deployment !== void 0) {
+			send(response, deployment.status, { code: deployment.code });
+			return;
+		}
+		if (request$2.method !== "GET") {
+			response.statusCode = 405;
+			response.setHeader("allow", "GET");
+			response.end();
+			return;
+		}
+		try {
+			const ids = new URL(String(request$2.url), "http://localhost").searchParams.getAll("session_id");
+			if (ids.length > 1 || ids.length === 1 && (!ids[0] || ids[0].length > 256)) {
+				send(response, 400, { code: "invalid_session_id" });
+				return;
+			}
+			send(response, 200, await dashboardAvailability(config, bridge, ids[0], fetcher));
+		} catch {
+			send(response, 500, { code: "dashboard_bridge_error" });
+		}
+	};
+}
+
+//#endregion
 //#region src/status-contract.ts
 /**
 * Wire contract between the plugin Host status bridge and its browser entry.
@@ -4980,6 +5081,11 @@ function registerStatusBridge(ctx, runtime) {
 			path: STATUS_ROUTE_PATH,
 			handler: createStatusRouteHandler(bridge, ui.connection, deploymentFacts)
 		}), "powercontext: GET /powercontext/status");
+		host.effect(() => ui.webServer.register({
+			kind: "exact",
+			path: DASHBOARD_ROUTE,
+			handler: createDashboardRouteHandler(bridge, runtime.config, ui.connection, deploymentFacts)
+		}), "powercontext: GET /powercontext/dashboard");
 		host.effect(() => () => bridge.dispose(), "powercontext: status bridge disposal");
 	});
 }
