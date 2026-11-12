@@ -77,13 +77,17 @@ export async function startDesktop(app, root, env) {
   }
   const appRenderer = async () => (await targets()).find(target => target.url.startsWith('dsh-app://app/'))
   const stop = async () => {
-    if (failure || child.exitCode !== null || child.signalCode !== null) return
-    const exited = once(child, 'exit')
-    child.kill('SIGTERM')
-    await Promise.race([exited, delay(5000, undefined, { ref: false })])
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL')
-      await exited
+    try {
+      if (failure || child.exitCode !== null || child.signalCode !== null) return
+      const exited = once(child, 'exit')
+      child.kill('SIGTERM')
+      await Promise.race([exited, delay(5000, undefined, { ref: false })])
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+        await exited
+      }
+    } finally {
+      child.stderr.destroy()
     }
   }
   const evaluate = async (expression) => {

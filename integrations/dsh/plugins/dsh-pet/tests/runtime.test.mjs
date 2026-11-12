@@ -17,7 +17,7 @@
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -139,9 +139,17 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   timeout: 300_000,
 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'pc-dsh-pet-' + profile + '-'))
-  t.after(() => rm(root, { force: true, recursive: true }))
+  const cleanups = []
+  t.after(async () => {
+    const failures = []
+    for (const cleanup of cleanups.reverse()) {
+      try { await cleanup() } catch (error) { failures.push(error) }
+    }
+    await rm(root, { force: true, recursive: true })
+    if (failures.length) throw new AggregateError(failures, 'DSH fixture cleanup failed')
+  })
   const model = await fixtureModel()
-  t.after(model.close)
+  cleanups.push(model.close)
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       !/^(?:POWERCONTEXT_|DEEPSEEK_|OPENAI_|DSH_)/.test(key))),
@@ -176,7 +184,10 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
       generation_model: 'openai-chat:fixture', generation_base_url: model.url + '/v1',
     }),
   } })
-  t.after(server.stop)
+  cleanups.push(async () => {
+    await server.stop()
+    await rm(server.home, { force: true, recursive: true })
+  })
   // Switch off the adapter's route while keeping the real Server available for observation.
   let offline = false
   let dropCaptureResponse = false
@@ -212,7 +223,7 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   })
   proxy.listen(0, '127.0.0.1')
   await once(proxy, 'listening')
-  t.after(() => { proxy.closeAllConnections(); proxy.close() })
+  cleanups.push(() => { proxy.closeAllConnections(); proxy.close() })
   const proxyUrl = 'http://127.0.0.1:' + proxy.address().port
 
   const createScope = (title, refs) => api(server.baseUrl, '/v1/scopes', { title, summary: title, idempotency_key: title.toLowerCase().replaceAll(' ', '-'), context_references: refs })
@@ -220,7 +231,17 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   const second = await createScope('Synthetic pet two', [first.scope_id])
   const scope = first.scope_id
   assert.ok(scope && second.scope_id)
-  await run(dsh, ['plugin', '--profile', profile, 'add', 'dsh-pet@0.4.8'])
+  const store = process.env.DSH_PET_TEST_PNPM_STORE
+  const cache = process.env.DSH_PET_TEST_PNPM_CACHE
+  assert.equal(Boolean(store), Boolean(cache), 'Set both DSH_PET_TEST_PNPM_STORE and DSH_PET_TEST_PNPM_CACHE for offline installs')
+  const cachedInstall = store ? ['--offline', '--store-dir', store, '--cache-dir', cache] : []
+  await run(dsh, ['plugin', '--profile', profile, 'add', 'dsh-pet@0.4.8', ...cachedInstall])
+  if (store) {
+    // Subsequent installs, including the CLI under test, must keep using the
+    // store that owns this profile's node_modules.
+    await appendFile(join(profileDir, 'pnpm-workspace.yaml'),
+      '\nstoreDir: ' + JSON.stringify(store) + '\ncacheDir: ' + JSON.stringify(cache) + '\n')
+  }
   const pack = await run('npm', ['pack', petPackage, '--pack-destination', root, '--ignore-scripts', '--json'])
   const archive = join(root, JSON.parse(pack.stdout)[0].filename)
   await run(dsh, ['plugin', '--profile', profile, 'add', archive])
@@ -270,7 +291,7 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
     child.kill('SIGTERM')
     await exited
   }
-  t.after(stopHost)
+  cleanups.push(stopHost)
 
   let cookie
   let web

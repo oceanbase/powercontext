@@ -12,6 +12,8 @@ With the pinned `dsh` CLI on PATH, run `make dsh-pet-runtime-test` to install th
 an isolated profile and exercise real dsh-pet chat and PowerContext Server processing.
 On macOS, set `DSH_PET_TEST_DESKTOP_APP="/Applications/DeepSeek Harness.app"` with the same command
 to launch the installed Desktop app and run the scenario through its renderer.
+To install dsh-pet from an existing pnpm cache, set both `DSH_PET_TEST_PNPM_STORE`
+(the store directory before the version suffix) and `DSH_PET_TEST_PNPM_CACHE`.
 The test uses a deterministic local model fixture; its three-arm replay reports request bytes
 and latency for native recent history, the same window with PowerContext, and full history.
 It does not measure model quality or billed provider cost.
