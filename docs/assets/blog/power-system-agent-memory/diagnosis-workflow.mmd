@@ -1,0 +1,24 @@
+---
+config:
+  theme: neutral
+  fontFamily: Arial, sans-serif
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+---
+flowchart TD
+    A["User Request"] --> B["Task Manager: Create / Load Task"]
+    B --> C["LangGraph: Route to Agent Workflow"]
+    C --> D["Context Manager: Build Context"]
+    D --> E["Domain Nodes: Query Data / MCP Tools"]
+    E --> F["Evidence Store: Persist Evidence"]
+    F --> G["LLM / Domain Analysis"]
+    G --> H{"Need More Data or Approval?"}
+    H -->|Yes| I["Task Manager: WAITING / Interrupt"]
+    I --> J["Resume and Revalidate"]
+    J --> D
+    H -->|No| K["Context Manager: Assemble Report Context"]
+    K --> L["Generate Diagnosis Report"]
+    L --> M["Memory Manager: Extract Candidate Memories"]
+    M --> N["Validate / Review / Store"]
+    N --> O["Task Manager: Complete and Archive"]

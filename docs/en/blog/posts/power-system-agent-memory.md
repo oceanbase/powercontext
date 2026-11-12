@@ -201,18 +201,7 @@ Each memory is an atomic unit that can be retrieved, updated, merged, or retired
 
 After a task is complete, Memory Extractor reads task records, diagnostic conclusions, and maintenance outcomes to produce candidate memories. Memory Validator checks them against data, rules, historical cases, and final outcomes. Content that cannot be confirmed automatically enters a Review Inbox, where specialists can add evidence or review it.
 
-```mermaid
-flowchart TD
-    A["Historical Tasks / Diagnosis Records"] --> B["Memory Extractor"]
-    B --> C["Candidate Memory"]
-    C --> D["Memory Validator"]
-    D -->|Evidence Sufficient| E["Verified Memory"]
-    D -->|Insufficient Evidence| F["Review Inbox"]
-    D -->|Validation Failed| G["Rejected"]
-    F -->|Expert Review / More Evidence| E
-    E --> H["Memory Store"]
-    H --> I["Future Diagnosis Retrieval"]
-```
+![Memory validation: extraction, evidence checks, expert review, and reuse](../../../assets/blog/power-system-agent-memory/memory-validation.svg)
 
 Memories have explicit lifecycle states:
 
@@ -258,17 +247,7 @@ We therefore keep task management as a separate concern. Task Manager maintains 
 
 The task lifecycle can be described as:
 
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> RUNNING
-    RUNNING --> WAITING: Waiting for data or human input
-    WAITING --> RUNNING: Condition met / human resume
-    RUNNING --> COMPLETED: Task complete
-    RUNNING --> FAILED: Execution failed
-    FAILED --> RUNNING: Recovery conditions met
-    COMPLETED --> [*]
-```
+![Task lifecycle with waiting, recovery, completion, and failure states](../../../assets/blog/power-system-agent-memory/task-lifecycle.svg)
 
 We distinguish two kinds of state:
 
@@ -327,24 +306,7 @@ During recovery, the system checks whether original data is still valid, whether
 
 Putting the design together, one diagnosis follows this flow:
 
-```mermaid
-flowchart TD
-    A["User Request"] --> B["Task Manager: Create / Load Task"]
-    B --> C["LangGraph: Route to Agent Workflow"]
-    C --> D["Context Manager: Build Context"]
-    D --> E["Domain Nodes: Query Data / MCP Tools"]
-    E --> F["Evidence Store: Persist Evidence"]
-    F --> G["LLM / Domain Analysis"]
-    G --> H{"Need More Data or Approval?"}
-    H -->|Yes| I["Task Manager: WAITING / Interrupt"]
-    I --> J["Resume and Revalidate"]
-    J --> D
-    H -->|No| K["Context Manager: Assemble Report Context"]
-    K --> L["Generate Diagnosis Report"]
-    L --> M["Memory Manager: Extract Candidate Memories"]
-    M --> N["Validate / Review / Store"]
-    N --> O["Task Manager: Complete and Archive"]
-```
+![Diagnosis workflow connecting context, memory, evidence, and task management](../../../assets/blog/power-system-agent-memory/diagnosis-workflow.svg)
 
 A diagnosis starts when Task Manager creates a task. LangGraph routes it to the appropriate agent graph. Before every model node, Context Manager assembles the current task context. Nodes call databases, knowledge bases, and domain tools through MCP, and their evidence enters Evidence Store.
 

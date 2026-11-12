@@ -1,0 +1,17 @@
+---
+config:
+  theme: neutral
+  fontFamily: Arial, sans-serif
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+---
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> RUNNING
+    RUNNING --> WAITING: Waiting for data or human input
+    WAITING --> RUNNING: Condition met / human resume
+    RUNNING --> COMPLETED: Task complete
+    RUNNING --> FAILED: Execution failed
+    FAILED --> RUNNING: Recovery conditions met
+    COMPLETED --> [*]

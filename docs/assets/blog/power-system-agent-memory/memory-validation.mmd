@@ -1,0 +1,18 @@
+---
+config:
+  theme: neutral
+  fontFamily: Arial, sans-serif
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+---
+flowchart TD
+    A["Historical Tasks / Diagnosis Records"] --> B["Memory Extractor"]
+    B --> C["Candidate Memory"]
+    C --> D["Memory Validator"]
+    D -->|Evidence Sufficient| E["Verified Memory"]
+    D -->|Insufficient Evidence| F["Review Inbox"]
+    D -->|Validation Failed| G["Rejected"]
+    F -->|Expert Review / More Evidence| E
+    E --> H["Memory Store"]
+    H --> I["Future Diagnosis Retrieval"]

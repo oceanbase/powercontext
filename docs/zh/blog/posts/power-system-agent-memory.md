@@ -207,18 +207,7 @@ Context Manager 解决的是“本轮推理看什么”，Memory Manager 解决�
 
 一条诊断任务完成后，Memory Extractor 从任务记录、诊断结论和检修结果中提取候选记忆。候选记忆进入 Memory Validator，结合数据、规则、历史案例和最终结果进行验证；无法自动确认的内容进入 Review Inbox，由专业人员补充证据或审核。
 
-```mermaid
-flowchart TD
-    A["Historical Tasks / Diagnosis Records"] --> B["Memory Extractor"]
-    B --> C["Candidate Memory"]
-    C --> D["Memory Validator"]
-    D -->|Evidence Sufficient| E["Verified Memory"]
-    D -->|Insufficient Evidence| F["Review Inbox"]
-    D -->|Validation Failed| G["Rejected"]
-    F -->|Expert Review / More Evidence| E
-    E --> H["Memory Store"]
-    H --> I["Future Diagnosis Retrieval"]
-```
+![记忆验证流程：候选提取、证据校验、专家审核与复用](../../../assets/blog/power-system-agent-memory/memory-validation.svg)
 
 记忆在生命周期中有明确状态：
 
@@ -263,17 +252,7 @@ PowerContext 的价值在于把 Agent 的上下文和记忆作为独立的工程
 
 任务生命周期使用状态机描述：
 
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> RUNNING
-    RUNNING --> WAITING: 等待数据或人工介入
-    WAITING --> RUNNING: 条件满足 / 人工恢复
-    RUNNING --> COMPLETED: 任务完成
-    RUNNING --> FAILED: 执行失败
-    FAILED --> RUNNING: 满足恢复条件
-    COMPLETED --> [*]
-```
+![任务生命周期：等待、恢复、完成与失败之间的状态转换](../../../assets/blog/power-system-agent-memory/task-lifecycle.svg)
 
 这里区分两种状态：
 
@@ -333,24 +312,7 @@ State 中保存当前流程真正需要的信息，例如任务目标、当前�
 
 把前面的设计放到一次完整诊断里，整体流程如下：
 
-```mermaid
-flowchart TD
-    A["User Request"] --> B["Task Manager: Create / Load Task"]
-    B --> C["LangGraph: Route to Agent Workflow"]
-    C --> D["Context Manager: Build Context"]
-    D --> E["Domain Nodes: Query Data / MCP Tools"]
-    E --> F["Evidence Store: Persist Evidence"]
-    F --> G["LLM / Domain Analysis"]
-    G --> H{"Need More Data or Approval?"}
-    H -->|Yes| I["Task Manager: WAITING / Interrupt"]
-    I --> J["Resume and Revalidate"]
-    J --> D
-    H -->|No| K["Context Manager: Assemble Report Context"]
-    K --> L["Generate Diagnosis Report"]
-    L --> M["Memory Manager: Extract Candidate Memories"]
-    M --> N["Validate / Review / Store"]
-    N --> O["Task Manager: Complete and Archive"]
-```
+![完整诊断流程：上下文、记忆、证据与任务管理的协作](../../../assets/blog/power-system-agent-memory/diagnosis-workflow.svg)
 
 一次诊断请求从 Task Manager 创建任务开始，LangGraph 根据业务类型路由到对应智能体图。每次进入模型节点前，Context Manager 组装当前任务上下文；节点通过 MCP 调用数据库、知识库和领域工具，产生的证据进入 Evidence Store。
 
