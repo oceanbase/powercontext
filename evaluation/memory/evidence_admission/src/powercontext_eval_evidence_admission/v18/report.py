@@ -36,6 +36,7 @@ def summarize(directory):
     counters = defaultdict(Counter)
     public_records = []
     audit_unavailable = 0
+    unscored_returned = 0
     for record in records:
         if {k: record[k] for k in ("row_id", "input_index", "input_hash")} != expected[record["call_id"]]:
             raise EvaluationError("v18_call_result_binding_changed")
@@ -59,6 +60,8 @@ def summarize(directory):
                 Decimal(record["known_charge_cny"]) if record.get("known_charge_cny") is not None else None
             ):
                 raise EvaluationError("v18_usage_receipt_changed")
+        if record["outcome"] == "returned" and score is None and not record.get("scoring_failed"):
+            unscored_returned += 1
         effective = {**record, "score": score}
         by_row[record["row_id"]].append(effective)
         usage = record.get("provider_usage") or {}
@@ -217,11 +220,17 @@ def summarize(directory):
             )
     unknown_usage = sum(r.get("known_charge_cny") is None for r in records)
     complete = (
-        state["state"] == "finished" and len(records) == len(expected) and unknown_usage == 0 and audit_unavailable == 0
+        state["state"] == "finished"
+        and len(records) == len(expected)
+        and unknown_usage == 0
+        and audit_unavailable == 0
+        and unscored_returned == 0
     )
     blockers = []
     if not complete:
         blockers.append("live_coverage_or_execution_incomplete")
+    if unscored_returned:
+        blockers.append("scoring_incomplete")
     if unresolved:
         blockers.append("critical_semantics_unresolved")
     if audit_unavailable:

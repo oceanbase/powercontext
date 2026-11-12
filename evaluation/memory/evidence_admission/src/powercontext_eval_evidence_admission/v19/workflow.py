@@ -100,6 +100,13 @@ def prepare(source, directory, *, approved_total="5.00", authorization="existing
     ):
         if original["identity"][key] != current[key]:
             raise EvaluationError("v19_inherited_environment_changed")
+    unscored_returned = [
+        r["call_id"]
+        for r in old_state["records"]
+        if r.get("outcome") == "returned" and r.get("score") is None and not r.get("scoring_failed")
+    ]
+    if unscored_returned:
+        raise EvaluationError("v19_prior_scoring_incomplete")
     remaining = remaining_calls(original, old_state["records"])
     if len(remaining) != p["remaining_calls"] or digest(remaining) != p["remaining_calls_hash"]:
         raise EvaluationError("v19_remaining_plan_changed")
@@ -290,10 +297,24 @@ async def run_next(directory, *, execute_live=False, transport=None):
             record["outcome"] = "audit_failed"
             terminal = "audit_failed"
         known = account_record(state, record)
-        # Persist the billable attempt before scoring: a scoring failure cannot erase usage.
+        # Score before recording the attempt: an unscored returned response must never
+        # reach a finished continuation, so scoring failure is an explicit, resumable stop.
+        scoring_failed = False
+        if output is not None and terminal is None:
+            try:
+                record["score"], review = score_output(
+                    case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output
+                )
+                save("review", review)
+            except Exception:  # noqa: BLE001 -- usage is already durably recorded
+                scoring_failed = True
+                record["scoring_failed"] = True
+                record["failure_category"] = "scoring_failure"
         state["records"].append(record)
         if terminal:
             state.update(state=terminal, stop_reason=terminal + "_no_resend")
+        elif scoring_failed:
+            state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
         elif known is None:
             state.update(state="unknown_usage_stopped", stop_reason="new_unknown_usage_not_zero")
         elif record.get("response_model") not in core.contract()["allowed_response_models"]:
@@ -302,16 +323,6 @@ async def run_next(directory, *, execute_live=False, transport=None):
             state.update(state="ready", next_call=state["next_call"] + 1, in_flight=None)
         save("attempt", record)
         core.dump(directory / "state.json", state)
-        if output is not None and terminal is None:
-            try:
-                record["score"], review = score_output(
-                    case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output
-                )
-                save("review", review)
-            except Exception:  # noqa: BLE001 -- usage is already durably recorded
-                state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
-            save("attempt", record)
-            core.dump(directory / "state.json", state)
         if terminal == "cancelled":
             raise asyncio.CancelledError
         return status(directory)
