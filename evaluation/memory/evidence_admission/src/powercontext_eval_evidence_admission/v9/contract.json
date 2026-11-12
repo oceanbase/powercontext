@@ -1,0 +1,33 @@
+{
+  "schema": "evidence-admission.v9.contract.v1",
+  "scope": "offline_compact_request_protocol",
+  "selection": "frozen_v5_per_arm_no_label_access",
+  "parent_protocols": [
+    "v7_budget_and_binding_audit_v2",
+    "v8"
+  ],
+  "compression": {
+    "evidence_ids": "request_local_e_aliases",
+    "field_paths": "request_local_dictionary",
+    "copy_values": "inline_q_or_local_supported_subspan_map",
+    "generated_envelopes": "internal_only",
+    "original_source_values": "native_tree_with_boxed_typed_leaves_for_complete_projections"
+  },
+  "output_schema": "v7_TemplateOutput_unchanged_validation",
+  "request_binding": "mandatory_full_input_supports_wire_aliases_locations_instructions_schema",
+  "packing": "keep_original_requests_if_fit_else_stable_whole_ranges_no_cross_request_merge",
+  "drop_truncate_normalize_backfill": false,
+  "max_calls_per_sample": 16,
+  "total_input_budget_multiplier": 8,
+  "candidate_required_claims": 495,
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "new_model_generation": "not_run",
+  "provider_requests": 0,
+  "production_authorized": false,
+  "revision": "native-tree-and-inline-ranges-v2",
+  "generated_envelope_handling": "recognized_metadata_only_unknown_or_conflicting_envelopes_rejected"
+}

@@ -1666,6 +1666,25 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+builtin = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "apscheduler" },
+    { name = "cryptography" },
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "jieba" },
+    { name = "packaging" },
+    { name = "pycasbin" },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
+    { name = "pydantic-settings" },
+    { name = "pymysql" },
+    { name = "pyobvector" },
+    { name = "pyyaml" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "sqlite-vec" },
+    { name = "tzdata" },
+]
 server = [
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -1920,10 +1939,14 @@ dependencies = [
 capture-ownership = [
     { name = "powercontext", extra = ["server"] },
 ]
+evidence-admission = [
+    { name = "powercontext", extra = ["builtin"] },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
+    { name = "powercontext", extra = ["builtin"] },
     { name = "prometheus-client" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1933,16 +1956,18 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<1" },
+    { name = "powercontext", extras = ["builtin"], marker = "extra == 'evidence-admission'", editable = "../" },
     { name = "powercontext", extras = ["server"], marker = "extra == 'capture-ownership'", editable = "../" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
 ]
-provides-extras = ["capture-ownership"]
+provides-extras = ["evidence-admission", "capture-ownership"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "powercontext", extras = ["builtin"], editable = "../" },
     { name = "prometheus-client", specifier = ">=0.21,<1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.15.7" },

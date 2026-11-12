@@ -1,0 +1,41 @@
+{
+  "schema": "evidence-admission.v20.review-attestation.v1",
+  "recorded_on": "2026-11-07",
+  "timezone": "Asia/Shanghai",
+  "reviewer": {
+    "id": "issue-2074-requesting-user",
+    "kind": "human",
+    "identity_basis": "user_self_identification",
+    "independent_review": "not_established"
+  },
+  "record_author": "assistant",
+  "evidence_basis": "user_reported_findings_not_assistant_observed_manual_execution",
+  "reported_scope": "decisive_failure_evidence_and_evaluation_path_checks",
+  "reported_finding": "no_problem_reported_in_the_checks",
+  "coverage": {
+    "call_ids_provided_by_reviewer": [],
+    "exact_sample_count": null,
+    "all_calls_manually_reviewed": null,
+    "per_candidate_semantic_judgements_provided": false,
+    "separate_review_date_provided": false,
+    "scope_qualification": "specific_calls_and_manual_vs_programmatic_coverage_not_enumerated"
+  },
+  "binding": {
+    "evaluated_identity_hash": "bf9106a9cd1ec0ec182413892301fa5d5c0d2219d854f0c49f4fcd18151f81ec",
+    "execution_freeze_revision": "1515a0d11cc2040d0beb341f6626a33c09cce73b",
+    "delivery_revision_before_review": "4ec630a182364ee699edd563ec036f1769afbe1a",
+    "result_sha256": "4fbbb41f87296f6c1866a829d47757ed4723b68afb6bf28623b33a11c0f2e43b",
+    "failure_diagnostics_sha256": "e9990a53844ba46fd22756286995ff66cca77d026533cea32f30a2bf03781b48",
+    "literal_absence_sha256": "f93ee4cdf2b231ff00aeecd0eb64b114294d6f254f491b5e8030ca463ff59bea"
+  },
+  "does_not": [
+    "claim_independent_human_review",
+    "claim_each_failure_has_a_per_call_human_signature",
+    "supply_a_v10_semantic_review_or_clear_unresolved_candidates",
+    "replace_original_records_scores_or_frozen_decision",
+    "authorize_production_changes_or_remote_publication"
+  ],
+  "frozen_decision": "insufficient_evidence",
+  "human_attestation_changes_machine_scores": false,
+  "candidate_production_gate_passed": false
+}

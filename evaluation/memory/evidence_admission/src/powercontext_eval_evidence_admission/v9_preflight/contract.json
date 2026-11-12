@@ -1,0 +1,20 @@
+{
+  "schema": "evidence-admission.v9-sdk-preflight.contract.v1",
+  "scope": "mock_transport_sdk_request_and_audit_validation",
+  "frozen_wire_protocol": "v9/native-tree-and-inline-ranges-v2",
+  "baseline": "frozen_v5_evidence_instructions_and_output_schema",
+  "provider_transport_fix": "max_tokens_2048_instead_of_undocumented_max_completion_tokens_for_both_new_arms",
+  "real_provider_requests": 0,
+  "automatic_retries": 0,
+  "max_http_requests_per_attempt": 1,
+  "max_output_tokens": 2048,
+  "concurrency": 1,
+  "request_capture": "private_body_only_no_headers",
+  "response_capture": "before_sdk_parse_private_65536_byte_limit",
+  "unknown_usage": "unknown_never_zero_total",
+  "quality_review": "explicit_or_not_run_never_implied_by_render",
+  "paired_sample_identities": 90,
+  "mock_http_request_count": 102,
+  "live_authorized": false,
+  "production_authorized": false
+}

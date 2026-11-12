@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-10-26T13:40:55.638653+00:00",
+  "phase": "before_v3_implementation_and_execution",
+  "files": {
+    "manifests/experiment-v3.json": "828754661c40f8934538360f8074bb74c056e502f6d32bf64ec6223b22a01a83",
+    "fixtures/validation-v3.json": "a712e52c247e05d6f2640636df2c52dd1b59455a2b4eb70041ef278a8e82dc03",
+    "manifests/validation-v3.json": "8204de334efba53dfa7f3a0cca5ac63844bfa9a6660e595c2626b3030fcb804f",
+    "V3_PROTOCOL.md": "fb9d56b405f53ae7c651da2446b3593a4c035124cf50c2b5d8f4936a1ae48492"
+  },
+  "baseline_archive_sha256": "bdfa1370279fa5305e6711d5f64ecef295bd136fecdbe8a50751d5077795606c"
+}

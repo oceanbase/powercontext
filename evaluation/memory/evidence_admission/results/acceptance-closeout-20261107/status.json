@@ -1,0 +1,66 @@
+{
+  "schema": "evidence-admission.acceptance-closeout.v1",
+  "validation_revision": "91c47917df395f707e2ecea1573f1eb3e1983d61",
+  "issue_url": "https://github.com/oceanbase/powercontext/issues/2074",
+  "issue_body_updated_at": "2026-10-19T09:08:29Z",
+  "decision": "insufficient_evidence",
+  "original_result_or_scores_changed": false,
+  "generation_protocol_or_thresholds_changed": false,
+  "production_authorized": false,
+  "production_source_modified": false,
+  "provider_requests": 0,
+  "remote_mutations": 0,
+  "basis": {
+    "original_live_result": {
+      "path": "results/v20-live/result.json",
+      "sha256": "4fbbb41f87296f6c1866a829d47757ed4723b68afb6bf28623b33a11c0f2e43b"
+    },
+    "original_semantic_queue": {
+      "path": "results/v20-review/semantic-review-queue.json",
+      "sha256": "7b1b80e482d6abff3da7b9db4ff8aa3b52748a4f92716b368d76031d2cebd138"
+    },
+    "bound_human_sample": {
+      "path": "results/v20-human-sample/summary.json",
+      "sha256": "aef034844e75f0325811abeeb7fde79c9b4ee187965861942c869d31f425ec38"
+    },
+    "frozen_human_bindings": {
+      "path": "results/v20-human-sample/frozen-binding-validation.json",
+      "sha256": "2e3a0a204d16b91f0325e48d8c0dd51e180092f38bc80127c226988bd575e4b8"
+    }
+  },
+  "remaining_human_confirmation_records": 17,
+  "fully_adjudicated_candidates_added": 0,
+  "original_semantic_unresolved_candidates": 533,
+  "known_partial_human_false_attribution": 2,
+  "known_partial_human_nonatomic": 13,
+  "original_unavailable_responses": 2,
+  "original_unknown_usage_calls": 2,
+  "all_issue_acceptance_criteria_claimed_passed": false,
+  "limited_research_delivery_available": true,
+  "maintainer_acceptance_or_issue_closure_recorded": false,
+  "new_current_schema_live_comparison_run": false,
+  "independent_second_reviewer_established": false,
+  "second_human_reviewer_unconditionally_required_by_issue": false,
+  "private_corpus_and_structured_tier_unconditionally_required": false,
+  "full_human_semantics_required_to_claim_resolved_comparison": true,
+  "full_human_semantics_required_to_present_limited_insufficient_evidence": false,
+  "missing_original_responses_can_be_restored_by_new_requests": false,
+  "frozen_history_local_availability": [
+    {
+      "revision": "1515a0d11cc2040d0beb341f6626a33c09cce73b",
+      "local_commit_object_available": true,
+      "ancestor_of_validation_revision": true
+    },
+    {
+      "revision": "1c62e6645f4f09aee0ed460621beb19cc64342f9",
+      "local_commit_object_available": true,
+      "ancestor_of_validation_revision": true
+    },
+    {
+      "revision": "53d0c016cefb52753b6b36837e5cdbfdda369b2e",
+      "local_commit_object_available": true,
+      "ancestor_of_validation_revision": true
+    }
+  ],
+  "frozen_history_fetchability_after_future_merge_not_guaranteed": true
+}

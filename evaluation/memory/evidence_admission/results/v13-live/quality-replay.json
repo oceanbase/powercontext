@@ -1,0 +1,20 @@
+{
+  "schema": "evidence-admission.v13.recorded-quality-replay.v1",
+  "provider_requests": 0,
+  "mock_http_requests": 1,
+  "historical_usage_not_new_billing": true,
+  "original_response_hash": "bcaecebedb084629d711816b8da1bf8a78a1dec168ff30601b524d282d129449",
+  "request_body_matches_original": true,
+  "output_hash": "796e4818a5e6281bcd2565bba941207560750c66342dcd44ba1669114c8bb343",
+  "identical_output": true,
+  "identical_review_result": true,
+  "copy_parts": 4,
+  "retained_atoms": 0,
+  "retained_literals": 0,
+  "nonatomic_candidates": 1,
+  "pipeline_entered": true,
+  "pipeline_returned_successfully": true,
+  "candidate_gate_passed": false,
+  "stopped_session_guard_verified": true,
+  "formal_acceptance": false
+}

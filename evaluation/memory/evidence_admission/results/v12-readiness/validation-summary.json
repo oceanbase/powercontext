@@ -1,0 +1,21 @@
+{
+  "schema": "evidence-admission.v12.readiness-validation.v1",
+  "date": "2026-10-28",
+  "provider_requests": 0,
+  "focused_tests_passed": 17,
+  "full_tests_passed": 388,
+  "full_test_warnings": 1721,
+  "python": "3.11.15",
+  "module_types": "passed",
+  "root_types": "passed",
+  "whole_evaluation_type_diagnostic": "existing_ScopedAtomicMemory.evidence_missing",
+  "evaluation_ruff_diagnostics": 13,
+  "v12_ruff_diagnostics": 0,
+  "both_locks": "passed",
+  "wheel_sdist_source_contract_files": 9,
+  "wheel_sdist_bytes_match": true,
+  "whole_evaluation_clean": false,
+  "live_authorized": false,
+  "formal_acceptance": false,
+  "production_authorized": false
+}

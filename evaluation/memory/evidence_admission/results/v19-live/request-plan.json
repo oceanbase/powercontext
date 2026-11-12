@@ -1,0 +1,20 @@
+{
+  "schema": "evidence-admission.v19.request-plan.v1",
+  "original_planned_calls": 471,
+  "inherited_attempted_calls": 4,
+  "remaining_planned_calls": 467,
+  "remaining_plan_hash": "48c45f242730dec0379699ad6c72ca64561e90b168a6e87290a5b53a0d754742",
+  "remaining_estimated_input_tokens": 1486413,
+  "remaining_maximum_output_tokens": 956416,
+  "illustrative_peak_cost_cny": "10.624154",
+  "not_provider_usage_or_hard_bound": true,
+  "no_retry_of_original_fourth_call": true,
+  "dataset_calls": {
+    "synthetic-v1": 263,
+    "validation-v2": 132,
+    "validation-v3": 72
+  },
+  "approved_total_cny": "5.00",
+  "unknown_historical_reserve_cny": "2.113536",
+  "per_next_call_reserve_cny": "2.113536"
+}

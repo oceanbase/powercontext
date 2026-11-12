@@ -1,0 +1,36 @@
+{
+  "schema": "evidence-admission.v11.window-control.v1",
+  "scope": "offline_protocol_aware_source_count_control",
+  "baseline_file_sha256": "273a2571a29475ae629af242efcd839581726e6c4f4e9098a499e33037282728",
+  "changed_arm": "window-reduction-v1",
+  "unchanged_arms": [
+    "complete-projection-v1",
+    "bounded-fragments-v1",
+    "bounded-fragments-v2",
+    "bounded-fragments-v3"
+  ],
+  "instructions_schema_binding_and_scoring": "v10_unchanged",
+  "fit": "frozen_v5_native_selection_budget_AND_full_v10_protocol_budget",
+  "reduction": "real_SourceWindowTrigger_and_MemorySourceWindowRepository_halve_Source_count_until_one_source_floor",
+  "no_fragment_repacking": true,
+  "no_source_value_removal_or_normalization": true,
+  "accepted_prefix": "retain_individually_bounded_windows_on_later_floor_or_resource_rejection",
+  "cursor": "evaluation_local_only_never_publish_production_cursor_or_Memory",
+  "caps": {
+    "max_calls_per_sample": 16,
+    "total_input_budget_multiplier": 8
+  },
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "expected_total_identities": 1620,
+  "expected_window_identities": 324,
+  "historical_failures": "preserve_v10_six_protocol_rejections_and_v9_atomicity_failure",
+  "historical_identity": "all_content_hashes_and_pinned_artifacts_exact_execution_revision_and_commit_certification_separate",
+  "commit_authorization": "historical_commit_metadata_never_certifies_new_execution_freeze",
+  "provider_requests": 0,
+  "live_authorized": false,
+  "production_authorized": false
+}

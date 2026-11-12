@@ -1,0 +1,1712 @@
+{
+  "records": [
+    {
+      "sample_id": "exact-literals-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "b4d046e8a42f58bfd3056964e96ef695c9a5c6d6f0ae690cee9589fa0f909d6e",
+          "row_id": "4c035bfafa88a7297b94d4ae77fa1670d3d822372fe0bcc8626b3a2f793eac50",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "aa92786ab3678b2f7f915ee6f5b0b0ec2b17449064d43dd186ba611bf9406570",
+          "response_hash": "1e032e0e00fa1d17f62038e00bd5ef6eb4527da405f15bd060c4f9d8c1ae4af9",
+          "review_output_hash": "4c501a8eea5bdc5a06e9c675728734b1f831bb4737edd3c5e6aaafe25dce951b",
+          "review_context_hash": "2f4ad188670449c01f0d72473fdbb1f65b39fefd6d6d6452887207e2acf330bb"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "f219d962f5fa898187e087b36ecef5eb0ae7e6b4488c47f808b8a73940afad3a",
+          "row_id": "9b9e3e836709f01b1f4fbb1485164503a89c9b0f3ae665c43ca5eec5c487c51b",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "aa92786ab3678b2f7f915ee6f5b0b0ec2b17449064d43dd186ba611bf9406570",
+          "response_hash": "c45cad33459bfca92b0b079485b1e215ef19ff828ba62a2f428f103f29329b30",
+          "review_output_hash": "df881e3735e2c6df62bdae5ffb6ca219deb93eb0c57f8586a45949eef16b71d9",
+          "review_context_hash": "ee56de4d7adee857dbe042ac0429003da2c21f4429488f342f8ebd04ed044471"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "56af2b5f25768969de91d2c40c19c8e699580eb36b47737bcd2131a2e3c41931",
+          "row_id": "d343f1054461298dd1a1d49e5e1a3c79f60b1b51adfa15ac7a57308a2266aa7e",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "aa92786ab3678b2f7f915ee6f5b0b0ec2b17449064d43dd186ba611bf9406570",
+          "response_hash": "875d56388350be03462964351605b89982a0f423abc32f8f85db309e2d5cf3e0",
+          "review_output_hash": "4c501a8eea5bdc5a06e9c675728734b1f831bb4737edd3c5e6aaafe25dce951b",
+          "review_context_hash": "2f4ad188670449c01f0d72473fdbb1f65b39fefd6d6d6452887207e2acf330bb"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "9e06f9e3e1f14feec3aa974e400406bac0ed446c8a8745e334aa49b9aba59a76",
+          "row_id": "1e3844f6d29dc2d6dcd81812135081ab6d656758236272109adbc782cc9f7025",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "8cb693488a9c39e23e9f8d986cbd812598b2127f20f1a7db4e16bb7bbaf246ba",
+          "response_hash": "facc935077a7bfd31003932bf10094da200c7a70143365971650367279b25e7b",
+          "review_output_hash": "9246a8877550b1d1c303358db6aefbb5b4c682deb2d262c60c78f3768be3c9d2",
+          "review_context_hash": "b03ec754f052a33b8e2a1691e3ef7191a0b37389c8d8ed35e16237a5bbed53b5"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "42226c5936f32ed8d361452425018bdc5dc7a0d7227c42db8d6e62f7cd848a3a",
+          "row_id": "eed1363e74a353066de1d73d5c588b54db70368fbcd630da6908a376fdc144ad",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "8cb693488a9c39e23e9f8d986cbd812598b2127f20f1a7db4e16bb7bbaf246ba",
+          "response_hash": "bd59b00b8b6349d2b5d69794f89b7d0acacce5ec8d058efc7ec7d70f0758b026",
+          "review_output_hash": "d19f64b4c088a3b5870e0b6ae1ae3b2afa91ec4e23fd0308b100698051680876",
+          "review_context_hash": "ab0f231fa01ec153c7370ef5ef017cc6d94d59f186f71bbbe6b20b155a96e723"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-4096-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "48414f60c8b24d30c63eba4f8cce378372f0d69c245d250a64cd356ea7e89786",
+          "row_id": "f47dd209dfe3ce52ec1fb3cdff3d7544c2162915726151842d5d6814a9ac4d44",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "8cb693488a9c39e23e9f8d986cbd812598b2127f20f1a7db4e16bb7bbaf246ba",
+          "response_hash": "2e6d75787a151c4c70e02733b141edc93577fbb8eeda66ecf4cb6dba7fa5feb9",
+          "review_output_hash": "9246a8877550b1d1c303358db6aefbb5b4c682deb2d262c60c78f3768be3c9d2",
+          "review_context_hash": "b03ec754f052a33b8e2a1691e3ef7191a0b37389c8d8ed35e16237a5bbed53b5"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-8192-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "bc553e029e606cf4a834e071e7f9fa499db305c147747e960ecb962704cd6f14",
+          "row_id": "c467ea08a1b03c664ad75ee2d02a3de0dc3d0322d4fabf91e172e4912d2c64a0",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 8192,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "221743926860098a79200b6693b889e35c99b001d791d0d70eae61305b6942e7",
+          "response_hash": "067dff6006b3cd26e80806b087c9b3a7e3d5608ee8d71b83724cda89b1e279b8",
+          "review_output_hash": "0ecbda1a75081ce0697ddcd701a875270062140e00211f01d9c20805c2438acb",
+          "review_context_hash": "5a587a56d7962073616a633673223120ec3c5a44702ae8df61a3bba9dbf88f04"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-8192-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "b882473005b4a44dcd7e9a4f89bfa6e5778365e9b4dc83c6bd4618eb920d8a86",
+          "row_id": "878e54b6082e7f255964b4caa0e1791f6021985c9890ef8cccdd1b0c849cd74f",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 8192,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "221743926860098a79200b6693b889e35c99b001d791d0d70eae61305b6942e7",
+          "response_hash": "4a6c096b1b18dbf251ea5355d0bb7b77407f8b8740852ae07505338288012f14",
+          "review_output_hash": "0ecbda1a75081ce0697ddcd701a875270062140e00211f01d9c20805c2438acb",
+          "review_context_hash": "5a587a56d7962073616a633673223120ec3c5a44702ae8df61a3bba9dbf88f04"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "exact-literals-8192-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "bfec66023d92ea1b754b608a08d261d96b88eecd4de105d12dbcf7d304c33106",
+          "row_id": "411f97f4a39fbb13fba61c35e405ba1361c2f33da0043f2cbd001d883a2a91c6",
+          "dataset": "synthetic-v1",
+          "case": "exact-literals",
+          "arm": "bounded-fragments-v3",
+          "budget": 8192,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "221743926860098a79200b6693b889e35c99b001d791d0d70eae61305b6942e7",
+          "response_hash": "733fd25c9e7cfa206c42375f4cc89fa845f0fcc28c6d6049097b9da5a70fce8b",
+          "review_output_hash": "0ecbda1a75081ce0697ddcd701a875270062140e00211f01d9c20805c2438acb",
+          "review_context_hash": "5a587a56d7962073616a633673223120ec3c5a44702ae8df61a3bba9dbf88f04"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "3ef7384bc35f286694977d8cc7b4ac2d8866b3f36ee857afae32432dc8e0cdc5",
+          "row_id": "5fa512bf39e7cbde736416fc5fdc623c9af012e93a4d17d2eef995721105b207",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "9c472b729db48a3075f49fb9f18d1b7364761c8e4c8daba470f0e17dfe5a506b",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "e64d90818c4b81be95155eb43d681fad1b7135ea9fe6d17787a6f840950f6419"
+        },
+        {
+          "call_id": "e6f4fed6805ba71a42e8caf4a1a1dc85edef78840636f814d81cf58475ecde0f",
+          "row_id": "e3065e98322e13f3e864d91c78037b4002c8cbfef8563493ae5722d431a20cac",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "54bf07d675566d616ed04f6bb707ecfb3fb344d1a4d0d695a4bfd452e33912a2",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        },
+        {
+          "call_id": "2713e05058601905c8ea1e040842560878a2cc229fc4677596c61889ebe5061c",
+          "row_id": "90213fd000a48dda67a2b260c4dc22970a297e83ebbe7b0de815d193bfea7c0b",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "d0cee0424e06e909402908492d58cb8e77a47c9362ad46411845cba5647eba82",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "2242a0d40b2c568d55ebd717519ba3e818f517e69062b1e653df478aaaaf741f",
+          "row_id": "640c4abcb52e562a5b6d50c4fd7fd7d0472c6c3d8b1191b945bba5a053b6e793",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "5aeee49ad50b68da49b68aab7440a0f3976a4fb7eace4b85cd3d0ee6458ea0fc",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "e64d90818c4b81be95155eb43d681fad1b7135ea9fe6d17787a6f840950f6419"
+        },
+        {
+          "call_id": "f188e65bf78cf25b58e4cbf036280471d83500a4f54c156f07ffaeb3ac17689b",
+          "row_id": "5d644d85416c480eb2f1b3fcaa9dbd772124cd8a713dfb7d6491d184abefd156",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "bb47940cf4d4eb472451661da7b9e6baacd5ab80b901fe90eb578aa651bf4f25",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        },
+        {
+          "call_id": "a3a1cedd5ba65190a66bd7cba1df375766de23c4ff986b11ee4ecba3fbe85535",
+          "row_id": "33ea26b8a1a672993c82e965408710be2172f516fb52d46b4d5ae9872dd650ab",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "dfb1923dbf7bbaeea92b450029b7a8b7d82ef6ea1c1e81874da0aa4f1156aecf",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "ffc33cdad5e8bd376fb5dfd1c279dc8d37816d3f3e55488f8b9acb48496988d4",
+          "row_id": "537f123098080631b8aec7f1bd09dc05aac0c96effd47b595a524fdf9c04eadb",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "e5ef6074eacbb3076335b3360dfd1996860c7a4d64c946260c2f75dd4b4f0555",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "e64d90818c4b81be95155eb43d681fad1b7135ea9fe6d17787a6f840950f6419"
+        },
+        {
+          "call_id": "0319d0c12e1954cd1917753a41527e3c6c642cbaa89a165c4a88735a8ec47082",
+          "row_id": "8d3637aa431e08d0ce2302fdc1625c77f18c4cad9c7dd4cfcec3844461d6712b",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "f91c8201e6e4fe7afcec8e58e8b3ffdde83dfbe847cc49af54820788853c0309",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        },
+        {
+          "call_id": "4e45cbef5947ba46af18f8bf4be0b7b2ec13b6bdbd3ccc4590d58d009e413c0c",
+          "row_id": "d6fc31f5f362bb8f6de4e9f38753ab0fbbdc564cb3118a90b8ef79162affbd13",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "ca438456588b13ae7074e5932f563ef285e681a96c8f4e70308f52406ada55c3",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "forged-role-marker-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "5083306c482d10156d44af60aa836d28e35c35323db7f74dfbea681cad914cb3",
+          "row_id": "8e0084b831033cd5312cc89eff19d1058546aa0994428eeda3241c66cbbdba18",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "66f8bd7126581f11ce849f60196da4342a0effb437577daca2465a9ebf1d3ac8",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "e64d90818c4b81be95155eb43d681fad1b7135ea9fe6d17787a6f840950f6419"
+        },
+        {
+          "call_id": "6f91547226e6e14a13b3245449c6e469f3f0396402d432f97ea66dcb67aaa61b",
+          "row_id": "fed42b25a55419e54fa659de71af522744b5bf8c7c6c11550a46a37dddcb21fd",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "complete-projection-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "fe17bba981ed882aa374bb2976fdcad4b0cb4e1e389e268c11c6b1e0a7b7dc95",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        },
+        {
+          "call_id": "3d98ed310a470e721deec602d14336afcd4079241d760635c8f941326162be38",
+          "row_id": "fcc795c5a80aa7091c0d32eab86030edf338636fa86100a5a6a2a52862b85091",
+          "dataset": "synthetic-v1",
+          "case": "forged-role-marker",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "83a93f53d63c4d1ef87160eccfb817f2b230b2ea4bab77ec169ffec90a41e2a0",
+          "response_hash": "24da86ad17e074c0f2a7e7df8eeb74028d4222ac6837194e882451173b893551",
+          "review_output_hash": "b0b0760ea8b0fe6fe8407c21d8eef1ee540b779f1c2e5dbb99c4ec5251605636",
+          "review_context_hash": "78f3bb9cf6a22391f12196e6f78a8224c7a9e32c295ed4573d4c59e38abccc0a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "identity-replay-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "e89ffe1de46a99b7ddd458e85e7c831f78918acd1fc62c2871fd889747b9a010",
+          "row_id": "4d13d2325f765d418ce49fdfd7812b1e7dd08aadae8632f04e3901fcedb809f0",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "577f1d5dc52473d33b33ca00a640cf5ebf81a55e729eab3e5b1d745c9100c58a",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "ffc21894beb029306de7d083eb9c224e2a4ff0ec0604be342a2b95483d7beb77"
+        },
+        {
+          "call_id": "ccca437f45647eb04becbd45ff05e88b60c9c503ce20b22ec520568d40fba73f",
+          "row_id": "7333d0ea3b7b3cf68e108fb961c88448c9b1af718370766e8bc3734e8adccd7a",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "5b9b998e6a10bf07cb6a5f0d63ffa3119c419088bbb16bf7db02e9c0140c5284",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        },
+        {
+          "call_id": "14f6ca134c5b2ecb7b75a84461e491fbca98475a2543008ee7a89ee54cf3a847",
+          "row_id": "b44e6b732a0e4c6b9c323f3871975eacfdd6212e6954f7b7f4e0505645fd0fef",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "4fbb77758291faaee254afd86f3a83d23aba83194d91f69aa5547f4dc3d63376",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "identity-replay-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "aefe91d91718fef6b9d1cf494928cae82c90fd4d66483f4d8c9abe6e3a908f3a",
+          "row_id": "5515e4d113602cc0a68e5814470edef6481e58ef840d2880b5ec81265300b7c4",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "ef290b8c2b6587fa170e8b3b2ebdf91b526c742397ae0575cf213c72ce220437",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "ffc21894beb029306de7d083eb9c224e2a4ff0ec0604be342a2b95483d7beb77"
+        },
+        {
+          "call_id": "7f76ae87cca985d9f1c5c4207519ab24fa178bec1b0b4e42eadf2ceffa9c4d0d",
+          "row_id": "a4041f8784f68d0427cb4ce4071f5d7e647ba4879ff986293aa79c43cd7f1b17",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "ce6f3ad643a470a0259ade2eb0f81b3e9eaf3813ab268fc05d8fdd74cb3d418b",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        },
+        {
+          "call_id": "40bba734e4a670b6e91687b5165472b948ef910859483e5d5429d882100b218f",
+          "row_id": "d977189a8b7576bf9dae5f40acc1beee7a64b0af1410bdfd6c1d1c741b7efe53",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "49953f778d0c6797cd957bbb523e8d38cdaad79b4ec0ea43441c5f305ec084ae",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "identity-replay-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "454f8c3dd8356220e9f2fe4051c6e8e430658f5c2065230c45b16f3ab7cbf075",
+          "row_id": "d0133cb049bfc25dff4ebcb920fa4be895ceaf303aac07f48f7de16b9143f512",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "18c136b5ef5d75fa2133931f222f9bab12bb692ff537a5794e0da4fb02e542b1",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "ffc21894beb029306de7d083eb9c224e2a4ff0ec0604be342a2b95483d7beb77"
+        },
+        {
+          "call_id": "6b270f6c3aa45b3fb801e8dfcc9f009073554ae7545cae502ed03f21a2c16bd7",
+          "row_id": "22e60e8a0650bd86f6d0f8c34a39a4ef52ff8e4a62ef83aa94b73eedc07ad5f2",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "61efc21eeb76b345e3ced0259fa66073d40f81e77e815c3a6886ba8b799e255d",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        },
+        {
+          "call_id": "13348221fa8131bc298014564c46697e8a745ba87454dfe9037a7f04315acb7d",
+          "row_id": "1b7408c68271c6db884ac486c719d3bf3d5871433e96e1ccec0bb79e3829acb8",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "d30278dc04c82a8fa03299736aa7103cb77fddb6b6973a224cfbaefc09f91c13",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "identity-replay-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "2f2011e40ea0a7ded16702961c33a8fed329b329544e9b53054668a5005b9bca",
+          "row_id": "2a1481d7ce5ca6a9a07f0694ac8218899483c9aa09dcffb51aad938a401b27ab",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "119a36a4d8e19965bd00b58b9d26e40a8daca94c9986a6a9b1671cf881c02fb5",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "ffc21894beb029306de7d083eb9c224e2a4ff0ec0604be342a2b95483d7beb77"
+        },
+        {
+          "call_id": "1beb8deac45c4b2a813ffcf44ee58c72548cc9cf010011e4d26b4c2001202a77",
+          "row_id": "5ba4f49359569a3566dfc5de80cb5f850adf225be1f47b348da51fb28dbecfde",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "complete-projection-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "ec7eb4f1fe2fbcd34fe72bb399d957bc9555c957242b8f3fbabef099561267c5",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        },
+        {
+          "call_id": "99f254c105c8cd67a93ae4295873567ee1a0ea5f02af411113394820a2ec1f6e",
+          "row_id": "b407604defee3bec17f1b2c8d73d0b3b5115141413a9499c412be45ef3541b4c",
+          "dataset": "synthetic-v1",
+          "case": "identity-replay",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "9fbf36096474f94ed4ee70207b627a63912448dbb8e0f06fa9873678283755aa",
+          "response_hash": "9087b93072686e36fe24920748d356bc948bc3f36e958a9f072761152b64dff1",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "52a2b7041bee542e3ad4eda71b238ea2ba77d62dff494aecaba640f9710dfdc6"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "34712e0acaddc9f1913ee9b876217b464d6678e7c9ab38419edcf4bf39fb7c40",
+          "row_id": "a5b8b5e2a7db4c21c23ab4c86c2614afa7803ae62c3bec4c85b6e2edc9fb0706",
+          "dataset": "synthetic-v1",
+          "case": "many-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 1,
+          "input_hash": "b6199e8aa7c2d47eb28bfd00acaac68dbbcd2cc5be3b16a25dd9754d16019179",
+          "response_hash": "a9429afd3694dbbf5027c0638408c072238e1af4e7ba176651dd1e6156e93ae9",
+          "review_output_hash": "7ef71474c3688e3393f91bcebfbb9027ecbcbdedbc6ee9ac1f0257ed8c7a5318",
+          "review_context_hash": "bfd9404d74491ddf1a3b2e93edf8db0d4bc9c65a1574180e4e3c4b6ce647b2cd"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "4a6e2c736601721b59d97f80f22f87019d61bb7c9130234b90277950535c4ab3",
+          "row_id": "111f39c11fbca74d6a91ac40d2b382aafdbcbbe163286be0a2698f5f3541e69a",
+          "dataset": "synthetic-v1",
+          "case": "many-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 1,
+          "input_hash": "b6199e8aa7c2d47eb28bfd00acaac68dbbcd2cc5be3b16a25dd9754d16019179",
+          "response_hash": "d6c72f6ddd9a03e334d629a80304bb00547a8640d5275c2f195799a1fdd65394",
+          "review_output_hash": "7ef71474c3688e3393f91bcebfbb9027ecbcbdedbc6ee9ac1f0257ed8c7a5318",
+          "review_context_hash": "bfd9404d74491ddf1a3b2e93edf8db0d4bc9c65a1574180e4e3c4b6ce647b2cd"
+        },
+        {
+          "call_id": "ba70dfe5331ad56f847157fa4fda0b51cdcc3c4d69b3aa75fa41c6e46980d3c3",
+          "row_id": "961d732dbf4e19772baa51c035ee5697539b8fc1c6b51a6fc6f6303b55ea641b",
+          "dataset": "synthetic-v1",
+          "case": "many-source-overflow",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 1,
+          "input_hash": "b6199e8aa7c2d47eb28bfd00acaac68dbbcd2cc5be3b16a25dd9754d16019179",
+          "response_hash": "5ca7fead52c5cb058286dc21f2fd5ebc851504f4f5289422c7e983a8b0b292cf",
+          "review_output_hash": "7ef71474c3688e3393f91bcebfbb9027ecbcbdedbc6ee9ac1f0257ed8c7a5318",
+          "review_context_hash": "b7a7caa046457580b61d691aa541557d9dede1509d05ac63dcce275f08b1ef4a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "d9b6932ea1d7acb2658ef74e5e0ac69570ecf34f2642243c4cd716228c0e57a0",
+          "row_id": "099ec570329bff1b4923df3237018268ef1e55d9a61bf670d525177d3dec0984",
+          "dataset": "synthetic-v1",
+          "case": "many-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 1,
+          "input_hash": "b6199e8aa7c2d47eb28bfd00acaac68dbbcd2cc5be3b16a25dd9754d16019179",
+          "response_hash": "1145670bb5153209e4fa2e5be0b00afbed11a92a76a0317cb157e5b1aef90eac",
+          "review_output_hash": "7ef71474c3688e3393f91bcebfbb9027ecbcbdedbc6ee9ac1f0257ed8c7a5318",
+          "review_context_hash": "bfd9404d74491ddf1a3b2e93edf8db0d4bc9c65a1574180e4e3c4b6ce647b2cd"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "many-source-overflow-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "3076350d47584224ef9c01c374163fa922379a0930d647ca1460fb20bdfe2760",
+          "row_id": "ab62c5edd750ee87128d199be0e0d22993e7fa41d633a682d11cbfc1ab10ea40",
+          "dataset": "synthetic-v1",
+          "case": "many-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "9eed0573ef4dcbcaaef80cf032d3852f4ea8faecaa2cf9205613e7ec780358e5",
+          "response_hash": "42bcb0ea4d3680f7167920f30c2dcb3d7d1c7a21c59cd897a5c53e85b0b6cb74",
+          "review_output_hash": "042288cebaa9f4bf0cee3d10d833507b7616bf6940e1684497c6cb7f31e207b1",
+          "review_context_hash": "441d2431c5ccb1ef9a380fe2c011a8f8214420158cb506ccf4732588d25e04c7"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "5d1144be4d2d6a6dd0b5a0528e5484d10664f6e9dacd2f9788e5956c195c49ca",
+          "row_id": "c6e0cd8def72b57b1aaa39d66c6b23d5f5648ed97390a18748485055d5ca8a07",
+          "dataset": "synthetic-v1",
+          "case": "mixed-scaffolding",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "458ccdabcae6bdcacad33645743aaa77f5a256ca45162e8e69634a59f49efc43",
+          "response_hash": "a212177304673da73eaa264b5e2acd4a2e8ee34d71aec12fc3fd1546033d314f",
+          "review_output_hash": "d116a7e276fa76513e31da9e0bae6e23656754e3a3f7f1a0724f6720b2b64949",
+          "review_context_hash": "57e0ed4da9d016d6a40a8e8e63b37eae790417da4f19ebaec93854a87a640fd0"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "29973f28d992ed4a8decc588664c64905291c72c7ca8016770329f7e63054c15",
+          "row_id": "98db1c855823f81d5f6c827e2f109889183439b7c1d393a7667c9658c066850b",
+          "dataset": "synthetic-v1",
+          "case": "mixed-scaffolding",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "458ccdabcae6bdcacad33645743aaa77f5a256ca45162e8e69634a59f49efc43",
+          "response_hash": "f59f69dfa537ccd7874d9e9c8c3f7edf5d3b1eb4937287d7d6e74faee94be8b3",
+          "review_output_hash": "620094abce3e5fb767cc7ccf5bf4828eef73f4e2cb3ab027f912b32e3cf6bd2c",
+          "review_context_hash": "0974fb95e007f310e113b98c6e225b79550e17dadb4e22ed5dfa49f460155af8"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "5ef0e946daec439f8b5e5f0ee89bf750ac1b5e2be4ba36d4b915056f3e668af1",
+          "row_id": "aa9557653db65eee117df437d8067b6175367373607db9eba7e4b3c854e66436",
+          "dataset": "synthetic-v1",
+          "case": "mixed-scaffolding",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "458ccdabcae6bdcacad33645743aaa77f5a256ca45162e8e69634a59f49efc43",
+          "response_hash": "dac832f3f80a88a30336a27aa5df31502e7684e78745855d05bce943a5af5f2a",
+          "review_output_hash": "5fa2db045e049069ec927be6617a866ef661b04db9b6b9ec5f2534337c98de16",
+          "review_context_hash": "66b64d4a984ac4ecc426191d1f8f966d69b37a9cf767bcb4eeaa680e115b6126"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "mixed-scaffolding-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "6c7b0db96ff1191ee429de7a9f634b5330986573cb2f28f949b99a19ee494ff8",
+          "row_id": "37e01e5a50f167575832157bccf2009b2e248022613049a3ddcbde1c84bd3fb4",
+          "dataset": "synthetic-v1",
+          "case": "mixed-scaffolding",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "f3cfaf1fbba543661b2329ceba6ffd5e84a493d9507bb99bbed2d457a2900fc5",
+          "response_hash": "1f9ae31b32367f3f89954790d1d66e751b4cc859932b74ed4e3e167c36669933",
+          "review_output_hash": "c8fd96a6f27724d2e6954c0d89131e4e5a0dbc57a14ad62a2e89c90e175320ac",
+          "review_context_hash": "1b35bc9ce0102e0179cc6fec74b033f8feef2322bccd81226f2a4f2e166f215e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "d1c0d9881b235e9462e2f3c1730efe072bfae5e39b40447ac7cb9fc73ad2b936",
+          "row_id": "4002c743d8e01445262a88b64a444911dcb4bbcec22fed121a4516a80474d4b6",
+          "dataset": "synthetic-v1",
+          "case": "single-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "b2811b6b7f06a51a6d874b323f090c335ae83fcc1a8c6748f39d3d57ca9e663f",
+          "response_hash": "12a1ad37c6577d186a28c7b56e8d00f81c4c3830f178bf362674cb812b2c0824",
+          "review_output_hash": "82ac57c1b661d33ba1cdc15cb20c970efd3792aff89f29fc472faa04ac667c03",
+          "review_context_hash": "f4861d0ace76d6084d8c9dd6b4e9e2ca8a42cb7177099ba9c8549e7215d26091"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "8c7ad3d32ed66a925920ff7f5d7ba0b6a6fa5e7fd4526ec6d6c9eecfb88ba9e6",
+          "row_id": "eb4b29e21b501e25914c2090b966afe0db7618872b1fd1541df796eac964304b",
+          "dataset": "synthetic-v1",
+          "case": "single-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "b2811b6b7f06a51a6d874b323f090c335ae83fcc1a8c6748f39d3d57ca9e663f",
+          "response_hash": "5cc230eedca14e494d314a8f7cdae88ac267bc0de032aed2ef8bf1a98bc0ec7e",
+          "review_output_hash": "82ac57c1b661d33ba1cdc15cb20c970efd3792aff89f29fc472faa04ac667c03",
+          "review_context_hash": "f4861d0ace76d6084d8c9dd6b4e9e2ca8a42cb7177099ba9c8549e7215d26091"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "c9c3bfd7a370b6d6e99436ee40063635fceac8fe8c95994a2ccd2529e7e5ae9a",
+          "row_id": "ddf2ce4dd7b24636fb0400a38ded578be98cbb517d85678e7cb9803caa0e9a38",
+          "dataset": "synthetic-v1",
+          "case": "single-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "b2811b6b7f06a51a6d874b323f090c335ae83fcc1a8c6748f39d3d57ca9e663f",
+          "response_hash": "bb90ad689c6ce69f1af359872dd919c9ecd4d380c26852b95a0b9fe80db266dd",
+          "review_output_hash": "82ac57c1b661d33ba1cdc15cb20c970efd3792aff89f29fc472faa04ac667c03",
+          "review_context_hash": "f4861d0ace76d6084d8c9dd6b4e9e2ca8a42cb7177099ba9c8549e7215d26091"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "single-source-overflow-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "4c199638fadf474c0eec22cc86ecb33c08543f013c718bf833e1c2eb2375a7e5",
+          "row_id": "d7baec1f4360e4909984a0cf12b0ba4ac0a5819144e5a106f8688f261f07d4a2",
+          "dataset": "synthetic-v1",
+          "case": "single-source-overflow",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "25f64cb24f58de2bc441ad988f8d6655d79817ba7a345de00273f3c5ebfda801",
+          "response_hash": "e94e614307ab6f2467d70541102ba9488a9113e87e9f4a3aa02b78e6eb797f9e",
+          "review_output_hash": "0c7d5c1fcb824788b0626a045bbd73b796aef277b8b3ebd5319e54d9bb1928c6",
+          "review_context_hash": "c93ce54f7ff7fac9844085d94cbb08a3b3d9c619d6e1175d4804dec08c66b156"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "small-complete-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "1a91684ae39d26a5c6984c372a8adaadb2e20d5c5c9c437201318d729c94bcb0",
+          "row_id": "0a954bee35a6cc0d3d73655892dd4a138a28adb16d423029343230a672248a9e",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "6c2ea9c7121259e5ecb7e9b30f2609679f1999833923e5bc23dd7ee48de4e836",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7ec0e298df9663dd4dd3b058b53d90033081c6cd7f7ca8638656619ffd7196bc"
+        },
+        {
+          "call_id": "eff8f625ceee0279de513112dde1fca7fa938303db154ac6df91ac0dd07a1794",
+          "row_id": "82d1d9787efd3707d27625dad88fb7263676ce4c98dd4398c9a7fed34ce6ce16",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "2086ff600818415d0f53d79fcb9676603f72ab04a8dc546f6b39f1187f31f19f",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "small-complete-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "d9245aca8e4e3da0534b14c67f69fb284c88f0d876123d403e3ac1d329a04ca3",
+          "row_id": "81269d38df65a8c760fae81ff40788ad9adef002262dd746332cd9d09a8a59f3",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "fda2934ca4ea9d74dc4637907959a534b7a97e57d112ff52c98bd701fecbb5da",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7ec0e298df9663dd4dd3b058b53d90033081c6cd7f7ca8638656619ffd7196bc"
+        },
+        {
+          "call_id": "fb39df60aedfc9800f805eee082e627127f69fb8b69c5c9a4e6c5e02a1fe97be",
+          "row_id": "3a5a6793f719d16e34df203e58ee344914c3c1b56dbea0b8414d9239c1ffd567",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "complete-projection-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "08cf3c57be538ef0ebdfa972946d96bdb29eaad4a101e7cfdde153de0cb1bb19",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        },
+        {
+          "call_id": "701fcba4ddaf391b09fb652bc3d8d632ef92f3572aef9163d7b6e207fb2f6cd5",
+          "row_id": "b56e9c9a4d5ad267aa9ac75001249e546f85a2fc7831f6d93f092cdee9dbb316",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "447c1ca483a5da74c43324fe9512a6cb26560f8112898957ea5fd1e256068822",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "small-complete-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "95ced5e93c56de257a6eef7f60e9444916aca65050d3734ccd280620e2ce4dbb",
+          "row_id": "3d0abf089575cb7fadce57421adcbca4a7b437d8fb1e58b79fb50c081487ad39",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "99ba2eca2cb689ebd6d443aea89e8e8f16cd7421c7f3993940428b30f35dfd32",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7ec0e298df9663dd4dd3b058b53d90033081c6cd7f7ca8638656619ffd7196bc"
+        },
+        {
+          "call_id": "fa01f4d7fb9d2adec867a429f8bebc8f0ff7a3e9b6fc25b3af0771c96a46272d",
+          "row_id": "e6bbce2d80f17b0d46772ebda1998844f26d6ab7b13fa660eac52fd4d6c22e29",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "complete-projection-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "07d5e346e7d7137f289f6405123fbbba2195c6d99069592e111234f1cdc68b06",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        },
+        {
+          "call_id": "d08b9398b4dc5819bb8b9ada5b7503de5bee927d02900c96b4d2228558711dae",
+          "row_id": "e06a7f8ee9d5b1359c31825f02a6c7dcf199074bc8927d03e01a10bd987aab99",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "0246f8475169230fdaab1ebd0b3b212486a94b9b7412a9ac303ee7c73947bc42",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "small-complete-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "1a7f185b950ecc2e1575f678fb904d642d709dc59bd0435024a8319fe0e5be20",
+          "row_id": "894d49e897526fafda0cbd0ba4b5ad86749ba0c01c08fa0ed5b38ea21526f9ba",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "7538ea4b6b6509b9c2bc39ba1945fffb9c4b8276b601565c59b5c43cb5cebbd9",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7ec0e298df9663dd4dd3b058b53d90033081c6cd7f7ca8638656619ffd7196bc"
+        },
+        {
+          "call_id": "a892bd39fc1c925e3a7c294e9a37ddc75565334b4c3291ba73f2498cc0276576",
+          "row_id": "5956488de7f25424e58cc18b05d162d5f23b6a15767c8bb2c652edca16143cbb",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "complete-projection-v1",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "c18804e6771c40c341e5ff5fa11d9ac4504e2f820f8caf4dcaf694b33e62ee85",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        },
+        {
+          "call_id": "d6258963ee8cb0aaddc2ac3d4d878dee4116e118db249716b9cded6db11a3420",
+          "row_id": "86797bbea116130ada31799d56e3f56852b1bfa380a93cb14abfa3c47480b057",
+          "dataset": "synthetic-v1",
+          "case": "small-complete",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "29ce1dbece1c7959b36d65f4dbcf9d2ad63e617bdbb49cfa75c2085f1b450dcb",
+          "response_hash": "fafaa4380529ebbdb94b671a686778c8b30a7f7ba03abb8840655f488c0d74ae",
+          "review_output_hash": "6cb9a819d0a1d7cbd9925227a065f8f9f87b4487c869336abfaae21c4fa34789",
+          "review_context_hash": "7cd367637739656f5e429af6fdbd1899ffbf7a5f4f95a0704f47860cfe86a43e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "c5d3500ac31918a2f06472c3cfaf33d4d9106e55b83868f5e94b541f94829358",
+          "row_id": "63ff3d6fd9ae8d15e257c398b4c13ac7afc76540679da694b791bd64f50bc866",
+          "dataset": "synthetic-v1",
+          "case": "unicode-boundaries",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "77f1b2a910fee481ff93edf71863400f57b47965102ed5f2d5cde5d2c185579e",
+          "response_hash": "d8455c73ee70ebd92c4f0b1ff0a6d0d1acf9f85c3c1a891629c365062043a70c",
+          "review_output_hash": "606d8bddc36ef75c7b11da652a5f11a90ab346605a6ec030023186ccd0372fa0",
+          "review_context_hash": "55d406eaa99fd2d476ed74df15cb5448f70d3038016ff24cc75c38f2d4aaa8b9"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "5230b50b13b0faa1cab59cb3c48fd6c1e26496f86ae886e93aaf9f55f63fd97e",
+          "row_id": "5c30a709d60371c7b2677772b3513789f00098b0199f867641c4d8edfebbcdf6",
+          "dataset": "synthetic-v1",
+          "case": "unicode-boundaries",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "77f1b2a910fee481ff93edf71863400f57b47965102ed5f2d5cde5d2c185579e",
+          "response_hash": "5fcb1c667e2a144ac5bbbb5775a285da54e276fa93e892e5e025e882dd891054",
+          "review_output_hash": "606d8bddc36ef75c7b11da652a5f11a90ab346605a6ec030023186ccd0372fa0",
+          "review_context_hash": "55d406eaa99fd2d476ed74df15cb5448f70d3038016ff24cc75c38f2d4aaa8b9"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "0dcd0c418f220e1e7410ce45e580e26f39949cee0381b77f28c09f71a20103ea",
+          "row_id": "b6d91d1fdba2b6ee91b0efe7dbe1278b123f508fa69e518ab1465ead5d522cb0",
+          "dataset": "synthetic-v1",
+          "case": "unicode-boundaries",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "77f1b2a910fee481ff93edf71863400f57b47965102ed5f2d5cde5d2c185579e",
+          "response_hash": "279aa569ac89b4a1da99a6429e0b19be6f8c65d692686b504831ece71c467085",
+          "review_output_hash": "606d8bddc36ef75c7b11da652a5f11a90ab346605a6ec030023186ccd0372fa0",
+          "review_context_hash": "55d406eaa99fd2d476ed74df15cb5448f70d3038016ff24cc75c38f2d4aaa8b9"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "unicode-boundaries-8192-r0",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 8192,
+      "repetition": 0,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "6457b1dfbe065660802f551cf0b2b78100f1afc449bff5f2f74857070ab5810d",
+          "row_id": "9fc9a8c2ea3f534529ffa8ed6193fba42fa2c5fe52bc0f5e1ff48ce1c5eac277",
+          "dataset": "synthetic-v1",
+          "case": "unicode-boundaries",
+          "arm": "bounded-fragments-v3",
+          "budget": 8192,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "1cf8fb8e8aded6890d6ecc797de20194c6072b98af4e471e0e7a9d573bfcad55",
+          "response_hash": "a62374017bf898c22e5d052187de6457f0d34b439376613daff9a0800242b4ca",
+          "review_output_hash": "48a879dedf285e02d6547dd31c0e01658e23cf1e3da1bd8ac78d525992e83fd9",
+          "review_context_hash": "dae300574b2ddb9a628e41c63f0cdce3dc8c5cc51af9dcf2dc2c268f75cb8806"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-crlf-scaffolding-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-crlf-scaffolding",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "attribution_failure_and_risk",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "9483d3df1f99a913b04c8fc9ee7ee618c75f8c65198b5905c0b5efa17e878a73",
+          "row_id": "fead81974b9fcd5d24058d4d3acd4d6fd8cca2fad24a67016582b4a34ef6592c",
+          "dataset": "validation-v2",
+          "case": "validation-crlf-scaffolding",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "431aea9a1740f38ed9edf14fe4b6a79c3810ad75857608761814b958a81ade9d",
+          "response_hash": "7a4fd8b1e9c52c2da62c55ab7f0f19556ec7dfbd011673d604b9d91772327f2a",
+          "review_output_hash": "359f270424b93f07792c58e03dc75be28636946c7c0ca80e6f6bd8b3a84a1446",
+          "review_context_hash": "9c1444195560a5f3ee4a95db1e31b0a9dde2d061a56b9c6cd96c622b17cf7df2"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "30dd1a404180f025d6a755c1517687c283b3fd4560c21d39b312a1fa83b4ee6d",
+          "row_id": "f2f90128701441290af3d6c27c162912a9426634fe9f4a92bc3717d58000e3b8",
+          "dataset": "validation-v2",
+          "case": "validation-literal-offset",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "0a44dc8e6f3956a1e09499bbe17ce64b49f9495edd7c50d0c9543f2962b43d21",
+          "response_hash": "7eacdc073444df05a71b9971daa45d997369bbd1c199287f1ecace5e62611802",
+          "review_output_hash": "6830765769f5ff233dd23df9c3a076d7128e62ba7e3587a408db961971ee56b8",
+          "review_context_hash": "e92a3e087fe6af749de45f6774067694ab671deb4740d006080dcb7053d33283"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r1",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "0b2845c67a5bb7e7fd0eda7485c8cb950cc01aa85958db07e775b682087df15c",
+          "row_id": "00da4aae93e049057c4c0af9bd6b3f416734d45e10c9b8f43cddd54ed7a77be3",
+          "dataset": "validation-v2",
+          "case": "validation-literal-offset",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "0a44dc8e6f3956a1e09499bbe17ce64b49f9495edd7c50d0c9543f2962b43d21",
+          "response_hash": "81564e682053939d201fb78272aab0bc93b012c91c1990ea461f69b9f8c36654",
+          "review_output_hash": "6830765769f5ff233dd23df9c3a076d7128e62ba7e3587a408db961971ee56b8",
+          "review_context_hash": "e92a3e087fe6af749de45f6774067694ab671deb4740d006080dcb7053d33283"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r0",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "88742a331ec7abc0af86fffc2ad02038086e9868a19d3d0d83f0d5a0c0f9a87d",
+          "row_id": "a0f5c6e510f6aa083258a84201824cf9869b115a367e697c71c7fb124ebdb808",
+          "dataset": "validation-v2",
+          "case": "validation-literal-offset",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "18181aa23bc78664f5a315f85aed3229006ef41831c066d8438ed926e1974ba8",
+          "response_hash": "c06eb38b6b39a274a5375181260722c2cc9b2224906ae3b05e0ef9ee2cb58eed",
+          "review_output_hash": "c7f5a098286b97c4b4f941685a73ed0269e97f19095717feac98403e31ac4958",
+          "review_context_hash": "2280f2cade36bb350b40b9d16afd35ae9ba5a8471c51206adf68de7d734e7cc7"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r1",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null,
+      "resolution": "unique",
+      "possible_records": [
+        {
+          "call_id": "6e4a24e118e639b32daaea496fbbae09afc475ccf4b22e87dfeeb88126f55cf7",
+          "row_id": "f5abfce6127e860bc535b04bafe0a17d0d8609f7c67722e653d3f941225bd565",
+          "dataset": "validation-v2",
+          "case": "validation-literal-offset",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "18181aa23bc78664f5a315f85aed3229006ef41831c066d8438ed926e1974ba8",
+          "response_hash": "b59e836d29a22cfb5f033adb34d4dc64588110132f576a68fe7744c8f59040bd",
+          "review_output_hash": "b4a5ad3ef21d6525829e8342d364728e7498944f7c16b806b47b842ddf9086b1",
+          "review_context_hash": "0259dcb1e86fb62091f1fbeb3d710923004fb0aebefa0c5d629406c66c4905b1"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-reordered-sources-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "78a5f2ec8654fcd5026923750a806049356d082d04c7e622733371d5b6c2665f",
+          "row_id": "5ecb3c1e5f555f2801147c8ed50b52d691cf87d55f923fcc30721b6f8956415f",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "0f73632833950244e89de96dba9c60eaf13b367c2ea843302f7f18a1eb9b9c4a",
+          "response_hash": "645ec33a2249dc32afc2e527965fd2f33b63cff613a370c872745eff95e067c7",
+          "review_output_hash": "3fbf4f81d4b40d5429fe7d09c84a555d2b029135249b6115917d96fce83921d9",
+          "review_context_hash": "1aa3522458340808ce22f5bd77c79e35a8452caef130b5c765362fca27197cc3"
+        },
+        {
+          "call_id": "65be826ed6eb8943caf492d68ae434937035d44bfc054fbea771c31c1f22475b",
+          "row_id": "5ecb3c1e5f555f2801147c8ed50b52d691cf87d55f923fcc30721b6f8956415f",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 1,
+          "input_hash": "02e3755bf3158a59ff0f21138f7ef1f79fdbe655280fc129aa4a36558dcec08c",
+          "response_hash": "bf64fe2fe3b22e2d75a0381c59b667b15856c7551a4a62c4ed06c9468c7c82c7",
+          "review_output_hash": "0ed9c2df0edf5990e811102ae129f5b630ac58f102eea87ea496565b23015b9f",
+          "review_context_hash": "438df3fbda8de64f31133ea1c796e2d9410e8321d547fc2a699e19245be1d247"
+        },
+        {
+          "call_id": "4652e28b236a210cb7b75b9ee1d43860360dec2452398d245d183c492df9d457",
+          "row_id": "70bfcf3be18aa5c2c22a825baa980c76925e3317932bafb22af5bb195d7f3d20",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "window-reduction-v1",
+          "budget": 2048,
+          "repetition": 0,
+          "input_index": 2,
+          "input_hash": "27f951707313205b0205949218ebf3de6c3a25dc815c47ea7121122db85797de",
+          "response_hash": "a1de4b3b9d1892b7bfaf85dcf02a687bbc3e85edae6f4e9ab58b8bf7e3b76c91",
+          "review_output_hash": "baaacb39c893ed2333c9b91166063b3626865ec8008b1d395b3d4df1181d92e4",
+          "review_context_hash": "a5bcf513ffdb6990a6340bb6fb74072ccb418f2d143cb60186d03f6bb36f9220"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r0",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "9c5b000fbe14619f310818b59e4d31cb99210d290bedafe771dc7161bb4fc1b4",
+          "row_id": "29c4fd992cf8572b7845ac310842c923bd9c19d17eb17ded9fa9495f1b232fb5",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 0,
+          "input_hash": "408ae33d3f74861af5d3c60cc59ef014fca8e0ca1a79b517c85d4c3cae4c83c9",
+          "response_hash": "e28cad137e1540b960963c3e79f8ca95d271de7300e264c1f171321379a1e58f",
+          "review_output_hash": "e07d589cc573a13c4b74b618dcebe2a6ae5fd7408835c8bfcfa45740780e7128",
+          "review_context_hash": "cd79a40759b0b970bdc1ae20729b7333b21c3d56a72831c98c7e5f7ff170593e"
+        },
+        {
+          "call_id": "4497be6610a95f1af494153f2d7a73f454411c9d3b5fec31ee8f85ceb83de3c2",
+          "row_id": "29c4fd992cf8572b7845ac310842c923bd9c19d17eb17ded9fa9495f1b232fb5",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 1,
+          "input_hash": "84526bf1e592a381e767314d356903ea24106338cd28785faaeb1c6302542944",
+          "response_hash": "dd6cc526cf92bc061f4c3c3957f33530d2cca27476d00d409c94eff300243b9e",
+          "review_output_hash": "9d82badf81938a07fd34bb195d75a82149ecbdc451388b94c1f13055601d951d",
+          "review_context_hash": "a45b302d3558829bf03d14d88d523e71ac9fce33d6d1b1403863a1102e6772d3"
+        },
+        {
+          "call_id": "1c989d1f9c64403167a34d7979ae8e427efece2134c9375bc90ea5d3a5ba1f78",
+          "row_id": "abe6feb6932af70237559def554288bd8a12e9b5f900edaf96363b9919641cb8",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 0,
+          "input_index": 1,
+          "input_hash": "84526bf1e592a381e767314d356903ea24106338cd28785faaeb1c6302542944",
+          "response_hash": "629e91926f415d51da11894385a283c3b0d0edee0c0bfaf1072c8b7b1b0b522d",
+          "review_output_hash": "9d82badf81938a07fd34bb195d75a82149ecbdc451388b94c1f13055601d951d",
+          "review_context_hash": "9527d2a0a9f0f450b9177d17ee002229177a4de085aa832f8f16aad57c788b5e"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r1",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "90ca7c7b978a88f1fadfa7700db7715926a6ba460cc05ef609e76c44fcd8d669",
+          "row_id": "fc07789c2e11766cd4c4fda003c4f0b5ee5ef52623bb2e3e9616631e7791213f",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 1,
+          "input_hash": "84526bf1e592a381e767314d356903ea24106338cd28785faaeb1c6302542944",
+          "response_hash": "c227596fb0fc2a9787279a970e692d425b8218d3f10a1b76e73b2f5713a32c98",
+          "review_output_hash": "9d82badf81938a07fd34bb195d75a82149ecbdc451388b94c1f13055601d951d",
+          "review_context_hash": "a45b302d3558829bf03d14d88d523e71ac9fce33d6d1b1403863a1102e6772d3"
+        },
+        {
+          "call_id": "3192baf0120713cbf01fa1cd514a085c8893a7283059982006ef40780c22784a",
+          "row_id": "082f6736c1ffbe541209b594c4dc88e537f586f6a4c58d5cb5ce121ca266e340",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 1,
+          "input_index": 0,
+          "input_hash": "408ae33d3f74861af5d3c60cc59ef014fca8e0ca1a79b517c85d4c3cae4c83c9",
+          "response_hash": "7a0b2609e113ce5ac3b980c44a7b31999252fd1387c164d7b48c541763b36e29",
+          "review_output_hash": "e07d589cc573a13c4b74b618dcebe2a6ae5fd7408835c8bfcfa45740780e7128",
+          "review_context_hash": "835e651fe8f811c64dc8e493008c9eda73445ccfe25e49829864b5b46de65d3a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r2",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 2,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null,
+      "resolution": "ambiguous",
+      "possible_records": [
+        {
+          "call_id": "27d3a4b889f28c5e1947162c79103c135aa6ab4d8769e5e95be88881bd268f6e",
+          "row_id": "615b51b564eb8ef80e765f444fe2b3b5b92f06e91af07f701b52b1b33e838021",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "bounded-fragments-v3",
+          "budget": 4096,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "408ae33d3f74861af5d3c60cc59ef014fca8e0ca1a79b517c85d4c3cae4c83c9",
+          "response_hash": "981d502a3f676bf33fdbafe4de203636580349355c56bedd9f8aaecffead60a4",
+          "review_output_hash": "e07d589cc573a13c4b74b618dcebe2a6ae5fd7408835c8bfcfa45740780e7128",
+          "review_context_hash": "cd79a40759b0b970bdc1ae20729b7333b21c3d56a72831c98c7e5f7ff170593e"
+        },
+        {
+          "call_id": "a515580630aa0c3155e645d7df75447a592288a1df9410c298d09791e08968f3",
+          "row_id": "bdc90b3db0ca1b98fe6a342d77fb014dd6eff71edaede96b3b38002195a6b022",
+          "dataset": "validation-v2",
+          "case": "validation-reordered-sources",
+          "arm": "window-reduction-v1",
+          "budget": 4096,
+          "repetition": 2,
+          "input_index": 0,
+          "input_hash": "408ae33d3f74861af5d3c60cc59ef014fca8e0ca1a79b517c85d4c3cae4c83c9",
+          "response_hash": "2cc145e97c1983d3cb10a020e934777de04e60689440fe76280032709d9f6144",
+          "review_output_hash": "e07d589cc573a13c4b74b618dcebe2a6ae5fd7408835c8bfcfa45740780e7128",
+          "review_context_hash": "835e651fe8f811c64dc8e493008c9eda73445ccfe25e49829864b5b46de65d3a"
+        }
+      ],
+      "whole_call_or_all_candidates_approved": false
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "evidence-admission.v11.acceptance-status.v1",
+  "date": "2026-10-28",
+  "decision": "insufficient_evidence",
+  "committed_freeze": false,
+  "new_provider_requests": 0,
+  "formal_live_coverage_complete": false,
+  "historical_v10_protocol_failures_preserved": true,
+  "historical_v9_atomicity_failure_preserved": true,
+  "window_protocol_budget_failures_recovered": 6,
+  "reexecuted_window_samples": 324,
+  "inherited_hash_verified_samples": 1296,
+  "all_arms_no_input_regression_in_bound_comparison": true,
+  "candidate_input_gate_preserved": true,
+  "real_model_output_gate_passed": false,
+  "next_required_work": [
+    "commit_new_contract_and_dependencies_before_new_live_outputs",
+    "rerun_identity_bound_offline_checks_and_sdk_cost_preflight",
+    "use_real_pipeline_for_atomicity_literal_unicode_copy_and_support_smoke",
+    "complete_critical_semantic_review_and_formal_all_arm_dataset_coverage"
+  ],
+  "live_authorized": false,
+  "production_authorized": false
+}

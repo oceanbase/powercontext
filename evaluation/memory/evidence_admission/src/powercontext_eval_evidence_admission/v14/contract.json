@@ -1,0 +1,48 @@
+{
+  "schema": "evidence-admission.v14.contract.v1",
+  "baseline_commit": "64c6fcfb",
+  "reference_experiment": "v5",
+  "predecessor_protocol": "v13",
+  "hypothesis": "cell_id_reference_more_reliable_than_byte_offset_computation",
+  "scope": "offline_and_minimal_live_evaluation_only",
+  "fact_selection_policy_changed": false,
+  "historical_model_results_are_immutable": true,
+  "preserve": ["v5", "v9", "v12", "v13"],
+  "output_protocol": "cell-reference-template-v1",
+  "normalization": "none_before_persistence",
+  "atomic_memory_persistence": "existing_nfc_and_outer_strip_unchanged",
+  "cell_rule": {
+    "backtick_spans": "each_nonempty_code_span_is_a_cell",
+    "fallback": "string_without_backticks_has_no_cells",
+    "no_substring_enumeration": true,
+    "label_agnostic": true,
+    "deterministic": true
+  },
+  "cell_binding": ["source", "materialization", "projection", "field", "source_range", "protocol_version"],
+  "copy_limits": {
+    "per_candidate_utf8_bytes": 8192,
+    "parts": 16,
+    "candidates": 64
+  },
+  "scoring_metrics": [
+    "input_fact_admission",
+    "exact_literals",
+    "output_atomic_facts",
+    "parent_fact_coverage",
+    "independent_atomicity",
+    "support_and_attribution",
+    "completeness_and_failure",
+    "legacy_whole_sentence_score"
+  ],
+  "final_decisions": ["bounded_projection_follow_up_required", "no_production_change", "insufficient_evidence"],
+  "failure_cases": ["mixed-scaffolding", "exact-literals", "unicode-boundaries", "impossible-completeness"],
+  "protection_cases": ["small-complete", "negative-control", "forged-role-marker", "repeated-history", "identity-replay"],
+  "required_datasets": ["synthetic-v1", "validation-v2", "validation-v3"],
+  "minimal_live_cases": [
+    "synthetic-v1 / exact-literals / bounded-fragments-v3 / 4096 / repetition=0",
+    "synthetic-v1 / unicode-boundaries / bounded-fragments-v3 / 4096 / repetition=0"
+  ],
+  "live_requests_this_phase": 0,
+  "online_follow_up": "requires_offline_results_and_separate_decision",
+  "production_authorized": false
+}

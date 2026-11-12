@@ -1,0 +1,81 @@
+{
+  "schema": "evidence-admission.v20.coverage.v1",
+  "state": "finished",
+  "original_plan_calls": 471,
+  "inherited_attempted_calls": 120,
+  "new_attempted_calls": 351,
+  "new_local_request_start_markers": 351,
+  "new_pipeline_returned": 190,
+  "new_failed_with_usage": 161,
+  "new_unknown_usage": 0,
+  "unrun_calls": 0,
+  "total_attempted_calls": 471,
+  "total_local_request_start_markers": 471,
+  "all_planned_requests_attempted": true,
+  "total_raw_response_available": 469,
+  "by_arm": {
+    "complete-projection-v1": {
+      "new_attempted": 30,
+      "new_pipeline_returned": 30,
+      "new_usage_known": 30,
+      "unrun": 0
+    },
+    "window-reduction-v1": {
+      "new_attempted": 60,
+      "new_pipeline_returned": 60,
+      "new_usage_known": 60,
+      "unrun": 0
+    },
+    "bounded-fragments-v3": {
+      "new_attempted": 261,
+      "new_pipeline_returned": 100,
+      "new_usage_known": 261,
+      "unrun": 0
+    }
+  },
+  "new_dataset_calls": {
+    "synthetic-v1": 147,
+    "validation-v2": 132,
+    "validation-v3": 72
+  },
+  "new_case_calls": {
+    "positional-facts": 3,
+    "repeated-history": 9,
+    "mixed-scaffolding": 9,
+    "forged-role-marker": 27,
+    "exact-literals": 9,
+    "unicode-boundaries": 9,
+    "observation-overflow": 9,
+    "metadata-fact": 9,
+    "negative-control": 27,
+    "impossible-completeness": 9,
+    "identity-replay": 27,
+    "validation-reordered-sources": 69,
+    "validation-crlf-scaffolding": 9,
+    "validation-history-offset": 9,
+    "validation-off-center-facts": 9,
+    "validation-metadata-pressure": 9,
+    "validation-durable-metadata": 9,
+    "validation-tool-array": 9,
+    "validation-literal-offset": 9,
+    "probe-shifted-middle": 9,
+    "probe-wide-metadata": 9,
+    "probe-reordered-metadata": 9,
+    "probe-user-metadata-fact": 9,
+    "probe-near-repeat-number": 9,
+    "probe-near-repeat-negation": 9,
+    "probe-unicode-crlf": 9,
+    "probe-cross-fragment-record": 9
+  },
+  "unrun_dataset_calls": {
+    "synthetic-v1": 0,
+    "validation-v2": 0,
+    "validation-v3": 0
+  },
+  "historical_attempts_retried": false,
+  "assistant_reviews_inherited": 3,
+  "new_semantic_reviews": 0,
+  "semantic_unresolved_candidates": 533,
+  "independent_human_review_completed": false,
+  "unknown_usage_and_missing_raw_response_are_separate_measures": true
+}

@@ -1,0 +1,79 @@
+{
+  "schema": "evidence-admission.v7.contract.v1",
+  "reference_experiment": "v5",
+  "predecessor_protocol": "v6",
+  "scope": "offline_protocol_and_cost_optimization_only",
+  "fact_selection_policy_changed": false,
+  "historical_model_results_are_immutable": true,
+  "output_protocol": "explicit-copy-template-v1",
+  "normalization": "none_before_persistence",
+  "atomic_memory_persistence": "existing_nfc_and_outer_strip_unchanged",
+  "exact_literal_atoms": [
+    "deployment-command",
+    "deployment-config-path",
+    "deployment-job",
+    "deployment-limit"
+  ],
+  "copy_limits": {
+    "per_copy_utf8_bytes": 1024,
+    "per_candidate_utf8_bytes": 8192,
+    "parts": 16,
+    "candidates": 64
+  },
+  "compression": {
+    "quote_ids": "request_local_short_sequential",
+    "model_facing_index": [
+      "q",
+      "e",
+      "p",
+      "b"
+    ],
+    "full_identity": "program_internal_only",
+    "duplicate_input_fields": "removed",
+    "output_schema_redundancy": "unchanged_for_validation_strength",
+    "exact_copy_boundaries": "deterministic_utf8_crlf_combining_emoji_zwj_safe",
+    "instructions": "production_rules_reused_copy_additions_trimmed"
+  },
+  "failure_cases": [
+    "mixed-scaffolding",
+    "exact-literals",
+    "unicode-boundaries",
+    "impossible-completeness"
+  ],
+  "protection_cases": [
+    "small-complete",
+    "negative-control",
+    "forged-role-marker",
+    "repeated-history",
+    "identity-replay"
+  ],
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "scores": [
+    "legacy_v5",
+    "fact_coverage",
+    "atomicity",
+    "exact_literals",
+    "raw_span_fidelity",
+    "candidate_cited_support",
+    "output_validity"
+  ],
+  "cost_ledger_components": [
+    "instructions",
+    "evidence_body",
+    "quote_index",
+    "output_schema"
+  ],
+  "semantic_review": "explicit_group_identity_bound_no_substring_auto_approval",
+  "historical_failed_responses": "unknown_not_recoverable_by_replay",
+  "usage_missing": "unknown_never_zero_cost",
+  "live_requests_this_phase": 0,
+  "online_follow_up": "requires_offline_results_and_separate_decision",
+  "production_authorized": false,
+  "revision": "budget-and-binding-audit-v2",
+  "request_binding": "mandatory_full_input_and_quote_map",
+  "cost_basis": "canonical_component_sum_with_separate_provider_overhead_unknown"
+}

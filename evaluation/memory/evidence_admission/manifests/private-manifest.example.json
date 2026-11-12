@@ -1,0 +1,11 @@
+{
+  "schema": "evidence-admission.private.v1",
+  "decision_sha256": "b3466c00f4f47ef0ecad741b0b632f18ac6bd54d159ab99ffd3d7afa82f81248",
+  "cases": [
+    {
+      "label": "private-case-a",
+      "file_env": "EVIDENCE_ADMISSION_PRIVATE_CASE_A",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

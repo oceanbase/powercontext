@@ -1,0 +1,17 @@
+{
+  "schema": "evidence-admission.v11.offline-bundle.v1",
+  "meaning": "local_artifacts_complete_not_formal_acceptance",
+  "files": {
+    "acceptance-status.json": "8c4177474152ad0f23f1df80a546a7418e1898e7e4dfb775c9cb6dc7cc813e04",
+    "comparison.json": "acb157254b613633673a3fc1c78be8fc303b9922c4fcd91f0b8c2163e49b5a5f",
+    "minimal-replay.json": "f585483fc12bdd1f16c4b9ebe80c430c82389f61eaf4cf5781b16fa14fa70762",
+    "summary.json": "081c5785f42ecea2a0935476f2551a32b73941e2af2b272fc2b7eac96a744ba8",
+    "validation-summary.json": "ed8bdf1ccc897fd33f9b1c77ffd90d98bca7ef6f92bb38ee67e132f86494d653"
+  },
+  "decision": "insufficient_evidence",
+  "provider_requests": 0,
+  "formal_acceptance": false,
+  "committed_freeze_verified": false,
+  "live_authorized": false,
+  "production_authorized": false
+}

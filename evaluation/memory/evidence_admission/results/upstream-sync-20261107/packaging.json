@@ -1,0 +1,28 @@
+{
+  "schema": "evidence-admission.packaging-verification.v1",
+  "runtime_build_revision": "313461d42772eb655932aefff47a82ce0bf42c89",
+  "evaluation_code_revision": "c5494a6a6431f1f2acb3623baf4d6710c9f6e03f",
+  "artifacts": [
+    {
+      "file": "powercontext-1.5.1.dev188+g313461d42.d20261107-py3-none-any.whl",
+      "bytes": 2948222,
+      "sha256": "611e08b4af49041ea291847b730e509d7683924cc4b0ab2a2fea8af8780934b5"
+    },
+    {
+      "file": "powercontext-1.5.1.dev188+g313461d42.d20261107.tar.gz",
+      "bytes": 2348320,
+      "sha256": "0b16fe241fcf6c45e6fd99a5abcd8cfb540d1147ad5d01dc8598418515b198e3"
+    },
+    {
+      "file": "powercontext_eval-0.1.0-py3-none-any.whl",
+      "bytes": 734515,
+      "sha256": "840e1033c73810dfa567389557b11f96ce91c5d65ab09208d2aeab2325a953b4"
+    },
+    {
+      "file": "powercontext_eval-0.1.0.tar.gz",
+      "bytes": 9007826,
+      "sha256": "7870c0193892802b9816a0c7cfa128eecdf3e2e4250c412c639cfb57d0bede02"
+    }
+  ],
+  "evaluation_wheel_packages_data_and_clis_verified": true
+}

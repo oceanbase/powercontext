@@ -1,0 +1,28 @@
+{
+  "schema": "evidence-admission.closeout-final-hooks.v1",
+  "generated_at": "2026-11-07T15:53:08Z",
+  "validation_revision": "91c47917df395f707e2ecea1573f1eb3e1983d61",
+  "command": "prek run --files evaluation/memory/evidence_admission/ACCEPTANCE_CLOSEOUT.zh.md evaluation/memory/evidence_admission/REVIEW_CONFIRMATION.zh.md evaluation/memory/evidence_admission/PR_DESCRIPTION_READY.zh.md evaluation/memory/evidence_admission/PR_DESCRIPTION_READY.en.md evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/status.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/validation.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/integrity.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/historical-unavailable-check.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/human-confirmation-template.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/README.zh.md evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/final-hooks.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/artifact-index.json evaluation/memory/evidence_admission/results/acceptance-closeout-20261107/COMPLETE.json",
+  "prek_version": "0.4.8",
+  "path_prepended": ".venv/bin",
+  "path_prepend_reason": "prek 需要从 PATH 解析 uv 以运行 language:system 的 frozen-evaluation-contracts 与 ty-check；.venv/bin/uv 是仓库锁定的 uv。",
+  "status": "passed",
+  "overall_exit_code": 0,
+  "hook_results": {
+    "check-case-conflict": "passed",
+    "check-merge-conflict": "passed",
+    "check-toml": "skipped_no_files",
+    "check-yaml": "skipped_no_files",
+    "check-json": "passed",
+    "pretty-format-json": "passed",
+    "end-of-file-fixer": "passed",
+    "trailing-whitespace": "passed",
+    "ruff-check": "skipped_no_files",
+    "ruff-format": "skipped_no_files",
+    "frozen-evaluation-contracts": "passed",
+    "ty-check": "passed"
+  },
+  "autofix_observed": false,
+  "files_checked": 13,
+  "log_sha256": "87fb95b7ceb619894dda0bf3538fe158de234f54047bfddb2ad92f8f0aa299de"
+}

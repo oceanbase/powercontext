@@ -84,7 +84,8 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 		evaluation/coding/swebench_pro/tests/unit \
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests \
-		evaluation/memory/capture_ownership/tests -m "not live" -q
+		evaluation/memory/capture_ownership/tests \
+		evaluation/memory/evidence_admission/tests -m "not live" -q
 	@# Agent tool recovery drives the real Server package, so it runs in the root project environment.
 	@uv run --frozen pytest evaluation/agent_tool_recovery/tests -q
 

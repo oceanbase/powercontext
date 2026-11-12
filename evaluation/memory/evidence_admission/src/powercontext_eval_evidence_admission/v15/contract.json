@@ -1,0 +1,87 @@
+{
+  "schema": "evidence-admission.v15.contract.v1",
+  "baseline_commit": "f40a4d13",
+  "scope": "evaluation_only",
+  "fact_selection_policy_changed": false,
+  "output_protocol": "inline-cell-reference-v1",
+  "hypothesis": "inline bounded cells preserve literals and independent facts without duplicate evidence encoding",
+  "cell_rule": {
+    "code_spans": "nonempty single-backtick pairs, inner bytes intact",
+    "unicode": "CRLF, CR, marks/modifiers/variation/ZWJ chains/flag pairs are whole clusters; adjacent non-ASCII letters form runs up to 64 code points",
+    "plain_ascii": "no cells outside code spans",
+    "whole_leaf_fallback": false,
+    "label_agnostic": true,
+    "full_uax29_segmentation_claimed": false
+  },
+  "wire": "typed string segments inline; evidence bytes appear once, no cell value table",
+  "aliases": "all supplied evidence, independently of cell presence",
+  "normalization": "none_before_persistence",
+  "atomicity": "independently changeable assertions, including shared subjects; allow multiple copy parts per fact; never auto-split responses",
+  "copy_limits": {
+    "candidate_bytes": 8192,
+    "parts": 16,
+    "candidates": 64
+  },
+  "datasets": {
+    "synthetic-v1": 900,
+    "validation-v2": 360,
+    "validation-v3": 360
+  },
+  "candidate_samples": 324,
+  "candidate_required_claims": 495,
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "repetitions": 3,
+  "resource_limits": {
+    "per_call": "frozen budget",
+    "cumulative": "8 times frozen budget",
+    "calls": 16
+  },
+  "offline_gate": {
+    "all_sample_identities_present": true,
+    "single_identity_across_datasets": true,
+    "selection_and_wire_roundtrip_unchanged": true,
+    "all_arm_budget_rejections": 0,
+    "candidate_executable_required_claims": 495,
+    "nondeterministic_groups": 0
+  },
+  "stopping": "Any failed completed phase ends v15 with insufficient_evidence; no parameter changes or provider calls after offline failure. Complete and retain all three offline datasets for the planned comparison.",
+  "online": {
+    "enabled_by_default": false,
+    "minimal_cases": [
+      "exact-literals",
+      "unicode-boundaries"
+    ],
+    "budget": 4096,
+    "arm": "bounded-fragments-v3",
+    "repetition": 0,
+    "per_case_requests": 1,
+    "requires": [
+      "offline_gate_passed",
+      "actual_HEAD_blob_verification",
+      "SDK_Pipeline_preflight",
+      "full_conditional_budget_carry_forward",
+      "runtime_rate_verification",
+      "bound_semantic_review_before_next_case"
+    ],
+    "provider": "openai-compatible",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "thinking": {
+      "type": "disabled"
+    },
+    "temperature": 0,
+    "max_output_tokens": 2048,
+    "retries": 0
+  },
+  "formal_comparison": "not automatically authorized by minimal live success",
+  "final_decisions": [
+    "bounded_projection_follow_up_required",
+    "no_production_change",
+    "insufficient_evidence"
+  ],
+  "production_authorized": false
+}
