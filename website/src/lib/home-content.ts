@@ -36,6 +36,7 @@ export type HomeContent = {
       title: string;
       description: string;
       command?: string;
+      command_tabs?: Array<{ label: string; command: string }>;
     }>;
   };
   continuity: {

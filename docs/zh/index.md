@@ -22,22 +22,28 @@ home:
   onboarding:
     title: 从安装到第一条记忆
     lead: 先部署 Server，通过向导选择所需能力，再接入 Agent。完整指南覆盖本机使用和从其他设备访问。
-    preview_label: 配置向导验收版。
-    preview_note: 本站安装命令使用 oceanbase/powercontext 的官方 master 分支。
-    repository_label: 查看当前源码分支
+    preview_label: 开始之前。
+    preview_note: 安装后按提示设置 PATH。接入 Agent 还需安装对应的 Agent CLI 和 Git。
+    repository_label: 查看源码
     guide_label: 按完整指南开始
     steps:
       - title: 安装 PowerContext
-        description: 准备 Python 3.11 或更高版本、Git 和 uv，在运行 Server 的机器上安装本分支。
-        command: uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+        description: 安装最新稳定版，包含本地 Server。脚本会在需要时安装 Python 和 uv。
+        command_tabs:
+          - label: macOS / Linux
+            command: curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+          - label: Windows
+            command: |
+              irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+              powershell -ExecutionPolicy Bypass -File .\install.ps1
       - title: 完成配置向导
         description: 依次选择存储、访问场景、记忆能力、Dashboard 和 Agent。向导会生成配置文件，以及适合当前配置的后续操作说明。
         command: powercontext config init
       - title: 启动 Server
-        description: 在生成 .env 的目录执行启动命令。若开启 Dashboard，使用向导给出的地址和 Token 登录。
+        description: 在生成 .env 的目录执行启动命令，并保持此终端开启。若开启 Dashboard，使用向导给出的地址和 Token 登录。
         command: powercontext server run --env-file .env
       - title: 接入 Agent 并验收记忆
-        description: 按 .env.next-steps.md 创建或选择 Scope、接入 Agent。先确认真实对话进入 Source，再检查已启用的记忆处理能力。
+        description: 按 .env.next-steps.md 接入 Agent 并选择 Scope。显式保存一条决策，再用同一 Scope 打开新会话，检索决策及其 citation。
   continuity:
     title: 会话结束了，工作还没有。
     lead: 你做了决定、改了代码，但任务还没有完成。PowerContext 把有用的上下文留在项目中，让下一次接手从当前状态继续。

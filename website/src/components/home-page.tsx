@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { DocsDescription, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { AgentArtifactFlow } from '@/components/agent-artifact-flow';
 import { ContextFlow } from '@/components/context-flow';
 import { GitHubStarButton } from '@/components/github-star-button';
@@ -116,7 +117,15 @@ export async function HomePage({ lang }: { lang: Language }) {
                     {step.title}
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-fd-muted-foreground">{step.description}</p>
-                  {step.command ? (
+                  {step.command_tabs ? (
+                    <Tabs items={step.command_tabs.map((tab) => tab.label)} className="mt-4 mb-0 rounded-lg">
+                      {step.command_tabs.map((tab) => (
+                        <Tab key={tab.label} value={tab.label} className="p-3">
+                          <pre className="whitespace-pre-wrap break-all text-xs leading-6"><code>{tab.command}</code></pre>
+                        </Tab>
+                      ))}
+                    </Tabs>
+                  ) : step.command ? (
                     <pre className="mt-4 overflow-x-auto rounded bg-fd-muted p-3 text-xs leading-6"><code>{step.command}</code></pre>
                   ) : null}
                 </li>
