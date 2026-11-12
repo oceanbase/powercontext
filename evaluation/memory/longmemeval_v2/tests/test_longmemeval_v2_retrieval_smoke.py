@@ -40,12 +40,16 @@ class FakeRetrievalRuntime:
         self.captures: list[dict[str, object]] = []
         self.memories: list[dict[str, object]] = []
         self.searches: list[dict[str, object]] = []
+        self.prepares: list[dict[str, object]] = []
+        self.preflight_calls: list[str] = []
         self.text_by_scope: dict[str, list[str]] = {}
 
     def get_readiness(self) -> Mapping[str, object]:
+        self.preflight_calls.append("readiness")
         return {"status": "ready"}
 
     def get_capabilities(self) -> Mapping[str, object]:
+        self.preflight_calls.append("capabilities")
         return {
             "search_modes": ["auto", "fts"],
             "context_versions": ["powercontext.prepared-context.v1"],
@@ -109,6 +113,7 @@ class FakeRetrievalRuntime:
 
     def prepare_context(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         request = dict(payload)
+        self.prepares.append(request)
         scope_id = str(request["scope_id"])
         maximum = request["max_bytes"]
         assert isinstance(maximum, int) and not isinstance(maximum, bool)
@@ -441,6 +446,10 @@ def test_default_arm_keeps_the_previous_fts_behaviour(tmp_path: Path, monkeypatc
 
     assert [request["mode"] for request in runtime.searches] == ["fts", "fts"]
     manifest = json.loads((output_dir / "retrieval-manifest.json").read_text(encoding="utf-8"))
+    assert "diagnostics" not in manifest
+    assert {event["schema"] for event in read_jsonl(output_dir / "adapter-audit.jsonl")} == {
+        "powercontext.longmemeval-v2-memory-audit.v1"
+    }
     assert manifest["experiment_arm"] == {
         "id": "current-memory-fts-v1",
         "retrieval_strategy": "memory-search",
@@ -482,7 +491,11 @@ def test_query_time_compact_arm_uses_prepared_context_without_memory_search(
     output_dir = run(tmp_path, monkeypatch, runtime, experiment_arm="query-time-compact-v1")
 
     assert runtime.searches == []
+    assert runtime.preflight_calls == ["readiness", "capabilities"]
+    assert len(runtime.prepares) == 2
+    assert all(set(request) == {"scope_id", "query", "max_bytes"} for request in runtime.prepares)
     manifest = json.loads((output_dir / "retrieval-manifest.json").read_text(encoding="utf-8"))
+    assert "diagnostics" not in manifest
     assert manifest["experiment_arm"]["id"] == "query-time-compact-v1"
     assert manifest["runtime"]["query_strategy"] == "prepared-context"
     assert manifest["runtime"]["prepared_context_max_bytes"] == 8_000
@@ -491,6 +504,115 @@ def test_query_time_compact_arm_uses_prepared_context_without_memory_search(
     assert all(result["search_mode"] == {"requested": None, "actual": None} for result in results)
     contexts = [result["memory_context"] for result in results]
     assert all(isinstance(context, list) and len(context) == 1 for context in contexts)
+    audit = read_jsonl(output_dir / "adapter-audit.jsonl")
+    assert all(event["schema"] == "powercontext.longmemeval-v2-memory-audit.v1" for event in audit)
+    assert all("prepared_context_diagnostics" not in event for event in audit)
+
+
+@pytest.mark.parametrize(
+    ("enabled", "revision", "arm", "message"),
+    [
+        ("false", None, "query-time-compact-v1", "must be a boolean"),
+        ("true", "a" * 40, "query-time-compact-v1", "must be a boolean"),
+        (0, None, "query-time-compact-v1", "must be a boolean"),
+        (1, "a" * 40, "query-time-compact-v1", "must be a boolean"),
+        (None, None, "query-time-compact-v1", "must be a boolean"),
+        (True, "a" * 40, "current-memory-fts-v1", "requires a prepared-context"),
+        (True, None, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, "A" * 40, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, "a" * 39, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, "a" * 41, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, "g" * 40, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, "a" * 40 + "\n", "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+        (True, 123, "query-time-compact-v1", "40-character lowercase hexadecimal SHA"),
+    ],
+)
+def test_receipt_config_is_validated_before_runtime_requests_or_output_writes(
+    tmp_path: Path, enabled: object, revision: object, arm: str, message: str
+) -> None:
+    runtime = FakeRetrievalRuntime()
+    with pytest.raises(RetrievalSmokeError, match=message):
+        run_retrieval_smoke(
+            data_root=tmp_path / "missing-data",
+            dataset_lock=tmp_path / "missing-lock.json",
+            harness_root=tmp_path / "missing-harness",
+            smoke_manifest=tmp_path / "missing-smoke.json",
+            output_dir=tmp_path / "output",
+            run_id="test",
+            powercontext_revision="pc",
+            integration_revision="adapter",
+            experiment_arm=arm,
+            receipt_diagnostics=enabled,  # type: ignore[arg-type] - exercise untyped configuration input
+            receipt_server_revision=revision,  # type: ignore[arg-type]
+            runtime=runtime,
+        )
+
+    assert runtime.preflight_calls == []
+    assert runtime.scopes == []
+    assert not (tmp_path / "output").exists()
+
+
+def test_receipt_opt_in_reaches_each_adapter_and_records_only_local_server_attestation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    revision = "0123456789abcdef" * 2 + "01234567"
+    configs: list[dict[str, object]] = []
+    adapter_class = retrieval_smoke.PowerContextMemory
+
+    def adapter(config: dict[str, object]) -> Any:
+        configs.append(config)
+        return adapter_class(config)
+
+    monkeypatch.setattr(retrieval_smoke, "PowerContextMemory", adapter)
+    runtime = FakeRetrievalRuntime()
+    output_dir = run(
+        tmp_path,
+        monkeypatch,
+        runtime,
+        experiment_arm="query-time-compact-v1",
+        receipt_diagnostics=True,
+        receipt_server_revision=revision,
+    )
+
+    assert len(configs) == 2
+    assert all(
+        config["receipt_diagnostics"] is True and config["receipt_server_revision"] == revision for config in configs
+    )
+    manifest = json.loads((output_dir / "retrieval-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["diagnostics"] == {
+        "receipt_diagnostics": True,
+        "receipt_server_revision": revision,
+        "server_revision_basis": "operator_attested",
+    }
+    assert manifest["revisions"] == {"powercontext": "powercontext-sha", "integration": "integration-sha"}
+    assert runtime.preflight_calls == ["readiness", "capabilities"]
+    assert runtime.searches == []
+    assert len(runtime.prepares) == 2
+    assert all(set(request) == {"scope_id", "query", "max_bytes", "include_receipt"} for request in runtime.prepares)
+    assert all(request["include_receipt"] is True for request in runtime.prepares)
+    results = read_jsonl(output_dir / "retrieval-results.jsonl")
+    assert all(result["status"] == "succeeded" for result in results)
+    assert all("prepared_context_diagnostics" not in result for result in results)
+
+
+def test_disabled_receipts_ignore_revision_and_keep_adapter_config_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs: list[dict[str, object]] = []
+    adapter_class = retrieval_smoke.PowerContextMemory
+
+    def adapter(config: dict[str, object]) -> Any:
+        configs.append(config)
+        return adapter_class(config)
+
+    monkeypatch.setattr(retrieval_smoke, "PowerContextMemory", adapter)
+    output_dir = run(tmp_path, monkeypatch, FakeRetrievalRuntime(), receipt_server_revision="unused")
+
+    assert configs
+    assert all("receipt_diagnostics" not in config and "receipt_server_revision" not in config for config in configs)
+    manifest = json.loads((output_dir / "retrieval-manifest.json").read_text(encoding="utf-8"))
+    assert "diagnostics" not in manifest
+    assert "unused" not in json.dumps(manifest)
 
 
 def test_query_time_compact_arm_requires_prepared_context_capability(

@@ -106,6 +106,25 @@ Queries use the public Memory search endpoint and return upstream-compatible
 text context items. Query images are neither read nor sent because the current
 Memory search contract is text only.
 
+PreparedContext Receipt diagnostics are an explicit, evaluation-only opt-in. Both
+`retrieval-smoke` and `run-smoke` accept `--receipt-diagnostics` and
+`--receipt-server-revision` with a `prepared-context` arm such as
+`query-time-compact-v1`. The revision must be the 40-character lowercase hexadecimal
+source SHA of a deployed Server build the operator has verified supports Receipts.
+The SHA and `server_revision_basis: operator_attested` stay in the local manifest;
+the SHA is never sent to prepare and capability checks do not establish Receipt support.
+Invalid configuration is rejected before runtime HTTP or output writes.
+
+The default remains audit v1 with unchanged requests and context items. Opting in uses
+audit v2 and adds `include_receipt: true` to the existing prepare call, with no extra
+HTTP calls or automatic retry after 422. Diagnostics are an allowlisted projection
+bounded to 8,192 UTF-8 bytes; raw candidate counts stay unknown. Receipt availability
+and integrity are independent of a successful prepare and do not establish host
+injection, model use, or answer quality. See the
+[configuration, audit and report contract](docs/receipt-diagnostics.md) /
+[中文说明](docs/receipt-diagnostics.zh.md), including synthetic audit, manifest and
+aggregate examples and the offline verification commands.
+
 With a ready PowerContext Server, run the fixed ten-question retrieval-only
 smoke workload without a Reader, Judge, model credential, or scoring step:
 

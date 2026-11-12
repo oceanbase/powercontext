@@ -76,6 +76,7 @@ from powercontext_eval_longmemeval_v2.retrieval_smoke import (
     RetrievalSmokeError,
     RetrievalSmokeRun,
     RetrievalSmokeRuntime,
+    receipt_diagnostics_config,
     run_retrieval_smoke,
 )
 from powercontext_eval_longmemeval_v2.score_smoke import (
@@ -188,6 +189,8 @@ def run_smoke(
     powercontext_base_url: str = "http://127.0.0.1:8000",
     powercontext_token_env: str = "POWERCONTEXT_TOKEN",
     experiment_arm: str | ExperimentArm | None = None,
+    receipt_diagnostics: bool = False,
+    receipt_server_revision: str | None = None,
     search_limit: int = 10,
     timeout_seconds: float = 30.0,
     reader_provider: str = "deepseek-openai",
@@ -225,6 +228,14 @@ def run_smoke(
     processor_ref = _nonblank(processor_revision, "processor_revision")
     processor_name = _nonblank(processor_model, "processor_model")
     arm = resolve_experiment_arm(experiment_arm)
+    try:
+        diagnostic_config = receipt_diagnostics_config(
+            arm=arm,
+            receipt_diagnostics=receipt_diagnostics,
+            receipt_server_revision=receipt_server_revision,
+        )
+    except RetrievalSmokeError as error:
+        raise RunSmokeError(str(error)) from error
     if skip_reader:
         skip_score = True
     if reader_provider not in {"anthropic-compatible", "deepseek-openai"}:
@@ -289,6 +300,11 @@ def run_smoke(
             "phases": {phase: PHASE_DIRECTORIES[phase] for phase in PHASES},
             "modes": {"reader": not skip_reader, "score": not skip_score},
             "experiment_arm": arm_manifest_record(arm),
+            **(
+                {"diagnostics": {**diagnostic_config, "server_revision_basis": "operator_attested"}}
+                if diagnostic_config
+                else {}
+            ),
             "inputs": {
                 "data_root": str(data_root.resolve()),
                 "dataset_lock": {
@@ -455,6 +471,8 @@ def run_smoke(
             base_url=powercontext_base_url,
             token_env=resolved_powercontext_token_env,
             experiment_arm=arm,
+            receipt_diagnostics=receipt_diagnostics,
+            receipt_server_revision=receipt_server_revision,
             search_limit=search_limit,
             timeout_seconds=timeout_seconds,
             runtime=runtime,

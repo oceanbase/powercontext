@@ -15,6 +15,7 @@
 import json
 import re
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,9 @@ FORBIDDEN_KEYS = frozenset(
         "secret",
     }
 )
+AUDIT_V1 = "powercontext.longmemeval-v2-memory-audit.v1"
+AUDIT_V2 = "powercontext.longmemeval-v2-memory-audit.v2"
+DIAGNOSTICS_SCHEMA = "powercontext.longmemeval-v2-prepared-context-diagnostics.v1"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -103,8 +107,8 @@ def _successful_run(root: Path) -> Path:
     _write_jsonl(
         run / "02-retrieval" / "adapter-audit.jsonl",
         [
-            {"operation": "ingest", "timings_ms": {"total": 4.0}},
-            {"operation": "query", "timings_ms": {"total": 9.0}},
+            {"schema": AUDIT_V1, "operation": "ingest", "status": "succeeded", "timings_ms": {"total": 4.0}},
+            {"schema": AUDIT_V1, "operation": "query", "status": "succeeded", "timings_ms": {"total": 9.0}},
         ],
     )
     _write_json(
@@ -755,6 +759,394 @@ def test_report_counts_hybrid_mode_mismatch_as_integrity_failures(
     assert report["failures"]["integrity"] == 1
     assert report["failures"]["retrieval"] == 1
     assert report["failures"]["infrastructure"] == 1
+
+
+def _available_diagnostics() -> dict[str, Any]:
+    return {
+        "schema": DIAGNOSTICS_SCHEMA,
+        "receipt_status": "available",
+        "validation_failure": None,
+        "completeness": "complete",
+        "candidate_count": None,
+        "candidate_count_basis": "not_exposed",
+        "receipt_schema": "powercontext.prepared-context-receipt.v1",
+        "receipt_id": "private-receipt-id",
+        "policy_id": "powercontext.prepared-context-receipt.v1",
+        "content_digest": "private-content-digest",
+        "used_bytes": 150,
+        "requested_max_bytes": 512,
+        "truncated": True,
+        "non_deterministic": True,
+        "selected": [
+            {
+                "kind": "atomic-memory",
+                "artifact_address": {
+                    "scope_id": "private-scope-id",
+                    "artifact": {"family": "atomic-memory", "artifact_id": "private-artifact-id", "revision": "1"},
+                },
+                "rendered_bytes": 100,
+                "truncated": True,
+            },
+            {
+                "kind": "code",
+                "code_evidence": {
+                    "scope_id": "private-code-scope-id",
+                    "fingerprint": "private-fingerprint",
+                    "file_sha256": "private-file-digest",
+                    "snippet_sha256": "private-snippet-digest",
+                    "start_line": 1,
+                    "end_line": 4,
+                },
+                "rendered_bytes": 49,
+                "truncated": False,
+            },
+        ],
+        "omitted": [
+            {"family": "atomic-memory", "reason": "duplicate", "count": 2},
+            {"family": "atomic-memory", "reason": "below_min_bytes", "count": 3},
+            {"family": "topic-memory", "reason": "not_retrieved", "count": 1},
+        ],
+        "retrieval": {
+            "rounds": [
+                {"round": 0, "outcome": "completed", "retained": True},
+                {"round": 1, "outcome": "completed", "retained": False},
+                {"round": 2, "outcome": "expansion_failed", "retained": False},
+            ],
+            "searches": [
+                {
+                    "round": 0,
+                    "family": "atomic-memory",
+                    "mode": "hybrid",
+                    "outcome": "completed",
+                    "fallback_reason": "none",
+                    "count": 2,
+                },
+                {
+                    "round": 0,
+                    "family": "atomic-memory",
+                    "mode": "fts",
+                    "outcome": "completed",
+                    "fallback_reason": "inference_timeout",
+                    "count": 1,
+                },
+                {
+                    "round": 1,
+                    "family": "atomic-memory",
+                    "mode": "fts",
+                    "outcome": "completed",
+                    "fallback_reason": "reused_fts_fallback",
+                    "count": 1,
+                },
+                {
+                    "round": 0,
+                    "family": "experience",
+                    "mode": "none",
+                    "outcome": "not_run",
+                    "fallback_reason": "none",
+                    "count": 1,
+                },
+            ],
+            "reranks": [
+                {
+                    "round": 0,
+                    "config_id": "private-config-a",
+                    "outcome": "selected",
+                    "fallback_reason": "none",
+                    "count": 2,
+                },
+                {
+                    "round": 0,
+                    "config_id": "private-config-b",
+                    "outcome": "selected",
+                    "fallback_reason": "none",
+                    "count": 1,
+                },
+                {
+                    "round": 1,
+                    "config_id": "private-config-a",
+                    "outcome": "fallback",
+                    "fallback_reason": "inference_timeout",
+                    "count": 1,
+                },
+            ],
+            "rerank_configs": [
+                {
+                    "config_id": "private-config-a",
+                    "config_digest": "private-config-digest-a",
+                    "non_deterministic": True,
+                },
+                {
+                    "config_id": "private-config-b",
+                    "config_digest": "private-config-digest-b",
+                    "prompt_digest": "private-prompt-digest",
+                    "non_deterministic": False,
+                },
+            ],
+        },
+        "stages": [
+            {"stage": "memory.search", "duration_ms": 4.25, "count": 4},
+            {"stage": "memory.rerank", "duration_ms": 2.5, "count": 4},
+            {"stage": "context.build", "duration_ms": 1.5, "count": 1},
+        ],
+    }
+
+
+def _query_audit(diagnostics: object, *, status: str = "succeeded") -> dict[str, object]:
+    return {
+        "schema": AUDIT_V2,
+        "operation": "query",
+        "status": status,
+        "prepared_context_diagnostics": diagnostics,
+    }
+
+
+def _report_with_audit(tmp_path: Path, rows: list[dict[str, object]]) -> tuple[dict[str, Any], str]:
+    run = _successful_run(tmp_path)
+    _write_jsonl(run / "02-retrieval" / "adapter-audit.jsonl", rows)
+    result = build_report(run_dir=run)
+    return json.loads(result.report_path.read_text(encoding="utf-8")), result.markdown_path.read_text(encoding="utf-8")
+
+
+def test_report_aggregates_receipts_by_public_fields_with_separate_units(tmp_path: Path) -> None:
+    diagnostic = _available_diagnostics()
+    second = deepcopy(diagnostic)
+    second["selected"] = second["selected"][:1]
+    report, markdown = _report_with_audit(
+        tmp_path,
+        [
+            {"schema": AUDIT_V2, "operation": "ingest", "timings_ms": {"total": 4.0}},
+            _query_audit(diagnostic),
+            _query_audit(second),
+        ],
+    )
+
+    summary = report["prepared_context_diagnostics"]
+    assert summary["status"] == "collected"
+    assert summary["completeness"] == "complete"
+    assert summary["query_count"] == summary["available_count"] == 2
+    assert summary["unavailable_count"] == summary["invalid_count"] == summary["failed_request_count"] == 0
+    assert summary["candidate_count"] is None
+    assert summary["candidate_count_basis"] == "not_exposed"
+    assert summary["selected_count"] == 3
+    assert summary["truncated_item_count"] == 2
+    assert summary["truncated_receipt_count"] == 2
+    assert summary["non_deterministic_count"] == 2
+    assert summary["used_bytes"] == 300
+    assert summary["requested_max_bytes"] == 1024
+    assert summary["selected"] == [
+        {"kind": "atomic-memory", "count": 2, "truncated_count": 2, "rendered_bytes": 200, "unit": "items"},
+        {"kind": "code", "count": 1, "truncated_count": 0, "rendered_bytes": 49, "unit": "items"},
+    ]
+    assert summary["omitted"] == [
+        {"family": "atomic-memory", "reason": "duplicate", "count": 4, "unit": "items"},
+        {"family": "atomic-memory", "reason": "below_min_bytes", "count": 6, "unit": "items"},
+        {"family": "topic-memory", "reason": "not_retrieved", "count": 2, "unit": "items"},
+    ]
+    assert summary["searches"] == [
+        dict(row, count=row["count"] * 2, unit="executions") for row in diagnostic["retrieval"]["searches"]
+    ]
+    assert summary["reranks"] == [
+        {"round": 0, "outcome": "selected", "fallback_reason": "none", "count": 6, "unit": "executions"},
+        {"round": 1, "outcome": "fallback", "fallback_reason": "inference_timeout", "count": 2, "unit": "executions"},
+    ]
+    assert summary["rounds"] == [dict(row, count=2, unit="rounds") for row in diagnostic["retrieval"]["rounds"]]
+    assert summary["expansion_failure_count"] == 2
+    assert summary["stages"] == [
+        dict(row, count=row["count"] * 2, duration_ms=row["duration_ms"] * 2, unit="executions")
+        for row in diagnostic["stages"]
+    ]
+    assert report["latency_ms"]["ingest"] == 4.0
+    assert report["context"]["items"] == 30
+    assert "Prepared context diagnostics:" in markdown
+    assert "unit=items" in markdown
+    assert "unit=executions" in markdown
+    assert "duration_ms=8.5" in markdown
+
+
+def test_report_marks_v1_diagnostics_as_not_collected_with_null_counts(tmp_path: Path) -> None:
+    run = _successful_run(tmp_path)
+    result = build_report(run_dir=run)
+    summary = json.loads(result.report_path.read_text(encoding="utf-8"))["prepared_context_diagnostics"]
+
+    assert summary["status"] == summary["completeness"] == "not_collected"
+    assert all(value is None for key, value in summary.items() if key.endswith(("count", "bytes")))
+    for key in ("selected", "omitted", "searches", "reranks", "rounds", "stages"):
+        assert summary[key] is None
+    assert "status=not_collected" in result.markdown_path.read_text(encoding="utf-8")
+
+
+def test_report_preserves_zero_selection_from_a_valid_empty_receipt(tmp_path: Path) -> None:
+    diagnostic = _available_diagnostics()
+    diagnostic.update(selected=[], used_bytes=0, content_digest=None, truncated=False, non_deterministic=False)
+    diagnostic["retrieval"] = {"rounds": [], "searches": [], "reranks": [], "rerank_configs": []}
+    diagnostic["omitted"] = [{"family": "atomic-memory", "reason": "not_retrieved", "count": 1}]
+    diagnostic["stages"] = []
+    report, _ = _report_with_audit(tmp_path, [_query_audit(diagnostic)])
+
+    summary = report["prepared_context_diagnostics"]
+    assert summary["completeness"] == "complete"
+    assert summary["available_count"] == 1
+    assert summary["selected_count"] == summary["truncated_item_count"] == summary["truncated_receipt_count"] == 0
+    assert summary["used_bytes"] == 0
+    assert summary["selected"] == summary["searches"] == summary["reranks"] == summary["stages"] == []
+    assert summary["candidate_count"] is None
+
+
+@pytest.mark.parametrize(
+    "malformation",
+    [
+        "schema",
+        "selected",
+        "search_count",
+        "family",
+        "duration",
+        "failure",
+        "incomplete",
+        "truncated",
+        "oversize",
+    ],
+)
+def test_report_marks_malformed_available_diagnostics_as_invalid(tmp_path: Path, malformation: str) -> None:
+    diagnostic = _available_diagnostics()
+    if malformation == "schema":
+        diagnostic["schema"] = "powercontext.longmemeval-v2-prepared-context-diagnostics.v2"
+    elif malformation == "selected":
+        del diagnostic["selected"]
+    elif malformation == "search_count":
+        diagnostic["retrieval"]["searches"][0]["count"] = True
+    elif malformation == "family":
+        diagnostic["omitted"][0]["family"] = "private-unrecognized-family"
+    elif malformation == "duration":
+        diagnostic["stages"][0]["duration_ms"] = -1
+    elif malformation == "failure":
+        diagnostic["validation_failure"] = "receipt_schema"
+    elif malformation == "incomplete":
+        diagnostic["completeness"] = "incomplete"
+    elif malformation == "truncated":
+        diagnostic["truncated"] = False
+    else:
+        diagnostic["receipt_id"] = "汉" * 3000
+        assert len(json.dumps(diagnostic, ensure_ascii=False, separators=(",", ":"))) < 8192
+    report, markdown = _report_with_audit(tmp_path, [_query_audit(diagnostic)])
+
+    summary = report["prepared_context_diagnostics"]
+    assert summary["available_count"] == 0
+    assert summary["invalid_count"] == summary["incomplete_count"] == 1
+    assert summary["completeness"] == "incomplete"
+    assert summary["selected_count"] is None
+    assert summary["searches"] is None
+    assert "private-" not in json.dumps(report) + markdown
+
+
+def test_report_separates_missing_invalid_unavailable_and_failed_requests(tmp_path: Path) -> None:
+    unavailable = {
+        "schema": DIAGNOSTICS_SCHEMA,
+        "receipt_status": "unavailable",
+        "validation_failure": None,
+        "completeness": "incomplete",
+        "candidate_count": None,
+        "candidate_count_basis": "not_exposed",
+    }
+    invalid = dict(unavailable, receipt_status="invalid", validation_failure="receipt_schema")
+    report, _ = _report_with_audit(
+        tmp_path,
+        [
+            _query_audit(unavailable),
+            _query_audit(invalid),
+            {"schema": AUDIT_V2, "operation": "query", "status": "succeeded"},
+            _query_audit(None),
+            _query_audit(None, status="failed"),
+        ],
+    )
+    summary = report["prepared_context_diagnostics"]
+    assert summary["query_count"] == 5
+    assert summary["available_count"] == 0
+    assert summary["unavailable_count"] == 1
+    assert summary["invalid_count"] == 3
+    assert summary["incomplete_count"] == 4
+    assert summary["failed_request_count"] == 1
+    assert summary["completeness"] == "incomplete"
+    for key in ("selected_count", "truncated_item_count", "used_bytes", "omitted", "searches", "reranks", "stages"):
+        assert summary[key] is None
+
+
+@pytest.mark.parametrize("status", ["failed", "unavailable", "invalid"])
+def test_report_never_uses_attribution_from_failed_or_untrusted_diagnostics(tmp_path: Path, status: str) -> None:
+    diagnostic = _available_diagnostics()
+    diagnostic["receipt_status"] = status if status != "failed" else "available"
+    report, markdown = _report_with_audit(
+        tmp_path, [_query_audit(diagnostic, status="failed" if status == "failed" else "succeeded")]
+    )
+
+    summary = report["prepared_context_diagnostics"]
+    assert summary["available_count"] == 0
+    assert summary["failed_request_count"] == int(status == "failed")
+    assert summary["selected_count"] is None
+    assert summary["omitted"] is None
+    assert summary["stages"] is None
+    assert "private-" not in json.dumps(report) + markdown
+
+
+def test_report_keeps_attribution_partial_when_some_v2_diagnostics_are_missing(tmp_path: Path) -> None:
+    report, _ = _report_with_audit(tmp_path, [_query_audit(_available_diagnostics()), _query_audit(None)])
+    summary = report["prepared_context_diagnostics"]
+    assert summary["completeness"] == "incomplete"
+    assert summary["attribution_basis"] == "available_receipts"
+    assert summary["available_count"] == summary["invalid_count"] == 1
+    assert summary["selected_count"] == 2
+
+
+@pytest.mark.parametrize("version", [None, "powercontext.longmemeval-v2-memory-audit.v3"])
+def test_report_rejects_unknown_audit_schemas_before_writing(tmp_path: Path, version: object) -> None:
+    run = _successful_run(tmp_path)
+    _write_jsonl(run / "02-retrieval" / "adapter-audit.jsonl", [{"schema": version, "operation": "ingest"}])
+    with pytest.raises(ReportError, match="Unsupported memory audit schema"):
+        build_report(run_dir=run)
+    assert not (run / "report.json").exists()
+
+
+def test_report_rejects_mixed_audit_versions_even_on_non_query_rows(tmp_path: Path) -> None:
+    run = _successful_run(tmp_path)
+    _write_jsonl(
+        run / "02-retrieval" / "adapter-audit.jsonl",
+        [
+            {"schema": AUDIT_V1, "operation": "ingest"},
+            _query_audit(_available_diagnostics()),
+        ],
+    )
+    with pytest.raises(ReportError, match="Mixed memory audit schemas"):
+        build_report(run_dir=run)
+    assert not (run / "report.json").exists()
+
+
+@pytest.mark.parametrize("damaged", [b"{bad json\n", b"[]\n", b"\xff\n"])
+def test_report_rejects_malformed_audit_records_instead_of_skipping_them(tmp_path: Path, damaged: bytes) -> None:
+    run = _successful_run(tmp_path)
+    audit = run / "02-retrieval" / "adapter-audit.jsonl"
+    audit.write_bytes(json.dumps(_query_audit(_available_diagnostics())).encode("utf-8") + b"\n" + damaged)
+    with pytest.raises(ReportError, match="memory audit|Memory audit"):
+        build_report(run_dir=run)
+    assert not (run / "report.json").exists()
+
+
+def test_report_diagnostics_exclude_identities_content_and_open_stage_names(tmp_path: Path) -> None:
+    diagnostic = _available_diagnostics()
+    diagnostic["stages"].append({"stage": "private-path-or-query", "duration_ms": 0.5, "count": 1})
+    diagnostic["content"] = GOLD_SENTINEL
+    diagnostic["query"] = "private-query-text"
+    diagnostic["query_digest"] = "private-query-digest"
+    diagnostic["selected"][1]["code_evidence"]["path"] = "private-repository-path"
+    report, markdown = _report_with_audit(tmp_path, [_query_audit(diagnostic)])
+
+    summary = report["prepared_context_diagnostics"]
+    assert summary["stages"][-1] == {"stage": "other", "duration_ms": 0.5, "count": 1, "unit": "executions"}
+    text = json.dumps(report) + markdown
+    assert "private-" not in text
+    assert GOLD_SENTINEL not in text
+    for key, _ in _walk(summary):
+        leaf = key.rsplit(".", 1)[-1]
+        assert not leaf.endswith(("_id", "_digest", "_sha256")), key
+        assert leaf not in {"artifact_address", "code_evidence", "content", "query", "path"}, key
 
 
 def _walk(value: Any, prefix: str = "") -> list[tuple[str, object]]:

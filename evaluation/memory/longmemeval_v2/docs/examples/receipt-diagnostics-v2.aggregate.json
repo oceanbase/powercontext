@@ -1,0 +1,105 @@
+{
+  "attribution_basis": "available_receipts",
+  "available_count": 1,
+  "candidate_count": null,
+  "candidate_count_basis": "not_exposed",
+  "completeness": "complete",
+  "expansion_failure_count": 1,
+  "failed_request_count": 0,
+  "incomplete_count": 0,
+  "invalid_count": 0,
+  "non_deterministic_count": 0,
+  "omitted": [
+    {
+      "count": 2,
+      "family": "atomic-memory",
+      "reason": "below_min_bytes",
+      "unit": "items"
+    },
+    {
+      "count": 1,
+      "family": "atomic-memory",
+      "reason": "rerank_not_selected",
+      "unit": "items"
+    },
+    {
+      "count": 1,
+      "family": "topic-memory",
+      "reason": "not_retrieved",
+      "unit": "items"
+    }
+  ],
+  "query_count": 1,
+  "requested_max_bytes": 8000,
+  "reranks": [
+    {
+      "count": 1,
+      "fallback_reason": "none",
+      "outcome": "selected",
+      "round": 0,
+      "unit": "executions"
+    }
+  ],
+  "rounds": [
+    {
+      "count": 1,
+      "outcome": "completed",
+      "retained": true,
+      "round": 0,
+      "unit": "rounds"
+    },
+    {
+      "count": 1,
+      "outcome": "expansion_failed",
+      "retained": false,
+      "round": 1,
+      "unit": "rounds"
+    }
+  ],
+  "searches": [
+    {
+      "count": 1,
+      "fallback_reason": "inference_unavailable",
+      "family": "atomic-memory",
+      "mode": "fts",
+      "outcome": "completed",
+      "round": 0,
+      "unit": "executions"
+    }
+  ],
+  "selected": [
+    {
+      "count": 1,
+      "kind": "atomic-memory",
+      "rendered_bytes": 160,
+      "truncated_count": 1,
+      "unit": "items"
+    }
+  ],
+  "selected_count": 1,
+  "stages": [
+    {
+      "count": 1,
+      "duration_ms": 1.0,
+      "stage": "memory.search",
+      "unit": "executions"
+    },
+    {
+      "count": 1,
+      "duration_ms": 0.2,
+      "stage": "memory.rerank",
+      "unit": "executions"
+    },
+    {
+      "count": 1,
+      "duration_ms": 2.0,
+      "stage": "context.build",
+      "unit": "executions"
+    }
+  ],
+  "status": "collected",
+  "truncated_item_count": 1,
+  "truncated_receipt_count": 1,
+  "unavailable_count": 0,
+  "used_bytes": 160
+}
