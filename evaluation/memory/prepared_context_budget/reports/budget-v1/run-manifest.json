@@ -1,6 +1,6 @@
 {
   "schema_version": "powercontext.prepared-context-budget-report.v1",
-  "generated_at": "2026-11-12T16:14:52+00:00",
+  "generated_at": "2026-11-12T16:23:47+00:00",
   "command": [
     "run.py",
     "--manifest",
@@ -12,7 +12,7 @@
   "manifest_sha256": "f66d20fde6356dee53d63790dbb4f5936f8979e51f1f01ee10452cde80068078",
   "definitions_path": "evaluation/memory/prepared_context_budget/fixtures/budget-v1-definitions.md",
   "definitions_sha256": "1892d202e9d5d9bda732912991609ecf68224ee096b48bd7269fa746bd3aa5ec",
-  "git_head": "d2fe4cac8de714f788f3acee7102e1ca23a88762",
+  "git_head": "9c2bfdc3d147c4f62b677a2301ff7e0ac07d43bd",
   "git_worktree_dirty": false,
   "source_sha256": {
     "src/powercontext/builtin/runtime/prepared_context.py": "e3d77ee5a841f57d9af78ee1df7ef7b33ea492d88c46d4b81666ed47355ca53b",
