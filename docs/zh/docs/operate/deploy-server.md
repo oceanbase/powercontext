@@ -297,8 +297,8 @@ G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://gith
   元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
   沉淀的 Source 完整记录这一回合（投影 `gateway-turn-text.v2`）：字段不截断、步骤不省略，工具调用的全部参数字段、
   工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
-  的占位文本。注入的记忆块不在 Source 里。一个回合超出 Source 的 200,000 字符上限时，按顺序拆成几段 Source，
-  元数据的 `turn` 标明所属回合与段号，句柄在最后一段上。
+  的占位文本。注入的记忆块不在 Source 里。每段 Source 都要能被 Core 的普通抽取单独处理，因此一个回合按 Core 的字符
+  估算超过约 12,000 个 token 时，按顺序拆成几段 Source，元数据的 `turn` 标明所属回合与段号，句柄在最后一段上。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。

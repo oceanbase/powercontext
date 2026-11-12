@@ -331,8 +331,9 @@ needs both sides:
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
   call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
   reasoning, IDs, and other transport metadata are left out, and binary data becomes a placeholder with its size.
-  Injected memory blocks are not in the Source. A turn over the Source's 200,000-character limit is captured as
-  consecutive Sources; their metadata `turn` names the turn and the part, and the handle is on the last part.
+  Injected memory blocks are not in the Source. Each Source must fit Core's default extraction input on its own, so
+  a turn over about 12,000 tokens by Core's character estimate is captured as consecutive Sources. Their metadata
+  `turn` names the turn and the part, and the handle is on the last part.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.

@@ -2746,7 +2746,7 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
 async fn a_captured_turn_keeps_every_call_field_and_output_uncut() {
     let call_item = serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
         "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}});
-    let long = "x".repeat(50_000);
+    let long = "x".repeat(40_000);
     let output_item =
         serde_json::json!({"type": "apply_patch_call_output", "call_id": "call_0", "output": long});
     let (executor, _renderer, _transport, gate) = harness(
