@@ -459,7 +459,7 @@ export POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER="powercontext-local-validation-$(i
 uv run --no-sync pytest -q tests/native/test_personal_service_lifecycle.py
 ```
 
-The Desktop page currently performs a read-only status inspection through `ops.inspect`; it does not install, start, stop or restart a service. The product uses the current user's `systemctl --user` manager and does not enable linger, write system units or require root. A passing Rust, lifecycle or candidate-bundle test does not by itself qualify a signed package or a normal user's login-session configuration.
+The Desktop page uses `ops.inspect` for read-only status inspection and dispatches explicitly approved lifecycle plans through `ops.apply`; with a valid Linux binding, the page can install, repair, start, stop or restart the personal service. These operations use the current user's `systemctl --user` manager and do not enable linger, write system units or require root. A passing Rust, lifecycle or candidate-bundle test does not by itself qualify a signed package or a normal user's login-session configuration.
 
 ## Deployment context validation
 
