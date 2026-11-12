@@ -1138,6 +1138,7 @@ def related_window_match(
         return math.dist(request.query_vector, vector) <= request.max_distance
     return False
 
+
 @dataclass(slots=True)
 class _ProcessingAttempt:
     previous_attempt_id: str | None = None
