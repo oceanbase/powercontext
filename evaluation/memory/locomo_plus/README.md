@@ -295,6 +295,11 @@ Factual and cognitive scores are reported separately, with cognitive results spl
 The report distinguishes quality among completed evaluations from end-to-end success over all planned valid cases.
 Dataset exclusions are audited separately from inference and infrastructure failures.
 
+The observed-case `comparable_four` micro group covers categories 1–4 and its recorded reference answers are
+split with `str.split()` under `reference-word-bins-v1 (1-2, 3-8, 9+)` (LoCoMo-Plus combines the middle bins from
+[LoCoMo Table 2](https://arxiv.org/html/2611.09807v1#S5.T2), so per-bin scores are not directly comparable), while
+the overall end-to-end denominator includes unobserved planned cases.
+
 Outputs default to `evaluation/memory/locomo_plus/results/<run-id>/`:
 
 - `run.json`: immutable run identity, selection, model configuration, harness fingerprint, and execution settings.
