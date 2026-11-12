@@ -15,6 +15,7 @@
 """Source citations survive real Server startup, persistence and both transports."""
 
 import json
+import re
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -39,6 +40,25 @@ def _handoff(refs):
             "omissions": [],
         },
     }
+
+
+def _roll_back_to(runner, revision, connection):
+    """Undo every registered table introduced after ``revision``.
+
+    The test reconstructs an older registered layout by rewinding the recorded
+    version. Dropping the tables each later revision creates keeps that rewrite
+    honest as the revision chain grows, instead of replaying DDL that is still
+    installed.
+    """
+    snapshot = runner.bundle.snapshot_directory
+    for later in reversed(runner.bundle.pending(revision)):
+        schema = json.loads((snapshot / f"schemas/sqlite-{later}.json").read_text(encoding="utf-8"))
+        statements = [*schema.get("create", []), *schema.get("statements", [])]
+        for statement in reversed(statements):
+            table = re.match(r"\s*CREATE TABLE\s+(\w+)", statement, re.IGNORECASE)
+            if table:
+                connection.execute(f"DROP TABLE IF EXISTS {table.group(1)}")
+    connection.execute("UPDATE pc_schema_revision SET version_num = ?", (revision,))
 
 
 def _settings(database):
@@ -67,11 +87,10 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         legacy_id = legacy.json()["artifact_id"]
 
     # Reconstruct the previous registered layout, preserving its real historical evidence.
-    with sqlite3.connect(database) as connection:
-        connection.execute("DROP TABLE pc_artifact_source_locators")
-        connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_5_0_003'")
-
     runner = deployment_runner(_settings(database))
+    with sqlite3.connect(database) as connection:
+        _roll_back_to(runner, "v1_5_0_003", connection)
+
     plan = runner.plan()
     assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
