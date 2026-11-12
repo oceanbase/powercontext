@@ -63,18 +63,31 @@ def test_the_pinned_report_replays_byte_for_byte(tmp_path: Path) -> None:
 def test_the_run_manifest_records_path_arguments_relative_to_the_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    assert main(["--manifest", str(_MANIFEST), "--output", "out"]) == 0
+    monkeypatch.chdir(_SUITE)
+    assert main(["--manifest", "fixtures/budget-v1.json", "--output", str(tmp_path)]) == 0
 
-    run = json.loads((tmp_path / "out" / "run-manifest.json").read_text(encoding="utf-8"))
+    run = json.loads((tmp_path / "run-manifest.json").read_text(encoding="utf-8"))
     # The manifest is a replay record, so its arguments must not depend on the machine that produced it.
     assert run["command"] == [
         "run.py",
         "--manifest",
         "evaluation/memory/prepared_context_budget/fixtures/budget-v1.json",
         "--output",
-        "out",
+        str(tmp_path.resolve()),
     ]
+
+
+def test_the_recorded_command_replays_from_the_repository_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `run.py` reads a relative `--manifest` from the invocation directory, so the record has to resolve the argument
+    # the same way: recording it against the repository root would name a file the run never read.
+    monkeypatch.chdir(_SUITE)
+    assert main(["--manifest", "fixtures/budget-v1.json", "--output", str(tmp_path)]) == 0
+    command = json.loads((tmp_path / "run-manifest.json").read_text(encoding="utf-8"))["command"]
+
+    monkeypatch.chdir(_SUITE.parents[2])
+    assert main(command[1:]) == 0
+
+    assert (tmp_path / "report.json").read_bytes() == (_PINNED / "report.json").read_bytes()
 
 
 def test_the_pinned_run_manifest_names_no_absolute_path() -> None:

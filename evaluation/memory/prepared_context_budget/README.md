@@ -89,7 +89,7 @@ rank), `weight`, `display_bytes` (the complete display body), and for each arm `
 | --- | --- |
 | `schema_version` | Report schema version |
 | `generated_at` | UTC run time |
-| `command` | The `run.py` arguments, with the `--manifest` and `--output` paths recorded relative to the repository root |
+| `command` | The `run.py` arguments, replayable from the repository root: `--manifest` and `--output` are resolved from the invocation directory and recorded relative to the repository root when they are inside it |
 | `manifest_path`, `manifest_sha256` | The manifest as run |
 | `definitions_path`, `definitions_sha256` | The definitions as run |
 | `git_head`, `git_worktree_dirty` | Git revision and whether `src` or `evaluation/memory` had uncommitted changes |

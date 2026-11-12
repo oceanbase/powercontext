@@ -224,8 +224,9 @@ def _relative_arguments(command: Sequence[str], repo_root: Path) -> list[str]:
 
 
 def _recorded_path(value: str, repo_root: Path) -> str:
-    path = Path(value)
-    return _relative(path if path.is_absolute() else repo_root / path, repo_root)
+    # ``run.py`` resolves a relative argument against the invocation directory, so resolve it the same way before
+    # making it repository-relative; resolving against ``repo_root`` would record a different file than the one read.
+    return _relative(Path(value).resolve(), repo_root)
 
 
 def _git(repo_root: Path, *arguments: str) -> str | None:
