@@ -18,6 +18,7 @@ import asyncio
 import json
 import multiprocessing
 import os
+import traceback
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from unittest.mock import patch
@@ -126,15 +127,32 @@ def _probe(path: Path, worker: str, connection=None) -> tuple[str, list[tuple[st
 
 
 def _worker(path: Path, name: str, connection) -> None:
+    """Reply over the pipe and leave with an explicit, deterministic exit code.
+
+    A spawned interpreter's normal shutdown joins any background threads left
+    by ``open_builtin_runtime`` and competes with the other seven pytest workers
+    on a two-core CI shard. That made ``exitcode`` a report on CPU scheduling
+    rather than on the credential behaviour under test: workers that had
+    already sent the expected reply still outlasted both a 10s and a 60s join
+    (runs 42687710011, 42714396200, 43170565715). ``os._exit`` skips that
+    shutdown after the reply has been written, so the parent can still assert a
+    clean exit without depending on how busy the runner is. A crash is reported
+    both as exit code 1 and, through the pipe, as a missing reply.
+    """
+
+    exit_code = 0
     try:
         connection.send(_probe(path, name, connection))
+    except Exception:
+        traceback.print_exc()
+        exit_code = 1
     finally:
-        connection.close()
+        try:
+            connection.close()
+        finally:
+            os._exit(exit_code)
 
 
-# Every worker re-imports this module in a fresh interpreter, and the CI matrix shares two cores among eight pytest
-# workers, so the exit can trail the reply it already sent by more than ten seconds. A slow exit is not what this test
-# is about; a worker that never exits still fails the assertion below.
 _WORKER_EXIT_SECONDS = 60
 
 
