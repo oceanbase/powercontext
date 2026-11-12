@@ -287,6 +287,10 @@ CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
 
 完整 Server 接下来应按[数据库迁移](../operate/database-migrations.md)指南，显式指定证据目录和协调模式，对登记的 Server bundle 执行 plan、apply 和 verify。数据库就绪后再运行 `powercontext server run`。Server 启动检查就绪状态，不初始化 OceanBase 表结构，也不会自动升级已有库。SDK 调用方完成建库后可以使用原 URL 重试初始化。创建缺失表仍然需要建表权限；已有完整可用库不会新增建库权限要求。初始化不会删除或重建已有数据库，不会在失败后切换其他数据库，也不授权升级已有表结构。并发创建使用幂等建库、建表 DDL，并处理索引重名竞争；这不提供已有表结构迁移的协调能力，也不改变嵌入式 seekDB 对实例进程所有权的限制。
 
+### 独立 seekdb 服务器
+
+独立 seekdb 服务器使用同一 `oceanbase` kind 和 `mysql+aoceanbase://` URL 格式，不是新的存储 kind。当 `ob_compatibility_mode` 缺失或为空、且 `VERSION()` 包含 `-OceanBase seekdb-` 时，维护命令将其识别为独立 seekdb。不需要安装 `pylibseekdb`，也不使用本地引擎目录。所选数据库必须预先存在：PowerContext 不自动建库、不启用嵌入式 seekDB Code 存储；显式 `db-migrate` 命令带 `--evidence-dir <path>` 和 `--lock-coordination single-host` 确认数据库就绪后，才运行 `powercontext server run`。
+
 Python 调用方使用 `OceanBaseProfile.open()` 时可省略 URL 中的库名，并按需建库。`OceanBaseProfile.open_existing()` 只连接已准备好的数据库；`attach()` 要求调用方的 engine 已显式选择一个已有数据库。两者都不替换 engine 或改变连接目标。只读巡检（`plan`、`verify` 与 `db-migrate` 的检查类命令）不会创建缺失的 OceanBase 或内嵌 seekDB 库；显式的 seekDB 写入维护可以在应用迁移包前准备配置指定的数据库。
 
 只读 seekDB 巡检要求实例目录已初始化。路径缺失或目录为空时，会在启动 native 引擎前报错，不创建父目录或存储文件。路径为文件，或非空目录中没有可识别的 native 存储时，也会拒绝操作并保留原有内容。普通启动仍可初始化新实例。

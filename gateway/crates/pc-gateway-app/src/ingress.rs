@@ -894,11 +894,23 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             Json(serde_json::json!({ "decision": "block", "reason_codes": reason_codes })),
         )
             .into_response(),
-        ManagedOutcome::Withheld { reason_codes } => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "decision": "withhold", "reason_codes": reason_codes })),
-        )
-            .into_response(),
+        ManagedOutcome::Withheld {
+            reason_codes,
+            retryable,
+        } => {
+            // Codex retries generic 403/409 errors as stream failures. A deterministic
+            // refusal must be a bad request; only a context refresh remains recoverable.
+            let status = if retryable {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(serde_json::json!({ "decision": "withhold", "reason_codes": reason_codes })),
+            )
+                .into_response()
+        }
         ManagedOutcome::SendIndeterminate => (
             StatusCode::BAD_GATEWAY,
             Json(serde_json::json!({ "decision": "send_indeterminate" })),
@@ -954,6 +966,53 @@ pub(crate) mod tests {
         pub blocked_phase: std::sync::atomic::AtomicUsize,
         pub entered: tokio::sync::Notify,
         pub release: tokio::sync::Notify,
+    }
+
+    #[tokio::test]
+    async fn deterministic_withholds_are_bad_requests_and_preserve_reasons() {
+        for reasons in [
+            vec!["target_unsupported"],
+            vec!["context-refresh-required"],
+            vec!["invalid_response_encoding"],
+            vec!["response_buffer_limit_exceeded"],
+            vec!["context-refresh-required", "target_unsupported"],
+            vec![],
+        ] {
+            let response = respond(
+                ManagedOutcome::Withheld {
+                    reason_codes: reasons.iter().map(|reason| (*reason).to_owned()).collect(),
+                    retryable: false,
+                },
+                OutputProtocol::OpenAiResponses,
+            );
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{reasons:?}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(
+                body,
+                serde_json::json!({
+                    "decision": "withhold", "reason_codes": reasons,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn retryable_withholds_and_expired_admissions_remain_conflicts() {
+        for outcome in [
+            ManagedOutcome::Withheld {
+                reason_codes: vec!["executor-defined-recoverable-reason".into()],
+                retryable: true,
+            },
+            ManagedOutcome::AdmissionExpired,
+        ] {
+            assert_eq!(
+                respond(outcome, OutputProtocol::OpenAiResponses).status(),
+                StatusCode::CONFLICT,
+            );
+        }
     }
 
     pub(crate) async fn lifecycle_router(
