@@ -104,6 +104,7 @@ test('setup validates native include trees observed by a real DSH startup', { ti
     const result = JSON.parse(await fixture.cli(['setup', 'dsh', '--source', source,
       '--server-url', runtime.baseUrl, '--json']))
     assert.equal(result.hosts.dsh.setup, 'complete')
+    assert.equal(result.hosts.dsh.checks.plugin_memory_protocol.status, 'ok')
     assert.equal(JSON.parse(readFileSync(fixture.clients, 'utf8')).hosts.dsh.server_url, runtime.baseUrl)
     assert.equal(JSON.parse(readFileSync(credentials, 'utf8')).authorization, 'Bearer new-token')
     for (const [index, path] of includePaths.entries()) assert.deepEqual(readFileSync(path), includeBefore[index])
