@@ -1,6 +1,6 @@
 {
   "schema_version": "powercontext.prepared-context-budget-report.v1",
-  "generated_at": "2026-11-12T15:28:44+00:00",
+  "generated_at": "2026-11-12T16:14:52+00:00",
   "command": [
     "run.py",
     "--manifest",
@@ -12,7 +12,7 @@
   "manifest_sha256": "f66d20fde6356dee53d63790dbb4f5936f8979e51f1f01ee10452cde80068078",
   "definitions_path": "evaluation/memory/prepared_context_budget/fixtures/budget-v1-definitions.md",
   "definitions_sha256": "1892d202e9d5d9bda732912991609ecf68224ee096b48bd7269fa746bd3aa5ec",
-  "git_head": "a196d40eb72192201ee26b8aa85dc53d2995ddf4",
+  "git_head": "d2fe4cac8de714f788f3acee7102e1ca23a88762",
   "git_worktree_dirty": false,
   "source_sha256": {
     "src/powercontext/builtin/runtime/prepared_context.py": "e3d77ee5a841f57d9af78ee1df7ef7b33ea492d88c46d4b81666ed47355ca53b",
@@ -20,7 +20,7 @@
     "evaluation/memory/prepared_context_budget/arms.py": "d0e3fd2bf17cc3385f026064f0eddd25c192fc6165809b6567f0488a215e720f",
     "evaluation/memory/prepared_context_budget/experiment.py": "edd5949143c7b44533750d74a15acd295ca79deec4a5a2006e10eb58a06e28c5",
     "evaluation/memory/prepared_context_budget/manifest.py": "5d8d51f350ba8dd06a9a253c92cca0d45c5e42e08d5c9279b9af61a2a7268812",
-    "evaluation/memory/prepared_context_budget/report.py": "5c9e0b96149a8e94a721cdc57d6bbd9013956a62f54d32f918abbd24da0dcc0e",
+    "evaluation/memory/prepared_context_budget/report.py": "252697fbb23fc16372340e18d0fde6252168c4f2e45d1908ecac9b612f314a0d",
     "evaluation/memory/prepared_context_budget/run.py": "9253c5fdfcf0e522f16a0dd036517f89aeb44e06a53296cb35b98292b5d93f0b"
   },
   "python": "3.13.13",
