@@ -23,14 +23,15 @@ that read-only copy, so one call never mixes two versions of the code.
 from __future__ import annotations
 
 import shutil
-import stat
 from pathlib import Path
 from uuid import uuid4
 
 from powercontext.builtin.plugins.manifest import code_fingerprint
 
+# Files are read-only so a snapshot never changes; directories stay writable by the owner so
+# deleting the data directory with ordinary tools still works.
 _FILE_MODE = 0o444
-_DIRECTORY_MODE = 0o555
+_DIRECTORY_MODE = 0o755
 
 
 def content_digest(directory: Path) -> str:
@@ -69,12 +70,8 @@ def make_snapshot(source: Path, root: Path, name: str, digest: str) -> Path | No
 
 
 def remove_snapshot(path: Path) -> None:
-    if not path.exists():
-        return
-    # Deleting an entry needs a writable parent; read-only files themselves can be unlinked.
-    for directory in (path, *(item for item in path.rglob("*") if item.is_dir() and not item.is_symlink())):
-        directory.chmod(stat.S_IRWXU)
-    shutil.rmtree(path)
+    if path.exists():
+        shutil.rmtree(path)
 
 
 def remove_stale_snapshots(root: Path, *, older_than: float, keep: frozenset[Path]) -> None:
