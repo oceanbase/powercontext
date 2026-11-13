@@ -5802,13 +5802,17 @@ async function collectMaterials(context, source$1, read, limit) {
 	if (!checksObserved) note("No check evidence was available; whether checks ran is unknown.");
 	if (workspace && events.some((event) => event.kind === "check" && (event.revision && workspace.revision && event.revision !== workspace.revision || event.workspaceObservedAt && event.workspaceObservedAt !== workspace.observedAt))) note("Some checks describe a different revision or workspace state from the selected observation.");
 	if (events.some((event) => event.kind === "check" && !event.revision && !event.workspaceObservedAt)) note("Some checks could not be tied to an exact workspace state.");
-	for (const text of evidence.omissions?.slice(0, 16) ?? []) {
+	const hostOmissions = evidence.omissions ?? [];
+	const maxHostOmissions = 16;
+	let hostOmissionsTruncated = hostOmissions.length > maxHostOmissions;
+	for (const text of hostOmissions.slice(0, maxHostOmissions)) {
 		const size = typeof text === "string" ? Buffer.byteLength(JSON.stringify(text)) + 1 : 0;
 		if (available(text, 256) && size <= remaining) {
 			remaining -= size;
 			note(text);
-		} else note("Additional omissions reported by the Host could not be included.");
+		} else hostOmissionsTruncated = true;
 	}
+	if (hostOmissionsTruncated) note("Additional omissions reported by the Host could not be included.");
 	content.omissions = [...omissions];
 	const serialized = JSON.stringify(content);
 	if (Buffer.byteLength(serialized) > maxBytes) invalid();
@@ -5960,6 +5964,7 @@ const DELIVERY_SCHEMA = "powercontext.dsh-delivery.v1";
 const MAX_PACKAGE_BYTES = 1081344;
 const MAX_RECORD_BYTES = 64 * 1024;
 const MAX_REQUEST_KEYS = 64;
+const DARWIN_O_EXLOCK = 32;
 const states = new Set([
 	"preparing",
 	"needs_input",
@@ -5987,16 +5992,18 @@ function privateEntry(stat, directory$1) {
 	if ((directory$1 ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1) || stat.uid !== process.getuid?.() || (stat.mode & 63) !== 0) invalid();
 }
 /**
-* One local Host owns a directory. Every transaction is synchronous and runs to completion
+* The open directory descriptor holds the Host's exclusive lock until close or process exit.
+* Every transaction is synchronous and runs to completion
 * between awaits; each delivery's files are separate and normal requests never scan the disk.
 */
 var DeliveryStore = class {
 	records = /* @__PURE__ */ new Map();
 	root;
 	rootStat;
-	marker;
+	rootFd;
 	constructor(directory$1) {
-		if (!isAbsolute(directory$1) || !process.getuid || !constants.O_NOFOLLOW) throw new DeliveryError("integration_unavailable");
+		const darwin = process.platform === "darwin";
+		if (!darwin && process.platform !== "linux" || !isAbsolute(directory$1) || !process.getuid || !constants.O_NOFOLLOW) throw new DeliveryError("integration_unavailable");
 		const path = resolve(directory$1);
 		this.root = join(realpathSync(dirname(path)), basename(path));
 		try {
@@ -6006,23 +6013,27 @@ var DeliveryStore = class {
 		}
 		this.rootStat = lstatSync(this.root);
 		privateEntry(this.rootStat, true);
-		this.marker = join(this.root, ".host-" + process.pid);
-		closeSync(openSync(this.marker, "wx", 384));
+		const fd = openSync(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK | (darwin ? DARWIN_O_EXLOCK : 0));
+		this.rootFd = fd;
 		try {
-			const entries = readdirSync(this.root);
-			for (const name$1 of entries) {
-				const host = /^\.host-([1-9]\d*)$/.exec(name$1);
-				if (host && name$1 !== basename(this.marker)) {
-					try {
-						process.kill(Number(host[1]), 0);
-					} catch (error) {
-						if (!errno(error, "ESRCH")) throw error;
-						continue;
-					}
-					throw new DeliveryError("integration_unavailable");
-				}
+			const opened = fstatSync(fd);
+			privateEntry(opened, true);
+			if (opened.ino !== this.rootStat.ino || opened.dev !== this.rootStat.dev) invalid();
+			if (!darwin) {
+				if (spawnSync("/usr/bin/flock", ["--nonblock", "3"], {
+					stdio: [
+						"ignore",
+						"ignore",
+						"ignore",
+						fd
+					],
+					env: { LANG: "C" },
+					cwd: "/",
+					timeout: 1e3
+				}).status !== 0) throw new DeliveryError("integration_unavailable");
 			}
-			for (const name$1 of entries) {
+			this.checkRoot();
+			for (const name$1 of readdirSync(this.root)) {
 				const id = name$1.slice(0, -12);
 				if (name$1.endsWith(".record.json") && deliveryIdPattern.test(id)) {
 					const record$3 = decodeRecord(JSON.parse(this.read(name$1, MAX_RECORD_BYTES).toString("utf8")), id);
@@ -6035,9 +6046,11 @@ var DeliveryStore = class {
 		}
 	}
 	checkRoot() {
+		if (this.rootFd === void 0) throw new DeliveryError("integration_unavailable");
 		const stat = lstatSync(this.root);
 		privateEntry(stat, true);
 		if (stat.ino !== this.rootStat.ino || stat.dev !== this.rootStat.dev) invalid();
+		return this.rootFd;
 	}
 	read(name$1, maximum) {
 		this.checkRoot();
@@ -6060,12 +6073,7 @@ var DeliveryStore = class {
 		}
 	}
 	syncDirectory() {
-		const fd = openSync(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-		try {
-			fsyncSync(fd);
-		} finally {
-			closeSync(fd);
-		}
+		fsyncSync(this.checkRoot());
 	}
 	unlink(name$1) {
 		this.checkRoot();
@@ -6128,7 +6136,9 @@ var DeliveryStore = class {
 		this.records.delete(id);
 	}
 	close() {
-		this.unlink(basename(this.marker));
+		const fd = this.rootFd;
+		this.rootFd = void 0;
+		if (fd !== void 0) closeSync(fd);
 	}
 };
 

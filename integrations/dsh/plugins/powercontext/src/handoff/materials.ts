@@ -181,15 +181,19 @@ export async function collectMaterials(context: CallContext, source: SourceBound
   if (events.some(event => event.kind === 'check' && !event.revision && !event.workspaceObservedAt)) {
     note('Some checks could not be tied to an exact workspace state.')
   }
-  for (const text of evidence.omissions?.slice(0, 16) ?? []) {
+  const hostOmissions = evidence.omissions ?? []
+  const maxHostOmissions = 16
+  let hostOmissionsTruncated = hostOmissions.length > maxHostOmissions
+  for (const text of hostOmissions.slice(0, maxHostOmissions)) {
     const size = typeof text === 'string' ? Buffer.byteLength(JSON.stringify(text)) + 1 : 0
     if (available(text, 256) && size <= remaining) {
       remaining -= size
       note(text)
     } else {
-      note('Additional omissions reported by the Host could not be included.')
+      hostOmissionsTruncated = true
     }
   }
+  if (hostOmissionsTruncated) note('Additional omissions reported by the Host could not be included.')
   content.omissions = [...omissions]
   const serialized = JSON.stringify(content)
   if (Buffer.byteLength(serialized) > maxBytes) invalid()
