@@ -1,0 +1,30 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/artifact-type.html' import artifact_type %}
+<div class="table-responsive" role="region" aria-label="{{ t.processing_sources }}" tabindex="0">
+<table class="processing-sources-table">
+  <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.processing_table_status }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
+  <tbody>{% for item in processing_items %}
+    <tr class="processing-source-row">
+      <td>{% if item.saved_at %}<time>{{ item.saved_at|display_time }}</time>{% else %}<span class="text-secondary">{{ t.unknown_value }}</span>{% endif %}</td>
+      <td><span class="processing-source-id">{{ t.source_label }} #{{ item.position }}</span></td>
+      <td><div class="processing-table-input">{{ item.preview }}</div></td>
+      <td>{{ t.processing_source_content if item.source_type == 'content' else item.source_type }}</td>
+      <td><div class="d-flex flex-wrap gap-1">{% for family in item.artifact_families or [] %}<a class="badge bg-green-lt" data-artifact-family="{{ family }}" href="{{ link(source_id=item.source_id, artifact_family=family, processing_artifacts_cursor=none, processing_artifacts_history=none, fragment='artifact-' ~ family) }}">{{ artifact_type(family) }}</a>{% else %}<span class="text-secondary">{{ 'Unknown' if item.artifact_families is none else 'None' }}</span>{% endfor %}</div></td>
+      <td><a class="btn btn-sm btn-primary" href="{{ link(source_id=item.source_id) }}">{{ t.home_record_details }}</a></td>
+    </tr>
+  {% endfor %}</tbody>
+</table></div>
