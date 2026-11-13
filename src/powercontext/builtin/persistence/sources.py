@@ -30,7 +30,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import AliasChoices, AliasGenerator, BaseModel, ConfigDict, JsonValue, TypeAdapter
 from referencing import Registry
 from referencing.exceptions import Unresolvable
-from sqlalchemy import func, insert, select, tuple_, update
+from sqlalchemy import bindparam, func, insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction
 
@@ -81,6 +81,23 @@ SOURCE_PROCESSING_BINDINGS = (
 )
 _SOURCE_LOOKUP_KEYS_PER_STATEMENT = 400  # Two bind values per key, including SQLite's 999-variable builds.
 _VALIDATORS: dict[str, Any] = {}
+
+# These statements retain structure only; every transaction supplies its own
+# Scope, exact identities and allocated position.
+_SOURCE_SELECTION = select(SOURCES_TABLE).where(
+    SOURCES_TABLE.c.scope_id == bindparam("requested_scope_id"),
+    tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(bindparam("source_keys", expanding=True)),
+)
+_JOURNAL_HEAD_LOCK = (
+    select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
+    .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == bindparam("requested_scope_id"))
+    .with_for_update()
+)
+_JOURNAL_HEAD_ADVANCE = (
+    update(SOURCE_JOURNAL_HEADS_TABLE)
+    .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == bindparam("requested_scope_id"))
+    .values(position=bindparam("next_position"))
+)
 
 
 def _source_validator(manifest: SourceDefinitionManifest) -> Any:
@@ -233,9 +250,8 @@ class SourceRepository:
 
         if new_rows:
             await connection.execute(
-                update(SOURCE_JOURNAL_HEADS_TABLE)
-                .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-                .values(position=position)
+                _JOURNAL_HEAD_ADVANCE,
+                {"requested_scope_id": scope_id, "next_position": position},
             )
             await connection.execute(insert(SOURCES_TABLE), new_rows)
             # Reuse only within this journal-locked batch; a rollback or later
@@ -326,12 +342,11 @@ class SourceRepository:
             rows = (
                 (
                     await connection.execute(
-                        select(SOURCES_TABLE).where(
-                            SOURCES_TABLE.c.scope_id == scope_id,
-                            tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(
-                                keys[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT]
-                            ),
-                        )
+                        _SOURCE_SELECTION,
+                        {
+                            "requested_scope_id": scope_id,
+                            "source_keys": keys[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT],
+                        },
                     )
                 )
                 .mappings()
@@ -1222,18 +1237,17 @@ def _dump_source(
 async def _lock_journal_head(connection: AsyncConnection, scope_id: str) -> int:
     """Create and lock one scope allocator before reading Source identity."""
 
-    # This no-op UPDATE is intentionally the operation's first database access.
-    # SQLite therefore acquires its write reservation before any read, while
-    # MySQL/OceanBase locks an existing allocator row.
-    await connection.execute(
-        update(SOURCE_JOURNAL_HEADS_TABLE)
-        .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-        .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
-    )
+    # SQLite ignores FOR UPDATE, so it must reserve the write transaction before
+    # reading. MySQL/OceanBase acquires the row lock in the current read below.
+    if connection.dialect.name == "sqlite":
+        await connection.execute(
+            update(SOURCE_JOURNAL_HEADS_TABLE)
+            .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+            .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
+        )
     position = await connection.scalar(
-        select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
-        .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-        .with_for_update()
+        _JOURNAL_HEAD_LOCK,
+        {"requested_scope_id": scope_id},
     )
     if position is None:
         with suppress(IntegrityError):
@@ -1244,9 +1258,8 @@ async def _lock_journal_head(connection: AsyncConnection, scope_id: str) -> int:
                 )
             )
         position = await connection.scalar(
-            select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
-            .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-            .with_for_update()
+            _JOURNAL_HEAD_LOCK,
+            {"requested_scope_id": scope_id},
         )
     if not isinstance(position, int) or isinstance(position, bool) or position < 0:
         raise InvalidStoredColumnError("journal_position", "a non-negative scope head")
