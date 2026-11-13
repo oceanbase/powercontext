@@ -98,6 +98,30 @@ def test_rejects_intranet_url_next_to_cjk_punctuation_or_inline_code(tmp_path: P
         assert f"punctuation.md:{number}:" in result.stderr
 
 
+def test_scans_non_utf8_text(tmp_path: Path) -> None:
+    # Legacy-encoded Chinese docs must not hide an ASCII URL behind a decode error.
+    doc = tmp_path / "gbk.md"
+    doc.write_bytes(f"- 见 {internal_url('yuque.antfin.com')}。\n".encode("gbk"))
+
+    result = run_checker(doc)
+
+    assert result.returncode == 1
+    assert "gbk.md:1" in result.stderr
+
+
+def test_reports_skipped_binary_files(tmp_path: Path) -> None:
+    clean = tmp_path / "clean.md"
+    clean.write_text("- see https://github.com/oceanbase/powercontext\n", encoding="utf-8")
+    binary = tmp_path / "payload.bin"
+    binary.write_bytes(b"\x00\x01" + internal_url("yuque.antfin.com").encode("utf-8"))
+
+    result = run_checker(clean, binary)
+
+    assert result.returncode == 0, result.stderr
+    assert "checked 1 file(s)" in result.stdout
+    assert "skipped 1" in result.stdout
+
+
 def test_accepts_public_links_bare_domains_and_local_examples(tmp_path: Path) -> None:
     doc = tmp_path / "rules.md"
     doc.write_text(
@@ -129,3 +153,5 @@ def test_skips_binary_and_missing_files(tmp_path: Path) -> None:
     result = run_checker(binary, tmp_path / "absent.md")
 
     assert result.returncode == 0, result.stderr
+    assert "checked 0 file(s)" in result.stdout
+    assert "skipped 1" in result.stdout

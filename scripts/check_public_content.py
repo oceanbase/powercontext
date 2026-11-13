@@ -33,7 +33,6 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
 INTERNAL_HOST_SUFFIXES = (
@@ -57,19 +56,19 @@ def is_internal_host(host: str) -> bool:
     return any(hostname == suffix or hostname.endswith("." + suffix) for suffix in INTERNAL_HOST_SUFFIXES)
 
 
-def iter_lines(path: Path) -> Iterator[tuple[int, str]]:
-    """Yield numbered lines from a text file, skipping binaries and large blobs."""
+def read_lines(path: Path) -> list[str] | None:
+    """Return the file's lines, or None when the file cannot be scanned as text."""
     try:
+        if path.stat().st_size > MAX_FILE_BYTES:
+            return None
         raw = path.read_bytes()
     except OSError:
-        return
-    if len(raw) > MAX_FILE_BYTES or b"\0" in raw[:8192]:
-        return
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return
-    yield from enumerate(text.splitlines(), start=1)
+        return None
+    if b"\0" in raw[:8192]:
+        return None
+    # Lossy decoding keeps ASCII URL bytes intact, so a legacy-encoded text
+    # file cannot hide a link behind a UnicodeDecodeError.
+    return raw.decode("utf-8", errors="replace").splitlines()
 
 
 def tracked_files() -> list[Path]:
@@ -88,6 +87,29 @@ def tracked_files() -> list[Path]:
     return [Path(item) for item in result.stdout.decode("utf-8").split("\0") if item]
 
 
+def scan_files(files: list[Path]) -> tuple[list[str], int, int]:
+    """Return findings plus the number of scanned and skipped files."""
+    findings: list[str] = []
+    checked = 0
+    skipped = 0
+    for path in sorted(set(files)):
+        if not path.is_file():
+            continue
+        lines = read_lines(path)
+        if lines is None:
+            skipped += 1
+            continue
+        checked += 1
+        for number, line in enumerate(lines, start=1):
+            for match in URL_RE.finditer(line):
+                if is_internal_host(match.group(1)):
+                    findings.append(
+                        f"{path.as_posix()}:{number}: internal document URL is not allowed in public "
+                        f"content: {match.group(0)}"
+                    )
+    return findings, checked, skipped
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="files to check, as passed by pre-commit")
@@ -102,30 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot list tracked files: {exc}", file=sys.stderr)
         return 2
 
-    findings: list[str] = []
-    checked = 0
-    for path in sorted(set(files)):
-        if not path.is_file():
-            continue
-        checked += 1
-        for number, line in iter_lines(path):
-            for match in URL_RE.finditer(line):
-                if is_internal_host(match.group(1)):
-                    findings.append(
-                        f"{path.as_posix()}:{number}: internal document URL is not allowed in public "
-                        f"content: {match.group(0)}"
-                    )
-
+    findings, checked, skipped = scan_files(files)
+    skipped_note = f", skipped {skipped} binary/oversized/unreadable file(s)" if skipped else ""
     if findings:
         for finding in findings:
             print(finding, file=sys.stderr)
         print(
-            f"Found {len(findings)} internal document URL(s) in {checked} file(s). Reference a public "
-            "GitHub issue, PR, RFC, or upstream documentation instead.",
+            f"Found {len(findings)} internal document URL(s) in {checked} file(s){skipped_note}. "
+            "Reference a public GitHub issue, PR, RFC, or upstream documentation instead.",
             file=sys.stderr,
         )
         return 1
-    print(f"OK: checked {checked} file(s), no internal document URLs found.")
+    print(f"OK: checked {checked} file(s){skipped_note}, no internal document URLs found.")
     return 0
 
 

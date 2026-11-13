@@ -68,7 +68,7 @@ Real internal URLs are rejected automatically: `make check` runs `scripts/check_
 uv run python scripts/check_public_content.py --all
 ```
 
-The checker matches only the fixed intranet host suffix list in `scripts/check_public_content.py::INTERNAL_HOST_SUFFIXES` (`antfin.com`, `alibaba-inc.com`, `alipay-inc.com`, `aliyun-inc.com`), so legitimate local examples such as `*.internal.example` and `host.docker.internal` are not flagged. Other intranet domains, private document IDs, and SSO-only spaces on public hosts are not detected; those and all external names still need a manual read of both locales.
+The checker matches only the fixed intranet host suffix list in `scripts/check_public_content.py::INTERNAL_HOST_SUFFIXES` (`antfin.com`, `alibaba-inc.com`, `alipay-inc.com`, `aliyun-inc.com`) on `http(s)://` URLs in readable text files, so legitimate local examples such as `*.internal.example` and `host.docker.internal` are not flagged. Bare domains, protocol-relative links, binaries, oversized files, other intranet domains, private document IDs, and SSO-only spaces on public hosts are not detected (skipped files are reported in the output); those and all external names still need a manual read of both locales.
 
 These rules apply repository-wide; see the "Write Documentation" section of [CONTRIBUTING.md](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md).
 
