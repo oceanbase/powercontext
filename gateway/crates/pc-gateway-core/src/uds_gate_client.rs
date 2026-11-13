@@ -90,10 +90,14 @@ impl UdsGateClient {
         method: &str,
         path: &str,
         body: Option<&[u8]>,
+        resolve_target: bool,
     ) -> Result<(u16, Vec<u8>), GateError> {
         let mut from_pool = true; // 首次也允许重试一次（对端重启场景）
         for _ in 0..2 {
-            match self.request_once(method, path, body, from_pool).await {
+            match self
+                .request_once(method, path, body, from_pool, resolve_target)
+                .await
+            {
                 Ok(x) => return Ok(x),
                 Err(e) if retryable(&e) => {
                     from_pool = false; // 下一次强制新建连接
@@ -111,6 +115,7 @@ impl UdsGateClient {
         path: &str,
         body: Option<&[u8]>,
         prefer_pool: bool,
+        resolve_target: bool,
     ) -> Result<(u16, Vec<u8>), GateError> {
         let mut leased = LeasedConnection::new(self.clone());
         let stream = leased.acquire(prefer_pool).await.map_err(|e| {
@@ -121,7 +126,7 @@ impl UdsGateClient {
         let body = body.unwrap_or(&[]);
         let mut head = format!(
             "{method} {path} HTTP/1.1\r\nHost: powercontext\r\nContent-Type: application/json\r\n\
-             x-powercontext-scope-mode: current\r\nContent-Length: {}\r\n",
+             x-powercontext-scope-mode: current\r\nx-powercontext-resolve-target: {resolve_target}\r\nContent-Length: {}\r\n",
             body.len()
         );
         if let Some(t) = &self.token {
@@ -376,7 +381,12 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/check", Some(&body))
+                .request(
+                    "POST",
+                    "/v1/context/check",
+                    Some(&body),
+                    matches!(request, ContextCheckRequest::BeforeSend { .. }),
+                )
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -389,7 +399,7 @@ impl GateClient for UdsGateClient {
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
         let this = self.clone();
         {
-            let (status, body) = this.request("GET", "/v1/capabilities", None).await?;
+            let (status, body) = this.request("GET", "/v1/capabilities", None, false).await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateUnavailable(format!(
                     "capabilities HTTP {status}"
@@ -408,7 +418,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/prepare", Some(&body))
+                .request("POST", "/v1/context/prepare", Some(&body), false)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -426,7 +436,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/sources/content", Some(&body))
+                .request("POST", "/v1/sources/content", Some(&body), false)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));

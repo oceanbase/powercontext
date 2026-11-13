@@ -67,3 +67,12 @@ jobs:
           name: gateway-tck
           path: .artifacts/gateway-tck
           if-no-files-found: ignore
+      - name: Set up Python for real Gateway listener acceptance
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+      - name: Check Core-to-Gateway target binding over real listeners
+        run: |
+          cargo build --locked --manifest-path gateway/Cargo.toml --bin pc-gateway
+          test -x gateway/target/debug/pc-gateway
+          uv run --locked --no-sync pytest tests/e2e/test_gateway_target_real_process.py -q

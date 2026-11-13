@@ -195,13 +195,25 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 ### 网关认证边界
 
 `PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。
-非 loopback 网关监听要求配置有效的非空 key，但该启动校验不负责其他路由的认证。
+所有网关模型监听都要求有效的非空 key；该启动校验不负责其他路由的认证。
 组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求
 继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
 
 组合部署对外开放前，须设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置有效的 Core 认证凭据，
 如上文的 UDS 示例所示。访问受保护 Core 路由的客户端必须使用 Core 凭据。
 `PC_GATEWAY_CORE_TOKEN` 用于网关主动发起的 Core 调用；反向代理不会用它替换客户端凭据。
+
+### 网关模型目标
+
+模型入口的可信 endpoint、协议和模型由 Core `InferenceConfig.protection.targets` 配置。
+Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口时再设置
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`。Gateway 服务身份必须在对应 Scope 同时获授
+`gateway.invoke` 和 `scope.read`；`PC_GATEWAY_CORE_TOKEN` 必须代表该服务身份，且不能与面向客户端的必填
+`PC_GATEWAY_API_KEY` 相同。网关只使用获准 `before_send` 返回的 endpoint 和协议；旧的
+`PC_GATEWAY_UPSTREAM_URL*` 变量会导致启动失败，Core 不可用、缺少目标解析或协议不匹配时不发送。
+服务商凭据仍由部署方通过 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES`
+（或共用的 `PC_GATEWAY_UPSTREAM_API_KEY`）管理；此阶段 Core **不校验**账号/区域身份。权限不同的凭据身份
+不能共用一个 profile。离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
 
 ### 网关上下文注入
 

@@ -212,7 +212,7 @@ UDS with channel and user authentication.
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`.
-A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes.
+All Gateway model listeners require a valid, nonempty key; that startup check does not authenticate other routes.
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials.
 Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules.
 The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
@@ -221,6 +221,20 @@ Before exposing a combined deployment, set `POWERCONTEXT_SERVER_ACCESS_MODE=enfo
 authentication credentials, as in the UDS example above. Clients of protected Core routes must use Core credentials.
 `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for
 client credentials.
+
+### Gateway model destination
+
+Configure the trusted endpoint, protocol and model in Core `InferenceConfig.protection.targets`.
+Set `PC_GATEWAY_UPSTREAM_PROFILE` for Chat and, to enable Responses, `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`.
+Grant the Gateway service identity both `gateway.invoke` and `scope.read` on the selected Scope;
+`PC_GATEWAY_CORE_TOKEN` must identify that service and differ from the mandatory client-facing `PC_GATEWAY_API_KEY`.
+The Gateway uses only the endpoint and protocol returned on an authorized `before_send` and never accepts
+`PC_GATEWAY_UPSTREAM_URL*`; these legacy variables now prevent startup. Core absence, missing target resolution,
+or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
+`PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` (or the shared
+`PC_GATEWAY_UPSTREAM_API_KEY`); account/region identity is **not** validated by Core in this iteration.
+Do not share a profile between provider credential identities with distinct permissions. No offline passthrough
+is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
 
 ### Gateway context injection
 

@@ -66,6 +66,8 @@ framework observations. Do not sum the three units or count delivery events as a
 
 | Evidence facts | Top-level operational `outcome` |
 | --- | --- |
+Current Gateway model routes cannot degrade: Core must authorize a target before sending. The `degraded` evidence enum remains for historical/other consumers, but the current executor does not emit it.
+
 | Call `release_authorized` or `degraded`, observed upstream status < 400 | `success` |
 | Same terminals with observed upstream status >= 400 | `failure` |
 | Same terminals with missing upstream status | null |
@@ -95,7 +97,7 @@ storage and readback have not been verified for this stream.
 `call_id` identifies one execution and joins its `call`, numbered `attempt`, and `delivery` records.
 It is generated once in request control and reused through completion and response-body lifetime.
 `request_id_fingerprint` is a keyed process-local fingerprint of the **bound** request ID, or null when none exists;
-`target_fingerprint` fingerprints the actual transport URL, never the requested model or client-claimed target.
+`target_fingerprint` fingerprints the Core-approved URL of the final transport attempt, never the requested model or client-claimed target. Calls without an attempt fingerprint the fixed `no-upstream-send` sentinel, not a URL.
 Redirects remain disabled. Fingerprints use a random process-local key and are not portable identities or a
 cryptographic anonymization promise. They never export a raw URL, request ID, cache key, conversation ID,
 Scope, provider error, model, credential, prompt or response body. Records do not establish task identity or
@@ -103,9 +105,9 @@ Source projection coverage. No task association is available unless the embeddin
 
 Coverage starts when `Executor::run` is polled. Authentication, invalid-body, middleware rejection and other ingress
 failures before execution are outside this stream. A complete model response does not imply successful release.
-`attempts` counts actual transport handoffs, including a degraded send; an expired admission has zero attempts.
-Retries keep one `call_id` and increment attempt numbers only after fresh admission. An uncertain attempt is never
-retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture/degradation are not
+`attempts` counts actual transport handoffs; an expired admission has zero attempts.
+Retries keep one `call_id`, update the target fingerprint to the newly approved endpoint, and increment attempt numbers only after fresh admission. An uncertain attempt is never
+retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture are not
 exported and are not model-send facts.
 
 ## Terminal and send facts

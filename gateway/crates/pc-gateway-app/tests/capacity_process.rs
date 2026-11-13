@@ -55,6 +55,7 @@ fn capabilities(limit: Value) -> Value {
 struct Receiver {
     caps: Value,
     check_limit: AtomicUsize,
+    approved_target: Mutex<String>,
     sends: AtomicUsize,
     checked: Mutex<Vec<String>>,
     response_bytes: AtomicUsize,
@@ -81,7 +82,11 @@ async fn check(
         Json(json!({
             "schema": "powercontext.context-check.v1", "phase": request["phase"],
             "decision": "allow", "reason_codes": [], "coverage": {"profile": "test", "complete": true},
-            "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z", "binding": "test-binding"
+            "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z", "binding": "test-binding",
+            "target_endpoint": if request["phase"] == "before_send" { Some(state.approved_target.lock().unwrap().clone()) } else { None },
+            "target_protocol": if request["phase"] == "before_send" {
+                Some(if request["target_profile"] == "model-responses" { "openai-responses" } else { "openai-chat" })
+            } else { None }
         })),
     )
 }
@@ -169,6 +174,7 @@ impl Gateway {
         let state = Arc::new(Receiver {
             caps,
             check_limit: AtomicUsize::new(CONTEXT_CHECK_BODY_LIMIT),
+            approved_target: Mutex::new(String::new()),
             sends: AtomicUsize::new(0),
             checked: Mutex::new(vec![]),
             response_bytes: AtomicUsize::new(0),
@@ -190,6 +196,7 @@ impl Gateway {
             .route("/provider", post(provider)).with_state(state.clone());
         let receiver = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let receiver_addr = receiver.local_addr().unwrap();
+        *state.approved_target.lock().unwrap() = format!("http://{receiver_addr}/provider");
         let tcp_app = app.clone();
         let server = tokio::spawn(async move {
             axum::serve(receiver, tcp_app).await.unwrap();
@@ -208,14 +215,10 @@ impl Gateway {
                 "SYNTHETIC_CAPACITY_PROVIDER_KEY",
             )
             .env("PC_GATEWAY_CORE_BASE", format!("http://{receiver_addr}"))
-            .env(
-                "PC_GATEWAY_UPSTREAM_URL",
-                format!("http://{receiver_addr}/provider"),
-            )
-            .env(
-                "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
-                format!("http://{receiver_addr}/provider"),
-            )
+            .env("PC_GATEWAY_API_KEY", "capacity-gateway-key")
+            .env("PC_GATEWAY_CORE_TOKEN", "capacity-core-token")
+            .env("PC_GATEWAY_UPSTREAM_PROFILE", "model")
+            .env("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES", "model-responses")
             .env("PC_GATEWAY_MAX_BODY_BYTES", deployment_limit.to_string())
             .env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
         command.env("PC_GATEWAY_MAX_CONCURRENT", "1");
@@ -303,6 +306,7 @@ impl Gateway {
         if !chunked {
             let response = reqwest::Client::new()
                 .post(format!("{}{route}", self.base))
+                .bearer_auth("capacity-gateway-key")
                 .header("content-type", "application/json")
                 .body(body)
                 .send()
@@ -313,7 +317,7 @@ impl Gateway {
         let mut socket = TcpStream::connect(self.base.trim_start_matches("http://"))
             .await
             .unwrap();
-        socket.write_all(format!("POST {route} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        socket.write_all(format!("POST {route} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer capacity-gateway-key\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
         for chunk in body.as_bytes().chunks(127) {
             if socket
                 .write_all(format!("{:x}\r\n", chunk.len()).as_bytes())

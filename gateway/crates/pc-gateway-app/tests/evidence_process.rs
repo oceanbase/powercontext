@@ -46,10 +46,14 @@ async fn evidence_fixture() -> (String, tokio::task::JoinHandle<()>) {
             "limits": {"payload_bytes": 1048576, "binding_bytes": 8192, "prepared_contexts": 16,
                 "dependencies": 256, "send_seconds": 60, "correlate_seconds": 300}
         }})) }))
-        .route("/v1/context/check", post(|Json(request): Json<Value>| async move { Json(json!({
+        .route("/v1/context/check", post(|headers: axum::http::HeaderMap, Json(request): Json<Value>| async move {
+            let host = headers.get("host").and_then(|value| value.to_str().ok()).unwrap();
+            Json(json!({
             "schema":"powercontext.context-check.v1", "phase":request["phase"], "decision":"allow",
             "reason_codes":[], "coverage":{"profile":"text-and-tools.v1", "complete":true},
-            "policy_version":"fixture", "valid_until":"2999-01-01T00:00:00Z", "binding":"fixture-binding"
+            "policy_version":"fixture", "valid_until":"2999-01-01T00:00:00Z", "binding":"fixture-binding",
+            "target_endpoint": if request["phase"] == "before_send" { Some(format!("http://{host}/SYNTHETIC_PRIVATE_PATH/v1/chat/completions")) } else { None },
+            "target_protocol": if request["phase"] == "before_send" { Some("openai-chat") } else { None }
         })) }))
         .route("/v1/chat/completions", post(|Json(request): Json<Value>| async move {
             if request["stream"] == true {
@@ -90,10 +94,8 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
         command
             .env("PC_GATEWAY_CORE_BASE", &base)
             .env("PC_GATEWAY_LISTEN", address.to_string())
-            .env(
-                "PC_GATEWAY_UPSTREAM_URL",
-                format!("{base}/v1/chat/completions"),
-            )
+            .env("PC_GATEWAY_CORE_TOKEN", "SYNTHETIC_CORE_TOKEN")
+            .env("PC_GATEWAY_UPSTREAM_PROFILE", "fixture")
             .env("PC_GATEWAY_API_KEY", "SYNTHETIC_GATEWAY_KEY")
             .env("PC_GATEWAY_UPSTREAM_API_KEY", "SYNTHETIC_PROVIDER_KEY")
             .env("PC_GATEWAY_INJECTION", "SYNTHETIC_INVALID_INJECTION_VALUE")
@@ -228,6 +230,8 @@ fn rejected_startup_does_not_expose_uds_or_steering_paths() {
         .join(format!("SYNTHETIC_PRIVATE_STEERING_{}", std::process::id()))
         .join("missing.txt");
     let output = command
+        .env("PC_GATEWAY_API_KEY", "synthetic-gateway-token")
+        .env("PC_GATEWAY_CORE_TOKEN", "synthetic-core-token")
         .env("PC_GATEWAY_CORE_UDS", "/SYNTHETIC_PRIVATE_SOCKET/core.sock")
         .env("PC_GATEWAY_STEERING_FILE", missing)
         .env("RUST_LOG", "info")
@@ -255,10 +259,9 @@ async fn total_evidence_loss_is_reported_on_stderr_without_blocking_requests() {
                 .env_clear()
                 .env("PC_GATEWAY_CORE_BASE", &base)
                 .env("PC_GATEWAY_LISTEN", address.to_string())
-                .env(
-                    "PC_GATEWAY_UPSTREAM_URL",
-                    format!("{base}/v1/chat/completions"),
-                )
+                .env("PC_GATEWAY_API_KEY", "synthetic-gateway-token")
+                .env("PC_GATEWAY_CORE_TOKEN", "synthetic-core-token")
+                .env("PC_GATEWAY_UPSTREAM_PROFILE", "fixture")
                 .env("PC_GATEWAY_UPSTREAM_API_KEY", "SYNTHETIC_PROVIDER_KEY")
                 .env("RUST_LOG", "info")
                 .env("NO_COLOR", "1")
@@ -298,6 +301,7 @@ async fn total_evidence_loss_is_reported_on_stderr_without_blocking_requests() {
         for _ in 0..count {
             let response = tokio::time::timeout(Duration::from_secs(3),
                 client.post(format!("{url}/gateway/v1/chat/completions"))
+                    .bearer_auth("synthetic-gateway-token")
                     .json(&json!({"model":"SYNTHETIC_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_PROMPT_SECRET"}]}))
                     .send()).await.unwrap().unwrap();
             assert_eq!(response.status(), 200);
@@ -383,6 +387,7 @@ async fn total_evidence_loss_is_reported_on_stderr_without_blocking_requests() {
                 Duration::from_secs(3),
                 client
                     .post(format!("{url}/gateway/v1/chat/completions"))
+                    .bearer_auth("synthetic-gateway-token")
                     .json(&json!({"model":"test", "messages":[{"role":"user", "content":"hello"}]}))
                     .send(),
             )

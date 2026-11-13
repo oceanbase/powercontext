@@ -124,6 +124,11 @@ pub struct ContextCheckResult {
     /// 仅 allow 有：不透明绑定字符串。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+    /// Present only for an authorized Gateway before_send allow. Never supplied by the caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_protocol: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,7 +137,7 @@ pub struct ContextCheckCoverage {
     pub complete: bool,
 }
 
-/// ContextProtectionCapabilities（能力发现；enforcing 是动态降级的依据）。
+/// ContextProtectionCapabilities（能力发现；目标解析仍须单次 before_send 准入）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextProtectionCapabilities {
     pub check_versions: Vec<String>,

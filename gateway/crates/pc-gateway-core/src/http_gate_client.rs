@@ -48,7 +48,12 @@ impl HttpGateClient {
         }
     }
 
-    async fn post<R>(&self, path: &str, body: &impl Serialize) -> Result<R, GateError>
+    async fn post<R>(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+        resolve_target: bool,
+    ) -> Result<R, GateError>
     where
         R: DeserializeOwned,
     {
@@ -60,6 +65,7 @@ impl HttpGateClient {
             .header("x-powercontext-scope-mode", "current")
             .bearer_auth(self.token.clone().unwrap_or_default())
             .header("content-type", "application/json")
+            .header("x-powercontext-resolve-target", resolve_target.to_string())
             .json(body)
             .send()
             .await
@@ -79,7 +85,26 @@ impl HttpGateClient {
 
 impl GateClient for HttpGateClient {
     async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
-        self.post("/v1/context/check", &request).await
+        if matches!(request, ContextCheckRequest::BeforeSend { .. }) {
+            let url = reqwest::Url::parse(&self.base_url)
+                .map_err(|_| GateError::Malformed("invalid Core URL".into()))?;
+            let local_http = url.scheme() == "http"
+                && url
+                    .host_str()
+                    .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+                    .is_some_and(|host| host.is_loopback());
+            if url.scheme() != "https" && !local_http {
+                return Err(GateError::Malformed(
+                    "privileged target resolution requires HTTPS or loopback Core".into(),
+                ));
+            }
+        }
+        self.post(
+            "/v1/context/check",
+            &request,
+            matches!(request, ContextCheckRequest::BeforeSend { .. }),
+        )
+        .await
     }
 
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
@@ -105,13 +130,38 @@ impl GateClient for HttpGateClient {
         &self,
         request: PrepareContextRequest,
     ) -> Result<PrepareContextResult, GateError> {
-        self.post("/v1/context/prepare", &request).await
+        self.post("/v1/context/prepare", &request, false).await
     }
 
     async fn capture(
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
-        self.post("/v1/sources/content", &request).await
+        self.post("/v1/sources/content", &request, false).await
+    }
+}
+
+#[cfg(test)]
+mod target_security_tests {
+    use super::*;
+    use pc_gateway_types::ModelJsonPayload;
+    use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn remote_plain_http_cannot_receive_privileged_target_resolution_token() {
+        let client =
+            HttpGateClient::with_token("http://model.example", Some("private-token".into()));
+        let verdict = client
+            .check(ContextCheckRequest::BeforeSend {
+                scope_id: "test".into(),
+                target_profile: "test".into(),
+                payload: ModelJsonPayload::new(
+                    BTreeMap::from([("content-type".into(), "application/json".into())]),
+                    "{}".into(),
+                ),
+                prepared_contexts: vec![],
+            })
+            .await;
+        assert!(matches!(verdict, Err(GateError::Malformed(_))));
     }
 }

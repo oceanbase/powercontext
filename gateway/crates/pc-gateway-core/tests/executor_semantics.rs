@@ -15,7 +15,7 @@
 //! PR #2264 失败语义表的状态机级验证（真实契约形态）。
 
 use pc_gateway_core::{
-    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError, ManagedCall,
+    ExecutionState, ExecutionTerminal, Executor, GateClient, GateError, ManagedCall,
     ManagedOutcome, ModelSendState, RequestControl,
 };
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
@@ -190,6 +190,7 @@ struct FakeTransport {
     outcomes: Mutex<VecDeque<SendOutcome>>,
     sends: Mutex<Vec<bytes::Bytes>>,
     bindings: Mutex<Vec<String>>,
+    destinations: Mutex<Vec<String>>,
     cancels: Mutex<u32>,
 }
 
@@ -198,6 +199,7 @@ impl Transport for FakeTransport {
         let outcome = self.outcomes.lock().unwrap().pop_front();
         self.sends.lock().unwrap().push(send.payload);
         self.bindings.lock().unwrap().push(send.binding);
+        self.destinations.lock().unwrap().push(send.target_url);
         let hold = self.send_holds.lock().unwrap().pop_front().flatten();
         async move {
             if let Some(hold) = hold {
@@ -237,10 +239,14 @@ fn result(phase: CheckPhase, decision: CheckDecision, reasons: &[&str]) -> Conte
         valid_until: "2999-01-01T00:00:00Z".into(),
         correlate_until: None,
         binding: matches!(decision, CheckDecision::Allow).then(|| "binding-1".to_string()),
+        target_endpoint: matches!(decision, CheckDecision::Allow)
+            .then(|| "http://upstream.invalid/v1/chat/completions".to_string()),
+        target_protocol: matches!(decision, CheckDecision::Allow)
+            .then(|| "openai-chat".to_string()),
     }
 }
 
-fn call(degrade: DegradePolicy) -> ManagedCall {
+fn call() -> ManagedCall {
     ManagedCall {
         scope_id: "project:test".into(),
         target_profile: "openai:test".into(),
@@ -269,9 +275,8 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
             passthrough_fields: None,
             token_limit_field: None,
         },
-        target_url: "http://upstream.invalid/v1/chat/completions".into(),
+        target_protocol: "openai-chat".into(),
         headers: vec![("authorization".into(), "Bearer secret".into())],
-        degrade_policy: degrade,
         inject_context: false,
         include_code: false,
         conversation_id: None,
@@ -359,6 +364,7 @@ fn harness(
         outcomes: Mutex::new(transport_outcomes.into()),
         sends: Mutex::new(Vec::new()),
         bindings: Mutex::new(Vec::new()),
+        destinations: Mutex::new(Vec::new()),
         cancels: Mutex::new(0),
     });
     let gate = Arc::new(FakeGate {
@@ -404,12 +410,7 @@ async fn released_execution_retains_control_and_complete_response_facts() {
     assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
 
     let outcome = executor
-        .run(
-            control,
-            call(DegradePolicy::Pause),
-            &RendererRef(renderer),
-            &NoopEvidenceSink,
-        )
+        .run(control, call(), &RendererRef(renderer), &NoopEvidenceSink)
         .await;
 
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
@@ -437,26 +438,20 @@ async fn abandonment_preserves_sending_facts_at_each_pending_boundary() {
         ("model", ModelSendState::PossiblySent, 1),
         ("release", ModelSendState::ResponseReceived, 1),
         ("readmission", ModelSendState::DefinitelyNotSent, 1),
-        ("degraded", ModelSendState::PossiblySent, 1),
     ] {
-        let degraded = boundary == "degraded";
         let (executor, renderer, transport, gate) = harness(
-            if degraded {
-                vec![Err(GateError::GateUnavailable("offline".into()))]
-            } else {
-                vec![
-                    Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
-                    Ok(result(
-                        if boundary == "readmission" {
-                            CheckPhase::BeforeSend
-                        } else {
-                            CheckPhase::BeforeRelease
-                        },
-                        CheckDecision::Allow,
-                        &[],
-                    )),
-                ]
-            },
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(
+                    if boundary == "readmission" {
+                        CheckPhase::BeforeSend
+                    } else {
+                        CheckPhase::BeforeRelease
+                    },
+                    CheckDecision::Allow,
+                    &[],
+                )),
+            ],
             vec![if boundary == "readmission" {
                 SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
             } else {
@@ -476,16 +471,7 @@ async fn abandonment_preserves_sending_facts_at_each_pending_boundary() {
         let observation = control.observation();
         let cancellation = control.cancellation();
         let renderer = RendererRef(renderer);
-        let mut execution = Box::pin(executor.run(
-            control,
-            call(if degraded {
-                DegradePolicy::PassthroughWithoutMemory
-            } else {
-                DegradePolicy::Pause
-            }),
-            &renderer,
-            &NoopEvidenceSink,
-        ));
+        let mut execution = Box::pin(executor.run(control, call(), &renderer, &NoopEvidenceSink));
         assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
             execution.as_mut().poll(context)
         ))
@@ -541,12 +527,7 @@ async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution()
     let cancellation = control.cancellation();
     let other_cancellation = cancellation.clone();
     let renderer = RendererRef(renderer);
-    let mut execution = Box::pin(executor.run(
-        control,
-        call(DegradePolicy::PassthroughWithoutMemory),
-        &renderer,
-        &NoopEvidenceSink,
-    ));
+    let mut execution = Box::pin(executor.run(control, call(), &renderer, &NoopEvidenceSink));
     assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
         execution.as_mut().poll(context)
     ))
@@ -596,12 +577,7 @@ async fn readmission_keeps_the_callers_deadline_even_when_it_has_expired() {
     let control = RequestControl::new(deadline, None);
     let observer = control.observation();
     let renderer = RendererRef(renderer);
-    let mut execution = Box::pin(executor.run(
-        control,
-        call(DegradePolicy::Pause),
-        &renderer,
-        &NoopEvidenceSink,
-    ));
+    let mut execution = Box::pin(executor.run(control, call(), &renderer, &NoopEvidenceSink));
     assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
         execution.as_mut().poll(context)
     ))
@@ -663,12 +639,7 @@ async fn release_failures_preserve_complete_response_facts() {
         let control = request_control();
         let observer = control.observation();
         let outcome = executor
-            .run(
-                control,
-                call(DegradePolicy::Pause),
-                &RendererRef(renderer),
-                &NoopEvidenceSink,
-            )
+            .run(control, call(), &RendererRef(renderer), &NoopEvidenceSink)
             .await;
         assert!(matches!(
             (&outcome, expected),
@@ -693,65 +664,129 @@ async fn release_failures_preserve_complete_response_facts() {
 }
 
 #[tokio::test]
-async fn degraded_and_checked_sends_preserve_their_transport_facts() {
-    for degraded in [false, true] {
-        for send_state in [
-            ModelSendState::DefinitelyNotSent,
-            ModelSendState::PossiblySent,
-            ModelSendState::ResponseReceived,
-        ] {
-            let send = match send_state {
-                ModelSendState::DefinitelyNotSent => {
-                    SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
-                }
-                ModelSendState::PossiblySent => SendOutcome::Indeterminate(
-                    pc_gateway_transport::SendIndeterminateReason::LostAfterHandoff,
-                ),
-                _ => raw_response(),
-            };
-            let (executor, renderer, transport, _) = harness(
-                if degraded {
-                    vec![Err(GateError::GateUnavailable("offline".into()))]
-                } else {
-                    vec![
-                        Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
-                        Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
-                    ]
-                },
-                vec![send],
-                1,
-            );
-            let control = request_control();
-            let observer = control.observation();
-            let outcome = executor
-                .run(
-                    control,
-                    call(if degraded {
-                        DegradePolicy::PassthroughWithoutMemory
-                    } else {
-                        DegradePolicy::Pause
-                    }),
-                    &RendererRef(renderer),
-                    &NoopEvidenceSink,
-                )
-                .await;
-            let terminal = match outcome {
-                ManagedOutcome::NotSent { attempts: 1 } => ExecutionTerminal::NotSent,
-                ManagedOutcome::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
-                ManagedOutcome::Degraded { .. } if degraded => ExecutionTerminal::Degraded,
-                ManagedOutcome::Released { .. } if !degraded => {
-                    ExecutionTerminal::ReleaseAuthorized
-                }
-                unexpected => panic!("unexpected outcome: {unexpected:?}"),
-            };
-            assert_eq!(observer.snapshot().model_send, send_state);
-            assert_eq!(
-                observer.snapshot().execution,
-                ExecutionState::Finished(terminal)
-            );
-            assert_eq!(transport.sends.lock().unwrap().len(), 1);
-        }
+async fn checked_sends_preserve_their_transport_facts() {
+    for send_state in [
+        ModelSendState::DefinitelyNotSent,
+        ModelSendState::PossiblySent,
+        ModelSendState::ResponseReceived,
+    ] {
+        let send = match send_state {
+            ModelSendState::DefinitelyNotSent => {
+                SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
+            }
+            ModelSendState::PossiblySent => SendOutcome::Indeterminate(
+                pc_gateway_transport::SendIndeterminateReason::LostAfterHandoff,
+            ),
+            _ => raw_response(),
+        };
+        let (executor, renderer, transport, _) = harness(
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ],
+            vec![send],
+            1,
+        );
+        let control = request_control();
+        let observer = control.observation();
+        let outcome = executor
+            .run(control, call(), &RendererRef(renderer), &NoopEvidenceSink)
+            .await;
+        let terminal = match outcome {
+            ManagedOutcome::NotSent { attempts: 1 } => ExecutionTerminal::NotSent,
+            ManagedOutcome::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
+            ManagedOutcome::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
+            unexpected => panic!("unexpected outcome: {unexpected:?}"),
+        };
+        assert_eq!(observer.snapshot().model_send, send_state);
+        assert_eq!(
+            observer.snapshot().execution,
+            ExecutionState::Finished(terminal)
+        );
+        assert_eq!(transport.sends.lock().unwrap().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn missing_or_mismatched_core_target_never_sends() {
+    for invalid in [
+        (None, Some("openai-chat".to_string())),
+        (Some("http://wrong.invalid/v1/chat".to_string()), None),
+        (
+            Some("https://approved.example/v1/chat/completions".to_string()),
+            Some("openai-responses".to_string()),
+        ),
+        (
+            Some("file:///private/data".to_string()),
+            Some("openai-chat".to_string()),
+        ),
+    ] {
+        let (executor, renderer, transport, _) = harness(
+            vec![Ok(ContextCheckResult {
+                target_endpoint: invalid.0,
+                target_protocol: invalid.1,
+                ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
+            })],
+            vec![],
+            2,
+        );
+        let evidence = BufferedEvidenceSink::new();
+        let outcome = executor
+            .run(request_control(), call(), &RendererRef(renderer), &evidence)
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+        assert!(transport.destinations.lock().unwrap().is_empty());
+        assert_eq!(
+            evidence.calls()[0].target_fingerprint,
+            pc_gateway_evidence::fingerprint("no-upstream-send")
+        );
+    }
+}
+
+#[tokio::test]
+async fn definite_not_sent_retry_uses_the_newly_approved_destination() {
+    let first = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+    let second = ContextCheckResult {
+        target_endpoint: Some("https://second.example/v1/chat/completions".into()),
+        ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
+    };
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            Ok(first),
+            Ok(second),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![
+            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
+            raw_response(),
+        ],
+        2,
+    );
+    let evidence = BufferedEvidenceSink::new();
+    let outcome = executor
+        .run(request_control(), call(), &RendererRef(renderer), &evidence)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    assert_eq!(
+        evidence.calls()[0].target_fingerprint,
+        pc_gateway_evidence::fingerprint("https://second.example/v1/chat/completions")
+    );
+    assert_eq!(
+        transport.destinations.lock().unwrap().as_slice(),
+        [
+            "http://upstream.invalid/v1/chat/completions",
+            "https://second.example/v1/chat/completions",
+        ]
+    );
+    let checked = gate.seen.lock().unwrap();
+    let sent = transport.sends.lock().unwrap();
+    assert_eq!(checked[0].0, CheckPhase::BeforeSend);
+    assert_eq!(checked[1].0, CheckPhase::BeforeSend);
+    assert_eq!(checked[0].1, checked[1].1);
+    assert_eq!(
+        sent.as_slice(),
+        [checked[0].1.as_bytes(), checked[1].1.as_bytes()]
+    );
 }
 
 #[tokio::test]
@@ -767,7 +802,7 @@ async fn allow_send_allow_release() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -806,7 +841,7 @@ async fn before_send_block_never_sends() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -832,7 +867,7 @@ async fn withhold_is_terminal_in_pr2264_contract() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -853,7 +888,7 @@ async fn gate_unavailable_pauses_never_allow() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -863,7 +898,7 @@ async fn gate_unavailable_pauses_never_allow() {
 }
 
 #[tokio::test]
-async fn gate_unavailable_degrades_when_allowed() {
+async fn core_unavailable_never_sends_without_a_bound_target() {
     let (executor, renderer, transport, _g) = harness(
         vec![Err(GateError::GateUnavailable("down".into()))],
         vec![raw_response()],
@@ -873,18 +908,17 @@ async fn gate_unavailable_degrades_when_allowed() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::PassthroughWithoutMemory),
+            call(),
             &RendererRef(renderer.clone()),
             &evidence,
         )
         .await;
-    assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
-    assert_eq!(evidence.not_sent().len(), 1);
-    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+    assert!(transport.sends.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn block_does_not_degrade() {
+async fn blocked_check_never_sends() {
     let (executor, renderer, transport, _g) = harness(
         vec![Ok(result(
             CheckPhase::BeforeSend,
@@ -897,7 +931,7 @@ async fn block_does_not_degrade() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::PassthroughWithoutMemory),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -923,7 +957,7 @@ async fn deterministic_not_sent_retries_bounded() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &evidence,
         )
@@ -948,7 +982,7 @@ async fn indeterminate_never_resends() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -974,7 +1008,7 @@ async fn before_release_block_blocks_and_cancels() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -999,7 +1033,7 @@ async fn credentials_never_enter_check_payload() {
     executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1045,7 +1079,7 @@ async fn injects_block_and_declares_exact_location() {
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(
         "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[{\"content\":\"网关必须无策略\"}]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1",
     )));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     let outcome = executor
         .run(
@@ -1104,7 +1138,7 @@ async fn responses_injection_targets_input_text_and_declares_input_pointer() {
     );
     let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[{\"content\":\"测试命令\"}]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     // Responses 的形态：developer 条目原样封装在前，用户消息由 input_text 部件组成。
     c.request.messages = vec![
         CanonicalMessage {
@@ -1177,7 +1211,7 @@ async fn responses_string_content_uses_a_supported_location_only_when_injected()
             2,
         );
         *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(prepared)));
-        let mut c = call(DegradePolicy::Pause);
+        let mut c = call();
         c.request.messages[0].content = vec![serde_json::json!(user_text)];
         c.inject_context = inject;
         let outcome = executor
@@ -1236,7 +1270,7 @@ async fn empty_prepare_injects_nothing() {
         2,
     );
     // prepare 默认返回 empty（FakeGate 默认值）
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     executor
         .run(
@@ -1266,7 +1300,7 @@ async fn prepare_failure_still_sends_without_injection() {
     );
     *gate.prepare_result.lock().unwrap() = Some(Err(GateError::GateUnavailable("down".into())));
     let evidence = BufferedEvidenceSink::new();
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     let outcome = executor
         .run(
@@ -1295,7 +1329,7 @@ async fn sediment_captures_released_turn_synchronously() {
         vec![raw_response()],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -1340,7 +1374,7 @@ async fn blocked_turn_never_sediments() {
         vec![],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     executor
         .run(
@@ -1354,8 +1388,8 @@ async fn blocked_turn_never_sediments() {
 }
 
 #[tokio::test]
-async fn malformed_gate_never_degrades_even_with_passthrough() {
-    // Core 可达但返回畸形响应：不是"不可用"，绝不允许降级直通（fail-closed）。
+async fn malformed_core_response_never_sends() {
+    // Core 可达但返回畸形响应：没有获准目标，不得发送。
     let (executor, renderer, transport, _g) = harness(
         vec![Err(GateError::Malformed("garbage response".into()))],
         vec![raw_response()],
@@ -1364,7 +1398,7 @@ async fn malformed_gate_never_degrades_even_with_passthrough() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::PassthroughWithoutMemory),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1401,7 +1435,7 @@ async fn non_utf8_response_is_never_released() {
     let outcome = executor
         .run(
             control,
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1433,9 +1467,8 @@ async fn non_utf8_response_is_never_released() {
 // ---------- P1-3 / P1-4 探针 ----------
 
 #[tokio::test]
-async fn degraded_send_carries_no_injected_memory() {
-    // reviewer 探针复现：prepare 返回 PRIVATE_MEMORY_2307 → check 挂 → Passthrough
-    // → 上游收到的请求不含注入内容（P1-3）。
+async fn core_outage_never_sends_prepared_memory_or_raw_request() {
+    // 准备结果含私密记忆但 Core 检查不可用：原请求和注入结果都不能发送。
     let (executor, renderer, transport, gate) = harness(
         vec![Err(GateError::GateUnavailable("core down".into()))],
         vec![raw_response()],
@@ -1444,7 +1477,7 @@ async fn degraded_send_carries_no_injected_memory() {
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(
         "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\nPRIVATE_MEMORY_2307\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1",
     )));
-    let mut c = call(DegradePolicy::PassthroughWithoutMemory);
+    let mut c = call();
     c.inject_context = true;
     let outcome = executor
         .run(
@@ -1454,15 +1487,8 @@ async fn degraded_send_carries_no_injected_memory() {
             &NoopEvidenceSink,
         )
         .await;
-    assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
-    // 关键断言：发送的字节不含注入标记（降级必须用原始请求）
-    let sent_bytes = &transport.sends.lock().unwrap()[0];
-    let sent_str = String::from_utf8(sent_bytes.to_vec()).unwrap();
-    assert!(
-        !sent_str.contains("PRIVATE_MEMORY_2307"),
-        "降级载荷不得包含注入内容: {sent_str}"
-    );
-    assert!(sent_str.contains("hello"), "原始用户文本必须在: {sent_str}");
+    assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+    assert!(transport.sends.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1481,7 +1507,7 @@ async fn expired_send_verdict_never_sends() {
     let outcome = executor
         .run(
             control,
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1516,7 +1542,7 @@ async fn retry_re_admits_and_revocation_blocks_second_send() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1545,7 +1571,7 @@ async fn release_expired_after_capture_withholds() {
         vec![raw_response()],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -1578,7 +1604,7 @@ async fn empty_valid_until_never_sends() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1605,7 +1631,7 @@ async fn malformed_valid_until_never_sends() {
         let outcome = executor
             .run(
                 request_control(),
-                call(DegradePolicy::Pause),
+                call(),
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
             )
@@ -1642,7 +1668,7 @@ async fn capture_duration_expires_deadline_withholds_release() {
         vec![raw_response()],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -1700,7 +1726,7 @@ async fn prepare_requests_memory_only_assembly() {
         2,
     );
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("测试记忆内容")));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     executor
         .run(
@@ -1753,7 +1779,7 @@ async fn non_enforcing_core_can_admit_retry_and_release_without_privacy_coverage
         .with_core_enforcement(false)
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer),
             &NoopEvidenceSink,
         )
@@ -1802,7 +1828,7 @@ async fn non_enforcing_core_still_requires_valid_admission_for_each_phase() {
                 .with_core_enforcement(false)
                 .run(
                     request_control(),
-                    call(DegradePolicy::Pause),
+                    call(),
                     &RendererRef(renderer),
                     &NoopEvidenceSink,
                 )
@@ -1838,7 +1864,7 @@ async fn allow_with_incomplete_coverage_pauses() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1864,7 +1890,7 @@ async fn allow_without_binding_pauses() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1891,7 +1917,7 @@ async fn allow_with_phase_mismatch_pauses() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1917,7 +1943,7 @@ async fn allow_with_wrong_schema_pauses() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1949,7 +1975,7 @@ async fn release_allow_with_incomplete_coverage_pauses() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::Pause),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
@@ -1963,8 +1989,8 @@ async fn release_allow_with_incomplete_coverage_pauses() {
 // ---------- knqiufan review 探针 ----------
 
 #[tokio::test]
-async fn gate_rejected_does_not_degrade() {
-    // P2：Core 可达但返回 401/403/422（明确拒绝）→ 不降级（不是"不可达"）。
+async fn core_rejection_never_sends() {
+    // Core 明确拒绝时没有准入，不得发送。
     let (executor, renderer, transport, _gate) = harness(
         vec![Err(GateError::GateRejected(403))],
         vec![raw_response()],
@@ -1973,14 +1999,14 @@ async fn gate_rejected_does_not_degrade() {
     let outcome = executor
         .run(
             request_control(),
-            call(DegradePolicy::PassthroughWithoutMemory),
+            call(),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
         )
         .await;
     assert!(
         matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("403")),
-        "Core 403 拒绝必须暂停，不降级。实际: {outcome:?}"
+        "Core 403 拒绝必须暂停。实际: {outcome:?}"
     );
     assert_eq!(transport.sends.lock().unwrap().len(), 0, "零发送");
 }
@@ -1999,7 +2025,7 @@ async fn sediment_uses_pristine_user_text_not_enriched() {
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(
         "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\nOLD_MEMORY_MARKER\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1",
     )));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     c.sediment = true;
     executor
@@ -2037,7 +2063,7 @@ async fn typed_content_parts_preserved_in_query_and_transcript() {
         vec![raw_response()],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     c.sediment = true;
     // 改成 typed parts 形态
@@ -2079,7 +2105,7 @@ async fn mixed_content_preserves_non_text_parts_during_injection() {
         2,
     );
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("RECALLED_MEMORY_42")));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     // 混合内容：text + image_url
     c.request.messages[0].content = vec![
@@ -2121,7 +2147,7 @@ async fn multi_text_parts_memory_injected_only_once() {
         2,
     );
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("UNIQUE_MARKER_XYZ")));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     c.request.messages[0].content = vec![
         serde_json::json!({"type": "text", "text": "第一段"}),
@@ -2159,7 +2185,7 @@ async fn typed_parts_pointer_targets_text_field() {
         2,
     );
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("TYPED_MEMORY")));
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     c.request.messages[0].content = vec![serde_json::json!({"type": "text", "text": "hello"})];
     executor
@@ -2195,7 +2221,7 @@ async fn typed_parts_pointer_targets_text_field() {
 
 /// 工具循环的第 `step` 个请求：同一条用户消息之后跟着 `step` 轮工具调用与输出。
 fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall {
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.inject_context = true;
     c.conversation_id = Some("conversation-a".into());
     let user = if responses {
@@ -3060,7 +3086,7 @@ async fn a_failed_capture_still_releases_and_is_recorded() {
         harness(allow_runs(1), vec![chat_final_response("done")], 2);
     *gate.capture_error.lock().unwrap() = Some(GateError::GateUnavailable("down".into()));
     let evidence = BufferedEvidenceSink::new();
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -3092,7 +3118,7 @@ async fn a_blocked_release_is_never_captured() {
         vec![chat_final_response("secret answer")],
         2,
     );
-    let mut c = call(DegradePolicy::Pause);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -3107,13 +3133,13 @@ async fn a_blocked_release_is_never_captured() {
 }
 
 #[tokio::test]
-async fn a_degraded_delivery_is_never_captured() {
+async fn core_outage_is_neither_delivered_nor_captured() {
     let (executor, renderer, transport, gate) = harness(
         vec![Err(GateError::GateUnavailable("down".into()))],
         vec![chat_final_response("unchecked answer")],
         2,
     );
-    let mut c = call(DegradePolicy::PassthroughWithoutMemory);
+    let mut c = call();
     c.sediment = true;
     let outcome = executor
         .run(
@@ -3123,8 +3149,8 @@ async fn a_degraded_delivery_is_never_captured() {
             &NoopEvidenceSink,
         )
         .await;
-    assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
-    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+    assert!(transport.sends.lock().unwrap().is_empty());
     assert!(gate.captured.lock().unwrap().is_empty());
 }
 
@@ -3357,7 +3383,7 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
             1,
         ),
         ("gate_error", Terminal::GatePaused, Sending::NoSend, 0),
-        ("degraded", Terminal::Degraded, Sending::ResponseReceived, 1),
+        ("core_unavailable", Terminal::GatePaused, Sending::NoSend, 0),
     ] {
         let mut admission = result(
             CheckPhase::BeforeSend,
@@ -3387,7 +3413,7 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
         if case == "release_expired" {
             release.valid_until = "2000-01-01T00:00:00Z".into();
         }
-        let initial = if matches!(case, "gate_error" | "degraded") {
+        let initial = if matches!(case, "gate_error" | "core_unavailable") {
             Err(GateError::GateUnavailable(
                 "SENSITIVE_PROVIDER_ERROR".into(),
             ))
@@ -3413,16 +3439,7 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
         let control = request_control();
         let observation = control.observation();
         let outcome = executor
-            .run(
-                control,
-                call(if case == "degraded" {
-                    DegradePolicy::PassthroughWithoutMemory
-                } else {
-                    DegradePolicy::Pause
-                }),
-                &RendererRef(renderer),
-                &evidence,
-            )
+            .run(control, call(), &RendererRef(renderer), &evidence)
             .await;
         let calls = evidence.calls();
         assert_eq!(calls.len(), 1, "{case}");
@@ -3505,8 +3522,7 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
         let cancellation = control.cancellation();
         let observation = control.observation();
         let renderer = RendererRef(renderer);
-        let mut future =
-            Box::pin(executor.run(control, call(DegradePolicy::Pause), &renderer, &evidence));
+        let mut future = Box::pin(executor.run(control, call(), &renderer, &evidence));
         assert!(
             std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
                 .await
@@ -3557,12 +3573,7 @@ async fn readmission_evidence_keeps_each_real_attempt_and_release_order() {
         .extend([None, None, Some(hold.clone())]);
     let evidence = BufferedEvidenceSink::new();
     let renderer = RendererRef(renderer);
-    let mut future = Box::pin(executor.run(
-        request_control(),
-        call(DegradePolicy::Pause),
-        &renderer,
-        &evidence,
-    ));
+    let mut future = Box::pin(executor.run(request_control(), call(), &renderer, &evidence));
     assert!(
         std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
             .await
@@ -3629,12 +3640,7 @@ async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancel
         .unwrap();
         let (executor, renderer, _, _) = harness(allow_runs(1), vec![raw_response()], 1);
         let outcome = executor
-            .run(
-                request_control(),
-                call(DegradePolicy::Pause),
-                &RendererRef(renderer),
-                &sink,
-            )
+            .run(request_control(), call(), &RendererRef(renderer), &sink)
             .await;
         assert!(matches!(outcome, ManagedOutcome::Released { .. }));
         entered_rx
@@ -3658,8 +3664,7 @@ async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancel
         let observation = control.observation();
         let cancellation = control.cancellation();
         let renderer = RendererRef(renderer);
-        let mut future =
-            Box::pin(executor.run(control, call(DegradePolicy::Pause), &renderer, &sink));
+        let mut future = Box::pin(executor.run(control, call(), &renderer, &sink));
         assert!(
             std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
                 .await
@@ -3689,12 +3694,7 @@ async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancel
         );
         assert!(matches!(
             executor
-                .run(
-                    request_control(),
-                    call(DegradePolicy::Pause),
-                    &RendererRef(renderer),
-                    &sink
-                )
+                .run(request_control(), call(), &RendererRef(renderer), &sink)
                 .await,
             ManagedOutcome::Withheld { .. }
         ));
@@ -3725,7 +3725,7 @@ async fn partial_response_facts_survive_without_claiming_complete_delivery_or_us
         executor
             .run(
                 request_control(),
-                call(DegradePolicy::Pause),
+                call(),
                 &RendererRef(renderer),
                 &evidence
             )
@@ -3776,7 +3776,7 @@ async fn withheld_recoverability_is_classified_by_the_executor() {
             let outcome = executor
                 .run(
                     request_control(),
-                    call(DegradePolicy::Pause),
+                    call(),
                     &RendererRef(renderer),
                     &NoopEvidenceSink,
                 )
@@ -3914,7 +3914,7 @@ async fn code_evidence_is_requested_only_when_enabled() {
         harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
     let r = RendererRef(renderer.clone());
     for include_code in [false, true] {
-        let mut c = call(DegradePolicy::Pause);
+        let mut c = call();
         c.inject_context = true;
         c.include_code = include_code;
         executor
@@ -3981,7 +3981,7 @@ async fn rendered_capacity_includes_prepared_context_and_replay() {
                 ManagedCall {
                     inject_context: true,
                     conversation_id: Some("capacity-test".into()),
-                    ..call(DegradePolicy::Pause)
+                    ..call()
                 },
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
@@ -3998,16 +3998,9 @@ async fn rendered_capacity_includes_prepared_context_and_replay() {
 #[tokio::test]
 async fn response_capacity_withholds_without_retry_and_preserves_possible_billing() {
     use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent, Sending, Terminal};
-    for degrade in [
-        DegradePolicy::Pause,
-        DegradePolicy::PassthroughWithoutMemory,
-    ] {
+    {
         for partial in [false, true] {
-            let check = if degrade == DegradePolicy::Pause {
-                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
-            } else {
-                Err(GateError::GateUnavailable("offline".into()))
-            };
+            let check = Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]));
             let send = if partial {
                 SendOutcome::IncompleteResponse {
                     reason: SendIndeterminateReason::BufferLimitExceeded,
@@ -4022,7 +4015,7 @@ async fn response_capacity_withholds_without_retry_and_preserves_possible_billin
             let observation = control.observation();
             let evidence = BufferedEvidenceSink::new();
             let outcome = executor
-                .run(control, call(degrade), &RendererRef(renderer), &evidence)
+                .run(control, call(), &RendererRef(renderer), &evidence)
                 .await;
             assert!(
                 matches!(outcome, ManagedOutcome::Withheld { reason_codes, .. }
@@ -4077,10 +4070,7 @@ async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_rel
             Ok(())
         }
     }
-    for degrade in [
-        DegradePolicy::Pause,
-        DegradePolicy::PassthroughWithoutMemory,
-    ] {
+    {
         for stream in [false, true] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
@@ -4114,20 +4104,16 @@ async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_rel
                 socket.write_all(format!("HTTP/1.1 201 Created\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{partial}", partial.len() + 100).as_bytes()).await.unwrap();
                 let _ = finish_rx.await;
             });
-            let verdict = if degrade == DegradePolicy::Pause {
-                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
-            } else {
-                Err(GateError::GateUnavailable("SYNTHETIC_GATE_SECRET".into()))
-            };
+            let mut verdict = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+            verdict.target_endpoint = Some(format!("http://{address}/SYNTHETIC_PATH"));
+            let verdict = Ok(verdict);
             let (_, renderer, _, gate) = harness(vec![verdict], vec![], 3);
             let executor = Executor::new(
                 FakeGateRef(gate.clone()),
                 ReqwestTransport::new(Duration::from_millis(250)),
                 NonZeroU32::new(3).unwrap(),
             );
-            let mut call = call(degrade);
-            call.target_url =
-                format!("http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@{address}/SYNTHETIC_PATH");
+            let mut call = call();
             call.request.stream = stream;
             let control = request_control();
             let observation = control.observation();
