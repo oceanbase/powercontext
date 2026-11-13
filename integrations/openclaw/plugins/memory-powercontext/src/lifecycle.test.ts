@@ -602,6 +602,45 @@ describe("PowerContext lifecycle", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  it("captures a replayed turn under the same project binding", async () => {
+    const harness = createLifecycleHarness();
+    const agentEnd = harness.hooks.get("agent_end")!;
+    const session = { agentId: "main", sessionId: "session-1", sessionKey: "agent:main:telegram:direct:user-1" };
+    const messages = [{ role: "user", content: "capture this once" }];
+    await harness.hooks.get("before_prompt_build")!(
+      { messages, prompt: "capture this once" },
+      { ...session, runId: "run-1", activeProjectKeys: ["/workspace/project-a"] },
+    );
+
+    // A redelivered completion carries the same run and messages, and again no active projects.
+    await agentEnd({ success: true, runId: "run-1", messages }, { ...session, runId: "run-1" });
+    await agentEnd({ success: true, runId: "run-1", messages }, { ...session, runId: "run-1" });
+    await harness.hooks.get("gateway_stop")!({}, {});
+
+    expect(harness.capturedScopes).toEqual(["scp_project_a", "scp_project_a"]);
+    expect(harness.capturedSourceIds[1]).toBe(harness.capturedSourceIds[0]);
+    expect(harness.flushScopes).toEqual(["scp_project_a"]);
+    expect(harness.warnings).toEqual([]);
+  });
+
+  it("retries a failed capture under the same project binding when the turn is replayed", async () => {
+    const harness = createLifecycleHarness();
+    const agentEnd = harness.hooks.get("agent_end")!;
+    const session = { agentId: "main", sessionId: "session-1", sessionKey: "agent:main:telegram:direct:user-1" };
+    const messages = [{ role: "user", content: "capture this after a failure" }];
+    await harness.hooks.get("before_prompt_build")!(
+      { messages, prompt: "capture this after a failure" },
+      { ...session, runId: "run-1", activeProjectKeys: ["/workspace/project-a"] },
+    );
+
+    harness.setCaptureError(new Error("PowerContext unavailable"));
+    await agentEnd({ success: true, runId: "run-1", messages }, { ...session, runId: "run-1" });
+    harness.setCaptureError(undefined);
+    await agentEnd({ success: true, runId: "run-1", messages }, { ...session, runId: "run-1" });
+
+    expect(harness.capturedScopes).toEqual(["scp_project_a", "scp_project_a"]);
+  });
+
   it("keeps capture and flush on one resolved Scope during compaction", async () => {
     const harness = createLifecycleHarness();
     const beforeCompaction = harness.hooks.get("before_compaction");

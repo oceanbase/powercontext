@@ -130,23 +130,33 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   const sessionScopes = new Map<string, Set<string>>();
   // OpenClaw supplies a run's active projects to `before_prompt_build` but not to `agent_end`; capture resolves
   // with the projects of the run it captures, so it reaches the same project binding as that run's recall.
-  const runProjectKeys = new Map<string, readonly string[]>();
-  const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
-    if (!runId || !projectKeys) {
-      return;
-    }
-    runProjectKeys.delete(runId);
-    runProjectKeys.set(runId, [...projectKeys]);
-    if (runProjectKeys.size > MAX_TRACKED_RUNS) {
-      runProjectKeys.delete(runProjectKeys.keys().next().value!);
+  // A completed run moves to its own map instead of being dropped: a replayed `agent_end` must resolve the same
+  // Scope, because Source deduplication holds only within one Scope, and completed runs must not evict runs that
+  // are still in progress. Each map keeps its most recent runs.
+  const activeRunProjects = new Map<string, readonly string[]>();
+  const completedRunProjects = new Map<string, readonly string[]>();
+  const trackRun = (runs: Map<string, readonly string[]>, runId: string, projectKeys: readonly string[]) => {
+    runs.delete(runId);
+    runs.set(runId, projectKeys);
+    if (runs.size > MAX_TRACKED_RUNS) {
+      runs.delete(runs.keys().next().value!);
     }
   };
-  const takeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
+  const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
+    if (runId && projectKeys) {
+      trackRun(activeRunProjects, runId, [...projectKeys]);
+    }
+  };
+  const completeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
     if (!runId) {
       return undefined;
     }
-    const projectKeys = runProjectKeys.get(runId);
-    runProjectKeys.delete(runId);
+    const projectKeys = activeRunProjects.get(runId);
+    if (projectKeys === undefined) {
+      return completedRunProjects.get(runId);
+    }
+    activeRunProjects.delete(runId);
+    trackRun(completedRunProjects, runId, projectKeys);
     return projectKeys;
   };
   const pendingPositions = new Map<string, number>();
@@ -465,7 +475,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   });
 
   api.on("agent_end", async (event, ctx) => {
-    const runProjects = takeRunProjects(ctx.runId ?? event.runId);
+    const runProjects = completeRunProjects(ctx.runId ?? event.runId);
     const agentId = readAgentId(ctx.agentId);
     if (!event.success || !agentId) {
       return;
