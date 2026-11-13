@@ -16,11 +16,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import time_machine
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -75,7 +79,9 @@ class _EchoHandoffPipeline:
         )
 
 
-def test_handoff_can_use_an_explicit_working_note_citation() -> None:
+def test_handoff_can_use_an_explicit_working_note_citation(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig()),
@@ -105,7 +111,44 @@ def test_handoff_can_use_an_explicit_working_note_citation() -> None:
 
             handoffs = runtime.handoff.for_scope(scope.scope_id)
             prepared = await handoffs.finalize(draft)
+
+            async def fail_write(connection: AsyncConnection, _artifact: object) -> None:
+                await connection.execute(text("SELECT 1 FROM private_missing_table"))
+
+            with pytest.raises(OperationalError):
+                await handoffs.commit(prepared, on_commit=fail_write)
+            assert await handoffs.latest() is None
+
+            (failure,) = [
+                record for record in caplog.records if getattr(record, "event", None) == "artifact.operation.failed"
+            ]
+            fields = vars(failure)
+            assert (fields["family"], fields["operation"], fields["scope"]) == (
+                "handoff",
+                "handoff.commit",
+                scope.scope_id,
+            )
+            assert (fields["processing_stage"], fields["failure_reason"]) == ("persistence", "storage_failure")
+            assert fields["cause_exception_type"] == "OperationalError"
+            assert failure.exc_info is None
+            assert "private_missing_table" not in repr(vars(failure))
+
+            sink_called = False
+
+            def broken_logger(*args: object, **kwargs: object) -> None:
+                nonlocal sink_called
+                sink_called = True
+                raise RuntimeError
+
+            with monkeypatch.context() as patch:
+                patch.setattr(logging.getLogger("powercontext.builtin.processing_diagnostics"), "log", broken_logger)
+                with pytest.raises(OperationalError):
+                    await handoffs.commit(prepared, on_commit=fail_write)
+            assert sink_called
+            assert await handoffs.latest() is None
+
             committed = await handoffs.commit(prepared)
+            assert committed.revision == 1
 
             assert committed.content == prepared.content
             assert committed.lineage.sources == (note.source_ref,)
