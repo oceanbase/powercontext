@@ -273,9 +273,14 @@ An interrupted or ambiguous attempt appears as `unknown`. Check the destination 
 retrying with a new request ID that names the previous attempt. A retry reuses the same saved package
 and receipt identity. The Host never reopens automatically after a restart.
 
+The Host uses PowerContext's existing Handoff service. An inspected current-work input or exact
+Handoff Revision goes through the verified connection; the complete saved package can then be
+read or exported by the owning session. Without inspected input or an exact Revision, this Host
+returns `needs_input`. Automatic drafting needs a trusted session evidence reader and a configured
+generation path.
+
 The capability catalog only offers native preflight for registered, qualified adapters. Codex Desktop,
 Claude Desktop Code, and Claude Code CLI require individual adapters and actual host acceptance.
-When the delivery service is absent, delivery operations return `integration_unavailable`.
 
 ## Diagnose the running configuration
 

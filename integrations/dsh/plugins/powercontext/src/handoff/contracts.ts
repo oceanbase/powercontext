@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+import type { Wire } from './wire.ts'
 
+// In-process only. The authenticated Host supplies ownerId.
 export interface CallContext {
   readonly ownerId: string
   readonly signal: AbortSignal
@@ -45,15 +47,13 @@ export interface VerifiedPreflight {
 
 export interface ReceiptAttempt {
   readonly receiptAttemptId: string
-  /** Existing Source type (for the current ACK capture route, content). */
-  readonly sourceType: string
+  readonly sourceType: Wire<'SourceReference'>['name']
   readonly sourceId: string
 }
 
 export type HandoffSelection =
   | { readonly kind: 'prepared'; readonly digest: string }
-  | { readonly kind: 'revision'; readonly revision: { readonly scope_id: string; readonly family: string
-    readonly artifact_id: string; readonly revision_id: string } }
+  | { readonly kind: 'revision'; readonly revision: Readonly<Wire<'ArtifactReference'>> & { readonly scope_id: string } }
 
 export interface LaunchBundle {
   readonly deliveryId: string
@@ -71,34 +71,66 @@ export interface ValidateForPrepareInput {
   readonly source: SourceBoundary
 }
 
+export interface PreflightGate {
+  validateForPrepare(
+    context: CallContext,
+    input: ValidateForPrepareInput,
+  ): Promise<VerifiedPreflight>
+}
+
+export type PreparationState = 'preparing' | 'needs_input' | 'prepared' | 'failed' | 'cancelled' | 'unknown'
+export type DeliveryErrorCode =
+  | 'not_found' | 'not_ready' | 'stale_preflight' | 'binding_mismatch'
+  | 'idempotency_conflict' | 'integration_unavailable' | 'capacity_exceeded'
+  | 'payload_invalid' | 'outcome_unknown'
+
+const errors: Record<DeliveryErrorCode, string> = {
+  not_found: 'The requested delivery or preflight was not found.',
+  not_ready: 'The requested operation is not ready.',
+  stale_preflight: 'Preflight conditions changed; verify the target again.',
+  binding_mismatch: 'The source boundary or delivery binding does not match.',
+  idempotency_conflict: 'This request conflicts with an existing delivery.',
+  integration_unavailable: 'The delivery integration is unavailable.',
+  capacity_exceeded: 'Delivery storage is full. Export and remove a delivery or increase the limit.',
+  payload_invalid: 'The delivery input or package is invalid.',
+  outcome_unknown: 'Preparation may have run, but no complete package can be recovered.',
+}
+
+export function isDeliveryErrorCode(value: unknown): value is DeliveryErrorCode {
+  return typeof value === 'string' && Object.hasOwn(errors, value)
+}
+
+export class DeliveryError extends Error {
+  readonly code: DeliveryErrorCode
+  constructor(code: DeliveryErrorCode) {
+    super(errors[code])
+    this.name = 'DeliveryError'
+    this.code = code
+  }
+}
+
 export interface PrepareDeliveryInput extends ValidateForPrepareInput {
   readonly requestId: string
   readonly workInput?: unknown
-}
-
-export interface PreflightGate {
-  validateForPrepare(context: CallContext, input: ValidateForPrepareInput): Promise<VerifiedPreflight>
+  /** An exact, explicitly selected Handoff Revision in the verified Scope. */
+  readonly revision?: Wire<'ArtifactReference'>
+  /** Explicitly create a new version, retaining the old delivery. Use a new requestId. */
+  readonly supersedesDeliveryId?: string
 }
 
 export interface DeliveryView {
   readonly deliveryId: string
-  readonly preparationState: 'preparing' | 'prepared' | 'needs_input' | 'failed' | 'cancelled' | 'unknown'
+  readonly preparationState: PreparationState
   readonly source: SourceBoundary
   readonly binding: VerifiedPreflight
   readonly receiptAttempt: ReceiptAttempt
   readonly createdAt: string
   readonly updatedAt: string
-  readonly error?: { readonly code: string; readonly message: string }
-  readonly recoveryActions: readonly string[]
-}
-
-export interface DeliveryService {
-  prepare(context: CallContext, input: PrepareDeliveryInput): Promise<DeliveryView>
-  get(context: CallContext, deliveryId: string): Promise<DeliveryView>
-  /** Return only an authorized, fully saved delivery with verified package integrity. */
-  getForLaunch(context: CallContext, deliveryId: string): Promise<LaunchBundle>
-  cancelPreparation(context: CallContext, deliveryId: string): Promise<DeliveryView>
-  exportPackage(context: CallContext, deliveryId: string): Promise<PackageExport>
+  readonly pinned: boolean
+  readonly expired: boolean
+  readonly error?: { code: DeliveryErrorCode; message: string }
+  readonly recoveryActions: readonly ('supply_work_input' | 'create_new_version' | 'export_package')[]
+  readonly preview?: { objective: string; disposition: Wire<'HandoffDisposition'>; omissionCount: number }
 }
 
 export interface PackageExport {
@@ -106,4 +138,12 @@ export interface PackageExport {
   readonly mediaType: 'application/json'
   readonly packageSha256: string
   readonly bytes: Uint8Array
+}
+
+export interface DeliveryService {
+  prepare(context: CallContext, input: PrepareDeliveryInput): Promise<DeliveryView>
+  get(context: CallContext, deliveryId: string): Promise<DeliveryView>
+  getForLaunch(context: CallContext, deliveryId: string): Promise<LaunchBundle>
+  cancelPreparation(context: CallContext, deliveryId: string): Promise<DeliveryView>
+  exportPackage(context: CallContext, deliveryId: string): Promise<PackageExport>
 }

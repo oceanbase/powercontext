@@ -1,0 +1,194 @@
+[
+  {
+    "wire": {
+      "content": {
+        "omissions": [
+          {
+            "citation": null,
+            "text": "工具结果未捕获。"
+          }
+        ],
+        "next_action": null,
+        "disposition": "blocked",
+        "state": [
+          {
+            "citations": [
+              {
+                "source_ref": {
+                  "locator": null,
+                  "source_id": "会话 😀",
+                  "name": "content"
+                },
+                "kind": "source"
+              }
+            ],
+            "text": "检查结果：中断；Café\n下一行\t\\\""
+          }
+        ],
+        "objective": "跨 Agent 交接 😀",
+        "schema": "powercontext.handoff.v1",
+        "generation": null
+      },
+      "scope_id": "项目",
+      "base": null,
+      "generation": null,
+      "schema": "powercontext.prepared-handoff.v1"
+    },
+    "digest": "sha256:50844e2950af053d0bba58da7ebd151e3e2236cd4662410381ffe51480b7cf9c"
+  },
+  {
+    "wire": {
+      "content": {
+        "omissions": [
+          {
+            "citation": null,
+            "text": "工具结果未捕获。"
+          }
+        ],
+        "next_action": {
+          "citations": [
+            {
+              "source_ref": {
+                "locator": null,
+                "source_id": "会话 😀",
+                "name": "content"
+              },
+              "kind": "source"
+            },
+            {
+              "kind": "source",
+              "source_ref": {
+                "name": "content",
+                "source_id": "零",
+                "locator": {
+                  "kind": "sequence",
+                  "sequence": 0
+                }
+              }
+            },
+            {
+              "kind": "source",
+              "source_ref": {
+                "name": "file",
+                "source_id": "行号",
+                "locator": {
+                  "kind": "line_range",
+                  "start_line": 1,
+                  "end_line": 2,
+                  "heading_path": null
+                }
+              }
+            },
+            {
+              "kind": "source",
+              "source_ref": {
+                "name": "file",
+                "source_id": "标题",
+                "locator": {
+                  "kind": "line_range",
+                  "start_line": 8,
+                  "end_line": 8,
+                  "heading_path": "章节 😀"
+                }
+              }
+            },
+            {
+              "kind": "artifact",
+              "artifact_ref": {
+                "revision": 2,
+                "artifact_id": "ref",
+                "family": "experience"
+              }
+            }
+          ],
+          "text": "检查结果：中断；Café\n下一行\t\\\""
+        },
+        "disposition": "blocked",
+        "state": [
+          {
+            "citations": [
+              {
+                "source_ref": {
+                  "locator": null,
+                  "source_id": "会话 😀",
+                  "name": "content"
+                },
+                "kind": "source"
+              },
+              {
+                "kind": "source",
+                "source_ref": {
+                  "name": "content",
+                  "source_id": "零",
+                  "locator": {
+                    "kind": "sequence",
+                    "sequence": 0
+                  }
+                }
+              },
+              {
+                "kind": "source",
+                "source_ref": {
+                  "name": "file",
+                  "source_id": "行号",
+                  "locator": {
+                    "kind": "line_range",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "heading_path": null
+                  }
+                }
+              },
+              {
+                "kind": "source",
+                "source_ref": {
+                  "name": "file",
+                  "source_id": "标题",
+                  "locator": {
+                    "kind": "line_range",
+                    "start_line": 8,
+                    "end_line": 8,
+                    "heading_path": "章节 😀"
+                  }
+                }
+              },
+              {
+                "kind": "artifact",
+                "artifact_ref": {
+                  "revision": 2,
+                  "artifact_id": "ref",
+                  "family": "experience"
+                }
+              }
+            ],
+            "text": "检查结果：中断；Café\n下一行\t\\\""
+          }
+        ],
+        "objective": "跨 Agent 交接 😀",
+        "schema": "powercontext.handoff.v1",
+        "generation": {
+          "edit_status": "unchanged",
+          "original_draft_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "compiled_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "builtin_version": "1",
+          "definition_version": "1",
+          "artifact": null,
+          "selection": "built_in",
+          "prompt_key": "handoff.generate",
+          "scope_id": "项目"
+        }
+      },
+      "scope_id": "项目",
+      "base": {
+        "revision": 3,
+        "artifact_id": "current",
+        "family": "handoff"
+      },
+      "generation": {
+        "receipt": "test-generation.receipt"
+      },
+      "schema": "powercontext.prepared-handoff.v1"
+    },
+    "digest": "sha256:abab96e7dd8e96d2821be7afacc7276bd6782bb80fd32c943ae05de52611d89d"
+  }
+]

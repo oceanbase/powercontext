@@ -24,6 +24,7 @@ import { HandoffError } from './errors.ts'
 import type { LaunchPlanner } from './native-launch.ts'
 import { sameSource, type PreflightService } from './preflight.ts'
 import { HandoffRecords, keyFor } from './records.ts'
+import { NATIVE_TARGET_IDS } from './targets.ts'
 
 const SCHEMA = 'powercontext.dsh-launch-attempts.v1'
 const MAX_ATTEMPTS = 64
@@ -133,6 +134,7 @@ export class LaunchService {
 
   async launch(context: CallContext, deliveryId: string, input: LaunchInput): Promise<LaunchView> {
     this.options.requireLocal()
+    if (!(NATIVE_TARGET_IDS as readonly string[]).includes(input.targetId)) throw new HandoffError('payload_invalid')
     const key = keyFor(context.ownerId, deliveryId)
     const record = this.read(context, key, input.sessionId)
     if (record && record.targetId !== input.targetId) throw new HandoffError('binding_mismatch')
