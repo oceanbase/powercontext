@@ -62,11 +62,13 @@ An RFC is a permanent, public design record. Its motivation and every reference 
 - **Use public references.** Link a public GitHub issue, PR, RFC, or upstream public documentation. If the underlying requirement is not public, summarize the relevant part in the Summary and Motivation of both locales instead of pointing at it.
 - **Keep the header to the template.** Use only the fields in [`0000_example.md`](0000_example.md) (`Proposal Name`, `Start Date`, `RFC PR`) plus the optional `Tracking Issue` described above. Do not invent header fields for requirement sources or business catalogs; extra provenance belongs in the body or in a linked public issue.
 
-Real internal URLs can be checked mechanically (the bare domain quoted above is a forbidden example, not a link); external names need a manual read of both locales:
+Real internal URLs are rejected automatically: `make check` runs `scripts/check_public_content.py` through prek, and the same check can be run directly over every tracked file (the bare domain quoted above is a forbidden example, not a link):
 
 ```bash
-git grep -n -E 'https?://[^ ]*(antfin|yuque)[^ ]*' -- docs/en docs/zh
+uv run python scripts/check_public_content.py --all
 ```
+
+The checker matches exact intranet hostnames, so legitimate local examples such as `*.internal.example` and `host.docker.internal` are not flagged. External names cannot be matched mechanically; they still need a manual read of both locales.
 
 These rules apply repository-wide; see the "Write Documentation" section of [CONTRIBUTING.md](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md).
 

@@ -43,6 +43,8 @@ This is a public repository, and merged content becomes a permanent public recor
 - Reference sources everyone can open: a public GitHub issue, PR, RFC, or upstream public documentation. If a requirement is not public, summarize the relevant part in the document instead of linking to it.
 - Keep `docs/en/` and `docs/zh/` in sync, including headings, field labels, and link text. Apply every redaction or wording change to both locales.
 
+The link rule is enforced automatically: `make check` runs `scripts/check_public_content.py` through prek and rejects URLs on corporate intranet domains. Run `uv run python scripts/check_public_content.py --all` to check every tracked file directly. External names cannot be matched mechanically, so review both locales by hand before submitting.
+
 RFC-specific rules (allowed header fields, reference handling, and a pre-submit check) are in the [RFC guidelines](docs/en/rfcs/README.md) ([中文](docs/zh/rfcs/README.md)).
 
 ## Submit Feedback
