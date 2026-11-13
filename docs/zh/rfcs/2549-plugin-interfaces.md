@@ -898,7 +898,7 @@ class SearchResult(BaseModel):
 | 调整 | tags 接口接受插件 family：`TaggableArtifactFamily` 从枚举改为与 `ArtifactReadFamily` 相同格式的字符串，服务端校验为内置 family 或已加载的插件 family。网络上的数据格式不变，生成的客户端少了这个枚举类型 |
 | 调整 | 通用 Artifact 读取接口支持插件 family；通用检索接口对插件 family 把完整请求交给插件的 `search_artifacts`，未实现时返回 422；`GET /v1/capabilities` 列出插件 family |
 | 新增 | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering`：插件 family 的默认展示内容，由插件的 `render_artifact` 提供 |
-| 调整 | `POST /v1/context/prepare`：`ContextAssemblySection.family` 从枚举改为字符串，可以是已加载的插件 family；新增可选的 `search`（检索请求中除 `query`、`limit` 以外的字段），只对插件 family 生效；回执中的 `PreparedContextFamily` 从枚举改为字符串，可以是插件 family |
+| 调整 | `POST /v1/context/prepare`：`ContextAssemblySection.family` 从枚举改为字符串，可以是已加载的插件 family；新增可选的 `search`（检索请求中除 `query`、`limit` 以外的字段），只对插件 family 生效；回执中条目的 family 从枚举改为字符串，可以是插件 family |
 | 调整 | 导出与恢复的 Artifact revision 记录格式版本加一，增加 `metadata` |
 | 调整 | 环境变量 `POWERCONTEXT_SERVER_PLUGINS_DIR` 取代 `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` |
 
