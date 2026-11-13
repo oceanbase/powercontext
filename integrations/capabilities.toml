@@ -977,7 +977,7 @@ mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/dsh/plugins/powercontext/src/mcp.ts", "integrations/dsh/plugins/powercontext/src/recall.ts", "integrations/dsh/plugins/powercontext/src/commands.ts"]
 documentation = ["docs/en/docs/integrations/dsh.md", "docs/zh/docs/integrations/dsh.md"]
-tests = ["integrations/dsh/plugins/powercontext/tests/mcp.spec.ts", "integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts"]
+tests = ["integrations/dsh/plugins/powercontext/tests/mcp.spec.ts", "integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts", "integrations/dsh/plugins/powercontext/tests/prompt-privacy.spec.ts"]
 
 [[integrations]]
 id = "hermes"

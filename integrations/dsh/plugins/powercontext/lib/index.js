@@ -649,7 +649,7 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
+		headerParams: ["X-PowerContext-Resolve-Target"],
 		successStatuses: [200],
 		emptyStatuses: []
 	},
@@ -2080,9 +2080,9 @@ function isPlainObject(value) {
 }
 function queryString(payload) {
 	const params = new URLSearchParams();
-	for (const [key$1, value] of Object.entries(payload ?? {})) {
+	for (const [key$2, value] of Object.entries(payload ?? {})) {
 		if (value === void 0 || value === null) continue;
-		for (const item of Array.isArray(value) ? value : [value]) params.append(key$1, String(item));
+		for (const item of Array.isArray(value) ? value : [value]) params.append(key$2, String(item));
 	}
 	const encoded = params.toString();
 	return encoded ? `?${encoded}` : "";
@@ -2478,11 +2478,11 @@ function createDiagnosticEmitter(write, now = Date.now, cooldownMs = 6e4) {
 			"empty",
 			"skipped"
 		].includes(outcome)) {
-			const key$1 = outcome;
+			const key$2 = outcome;
 			const timestamp = now();
-			const previous = lastEmitted.get(key$1);
+			const previous = lastEmitted.get(key$2);
 			if (previous !== void 0 && timestamp - previous < cooldownMs) return;
-			lastEmitted.set(key$1, timestamp);
+			lastEmitted.set(key$2, timestamp);
 		}
 		return write(JSON.stringify(normalized));
 	};
@@ -2503,7 +2503,7 @@ function isRecord$1(value) {
 function validatePreparedContext(response, path = "/v1/context/prepare", maxBytes = MAX_CONTEXT_BYTES) {
 	if (!isRecord$1(response)) throw new InvalidResponseError(path, void 0, void 0, "prepared_object");
 	const keys = Object.keys(response);
-	if (keys.length !== PREPARED_FIELDS.size || keys.some((key$1) => !PREPARED_FIELDS.has(key$1))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
+	if (keys.length !== PREPARED_FIELDS.size || keys.some((key$2) => !PREPARED_FIELDS.has(key$2))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
 	if (response.schema !== PREPARED_CONTEXT_SCHEMA) throw new InvalidResponseError(path, void 0, void 0, "prepared_schema");
 	const status = response.status;
 	const content = response.content;
@@ -2786,7 +2786,7 @@ function capabilities(response) {
 		"artifact_families",
 		"search_modes",
 		"context_versions"
-	].every((key$1) => Array.isArray(body[key$1]) && body[key$1].every((value) => typeof value === "string"))) invalid$1(operation, response, "capabilities");
+	].every((key$2) => Array.isArray(body[key$2]) && body[key$2].every((value) => typeof value === "string"))) invalid$1(operation, response, "capabilities");
 	if (!body.context_versions.includes(PREPARED_CONTEXT_SCHEMA)) return {
 		...check(operation, "unsupported_context_schema", "The Server does not advertise the PreparedContext schema required by this plugin.", "Install Server and plugin from the same supported release tag or checkout commit."),
 		http_status: response.status,
@@ -3025,11 +3025,28 @@ const CONTENT_FIELDS = new Map([
 	["finalize_handoff", ["draft"]],
 	["commit_handoff", ["handoff"]]
 ]);
-function containsSecret(text) {
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+];
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
+}
+function containsSecretMarker(text) {
 	return SECRET_MARKERS.some((marker) => text.includes(marker));
 }
 function containsSecretValue(value) {
-	if (typeof value === "string") return containsSecret(value);
+	if (typeof value === "string") return containsSecretMarker(value);
 	if (!value || typeof value !== "object") return false;
 	return Object.values(value).some(containsSecretValue);
 }
@@ -3402,18 +3419,18 @@ var RuntimeStatus = class {
 		this.now = now;
 	}
 	begin(sessionId, cwd, turn) {
-		const key$1 = sessionKey(sessionId, cwd);
+		const key$2 = sessionKey(sessionId, cwd);
 		const attempt = {
 			attempt: ++this.sequence,
 			turn: /^\d{1,20}$/.test(turn) ? turn : "(unavailable)",
 			started_at: this.now(),
 			stages: initialStages()
 		};
-		this.sessions.delete(key$1);
-		this.sessions.set(key$1, attempt);
+		this.sessions.delete(key$2);
+		this.sessions.set(key$2, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
 		const record$3 = (stage, result$1) => {
-			if (this.sessions.get(key$1) !== attempt) return;
+			if (this.sessions.get(key$2) !== attempt) return;
 			attempt.stages[stage] = {
 				...result$1,
 				operation: OPERATIONS$1[stage],
@@ -3422,7 +3439,7 @@ var RuntimeStatus = class {
 		};
 		return {
 			scope: (scopeId) => {
-				if (this.sessions.get(key$1) !== attempt) return;
+				if (this.sessions.get(key$2) !== attempt) return;
 				attempt.scope_key = fingerprint(scopeId);
 				attempt.scope_id = /^[a-zA-Z0-9_-]{1,128}$/.test(scopeId) ? scopeId : "(redacted)";
 				record$3("scope", { state: "resolved" });
@@ -3694,6 +3711,8 @@ function storedAuthorization(env, baseUrl) {
 }
 function resolveConfig(config = {}, env = process.env) {
 	const transport = resolveTransport("dsh", env, config.baseUrl, config.allowInsecureHttp, DEFAULTS.baseUrl);
+	if (config.updateChannel !== void 0 && config.updateChannel !== "stable" && config.updateChannel !== "preview") throw new Error("updateChannel must be stable or preview");
+	if (config.updateHold !== void 0 && typeof config.updateHold !== "boolean") throw new Error("updateHold must be a boolean");
 	const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
 	if (maxBytes < 512 || maxBytes > 32768) throw new Error("maxBytes must be between 512 and 32768");
 	return {
@@ -3713,7 +3732,9 @@ function resolveConfig(config = {}, env = process.env) {
 		capturePrompts: envBoolean(env, "POWERCONTEXT_DSH_CAPTURE_PROMPTS") ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
 		flushOnCapture: envBoolean(env, "POWERCONTEXT_DSH_FLUSH_ON_CAPTURE") ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
 		flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
-		ownerLocal: ownerLocal(env, config.ownerLocal)
+		ownerLocal: ownerLocal(env, config.ownerLocal),
+		updateChannel: config.updateChannel,
+		updateHold: config.updateHold
 	};
 }
 
@@ -3920,7 +3941,7 @@ async function loadPeer(specifier) {
 const POWERCONTEXT_MCP_SERVER_NAME = "powercontext";
 const MCP_TOOL_PREFIX = `mcp__${POWERCONTEXT_MCP_SERVER_NAME}__`;
 const MCP_STARTUP_WAIT_MS = 5e3;
-const MUTATING_MCP_OPERATIONS = new Set(Object.entries(MCP_OPERATIONS).filter(([, metadata]) => !metadata.readOnly).map(([operation]) => operation));
+const MUTATING_MCP_OPERATIONS = new Set(Object.entries(MCP_OPERATIONS).filter(([, metadata$1]) => !metadata$1.readOnly).map(([operation]) => operation));
 function isRecord(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3937,9 +3958,9 @@ function usesScope(operation, args) {
 		"pc_source_target_set_enabled"
 	].includes(operation)) return "current";
 	if (operation === "pc_source_instances") return isRecord(args) && args.view === "control" ? "none" : "current";
-	const metadata = OPERATIONS[operation];
-	if (metadata.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
-	return metadata.scopeMode;
+	const metadata$1 = OPERATIONS[operation];
+	if (metadata$1.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
+	return metadata$1.scopeMode;
 }
 function matchesScope(argumentsValue, mode, scopeId) {
 	if (!isRecord(argumentsValue)) return false;
@@ -4061,7 +4082,7 @@ async function captureUserPrompt(input) {
 		observation?.skip("capture", "capture_disabled");
 		return;
 	}
-	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt, input.config.authorization)) {
 		observation?.skip("capture", input.prompt.length > MAX_SOURCE_LENGTH ? "source_too_long" : "sensitive_content");
 		logSafely(input.log, {
 			event: "capture_content_source",
@@ -4177,7 +4198,7 @@ async function recallContent(input, query, scopeId, observation) {
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const result$1 = await input.client.request("prepare_context", {
 			scope_id: scopeId,
-			query: boundedRecallQuery(query),
+			query: boundedRecallQuery(scrubSecrets(query, input.config.authorization)),
 			max_bytes: input.config.maxBytes,
 			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);
@@ -4825,8 +4846,8 @@ var StatusBridge = class {
 		};
 	}
 	async resolveScope(session, now) {
-		const key$1 = `${session.id}\u0000${session.cwd ?? ""}`;
-		const cached = this.scopes.get(key$1);
+		const key$2 = `${session.id}\u0000${session.cwd ?? ""}`;
+		const cached = this.scopes.get(key$2);
 		if (cached !== void 0 && now - cached.observed_at < SCOPE_TTL_MS) return cached;
 		try {
 			const valid = safeScopeId(await this.options.resolveScope(session.cwd, this.abort.signal));
@@ -4841,7 +4862,7 @@ var StatusBridge = class {
 				state: "resolved",
 				observed_at: now
 			};
-			this.scopes.set(key$1, observation);
+			this.scopes.set(key$2, observation);
 			return observation;
 		} catch (error) {
 			const failure = operationFailure("resolve_scope_binding", error);
@@ -4852,7 +4873,7 @@ var StatusBridge = class {
 				...failure.message ? { message: failure.message } : {},
 				observed_at: now
 			};
-			this.scopes.set(key$1, observation);
+			this.scopes.set(key$2, observation);
 			return observation;
 		}
 	}
@@ -4929,8 +4950,8 @@ var StatusBridge = class {
 	}
 	async readPackageVersion() {
 		try {
-			const response = await this.options.client.request("get_server_info", {}, combineSignals([this.abort.signal, AbortSignal.timeout(1e3)]));
-			if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+			const version = await readServerPackageVersion(this.options.client, this.abort.signal);
+			if (!this.disposed) this.packageVersion = version;
 		} catch {
 			this.packageVersion = null;
 		}
@@ -4982,7 +5003,7 @@ var StatusBridge = class {
 				"artifact_families",
 				"search_modes",
 				"context_versions"
-			].every((key$1) => Array.isArray(value[key$1]) && value[key$1].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
+			].every((key$2) => Array.isArray(value[key$2]) && value[key$2].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
 			const contextVersions = value.context_versions.slice(0, 32);
 			const observedAt = this.now();
 			if (!contextVersions.includes(PREPARED_CONTEXT_SCHEMA)) return {
@@ -5006,6 +5027,11 @@ var StatusBridge = class {
 		}
 	}
 };
+/** Read the running Server package identity without treating metadata as readiness. */
+async function readServerPackageVersion(client, signal) {
+	const response = await client.request("get_server_info", {}, combineSignals(signal ? [signal, AbortSignal.timeout(1e3)] : [AbortSignal.timeout(1e3)]));
+	return response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+}
 function sendJson(response, status, payload) {
 	if (response.writableEnded) return;
 	response.statusCode = status;
@@ -5595,7 +5621,7 @@ const HANDOFF_HTTP_SCHEMAS = {
 
 //#endregion
 //#region src/handoff/wire.ts
-function object$2(value) {
+function object$3(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function invalid() {
@@ -5618,13 +5644,13 @@ function project(schema, value, core = false, name$1) {
 	if (schema.type === "object") {
 		const properties = schema.properties;
 		const required = schema.required;
-		if (!object$2(value) || Object.keys(value).some((key$1) => !Object.hasOwn(properties, key$1)) || required.some((key$1) => !Object.hasOwn(value, key$1))) invalid();
+		if (!object$3(value) || Object.keys(value).some((key$2) => !Object.hasOwn(properties, key$2)) || required.some((key$2) => !Object.hasOwn(value, key$2))) invalid();
 		const entries = [];
-		for (const [key$1, field] of Object.entries(properties)) {
-			if (!Object.hasOwn(value, key$1)) continue;
-			const child = project(field, value[key$1], core);
-			if (core && child === null && !required.includes(key$1)) continue;
-			entries.push([core && name$1 === "SourceReference" && key$1 === "name" ? "source_type" : key$1, child]);
+		for (const [key$2, field] of Object.entries(properties)) {
+			if (!Object.hasOwn(value, key$2)) continue;
+			const child = project(field, value[key$2], core);
+			if (core && child === null && !required.includes(key$2)) continue;
+			entries.push([core && name$1 === "SourceReference" && key$2 === "name" ? "source_type" : key$2, child]);
 		}
 		if (schema["x-powercontext-source-line-range"]) {
 			const lines = Number(value.end_line) - Number(value.start_line) + 1;
@@ -5827,9 +5853,9 @@ async function collectMaterials(context, source$1, read, limit) {
 const deliveryIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const checksumPattern = /^[0-9a-f]{64}$/;
 function verifiedBinding(value) {
-	if (!object$2(value)) invalid();
+	if (!object$3(value)) invalid();
 	const { preflightId, revision, source: source$1, targetId, targetVersion, adapterVersion, effectiveCwd, serverIdentity, connectionRef, connectionGeneration, scopeId } = value;
-	if (!trimmed(preflightId, 256) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || !object$2(source$1) || !trimmed(targetId, 256) || !trimmed(targetVersion, 256) || !trimmed(adapterVersion, 256) || !trimmed(effectiveCwd, 4096) || effectiveCwd.includes("\0") || !trimmed(serverIdentity, 256) || !trimmed(connectionRef, 256) || typeof connectionGeneration !== "number" || !Number.isSafeInteger(connectionGeneration) || connectionGeneration < 0 || !trimmed(scopeId, 256)) invalid();
+	if (!trimmed(preflightId, 256) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || !object$3(source$1) || !trimmed(targetId, 256) || !trimmed(targetVersion, 256) || !trimmed(adapterVersion, 256) || !trimmed(effectiveCwd, 4096) || effectiveCwd.includes("\0") || !trimmed(serverIdentity, 256) || !trimmed(connectionRef, 256) || typeof connectionGeneration !== "number" || !Number.isSafeInteger(connectionGeneration) || connectionGeneration < 0 || !trimmed(scopeId, 256)) invalid();
 	return Object.freeze({
 		preflightId,
 		revision,
@@ -5845,7 +5871,7 @@ function verifiedBinding(value) {
 	});
 }
 function receiptIdentity(value) {
-	if (!object$2(value) || typeof value.receiptAttemptId !== "string" || !deliveryIdPattern.test(value.receiptAttemptId) || value.sourceType !== "content" || value.sourceId !== "dsh-ack:" + value.receiptAttemptId) invalid();
+	if (!object$3(value) || typeof value.receiptAttemptId !== "string" || !deliveryIdPattern.test(value.receiptAttemptId) || value.sourceType !== "content" || value.sourceId !== "dsh-ack:" + value.receiptAttemptId) invalid();
 	return {
 		receiptAttemptId: value.receiptAttemptId,
 		sourceType: value.sourceType,
@@ -5872,8 +5898,8 @@ async function prepareCarrier(context, binding, input, deliveryId, resolve$1, re
 	if (input.revision) {
 		const ref = input.revision;
 		const result$1 = await call$1("get_artifact_revision", ref);
-		if (!object$2(result$1) || result$1.scope_id !== scope || result$1.family !== ref.family || result$1.artifact_id !== ref.artifact_id || result$1.revision !== ref.revision) invalid();
-		if (!object$2(result$1.content) || result$1.content.schema !== "powercontext.handoff.v1") invalid();
+		if (!object$3(result$1) || result$1.scope_id !== scope || result$1.family !== ref.family || result$1.artifact_id !== ref.artifact_id || result$1.revision !== ref.revision) invalid();
+		if (!object$3(result$1.content) || result$1.content.schema !== "powercontext.handoff.v1") invalid();
 		return {
 			kind: "revision",
 			revision: ref
@@ -5921,7 +5947,7 @@ async function prepareCarrier(context, binding, input, deliveryId, resolve$1, re
 	}, binding, deliveryId);
 }
 function validateCarrier(value, binding, deliveryId) {
-	if (!object$2(value)) invalid();
+	if (!object$3(value)) invalid();
 	if (value.kind === "revision") {
 		const revision = wire("ArtifactReference", value.revision);
 		if (revision.family !== "handoff") invalid();
@@ -5936,7 +5962,7 @@ function validateCarrier(value, binding, deliveryId) {
 	const digest = preparedDigest(prepared);
 	if (value.digest !== digest || hasSecretContent("commit_handoff", { handoff: prepared })) invalid();
 	const receipt = value.sourceReceipts[0];
-	if (!object$2(receipt)) invalid();
+	if (!object$3(receipt)) invalid();
 	const actual = "kind" in receipt ? wire("WorkSourceReceipt", receipt) : wire("CaptureContentSourceResponse", receipt);
 	if ("kind" in actual && actual.kind !== "handoff-boundary" || actual.source.name !== "content" || actual.source.source_id !== "dsh-delivery:" + deliveryId || actual.source.locator?.kind === "sequence" && actual.source.locator.sequence !== actual.position) invalid();
 	return {
@@ -5977,8 +6003,8 @@ function date(value) {
 	return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 function decodeRecord(value, id) {
-	if (!object$2(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== id || !trimmed(value.ownerId, 256) || typeof value.preparationState !== "string" || !states.has(value.preparationState) || !date(value.createdAt) || !date(value.updatedAt) || typeof value.pinned !== "boolean" || typeof value.dispatched !== "boolean" || !Array.isArray(value.requests) || value.requests.length < 1 || value.requests.length > MAX_REQUEST_KEYS || value.requests.some((key$1) => !object$2(key$1) || !trimmed(key$1.id, 128) || typeof key$1.fingerprint !== "string" || !checksumPattern.test(key$1.fingerprint)) || value.error !== void 0 && !isDeliveryErrorCode(value.error) || value.expiredAt !== void 0 && !date(value.expiredAt) || value.deletedAt !== void 0 && !date(value.deletedAt) || value.supersedesDeliveryId !== void 0 && (typeof value.supersedesDeliveryId !== "string" || !deliveryIdPattern.test(value.supersedesDeliveryId))) invalid();
-	if (value.package !== void 0 && (!object$2(value.package) || typeof value.package.sha256 !== "string" || !checksumPattern.test(value.package.sha256) || typeof value.package.bytes !== "number" || !Number.isSafeInteger(value.package.bytes) || value.package.bytes < 1 || value.package.bytes > MAX_PACKAGE_BYTES)) invalid();
+	if (!object$3(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== id || !trimmed(value.ownerId, 256) || typeof value.preparationState !== "string" || !states.has(value.preparationState) || !date(value.createdAt) || !date(value.updatedAt) || typeof value.pinned !== "boolean" || typeof value.dispatched !== "boolean" || !Array.isArray(value.requests) || value.requests.length < 1 || value.requests.length > MAX_REQUEST_KEYS || value.requests.some((key$2) => !object$3(key$2) || !trimmed(key$2.id, 128) || typeof key$2.fingerprint !== "string" || !checksumPattern.test(key$2.fingerprint)) || value.error !== void 0 && !isDeliveryErrorCode(value.error) || value.expiredAt !== void 0 && !date(value.expiredAt) || value.deletedAt !== void 0 && !date(value.deletedAt) || value.supersedesDeliveryId !== void 0 && (typeof value.supersedesDeliveryId !== "string" || !deliveryIdPattern.test(value.supersedesDeliveryId))) invalid();
+	if (value.package !== void 0 && (!object$3(value.package) || typeof value.package.sha256 !== "string" || !checksumPattern.test(value.package.sha256) || typeof value.package.bytes !== "number" || !Number.isSafeInteger(value.package.bytes) || value.package.bytes < 1 || value.package.bytes > MAX_PACKAGE_BYTES)) invalid();
 	return {
 		...value,
 		binding: verifiedBinding(value.binding),
@@ -5986,7 +6012,7 @@ function decodeRecord(value, id) {
 	};
 }
 function errno(error, code) {
-	return object$2(error) && error.code === code;
+	return object$3(error) && error.code === code;
 }
 function privateEntry(stat, directory$1) {
 	if ((directory$1 ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1) || stat.uid !== process.getuid?.() || (stat.mode & 63) !== 0) invalid();
@@ -6162,7 +6188,7 @@ function normalize(input) {
 		"revision",
 		"supersedesDeliveryId"
 	];
-	if (!object$2(input) || Object.keys(input).some((field) => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.supersedesDeliveryId !== void 0 && !deliveryIdPattern.test(input.supersedesDeliveryId)) invalid();
+	if (!object$3(input) || Object.keys(input).some((field) => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.supersedesDeliveryId !== void 0 && !deliveryIdPattern.test(input.supersedesDeliveryId)) invalid();
 	const revision = input.revision === void 0 ? void 0 : wire("ArtifactReference", input.revision);
 	if (revision && (revision.family !== "handoff" || input.workInput !== void 0)) invalid();
 	return {
@@ -6175,7 +6201,7 @@ function normalize(input) {
 		supersedesDeliveryId: input.supersedesDeliveryId
 	};
 }
-function key(ownerId, requestId$1) {
+function key$1(ownerId, requestId$1) {
 	return JSON.stringify([ownerId, requestId$1]);
 }
 function sameBinding$1(a, b) {
@@ -6192,7 +6218,7 @@ function packageData(record$3, carrier) {
 	};
 }
 function safeError(error) {
-	const code = object$2(error) ? error.code : void 0;
+	const code = object$3(error) ? error.code : void 0;
 	if (isDeliveryErrorCode(code)) return new DeliveryError(code);
 	if (code === "ENOSPC" || code === "EDQUOT") return new DeliveryError("capacity_exceeded");
 	return new DeliveryError("integration_unavailable");
@@ -6201,6 +6227,7 @@ function safeError(error) {
 var LocalDeliveryService = class {
 	store;
 	active = /* @__PURE__ */ new Map();
+	preflightReaders = /* @__PURE__ */ new Map();
 	launchReaders = /* @__PURE__ */ new Map();
 	requestIndex = /* @__PURE__ */ new Map();
 	limits;
@@ -6218,7 +6245,7 @@ var LocalDeliveryService = class {
 			try {
 				for (const record$3 of this.store.records.values()) {
 					for (const request$2 of record$3.requests) {
-						const indexKey = key(record$3.ownerId, request$2.id);
+						const indexKey = key$1(record$3.ownerId, request$2.id);
 						if (this.requestIndex.has(indexKey)) invalid();
 						this.requestIndex.set(indexKey, {
 							deliveryId: record$3.deliveryId,
@@ -6262,7 +6289,7 @@ var LocalDeliveryService = class {
 		return record$3;
 	}
 	replay(owner, request$2, fingerprint$1) {
-		const replay = this.requestIndex.get(key(owner, request$2));
+		const replay = this.requestIndex.get(key$1(owner, request$2));
 		if (!replay) return void 0;
 		if (replay.fingerprint !== fingerprint$1) throw new DeliveryError("idempotency_conflict");
 		const record$3 = this.store.records.get(replay.deliveryId);
@@ -6274,7 +6301,7 @@ var LocalDeliveryService = class {
 		const bytes = this.store.readPackage(record$3.deliveryId);
 		if (bytes.length !== record$3.package.bytes || sha256(bytes) !== record$3.package.sha256) invalid();
 		const value = JSON.parse(bytes.toString("utf8"));
-		if (!object$2(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== record$3.deliveryId || !object$2(value.source) || !sameBoundary(boundary(value.source), record$3.binding.source) || !sameBinding$1(verifiedBinding(value.binding), record$3.binding) || JSON.stringify(receiptIdentity(value.receiptAttempt)) !== JSON.stringify(record$3.receiptAttempt)) invalid();
+		if (!object$3(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== record$3.deliveryId || !object$3(value.source) || !sameBoundary(boundary(value.source), record$3.binding.source) || !sameBinding$1(verifiedBinding(value.binding), record$3.binding) || JSON.stringify(receiptIdentity(value.receiptAttempt)) !== JSON.stringify(record$3.receiptAttempt)) invalid();
 		return {
 			bytes,
 			carrier: validateCarrier(value.carrier, record$3.binding, record$3.deliveryId),
@@ -6400,7 +6427,7 @@ var LocalDeliveryService = class {
 	async prepare(context, input) {
 		this.caller(context);
 		const normalized = normalize(input);
-		const { requestId: requestId$1, preflightId, expectedRevision, source: source$1 } = normalized;
+		const { requestId: requestId$1, preflightId } = normalized;
 		const fingerprint$1 = sha256(JSON.stringify({
 			...normalized,
 			requestId: void 0
@@ -6410,6 +6437,24 @@ var LocalDeliveryService = class {
 		if (replay) return this.view(replay);
 		const gate = this.options.preflightGate;
 		if (!gate) throw new DeliveryError("integration_unavailable");
+		this.preflightReaders.set(preflightId, (this.preflightReaders.get(preflightId) ?? 0) + 1);
+		try {
+			return await this.prepareVerified(context, gate, normalized, fingerprint$1);
+		} finally {
+			const count = this.preflightReaders.get(preflightId);
+			if (count === 1) this.preflightReaders.delete(preflightId);
+			else this.preflightReaders.set(preflightId, count - 1);
+		}
+	}
+	/** Includes callers between gate admission and the publication of a delivery record. */
+	referencedPreflightIds() {
+		const ids = new Set(this.preflightReaders.keys());
+		for (const record$3 of this.store.records.values()) if (!record$3.deletedAt) ids.add(record$3.binding.preflightId);
+		return ids;
+	}
+	async prepareVerified(context, gate, normalized, fingerprint$1) {
+		const { preflightId, expectedRevision, source: source$1, requestId: requestId$1 } = normalized;
+		const owner = context.ownerId;
 		let binding;
 		try {
 			binding = verifiedBinding(await gate.validateForPrepare(context, {
@@ -6433,7 +6478,7 @@ var LocalDeliveryService = class {
 				id: requestId$1,
 				fingerprint: fingerprint$1
 			}] });
-			this.requestIndex.set(key(owner, requestId$1), {
+			this.requestIndex.set(key$1(owner, requestId$1), {
 				deliveryId: same.deliveryId,
 				fingerprint: fingerprint$1
 			});
@@ -6464,7 +6509,7 @@ var LocalDeliveryService = class {
 			updatedAt: "",
 			supersedesDeliveryId: normalized.supersedesDeliveryId
 		}, {});
-		this.requestIndex.set(key(owner, requestId$1), {
+		this.requestIndex.set(key$1(owner, requestId$1), {
 			deliveryId,
 			fingerprint: fingerprint$1
 		});
@@ -6644,7 +6689,7 @@ var LocalDeliveryService = class {
 				"needs_input"
 			].includes(original.preparationState)) && age >= THIRTY_DAYS) try {
 				this.store.forget(id);
-				for (const request$2 of original.requests) this.requestIndex.delete(key(original.ownerId, request$2.id));
+				for (const request$2 of original.requests) this.requestIndex.delete(key$1(original.ownerId, request$2.id));
 			} catch (error) {
 				throw safeError(error);
 			}
@@ -6736,8 +6781,8 @@ var HandoffRecords = class {
 		this.maxRecords = maxRecords;
 		this.maxRecordBytes = maxRecordBytes;
 	}
-	read(key$1) {
-		const path = this.path(key$1);
+	read(key$2) {
+		const path = this.path(key$2);
 		let fd;
 		try {
 			fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -6755,19 +6800,11 @@ var HandoffRecords = class {
 			closeSync(fd);
 		}
 	}
-	save(key$1, value, create = false) {
-		const path = this.path(key$1);
+	save(key$2, value, create = false, reclaim) {
+		const path = this.path(key$2);
 		const body = JSON.stringify(value);
 		if (Buffer.byteLength(body) > this.maxRecordBytes) throw new HandoffError("capacity_exceeded");
-		if (create) {
-			const directory$1 = opendirSync(this.root);
-			try {
-				let count = 0;
-				for (let item = directory$1.readSync(); item !== null; item = directory$1.readSync()) if (/^[0-9a-f]{64}\.json$/.test(item.name) && ++count >= this.maxRecords) throw new HandoffError("capacity_exceeded");
-			} finally {
-				directory$1.closeSync();
-			}
-		}
+		if (create) this.makeRoom(reclaim);
 		const temporary = join(this.root, `.${randomUUID()}.tmp`);
 		const fd = openSync(temporary, "wx", 384);
 		try {
@@ -6792,10 +6829,37 @@ var HandoffRecords = class {
 			}
 		}
 	}
-	path(key$1) {
-		if (!/^[0-9a-f]{64}$/.test(key$1)) throw new HandoffError("not_found");
+	makeRoom(reclaim) {
+		const directory$1 = opendirSync(this.root);
+		const keys = [];
+		try {
+			for (let item = directory$1.readSync(); item !== null; item = directory$1.readSync()) if (/^[0-9a-f]{64}\.json$/.test(item.name)) keys.push(item.name.slice(0, -5));
+		} finally {
+			directory$1.closeSync();
+		}
+		if (keys.length < this.maxRecords) return;
+		const needed = keys.length - this.maxRecords + 1;
+		const removable = [];
+		for (const key$2 of keys) {
+			if (!reclaim) break;
+			let record$3;
+			try {
+				record$3 = this.read(key$2);
+			} catch {
+				continue;
+			}
+			if (record$3 && reclaim(record$3)) removable.push(key$2);
+			if (removable.length === needed) {
+				for (const key$3 of removable) unlinkSync(this.path(key$3));
+				return;
+			}
+		}
+		throw new HandoffError("capacity_exceeded");
+	}
+	path(key$2) {
+		if (!/^[0-9a-f]{64}$/.test(key$2)) throw new HandoffError("not_found");
 		privateDirectory(this.root);
-		return join(this.root, `${key$1}.json`);
+		return join(this.root, `${key$2}.json`);
 	}
 };
 
@@ -6810,8 +6874,25 @@ const ACTIVE = new Set([
 ]);
 const CHECK_TIMEOUT_MS$1 = 2e4;
 const INSTALL_TIMEOUT_MS = 12e4;
-function preflightRecords(root) {
-	return new HandoffRecords(root, SCHEMA$1);
+const UNUSED_READY_RETENTION_MS = 30 * 864e5;
+function preflightRecords(root, maxRecords) {
+	return new HandoffRecords(root, SCHEMA$1, maxRecords);
+}
+/** Cancel only this read; the shared installer still owns its side effects. */
+function awaitInstallation(pending, signal) {
+	signal.throwIfAborted();
+	return new Promise((resolve$1, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		const finish = () => signal.removeEventListener("abort", abort);
+		pending.then((value) => {
+			finish();
+			resolve$1(value);
+		}, (error) => {
+			finish();
+			reject(error);
+		});
+	});
 }
 function sameSource(a, b) {
 	return a.sessionId === b.sessionId && a.messageId === b.messageId && a.throughSeq === b.throughSeq && a.cwd === b.cwd && a.workspaceObservedAt === b.workspaceObservedAt;
@@ -6834,6 +6915,9 @@ function directory(cwd) {
 		throw new HandoffError("binding_mismatch");
 	}
 }
+function preflightKey(id) {
+	return id.split(".", 1)[0];
+}
 function view(record$3) {
 	const { preflightId, revision, source: source$1, targetId, state, agent, installation, integration, nextAction, code, updatedAt, binding } = record$3;
 	return {
@@ -6855,25 +6939,30 @@ var PreflightService = class {
 	options;
 	checks = /* @__PURE__ */ new Map();
 	installs = /* @__PURE__ */ new Map();
+	installOrder = 0;
 	constructor(options) {
 		this.options = options;
 	}
+	now() {
+		return this.options.now?.() ?? Date.now();
+	}
 	/** Wait for Host-owned work before releasing the storage lease on unload. */
 	async drain() {
-		await Promise.allSettled([...Array.from(this.checks.values(), (check$1) => check$1.done), ...this.installs.values()]);
+		await Promise.allSettled([...Array.from(this.checks.values(), (check$1) => check$1.done), ...Array.from(this.installs.values(), (install) => install.pending)]);
 	}
 	async create(context, input) {
 		this.options.authority.requireLocal();
-		const id = keyFor(context.ownerId, input.requestId);
-		const previous = this.options.records.read(id);
+		const key$2 = keyFor(context.ownerId, input.requestId);
+		const previous = this.options.records.read(key$2);
 		if (previous) {
 			if (previous.targetId !== input.targetId || !sameSource(previous.source, input.source)) throw new HandoffError("idempotency_conflict");
-			return this.checks.get(id)?.done ?? this.get(context, id, input.source.sessionId);
+			return this.checks.get(previous.preflightId)?.done ?? this.get(context, previous.preflightId, input.source.sessionId);
 		}
 		const adapter = this.options.catalog.require(input.targetId);
 		await this.options.authority.verifySource(context, input.source, true);
 		context.signal.throwIfAborted();
-		if (this.options.records.read(id)) return this.create(context, input);
+		if (this.options.records.read(key$2)) return this.create(context, input);
+		const id = key$2 + "." + randomUUID();
 		const record$3 = {
 			schema: SCHEMA$1,
 			ownerId: context.ownerId,
@@ -6882,9 +6971,9 @@ var PreflightService = class {
 			targetId: adapter.id,
 			revision: 1,
 			state: "checking_agent",
-			updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			updatedAt: new Date(this.now()).toISOString()
 		};
-		this.options.records.save(id, record$3, true);
+		this.options.records.save(key$2, record$3, true, this.reclaimable());
 		return this.run(context, record$3, (call$1, set) => this.inspect(call$1, record$3, adapter, set));
 	}
 	get(context, id, sessionId) {
@@ -6975,7 +7064,8 @@ var PreflightService = class {
 		const record$3 = this.read(context, input.preflightId, input.source.sessionId);
 		if (record$3.revision !== input.expectedRevision || !sameSource(record$3.source, input.source)) throw new HandoffError("stale_preflight");
 		if (record$3.state !== "ready" || !record$3.binding) throw new HandoffError("not_ready");
-		await this.revalidate(context, record$3, record$3.binding, !record$3.confirmedOriginal);
+		const { assertCurrent } = await this.revalidate(context, record$3, record$3.binding, !record$3.confirmedOriginal);
+		assertCurrent();
 		if (this.read(context, input.preflightId, input.source.sessionId).revision !== record$3.revision) throw new HandoffError("stale_preflight");
 		return record$3.binding;
 	}
@@ -6984,6 +7074,22 @@ var PreflightService = class {
 		const record$3 = this.read(context, binding.preflightId, binding.source.sessionId);
 		if (!record$3.binding || !sameBinding(record$3.binding, binding)) throw new HandoffError("binding_mismatch");
 		return this.revalidate(context, record$3, binding);
+	}
+	/** Fence the assembly's async Server lookup between gate admission and dispatch. */
+	preparationInstallGuard(context, binding) {
+		const record$3 = this.read(context, binding.preflightId, binding.source.sessionId);
+		if (record$3.state !== "ready" || record$3.revision !== binding.revision) throw new HandoffError("stale_preflight");
+		return this.installGuard(record$3);
+	}
+	installGuard(record$3) {
+		if (!record$3.detection) throw new HandoffError("binding_mismatch");
+		const key$2 = record$3.detection.configurationKey;
+		const observed$1 = this.installs.get(key$2);
+		if (observed$1 && !observed$1.settled) throw new HandoffError("not_ready");
+		if (observed$1?.settled && observed$1.settled.state !== "completed" && observed$1.generation !== record$3.installationGeneration) throw new HandoffError(observed$1.settled.state === "unknown" ? "outcome_unknown" : "not_ready");
+		return () => {
+			if (this.installs.get(key$2) !== observed$1) throw new HandoffError("not_ready");
+		};
 	}
 	async revalidate(context, record$3, binding, latest) {
 		const call$1 = {
@@ -6997,7 +7103,15 @@ var PreflightService = class {
 		if (latest !== void 0) await this.options.authority.verifySource(call$1, binding.source, latest);
 		const adapter = this.options.catalog.require(binding.targetId);
 		const target = await adapter.detect(call$1.signal);
-		if (target.state !== "present" || !record$3.detection || !this.matches(adapter, target, record$3.detection) || (await adapter.checkIntegration(target, call$1.signal)).state !== "ready") throw new HandoffError("binding_mismatch");
+		if (target.state !== "present" || !record$3.detection || !this.matches(adapter, target, record$3.detection)) throw new HandoffError("binding_mismatch");
+		const assertInstaller = this.installGuard(record$3);
+		const assertCurrent = () => {
+			call$1.signal.throwIfAborted();
+			assertInstaller();
+			const current = directory(binding.source.cwd);
+			if (current.path !== binding.effectiveCwd || current.identity !== record$3.directoryIdentity) throw new HandoffError("binding_mismatch");
+		};
+		if ((await adapter.checkIntegration(target, call$1.signal)).state !== "ready") throw new HandoffError("binding_mismatch");
 		const live = await this.resolve(call$1, adapter, target, binding.source);
 		if (latest !== void 0) await this.options.authority.verifySource(call$1, binding.source, latest);
 		call$1.signal.throwIfAborted();
@@ -7007,16 +7121,15 @@ var PreflightService = class {
 			targetVersion: target.version,
 			adapterVersion: adapter.version
 		})) throw new HandoffError("binding_mismatch");
+		assertCurrent();
 		return {
 			adapter,
 			target,
-			assertDirectory: () => {
-				const current = directory(binding.source.cwd);
-				if (current.path !== binding.effectiveCwd || current.identity !== record$3.directoryIdentity) throw new HandoffError("binding_mismatch");
-			}
+			assertCurrent
 		};
 	}
 	async inspect(context, record$3, adapter, set) {
+		const detectionStarted = this.installOrder;
 		const target = await adapter.detect(context.signal);
 		if (target.state === "missing") return set({
 			state: "needs_user_action",
@@ -7044,7 +7157,34 @@ var PreflightService = class {
 			agent: "present",
 			detection
 		});
+		const observed$1 = this.installs.get(target.configurationKey);
+		if (observed$1 && (!observed$1.settled || observed$1.settled.order > detectionStarted)) {
+			const result$1 = await awaitInstallation(observed$1.pending, context.signal);
+			if (result$1.state === "failed") return set({
+				state: "failed",
+				installation: "failed",
+				code: "not_ready"
+			});
+			if (result$1.state === "unknown") return set({
+				state: "unknown",
+				installation: "unknown",
+				code: "outcome_unknown",
+				nextAction: "check_target"
+			});
+			if (result$1.state === "needs_user_action") return set({
+				state: "needs_user_action",
+				installation: result$1.state,
+				nextAction: result$1.action
+			});
+			set({
+				state: "verifying",
+				installation: "completed"
+			});
+			const verified = await adapter.detect(context.signal);
+			if (verified.state !== "present" || !this.matches(adapter, verified, detection)) throw new HandoffError("binding_mismatch");
+		}
 		const integration = await adapter.checkIntegration(target, context.signal);
+		if (this.installs.get(target.configurationKey) !== observed$1) throw new HandoffError("not_ready");
 		if (integration.state === "needs_user_action") return set({
 			state: "needs_user_action",
 			integration: integration.state,
@@ -7070,11 +7210,13 @@ var PreflightService = class {
 		}
 		const live = await this.resolve(context, adapter, target, record$3.source);
 		await this.options.authority.verifySource(context, record$3.source, !record$3.confirmedOriginal);
+		if (this.installs.get(target.configurationKey) !== observed$1) throw new HandoffError("not_ready");
 		return set({
 			state: "ready",
 			integration: "ready",
 			directoryIdentity: live.directoryIdentity,
 			targetConfigurationGeneration: live.targetConfigurationGeneration,
+			installationGeneration: observed$1?.generation,
 			binding: {
 				preflightId: record$3.preflightId,
 				revision: 0,
@@ -7111,19 +7253,32 @@ var PreflightService = class {
 		return adapter.version === prior.adapterVersion && target.version === prior.targetVersion && target.configurationKey === prior.configurationKey;
 	}
 	async waitForInstall(context, adapter, record$3) {
-		const existing = record$3.detection && this.installs.get(record$3.detection.configurationKey);
+		const observed$1 = record$3.detection && this.installs.get(record$3.detection.configurationKey);
+		const existing = observed$1 && !observed$1.settled ? observed$1 : void 0;
 		const target = await adapter.detect(context.signal);
 		if (target.state !== "present" || !record$3.detection || !this.matches(adapter, target, record$3.detection)) throw new HandoffError("stale_preflight");
 		context.signal.throwIfAborted();
-		const key$1 = target.configurationKey;
-		const shared = existing ?? this.installs.get(key$1);
-		if (shared) return shared;
-		const pending = this.install(adapter, target, record$3);
-		this.installs.set(key$1, pending);
-		const clear = () => {
-			if (this.installs.get(key$1) === pending) this.installs.delete(key$1);
+		const key$2 = target.configurationKey;
+		const current = this.installs.get(key$2);
+		if (current && !current.settled) return current.pending;
+		if (existing) return existing.pending;
+		const pending = Promise.resolve().then(() => this.install(adapter, target, record$3));
+		const shared = {
+			generation: randomUUID(),
+			pending
 		};
-		pending.then(clear, clear);
+		this.installs.set(key$2, shared);
+		pending.then((result$1) => {
+			shared.settled = {
+				state: result$1.state,
+				order: ++this.installOrder
+			};
+		}, () => {
+			shared.settled = {
+				state: "rejected",
+				order: ++this.installOrder
+			};
+		});
 		return pending;
 	}
 	async install(adapter, target, record$3) {
@@ -7144,9 +7299,19 @@ var PreflightService = class {
 			return { state: "unknown" };
 		}
 	}
+	reclaimable() {
+		const references = this.options.referencedPreflightIds;
+		if (!references) return void 0;
+		let referenced;
+		const cutoff = this.now() - UNUSED_READY_RETENTION_MS;
+		return (record$3) => {
+			if (this.checks.has(record$3.preflightId) || record$3.installation === "unknown" || record$3.state !== "failed" && record$3.state !== "cancelled" && !(record$3.state === "ready" && Date.parse(record$3.updatedAt) <= cutoff)) return false;
+			return !(referenced ??= references()).has(record$3.preflightId);
+		};
+	}
 	read(context, id, sessionId) {
-		const record$3 = this.options.records.read(id);
-		if (!record$3 || record$3.ownerId !== context.ownerId || record$3.source.sessionId !== sessionId) throw new HandoffError("not_found");
+		const record$3 = this.options.records.read(preflightKey(id));
+		if (!record$3 || record$3.preflightId !== id || record$3.ownerId !== context.ownerId || record$3.source.sessionId !== sessionId) throw new HandoffError("not_found");
 		return record$3;
 	}
 	recovered(record$3) {
@@ -7163,13 +7328,13 @@ var PreflightService = class {
 			...record$3,
 			...patch,
 			revision,
-			updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+			updatedAt: new Date(this.now()).toISOString(),
 			...patch.binding ? { binding: {
 				...patch.binding,
 				revision
 			} } : {}
 		};
-		this.options.records.save(record$3.preflightId, next);
+		this.options.records.save(preflightKey(record$3.preflightId), next);
 		return next;
 	}
 	run(context, record$3, work, timeoutMs = CHECK_TIMEOUT_MS$1) {
@@ -7387,12 +7552,12 @@ var LaunchService = class {
 		await Promise.allSettled(Array.from(this.pending.values(), (item) => item.done));
 	}
 	list(context, deliveryId, sessionId) {
-		const key$1 = keyFor(context.ownerId, deliveryId);
-		return this.read(context, key$1, sessionId)?.attempts.map((attempt) => this.recover(key$1, attempt)) ?? [];
+		const key$2 = keyFor(context.ownerId, deliveryId);
+		return this.read(context, key$2, sessionId)?.attempts.map((attempt) => this.recover(key$2, attempt)) ?? [];
 	}
 	async cancelPending(context, deliveryId, sessionId) {
-		const key$1 = keyFor(context.ownerId, deliveryId);
-		const active = this.pending.get(key$1);
+		const key$2 = keyFor(context.ownerId, deliveryId);
+		const active = this.pending.get(key$2);
 		if (active?.input.sessionId === sessionId && !active.dispatched) {
 			active.controller.abort();
 			await active.done.catch(() => void 0);
@@ -7402,15 +7567,15 @@ var LaunchService = class {
 	async launch(context, deliveryId, input) {
 		this.options.requireLocal();
 		if (!NATIVE_TARGET_IDS.includes(input.targetId)) throw new HandoffError("payload_invalid");
-		const key$1 = keyFor(context.ownerId, deliveryId);
-		const record$3 = this.read(context, key$1, input.sessionId);
+		const key$2 = keyFor(context.ownerId, deliveryId);
+		const record$3 = this.read(context, key$2, input.sessionId);
 		if (record$3 && record$3.targetId !== input.targetId) throw new HandoffError("binding_mismatch");
 		const existing = record$3?.attempts.find((attempt) => attempt.requestId === input.requestId);
 		if (existing) {
 			if (existing.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
-			return this.recover(key$1, existing);
+			return this.recover(key$2, existing);
 		}
-		const active = this.pending.get(key$1);
+		const active = this.pending.get(key$2);
 		if (active) {
 			if (active.input.sessionId !== input.sessionId) throw new HandoffError("not_found");
 			if (active.input.requestId !== input.requestId || active.input.targetId !== input.targetId || active.input.retryOf !== input.retryOf) throw new HandoffError("idempotency_conflict");
@@ -7424,14 +7589,14 @@ var LaunchService = class {
 			controller: new AbortController(),
 			input,
 			dispatched: false,
-			done: Promise.resolve().then(() => this.run(context, key$1, deliveryId, record$3, pending)).finally(() => {
-				this.pending.delete(key$1);
+			done: Promise.resolve().then(() => this.run(context, key$2, deliveryId, record$3, pending)).finally(() => {
+				this.pending.delete(key$2);
 			})
 		};
-		this.pending.set(key$1, pending);
+		this.pending.set(key$2, pending);
 		return pending.done;
 	}
-	async run(context, key$1, deliveryId, previous, pending) {
+	async run(context, key$2, deliveryId, previous, pending) {
 		const { input } = pending;
 		const deadline = AbortSignal.timeout(CHECK_TIMEOUT_MS);
 		const signal = AbortSignal.any([
@@ -7472,16 +7637,16 @@ var LaunchService = class {
 		};
 		try {
 			signal.throwIfAborted();
-			const { adapter, target, assertDirectory } = await this.options.preflight.validateForLaunch(call$1, bundle.binding);
+			const { adapter, target, assertCurrent } = await this.options.preflight.validateForLaunch(call$1, bundle.binding);
 			if (!packageExists(bundle) || !await adapter.canReadPackage(target, bundle, signal)) throw new HandoffError("not_ready");
 			if (!isDeepStrictEqual(await this.options.delivery.getForLaunch(call$1, deliveryId), bundle)) throw new HandoffError("binding_mismatch");
 			if (!packageExists(bundle)) throw new HandoffError("not_ready");
-			assertDirectory();
+			assertCurrent();
 			const launch = this.options.plan(adapter.id, bundle.binding.effectiveCwd, adapter.launchIntent(target, bundle));
 			signal.throwIfAborted();
 			this.options.requireLocal();
 			record$3.attempts.push(attempt);
-			this.options.records.save(key$1, record$3, previous === void 0);
+			this.options.records.save(key$2, record$3, previous === void 0);
 			pending.dispatched = true;
 			let state;
 			try {
@@ -7495,7 +7660,7 @@ var LaunchService = class {
 				...completed
 			};
 			try {
-				this.options.records.save(key$1, record$3);
+				this.options.records.save(key$2, record$3);
 			} catch {
 				throw new HandoffError("outcome_unknown");
 			}
@@ -7507,17 +7672,17 @@ var LaunchService = class {
 				...attempt,
 				...cancelled
 			});
-			this.options.records.save(key$1, record$3, previous === void 0);
+			this.options.records.save(key$2, record$3, previous === void 0);
 			return publicAttempt(cancelled);
 		}
 	}
-	read(context, key$1, sessionId) {
-		const record$3 = this.options.records.read(key$1);
+	read(context, key$2, sessionId) {
+		const record$3 = this.options.records.read(key$2);
 		if (record$3 && (record$3.ownerId !== context.ownerId || record$3.sessionId !== sessionId)) throw new HandoffError("not_found");
 		return record$3;
 	}
-	recover(key$1, attempt) {
-		if (attempt.state === "requested" && !this.pending.get(key$1)?.dispatched) return publicAttempt({
+	recover(key$2, attempt) {
+		if (attempt.state === "requested" && !this.pending.get(key$2)?.dispatched) return publicAttempt({
 			...attempt,
 			state: "unknown",
 			code: "outcome_unknown"
@@ -7593,18 +7758,22 @@ const planNativeLaunch = (target, cwd, intent) => {
 //#region src/handoff/assembly.ts
 /** The only boundary that knows both implementations and their independent storage roots. */
 function createHandoffServices({ root, authority, catalog, client, signal, plan }) {
+	let delivery;
 	const preflight = new PreflightService({
 		authority,
 		catalog,
 		signal,
-		records: preflightRecords(join(root, "preflights"))
+		records: preflightRecords(join(root, "preflights")),
+		referencedPreflightIds: () => delivery.referencedPreflightIds()
 	});
-	const delivery = new LocalDeliveryService({
+	delivery = new LocalDeliveryService({
 		directory: join(root, "deliveries"),
 		preflightGate: preflight,
 		resolveConnection: async (context, binding) => {
 			authority.requireLocal();
+			const assertInstaller = preflight.preparationInstallGuard(context, binding);
 			const live = await authority.sourceConnection(context, binding.source);
+			assertInstaller();
 			if (live.serverIdentity !== binding.serverIdentity || live.scopeId !== binding.scopeId || live.connectionRef !== binding.connectionRef || live.connectionGeneration !== binding.connectionGeneration) throw new DeliveryError("binding_mismatch");
 			return { client };
 		}
@@ -7649,8 +7818,8 @@ function json(response, status, value) {
 function fail() {
 	throw new HandoffError("payload_invalid");
 }
-function object$1(value, allowed) {
-	if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).every((key$1) => allowed.includes(key$1))) return fail();
+function object$2(value, allowed) {
+	if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).every((key$2) => allowed.includes(key$2))) return fail();
 	return value;
 }
 function token(value) {
@@ -7662,7 +7831,7 @@ function int(value, min) {
 	return value;
 }
 function source(value) {
-	const { sessionId, messageId, throughSeq, cwd, workspaceObservedAt } = object$1(value, [
+	const { sessionId, messageId, throughSeq, cwd, workspaceObservedAt } = object$2(value, [
 		"sessionId",
 		"messageId",
 		"throughSeq",
@@ -7784,7 +7953,7 @@ function createHandoffHandler(options) {
 			signal.throwIfAborted();
 			if (resource === "preflights") {
 				if (!id) {
-					const body$1 = object$1(value, [
+					const body$1 = object$2(value, [
 						"requestId",
 						"source",
 						"targetId"
@@ -7799,8 +7968,8 @@ function createHandoffHandler(options) {
 				}
 				const preflight = requireService$1(options.services().preflight);
 				if (!action) return json(response, 200, preflight.get(context, id, querySession()));
-				if (action === "cancel") return json(response, 200, preflight.cancel(context, id, token(object$1(value, ["sessionId"]).sessionId)));
-				const body = object$1(value, [
+				if (action === "cancel") return json(response, 200, preflight.cancel(context, id, token(object$2(value, ["sessionId"]).sessionId)));
+				const body = object$2(value, [
 					"sessionId",
 					"expectedRevision",
 					"consent",
@@ -7829,7 +7998,7 @@ function createHandoffHandler(options) {
 				};
 			};
 			if (!id) {
-				const body = object$1(value, [
+				const body = object$2(value, [
 					"requestId",
 					"preflightId",
 					"expectedRevision",
@@ -7851,7 +8020,7 @@ function createHandoffHandler(options) {
 				return json(response, 200, aggregate(await requireService$1(services$1.delivery).prepare(context, input), services$1));
 			}
 			if (action === "launch") {
-				const body = object$1(value, [
+				const body = object$2(value, [
 					"sessionId",
 					"requestId",
 					"targetId",
@@ -7865,7 +8034,7 @@ function createHandoffHandler(options) {
 				};
 				return json(response, 200, await requireService$1(options.services().launch).launch(context, id, input));
 			}
-			const sessionId = method === "GET" ? querySession() : token(object$1(value, ["sessionId"]).sessionId);
+			const sessionId = method === "GET" ? querySession() : token(object$2(value, ["sessionId"]).sessionId);
 			const services = options.services();
 			const delivery = requireService$1(services.delivery);
 			const item = sameSession(await delivery.get(context, id), sessionId);
@@ -7969,15 +8138,15 @@ function connectionKey(root) {
 		const info = fstatSync(fd);
 		if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 63) !== 0 || info.size !== 0 && info.size !== 32) throw new HandoffError("integration_unavailable");
 		if (info.size === 32) return readFileSync(fd);
-		const key$1 = randomBytes(32);
-		writeFileSync(fd, key$1);
+		const key$2 = randomBytes(32);
+		writeFileSync(fd, key$2);
 		fsyncSync(fd);
-		return key$1;
+		return key$2;
 	} finally {
 		closeSync(fd);
 	}
 }
-function object(value) {
+function object$1(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new HandoffError("integration_unavailable");
 	return value;
 }
@@ -7985,7 +8154,7 @@ function identifier(value) {
 	if (typeof value !== "string" || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw new HandoffError("integration_unavailable");
 	return value;
 }
-function sourceConnection(host, runtime, key$1) {
+function sourceConnection(host, runtime, key$2) {
 	const config = runtime.config;
 	const connectionRef = keyFor(config.baseUrl);
 	return async (context, source$1) => {
@@ -8000,15 +8169,15 @@ function sourceConnection(host, runtime, key$1) {
 		]);
 		context.signal.throwIfAborted();
 		if (headerScope !== void 0 && originalScope !== scope) throw new HandoffError("binding_mismatch");
-		const connection = object(identity.value);
+		const connection = object$1(identity.value);
 		const serverIdentity = identifier(connection.server_id);
 		const auth = connection.authentication;
 		const access = connection.access_mode;
-		const principal = connection.principal === null ? null : object(connection.principal);
-		if (auth !== "disabled" && auth !== "authenticated" || access !== "disabled" && access !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access === "enforced" && auth !== "authenticated" || object(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
-		const sourceTypes = object(capabilities$1.value).source_types;
+		const principal = connection.principal === null ? null : object$1(connection.principal);
+		if (auth !== "disabled" && auth !== "authenticated" || access !== "disabled" && access !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access === "enforced" && auth !== "authenticated" || object$1(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
+		const sourceTypes = object$1(capabilities$1.value).source_types;
 		if (!Array.isArray(sourceTypes) || !sourceTypes.includes("content")) throw new HandoffError("integration_unavailable");
-		const generation = createHmac("sha256", key$1).update(JSON.stringify([
+		const generation = createHmac("sha256", key$2).update(JSON.stringify([
 			connectionRef,
 			config.authorization,
 			config.allowInsecureHttp,
@@ -8096,6 +8265,360 @@ function registerHandoffBridge(ctx, runtime, adapters = []) {
 }
 
 //#endregion
+//#region src/update-contract.ts
+const UPDATE_ROUTE = "/powercontext/updates";
+const UPDATE_ACTION_HEADER = "x-powercontext-update-action";
+const UPDATE_PLAN_HEADER = "x-powercontext-update-plan";
+/** Releases use the same numeric version in Python and npm, with different RC spellings. */
+function releaseVersion(value) {
+	if (typeof value !== "string" || value.length > 64) return null;
+	const parts = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:(?:(a|b|rc)|-(alpha|beta|rc)\.)(0|[1-9]\d{0,8}))?$/.exec(value);
+	if (!parts) return null;
+	const stage = parts[4] ?? {
+		alpha: "a",
+		beta: "b",
+		rc: "rc"
+	}[parts[5]];
+	const core = parts.slice(1, 4).join(".");
+	const npmStage = stage === "a" ? "alpha" : stage === "b" ? "beta" : stage;
+	return {
+		python: stage ? core + stage + parts[6] : core,
+		npm: stage ? core + "-" + npmStage + "." + parts[6] : core,
+		prerelease: Boolean(stage),
+		order: [
+			...parts.slice(1, 4).map(Number),
+			stage === "a" ? 0 : stage === "b" ? 1 : stage === "rc" ? 2 : 3,
+			Number(parts[6] ?? 0)
+		]
+	};
+}
+function compareVersions(a, b) {
+	return a.order.map((part, index) => part - b.order[index]).find((part) => part !== 0) ?? 0;
+}
+
+//#endregion
+//#region src/release-updates.ts
+const RELEASES = "https://api.github.com/repos/oceanbase/powercontext/releases?per_page=30";
+const MAX_METADATA_BYTES = 2 * 1024 * 1024;
+function object(value) {
+	return value !== null && typeof value === "object" ? value : {};
+}
+async function metadata(url, fetcher) {
+	const response = await fetcher(url, {
+		redirect: "error",
+		signal: AbortSignal.timeout(6e3),
+		headers: {
+			accept: "application/json",
+			"user-agent": "powercontext-dsh-update-check"
+		}
+	});
+	if (!response.ok || !response.body) {
+		await response.body?.cancel();
+		throw new Error("release metadata unavailable");
+	}
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let json$1 = "";
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return JSON.parse(json$1 + decoder.decode());
+			size += value.byteLength;
+			if (size > MAX_METADATA_BYTES) throw new Error("release metadata too large");
+			json$1 += decoder.decode(value, { stream: true });
+		}
+	} finally {
+		await reader.cancel();
+	}
+}
+async function officialRelease(channel, fetcher = fetch) {
+	const releases = await metadata(RELEASES, fetcher);
+	if (!Array.isArray(releases)) throw new Error("invalid release listing");
+	const candidates = releases.flatMap((raw) => {
+		const release = object(raw);
+		const tag = release.tag_name;
+		if (typeof tag !== "string" || !tag.startsWith("powercontext-v") || release.draft !== false || typeof release.published_at !== "string" || typeof release.prerelease !== "boolean") return [];
+		const version = releaseVersion(tag.slice(14));
+		if (!version || tag !== "powercontext-v" + version.python || channel === "stable" && (version.prerelease || release.prerelease)) return [];
+		const assets = Array.isArray(release.assets) ? release.assets.map(object).filter((asset) => asset.state === "uploaded") : [];
+		const plugin = assets.find((asset) => asset.name === "powercontext-dsh-" + version.npm + ".tgz");
+		const wheel = assets.find((asset) => asset.name === "powercontext-" + version.python + "-py3-none-any.whl");
+		const digest = typeof wheel?.digest === "string" && /^sha256:[a-f0-9]{64}$/.test(wheel.digest) ? wheel.digest.slice(7) : null;
+		return [{
+			tag,
+			version,
+			pluginPublished: plugin !== void 0,
+			wheelDigest: digest
+		}];
+	}).sort((a, b) => compareVersions(b.version, a.version));
+	if (!candidates[0]) throw new Error("no published PowerContext release found");
+	return candidates[0];
+}
+async function serverDistributionAvailable(release, fetcher = fetch) {
+	if (release.wheelDigest === null) return false;
+	try {
+		const value = object(await metadata("https://pypi.org/pypi/powercontext/" + release.version.python + "/json", fetcher));
+		return Array.isArray(value.urls) && value.urls.map(object).some((file) => file.filename === "powercontext-" + release.version.python + "-py3-none-any.whl" && file.yanked === false && object(file.digests).sha256 === release.wheelDigest);
+	} catch {
+		return false;
+	}
+}
+
+//#endregion
+//#region src/update-bridge.ts
+function supportsRegistryUpdate(bundle) {
+	return bundle.update === void 0 ? bundle.updatable === true : bundle.update === "registry";
+}
+const PUBLIC_REGISTRIES = new Set(["https://registry.npmjs.org/", "https://registry.npmmirror.com/"]);
+const UPDATE_CHECK_INTERVAL_MS = 60 * 6e4;
+const UPDATE_STARTUP_DELAY_MS = 15e3;
+const UPDATE_BUSY_RETRY_MS = 6e4;
+const PLAN_TTL_MS = UPDATE_CHECK_INTERVAL_MS + 5 * 6e4;
+const CHECK_COOLDOWN_MS = 5e3;
+function publicRegistry(registry) {
+	if (registry === null) return false;
+	try {
+		return PUBLIC_REGISTRIES.has(new URL(registry).href);
+	} catch {
+		return false;
+	}
+}
+function updateLedger() {
+	return {
+		snapshot: {
+			phase: "idle",
+			plugin_version: null,
+			plugin_target: null,
+			server_target: null,
+			server_state: "unknown",
+			plan: null,
+			release_tag: null
+		},
+		plan: null,
+		checkedAt: Number.NEGATIVE_INFINITY
+	};
+}
+const key = Symbol.for("powercontext.dsh-update-ledgers.v1");
+const global = globalThis;
+const ledgers = global[key] ??= /* @__PURE__ */ new WeakMap();
+var DshUpdates = class {
+	options;
+	constructor(options) {
+		this.options = options;
+	}
+	get ledger() {
+		return this.options.ledger;
+	}
+	now() {
+		return this.options.now?.() ?? Date.now();
+	}
+	read() {
+		const { snapshot, plan } = this.ledger;
+		const plugin_version = packageVersion(this.options.pluginVersion);
+		if (plan && (plan.expires <= this.now() || plan.from !== plugin_version || plan.channel !== this.options.channel || this.options.held)) {
+			this.ledger.plan = null;
+			this.ledger.snapshot = {
+				...snapshot,
+				phase: "idle",
+				plan: null
+			};
+		}
+		if (snapshot.phase === "restart_required" && snapshot.plugin_target === plugin_version) this.ledger.snapshot = {
+			...snapshot,
+			phase: "updated"
+		};
+		return {
+			...this.ledger.snapshot,
+			plugin_version
+		};
+	}
+	check() {
+		const current = this.read();
+		if ([
+			"checking",
+			"installing",
+			"restart_required"
+		].includes(current.phase) || this.now() - this.ledger.checkedAt < CHECK_COOLDOWN_MS) return current;
+		this.ledger.checkedAt = this.now();
+		this.ledger.plan = null;
+		this.ledger.snapshot = {
+			...current,
+			phase: "checking",
+			plan: null
+		};
+		this.resolveCheck().catch(() => this.phase("check_failed"));
+		return this.read();
+	}
+	/** Schedule the same read-only check once per hour, independent of the panel. */
+	scheduleChecks() {
+		let timer;
+		const remaining = () => this.ledger.checkedAt + UPDATE_CHECK_INTERVAL_MS - this.now();
+		const schedule = (delay) => {
+			timer = setTimeout(tick, delay);
+			timer.unref();
+		};
+		const tick = () => {
+			if (remaining() <= 0) this.check();
+			const delay = remaining();
+			schedule(delay > 0 ? delay : UPDATE_BUSY_RETRY_MS);
+		};
+		schedule(Math.max(UPDATE_STARTUP_DELAY_MS, remaining()));
+		return () => clearTimeout(timer);
+	}
+	install(id) {
+		if (this.read().phase !== "available" || this.ledger.plan?.id !== id) return null;
+		const plan = this.ledger.plan;
+		this.ledger.plan = null;
+		this.phase("installing");
+		this.apply(plan).catch(() => this.phase("unconfirmed"));
+		return this.read();
+	}
+	phase(phase) {
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			phase,
+			plan: null
+		};
+	}
+	async resolveCheck() {
+		const { fetch: fetcher, channel } = this.options;
+		const [release, server] = await Promise.all([officialRelease(channel, fetcher), this.options.serverVersion()]);
+		const installedServer = releaseVersion(server);
+		const serverHasUpdate = server === null || installedServer !== null && compareVersions(release.version, installedServer) > 0;
+		const serverAvailable = serverHasUpdate && await serverDistributionAvailable(release, fetcher);
+		const server_state = serverHasUpdate ? serverAvailable ? "available" : "artifact_unavailable" : installedServer ? "current" : "unknown";
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			server_state,
+			server_target: serverHasUpdate ? release.version.python : null,
+			release_tag: release.tag,
+			plugin_target: release.version.npm
+		};
+		const running = releaseVersion(this.options.pluginVersion);
+		const manager = this.options.manager();
+		const bundle = (await manager?.listBundles())?.find((bundle$1) => bundle$1.name === PLUGIN_NAME);
+		if (!running || !manager || !bundle?.installed || !bundle.enabled || !supportsRegistryUpdate(bundle) || !bundle.source || bundle.version !== running.npm) return this.phase("manual");
+		if (compareVersions(release.version, running) <= 0) return this.phase("current");
+		if (this.options.held) return this.phase("held");
+		if (!release.pluginPublished) return this.phase("artifact_unavailable");
+		const registries = await manager.registries();
+		if (!publicRegistry(registries.registry ?? registries.resolved) || registries.fallbackRegistries.some((registry$1) => !publicRegistry(registry$1))) return this.phase("manual");
+		const versions = await manager.listVersions(PLUGIN_NAME, void 0, AbortSignal.timeout(12e3));
+		if (versions.status !== "listed") return this.phase(versions.problem === "not-found" ? "artifact_unavailable" : "check_failed");
+		const registry = versions.registry ?? registries.resolved;
+		if (!publicRegistry(registry) || versions.installed !== running.npm) return this.phase("manual");
+		const target = versions.versions.find((version) => version.version === release.version.npm);
+		if (!target) return this.phase("artifact_unavailable");
+		if (!target.bundle || target.deprecated !== void 0 || target.incompatible) return this.phase("incompatible");
+		if (installedServer?.python !== release.version.python) return this.phase("server_first");
+		const plan = {
+			id: randomUUID(),
+			expires: this.now() + PLAN_TTL_MS,
+			from: running.npm,
+			source: bundle.source,
+			to: target.version,
+			server: release.version.python,
+			registry,
+			channel
+		};
+		this.ledger.plan = plan;
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			phase: "available",
+			plan: plan.id
+		};
+	}
+	async apply(plan) {
+		const manager = this.options.manager();
+		if (!manager || this.options.held) return this.phase("manual");
+		const [bundles, server, registries] = await Promise.all([
+			manager.listBundles(),
+			this.options.serverVersion(),
+			manager.registries()
+		]);
+		const current = bundles.find((bundle) => bundle.name === PLUGIN_NAME);
+		if (current?.version !== plan.from || current.source !== plan.source || !current.enabled || !current.installed || !supportsRegistryUpdate(current) || !publicRegistry(registries.registry ?? registries.resolved) || !publicRegistry(plan.registry) || registries.fallbackRegistries.some((registry) => !publicRegistry(registry))) return this.phase("manual");
+		if (releaseVersion(server)?.python !== plan.server) return this.phase("server_first");
+		if (!this.options.canInstall()) return this.phase("busy");
+		const { result: result$1, restore } = await manager.updateBundle(PLUGIN_NAME, plan.to, { registry: plan.registry });
+		if (result$1.application === "applied" || result$1.application === "restart-required") {
+			const installed = (await manager.listBundles()).find((bundle) => bundle.name === PLUGIN_NAME);
+			if (installed?.version !== plan.to || !installed.enabled || !installed.installed) return this.phase("unconfirmed");
+			return this.phase("restart_required");
+		}
+		if (restore?.application === "applied" || restore?.application === "restart-required") {
+			const installed = (await manager.listBundles()).find((bundle) => bundle.name === PLUGIN_NAME);
+			if (installed?.version === plan.from && installed.enabled && installed.installed) return this.phase("restored");
+		}
+		return this.phase("install_failed");
+	}
+};
+function createUpdateRouteHandler(updates, connection, facts) {
+	return (request$2, response) => {
+		const rejection = connection.requestRejection(request$2);
+		const deployment = deploymentRejection(request$2, facts);
+		if (rejection !== void 0 || deployment) return sendJson(response, rejection ?? 403, { code: "owner_required" });
+		if (request$2.method === "GET") return sendJson(response, 200, updates.read());
+		if (request$2.method !== "POST") {
+			response.setHeader("allow", "GET, POST");
+			return sendJson(response, 405, { code: "method_not_allowed" });
+		}
+		const action = request$2.headers[UPDATE_ACTION_HEADER];
+		if (action === "check") return sendJson(response, 202, updates.check());
+		if (action !== "install") return sendJson(response, 400, { code: "unknown_action" });
+		if (connection.admit?.(request$2).peer?.principal?.kind !== "owner") return sendJson(response, 403, { code: "owner_required" });
+		const id = request$2.headers[UPDATE_PLAN_HEADER];
+		const snapshot = typeof id === "string" && updates.install(id);
+		if (!snapshot) return sendJson(response, 409, { code: "update_plan_changed" });
+		return sendJson(response, 202, snapshot);
+	};
+}
+function hostUpdates(ctx, runtime, facts) {
+	let ledger = ledgers.get(ctx.root);
+	if (!ledger) ledgers.set(ctx.root, ledger = updateLedger());
+	return new DshUpdates({
+		ledger,
+		pluginVersion: PLUGIN_VERSION,
+		channel: runtime.config.updateChannel ?? "stable",
+		held: runtime.config.updateHold === true,
+		manager: () => {
+			if (typeof ctx.connection.admit !== "function") return void 0;
+			if (ctx.get("profileContext")?.name !== (facts.desktop ? "desktop" : "web")) return void 0;
+			const manager = ctx.root.get("pluginManager") ?? ctx.get("pluginManager");
+			return manager && typeof manager.listVersions === "function" && typeof manager.updateBundle === "function" ? manager : void 0;
+		},
+		serverVersion: async () => {
+			try {
+				return await readServerPackageVersion(runtime.client);
+			} catch {
+				return null;
+			}
+		},
+		canInstall: () => {
+			const sessions = ctx.get("sessions");
+			const agents = ctx.get("agents");
+			return typeof sessions?.list === "function" && typeof agents?.turnBoundaryOf === "function" && sessions.list().every((session) => agents.turnBoundaryOf(session).openTurnStartSeq === null);
+		}
+	});
+}
+function registerUpdateBridge(ctx, runtime) {
+	if (typeof ctx.inject !== "function") return;
+	ctx.inject(["webServer", "connection"], (host) => {
+		const ui = host;
+		const facts = localDeploymentFacts(ui, runtime.config.ownerLocal);
+		const updates = hostUpdates(ui, runtime, facts);
+		host.effect(() => ui.webServer.register({
+			kind: "exact",
+			path: UPDATE_ROUTE,
+			handler: createUpdateRouteHandler(updates, ui.connection, facts)
+		}), "powercontext: update route");
+		const profile = ui.get("profileContext");
+		if (resolveDeployment(facts) && profile?.name === (facts.desktop ? "desktop" : "web")) host.effect(() => updates.scheduleChecks(), "powercontext: hourly update check");
+	});
+}
+
+//#endregion
 //#region src/index.ts
 const name = PLUGIN_NAME;
 const inject = [
@@ -8149,12 +8672,12 @@ function createSessionScopeResolver(runtime) {
 	const cache = /* @__PURE__ */ new Map();
 	const keyFor$1 = (sessionId, cwd) => sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ""}`;
 	const resolve$1 = async (request$2, refresh) => {
-		const key$1 = keyFor$1(request$2.sessionId, request$2.cwd);
-		const cached = cache.get(key$1);
+		const key$2 = keyFor$1(request$2.sessionId, request$2.cwd);
+		const cached = cache.get(key$2);
 		if (!refresh && cached && cached.cwd === request$2.cwd) return cached.scopeId;
-		cache.delete(key$1);
+		cache.delete(key$2);
 		const scopeId = await runtime.resolveScope(request$2.cwd, request$2.signal);
-		if (scopeId) cache.set(key$1, {
+		if (scopeId) cache.set(key$2, {
 			cwd: request$2.cwd,
 			scopeId
 		});
@@ -8240,6 +8763,7 @@ async function apply(ctx, config) {
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
+	registerUpdateBridge(ctx, runtime);
 	registerHandoffBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }

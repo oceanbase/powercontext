@@ -270,3 +270,60 @@ def test_setup_dsh_reports_browser_capability_separately(tmp_path: Path, monkeyp
     capabilities = json.loads(result.output)["hosts"]["dsh"]["result"]["capabilities"]
     assert capabilities["browser_client"] == "present"
     assert capabilities["client_declaration"] == "present"
+
+
+def test_dsh_pet_disable_preserves_pending_until_explicit_discard(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DSH_HOME", str(tmp_path / "dsh"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    state = tmp_path / "dsh" / "profiles" / "web" / ".powercontext-dsh-pet"
+    old_generation = "a" * 32
+    queue = state / "queue" / old_generation
+    queue.mkdir(parents=True)
+    pending = queue / "synthetic-turn.pending"
+    pending.write_text("synthetic pending dialogue", encoding="utf-8")
+    config = state / "bindings.json"
+    config.write_text(
+        json.dumps({
+            "version": 1,
+            "enabled": True,
+            "bindings": [{"pet_id": "main", "scope_id": "pet-scope", "generation": old_generation}],
+        }),
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    cli = create_cli([setup_app])
+    command = ["setup", "dsh", "--profile", "web", "--dsh-pet-memory", "off", "--json"]
+
+    paused = runner.invoke(cli, command)
+
+    assert paused.exit_code == 0, paused.output
+    assert json.loads(paused.output)["hosts"]["dsh"]["result"]["dsh_pet_memory"]["status"] == "disabled"
+    assert not json.loads(config.read_text(encoding="utf-8"))["enabled"]
+    assert pending.exists()
+
+    discarded = runner.invoke(cli, [*command, "--discard-dsh-pet-pending"])
+
+    assert discarded.exit_code == 0, discarded.output
+    assert json.loads(discarded.output)["hosts"]["dsh"]["result"]["dsh_pet_memory"]["discarded_pending"]
+    assert not pending.exists()
+    assert json.loads(config.read_text(encoding="utf-8"))["bindings"][0]["generation"] != old_generation
+
+
+def test_dsh_pet_setup_refuses_two_pets_sharing_a_scope() -> None:
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        [
+            "setup",
+            "dsh",
+            "--profile",
+            "web",
+            "--dsh-pet-memory",
+            "on",
+            "--dsh-pet-bind",
+            "main=shared",
+            "--dsh-pet-bind",
+            "other=shared",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "different existing Scope for each pet" in result.output

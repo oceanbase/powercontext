@@ -51,7 +51,7 @@ function waitFor<T>() {
   return { resolve, promise }
 }
 
-async function fixture() {
+async function fixture(options: { maxPreflights?: number; referenced?: ReadonlySet<string>; now?: () => number } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'pc-dsh-handoff-'))
   roots.push(root)
   const cwd = await mkdir(join(root, 'worktree')).then(() => join(root, 'worktree'))
@@ -87,8 +87,8 @@ async function fixture() {
       scopeId: state.scope, serverIdentity: state.server, connectionRef: 'main', connectionGeneration: state.generation,
     }),
   }
-  const records = preflightRecords(join(root, 'preflights'))
-  const newPreflight = () => new PreflightService({ authority, records, catalog, signal })
+  const records = preflightRecords(join(root, 'preflights'), options.maxPreflights)
+  const newPreflight = () => new PreflightService({ authority, records, catalog, signal, referencedPreflightIds: () => options.referenced ?? new Set(), now: options.now })
   const preflight = newPreflight()
   const create = (requestId = 'preflight-request') => preflight.create(owner, { requestId, source, targetId: adapter.id })
   const decide = (item: Awaited<ReturnType<typeof create>>, action: 'install' | 'decline' | 'verify', confirmOriginal = false) =>
@@ -139,10 +139,10 @@ async function fixture() {
   } satisfies DeliveryService
   const dispatch = vi.fn<() => Promise<'opened' | 'failed' | 'unknown'>>(async () => 'opened')
   const plan = vi.fn(() => ({ dispatch }))
-  const newLaunch = () => new LaunchService({
-    delivery, preflight: newPreflight(), records: recordsLaunch, requireLocal: authority.requireLocal, plan, signal,
+  const newLaunch = (gate = newPreflight()) => new LaunchService({
+    delivery, preflight: gate, records: recordsLaunch, requireLocal: authority.requireLocal, plan, signal,
   })
-  const launch = newLaunch()
+  const launch = newLaunch(preflight)
   const launchInput = { targetId: adapter.id, sessionId, requestId: 'launch-1' }
   const ready = async () => setDelivery((await create()).binding!)
   return {
@@ -216,6 +216,70 @@ describe('preflight and installation', () => {
       expect(result).toMatchObject({ state: 'failed', installation: 'failed' })
       await expect(f.validate(result)).rejects.toMatchObject({ code: 'not_ready' })
     }
+  })
+
+  it('does not publish fresh readiness or permit an older binding while an installer is unsettled', async () => {
+    const f = await fixture()
+    const ready = await f.create('previous-ready')
+    await f.ready()
+    f.state.integration = missing
+    const consent = await f.create('consent')
+    const started = waitFor<void>()
+    const done = waitFor<InstallationResult>()
+    f.install.mockImplementationOnce(() => {
+      f.state.integration = { state: 'ready' }
+      started.resolve()
+      return done.promise
+    })
+    const installing = f.decide(consent, 'install')
+    await started.promise
+    const inspecting = f.create('fresh')
+    const completedEarly = vi.fn()
+    void inspecting.then(completedEarly)
+    try {
+      await expect(f.validate(ready)).rejects.toMatchObject({ code: 'not_ready' })
+      await expect(f.launch.launch(owner, f.id, f.launchInput)).rejects.toMatchObject({ code: 'not_ready' })
+      expect(f.dispatch).not.toHaveBeenCalled()
+      expect(completedEarly).not.toHaveBeenCalled()
+    } finally {
+      done.resolve({ state: 'failed' })
+    }
+    expect(await installing).toMatchObject({ state: 'failed', installation: 'failed' })
+    expect(await inspecting).toMatchObject({ state: 'failed', installation: 'failed' })
+    await expect(f.validate(ready)).rejects.toMatchObject({ code: 'not_ready' })
+    expect((await f.create('freshly-reverified')).state).toBe('ready')
+  })
+
+  it('reclaims only unreferenced terminal preflights under pressure, including after restart', async () => {
+    const referenced = new Set<string>()
+    let now = Date.parse(time)
+    const f = await fixture({ maxPreflights: 5, referenced, now: () => now })
+    const ready = await f.create('saved-delivery')
+    referenced.add(ready.preflightId)
+    const cancelled = await f.preflight.cancel(owner, ready.preflightId, sessionId)
+    const unused = await f.create('unused-ready')
+    f.state.detection = { state: 'unknown' }
+    const unknown = await f.create('unresolved')
+    f.state.detection = { state: 'present', version: '1.2', configurationKey: 'same-real-config' }
+    f.state.integration = missing
+    const active = await f.create('waiting-for-consent')
+    const declined = await f.decide(await f.create('declined'), 'decline')
+    const restarted = f.newPreflight()
+    const make = (requestId: string) => restarted.create(owner, { requestId, source: f.source, targetId: f.adapter.id })
+    const recreated = await make('declined')
+    expect(recreated.state).toBe('cancelled') // An in-retention replay keeps its original result.
+    const afterPressure = await make('new-request')
+    expect(afterPressure.state).toBe('needs_install_consent')
+    expect(() => restarted.get(owner, declined.preflightId, sessionId)).toThrow(HandoffError)
+    expect(restarted.get(owner, active.preflightId, sessionId).state).toBe('needs_install_consent')
+    expect(restarted.get(owner, unknown.preflightId, sessionId).state).toBe('unknown')
+    expect(restarted.get(owner, cancelled.preflightId, sessionId).binding).toEqual(ready.binding)
+    await expect(make('still-full')).rejects.toMatchObject({ code: 'capacity_exceeded' })
+    now += 31 * 86400_000
+    const retry = await make('declined')
+    expect(retry.preflightId).not.toBe(declined.preflightId)
+    expect(() => restarted.get(owner, unused.preflightId, sessionId)).toThrow(HandoffError)
+    expect(restarted.get(owner, cancelled.preflightId, sessionId).binding).toEqual(ready.binding)
   })
 
   it('handles install failure, a restart requirement and post-install verification', async () => {

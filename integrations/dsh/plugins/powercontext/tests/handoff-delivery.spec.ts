@@ -130,6 +130,28 @@ describe('local DSH handoff deliveries', () => {
     },
   )
 
+  it('protects preflight references while admitting a delivery and after recovering it', async () => {
+    open()
+    const admission = deferred<VerifiedPreflight>()
+    gate.validateForPrepare.mockImplementationOnce(() => admission.promise)
+    const preparing = service.prepare(caller(), input())
+    expect(service.referencedPreflightIds()).toEqual(new Set(['preflight-a']))
+    admission.resolve(bindingFor(source))
+    const delivery = await preparing
+    expect(delivery.preparationState).toBe('prepared')
+
+    await service.close()
+    open()
+    expect(service.referencedPreflightIds()).toEqual(new Set(['preflight-a']))
+    await service.delete(caller(), delivery.deliveryId)
+    expect(service.referencedPreflightIds().size).toBe(0)
+
+    gate.validateForPrepare.mockRejectedValueOnce({ code: 'stale_preflight' })
+    await expect(service.prepare(caller(), input({ requestId: 'rejected', preflightId: 'preflight-b' })))
+      .rejects.toMatchObject({ code: 'stale_preflight' })
+    expect(service.referencedPreflightIds().size).toBe(0)
+  })
+
   it('fails closed without a gate and rejects a substituted reply or revision', async () => {
     open({ preflightGate: undefined })
     await expect(service.prepare(caller(), input())).rejects.toMatchObject({ code: 'integration_unavailable' })

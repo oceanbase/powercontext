@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import insert, select
@@ -33,9 +34,22 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.tables import SOURCE_DEFINITION_MANIFESTS_TABLE
+from powercontext.builtin.sources.content import CONTENT_SOURCE_DEFINITION
 from powercontext.sources import SourceDefinition, SourceDefinitionManifest
 from powercontext.sources.evidence import log_evidence_neutralized
 from powercontext.sources.observations import _manifest_for_definition
+
+
+@lru_cache(maxsize=1)
+def _builtin_content_manifest() -> SourceDefinitionManifest:
+    """Reuse only the package-owned, fixed Content Source definition."""
+    return _manifest_for_definition(CONTENT_SOURCE_DEFINITION, transport=False)
+
+
+@lru_cache(maxsize=1)
+def _builtin_content_manifest_payload() -> bytes:
+    manifest = _builtin_content_manifest()
+    return dump_model(manifest, kind="source-definition-manifest", name=manifest.name)
 
 
 class SourceDefinitionManifestRepository:
@@ -89,7 +103,12 @@ class SourceDefinitionManifestRepository:
         """
 
         try:
-            manifest = _manifest_for_definition(definition, transport=False)
+            if definition is CONTENT_SOURCE_DEFINITION:
+                # The nested schema dictionaries are mutable despite the frozen
+                # model. Never expose the cached instance to a caller.
+                manifest = _builtin_content_manifest().model_copy(deep=True)
+            else:
+                manifest = _manifest_for_definition(definition, transport=False)
         except Exception:  # Native schema providers may not expose a valid manifest.
             log_evidence_neutralized("no_manifest", unit="manifest")
             return None
@@ -141,12 +160,19 @@ def _decode_row(row: Mapping[Any, Any]) -> SourceDefinitionManifest:
     name = str(row["definition_name"])
     version = str(row["definition_version"])
     fingerprint = str(row["fingerprint"])
-    manifest = load_model(
-        SourceDefinitionManifest,
-        stored_bytes(row["manifest"], column="manifest"),
-        kind="source-definition-manifest",
-        name=name,
-    )
+    payload = stored_bytes(row["manifest"], column="manifest")
+    if name == CONTENT_SOURCE_DEFINITION.name and payload == _builtin_content_manifest_payload():
+        # Equality with the already validated, package-owned bytes proves the
+        # payload, not the database row. Check all indexed identities below and
+        # return a fresh nested schema so callers cannot mutate the cache.
+        manifest = _builtin_content_manifest().model_copy(deep=True)
+    else:
+        manifest = load_model(
+            SourceDefinitionManifest,
+            payload,
+            kind="source-definition-manifest",
+            name=name,
+        )
     indexed = (name, version, fingerprint)
     decoded = (manifest.name, manifest.version, manifest.fingerprint)
     if indexed != decoded:

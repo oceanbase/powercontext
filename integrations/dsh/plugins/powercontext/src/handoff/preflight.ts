@@ -15,6 +15,7 @@
  */
 
 
+import { randomUUID } from 'node:crypto'
 import { accessSync, constants, realpathSync, statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import type { CallContext, PreflightGate, SourceBoundary, VerifiedPreflight } from './contracts.ts'
@@ -26,6 +27,7 @@ const SCHEMA = 'powercontext.dsh-preflight.v1'
 const ACTIVE = new Set(['checking_agent', 'checking_integration', 'installing', 'verifying'])
 const CHECK_TIMEOUT_MS = 20_000
 const INSTALL_TIMEOUT_MS = 120_000
+const UNUSED_READY_RETENTION_MS = 30 * 86_400_000
 
 export type PreflightState = 'checking_agent' | 'checking_integration' | 'needs_install_consent' |
   'installing' | 'verifying' | 'needs_user_action' | 'ready' | 'failed' | 'cancelled' | 'unknown'
@@ -55,6 +57,7 @@ export interface PreflightRecord extends PreflightView {
   directoryIdentity?: string
   detection?: Detection
   targetConfigurationGeneration?: string
+  installationGeneration?: string
   decision?: InstallDecision
   confirmedOriginal?: boolean
 }
@@ -78,6 +81,8 @@ interface Options {
   authority: PreflightAuthority
   records: HandoffRecords<PreflightRecord>
   signal: AbortSignal
+  referencedPreflightIds?: () => ReadonlySet<string>
+  now?: () => number
 }
 
 interface ActiveCheck {
@@ -85,8 +90,25 @@ interface ActiveCheck {
   done: Promise<PreflightView>
 }
 
-export function preflightRecords(root: string) {
-  return new HandoffRecords<PreflightRecord>(root, SCHEMA)
+interface SharedInstall {
+  generation: string
+  pending: Promise<InstallationResult>
+  settled?: { state: InstallationResult['state'] | 'rejected'; order: number }
+}
+
+export function preflightRecords(root: string, maxRecords?: number) {
+  return new HandoffRecords<PreflightRecord>(root, SCHEMA, maxRecords)
+}
+
+/** Cancel only this read; the shared installer still owns its side effects. */
+function awaitInstallation(pending: Promise<InstallationResult>, signal: AbortSignal): Promise<InstallationResult> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    const finish = () => signal.removeEventListener('abort', abort)
+    void pending.then(value => { finish(); resolve(value) }, error => { finish(); reject(error) })
+  })
 }
 
 export function sameSource(a: SourceBoundary, b: SourceBoundary): boolean {
@@ -114,6 +136,10 @@ function directory(cwd: string): { path: string; identity: string } {
   }
 }
 
+function preflightKey(id: string): string {
+  return id.split('.', 1)[0]!
+}
+
 function view(record: PreflightRecord): PreflightView {
   const { preflightId, revision, source, targetId, state, agent, installation, integration, nextAction, code, updatedAt, binding } = record
   return { preflightId, revision, source, targetId, state, agent, installation, integration, nextAction, code, updatedAt, binding }
@@ -122,35 +148,43 @@ function view(record: PreflightRecord): PreflightView {
 export class PreflightService implements PreflightGate {
   private readonly options: Options
   private readonly checks = new Map<string, ActiveCheck>()
-  private readonly installs = new Map<string, Promise<InstallationResult>>()
+  private readonly installs = new Map<string, SharedInstall>()
+  private installOrder = 0
 
   constructor(options: Options) { this.options = options }
 
+  private now() { return this.options.now?.() ?? Date.now() }
+
   /** Wait for Host-owned work before releasing the storage lease on unload. */
   async drain(): Promise<void> {
-    await Promise.allSettled([...Array.from(this.checks.values(), check => check.done), ...this.installs.values()])
+    await Promise.allSettled([
+      ...Array.from(this.checks.values(), check => check.done),
+      ...Array.from(this.installs.values(), install => install.pending),
+    ])
   }
 
   async create(context: CallContext, input: { requestId: string; source: SourceBoundary; targetId: string }): Promise<PreflightView> {
     this.options.authority.requireLocal()
-    const id = keyFor(context.ownerId, input.requestId)
-    const previous = this.options.records.read(id)
+    const key = keyFor(context.ownerId, input.requestId)
+    const previous = this.options.records.read(key)
     if (previous) {
       if (previous.targetId !== input.targetId || !sameSource(previous.source, input.source)) {
         throw new HandoffError('idempotency_conflict')
       }
-      return this.checks.get(id)?.done ?? this.get(context, id, input.source.sessionId)
+      return this.checks.get(previous.preflightId)?.done ?? this.get(context, previous.preflightId, input.source.sessionId)
     }
     const adapter = this.options.catalog.require(input.targetId)
     await this.options.authority.verifySource(context, input.source, true)
     context.signal.throwIfAborted()
     // An identical request may have passed authorization while this one was waiting.
-    if (this.options.records.read(id)) return this.create(context, input)
+    if (this.options.records.read(key)) return this.create(context, input)
+    // An expired request key can be reused; its previous preflight ID must never select a new record.
+    const id = key + '.' + randomUUID()
     const record: PreflightRecord = {
       schema: SCHEMA, ownerId: context.ownerId, preflightId: id, source: input.source, targetId: adapter.id,
-      revision: 1, state: 'checking_agent', updatedAt: new Date().toISOString(),
+      revision: 1, state: 'checking_agent', updatedAt: new Date(this.now()).toISOString(),
     }
-    this.options.records.save(id, record, true)
+    this.options.records.save(key, record, true, this.reclaimable())
     return this.run(context, record, (call, set) => this.inspect(call, record, adapter, set))
   }
 
@@ -223,7 +257,8 @@ export class PreflightService implements PreflightGate {
       throw new HandoffError('stale_preflight')
     }
     if (record.state !== 'ready' || !record.binding) throw new HandoffError('not_ready')
-    await this.revalidate(context, record, record.binding, !record.confirmedOriginal)
+    const { assertCurrent } = await this.revalidate(context, record, record.binding, !record.confirmedOriginal)
+    assertCurrent()
     // A cancellation or new revision while live probes ran invalidates the gate.
     if (this.read(context, input.preflightId, input.source.sessionId).revision !== record.revision) {
       throw new HandoffError('stale_preflight')
@@ -239,15 +274,44 @@ export class PreflightService implements PreflightGate {
     return this.revalidate(context, record, binding)
   }
 
+  /** Fence the assembly's async Server lookup between gate admission and dispatch. */
+  preparationInstallGuard(context: CallContext, binding: VerifiedPreflight): () => void {
+    const record = this.read(context, binding.preflightId, binding.source.sessionId)
+    if (record.state !== 'ready' || record.revision !== binding.revision) throw new HandoffError('stale_preflight')
+    return this.installGuard(record)
+  }
+
+  private installGuard(record: PreflightRecord): () => void {
+    if (!record.detection) throw new HandoffError('binding_mismatch')
+    const key = record.detection.configurationKey
+    const observed = this.installs.get(key)
+    if (observed && !observed.settled) throw new HandoffError('not_ready')
+    if (observed?.settled && observed.settled.state !== 'completed' && observed.generation !== record.installationGeneration) {
+      throw new HandoffError(observed.settled.state === 'unknown' ? 'outcome_unknown' : 'not_ready')
+    }
+    return () => {
+      if (this.installs.get(key) !== observed) throw new HandoffError('not_ready')
+    }
+  }
+
   private async revalidate(context: CallContext, record: PreflightRecord, binding: VerifiedPreflight, latest?: boolean) {
     const call = { ...context, signal: AbortSignal.any([context.signal, this.options.signal, AbortSignal.timeout(CHECK_TIMEOUT_MS)]) }
     if (latest !== undefined) await this.options.authority.verifySource(call, binding.source, latest)
     const adapter = this.options.catalog.require(binding.targetId)
     const target = await adapter.detect(call.signal)
-    if (target.state !== 'present' || !record.detection || !this.matches(adapter, target, record.detection)
-      || (await adapter.checkIntegration(target, call.signal)).state !== 'ready') {
+    if (target.state !== 'present' || !record.detection || !this.matches(adapter, target, record.detection)) {
       throw new HandoffError('binding_mismatch')
     }
+    const assertInstaller = this.installGuard(record)
+    const assertCurrent = () => {
+      call.signal.throwIfAborted()
+      assertInstaller()
+      const current = directory(binding.source.cwd)
+      if (current.path !== binding.effectiveCwd || current.identity !== record.directoryIdentity) {
+        throw new HandoffError('binding_mismatch')
+      }
+    }
+    if ((await adapter.checkIntegration(target, call.signal)).state !== 'ready') throw new HandoffError('binding_mismatch')
     const live = await this.resolve(call, adapter, target, binding.source)
     if (latest !== undefined) await this.options.authority.verifySource(call, binding.source, latest)
     call.signal.throwIfAborted()
@@ -255,22 +319,35 @@ export class PreflightService implements PreflightGate {
       || live.targetConfigurationGeneration !== record.targetConfigurationGeneration || !sameBinding(binding, {
       ...binding, ...live.binding, targetVersion: target.version, adapterVersion: adapter.version,
     })) throw new HandoffError('binding_mismatch')
-    return { adapter, target, assertDirectory: () => {
-      const current = directory(binding.source.cwd)
-      if (current.path !== binding.effectiveCwd || current.identity !== record.directoryIdentity) {
-        throw new HandoffError('binding_mismatch')
-      }
-    } }
+    assertCurrent()
+    return { adapter, target, assertCurrent }
   }
 
   private async inspect(context: CallContext, record: PreflightRecord, adapter: TargetAdapter, set: Update) {
+    const detectionStarted = this.installOrder
     const target = await adapter.detect(context.signal)
     if (target.state === 'missing') return set({ state: 'needs_user_action', agent: 'missing', nextAction: 'install_agent' })
     if (target.state === 'unsupported') return set({ state: 'failed', agent: 'unsupported', code: 'integration_unavailable' })
     if (target.state !== 'present') return set({ state: 'unknown', agent: 'unknown', code: 'outcome_unknown', nextAction: 'check_target' })
     const detection = { configurationKey: target.configurationKey, targetVersion: target.version, adapterVersion: adapter.version }
     set({ state: record.state === 'checking_agent' ? 'checking_integration' : 'verifying', agent: 'present', detection })
+    const observed = this.installs.get(target.configurationKey)
+    // Detection is asynchronous. Honor installers that were active during it, even if already settled.
+    if (observed && (!observed.settled || observed.settled.order > detectionStarted)) {
+      const result = await awaitInstallation(observed.pending, context.signal)
+      if (result.state === 'failed') return set({ state: 'failed', installation: 'failed', code: 'not_ready' })
+      if (result.state === 'unknown') return set({ state: 'unknown', installation: 'unknown',
+        code: 'outcome_unknown', nextAction: 'check_target' })
+      if (result.state === 'needs_user_action') return set({ state: 'needs_user_action', installation: result.state,
+        nextAction: result.action })
+      set({ state: 'verifying', installation: 'completed' })
+      const verified = await adapter.detect(context.signal)
+      if (verified.state !== 'present' || !this.matches(adapter, verified, detection)) {
+        throw new HandoffError('binding_mismatch')
+      }
+    }
     const integration = await adapter.checkIntegration(target, context.signal)
+    if (this.installs.get(target.configurationKey) !== observed) throw new HandoffError('not_ready')
     if (integration.state === 'needs_user_action') {
       return set({ state: 'needs_user_action', integration: integration.state, nextAction: integration.action })
     }
@@ -285,8 +362,9 @@ export class PreflightService implements PreflightGate {
     }
     const live = await this.resolve(context, adapter, target, record.source)
     await this.options.authority.verifySource(context, record.source, !record.confirmedOriginal)
+    if (this.installs.get(target.configurationKey) !== observed) throw new HandoffError('not_ready')
     return set({ state: 'ready', integration: 'ready', directoryIdentity: live.directoryIdentity,
-      targetConfigurationGeneration: live.targetConfigurationGeneration,
+      targetConfigurationGeneration: live.targetConfigurationGeneration, installationGeneration: observed?.generation,
       binding: { preflightId: record.preflightId, revision: 0, source: record.source, targetId: adapter.id,
         targetVersion: target.version, adapterVersion: adapter.version, ...live.binding },
     })
@@ -319,20 +397,25 @@ export class PreflightService implements PreflightGate {
 
   private async waitForInstall(context: CallContext, adapter: TargetAdapter, record: PreflightRecord) {
     // A shared installer can finish while this caller is rechecking the target identity.
-    const existing = record.detection && this.installs.get(record.detection.configurationKey)
+    const observed = record.detection && this.installs.get(record.detection.configurationKey)
+    const existing = observed && !observed.settled ? observed : undefined
     const target = await adapter.detect(context.signal)
     if (target.state !== 'present' || !record.detection || !this.matches(adapter, target, record.detection)) {
       throw new HandoffError('stale_preflight')
     }
     context.signal.throwIfAborted()
     const key = target.configurationKey
-    const shared = existing ?? this.installs.get(key)
-    if (shared) return shared
-    // Probe integration inside the shared operation: ready can be visible before an installer settles.
-    const pending = this.install(adapter, target, record)
-    this.installs.set(key, pending)
-    const clear = () => { if (this.installs.get(key) === pending) this.installs.delete(key) }
-    void pending.then(clear, clear)
+    const current = this.installs.get(key)
+    if (current && !current.settled) return current.pending
+    if (existing) return existing.pending
+    // Publish the write domain before any adapter code can observe its installation.
+    const pending = Promise.resolve().then(() => this.install(adapter, target, record))
+    const shared: SharedInstall = { generation: randomUUID(), pending }
+    this.installs.set(key, shared)
+    void pending.then(
+      result => { shared.settled = { state: result.state, order: ++this.installOrder } },
+      () => { shared.settled = { state: 'rejected', order: ++this.installOrder } },
+    )
     return pending
   }
 
@@ -356,9 +439,22 @@ export class PreflightService implements PreflightGate {
     }
   }
 
+  private reclaimable() {
+    const references = this.options.referencedPreflightIds
+    if (!references) return undefined
+    let referenced: ReadonlySet<string> | undefined
+    const cutoff = this.now() - UNUSED_READY_RETENTION_MS
+    return (record: PreflightRecord) => {
+      if (this.checks.has(record.preflightId) || record.installation === 'unknown'
+        || (record.state !== 'failed' && record.state !== 'cancelled'
+          && !(record.state === 'ready' && Date.parse(record.updatedAt) <= cutoff))) return false
+      return !(referenced ??= references()).has(record.preflightId)
+    }
+  }
+
   private read(context: CallContext, id: string, sessionId: string): PreflightRecord {
-    const record = this.options.records.read(id)
-    if (!record || record.ownerId !== context.ownerId || record.source.sessionId !== sessionId) {
+    const record = this.options.records.read(preflightKey(id))
+    if (!record || record.preflightId !== id || record.ownerId !== context.ownerId || record.source.sessionId !== sessionId) {
       throw new HandoffError('not_found')
     }
     return record
@@ -372,9 +468,9 @@ export class PreflightService implements PreflightGate {
 
   private update(record: PreflightRecord, patch: Partial<PreflightRecord>): PreflightRecord {
     const revision = record.revision + 1
-    const next = { ...record, ...patch, revision, updatedAt: new Date().toISOString(),
+    const next = { ...record, ...patch, revision, updatedAt: new Date(this.now()).toISOString(),
       ...(patch.binding ? { binding: { ...patch.binding, revision } } : {}) }
-    this.options.records.save(record.preflightId, next)
+    this.options.records.save(preflightKey(record.preflightId), next)
     return next
   }
 

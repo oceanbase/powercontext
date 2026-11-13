@@ -35,15 +35,19 @@ interface HandoffServicesOptions {
 
 /** The only boundary that knows both implementations and their independent storage roots. */
 export function createHandoffServices({ root, authority, catalog, client, signal, plan }: HandoffServicesOptions) {
+  let delivery: LocalDeliveryService
   const preflight = new PreflightService({
     authority, catalog, signal, records: preflightRecords(join(root, 'preflights')),
+    referencedPreflightIds: () => delivery.referencedPreflightIds(),
   })
-  const delivery = new LocalDeliveryService({
+  delivery = new LocalDeliveryService({
     directory: join(root, 'deliveries'),
     preflightGate: preflight,
     resolveConnection: async (context, binding) => {
       authority.requireLocal()
+      const assertInstaller = preflight.preparationInstallGuard(context, binding)
       const live = await authority.sourceConnection(context, binding.source)
+      assertInstaller()
       if (live.serverIdentity !== binding.serverIdentity || live.scopeId !== binding.scopeId
         || live.connectionRef !== binding.connectionRef || live.connectionGeneration !== binding.connectionGeneration) {
         throw new DeliveryError('binding_mismatch')

@@ -180,6 +180,7 @@ pub fn project(
                         "codex",
                         "claude_code",
                         "dsh",
+                        "dsh_pet_memory",
                         "openclaw",
                         "opencode",
                         "pi",

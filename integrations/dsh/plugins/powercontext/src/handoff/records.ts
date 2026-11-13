@@ -71,21 +71,11 @@ export class HandoffRecords<T extends { schema: string }> {
     } finally { closeSync(fd) }
   }
 
-  save(key: string, value: T, create = false): void {
+  save(key: string, value: T, create = false, reclaim?: (record: T) => boolean): void {
     const path = this.path(key)
     const body = JSON.stringify(value)
     if (Buffer.byteLength(body) > this.maxRecordBytes) throw new HandoffError('capacity_exceeded')
-    if (create) {
-      const directory = opendirSync(this.root)
-      try {
-        let count = 0
-        for (let item = directory.readSync(); item !== null; item = directory.readSync()) {
-          if (/^[0-9a-f]{64}\.json$/.test(item.name) && ++count >= this.maxRecords) {
-            throw new HandoffError('capacity_exceeded')
-          }
-        }
-      } finally { directory.closeSync() }
-    }
+    if (create) this.makeRoom(reclaim)
     const temporary = join(this.root, `.${randomUUID()}.tmp`)
     const fd = openSync(temporary, 'wx', 0o600)
     try {
@@ -101,6 +91,31 @@ export class HandoffRecords<T extends { schema: string }> {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
     }
+  }
+
+  private makeRoom(reclaim?: (record: T) => boolean): void {
+    const directory = opendirSync(this.root)
+    const keys: string[] = []
+    try {
+      for (let item = directory.readSync(); item !== null; item = directory.readSync()) {
+        if (/^[0-9a-f]{64}\.json$/.test(item.name)) keys.push(item.name.slice(0, -5))
+      }
+    } finally { directory.closeSync() }
+    if (keys.length < this.maxRecords) return
+    // Inspect at most one full store, only when the file count reaches capacity.
+    const needed = keys.length - this.maxRecords + 1
+    const removable = []
+    for (const key of keys) {
+      if (!reclaim) break
+      let record: T | undefined
+      try { record = this.read(key) } catch { continue } // Preserve unreadable or unsupported records.
+      if (record && reclaim(record)) removable.push(key)
+      if (removable.length === needed) {
+        for (const key of removable) unlinkSync(this.path(key))
+        return
+      }
+    }
+    throw new HandoffError('capacity_exceeded')
   }
 
   private path(key: string): string {

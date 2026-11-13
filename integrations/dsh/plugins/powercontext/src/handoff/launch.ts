@@ -191,14 +191,14 @@ export class LaunchService {
       state: 'requested', createdAt, updatedAt: createdAt }
     try {
       signal.throwIfAborted()
-      const { adapter, target, assertDirectory } = await this.options.preflight.validateForLaunch(call, bundle.binding)
+      const { adapter, target, assertCurrent } = await this.options.preflight.validateForLaunch(call, bundle.binding)
       if (!packageExists(bundle) || !await adapter.canReadPackage(target, bundle, signal)) {
         throw new HandoffError('not_ready')
       }
       const current = await this.options.delivery.getForLaunch(call, deliveryId)
       if (!isDeepStrictEqual(current, bundle)) throw new HandoffError('binding_mismatch')
       if (!packageExists(bundle)) throw new HandoffError('not_ready')
-      assertDirectory()
+      assertCurrent()
       const launch = this.options.plan(adapter.id, bundle.binding.effectiveCwd, adapter.launchIntent(target, bundle))
       signal.throwIfAborted()
       this.options.requireLocal()

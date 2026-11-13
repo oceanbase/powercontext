@@ -33,7 +33,9 @@ from pydantic import BaseModel, JsonValue, field_validator
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
 # Older runtimes expose the same frozen schema under TextEvidence alone.
-_TEXT_EVIDENCE_MODEL: type[BaseModel] = getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
+_TEXT_EVIDENCE_MODEL = cast(
+    type[source_models.TextEvidence], getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
+)
 
 
 class TextFileSnapshotCapture(BaseModel):
