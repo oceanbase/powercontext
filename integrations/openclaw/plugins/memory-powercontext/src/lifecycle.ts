@@ -17,6 +17,7 @@
 
 import { createHash } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import type { PowerContextConfig } from "./config.js";
 import { opaqueSessionId } from "./config.js";
 import {
@@ -56,6 +57,13 @@ type CheckpointResult = {
 type FlushCallBudget = {
   remaining: number;
 };
+
+// OpenClaw resolves a run's agent from its agent-scoped session key before any other source, and it gives every run
+// such a key, so the key names the same agent that the run's other hooks report.
+function agentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  const agentId = sessionKey ? parseAgentSessionKey(sessionKey)?.agentId : undefined;
+  return agentId ? normalizeAgentId(agentId) : undefined;
+}
 
 function nonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
@@ -462,7 +470,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   });
 
   api.on("before_compaction", async (event, ctx) => {
-    const agentId = readAgentId(ctx.agentId);
+    // The built-in runner's in-session auto-compaction supplies only the session key.
+    const agentId = readAgentId(ctx.agentId) ?? agentIdFromSessionKey(ctx.sessionKey);
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }
