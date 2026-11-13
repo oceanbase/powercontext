@@ -1512,6 +1512,14 @@ paths:
       operationId: check_context
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
+      parameters:
+        - name: X-PowerContext-Resolve-Target
+          in: header
+          required: false
+          schema: {type: boolean, default: false}
+          description: >-
+            Only for before_send by an authenticated service principal authorized for gateway.invoke
+            on this Scope as well as scope.read. Neither scope.read nor server.admin implies invocation.
       requestBody:
         required: true
         content:
@@ -9127,6 +9135,33 @@ components:
           maxItems: 32
           items:
             $ref: "#/components/schemas/HandoffCitation"
+    TaskStopReasonKind:
+      type: string
+      enum: [safety, authorization, capability, missing_evidence, scope]
+    TaskStopReason:
+      description: >-
+        A caller-recorded judgement about why continuing would have been wrong.
+        It grants no permission, approval, or retry budget and is not success or failure evidence.
+      type: object
+      additionalProperties: false
+      required: [kind, condition, basis, evidence]
+      properties:
+        kind:
+          $ref: "#/components/schemas/TaskStopReasonKind"
+        condition:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+          description: The circumstance under which continuing would have been wrong; must be trimmed.
+        basis:
+          $ref: "#/components/schemas/WorkClaimBasis"
+        evidence:
+          type: array
+          maxItems: 31
+          description: Use [] with declared. verified requires exact previously returned same-scope citations.
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
     TaskOutcome:
       type: object
       additionalProperties: false
@@ -9153,6 +9188,10 @@ components:
         handoff_receipt_ref:
           $ref: "#/components/schemas/SourceReference"
           nullable: true
+        stop_reason:
+          $ref: "#/components/schemas/TaskStopReason"
+          nullable: true
+          description: Optional deliberate-stop reason, accepted only with blocked or cancelled status.
         observations:
           type: array
           minItems: 1
@@ -10161,6 +10200,16 @@ components:
           minLength: 1
           maxLength: 65536
           description: Present only for allow, bound to this phase, identity, target, policy, and exact payload.
+        target_endpoint:
+          type: string
+          maxLength: 2048
+          description: >-
+            Exact Core-configured endpoint, present only on an allow for before_send when
+            X-PowerContext-Resolve-Target was authorized for a service principal.
+        target_protocol:
+          type: string
+          enum: [openai-chat, openai-responses, anthropic-messages, openai-embeddings, minimax-embeddings, jev-rerank]
+          description: Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
     ContextProtectionCapabilities:
       type: object
       additionalProperties: false
@@ -13903,6 +13952,7 @@ components:
         - scope.review
         - scope.delegate
         - scope.admin
+        - gateway.invoke
         - artifact.read
         - artifact.write
         - artifact.share
@@ -14047,6 +14097,7 @@ components:
         - scope.reviewer
         - scope.delegator
         - scope.admin
+        - gateway.user
         - server.observer
         - server.admin
     AccessRoleCardinality:

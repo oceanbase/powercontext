@@ -22,6 +22,8 @@ import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const plugin = 'powercontext-dsh'
+const petPackage = 'dsh-pet'
+const petAdapter = 'powercontext-dsh-pet'
 class InspectionError extends Error {
   constructor(reason, location = '') {
     super(reason)
@@ -64,7 +66,7 @@ function installation(executable) {
   fail('Cannot locate the installed DSH package from its CLI; use a supported npm/pnpm DSH installation')
 }
 
-async function inspect(executable, home, profile, prospective, desktopAnchor, requireInstalled) {
+async function inspect(executable, home, profile, prospective, desktopAnchor, requireInstalled, inspectPet) {
   const anchor = desktopAnchor || installation(executable)
   if (desktopAnchor) {
     const manifest = read(anchor, () => JSON.parse(readFileSync(anchor, 'utf8')))
@@ -136,6 +138,7 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   const rows = read(dir, () => boot.composeEntries(layers, warning => warnings.push(warning)))
   if (warnings.some(warning => warning.includes(plugin))) fail('A PowerContext patch could not be applied', dir)
   const matches = []
+  const petRows = new Map([[petPackage, []], [petAdapter, []]])
   let includeApi, includeYaml
   const includeStack = new Set()
   async function includeEntries(config, baseUrl, location) {
@@ -201,6 +204,13 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
       const dynamicDisabled = isExpression(row.disabled)
       const conditionalEntry = conditional || dynamicDisabled
       const unavailable = disabled || (!dynamicDisabled && Boolean(row.disabled))
+      if (inspectPet) {
+        for (const [name, found] of petRows) {
+          if (row.id === name || row.name === name) {
+            found.push(conditionalEntry || row.name !== name ? 'ambiguous' : unavailable ? 'disabled' : 'enabled')
+          }
+        }
+      }
       if (row.id === plugin || row.name === plugin) {
         if (row.id !== plugin || row.name !== plugin || unavailable || conditionalEntry) {
           fail('PowerContext is renamed, disabled, or conditionally enabled in DSH', location)
@@ -236,12 +246,23 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
     }
     settings[key] = config[key]
   }
+  if (inspectPet) {
+    settings.petPackages = {}
+    for (const [name, found] of petRows) {
+      const file = join(dir, 'node_modules', name, 'package.json')
+      const pkg = existsSync(file) ? read(file, () => JSON.parse(readFileSync(file, 'utf8'))) : undefined
+      settings.petPackages[name] = {
+        version: pkg?.name === name && typeof pkg.version === 'string' ? pkg.version : null,
+        entry: found.length > 1 ? 'ambiguous' : found[0] ?? 'missing',
+      }
+    }
+  }
   return { settings, warnings: skippedBundles }
 }
 
 try {
-  const [executable, home, profile, prospective, desktopAnchor, requireInstalled] = process.argv.slice(2)
-  const result = await inspect(resolve(executable), resolve(home), profile, prospective === 'true', desktopAnchor, requireInstalled === 'true')
+  const [executable, home, profile, prospective, desktopAnchor, requireInstalled, inspectPet] = process.argv.slice(2)
+  const result = await inspect(resolve(executable), resolve(home), profile, prospective === 'true', desktopAnchor, requireInstalled === 'true', inspectPet === 'true')
   process.stdout.write(JSON.stringify(result))
 } catch (error) {
   // Native parser messages and stacks can include credentials or whole YAML rows.

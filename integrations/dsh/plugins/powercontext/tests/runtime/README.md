@@ -142,6 +142,13 @@ selects each session through the host's persisted current-session entry, reloads
 reported conversation and Scope, and checks that both exact `session_id` selectors reached the bridge. It restores
 the prior selection and closes only its own Chrome target.
 
+With a linked checkout installed, set `DSH_CHECK_UPDATES=1` to click the check icon or
+`DSH_CHECK_UPDATES=auto` to wait for the Host's automatic check. The harness checks the compact footer, the running
+Server version in Technical details, and the manual update path against published release metadata. For native
+install acceptance, use an eligible registry install in an isolated profile, verify the target in the panel,
+close and reopen it during installation, and read back the active version after reload or restart. Record
+whether the registry and packages were controlled fixtures or publicly published artifacts.
+
 For broader Web acceptance, use a separate DSH home and workspace, install the same built plugin, disable telemetry,
 and configure the test model through environment-backed credentials. Test the shipped Web profile through the browser:
 

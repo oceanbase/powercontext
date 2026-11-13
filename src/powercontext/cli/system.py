@@ -187,6 +187,25 @@ CaptureOption = Annotated[
 AgentsArgument = Annotated[list[str] | None, typer.Argument(help="Agent names; select interactively when omitted.")]
 
 
+def _dsh_pet_setup_bindings(
+    selected: tuple[str, ...], mode: str | None, raw_bindings: list[str] | None, discard: bool
+) -> dict[str, str] | None:
+    pet_bindings = None
+    if mode is not None or raw_bindings or discard:
+        if "dsh" not in selected or mode not in {"on", "off"}:
+            raise typer.BadParameter("Pet memory options require dsh and --dsh-pet-memory on or off.")  # noqa: TRY003
+        if (raw_bindings and mode != "on") or (discard and mode != "off"):
+            raise typer.BadParameter("Use --dsh-pet-bind with on and --discard-dsh-pet-pending with off.")  # noqa: TRY003
+        if mode == "on":
+            from powercontext.cli.dsh_pet import parse_pet_bindings
+
+            try:
+                pet_bindings = parse_pet_bindings(raw_bindings or [])
+            except ValueError as error:
+                raise typer.BadParameter(str(error), param_hint="--dsh-pet-bind") from error
+    return pet_bindings
+
+
 @setup_app.callback()
 def setup_agents(
     context: typer.Context,
@@ -210,6 +229,15 @@ def setup_agents(
         typer.Option(help="DSH profile or Kimi MCP profile: minimal, recommended, full; omission preserves it."),
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
+    dsh_pet_memory: Annotated[
+        str | None, typer.Option(help="DSH pet memory: on or off; interactive setup can offer first-time opt-in.")
+    ] = None,
+    dsh_pet_bind: Annotated[
+        list[str] | None, typer.Option(help="Pet memory binding PET_ID=SCOPE_ID; repeat for multiple pets.")
+    ] = None,
+    discard_dsh_pet_pending: Annotated[
+        bool, typer.Option(help="Discard unsent pet dialogue; requires --dsh-pet-memory off.")
+    ] = False,
     minimax_data_dir: Annotated[
         Path | None, typer.Option(help="MiniMax data root; plugins/powercontext is added.")
     ] = None,
@@ -241,12 +269,24 @@ def setup_agents(
     }
     validate_native_options(selected, **options, dsh_command=dsh_command)
 
+    pet_bindings = _dsh_pet_setup_bindings(selected, dsh_pet_memory, dsh_pet_bind, discard_dsh_pet_pending)
+
     def complete(host):
         native = native_options(host, **options)
+        pet_setup: dict[str, Any] = {}
         if host == "dsh":
             native["dsh_target"] = resolve_dsh_target(DshProfile(profile) if profile is not None else None, dsh_command)
+            if dsh_pet_memory == "off":
+                from powercontext.cli.dsh_pet import disable_pet_memory
+
+                result = disable_pet_memory(native["dsh_target"], discard=discard_dsh_pet_pending)
+                return {"status": "ok", "result": {"dsh_pet_memory": result}}
             if native["dsh_target"].profile == DshProfile.DESKTOP:
                 typer.echo("Fully quit DSH Desktop before replacing its plugin.", err=True)
+            if pet_bindings is not None:
+                pet_setup["dsh_pet_bindings"] = pet_bindings
+            elif not json_output and stdin_is_tty():
+                pet_setup["dsh_pet_interactive"] = True
         if host == "kimi-code" and not scope_id and not workspace_scope and not json_output and stdin_is_tty():
             from powercontext.cli.kimi_code import kimi_home
 
@@ -259,6 +299,7 @@ def setup_agents(
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
+            **pet_setup,
             **native,
         )
         checks = doctor_checks(host, **native)

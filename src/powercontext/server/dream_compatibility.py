@@ -21,7 +21,9 @@ from typing import Any, cast
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from starlette.middleware.base import RequestResponseEndpoint
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from powercontext.builtin.dream.models import DreamError
 
@@ -119,13 +121,9 @@ def _legacy_payload(value: Any) -> Any:
     return result
 
 
-async def negotiate_dream_contract(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    response = await call_next(request)
-    response.headers[DREAM_CONTRACT_HEADER] = MIN_DREAM_CONTRACT
-    path = request.url.path
-    relevant = (
+def _legacy_response_path(path: str) -> bool:
+    return (
         path == "/v1/capabilities"
-        or path.startswith("/v1/candidates/")
         or (path.startswith("/v1/scopes/") and ("/dream" in path or "/artifacts" in path))
         or path in {"/v1/context/prepare", "/v1/profile/flush"}
         or path
@@ -138,7 +136,38 @@ async def negotiate_dream_contract(request: Request, call_next: RequestResponseE
             "/v1/external-skills/import",
         }
     )
-    if path.startswith("/v1/candidates/") or supports_extended_dream(request) or not relevant:
+
+
+class DreamContractMiddleware:
+    """Only legacy DTO projection needs a response-buffering middleware."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self._legacy = BaseHTTPMiddleware(app, dispatch=negotiate_dream_contract)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        if (
+            _legacy_response_path(scope["path"])
+            and Headers(scope=scope).get(DREAM_CONTRACT_HEADER) != MIN_DREAM_CONTRACT
+        ):
+            await self._legacy(scope, receive, send)
+            return
+
+        async def send_with_contract(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)[DREAM_CONTRACT_HEADER] = MIN_DREAM_CONTRACT
+            await send(message)
+
+        await self.app(scope, receive, send_with_contract)
+
+
+async def negotiate_dream_contract(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    response = await call_next(request)
+    response.headers[DREAM_CONTRACT_HEADER] = MIN_DREAM_CONTRACT
+    if supports_extended_dream(request) or not _legacy_response_path(request.url.path):
         return response
     if response.status_code >= 400 or "application/json" not in response.headers.get("content-type", ""):
         return response

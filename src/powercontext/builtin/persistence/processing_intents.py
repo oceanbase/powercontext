@@ -27,7 +27,7 @@ from datetime import datetime
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import bindparam, func, insert, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -39,6 +39,19 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_SEQUENCES_TABLE,
 )
 from powercontext.limits import MAX_BINDING_NAME_LENGTH, MAX_SCOPE_ID_LENGTH
+
+_DIRTY_BINDING_SELECTION = select(ARTIFACT_PROCESSING_INTENTS_TABLE.c.binding_name).where(
+    ARTIFACT_PROCESSING_INTENTS_TABLE.c.scope_id == bindparam("requested_scope_id"),
+    ARTIFACT_PROCESSING_INTENTS_TABLE.c.binding_name.in_(bindparam("binding_names", expanding=True)),
+)
+_DIRTY_BINDING_ADVANCE = (
+    update(ARTIFACT_PROCESSING_INTENTS_TABLE)
+    .where(
+        ARTIFACT_PROCESSING_INTENTS_TABLE.c.scope_id == bindparam("requested_scope_id"),
+        ARTIFACT_PROCESSING_INTENTS_TABLE.c.binding_name.in_(bindparam("binding_names", expanding=True)),
+    )
+    .values(dirty_generation=ARTIFACT_PROCESSING_INTENTS_TABLE.c.dirty_generation + bindparam("dirty_increment"))
+)
 
 
 class StoredArtifactProcessingIntent(BaseModel):
@@ -146,13 +159,8 @@ class ArtifactProcessingIntentRepository:
         for name in names:
             _require_key(scope_id, name)
         table = ARTIFACT_PROCESSING_INTENTS_TABLE
-        existing = set(
-            (
-                await connection.execute(
-                    select(table.c.binding_name).where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
-                )
-            ).scalars()
-        )
+        selection = {"requested_scope_id": scope_id, "binding_names": names}
+        existing = set((await connection.execute(_DIRTY_BINDING_SELECTION, selection)).scalars())
         if len(existing) != len(names):
             sequence = ARTIFACT_PROCESSING_SEQUENCES_TABLE
             if connection.dialect.name == "sqlite":
@@ -168,15 +176,7 @@ class ArtifactProcessingIntentRepository:
             await connection.execute(
                 update(sequence).where(sequence.c.singleton == 1).values(sequence=sequence.c.sequence)
             )
-            existing = set(
-                (
-                    await connection.execute(
-                        select(table.c.binding_name)
-                        .where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
+            existing = set((await connection.execute(_DIRTY_BINDING_SELECTION.with_for_update(), selection)).scalars())
             missing = tuple(name for name in names if name not in existing)
             if missing:
                 await connection.execute(
@@ -195,9 +195,8 @@ class ArtifactProcessingIntentRepository:
                     ],
                 )
         await connection.execute(
-            update(table)
-            .where(table.c.scope_id == scope_id, table.c.binding_name.in_(names))
-            .values(dirty_generation=table.c.dirty_generation + increment)
+            _DIRTY_BINDING_ADVANCE,
+            {**selection, "dirty_increment": increment},
         )
 
     async def request(

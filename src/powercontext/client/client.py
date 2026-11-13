@@ -1082,11 +1082,23 @@ class PowerContextClient:
             raise InvalidResponseError(PREPARE_CONTEXT.path, request_id=None)
         return result.root
 
-    async def check_context(self, request: CheckContextRequest) -> ContextCheckResult:
-        """Check final bytes; only a complete allow permits the requested phase."""
-        result = await self._request(CHECK_CONTEXT, request)
-        if result.phase != request.root.phase or (
-            result.decision == "allow" and (not result.coverage.complete or not result.binding)
+    async def check_context(self, request: CheckContextRequest, *, resolve_target: bool = False) -> ContextCheckResult:
+        """Check final bytes; privileged target resolution is opt-in on before_send only."""
+        if resolve_target and request.root.phase != "before_send":
+            raise ValueError("target resolution requires before_send")  # noqa: TRY003
+        result = await self._request(
+            CHECK_CONTEXT,
+            request,
+            extra_headers={"X-PowerContext-Resolve-Target": "true"} if resolve_target else None,
+        )
+        if (
+            result.phase != request.root.phase
+            or (result.decision == "allow" and (not result.coverage.complete or not result.binding))
+            or (
+                resolve_target
+                and result.decision == "allow"
+                and (not result.target_endpoint or not result.target_protocol)
+            )
         ):
             raise InvalidResponseError(CHECK_CONTEXT.path, request_id=None)
         return result
