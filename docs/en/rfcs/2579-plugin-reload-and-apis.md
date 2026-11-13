@@ -55,7 +55,7 @@ contents, and switching happens only at the child process level.
 
 Goals:
 
-1. Deployers place, replace, or remove a plugin directory, and Server applies it within one scan interval, with no restart
+1. Deployers place, replace, or remove a plugin directory, and Server applies it within two scan intervals (content must be unchanged for two consecutive scans before it is checked), with no restart
    and no management API call.
 2. Each call uses one version of the plugin code from start to finish: old and new code never mix, and results from old
    code are never committed under a new declaration.
@@ -290,9 +290,10 @@ code. Plugin code is therefore imported only from version snapshots:
 - **Replaces the code fingerprint check**: in RFC #2549, Workers and host processes check the code fingerprint before
   importing. With snapshots, the dispatch hands the snapshot path to the Worker, and since snapshots never change, no check
   is needed; with hot reload disabled, RFC #2549's check still applies.
-- **Cleanup**: a snapshot that is neither the current version nor in use by a host process or Worker of this process is
-  deleted at the next scan. At startup, Server creates snapshots only for the current plugin directories and deletes all
-  others. Snapshots are derived local files that can be regenerated from the plugin directory and need no backup.
+- **Cleanup**: each Server process deletes, at its next scan, only snapshots it created that are neither the current
+  version nor in use by a host process or Worker of this process. At startup it deletes only snapshots older than its own
+  start that are not any current version. When several Server processes on one machine share a data directory (such as
+  `api` and `background` roles), one process starting never deletes a snapshot another is using. Snapshots are derived local files that can be regenerated from the plugin directory and need no backup.
 
 ### 1.4 Host process replacement and background calls
 
@@ -332,14 +333,21 @@ plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_secon
 - **When**: on every load of a plugin version, both at Server startup and when hot reload switches to a new version, not
   only on first install. The plugin records the version of its data itself (for example in its dedicated storage or in
   Artifact content) and compares it with the version in its code to decide what to do.
-- **Where**: a new host process runs `upgrade(ctx)` before `setup(ctx)` and reports ready only afterwards; plugins that
-  declare `upgrade` start their host process as soon as they load. Until the new version is ready, core forwards no
-  synchronous calls or API requests to it and dispatches no background calls with the new snapshot.
+- **Where**: every Server instance that loads the new version runs it, whatever its role. On instances that receive
+  requests, the new host process runs `upgrade(ctx)` before `setup(ctx)` and reports ready only afterwards; until then
+  core forwards no synchronous calls or API requests to the new version. `background` instances run no host process, so a
+  short-lived child process runs only `upgrade`, and the instance dispatches background calls with the new snapshot only
+  after it finishes. New-version `generate` therefore runs only after this instance's `upgrade` has completed.
+- **Fast, repeatable changes only**: `upgrade` is for quick work such as schema changes in plugin storage, not for
+  rewriting data at scale. Format changes over large data are migrated lazily on read (new code reads the old format and
+  writes the new one back), or by a separate migration script the plugin ships and the deployer runs before upgrading;
+  the script uses the plugin's own storage and core's public APIs, and core provides no extra mechanism for it.
 - **Failure**: if `upgrade` raises or exceeds `upgrade_timeout_seconds` (600 seconds by default), core treats the new
   version as failing its check: hot reload keeps the old version, and at Server startup the plugin is `failed`.
 - **Context**: dedicated storage, models, and the logger. `ctx.reads(scope_id)` and `ctx.writer(scope_id)` act as the
-  plugin itself, as in a Worker, without checking a caller's permissions, so the plugin can rewrite old-format Artifacts as
-  new revisions. Core does not list the Scopes that hold plugin data; the plugin walks its own records. Earlier Artifact
+  plugin itself, as in a Worker, without checking a caller's permissions, so the plugin can rewrite a small number of old-format
+  Artifacts as new revisions; write transaction rules are the same as in Workers, and one `upgrade` opens at most one
+  write transaction block. Core does not list the Scopes that hold plugin data; the plugin walks its own records. Earlier Artifact
   revisions are immutable, so code that reads history still has to understand old formats.
 - **Repetition and concurrency**: every Server instance calls `upgrade` on every load, and core does not coordinate
   instances. `upgrade` must be safe to run repeatedly and on several instances at once; a plugin that needs mutual
@@ -450,13 +458,18 @@ Write rules:
   reference only Sources of the current invocation window, which an API call does not have, so the new revision carries
   no provenance. To record who did what, the plugin submits the operation as a Source it defines, and `generate` writes the
   new revision referencing it; `generate` checks the revision the change was based on and drops the change if it moved.
-  The knowledge base example's chunk edits work this way.
+  The change has not taken effect when the API returns, so the plugin should offer a way to query the change's status
+  (pending, applied, or dropped), letting the caller learn whether it was dropped. The knowledge base example's chunk
+  edits work this way.
 - A request opens at most one write transaction block, and the writes in it commit in one transaction, under RFC
   #2549's write transaction rules.
 - Handlers cannot advance cursors or checkpoints, and cannot write another plugin's family.
 - Dedicated storage is not isolated by Scope (see RFC #2549 reference 1.2). Handlers read and write their own data by
   `request.scope_id` and must not return data on another ID in the path alone; otherwise a caller with permission on one
-  Scope could read another Scope's data.
+  Scope could read another Scope's data. Per-Artifact grants in core (such as Artifact viewer or owner) only add access
+  beyond Scope permissions and never narrow what Scope members may read, so returning a body from owned storage after a
+  Scope check cannot over-share; if core later adds rules that narrow reading a single Artifact, plugin APIs must check
+  per Artifact as well.
 
 Scopes created by plugins:
 
@@ -475,8 +488,11 @@ Scopes created by plugins:
 Core generates MCP tools from routes that declare `mcp=True`, on the same MCP endpoint as Server's existing tools:
 
 - Only routes whose `body` is `none` or `json` can opt in; binary routes cannot, and the check fails if they do.
-- The tool name is `<plugin name>_<handler>` (with `-` replaced by `_`), and its description comes from `description`,
-  which is required when opting in. Tool parameters combine path parameters, query parameters, and `request_model`; the
+- The tool name is `<plugin name>__<handler>`: the plugin name unchanged (it may contain `-`), a double underscore, then
+  the handler. Plugin names contain no underscores, so everything before the first double underscore is the plugin name,
+  and tool names of different plugins cannot collide. Tool names are at most 64 characters; a longer name, or one that
+  collides with a built-in tool, fails the plugin's check. The description comes from `description`, which is required
+  when opting in. Tool parameters combine path parameters, query parameters, and `request_model`; the
   parameter named by `scope_param` is the Scope ID.
 - Calling the tool is the same as calling the route as the MCP session's identity, with the same authentication,
   `access` authorization, time limits, and error handling as HTTP calls.
@@ -541,8 +557,11 @@ class PluginPages(BaseModel):
 
 ## 4. Execution constraints
 
-- Plugin APIs run in host processes and share RFC #2549's concurrency limit, timeout termination, and restart backoff
-  rules for synchronous calls.
+- Plugin APIs run in the plugin's group of host processes alongside RFC #2549's synchronous calls, under the same
+  concurrency limit, timeout cancellation, termination on loss of response, and restart backoff: a request that exceeds
+  `timeout_seconds` cancels only itself and returns 504, without affecting other requests in the same process. Plugins
+  with heavy API requests can raise `host_processes`, and work measured in minutes belongs in background `generate`
+  (see RFC #2549 reference section 6).
 - The Server process reads a plugin API request body and checks its size, then passes it to the host process as bytes or
   a validated model; `request_model` validation runs in the host process and returns 422 on failure.
 - The Server process reads static page files directly from the current snapshot, without the host process. After a
@@ -550,7 +569,9 @@ class PluginPages(BaseModel):
 
 ## 5. Persistence
 
-No database data is added. The plugin set, versions, route tables, and page registrations exist only in each Server
+Beyond RFC #2549's Source definition manifests, no database data is added. When hot reload loads a new version, new or
+changed Source definitions are registered by name and version in `pc_source_definition_manifests`; existing Sources
+reference them, so they are not deleted when a plugin version unloads. The plugin set, versions, route tables, and page registrations exist only in each Server
 process's memory and are rebuilt from the plugin directory after a restart. Version snapshots are local files under the
 data directory and can be regenerated from the plugin directory at any time. Core data written through plugin APIs is
 the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins keep their own data in plugin storage.
