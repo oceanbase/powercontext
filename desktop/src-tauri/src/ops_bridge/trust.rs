@@ -366,14 +366,12 @@ fn trusted_linux_xdg_path(configured: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn trusted_linux_local_data_dir_from(
+pub(super) fn trusted_linux_data_home_from(
     home: Option<&Path>,
     configured_data_home: Option<PathBuf>,
 ) -> Option<PathBuf> {
     let home = home?;
-    let data_home =
-        trusted_linux_xdg_path(configured_data_home).unwrap_or_else(|| home.join(".local/share"));
-    Some(data_home.join("PowerContext"))
+    Some(trusted_linux_xdg_path(configured_data_home).unwrap_or_else(|| home.join(".local/share")))
 }
 
 #[cfg(target_os = "linux")]

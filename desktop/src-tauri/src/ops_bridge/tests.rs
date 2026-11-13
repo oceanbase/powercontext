@@ -1044,17 +1044,23 @@ fn linux_desktop_support_dir_uses_the_validated_xdg_data_base() {
         Some(PathBuf::new()),
         None,
     ] {
-        let fallback = trust::trusted_linux_local_data_dir_from(Some(&home), configured)
-            .unwrap()
-            .join("Ops");
-        assert_eq!(fallback, home.join(".local/share/PowerContext/Ops"));
+        let data_home = super::resolve_local_data_dir_from(
+            Some(dir.path().join("tauri-local-data")),
+            Some(&home),
+            configured,
+        )
+        .unwrap();
+        let host = OpsHost::new(None, Some(data_home), Some(home.clone()));
+        let expected = home.join(".local/share/PowerContext/Ops");
+        assert_eq!(host.0.trust.support.as_deref(), Some(expected.as_path()));
     }
 
     let override_dir = dir.path().join("custom-data");
-    let custom = trust::trusted_linux_local_data_dir_from(Some(&home), Some(override_dir.clone()))
-        .unwrap()
-        .join("Ops");
-    assert_eq!(custom, override_dir.join("PowerContext/Ops"));
+    let data_home =
+        trust::trusted_linux_data_home_from(Some(&home), Some(override_dir.clone())).unwrap();
+    let host = OpsHost::new(None, Some(data_home), Some(home));
+    let expected = override_dir.join("PowerContext/Ops");
+    assert_eq!(host.0.trust.support.as_deref(), Some(expected.as_path()));
 }
 
 #[test]

@@ -45,8 +45,8 @@ pub(crate) fn resolve_local_data_dir(
 ) -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        let _ = local_data;
-        return trust::trusted_linux_local_data_dir_from(
+        return resolve_local_data_dir_from(
+            local_data,
             home,
             std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
         );
@@ -56,6 +56,16 @@ pub(crate) fn resolve_local_data_dir(
         let _ = home;
         local_data
     }
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_local_data_dir_from(
+    local_data: Option<PathBuf>,
+    home: Option<&std::path::Path>,
+    configured_data_home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let _ = local_data;
+    trust::trusted_linux_data_home_from(home, configured_data_home)
 }
 
 #[derive(Clone)]
