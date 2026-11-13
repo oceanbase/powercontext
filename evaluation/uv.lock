@@ -1956,6 +1956,7 @@ resource-build = [
     { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
     { name = "opentelemetry-sdk", specifier = ">=1.30,<2" },
+    { name = "orjson", specifier = ">=3.10,<4" },
     { name = "packaging", specifier = ">=24,<27" },
     { name = "platformdirs", specifier = ">=4,<5" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
