@@ -1,6 +1,6 @@
 ---
-title: "RFC 2570：Knowledge Base 文档知识库插件"
-description: "以单个业务插件、独立持久任务队列和三张插件业务表提供文档知识库，不改变已有 Source／Artifact 表结构。"
+title: "RFC 2570：基于 Scope 的 Knowledge Base 文档插件"
+description: "一个 Scope 对应一个知识库，复用插件消费 cursor 和 document Artifact，支持三种数据库、同步 chunk 编辑及框架原生软删除。"
 ---
 
 - Proposal Name: `knowledge_base_plugin`
@@ -11,471 +11,302 @@ description: "以单个业务插件、独立持久任务队列和三张插件业
 
 # 概述
 
-以一个 `knowledge-base` 业务插件提供本地文档接入、解析切块、版本管理和混合检索。一个 Scope 内可以预创建多个
-`knowledge-base` Artifact；原文 Source 和整篇 `document` Artifact 各自独占归属一个知识库。复用现有 Source、Artifact、
-head 和 lineage 表，不改变它们的结构；插件新增资源登记、独立任务和 chunk 三张业务表。后台处理不使用原有 Source
-消费 cursor。本文是目标设计，依赖插件框架扩展，不表示功能已经发布。
+一个 `knowledge-base` 业务插件提供本地文档接入、解析、切块、版本管理及混合检索。一个普通 Scope 对应一个知识库，
+插件只声明 `document` family，每个 Artifact 表示整篇文档。知识库本身不是 Artifact；业务配置按 scope_id 保存于插件存储。
+插件附带原文和处理请求 Source 定义，后台复用框架 generate、Supervisor 和消费 cursor，不实现独立任务调度队列。
+
+首期支持 SQLite、SeekDB、OceanBase，Markdown、独立图片 RapidOCR、规则切块、同步 chunk 编辑／移除和文档 forget。
+这是依赖框架契约的目标设计，不表示当前实现 PR 已提供全部能力。
 
 # 动机
 
-业务说明和 SOP 需要原文保真、片段检索、可预测更新与删除。解析可能较慢或依赖外部服务，需要持久任务和逐文件失败恢复。
-业务插件应独立管理这些状态，不把知识库字段加入共享 Source 模型，也不通过一个顺序消费 cursor 阻塞其他文件。
-Artifact 继续管理整篇文档版本；chunk 明细与索引分离，避免读取大型正文 JSON。
+业务描述和 SOP 需要可检索片段、原文溯源以及不会覆盖历史的人工修改。Scope 提供知识库的授权和组织边界；Artifact 管理
+整篇文档版本；插件存储保存大块正文和索引。复用现有调度、版本前置条件与生命周期，可以减少知识库专有的运行机制。
 
 # 使用层说明
 
-1. 通过通用 Artifact API 创建空 `knowledge-base`，再选择本地目录／文件导入。
-2. 导入返回持久任务 ID；界面可以显示排队、处理阶段、失败原因、完成结果及当前可用版本，不要求百分比。
-3. Markdown 和独立文字图片分别经过 Markdown 解析和 RapidOCR，统一切块、建立全文／向量索引后发布 document。
-4. 原文件变化或显式重新解析沿用 document ID，成功后发布新 revision；失败继续使用旧版本。
-5. 手动编辑或移除 chunk 也生成新 document revision，保留历史。检索可选择同一 Scope 内多个知识库。
-6. 删除只改变逻辑可见性，保留业务正文、原文快照和历史；普通、精确、历史、证据和检索入口均遵守删除规则。
+1. 管理员创建知识库 Scope，并保存解析／切块配置，然后导入 Server 可访问的本地目录或文件。
+2. 插件保存不可变原文快照、登记 Source，并提交处理请求 Source；导入接受不等于解析完成。
+3. 框架异步调用 generate，处理 Markdown／图片，准备完整 chunks 和索引，再发布 document。
+4. 内容变化或显式重解析沿用 document ID；失败保留已有版本。状态区分待处理、最近失败、已发布及冲突／跳过。
+5. 用户同步编辑或移除 chunk，document revision 增加，core 在同一事务记录 lineage_only 成功操作 Source。
+6. 文档软删除使用通用 forget：变为 deprecated、退出正常检索，不增加 revision。正文、原文和历史保留。
 
-首期覆盖 SQLite、SeekDB、OceanBase，支持本地 OpenDAL fs、Markdown、RapidOCR + ONNX Runtime、规则切块和人工编辑。
-Markdown 内图片保留引用，不自动抓取或 OCR。不要求几万篇规模测试。PDF／Office、场景图理解、远端上传／原文存储、
-定时目录同步、语义／LLM 切块、恢复／永久擦除、逐知识库 embedding 空间和无停机索引切换不在首期范围。
-任务状态接口属于首期；完整管理页面可以在相同契约上实现，不以调度效果图作为已实现能力。
+首期不承诺运行中撤销，不提供 Source 删除、知识库级联删除、物理擦除、独立任务队列、在线换模型、跨知识库聚合检索、
+持续目录同步或远端 runner。PDF／Office、复杂场景图、Markdown 内嵌图片 OCR、语义／LLM 切块和几万篇规模评测不在首期。
+恢复／合并方法首期不实现，对应通用入口按框架返回不支持；不能把导入当作恢复操作。
 
 # 参考层说明
 
-## 1. 一个业务插件与命名
+## 1. 插件、Scope 与框架依赖
 
-插件统一注册专用文档 Source 类型、`knowledge-base`／`document` family、后台任务入口、自有存储迁移和 API。
-接入、解析、切块、检索是内部模块，不拆成独立安装的插件。方案依赖 [#2549](https://github.com/oceanbase/powercontext/pull/2549)
-和 [#2579](https://github.com/oceanbase/powercontext/pull/2579) 后续提供所需的复合能力注册、受限写入和 API 扩展；不把提案当作已发布接口。
+遵循 [#2549](https://github.com/oceanbase/powercontext/pull/2549) 的单 family、Source 定义、writer、模型和存储契约，
+以及 [#2579](https://github.com/oceanbase/powercontext/pull/2579) 的插件路由、Scope 管理和 upgrade 契约。
+[#2616](https://github.com/oceanbase/powercontext/pull/2616) 是实现依赖；其三后端专属存储等能力需要实际落地验证。
+[#2617](https://github.com/oceanbase/powercontext/pull/2617) 仅是后续持续采集的接入方向，不是本地显式导入的前置条件。
 
-| 位置 | 标识 |
+| 对象 | 模型 |
 | --- | --- |
-| 展示名 | Knowledge Base／知识库 |
-| 插件与知识库 family | knowledge-base |
-| 整篇文档 family | document |
-| 归属／跨库选择字段 | knowledge_base_id／knowledge_base_ids |
-| 模块与配置前缀 | knowledge_base |
-| 插件表前缀 | pc_knowledge_base_ |
+| 知识库 | 普通 Scope，scope_id 是知识库身份 |
+| 插件 | knowledge-base，单个安装目录，单个 document family |
+| 原文 | knowledge-base-file Source，固定快照及原路径 |
+| 处理请求 | knowledge-base-process Source，固定原文引用、配置、base 和请求身份 |
+| 文档 | document Artifact，整篇文档的有界 manifest |
+| chunk | 插件存储中的不可变结果，不是独立 Artifact |
 
 ```mermaid
 flowchart TD
-  S[Scope] --> K1[knowledge-base K1]
-  S --> K2[knowledge-base K2]
-  K1 --> R[资源登记: 稳定文件身份]
-  R --> O[不可变原文 Source]
-  R --> J[独立 job]
-  O --> P[解析与规则切块]
-  J --> P
-  P --> C[不可变 chunk 结果与索引]
-  C --> D[document revision: 有界 manifest]
-  E[lineage_only 操作证据] --> D
-  D --> Q[知识库检索与精确 chunk 读取]
+  S[Scope: knowledge base] --> C[Plugin configuration]
+  S --> O[Original Source and immutable snapshot]
+  O --> R[Processing request Source]
+  R --> G[Framework generate and cursor]
+  G --> I[Immutable chunks and indexes]
+  I --> D[document Artifact revision]
+  U[Synchronous chunk edit] --> D
+  D --> Q[Retrieval and exact chunk reads]
 ```
 
-Scope 保持授权边界。知识库 Scope 的业务内容只包括文档 Source、document 和 knowledge-base；操作证据是内部记录。
-所有归属都显式保存并核验，不从 tags 或 lineage 推断。文档原文只供 document 管线处理；原文不是 lineage_only。
-框架的消费准入必须覆盖写入通知、启动恢复扫描、自动消费和手动生成，不能只靠 Source 类型名称或不发送唤醒来隔离。
-同库部署依赖这些通用扩展点，不默认另建 PC Server；尚未实现准入之前不能宣称隔离有效。
+通过 ctx.scopes.create 创建 Scope，沿用 server.admin 要求；同幂等键返回同一 Scope。框架的插件外部引用标识创建归属。
+标题／摘要使用 Scope 字段，业务配置使用插件表。Scope 创建成功但配置失败时，重试补齐配置；配置未就绪时拒绝导入。
+授权沿用 Scope read／contribute、Artifact write 及框架版本校验，插件接口不得将 Scope 贡献权限等同于任意文档修改权限。
 
-插件独立持有 embedding／索引配置，可在安装时从兼容主路径初始化，此后不自动跟随。密钥保持在部署配置中。
-首期同一 Scope 的 document 共用插件 profile，解析／切块可按知识库配置；模型和索引配置固定进任务及结果元数据。
-当前 profile 引用保存在 knowledge-base Artifact 配置，同 Scope 的有效知识库必须一致，新建知识库继承该引用。
-环境变量只提供初始默认值，不能覆盖已有数据的活动 profile。更换模型只能执行 switch_model_and_rebuild，覆盖整个共享 Scope，见 8.1。
+插件 inputs 只订阅处理请求 Source，原文不会重复触发本插件生成。知识库 Scope 按部署约定专用，不启用其他内容消费者；
+不宣称 Source 类型名称提供框架级排他隔离，其他消费者的准入能力不属于本插件的保证。
 
-## 2. OpenDAL、身份与去重
+## 2. 本地存储、身份与请求接受
 
-首期只接受插件运行环境可访问的本地目录。导入进程、Server 和 Worker 通过相同存储别名访问受管不可变快照目录，
-可使用本机容器卷映射。OpenDAL fs 提供本地读取，不会让远端客户端路径自动可访问。拒绝根目录越界，固定符号链接策略。
-
-Source 记录 `original_path` 作为出处，`snapshot_ref` 包含 store_id、object_key 和 digest。先保存快照并对实际字节计算
-SHA256，再持久接受任务；解析只读快照，不读可能已变化的原文件。mtime／size 只用于提示，不能代替内容 hash。
+OpenDAL fs 管理 Server、导入进程和 Worker 均可访问的本地快照目录。原路径只作出处，解析只读快照。
+拒绝根目录越界并固定符号链接策略；先写快照，对实际字节计算 SHA256，再登记 Source。mtime／size 不能代替 hash。
 
 ```text
-file_key       = (scope_id, knowledge_base_id, collection_id, normalized_relative_path)
-document_id    = stable_hash(identity_version, file_key)
-source_key     = stable_hash(source_schema_version, file_key, raw_content_digest)
-processing_key = hash(parser/OCR/model/normalizer/chunker versions and settings)
-index_key      = hash(complete embedding inputs, plugin profile and projection versions)
+file_key    = (scope_id, collection_id, normalized_relative_path)
+document_id = stable_hash(identity_version, file_key)
+source_key  = stable_hash(source_schema_version, file_key, raw_content_digest)
+request_key = (scope_id, idempotency_key)
+result_id   = digest(canonical complete chunk result and provenance)
 ```
 
-Collection 从存储实例和规范化根目录派生，与本次扫描／任务 ID 无关。核对完整身份以处理摘要碰撞，不截断路径。
-Source payload 固定归属、document ID、文件身份、media type、摘要和快照；重放不重写采集时间等 canonical 信息。
+Collection 从存储别名和规范化根目录派生，不取自扫描批次；保存完整身份以检查 hash 碰撞。同文件跨 Scope 是独立逻辑文档。
+同路径同字节复用原文 Source；变化产生新原文 Source，但 document ID 不变。改名视作新文件，文件消失不自动 forget。
 
-| 情况 | 行为 |
+每次处理请求固定 original_source_ref、snapshot_ref、处理配置、独立模型指纹、base_revision、manual_edits_policy 及请求摘要。
+已有文档固定接受时的 revision；首次生成使用明确的无 head 前置条件。普通重复导入有可用同内容／配置结果时直接复用；
+显式重解析或失败重试使用新的请求键，即使原文相同也产生新的处理请求 Source。人工修改不被普通导入覆盖；丢弃修改必须显式 discard。
+
+插件资源行先保存有界、不可变的接受参数，再幂等登记原文和处理请求 Source，最后记录实际 SourceRef。
+框架可能在插件确认字段写入前调用 generate，因此执行依据是已提交请求 Source 和固定接受参数，不等待额外的 ready 标记。
+只在处理请求 Source 确认持久化后返回 accepted。任一步响应丢失，用相同请求键及参数补齐登记；相同键不同参数返回冲突。
+插件登记不是任务队列，未成功登记 Source 的请求不承诺后台执行；调用者可重试原请求。未引用快照不形成可检索内容。
+
+目录导入按有限文件批次调用同一逐文件接受流程，返回逐项回执；枚举完成不是全部解析完成。首期不保存独立目录扫描任务，
+大目录通过客户端分批提交，失败后重复枚举仍按文件身份及请求键去重。
+
+## 3. 解析、切块与原文溯源
+
+Markdown 使用 markdown-it-py 提取标题、段落及来源位置。独立图片使用 RapidOCR + ONNX Runtime，保留文本框、顺序、
+置信度及坐标变换，整理成 Markdown 后走相同切块流程；不猜测复杂表格或流程图语义。内嵌图片只保留引用。
+
+默认按标题和内容块切分，超长块递归按段落／句子切分。代码、表格和 SOP 步骤尽量完整，超长表格保留表头；overlap 仅用于
+被拆开的长段落。max_chunk_chars／overlap_chars 可配置，1200／100 只是初始验证值。完整 embedding 输入包含标题等附加文本，
+必须按模型 token 上限检查，不能静默截断。UTF-8、图片尺寸、解码及 OCR 无文字等错误明确报告。
+
+解析器只返回 Markdown、locators 和警告，不管理 cursor 或 Artifact。后续格式通过内部解析器注册表扩展，不新增插件类型。
+
+处理请求记录原文 SourceRef 和快照引用。generate 的直接 source_refs 只引用当前窗口的处理请求；已消费原文未必出现在窗口中，
+不能绕过 writer 的引用限制。Document manifest 保留原文引用，形成“document → 请求 Source → 原文 Source”的可检查溯源链，
+不宣称原文总是每次 revision 的直接 lineage。同步编辑保留当前 lineage 及原文定位，并新增 core 的成功操作 Source。
+
+## 4. 插件存储与模型
+
+ctx.storage 使用与 Server 相同的后端：SQLite 为独立文件，SeekDB／OceanBase 为插件专属库。建库权限不足时由部署者预建。
+插件通过 backend 选择迁移及全文／向量实现，不修改现有核心表。原文件仍在 OpenDAL 本地目录，不塞进 SQL 正文列。
+
+| 插件业务表 | 字段及约束 |
 | --- | --- |
-| 同请求键、同参数 | 返回同一任务／确定结果；同键不同参数返回冲突 |
-| 同文件字节／配置且有可用结果 | 复用 Source／document，检查索引是否可用，不重复解析 |
-| 不同请求键命中相同活跃目标 | 返回 409 和已有任务引用，不创建重复执行 |
-| 原文字节变化 | 新 Source，同 document ID，新目标代次和任务 |
-| 显式重解析／切块配置变化 | 复用 Source 与 document ID，成功发布新 revision |
-| 仅 embedding／索引变化 | 从已提交 chunks 重建，不重复 OCR |
-| 同字节不同路径／知识库 | 不同逻辑 Source／document，可共享物理快照 |
-| 存在人工编辑 | 普通重复导入保留编辑；重新解析必须明确 manual_edits_policy=discard |
+| pc_knowledge_base_resources | 主键 (scope_id, resource_kind, resource_key)；固定三类 scope／document／request；有界 payload、request_digest、source_ref、document_id、最近处理观察及时间 |
+| pc_knowledge_base_chunks | 主键 (scope_id, document_id, result_id, chunk_id)；ordinal 同结果唯一；text、text_length、content_digest、heading_path、source_locator、origin、edit_metadata |
 
-Source 已存在不等于处理成功。文件回到旧字节可引用较早 Source，期望输入以资源登记中的最新目标为准，不以 journal 顺序为准。
-改名首期视作新文件，目录消失不自动删除；已删除身份不因重导入静默恢复。显式 reprocess 不因结果相同而当作普通导入跳过。
+Resources 是固定用途登记，不是通用任务框架：scope 行保存配置／版本；document 行保存稳定文件身份；request 行保存不可变接受参数、
+幂等回执及最近尝试结果。它没有租约、执行 token、领取队列或清理 cursor，也不复制 Artifact 的发布指针与生命周期。
+请求结果可以引用精确 revision 供对账，成功事实仍以 core 为准。全文／向量辅助结构属于派生索引，不计入业务表数。
 
-## 3. 轻量解析与切块
+Document content 只保存标题、原文 SourceRef、文件身份、result_id、chunk 数量／摘要、配置指纹、人工修改标记和 applied_request_ref。
+正文及无界 chunk ID 列表不进入 manifest。结果 ID 来自规范化完整结果，不能用尚未提交的 revision 号作为存储键。
 
-解析器入口只需接受快照引用和固定配置，输出 Markdown、来源定位及可选警告。内部格式注册表选择 Markdown 或图片解析器；
-后续格式增加解析器和测试样本即可，不要求通用文档 AST、解析器能力协商或独立解析插件系统。
-解析器不写 Artifact、任务状态或索引；外部服务适配可以返回待完成引用，由任务执行层保存并继续。
+模型由插件独立配置和创建客户端，密钥来自部署配置，不存入 Source／Artifact。不自动跟随 ctx.models 或 Server 模型变化。
+同一插件首期使用一个固定 embedding profile，包含模型身份／版本、维度、完整输入规则与规范化版本；维度相同不等于模型相同。
+已有索引与部署 profile 不一致时拒绝向量查询及新发布，明确要求受控迁移，不自动覆盖配置或混用向量。
+首期不提供在线换模型操作；同 profile 的索引修复从已提交 chunks 重建。解析／切块配置可按 Scope 保存并固定到请求。
 
-Markdown 使用 markdown-it-py 提取结构和来源映射。图片使用 RapidOCR + ONNX Runtime，保留文本框、顺序、置信度及预处理坐标变换，
-整理成 Markdown，但不猜测复杂标题、表格或流程图语义。规范化文本位置映射回原图，声明定位精度；派生 Markdown 不替换原文 Source。
+## 5. 框架消费、状态与失败处理
 
-- 默认按标题／内容块组织，再对超长块递归切分；缺少可靠标题时按段落／句子递归切分。
-- 代码、表格和列表步骤尽量完整；超长表格按行拆分并保留表头，超长代码保留语言和续块标记，仍受硬上限限制。
-- Overlap 用于拆开的长段落，不机械跨章节重叠；中文使用句号／分号等边界。
-- 保存标题路径和原文定位；embedding 输入包含标题时，按完整输入检查模型 token 上限，不能把字符数等同于 token 或静默截断。
-- 参数包含 max_chunk_chars、overlap_chars；1200／100 仅为待验证示例，不是质量结论。
-- 校验 UTF-8、图片解码／像素上限、模型版本和资源限制；OCR 无文字显式失败，不伪装成功空文档。
+声明 on_sources 和处理请求 inputs，复用框架 generate／Supervisor、Scope binding、消费 cursor、租约 fence 和失败退避。
+没有独立 jobs 表，也没有插件自建 Worker 调度器。每次调用最多一个 writer.transaction，Artifact、cursor 和调用确认在 core 同事务提交。
+配置小的 max_sources 和有界文件大小，避免一次窗口包含过多 OCR／模型工作；不承诺任意大小文件都能在框架时限内完成。
 
-规则保持确定、可测试。修改切块配置可复用可验证的解析结果；不要求首期建立复杂阶段缓存。
-
-## 4. 持久化与关系
-
-### 4.1 现有表原样复用
-
-| 表 | 职责 |
+| 事件 | 行为 |
 | --- | --- |
-| pc_sources | 不可变原文引用、成功人工／删除操作的 lineage_only 证据；不增加列 |
-| pc_artifacts | knowledge-base 配置、document manifest、不可变 revision |
-| pc_artifact_heads | 当前 revision、lifecycle_state、governance_generation |
-| pc_scopes | 复用既有 Scope 行作为 core 短事务互斥点，不改字段或借用 version 作为任务计数 |
-| pc_artifact_lineage_sources／pc_artifact_lineage_artifacts | 精确版本的输入／操作证据和 base 引用 |
-| 既有权限、tags 和引用设施 | 复用公共语义，不承载无界任务或成员 JSON |
+| 请求已提交、尚无结果 | 展示待处理，不虚构百分比 |
+| 文件格式错误、无文字等确定输入错误 | 保存有界失败观察，跳过该输入；窗口正常确认后继续后续请求 |
+| 数据库、模型服务、索引持久化故障 | 抛出异常，core 回滚，cursor 不前进，由框架退避重试 |
+| 固定 base 已变化或文档已非 active | 记录冲突／跳过，不以新 base 自动覆盖；用户重新提交请求 |
+| core 发布完成 | 从 manifest／历史中的 applied_request_ref 判定已发布及精确 revision |
+| 发布成功但插件状态未更新 | 根据 core 对账，不能仅凭缺少状态把它判为失败或重复发布 |
 
-原有 processing intents、cursor、lease、binding state 表不用于本插件任务，不增加知识库字段或记录。
-Source journal 可保留为原有持久化约束的一部分，但不驱动知识库任务发现或完成。
+资源表的失败是最近尝试观察，不等于 cursor 已确认；不能仅凭插件状态推进消费或跳过尚未证明完成的 core 写入。
+基础设施持续故障可能阻塞该 Scope 的后续窗口，这是复用框架的边界，不承诺独立逐文件无限制并发或死信队列。
+确定输入失败的人工重试使用新请求；旧 Source 不修改。处理请求是意图，不是 lineage_only 成功证据。
 
-### 4.2 三张插件业务表
+首次发布前确认无 head；更新核对固定 base、原文、人工修改策略和生命周期。框架重试也不能改写请求中的 base 或丢弃策略。
+事务外准备后发生编辑／forget 时，发布使用框架的 revision／治理并发校验；不能自动恢复 deprecated 文档。
+若实现不能在竞争中保护生命周期，必须修复框架适配并通过测试，不能用插件内存锁代替或承诺已支持。
 
-表属于插件专属存储，由插件迁移；复用 SQLite／SeekDB／OceanBase 连接和适配能力。全文／向量辅助结构不计入业务表数。
+## 6. 发布与索引一致性
 
-| 表 | 关键字段与约束 |
+1. 在 core 事务外完成解析、向量计算；持久保存不可变 chunks 及其全文／向量索引，校验数量、摘要和可读取性。
+2. 在 writer.transaction 中校验前置条件并 put manifest，引用 result_id 与索引指纹；generate 同时提交 cursor，用户编辑同时提交证据。
+3. core 提交失败时准备结果不可见，旧 manifest 和旧索引保持可用；重试不原地覆盖旧结果。
+4. 检索候选必须匹配当前 active document 的 result_id 和 profile；过滤后补取，未发布结果不能占满 top-k。
+
+索引按结果隔离，不以单一 document_id 覆盖旧有效候选。模型和文件计算不进入短事务，不新增 core Scope 行锁协议或跨库事务。
+历史 chunk 通过精确 revision 的 manifest 定位，不依赖当前搜索索引。仅保留未引用的准备数据不会改变可见结果，永久清理另定。
+
+## 7. 同步 chunk 编辑与软删除
+
+编辑和移除 chunk 通过通用 Artifact PUT 交给 update_artifact，同步完成；不是插件 API 写入，也不排队。
+插件的编辑载荷定义为有界 chunk 变更描述，包含 chunk ID／新文本或移除动作；服务端读取对应基准版本，合成完整结果，
+只由服务端产生 manifest，拒绝客户端指定任意 result_id 或原文归属。Core 允许插件规范化提交内容；不开放任意 manifest 替换。
+
+带 If-Match，先生成新结果及索引，再恰好一次 put(expected_revision=...)。Core 同事务保存提交的编辑载荷作为 lineage_only
+Content Source，document revision 增加。修改保留逻辑 chunk ID 和原定位，标明人工文字并非原文逐字引用；移除最后一块允许零块版本。
+新正文可能出现在编辑证据中，沿用现有权限，不宣称 forget 会抹除这些证据。
+
+模型调用受同步时限及编辑大小限制，失败不发布半成品。提交响应未知时重新读取当前 revision／lineage；原 If-Match 不再满足时
+不能盲目重试。通用 PUT 不另承诺幂等键或恰好一次 HTTP 执行。
+
+整篇文档使用通用 forget，调用 forget_artifact，恰好一次 set_lifecycle(deprecated)。这只是生命周期变更：不追加内容 revision，
+不生成本插件专有的删除证据，也不物理清理正文／索引／快照。正常检索及 Prepared Context 排除 deprecated 文档。
+通用 get、历史和证据沿用框架可见性；授权的精确 chunk 读取与 rendering 可展示保留版本，不返回“所有内容均已删除”的承诺。
+生命周期以 core 为准，不在插件表另建 document 墓碑；物理索引清理不是 forget 生效条件。
+
+已忘记文档不因重复导入、重解析或迟到处理自动恢复；同步编辑仅允许 active 文档。尚无 document Artifact 时没有 forget 目标，
+首期不支持运行中撤销导入，不创建空 Artifact 或删除 revision。原文 Source 不提供删除接口；不提供知识库级联删除，
+不能将物理删除 Scope 当作软删除。重复 forget 使用框架现有前置条件及 no-op 语义，不启动清理任务。
+
+## 8. 接口、检索和权限
+
+令 `P=/v1/plugins/knowledge-base/api`，`D=/v1/scopes/{s}/artifacts/document/{d}`。插件路由通过 PluginApi／Route 声明，
+使用框架支持的响应能力；以下 accepted 是业务状态，不假定插件接口已经支持自定义 HTTP 202。默认成功 JSON 可返回 200。
+
+| 操作 | 接口和返回 |
 | --- | --- |
-| pc_knowledge_base_resources | scope_id、knowledge_base_id、resource_kind、resource_key、document_id、source_ref、identity_payload、lifecycle_state、deleted_at、target_generation、current_job_id |
-| pc_knowledge_base_jobs | job_id、scope_id、knowledge_base_id、document_id、operation、idempotency_key、request_digest、input_snapshot、target_generation、base_revision、state、stage、attempt、next_run_at、execution_token、lease_owner、lease_expires_at、error_code／summary、external_task_ref、result_id、result_revision、result_kind、parent_job_id、checkpoint、cleanup_cursor |
-| pc_knowledge_base_chunks | scope_id、knowledge_base_id、document_id、result_id、chunk_id、ordinal、text、text_length、content_digest、heading_path、source_locator、origin、edit_metadata |
+| 创建知识库 | POST `P/knowledge-bases`，调用 ctx.scopes.create 并保存配置；返回 scope_id |
+| 导入文件 | POST `P/scopes/{s}/imports`，有界 paths、idempotency_key；返回逐文件请求 SourceRef |
+| 重解析／重试 | POST `P/scopes/{s}/documents/{d}/reprocess`，base、固定配置、原文引用、新请求键 |
+| 处理状态 | GET `P/scopes/{s}/imports/{request_id}`，接受记录、最近尝试及可核实的发布结果 |
+| 文档概览／历史 | 通用 Artifact GET／revisions，返回有界 manifest |
+| 编辑／移除 chunk | PUT `D`，If-Match，同步返回新 document revision |
+| 文档软删除 | POST `D/forget`，revision 和 state_version；遵循框架响应 |
+| chunk 目录／正文 | GET `P/scopes/{s}/documents/{d}/revisions/{rev}/chunks`，追加 `/{chunk_id}` 获取正文 |
+| 批量 chunk | POST 上述目录路径追加 `/batch-get`，有界 chunk_ids |
+| chunk 混合检索 | POST `P/scopes/{s}/retrieve`，返回精确 revision、chunk ID、分数及出处 |
+| 展示与通用检索 | render_artifact／search_artifacts；接入通用 search 和 Prepared Context |
 
-Resources 只支持两类固定记录，不是通用对象平台：
-
-- `document`：每个稳定逻辑文件一行，首次解析前创建；保存路径身份、当前目标和删除标记，不要求提前创建空 document Artifact。
-- `source`：每个原文 Source 一行，保存归属及独立删除标记；不把所有版本塞进一行 JSON。成功操作证据由其目标 Artifact 的可见性控制。
-
-主键为 `(scope_id, knowledge_base_id, resource_kind, resource_key)`。Document key 来自 file_key，Source key 包含完整 SourceRef 身份摘要；
-保存并比较完整身份，校验同一 Source 不跨库归属。SourceRef 必须包含 source_type 和 source_id。仅 document 行使用目标代次／当前任务字段。
-资源删除是单向标记；已发布 revision 只读 Artifact head，不再复制一个发布指针。公共时间字段和有界错误／JSON 的存储类型由实现固定。
-
-Jobs 对 `(scope_id, knowledge_base_id, operation, idempotency_key)` 建唯一约束，请求摘要覆盖全部业务参数和前置条件。
-索引覆盖到期任务、过期租约、document 和知识库归属。目标行串行化同文档请求，不依赖跨后端不一致的条件唯一索引。
-终态任务保留幂等回执；不另建回执／attempt 表，有限错误和 attempt 计数足够首期展示。
-
-Chunks 主键为 `(scope_id, knowledge_base_id, document_id, result_id, chunk_id)`，同结果 ordinal 唯一。
-`result_id` 在 core 分配实际 revision 前标识不可变结果，不能猜测下一个 revision 后写入。
-完整结果保存独立分块快照，向量属于派生索引。`text_length` 为 Unicode 码点数量。
-
-Document manifest 有界保存标题、knowledge_base_id、文件身份、root SourceRef、result_id、chunk 数量／摘要、处理／索引指纹、
-人工修改标记、applied_job_id 及必要操作摘要，不嵌入正文或无界 chunk ID 列表。精确 revision 通过 manifest 找结果；历史不依赖当前索引。
-
-## 5. 独立队列与状态机
-
-```mermaid
-stateDiagram-v2
-  [*] --> queued
-  queued --> running
-  running --> succeeded
-  running --> retry_wait
-  retry_wait --> running
-  running --> waiting_external
-  waiting_external --> queued
-  running --> failed
-  queued --> cancelled
-  running --> cancelled
-  waiting_external --> cancelled
-  retry_wait --> cancelled
-  queued --> superseded
-  running --> superseded
-  waiting_external --> superseded
-  retry_wait --> superseded
-```
-
-`stage` 与状态独立：ingest、parse、chunk、index、publish、cleanup。等待外部服务的任务保存远端引用／next_run_at 后释放 Worker；
-到期查询继续，不长期持有进程或事务。远端提交使用稳定幂等键；服务不支持幂等时需对账，不能承诺外部调用恰好一次。
-
-KnowledgeBaseTaskSupervisor 只扫描插件 jobs，负责领取、心跳、过期回收和确认。可复用已有进程启动／终止、预算和关闭工具；
-不接入原有 Scope／binding discovery、intent 或 Source cursor。若现有 Supervisor 与这些机制耦合，则实现轻量插件调度器，
-不为复用而把逐文件任务塞回旧表。每个 document 串行发布，不同文档有界并发。
-
-`target_generation` 表示用户期望哪个结果，`execution_token` 表示同一任务哪次执行拥有资格。领取、续租和状态更新均条件校验 token；
-新目标使旧目标 superseded，租约恢复更换 token。SQLite 使用实际支持的事务／CAS，不假设所有后端均支持 SKIP LOCKED。
-
-普通请求在授权及生命周期检查后先识别同键重放，再检查新请求的当前 base，避免成功重试被旧 ETag 拒绝。
-删除入口允许授权调用者再次访问已删除目标的有限状态以补齐清理，不能先用通用 410 阻断该入口。
-终态任务不复活；自动有限重试属于同一任务，普通处理的人工重试使用新幂等键／job。删除善后按第 7 节由再次删除自动创建新 job。
-取消不回滚已发布结果；任何删除墓碑或 retirement 一经提交，相关删除／善后工作不可取消。状态机的 cancelled 边受此条件约束。
-编辑／移除固定 base，有冲突的活跃变更时拒绝，不静默排队或换基准。逐文件失败不阻塞整个 Scope。
-
-## 6. 接受、发布与跨存储恢复
-
-Core 与插件专属存储不共享事务，不能声称 Source、任务、chunk、索引和 Artifact 一次原子提交。
-
-| 边界 | 行为与恢复 |
-| --- | --- |
-| 快照 | 保存不可变原文字节；未接受的孤立快照不是可见内容，永久清理另定 |
-| 插件接受事务 | 校验／锁定资源目标，幂等检查，保存固定输入与任务；202 后任务可恢复 |
-| Source 登记 | Worker 在 ingest 阶段幂等保存／复用 Source；Source 写成功而任务未确认时可重试，不漏任务 |
-| 事务外计算 | 固定快照与配置，解析／OCR／切块／embedding，不持有数据库锁 |
-| 插件结果准备 | 保存不可变 result_id 对应的完整 chunks 和可用索引，核对数量及摘要，未被 manifest 引用的结果不可见 |
-| Core 发布短事务 | 校验 base、归属和执行资格；提交 document revision、必要操作证据 Source、lineage 和 head |
-| 插件完成事务 | 写实际 result_revision 和 succeeded；若确认丢失，按 applied_job_id／result_id 对账，不重复发布 |
-
-提交闸门由 core 提供，复用 `pc_scopes` 中已存在的 Scope 行。OceanBase／SeekDB 使用同一 core 事务中的行锁，
-SQLite 使用 core 数据库的 `BEGIN IMMEDIATE` 写事务；不新增锁表、不改 Scope 字段。发布、删除、接受新目标、取消、
-领取／更换执行 token、租约回收及模型切换控制都必须先取得该闸门，再按固定顺序锁定插件资源／job，最后操作 Artifact head。
-普通心跳只按 token 续租，不改变执行所有权；接入和同步 Artifact 修改入口也不得绕过闸门。
-
-取得两侧锁后重新读取目标、token、租约、Source 墓碑、父知识库生命周期和 core 已发布结果。发布始终在持有 Scope 锁的同一 core
-连接／事务中完成，不能转交另一个无锁连接。取消／换目标／重领先在闸门内对账，再提交插件状态，完成后才释放 core 锁。
-发布路径则先提交 core，再补记插件成功；补记失败按确定结果恢复。这仍是分开提交，不是跨库原子事务。
-
-插件数据库连接丢失时，core 锁仍阻止另一执行者取消或重领；core 连接丢失时，该事务不能再用于发布。
-任一连接报错或提交结果不确定，都退出当前尝试，禁止自动重连后沿用旧资格。恢复必须新取 core 闸门，再对账、重验插件状态。
-所有控制路径都遵循 core 在前、插件在后的锁顺序；不能在持有插件锁时反向等待 core 闸门。
-
-该方案将同 Scope 的短提交串行化；解析、OCR、向量计算、索引构建和目录枚举在锁外并发进行。
-闸门内不做模型调用、DDL 或长时间计算。三种后端验证真实锁／连接失效和超时行为，不用内存锁或仅一次 token 检查替代。
-准备结果不可原地覆盖；重算不同内容使用新 result_id。普通发布失败保留旧 head 和可用旧索引。
-
-## 7. 操作证据、编辑与软删除
-
-成功创建／修改／删除 Artifact 需要对应的系统 `lineage_only` Source，关联实际输出 revision，不能用排队请求冒充成功证据。
-复用既有创建／替换证据语义；删除／移除的具体动作及原因保存在有界操作摘要中，不擅自假设核心已有新的 operation 枚举。
-任务是意图与执行记录，操作 Source 是成功事实，两者通过 job／operation ID 关联。
-
-| 操作 | 版本和可见性 |
-| --- | --- |
-| 创建／配置 knowledge-base | 创建或新增配置 revision，关联操作证据 |
-| 解析／重解析 document | 同 document ID 发布新 revision，lineage 关联原文；人工触发的变更保留操作证据 |
-| 编辑 chunk／移除 chunk | document revision +1，完整新结果；关联成功操作证据，旧行不删 |
-| 删除 document／knowledge-base | 新增含有界删除摘要的删除 revision，并在同一个 core 事务 retire head；关联删除证据 |
-| 删除原文 Source | 标记 source 资源后立即阻断其原文及派生内容读取；document retirement、删除证据和索引清理由后台最终补齐 |
-
-删除整个 Artifact 生成 revision 是本插件的业务约定，不改变其他 family 的治理规则。删除 revision 可复用之前的 result_id，
-无需复制 chunk 正文。操作摘要必须使删除 revision 真正写入，不能被“相同 content 的 put 是 no-op”跳过。
-证据、lineage、revision、head 在 core 同事务提交；失败不产生成功证据。同一已接受操作重放不增加 revision。
-
-删除必须区分“已有 document Artifact”和“从未发布 Artifact 的逻辑文件”。在既有 core Scope 闸门及插件资源／job 锁内，
-重新读取 head 并对账发布结果后选择分支：已有 head 按上述 revision／retirement 协议处理；确认从未发布时，删除逻辑文件只标记
-其 document 资源并使待发布任务失效，不要求 Artifact ETag，不创建空 Artifact、删除 revision 或 Artifact 成功操作证据。
-知识库级联也必须处理这些未发布资源。删除 Source 只标记指定 Source 并使依赖它的任务失效，不 retire 不存在的 document，
-不删除无关 Source 版本；单独删除 document 仍保留原文 Source 可读。曾经发布但 head 缺失属于一致性错误，不能按未发布分支跳过。
-资源墓碑和任务失效须在释放闸门前提交，避免判断无 head 后后台又完成首次发布。Job 记录完成，重复删除不虚构 Artifact 动作。
-资源墓碑一经提交即属于删除生效，即使尚无 Artifact，也不能再取消该删除。
-
-手动替换文字可保留逻辑 chunk ID，但引用必须带 revision；重切块可产生新 ID。人工正文标记非原文逐字引用，保留原始定位与编辑依据。
-移除最后一块允许零 chunk 结果，当前检索无命中。重复导入不得覆盖人工修改，显式重新解析需要 discard 授权。
-
-删除 knowledge-base 先提交父对象删除 revision／retirement，立即阻断全部子内容；接受的 cleanup job 可在进程重启后继续，
-分批标记 Source、删除 document、取消处理任务。每个真正变化的 Artifact 生成自己的证据，使用共同 operation ID 关联级联。
-Cleanup 是已删除父对象下的允许操作，不能被普通处理任务的父状态检查取消。清理游标只用于插件分批操作。
-先持久接受删除／清理 job，再提交第一个删除标记。资源墓碑或 Artifact retirement 一旦提交，删除进入不可取消阶段；
-后续错误只能恢复善后，不能报告“已取消”并遗留半完成删除。尚未产生删除效果的排队任务仍可取消。
-
-删除 document 保留原文 Source 可读；原文读取不因 document 单独删除而失效。删除未发布替代 Source 保留基于其他原文的旧版本。
-S1 对应旧 revision、S2 对应完整新解析时，删除 S1 不删除仅依赖 S2 的当前版本，但依赖 S1 的历史读取失效。
-Source 删除入口返回已生效回执（包括 202 清理中）前必须提交墓碑；仅接受 job 不等于已经删除。
-Source 墓碑提交是该原文及其派生内容的可见性截止点。此后开始的 document／chunk／历史／证据读取和检索都必须检查墓碑，
-即使 document head 仍 active 或索引条目还在，也不能返回对应内容。删除开始前已返回给客户端的内容不作撤回保证。
-只允许 document retirement、删除 revision／证据及索引维护最终一致，不允许在等待后台清理时继续暴露内容；检查服务不可用时关闭读取。
-资源标记与 Artifact retirement 可分阶段完成，读取同时检查适用的父对象、document、精确 root 和 Source 标记。
-通用 Source、Artifact 精确／历史和证据读取需要框架可见性扩展点；仅插件检索过滤不满足删除契约。归属登记缺失时拒绝读取，不回退为无约束内容。
-受控内部恢复可以读取 retired 历史以对账；授权管理入口可查看删除后清理任务的有限状态，不开放正文或公共绕过参数。
-
-再次删除复用同一个删除入口／operation，不新增 repair／retry API。鉴权后允许检查已删除目标的原删除记录和清理状态，
-不因删除标记或原来的 ETag 已过时而直接拒绝善后；尚未删除的目标仍执行正常前置条件。重复请求参数冲突仍返回 409。
-
-以下善后规则针对已经产生删除效果的操作。若首次删除在生效前失败或取消，再次删除按正常前置条件接受新删除任务；同幂等键仍重放原回执。
-
-| 再次删除时的状态 | 返回和动作 |
-| --- | --- |
-| 首次删除或清理 job 仍活跃 | 返回同一删除操作标识与当前 job，202；不重复创建 |
-| 清理未完成、上一次 job 已 failed／终止 | 后台创建新的 cleanup job，parent_job_id 关联原删除 job，202；旧任务不复活 |
-| 所有清理已完成 | 200 already_deleted；不新增任务、revision 或证据 |
-
-在 core Scope 闸门内串行检查和创建后继任务，避免并发重复删除产生多个善后任务。新的内部 job 使用新的派生幂等键，
-原客户端删除请求的身份和输入不变；响应可更新 cleanup_job_id／状态，但稳定关联同一次删除操作。
-清理按已提交墓碑、Artifact 删除摘要和原 operation ID 对账，跳过已完成对象；只为尚未实际修改的 Artifact 生成删除 revision／证据。
-该规则覆盖 Source、document 和 knowledge-base。已删除父对象仅允许这些受授权善后行为，不恢复普通写入或内容读取。
-
-## 8. 接口与检索
-
-复用 Source 编码／身份／校验、Artifact CRUD／history／tags、认证、权限、ETag、分页、引用与错误封装。
-文件导入使用插件 Source 接受能力，不能直接调用会触发旧消费者的写入路径。耗时编辑经插件任务接口返回 202；
-不把同步 Artifact PUT 悄悄改成异步成功。通用写入不得绕过任务、版本、证据和删除规则。
-
-路由为建议契约，插件 API 挂载遵循 #2579，实际注册语法随框架实现固定：
-`P=/v1/plugins/knowledge-base/api/scopes/{s}`，`D=/v1/scopes/{s}/artifacts/document/{d}`。
-
-| 操作 | 接口／返回 |
-| --- | --- |
-| 创建知识库 | POST `/v1/scopes/{s}/artifacts`，family=knowledge-base |
-| 知识库／document 概览与历史 | 通用 Artifact GET／revisions，返回有界 manifest |
-| 导入本地文件／目录 | POST `P/imports`，显式 knowledge_base_id、root／paths 和 idempotency_key；202 任务回执 |
-| 重解析／编辑／删除 | POST `P/jobs`，类型化 operation、固定目标和前置条件；再次 delete_source／delete_document／delete_knowledge_base 自动补齐清理，cleanup 仅供内部使用 |
-| 更换模型并重建索引 | POST `P/jobs`，operation=switch_model_and_rebuild，显式确认同 Scope 的影响范围；复用任务状态接口 |
-| 任务列表／详情 | GET `P/jobs`、GET `P/jobs/{job_id}`，分页、阶段、状态、有界错误、成功 revision |
-| 取消 | POST `P/jobs/{job_id}/cancel`，仅未发布且未提交删除效果的非终态工作；模型切换发布开始后也不可取消 |
-| chunk 目录 | GET `P/documents/{d}/revisions/{rev}/chunks`，分页元数据，不含正文 |
-| 单个 chunk | 上述路径追加 `/{chunk_id}`，正文、出处、人工修改信息 |
-| 批量 chunk | 上述路径追加 `/batch-get`，POST 有界 chunk_ids |
-| 混合检索 | POST `P/retrieve`，knowledge_base_ids、query、mode、limit，返回 chunk 命中 |
-
-插件 chunk 路由使用与 Artifact 相同的 document ID／revision。路径从通用 Artifact 路由中分离，读取语义仍是精确 revision，
-通过该 revision 的 manifest 解析 result_id，不回退当前 head。Directory cursor 绑定 Scope／document／revision，按 ordinal 排序。
-Batch-get 要求非空、无重复 ID，按请求顺序返回；先授权父对象，任一 ID 不存在则整批 404。限制 ID 数量及响应字节数，超限拒绝，
-不截断正文。已删除对象授权后返回 410，零块版本目录为空。
-
-创建知识库：
+创建知识库、导入、编辑、forget、检索示例：
 
 ```json
-{"family":"knowledge-base","content":{"title":"Operations SOPs","parser":"markdown-v1","ocr":"rapidocr-local-v1","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}}
-```
-
-导入，目录任务产生有界批次的逐文件子任务，parent_job_id 关联；目录完成只表示枚举／子任务接受结束，不等于全部文件处理成功：
-
-```json
-{"knowledge_base_id":"ops","root":"/work/docs","idempotency_key":"import-01"}
-```
-
-移除 chunk，已有 document 使用当前 If-Match；首次生成使用明确的无 head 前置条件，不猜未来 revision：
-
-```json
-{"knowledge_base_id":"ops","document_id":"doc-1","operation":"remove_chunk","idempotency_key":"edit-03","base_revision":2,"input":{"chunk_id":"chunk-3"}}
+{"title":"Operations SOPs","summary":"Runbooks","idempotency_key":"kb-01","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}
 ```
 
 ```json
-{"job_id":"job-03","state":"queued","document_id":"doc-1","target_generation":5}
+{"root":"/work/docs","paths":["restart.md"],"idempotency_key":"import-01"}
 ```
 
 ```json
-{"job_id":"job-03","state":"succeeded","result":{"document_id":"doc-1","revision":3,"kind":"created"}}
-```
-
-精确版本目录和批量读取：
-
-```json
-{"document_ref":{"family":"document","artifact_id":"doc-1","revision":3},"items":[{"chunk_id":"chunk-1","ordinal":0,"heading_path":["Operations","Restart"],"text_length":128}],"next_cursor":null}
+{"scope_id":"scope-ops","items":[{"document_id":"doc-1","request_ref":{"source_type":"knowledge-base-process","source_id":"request-01"},"status":"accepted"}]}
 ```
 
 ```json
-{"chunk_ids":["chunk-1","chunk-2"]}
+{"content":{"operation":"edit_chunk","chunk_id":"chunk-1","text":"Check replica health before restarting."}}
 ```
 
 ```json
-{"knowledge_base_ids":["ops"],"query":"How should I restart a follower?","mode":"hybrid","limit":10}
+{"content":{"operation":"remove_chunk","chunk_id":"chunk-2"}}
 ```
 
 ```json
-{"hits":[{"knowledge_base_id":"ops","document_ref":{"family":"document","artifact_id":"doc-1","revision":3},"chunk_id":"chunk-1","score":0.82,"source_ref":{"source_type":"document_file","source_id":"source-1"},"locator":{"heading_path":["Operations","Restart"]}}]}
+{"revision":3,"state_version":0}
 ```
-
-检索 limit 计 chunk 数；可选 snippet 有界，正文从 chunk 接口获取。通用 Artifact search 继续返回 Artifact，不混入 chunk 响应。
-索引命中必须对应当前 manifest 的 result_id 和索引 profile，并满足归属、权限及删除规则；过滤后继续补取候选，避免无效结果占满 top-k。
-适配覆盖首次写入、版本替换、重建、coverage／摘要核对、零块、删除过滤和命中定位。保留历史正文不要求保留所有历史索引。
-同 profile 重建保留旧可用索引，不能发布缺少所需索引的新内容；模型切换走 8.1 的受控维护流程。
-
-同 Scope 可选择多个知识库；跨 Scope helper 逐个授权显式目标，调用同一分 Scope 接口，融合排名并保留目标身份／错误，
-不直接比较不兼容向量空间的原始分数。不支持的 filter／rerank 明确拒绝。Python／MCP 复用同一业务服务。
-权限复用 Scope 读／贡献和 Artifact 写／治理能力，跨对象请求逐个检查。接受失败沿用 428／412 前置条件、409 冲突、410 已删除、
-422 校验、413 大小限制和 503 不可用；202 后的失败记录在任务状态中，不再靠日志推测。
-
-### 8.1 更换模型并重建索引
-
-已有数据的活动模型、维度和 embedding 参数不能通过配置 PUT、环境变量刷新或重启直接覆盖。
-只能执行 `switch_model_and_rebuild`；target_profile 固定模型身份／版本、维度、完整 embedding 输入规则和索引配置，密钥仍只保存配置引用。
-由于首期同 Scope 共用 profile，操作需 Scope 管理权限，并确认影响整个 Scope 的知识库；不能声称只修改发起请求的一个知识库。
 
 ```json
-{"knowledge_base_id":"ops","operation":"switch_model_and_rebuild","idempotency_key":"model-switch-01","input":{"expected_profile_id":"embedding-v1","target_profile_id":"embedding-v2","confirm_scope_wide":true}}
+{"query":"How should I restart a follower?","mode":"hybrid","limit":10}
 ```
 
-复用 jobs 的 input_snapshot、checkpoint、parent_job_id 和逐文档子任务保存旧／目标 profile、阶段和重建进度，不新增控制表。
-Scope 闸门保证同 Scope 只有一个未完成的切换操作。其持久 checkpoint 阶段为 preparing、rebuilding、publishing、completed、aborted；
-失败／进程退出不会自动清除维护状态，不能只用 job 是否 running 判断是否暂停。
-按原切换操作及后继任务链的最新有效 checkpoint 判定维护；后继 completed／aborted 可以关闭该操作，旧 failed 记录保留但不单独继续阻断。
+```json
+{"hits":[{"document_ref":{"family":"document","artifact_id":"doc-1","revision":3},"chunk_id":"chunk-1","score":0.82,"source_ref":{"source_type":"knowledge-base-file","source_id":"original-1"},"locator":{"heading_path":["Operations","Restart"]}}]}
+```
 
-| 阶段 | 行为 |
-| --- | --- |
-| 接受／preparing | 持久保存切换任务及旧／目标配置；暂停该 Scope 的检索和普通写入／发布，保留管理状态及精确内容读取；先完成已生效删除的善后 |
-| rebuilding | 固定当前有效 document 版本，从已提交 chunks 构建目标 profile 的隔离索引，不重复 OCR；验证数量／摘要、维度和完整输入 token 上限 |
-| publishing | 逐文档发布仅更新索引 profile 引用的新 revision，正文 result_id 可复用；写成功操作证据；同步更新所有有效 knowledge-base 的配置 revision |
-| completed | 核验全部有效文档、知识库配置与目标索引一致，再在闸门内确认完成并解除维护；查询与后续任务一起使用目标 profile |
+Chunk API 精确读取指定 revision，不回退当前版本；目录分页不返回正文，单块／批量返回有界正文及出处。Batch-get 拒绝重复 ID、
+缺失 ID 和超限响应，不静默截断；每次先检查 Scope、document 权限和归属。专属存储跨 Scope 共享，不能只凭 chunk ID 读取。
 
-检索／普通写入在维护期明确返回 503 和切换任务引用，不能返回混合模型结果或静默空结果。新建知识库也参与维护检查。
-已生效删除的再次删除／善后不被维护阻断，避免清理失败后无法继续准备切换；新删除请求属于暂停的普通写入。
-切换前的旧 profile 待发布任务不得继续提交：冻结其执行资格并对账，未发布的旧目标标记 superseded，输入不原地改写；需要时由调用者提交新请求。
-查询固定本次 profile，返回前复核维护状态及活动 profile；若期间改变，返回 503，不返回在途旧模型结果。
-精确 chunk／历史读取仍使用固定 result_id，并照常执行删除检查。旧索引至少保留到切换成功。
+通用 search 保持框架的 Artifact 引用格式；插件专用 retrieve 提供 chunk 结构。Prepared Context 使用 SearchHit 的片段与 locator，
+并遵守字节预算。正常检索先过滤非 active、旧结果及未授权对象，再补取候选；不支持的 filter／rerank 返回明确错误。
+不同 Scope 的查询分别授权，首期不提供聚合接口。Python／HTTP 使用同一业务处理；MCP 与 Dashboard 依框架实际可用能力接入。
 
-在 preparing／rebuilding 阶段，取消或失败后须在闸门内确认没有 profile revision 发布，再持久记录 aborted 并恢复旧 profile 服务；
-不能仅因任务 failed 就解除维护。原来已 superseded 的任务不自动复活。
-一旦开始发布，禁止取消／自动退回旧配置：部分对象可能已切换，必须保持维护并向前补齐。
-调用同一个 switch_model_and_rebuild 操作、相同目标 profile 和新的请求键可创建后继任务，关联原切换操作并跳过已完成 revision，
-不复活失败任务、不重复成功证据。相同请求键只返回已有任务；未完成切换期间拒绝不同目标模型。
-若新模型输入预算不足，重建失败并明确要求先调整切块，不静默截断。全程不要求跨数据库原子提交或无停机切换。
+## 9. 升级、实施与验收
 
-## 9. 实施与验收
+upgrade(ctx) 负责插件表及索引元数据迁移，维护自己的 schema 版本。迁移可重复执行，多实例通过插件库协调；先兼容新旧代码，
+历史 Artifact manifest 和旧 Source 定义仍需读取。首期部署可以重启升级，不以热加载实现完成作为知识库首期前提。
+备份必须同时包含 core、插件库和 OpenDAL 快照；core 的备份不自动覆盖插件数据。
 
-仅新增插件存储迁移，已有核心表无需新增字段／迁移。插件框架需提供能力注册、消费准入、受限发布和可见性检查；
-“不改表结构”不代表“不需要通用框架适配”。公开路由按主契约／插件 OpenAPI 的归属生成绑定。
+框架实现需满足三后端 ctx.storage、单 family writer、同步修改证据、治理并发校验、Source 定义及路由契约；
+未落地部分属于现有框架依赖的实现缺口，不另建知识库锁表、读取 guard 或独立队列。必要适配不得绕过 core 公共约束。
 
-SQLite、SeekDB、OceanBase 都验证：
+在 SQLite、SeekDB、OceanBase 分别验证：
 
-- 同 Scope 多知识库、跨库授权、独占归属、原文排他消费，包括恢复扫描和手动入口。
-- 固定 oceanbase/oceanbase commit 的编译运行、调试和 Wait Event 文档；真实文字图片与 OCR 来源映射。
-- 同请求重放、不同参数冲突、同目标活跃冲突、内容去重、配置重解析和人工编辑保护。
-- 任务接受后退出、Source 已登记但未确认、租约重领、迟到 token、目标替换、有限重试和取消。
-- 结果准备后 core 回滚、core 成功但任务确认失败；旧版本可用、结果不提前可见、不重复发布。
-- 插件连接单独断开、core 连接单独断开、提交响应未知与取消／重领竞争，验证 core Scope 闸门和禁止旧事务重连发布。
-- 创建／修改／删除证据与实际 revision 一致；删除 chunk 版本递增、零块可读、历史保留。
-- Source／document／knowledge-base 删除与发布竞争；墓碑已提交但 head／索引未清理时仍拒绝派生内容读取。
-- 首次导入排队／失败且尚无 Artifact 时删除，知识库级联覆盖未发布资源；与首次发布竞争时不漏删，不虚构删除 revision／证据，资源墓碑提交后不可取消。
-- 删除生效后取消被拒绝，反复删除补齐失败清理，并发重删只产生一个活跃善后 job，已完成对象不重复 revision／证据。
-- 模型配置直接修改被拒绝，Scope 级切换／重建、部分发布后恢复、失败维护和旧 profile 任务失效。
-- Chunk 目录／单块／批量边界、索引全生命周期、重建及有效候选补取。
-- OpenDAL 本地快照对 Server／Worker 可访问，原文件随后变化不改变已接受输入。
+- 创建 Scope 的管理员权限、配置补写、多 Scope 隔离和固定原文快照。
+- 导入请求各提交边界的重试、同键冲突、内容去重、重复处理及确定失败不阻塞后续文件。
+- 框架窗口回滚／重新投递、失败观察与 core 成功对账；固定 base 冲突不能自动换基准。
+- Markdown、真实 RapidOCR、超长块、完整 embedding 输入预算、原文溯源与人工标记。
+- 同步编辑／移除的 revision 和 lineage_only 证据；零块结果、模型失败及响应丢失。
+- 编辑／forget 与 generate 竞争，不覆盖人工编辑、不恢复 deprecated；原文和历史保留。
+- 准备索引后 core 回滚，旧版本仍可检索；候选过滤、精确 chunk 读取、通用 search 和 Prepared Context。
+- 插件模型指纹不匹配明确失败，Server 主模型变化不改变插件向量空间。
 
-真实后端和真实 OCR 验收不能由 mock 替代。先用小样本对比两种规则的答案片段召回、SOP 完整性及出处，不宣称已有质量或规模结论。
-#2441 承担接入／资源归属，#2442 承担队列／处理／发布，#2443 承担检索／接口，#2444 承担运行与验收；不新增 Issue。
+固定 oceanbase/oceanbase 文档 commit 做 Markdown 小样本，配合真实文字图片；mock 不能代替真实 OCR 和三后端验收。
+#2441 覆盖接入／配置，#2442 覆盖框架消费／解析／发布，#2443 覆盖检索／编辑接口，#2444 覆盖运行及验收；#2440 总跟踪。
+实现可集中在一个 PR，按模块提交并逐步验收；本文不新增 Issue。
 
 # 缺点
 
-三张业务表及索引需要插件自己迁移、备份和恢复。独立存储需要发布对账和短提交闸门；完整 chunk 快照、成功操作证据、软删除及终态任务
-都会增加存储。资源表两类记录需要明确约束。首期不提供跨库分布式事务或大规模性能保证，索引重建可能影响同 Scope 的多个知识库。
+复用 Source 窗口意味着基础设施持续失败可能阻塞同 Scope；同步编辑受接口时限约束。插件负责三后端索引、表迁移和备份，
+不可变结果与保留历史增加存储。Forget 是退出检索而不是擦除或禁止历史读取；Source 保持不可变且可读。
 
 # 设计理由与替代方案
 
-- 一个业务插件集中管理归属、任务和配置，内部解析模块仍可独立扩展。
-- 三张插件表在不改核心模型的前提下提供逐 Source 删除和逐文件任务；资源登记合并固定两类记录，避免额外文档状态／回执表。
-- Source 保存不可变内容与成功证据，jobs 保存可变执行状态；不把待执行命令伪装成成功操作 Source。
-- Artifact 管理整篇版本，chunk 明细支持精确读取；直接编辑旧行无法保留历史。
-- 独立队列适合慢解析及外部等待，不依赖原有消费 cursor；只复用 Supervisor 可分离的运行工具。
-- 不可变结果先准备、core 再发布、任务最后确认，尊重插件存储隔离；跨库原子事务不是默认能力。
-- 删除 revision 提供稳定操作证据，head retirement 和读取 guard 控制可见性；仅清除搜索索引不足以删除内容。
+- Scope 对应知识库，与单 family 插件一致，无需知识库 Artifact 或跨 family 写入。
+- 复用 generate 和 cursor，使 Artifact 与消费进度在 core 原子提交；插件只记录接受及处理观察，不重复实现调度。
+- 同步通用 PUT 提供版本校验和成功操作证据；插件 API 写入不自动具有这些证据语义。
+- 原文 Source 与处理请求分开，使重解析不修改原始事实；直接 lineage 和原文溯源的职责明确。
+- 不可变 chunk 结果引用保证历史与失败恢复，不能用覆盖正文的方式实现编辑。
+- Forget 遵循框架生命周期，不增加 Source 墓碑、删除 revision 或全局读取拦截。
 
 # 既有设计
 
-基于 [插件接口 #2549](https://github.com/oceanbase/powercontext/pull/2549)、[插件 API #2579](https://github.com/oceanbase/powercontext/pull/2579)、
-[Source 身份](1400_source_definition_and_observation_model.md)、[处理监督](1515_artifact_processing_supervisor.md)
-和 [Source／Artifact API](1437_source_artifact_rest_api.md)。复用原文身份、Artifact revision、成功操作证据和治理机制，
-独立实现知识库任务与 chunk 投影。现有 Atomic Memory retirement 不自动提供 Source 级联删除或插件生命周期检查。
+基于 [插件接口 #2549](https://github.com/oceanbase/powercontext/pull/2549)、
+[插件 API #2579](https://github.com/oceanbase/powercontext/pull/2579)、
+[Source 身份](1400_source_definition_and_observation_model.md)、
+[处理监督](1515_artifact_processing_supervisor.md) 和 [Source／Artifact API](1437_source_artifact_rest_api.md)。
+未来持续采集可接入 [#2617](https://github.com/oceanbase/powercontext/pull/2617)，采集 checkpoint 只代表接入进度，不能代表解析完成；
+删除采集目标不删除已采集 Source 或 document。
 
 # 待解决问题
 
-实现前固定复合插件注册／受限 writer 的 core Scope 闸门接口、通用读取 guard 接入和 Source 排他消费准入。
-锁顺序遵循 core Scope、插件资源／job、Artifact head，后端适配需验证连接失效和已有通用写入路径兼容性。
-实现时固定 OCR 模型、切块参数、任务租约／并发／重试限额、API 数量／字节上限及 schema 具体类型。这些不改变本文的数据归属和提交语义。
-恢复／擦除、任务归档幂等保留期、改名身份、逐知识库向量空间与完整编辑文档导出另定契约。
+实现时确定 SQL 类型与索引细节、OCR 模型版本、窗口和文件大小、同步编辑时限、API 字节上限；用真实后端验证框架的
+revision／生命周期竞争行为。三后端存储和 upgrade 等 RFC 能力与实现 PR 的差异需在实施前核对，不将提案当成已发布功能。
+这些实现选择不改变 Source 不删除、forget 不增加 revision、同步编辑、固定请求 base 及独立模型的契约。
 
 # 后续可能性
 
-增加 Word／PDF／场景图解析器时复用任务、切块、发布和检索流程；外部解析通过保存远端引用并轮询继续，无需首期建设完整解析框架。
-可进一步增加 OpenDAL provider、rerank、邻接／父章节上下文和受限多步检索。扩展效果与成本需要实测，不作为首期前置条件。
+扩展 Word／PDF 解析、持续采集、跨知识库查询、rerank、邻接上下文、运行中撤销及受控模型迁移。
+完整 Source 删除、历史访问撤销、知识库级联删除和独立长任务需要单独确认契约，不作为首期的隐含承诺。
