@@ -12,24 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Bub recalls with the end of a long prompt, as the hook-based hosts do."""
+"""Bub recalls with what the user sent: each inbound message's text, or the end of a long prompt."""
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
+import httpx2
 import pytest
 import republic
-from bub.hooks.interception import LLMCallRequest
+from bub.channels.message import ChannelMessage
+from bub.framework import BubFramework
+from bub.hooks import hookimpl
+from bub.hooks.interception import LLMCallRequest, LLMCallResult
 from powercontext_bub import plugin as plugin_module
 from powercontext_bub.plugin import PowerContextPlugin, PowerContextSettings
 
 _ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = json.loads((_ROOT / "tests/fixtures/recall_query_bound.json").read_text(encoding="utf-8"))
+QUESTION = "How should we deploy the migrations?"
+REPLY_ENVELOPE = json.dumps({
+    "message": "",
+    "reply_to_message": {"text": "The support escalation policy sends urgent incidents to the incident commander."},
+})
 
 
 def _expand(segments: list[dict[str, Any]]) -> str:
@@ -57,24 +67,237 @@ class RecordingClient:
         return SimpleNamespace(content="remembered context", content_bytes=18, status=SimpleNamespace(value="ready"))
 
 
-@pytest.mark.parametrize("case", FIXTURE["cases"], ids=[case["id"] for case in FIXTURE["cases"]])
-def test_recall_query_keeps_the_end_of_the_prompt(monkeypatch, tmp_path: Path, case: dict[str, Any]) -> None:
+def _cli_message(content: str, **fields: Any) -> ChannelMessage:
+    return ChannelMessage(
+        session_id="cli:local",
+        channel="cli",
+        chat_id="local",
+        content=content,
+        context={"sender_id": "human"},
+        **fields,
+    )
+
+
+@pytest.fixture
+def framework(monkeypatch, tmp_path: Path) -> BubFramework:
+    """Bub's builtin hooks with the PowerContext plugin registered after them, as Bub loads it."""
     RecordingClient.prepared.clear()
     settings = PowerContextSettings(base_url="http://127.0.0.1:8000")
     monkeypatch.setattr(plugin_module, "ensure_config", lambda _: settings)
     monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
-    plugin = PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
-    state = plugin.load_state(message=None, session_id="session-1")
-    request = LLMCallRequest(
-        run_id="run-1",
-        model="test-model",
-        messages=[republic.user(_expand(case["prompt"]))],
+    monkeypatch.chdir(tmp_path)
+    framework = BubFramework(config_file=tmp_path / "bub.yml")
+    framework.load_builtin_hooks()
+    framework.plugin_manager.register(PowerContextPlugin(framework), name="powercontext")
+    return framework
+
+
+def _plugin(framework: BubFramework) -> PowerContextPlugin:
+    plugin = framework.plugin_manager.get_plugin("powercontext")
+    assert isinstance(plugin, PowerContextPlugin)
+    return plugin
+
+
+def _turn_state(framework: BubFramework, session_id: str) -> dict[str, Any]:
+    # The builtin load_state binds the session and its agent; this keeps the turn to the plugin's state.
+    state = {"session_id": session_id, **_plugin(framework).load_state(message={}, session_id=session_id)}
+    return {**state, "_runtime_agent": SimpleNamespace(command_prefix=",")}
+
+
+def _prepared_queries(framework: BubFramework, state: dict[str, Any], prompt: list[Any]) -> list[str]:
+    request = LLMCallRequest(run_id="run-1", model="test-model", messages=[republic.user(*prompt)])
+
+    result = asyncio.run(_plugin(framework).before_llm_call(request, state))
+
+    assert (result is not None) == bool(RecordingClient.prepared)
+    return [prepared.query for prepared in RecordingClient.prepared]
+
+
+def _recall_queries(framework: BubFramework, message: Any) -> list[str]:
+    session_id = str(message.session_id) if isinstance(message, ChannelMessage) else "cli:local"
+    state = _turn_state(framework, session_id)
+    prompt = asyncio.run(framework.build_prompt(message, session_id, state))
+    return _prepared_queries(framework, state, prompt)
+
+
+@pytest.mark.parametrize("case", FIXTURE["cases"], ids=[case["id"] for case in FIXTURE["cases"]])
+def test_recall_query_keeps_the_end_of_the_prompt(framework: BubFramework, case: dict[str, Any]) -> None:
+    state = _turn_state(framework, "cli:local")
+
+    assert _prepared_queries(framework, state, [_expand(case["prompt"])]) == [_expand(case["query"])]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        _cli_message(QUESTION),
+        ChannelMessage(
+            session_id="chat:room-7",
+            channel="chat",
+            chat_id="room-7",
+            content=f"{QUESTION}\nKeep the rollout order.",
+            context={"sender_id": "42", "username": "ada"},
+        ),
+        _cli_message('{"message": "report", "constraint": "database migrations"}'),
+    ],
+    ids=["cli", "chat-channel", "json-text"],
+)
+def test_recall_query_is_the_inbound_content_without_the_bub_frame(
+    framework: BubFramework, message: ChannelMessage
+) -> None:
+    assert _recall_queries(framework, message) == [message.content]
+
+
+def test_recall_query_is_the_sender_text_when_the_content_wraps_it(framework: BubFramework) -> None:
+    # Bub's Telegram channel wraps the sender's words in JSON with message metadata and keeps them as ``text``.
+    message = {
+        "session_id": "telegram:42",
+        "channel": "telegram",
+        "chat_id": "42",
+        "content": json.dumps({"message": QUESTION, "message_id": 7, "username": "ada"}),
+        "text": QUESTION,
+    }
+
+    assert _recall_queries(framework, message) == [QUESTION]
+
+
+@pytest.mark.parametrize(
+    ("sender_text", "queries"),
+    [({"text": ""}, []), ({"text": "  "}, []), ({"text": None}, [REPLY_ENVELOPE]), ({}, [REPLY_ENVELOPE])],
+    ids=["empty", "blank", "none", "absent"],
+)
+def test_recall_falls_back_to_the_content_only_without_a_sender_text(
+    framework: BubFramework, sender_text: dict[str, Any], queries: list[str]
+) -> None:
+    # An empty ``text`` is still what the sender wrote; recalling the envelope would match the replied-to message.
+    # Without ``text``, the content is the sender's own words, even when it is JSON.
+    message = {"session_id": "telegram:42", "channel": "telegram", "chat_id": "42", "content": REPLY_ENVELOPE}
+
+    assert _recall_queries(framework, {**message, **sender_text}) == queries
+
+
+def test_recall_skips_a_message_without_text(framework: BubFramework) -> None:
+    assert _recall_queries(framework, _cli_message("")) == []
+
+
+def test_recall_maps_a_prompt_another_plugin_builds(framework: BubFramework) -> None:
+    class SummaryPrompt:
+        @hookimpl
+        async def build_prompt(self, message: Any) -> str:
+            return f"Summarize for the on-call engineer:\n{message.content}"
+
+    framework.plugin_manager.register(SummaryPrompt(), name="summary")
+
+    assert _recall_queries(framework, _cli_message(QUESTION)) == [QUESTION]
+
+
+def test_subagent_recalls_with_its_own_prompt(framework: BubFramework) -> None:
+    parent_state = _turn_state(framework, "cli:local")
+    asyncio.run(framework.build_prompt(_cli_message("Plan the release."), "cli:local", parent_state))
+    # Bub runs a subagent with a copy of the parent's turn state under the subagent's own session.
+    subagent_state = {**parent_state, "session_id": "cli:local/subagent-1"}
+
+    assert _prepared_queries(framework, subagent_state, ["Check the migration order."]) == [
+        "Check the migration order."
+    ]
+
+
+def test_recall_maps_back_when_another_plugin_delegates_the_same_way(framework: BubFramework) -> None:
+    class DelegatingObserver:
+        @hookimpl(tryfirst=True)
+        async def build_prompt(self, message: Any, session_id: str, state: dict[str, Any]) -> Any:
+            # The delegation bubbuild/bub#400 suggested, without a guard against being called back.
+            kwargs = {"message": message, "session_id": session_id, "state": state}
+            others = framework.plugin_manager.subset_hook_caller("build_prompt", remove_plugins=[self])
+            for impl in reversed(others.get_hookimpls()):
+                result = impl.function(**{name: kwargs[name] for name in impl.argnames})
+                if inspect.isawaitable(result):
+                    result = await result
+                if result is not None:
+                    return result
+            return None
+
+    framework.plugin_manager.register(DelegatingObserver(), name="delegating-observer")
+
+    assert _recall_queries(framework, _cli_message(QUESTION)) == [QUESTION]
+
+
+@pytest.fixture
+def run_turn(monkeypatch, tmp_path: Path, framework: BubFramework):
+    """Run one message through ``process_inbound`` with Bub's own agent loop and a stub model that answers twice."""
+    replies = ["one", "two"]
+
+    def model_reply(request: httpx2.Request) -> httpx2.Response:
+        del request
+        events = [{"choices": [{"delta": {"content": replies.pop(0)}, "finish_reason": "stop"}]}, "[DONE]"]
+        body = "".join(f"data: {event if isinstance(event, str) else json.dumps(event)}\n\n" for event in events)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    client = httpx2.AsyncClient
+    monkeypatch.setattr(
+        httpx2, "AsyncClient", lambda **options: client(**{"transport": httpx2.MockTransport(model_reply), **options})
     )
+    for name, value in {
+        "BUB_HOME": str(tmp_path / "home"),
+        "BUB_MODEL": "openai:test-model",
+        "BUB_API_KEY": "test",
+        "BUB_CLIENT_ARGS": '{"api_format": "chat"}',
+    }.items():
+        monkeypatch.setenv(name, value)
 
-    result = asyncio.run(plugin.before_llm_call(request, state))
+    def run(message: Any) -> None:
+        async def turn() -> None:
+            async with framework.running():
+                await framework.process_inbound(message)
 
-    assert result is not None
-    assert [prepared.query for prepared in RecordingClient.prepared] == [_expand(case["query"])]
+        asyncio.run(turn())
+
+    return run
+
+
+def test_turn_recall_maps_a_prompt_built_from_several_text_parts(framework: BubFramework, run_turn) -> None:
+    class BriefingPrompt:
+        @hookimpl
+        def build_prompt(self, message: Any) -> list[str]:
+            return ["Brief the on-call engineer.", message.content]
+
+    framework.plugin_manager.register(BriefingPrompt(), name="briefing")
+
+    run_turn(_cli_message(QUESTION))
+
+    assert [prepared.query for prepared in RecordingClient.prepared] == [QUESTION]
+
+
+def test_turn_with_an_empty_sender_text_skips_recall(run_turn) -> None:
+    run_turn({
+        "session_id": "telegram:42",
+        "channel": "telegram",
+        "chat_id": "42",
+        "content": REPLY_ENVELOPE,
+        "text": "",
+    })
+
+    assert RecordingClient.prepared == []
+
+
+def test_steered_follow_up_recalls_with_its_own_text(framework: BubFramework, run_turn) -> None:
+    follow_up = "What is the support escalation policy?"
+
+    class SteerOnce:
+        steered = False
+
+        @hookimpl
+        async def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict[str, Any]) -> None:
+            del request, result
+            if not self.steered:
+                self.steered = True
+                await framework.steer_message(message=_cli_message(follow_up), session_id="cli:local", state=state)
+
+    framework.plugin_manager.register(SteerOnce(), name="steer-once")
+
+    run_turn(_cli_message(QUESTION))
+
+    assert [prepared.query for prepared in RecordingClient.prepared] == [QUESTION, follow_up]
 
 
 def test_context_message_carries_the_prepared_content_after_the_marker(monkeypatch, tmp_path: Path) -> None:
