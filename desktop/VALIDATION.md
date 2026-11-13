@@ -1,5 +1,7 @@
 # Desktop validation
 
+<a id="server-8d9d107a-merged-work-ledger-task-stop-reason-protocol-qualification"></a>
+
 ## Server 8d9d107a merged Work Ledger / task stop reason protocol qualification
 
 `sqlite-work-ledger-8d9d107a-v1` qualifies the thirteen bundled Desktop operations
