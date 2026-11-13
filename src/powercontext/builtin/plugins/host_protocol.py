@@ -70,6 +70,8 @@ class HostFailed:
     error: str
     # The plugin breaks its contract, for example it lacks a required method; restarting cannot help.
     permanent: bool = False
+    # "upgrade_failed" when the version's upgrade raised or timed out.
+    category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,14 @@ class HostCancel:
     """The request outlived its time limit; cancel its task so its write transaction rolls back."""
 
     id: str
+
+
+@dataclass(frozen=True)
+class HostRegistry:
+    """The plugin families and Source bindings loaded in the Server now, after a plugin was added or removed."""
+
+    plugin_families: tuple[str, ...]
+    source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
 
 
 @dataclass(frozen=True)

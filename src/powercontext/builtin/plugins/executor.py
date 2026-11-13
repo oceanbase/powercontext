@@ -169,7 +169,7 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
             call = bool(window) or inputs is None
             if call:
                 directory = Path(spec.directory)
-                loaded, declaration = load_plugin(directory)
+                loaded, declaration = load_plugin(directory, manifest.name)
                 if loaded != manifest:
                     raise ValueError("the plugin changed after the Server checked it; restart the Server")  # noqa: TRY003
                 async with AsyncExitStack() as plugin_resources:

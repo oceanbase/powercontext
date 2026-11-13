@@ -140,10 +140,21 @@ ARTIFACT_FAMILY_PROFILES: dict[str, ArtifactFamilyAccessProfile] = {
 }
 
 
+_PLUGIN_PROFILES: set[str] = set()
+
+
+def unregister_plugin_artifact_family(family: str) -> None:
+    # Only profiles a plugin registered are removable; built-in families keep theirs.
+    if family in _PLUGIN_PROFILES:
+        _PLUGIN_PROFILES.discard(family)
+        ARTIFACT_FAMILY_PROFILES.pop(family, None)
+
+
 def register_plugin_artifact_family(family: str) -> None:
     """Give a loaded plugin family the framework's read and write semantics."""
 
     if family not in ARTIFACT_FAMILY_PROFILES:
+        _PLUGIN_PROFILES.add(family)
         ARTIFACT_FAMILY_PROFILES[family] = ArtifactFamilyAccessProfile(
             family=family,
             enabled=True,

@@ -695,6 +695,44 @@ class PluginTrigger(StrEnum):
     SOURCES = "sources"
 
 
+class Method(StrEnum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+
+
+class Access(StrEnum):
+    AUTHENTICATED = "authenticated"
+    SCOPE_READ = "scope.read"
+    SCOPE_CONTRIBUTE = "scope.contribute"
+
+
+class PluginRoute(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    method: Method
+    path: Annotated[StrictStr, Field(description="Route template under /v1/plugins/{name}/api.")]
+    access: Access
+    mcp: Annotated[StrictBool, Field(description="The route is also an MCP tool.")]
+
+
+class PluginOpenApiDocument(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class PluginPagesState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    title: Annotated[dict[str, StrictStr], Field(description="Navigation title by language.")]
+    path: Annotated[StrictStr, Field(description="Dashboard path of the plugin's page.")]
+
+
 class PluginState(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -702,7 +740,7 @@ class PluginState(BaseModel):
     name: StrictStr
     kind: PluginKind
     status: PluginLoadStatus
-    error: Annotated[StrictStr | None, Field(description="Safe failure category from the startup check.")]
+    error: Annotated[StrictStr | None, Field(description="Safe failure category when the plugin is not loaded.")]
     family: Annotated[StrictStr | None, Field(...)]
     binding_name: Annotated[StrictStr | None, Field(...)]
     scopes: Annotated[list[StrictStr] | None, Field(...)]
@@ -711,6 +749,22 @@ class PluginState(BaseModel):
         Field(description="Source types delivered to the plugin; null when it consumes no Sources."),
     ]
     triggers: list[PluginTrigger]
+    version_digest: Annotated[
+        StrictStr | None,
+        Field(description="Content digest of the plugin version in use on this instance; null when none loaded."),
+    ]
+    declaration_digest: Annotated[StrictStr | None, Field(description="Digest of the declaration in use.")]
+    activated_at: Annotated[
+        AwareDatetime | None, Field(description="When this instance switched to the version in use.")
+    ]
+    last_check_failure: Annotated[
+        StrictStr | None,
+        Field(
+            description="Safe category of the latest failed check of a newer version; the version in use stays active. Cleared when a version activates."
+        ),
+    ]
+    routes: list[PluginRoute]
+    pages: Annotated[PluginPagesState | None, Field(...)]
 
 
 class PluginPage(BaseModel):

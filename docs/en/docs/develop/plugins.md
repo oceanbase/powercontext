@@ -22,7 +22,7 @@ only plugins you trust.
 
 ## Enable the plugin directory
 
-Set the plugin directory and restart Server:
+Set the plugin directory and start Server:
 
 ```bash
 export POWERCONTEXT_SERVER_PLUGINS_DIR=/srv/powercontext/plugins
@@ -33,8 +33,7 @@ powercontext server run
   lowercase letters, digits, and `-`).
 - Install the third-party libraries a plugin needs into the Server's Python environment, for example
   `uv pip install pypdf`. A `requirements.txt` in the plugin directory only informs deployers; Server does not install it.
-- Restart Server after changing a plugin. Server records a content fingerprint of the plugin directory when it loads and
-  refuses to run plugin files that changed afterward, so old and new code never mix.
+- Adding, changing, or removing a plugin directory needs no Server restart; see "Update plugins".
 
 Check what loaded with administrator credentials:
 
@@ -127,6 +126,7 @@ This plugin has the basic parts of a plugin:
 | `timeout_seconds`, `transaction_timeout_seconds` | Time limits for one generation run and its write transaction |
 | `change_timeout_seconds` | Time limit for one user change, presentation, or search |
 | `host_processes` | The most host processes of this plugin in each Server process, 1 by default; deployers can override it |
+| `upgrade`, `upgrade_timeout_seconds` | A data upgrade function called before `setup` every time this version loads, and its time limit (600 seconds by default); see "Update plugins" |
 | `definitions` | The plugin's own Source Definitions; see "Define Source types" |
 | `api` | The plugin's APIs; see "Provide APIs" |
 | `pages` | Dashboard pages; see "Dashboard pages" |
@@ -378,6 +378,12 @@ plugin = ArtifactPlugin(
   never exceeds the deployer's `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`. Core returns 413 without calling the
   plugin when a body is too large.
 - Each call is bounded by `timeout_seconds` (30 seconds by default) and returns 504 when it runs over.
+- A route declared with `mcp=True` (it needs a `description` and a JSON or empty body) is also a tool on the Server's MCP
+  endpoint, named `<plugin name>__<handler>`, whose arguments are the path parameters, `query`, and `body`. Calling the
+  tool is calling the route as the MCP session's caller; `GET` routes whose `access` is `scope.read` or `authenticated`
+  are marked read-only.
+- `GET /v1/plugins/<plugin name>/openapi.json` returns an OpenAPI document core generates from the declared routes. The
+  plugin owns its routes' compatibility; for an incompatible change, put a version in the path, such as `/v2/notes`.
 
 APIs, presentation, search, and user-change methods run in host processes. Each plugin has its own group of host
 processes and shares none with other plugins: the first starts once the plugin loads and always stays; another starts
@@ -450,6 +456,47 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 - Pages are static files only (HTML, JavaScript, CSS, images, fonts), up to 5 MiB each; scripts may come only from the
   plugin's own directory and `/dashboard/plugins/_client.js`.
 
+## Update plugins
+
+Each Server process scans the plugin directory every `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` (60 by default; 0
+turns it off) and compares file contents to decide whether a plugin changed:
+
+- Once two scans in a row see the same content, different from the version in use, Server copies the directory into a
+  read-only snapshot in its data directory and switches to it after the check passes. A change therefore takes effect
+  within two scan intervals, and a half-written directory never loads. Added directories load the same way; removed ones
+  unload at the next scan.
+- Plugin code is imported only from snapshots. New requests go to the new version once its host process is ready; the old
+  version's host processes finish the requests they hold and stop, and background generation already started finishes on
+  the old version.
+- If the new version fails its check or its `upgrade`, the old version stays in use and `last_check_failure` in
+  `GET /v1/plugins/<plugin name>` gives the failure category; `version_digest` and `activated_at` describe the version in
+  use and when it took effect.
+- Server instances scan on their own, so until every instance has switched, instances may use different versions.
+
+`upgrade(ctx)` upgrades plugin data. It is called every time a plugin version loads, including at Server startup, and the
+plugin decides whether anything needs doing:
+
+```python
+from sqlalchemy import text
+
+
+async def upgrade(ctx):
+    async with ctx.storage.engine().begin() as connection:
+        await connection.execute(text("CREATE TABLE IF NOT EXISTS note_tags (note_id TEXT, tag TEXT)"))
+
+plugin = ArtifactPlugin(family="notes", setup=setup, upgrade=upgrade)
+```
+
+- Every Server instance that loads the new version runs it, so it must be safe to repeat and to run on several instances
+  at once; take a lock in dedicated storage when it needs mutual exclusion.
+- Keep it fast, such as schema changes in dedicated storage. Migrate large data formats lazily as they are read, or ship a
+  separate migration script for deployers to run before upgrading.
+- `ctx.reads(scope_id)` and `ctx.writer(scope_id)` act as the plugin itself, and one `upgrade` opens at most one write
+  transaction block; `ctx.caller`, `ctx.require`, `ctx.sources`, and `ctx.scopes` are unavailable.
+- The old version may still run on other instances during an upgrade. Make changes both versions can use first, and clean
+  up in a later version once the old one no longer runs. Core does not support downgrades; old code that cannot read new
+  data is the plugin's concern.
+
 ## Troubleshooting
 
 | Symptom | What to do |
@@ -458,12 +505,11 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 | APIs return 503 | The host process is starting or restarting, or was terminated because its event loop was blocked; check the Server log for plugin errors |
 | APIs return 504 `plugin_timeout` | The call ran past its time limit; move slow work into `asyncio.to_thread` or `generate`, or raise the limit |
 | APIs return 500 `plugin_error` | A handler raised an unhandled exception; the Server log records its type |
-| Workers stop running after a plugin change | Plugin files changed while Server was running; restart Server |
+| A plugin change does not take effect | Wait two scan intervals; check `last_check_failure` in `GET /v1/plugins/<plugin name>` and `plugin.changed` in the Server log |
 | Generated Artifacts do not appear | Check `GET /v1/plugins/<plugin name>/scopes` for Scopes with pending Sources |
 
 ## Current limits
 
-- Updating a plugin requires a Server restart; hot reload is not available yet.
 - Dedicated plugin storage supports only SQLite deployments for now.
 - Deployers install plugin dependencies into the Server environment by hand.
 - Plugin code has the Server's permissions; host processes and Workers isolate failures, not untrusted code.

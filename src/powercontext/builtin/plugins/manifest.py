@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import inspect
+import json
 import re
 import sys
 from pathlib import Path
@@ -35,6 +36,8 @@ from powercontext.plugins import ArtifactPlugin, ArtifactPluginSpec
 
 ENTRY_FILE = "plugin.py"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+# MCP clients commonly reject longer tool names.
+MCP_TOOL_NAME_LIMIT = 64
 
 
 class PluginConfigError(ValueError):
@@ -52,10 +55,18 @@ class PluginManifest(BaseModel):
     fingerprint: str = ""
     # Declarative manifests of the Source Definitions the plugin submits through its routes.
     source_manifests: tuple[dict[str, JsonValue], ...] = ()
+    # Digest of everything above except the fingerprint: whether a new version changes what core registers.
+    declaration_digest: str = ""
+    upgrade: bool = False
 
     @property
     def binding_name(self) -> str:
         return f"plugin:{self.name}"
+
+
+def mcp_tool_name(plugin: str, handler: str) -> str:
+    # Plugin names have no underscores, so the first double underscore always ends the plugin name.
+    return f"{plugin}__{handler}"
 
 
 def code_fingerprint(directory: Path) -> str:
@@ -74,12 +85,12 @@ def code_fingerprint(directory: Path) -> str:
     return digest.hexdigest()
 
 
-def load_module(directory: Path) -> ModuleType:
+def load_module(directory: Path, name: str) -> ModuleType:
     root = directory.resolve()
     path = root / ENTRY_FILE
     if not path.is_file():
         raise PluginConfigError(f"the plugin directory has no {ENTRY_FILE}")  # noqa: TRY003
-    module_name = f"powercontext_plugin_{root.name.replace('-', '_')}"
+    module_name = f"powercontext_plugin_{name.replace('-', '_')}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise PluginConfigError("plugin entry is unavailable")  # noqa: TRY003
@@ -92,26 +103,28 @@ def load_module(directory: Path) -> ModuleType:
     return module
 
 
-def load_plugin(directory: Path) -> tuple[PluginManifest, ArtifactPlugin]:
-    """Import ``plugin.py`` and validate its declaration without calling the factory."""
+def load_plugin(directory: Path, name: str | None = None) -> tuple[PluginManifest, ArtifactPlugin]:
+    """Import ``plugin.py`` and validate its declaration without calling the factory.
 
-    name = directory.name
+    ``name`` defaults to the directory name; a version snapshot passes the plugin's name.
+    """
+
+    name = directory.name if name is None else name
     if _NAME.fullmatch(name) is None:
         raise PluginConfigError("the directory name is not a valid plugin name")  # noqa: TRY003
-    declaration = getattr(load_module(directory), "plugin", None)
+    declaration = getattr(load_module(directory, name), "plugin", None)
     if not isinstance(declaration, ArtifactPlugin):
         raise PluginConfigError(f"{ENTRY_FILE} must assign an ArtifactPlugin to plugin")  # noqa: TRY003
     if not inspect.iscoroutinefunction(declaration.setup):
         raise PluginConfigError("setup must be an async function")  # noqa: TRY003
+    if declaration.upgrade is not None and not inspect.iscoroutinefunction(declaration.upgrade):
+        raise PluginConfigError("upgrade must be an async function")  # noqa: TRY003
     try:
         spec = ArtifactPluginSpec.model_validate(declaration.model_dump(mode="json"))
     except ValidationError as error:
         fields = ", ".join(".".join(str(part) for part in item["loc"]) or "plugin" for item in error.errors())
         raise PluginConfigError(f"invalid declaration fields: {fields}") from error  # noqa: TRY003
-    if spec.pages is not None:
-        pages = (directory.resolve() / spec.pages.directory).resolve()
-        if not pages.is_relative_to(directory.resolve()) or not (pages / spec.pages.entry).is_file():
-            raise PluginConfigError("pages.entry must be a file inside pages.directory")  # noqa: TRY003
+    _check_routes_and_pages(directory, name, spec)
     from powercontext.sources.observations import manifest_for_definition
 
     try:
@@ -121,21 +134,40 @@ def load_plugin(directory: Path) -> tuple[PluginManifest, ArtifactPlugin]:
         )
     except Exception as error:
         raise PluginConfigError("invalid Source Definitions") from error  # noqa: TRY003
+    declared = {
+        "name": name,
+        "spec": spec.model_dump(mode="json"),
+        "source_manifests": source_manifests,
+        "upgrade": declaration.upgrade is not None,
+    }
     return (
         PluginManifest(
-            name=name, spec=spec, fingerprint=code_fingerprint(directory), source_manifests=source_manifests
+            name=name,
+            spec=spec,
+            fingerprint=code_fingerprint(directory),
+            source_manifests=source_manifests,
+            declaration_digest=hashlib.sha256(json.dumps(declared, sort_keys=True).encode()).hexdigest(),
+            upgrade=declaration.upgrade is not None,
         ),
         declaration,
     )
 
 
+def _check_routes_and_pages(directory: Path, name: str, spec: ArtifactPluginSpec) -> None:
+    for route in () if spec.api is None else spec.api.routes:
+        if route.mcp and len(mcp_tool_name(name, route.handler)) > MCP_TOOL_NAME_LIMIT:
+            raise PluginConfigError(f"MCP tool names are at most {MCP_TOOL_NAME_LIMIT} characters")  # noqa: TRY003
+    if spec.pages is not None:
+        pages = (directory.resolve() / spec.pages.directory).resolve()
+        if not pages.is_relative_to(directory.resolve()) or not (pages / spec.pages.entry).is_file():
+            raise PluginConfigError("pages.entry must be a file inside pages.directory")  # noqa: TRY003
+
+
 def main() -> None:
     """Check one plugin directory in a child process and report the outcome as JSON."""
 
-    import json
-
     try:
-        manifest, _ = load_plugin(Path(sys.argv[1]))
+        manifest, _ = load_plugin(Path(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else None)
     except Exception as error:
         message = (
             str(error)

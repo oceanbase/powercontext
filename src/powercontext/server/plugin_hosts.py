@@ -29,6 +29,7 @@ import logging
 import multiprocessing
 import time
 from contextlib import suppress
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ from powercontext.builtin.plugins.host_protocol import (
     HostHeartbeat,
     HostMethod,
     HostReady,
+    HostRegistry,
     HostRequest,
     HostResponse,
     HostShutdown,
@@ -127,6 +129,7 @@ class _HostProcess:
                     group.notify()
                 elif isinstance(message, HostFailed):
                     log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
+                    group.start_failure = message.category or "start_failed"
                     if message.permanent:
                         group.failure = message.error
                     break
@@ -227,6 +230,9 @@ class PluginHost:
         self._backoff = 0.0
         self._not_before = 0.0
         self._closing = False
+        self._waiting = 0
+        # Why the last process exited before it was ready, such as "upgrade_failed".
+        self.start_failure: str | None = None
 
     async def start(self) -> None:
         """Start the process the plugin always keeps; callers wait for readiness within their own time limit."""
@@ -257,6 +263,8 @@ class PluginHost:
         self._changed = asyncio.Event()
 
     def exited(self, process: _HostProcess) -> None:
+        if not process.ready and process.reason == "crash" and self.start_failure is None:
+            self.start_failure = "start_failed"
         self._processes.remove(process)
         self._budget.give_back()
         self.notify()
@@ -316,6 +324,7 @@ class PluginHost:
             elif not serving and not self._launch(resident=True):
                 raise PluginHostUnavailable(self.name)
             changed = self._changed
+            self._waiting += 1
             try:
                 await asyncio.wait_for(changed.wait(), max(0.0, deadline - time.monotonic()))
             except TimeoutError:
@@ -323,6 +332,8 @@ class PluginHost:
                 if any(process.ready and process.accepting for process in self._processes):
                     raise PluginHostTimeout(self.name) from None
                 raise PluginHostUnavailable(self.name) from None
+            finally:
+                self._waiting -= 1
 
     async def call(
         self,
@@ -356,6 +367,40 @@ class PluginHost:
                 process.idle_since = time.monotonic()
             self.notify()
 
+    async def wait_ready(self, timeout: float) -> str | None:  # noqa: ASYNC109 - bounds a new version's start
+        """Wait for the first process of a new version; return why it failed, or None once one is ready."""
+
+        deadline = time.monotonic() + timeout
+        while True:
+            if any(process.ready for process in self._processes):
+                return None
+            if self.failure is not None or not self._processes:
+                return self.start_failure or "start_failed"
+            changed = self._changed
+            try:
+                await asyncio.wait_for(changed.wait(), max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                return "start_timeout"
+
+    def update_registry(
+        self, families: tuple[str, ...], bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
+    ) -> None:
+        """New processes start with these registrations; running ones replace theirs."""
+
+        self.spec = replace(self.spec, plugin_families=families, source_bindings=bindings)
+        message = HostRegistry(plugin_families=families, source_bindings=bindings)
+        for process in self._processes:
+            if process.ready:
+                self.spawn_task(_send_quietly(process, message))
+
+    async def retire(self) -> None:
+        """Stop taking new processes, let accepted and queued calls finish within their limits, then close."""
+
+        self._closing = True
+        while any(process.in_flight for process in self._processes) or self._waiting:
+            await self._changed.wait()
+        await self.close()
+
     async def close(self) -> None:
         self._closing = True
         if self._watcher is not None:
@@ -365,6 +410,11 @@ class PluginHost:
         )
         if self._tasks:
             await asyncio.wait(list(self._tasks), timeout=_SHUTDOWN_SECONDS)
+
+
+async def _send_quietly(process: _HostProcess, message: object) -> None:
+    with suppress(OSError):
+        await process.send(message)
 
 
 def _stop_process(process: Any) -> None:

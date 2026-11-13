@@ -4043,6 +4043,11 @@ class ArtifactMergeRuntimeApplication:
 
         self._application.register(service)
 
+    def unregister(self, family: str) -> None:
+        """Forget a plugin family that was removed or replaced."""
+
+        self._application.unregister(family)
+
     def content_type(self, family: str) -> type[BaseModel]:
         """The content model a registered Family's merge results validate against."""
 

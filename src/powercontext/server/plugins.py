@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Load plugins at startup and hand their calls to the Artifact processing Supervisor.
+"""Load plugins, follow changes to the plugin directory, and hand calls to Workers and host processes.
 
-Nothing about a plugin is persisted: the directory as it is at startup decides which
-plugins exist. Plugin code runs only in check, Worker, and host child processes. User
+Nothing about a plugin is persisted: each Server process scans the plugin directory and
+keeps its own view of which plugin versions are loaded. Code is imported only from
+read-only version snapshots, and only in check, Worker, and host child processes. User
 changes to plugin Artifacts and the plugin's own routes go to its host process, which
 authorizes, prechecks, and writes as the caller; this process only authenticates and
 forwards.
@@ -26,11 +27,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import multiprocessing
+import re
 import sys
+import time
 from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -46,7 +50,14 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
 from powercontext.builtin.plugins.executor import PluginWorkerSpec, run_plugin_worker
-from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
+from powercontext.builtin.plugins.families import (
+    register_plugin_family,
+    register_source_binding,
+    revision_metadata,
+    unregister_plugin_family,
+    unregister_source_binding,
+)
+from powercontext.builtin.plugins.host import run_plugin_upgrade
 from powercontext.builtin.plugins.host_protocol import PluginHostSpec
 from powercontext.builtin.plugins.manifest import PluginManifest
 from powercontext.builtin.plugins.writer import plugin_merge_service
@@ -63,29 +74,71 @@ from powercontext.builtin.runtime.processing_discovery import SourceProcessingPe
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.http._generated.models import PluginPage, PluginScopePage, PluginScopeState, PluginState
 from powercontext.plugins import Cron, Interval
-from powercontext.server.plugin_hosts import HostProcessBudget, PluginHost
+from powercontext.server.plugin_hosts import READY_TIMEOUT_SECONDS, HostProcessBudget, PluginHost
+from powercontext.server.plugin_versions import (
+    content_digest,
+    make_snapshot,
+    remove_snapshot,
+    remove_stale_snapshots,
+)
 
 logger = logging.getLogger(__name__)
 CHECK_TIMEOUT_SECONDS = 60
 # How soon a dirty Scope is admitted when the plugin asks to run on new Sources.
 ON_SOURCES_INTERVAL_SECONDS = 2.0
+# A replaced snapshot outlives the Worker time limit by this much before it is deleted.
+_WORKER_GRACE_SECONDS = 60.0
+
+
+class _VersionFailed(Exception):
+    def __init__(self, category: str) -> None:
+        super().__init__(category)
+        self.category = category
+
+
+async def _run_upgrade(spec: PluginHostSpec, timeout: float) -> bool:  # noqa: ASYNC109 - the child enforces it too
+    """Run a new version's upgrade in a short-lived child on an instance without host processes."""
+
+    process = multiprocessing.get_context("spawn").Process(
+        target=run_plugin_upgrade, args=(spec,), name="powercontext-plugin-upgrade"
+    )
+    await asyncio.to_thread(process.start)
+    await asyncio.to_thread(process.join, timeout + READY_TIMEOUT_SECONDS)
+    if process.is_alive():
+        process.kill()
+        await asyncio.to_thread(process.join)
+        return False
+    return process.exitcode == 0
 
 
 @dataclass
 class _Plugin:
     name: str
+    # The deployer's directory; it is only scanned, never imported from.
     directory: Path
     manifest: PluginManifest | None = None
+    # Why no version of the plugin is loaded.
     error: str | None = None
     tasks: list[asyncio.Task[None]] = field(default_factory=list)
     host: PluginHost | None = None
+    snapshot: Path | None = None
+    activated_at: datetime | None = None
+    # Why the latest newer version was not activated; the version in use stays.
+    last_check_failure: str | None = None
+    last_digest: str | None = None
+    failed_digest: str | None = None
 
     @property
     def failure(self) -> str | None:
         return self.error if self.error is not None or self.host is None else self.host.failure
 
+    @property
+    def code_directory(self) -> Path:
+        return self.directory if self.snapshot is None else self.snapshot
+
     def state(self) -> PluginState:
-        spec = None if self.manifest is None else self.manifest.spec
+        manifest = self.manifest
+        spec = None if manifest is None else manifest.spec
         triggers = []
         if spec is not None:
             triggers = [
@@ -99,14 +152,25 @@ class _Plugin:
             "status": "failed" if self.failure is not None else "loaded",
             "error": self.failure,
             "family": None if spec is None else spec.family,
-            "binding_name": None if self.manifest is None else self.manifest.binding_name,
+            "binding_name": None if manifest is None else manifest.binding_name,
             "scopes": None if spec is None or spec.scopes is None else list(spec.scopes),
             "source_types": None if spec is None or spec.inputs is None else list(spec.inputs.source_types),
             "triggers": triggers,
+            "version_digest": None if manifest is None else manifest.fingerprint,
+            "declaration_digest": None if manifest is None else manifest.declaration_digest,
+            "activated_at": self.activated_at,
+            "last_check_failure": self.last_check_failure,
+            "routes": [
+                {"method": route.method, "path": route.path, "access": route.access, "mcp": route.mcp}
+                for route in (() if spec is None or spec.api is None else spec.api.routes)
+            ],
+            "pages": None
+            if spec is None or spec.pages is None
+            else {"title": spec.pages.title, "path": f"/dashboard/plugins/{self.name}"},
         })
 
 
-async def check_plugin_directory(directory: Path) -> PluginManifest:
+async def check_plugin_directory(directory: Path, name: str | None = None) -> PluginManifest:
     """Import user code only in a time-limited child process."""
 
     process = await asyncio.create_subprocess_exec(
@@ -114,6 +178,7 @@ async def check_plugin_directory(directory: Path) -> PluginManifest:
         "-m",
         "powercontext.builtin.plugins.manifest",
         str(directory),
+        *(() if name is None else (name,)),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -133,6 +198,42 @@ async def check_plugin_directory(directory: Path) -> PluginManifest:
     return PluginManifest.model_validate(result["manifest"])
 
 
+def _binding_fields(manifest: PluginManifest) -> dict[str, Any]:
+    """The declaration fields that decide the plugin's Supervisor binding and schedule."""
+
+    return manifest.spec.model_dump(
+        include={"family", "inputs", "schedule", "on_sources", "scopes", "max_workers", "timeout_seconds"}
+    )
+
+
+class _VersionLauncher:
+    """Launch each Worker from the plugin version current at dispatch.
+
+    Workers already running finish on the snapshot they started with, so a new version
+    with the same binding needs no binding replacement, which would cancel them.
+    """
+
+    def __init__(self, manager: PluginManager, name: str) -> None:
+        self._manager = manager
+        self._name = name
+
+    async def start(self, assignment: Any) -> Any:
+        plugin = self._manager.plugins[self._name]
+        manifest = plugin.manifest
+        if manifest is None:
+            raise RuntimeError("the plugin is no longer loaded")  # noqa: TRY003
+        self._manager.retain(plugin.snapshot, manifest.spec.timeout_seconds)
+        spec = PluginWorkerSpec(
+            database=self._manager.config,
+            directory=str(plugin.code_directory),
+            manifest=manifest.model_dump(mode="json"),
+            security=self._manager.security_builder(),
+            inference=self._manager.inference_config,
+            storage_root=self._manager.storage_root,
+        )
+        return await SpawnArtifactProcessingWorkerLauncher(partial(run_plugin_worker, spec)).start(assignment)
+
+
 class PluginManager:
     def __init__(
         self,
@@ -144,9 +245,12 @@ class PluginManager:
         plugins_dir: Path | None,
         *,
         register_merge: Callable[[Any], None] | None = None,
+        unregister_merge: Callable[[str], None] | None = None,
         dispatch: bool = True,
         inference_config: Any = None,
         storage_root: Path | None = None,
+        snapshot_root: Path | None = None,
+        rescan_seconds: float = 0,
         host_security_builder: Callable[[], dict[str, Any] | None] | None = None,
         serve_requests: bool = True,
         host_processes: Mapping[str, int] | None = None,
@@ -154,6 +258,7 @@ class PluginManager:
     ) -> None:
         self.database = database
         self.register_merge = register_merge
+        self.unregister_merge = unregister_merge
         # API-only instances register families for reads but never dispatch plugin Workers.
         self.dispatch = dispatch
         self.config = config
@@ -165,89 +270,343 @@ class PluginManager:
         self._resources = AsyncExitStack()
         self.inference_config = inference_config
         self.storage_root = None if storage_root is None else str(storage_root)
+        self.snapshot_root = snapshot_root
+        # 0 turns off rescanning: plugins load once at startup.
+        self.rescan_seconds = rescan_seconds
         self.host_security_builder = host_security_builder or security_builder
         # Instances that receive no requests (the background role) start no host processes.
         self.serve_requests = serve_requests
         self.host_processes = dict(host_processes or {})
         self.host_budget = HostProcessBudget(host_processes_total)
+        # Snapshots this process made; it deletes only these, once nothing here uses them.
+        self._created: set[Path] = set()
+        # Snapshots kept after they stopped being current: Workers or retiring host processes may still use them.
+        self._kept_until: dict[Path, float] = {}
+        self._retiring: dict[Path, int] = {}
+        self._background: set[asyncio.Task[Any]] = set()
+        self._scanner: asyncio.Task[None] | None = None
 
     async def __aenter__(self) -> PluginManager:
-        directory = self.plugins_dir
-        if directory is None:
+        if self.plugins_dir is None:
             return self
-        try:
-            entries = await asyncio.to_thread(lambda: sorted(path for path in directory.iterdir() if path.is_dir()))
-        except OSError as error:
-            log_safely(logger, logging.WARNING, f"Plugin directory unavailable ({type(error).__name__})")
-            return self
-        families: set[str] = set()
-        for entry in entries:
-            plugin = _Plugin(name=entry.name, directory=entry.resolve())
-            self.plugins[entry.name] = plugin
-            try:
-                manifest = await check_plugin_directory(plugin.directory)
-                if manifest.spec.family in families:
-                    raise ValueError("family is already provided by another plugin")  # noqa: TRY003, TRY301
-                plugin.manifest = manifest
-                families.add(manifest.spec.family)
-                await self._register(plugin)
-            except Exception as error:
-                plugin.error = str(error) if isinstance(error, ValueError) else type(error).__name__
-                log_safely(logger, logging.WARNING, f"Plugin {entry.name!r} failed to load")
-        if self.serve_requests:
-            self._prepare_hosts()
+        started = time.time()
+        await self.scan(initial=True)
+        if self.snapshot_root is not None:
+            current = frozenset(plugin.snapshot for plugin in self.plugins.values() if plugin.snapshot is not None)
+            await asyncio.to_thread(remove_stale_snapshots, self.snapshot_root, older_than=started, keep=current)
+        if self.rescan_seconds > 0:
+            self._scanner = asyncio.create_task(self._rescan(), name="plugin-rescan")
         return self
 
-    def _prepare_hosts(self) -> None:
-        loaded = [
-            (plugin, plugin.manifest)
-            for plugin in self.plugins.values()
-            if plugin.error is None and plugin.manifest is not None
-        ]
-        families = tuple(sorted(manifest.spec.family for _, manifest in loaded))
-        bindings = tuple(
-            (manifest.binding_name, manifest.spec.scopes, manifest.spec.inputs.source_types)
-            for _, manifest in loaded
-            if manifest.spec.inputs is not None
-        )
-        security = self.host_security_builder()
-        for plugin, manifest in loaded:
-            plugin.host = PluginHost(
-                plugin.name,
-                PluginHostSpec(
-                    database=self.config,
-                    directory=str(plugin.directory),
-                    manifest=manifest.model_dump(mode="json"),
-                    security=security,
-                    inference=self.inference_config,
-                    plugin_families=families,
-                    source_bindings=bindings,
-                    storage_root=self.storage_root,
-                ),
-                limit=self.host_processes.get(plugin.name, manifest.spec.host_processes),
-                budget=self.host_budget,
-            )
-            # Every loaded plugin's host starts now, so the first request does not wait for a spawn.
-            task = asyncio.create_task(self._start_host(plugin.host), name=f"plugin-host-start-{plugin.name}")
-            plugin.tasks.append(task)
-
-    @staticmethod
-    async def _start_host(host: PluginHost) -> None:
-        try:
-            await host.start()
-        except Exception as error:
-            log_safely(logger, logging.WARNING, f"Plugin host {host.name} did not start ({type(error).__name__})")
-
     async def __aexit__(self, *_: object) -> None:
-        for plugin in self.plugins.values():
-            for task in plugin.tasks:
-                task.cancel()
-            await asyncio.gather(*plugin.tasks, return_exceptions=True)
+        if self._scanner is not None:
+            self._scanner.cancel()
+            await asyncio.gather(self._scanner, return_exceptions=True)
+        tasks = [*self._background, *(task for plugin in self.plugins.values() for task in plugin.tasks)]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.gather(
             *(plugin.host.close() for plugin in self.plugins.values() if plugin.host is not None),
             return_exceptions=True,
         )
         await self._resources.aclose()
+
+    # Scanning
+
+    async def _rescan(self) -> None:
+        while True:
+            await asyncio.sleep(self.rescan_seconds)
+            try:
+                await self.scan()
+            except Exception as error:
+                log_safely(logger, logging.WARNING, f"Plugin scan failed ({type(error).__name__})")
+
+    async def scan(self, *, initial: bool = False) -> None:
+        """Compare each plugin directory with the version in use and add, update, or remove plugins.
+
+        A changed directory is checked only once two scans in a row see the same content, so a
+        half-written directory is never loaded; the first scan at startup does not wait.
+        """
+
+        directory = self.plugins_dir
+        if directory is None:
+            return
+        started = time.perf_counter()
+        try:
+            entries = await asyncio.to_thread(lambda: sorted(path for path in directory.iterdir() if path.is_dir()))
+        except OSError as error:
+            log_safely(logger, logging.WARNING, f"Plugin directory unavailable ({type(error).__name__})")
+            return
+        names = {entry.name for entry in entries}
+        for entry in entries:
+            plugin = self.plugins.get(entry.name)
+            if plugin is None:
+                plugin = self.plugins[entry.name] = _Plugin(name=entry.name, directory=entry.resolve())
+            try:
+                digest = await asyncio.to_thread(content_digest, plugin.directory)
+            except OSError:
+                continue
+            stable = initial or digest == plugin.last_digest
+            plugin.last_digest = digest
+            current = None if plugin.manifest is None else plugin.manifest.fingerprint
+            if digest in {current, plugin.failed_digest} or not stable:
+                continue
+            await self._activate(plugin, digest)
+        for name in set(self.plugins) - names:
+            await self._remove(self.plugins.pop(name))
+        await asyncio.to_thread(self._collect_snapshots)
+        if not initial or self.rescan_seconds > 0:
+            log_safely(
+                logger,
+                logging.DEBUG,
+                "Plugin directory scanned",
+                extra={"event": "plugin.scanned", "scan_ms": round((time.perf_counter() - started) * 1000, 3)},
+            )
+
+    def retain(self, snapshot: Path | None, seconds: float) -> None:
+        """Keep a snapshot at least ``seconds`` past a Worker dispatched from it."""
+
+        if snapshot is not None:
+            deadline = time.monotonic() + seconds + _WORKER_GRACE_SECONDS
+            self._kept_until[snapshot] = max(deadline, self._kept_until.get(snapshot, 0.0))
+
+    def _collect_snapshots(self) -> None:
+        current = {plugin.snapshot for plugin in self.plugins.values()}
+        now = time.monotonic()
+        for snapshot in list(self._created):
+            if snapshot in current or self._retiring.get(snapshot) or self._kept_until.get(snapshot, 0.0) > now:
+                continue
+            try:
+                remove_snapshot(snapshot)
+            except OSError:
+                continue
+            self._created.discard(snapshot)
+            self._kept_until.pop(snapshot, None)
+
+    # Activation
+
+    async def _activate(self, plugin: _Plugin, digest: str) -> None:
+        if self.snapshot_root is None:
+            snapshot = None
+        else:
+            snapshot = await asyncio.to_thread(make_snapshot, plugin.directory, self.snapshot_root, plugin.name, digest)
+            if snapshot is None:
+                # The directory changed while it was copied; wait for it to settle again.
+                plugin.last_digest = None
+                return
+            self._created.add(snapshot)
+        try:
+            manifest = await check_plugin_directory(snapshot or plugin.directory, plugin.name)
+            if any(
+                other is not plugin
+                and other.manifest is not None
+                and other.manifest.spec.family == manifest.spec.family
+                for other in self.plugins.values()
+            ):
+                raise ValueError("family is already provided by another plugin")  # noqa: TRY003, TRY301
+        except Exception as error:
+            self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
+            return
+        if plugin.manifest is None:
+            await self._add(plugin, manifest, snapshot, digest)
+        else:
+            await self._update(plugin, manifest, snapshot, digest)
+
+    def _check_failed(self, plugin: _Plugin, digest: str, category: str, *, event: str = "check_failed") -> None:
+        plugin.failed_digest = digest
+        plugin.last_check_failure = category
+        if plugin.manifest is None:
+            plugin.error = category
+        self._event(plugin, event)
+
+    def _event(self, plugin: _Plugin, event: str) -> None:
+        manifest = plugin.manifest
+        log_safely(
+            logger,
+            logging.WARNING if event in {"check_failed", "upgrade_failed"} else logging.INFO,
+            f"Plugin {plugin.name} {event.replace('_', ' ')}",
+            extra={
+                "event": "plugin.changed",
+                "plugin_name": plugin.name,
+                "plugin_event": event,
+                "version_digest": None if manifest is None else manifest.fingerprint,
+                "declaration_digest": None if manifest is None else manifest.declaration_digest,
+            },
+        )
+
+    async def _add(self, plugin: _Plugin, manifest: PluginManifest, snapshot: Path | None, digest: str) -> None:
+        plugin.manifest, plugin.snapshot, plugin.error = manifest, snapshot, None
+        host = None
+        try:
+            await self._register(plugin)
+            failure = await self._prepare_version(plugin, manifest, snapshot)
+            if isinstance(failure, str):
+                raise _VersionFailed(failure)  # noqa: TRY301
+            host = failure
+            plugin.host = host
+            self._sync_registry()
+            await self._bind(plugin)
+        except Exception as error:
+            await self._unregister(plugin, manifest)
+            if host is not None:
+                await host.close()
+            plugin.manifest = plugin.snapshot = plugin.host = None
+            category = error.category if isinstance(error, _VersionFailed) else None
+            message = str(error) if isinstance(error, ValueError) else type(error).__name__
+            self._check_failed(
+                plugin,
+                digest,
+                category or message,
+                event="upgrade_failed" if category == "upgrade_failed" else "check_failed",
+            )
+            self._sync_registry()
+            return
+        plugin.activated_at = datetime.now(UTC)
+        plugin.last_check_failure = plugin.failed_digest = None
+        self._event(plugin, "loaded")
+
+    async def _prepare_version(
+        self, plugin: _Plugin, manifest: PluginManifest, snapshot: Path | None
+    ) -> PluginHost | str | None:
+        """Start the version's host process, or run its upgrade where no host runs.
+
+        Returns the host, None when this instance runs none, or why the version cannot be used.
+        A version that declares upgrade is used only after its upgrade finished here.
+        """
+
+        spec = self._host_spec(manifest, snapshot or plugin.directory)
+        if not self.serve_requests:
+            if not manifest.upgrade:
+                return None
+            return None if await _run_upgrade(spec, manifest.spec.upgrade_timeout_seconds) else "upgrade_failed"
+        host = PluginHost(
+            plugin.name,
+            spec,
+            limit=self.host_processes.get(plugin.name, manifest.spec.host_processes),
+            budget=self.host_budget,
+        )
+        await host.start()
+        # Without upgrade the first process starts in the background, so a slow start delays no request
+        # path; an upgrade must finish before the version is used.
+        if manifest.upgrade or plugin.host is not None:
+            failure = await host.wait_ready(READY_TIMEOUT_SECONDS + manifest.spec.upgrade_timeout_seconds)
+            if failure is not None:
+                await host.close()
+                return failure
+        return host
+
+    async def _update(self, plugin: _Plugin, manifest: PluginManifest, snapshot: Path | None, digest: str) -> None:
+        old = plugin.manifest
+        assert old is not None  # noqa: S101 - updates replace a loaded version
+        prepared = await self._prepare_version(plugin, manifest, snapshot)
+        if isinstance(prepared, str):
+            self._check_failed(
+                plugin, digest, prepared, event="upgrade_failed" if prepared == "upgrade_failed" else "check_failed"
+            )
+            return
+        old_snapshot, old_host = plugin.snapshot, plugin.host
+        family_changed = old.spec.family != manifest.spec.family
+        rebind = family_changed or _binding_fields(old) != _binding_fields(manifest)
+        try:
+            if rebind:
+                await self._unbind(plugin)
+            if family_changed:
+                await self._unregister(plugin, old)
+            plugin.manifest, plugin.snapshot, plugin.host = manifest, snapshot, prepared
+            if old.declaration_digest != manifest.declaration_digest:
+                await self._register(plugin)
+            self._sync_registry()
+            if rebind:
+                await self._bind(plugin)
+        except Exception as error:
+            await self._abandon(plugin, manifest, prepared, digest, error)
+            if old_host is not None:
+                self._spawn(self._retire(old_host, old_snapshot))
+            return
+        if old_snapshot is not None:
+            self.retain(old_snapshot, old.spec.timeout_seconds)
+        if old_host is not None:
+            self._spawn(self._retire(old_host, old_snapshot))
+        plugin.activated_at = datetime.now(UTC)
+        plugin.last_check_failure = plugin.failed_digest = None
+        self._event(plugin, "updated")
+
+    async def _abandon(
+        self, plugin: _Plugin, manifest: PluginManifest, prepared: PluginHost | None, digest: str, error: Exception
+    ) -> None:
+        """Registering the new declaration failed after the old one was released: unload the plugin."""
+
+        if prepared is not None:
+            await prepared.close()
+        await self._unregister(plugin, manifest)
+        plugin.manifest = plugin.snapshot = plugin.host = None
+        self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
+        self._sync_registry()
+
+    async def _remove(self, plugin: _Plugin) -> None:
+        manifest = plugin.manifest
+        if manifest is None:
+            return
+        await self._unbind(plugin)
+        await self._unregister(plugin, manifest)
+        host, snapshot = plugin.host, plugin.snapshot
+        plugin.manifest = plugin.host = None
+        self._sync_registry()
+        if snapshot is not None:
+            self.retain(snapshot, manifest.spec.timeout_seconds)
+        if host is not None:
+            self._spawn(self._retire(host, snapshot))
+        self._event(plugin, "removed")
+
+    async def _retire(self, host: PluginHost, snapshot: Path | None) -> None:
+        """Let the old version's calls finish within their limits, then stop its processes."""
+
+        if snapshot is not None:
+            self._retiring[snapshot] = self._retiring.get(snapshot, 0) + 1
+        try:
+            await host.retire()
+        finally:
+            if snapshot is not None:
+                self._retiring[snapshot] -= 1
+
+    def _spawn(self, coroutine: Any) -> None:
+        task = asyncio.create_task(coroutine)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    def _registry(self) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]]:
+        loaded = [plugin.manifest for plugin in self.plugins.values() if plugin.manifest is not None]
+        families = tuple(sorted(manifest.spec.family for manifest in loaded))
+        bindings = tuple(
+            (manifest.binding_name, manifest.spec.scopes, manifest.spec.inputs.source_types)
+            for manifest in loaded
+            if manifest.spec.inputs is not None
+        )
+        return families, bindings
+
+    def _sync_registry(self) -> None:
+        """Host processes read and write Sources like this process; tell them which plugins are loaded now."""
+
+        families, bindings = self._registry()
+        for plugin in self.plugins.values():
+            if plugin.host is not None:
+                plugin.host.update_registry(families, bindings)
+
+    def _host_spec(self, manifest: PluginManifest, directory: Path) -> PluginHostSpec:
+        families, bindings = self._registry()
+        if manifest.spec.family not in families:
+            families = tuple(sorted((*families, manifest.spec.family)))
+        return PluginHostSpec(
+            database=self.config,
+            directory=str(directory),
+            manifest=manifest.model_dump(mode="json"),
+            security=self.host_security_builder() if self.serve_requests else self.security_builder(),
+            inference=self.inference_config,
+            plugin_families=families,
+            source_bindings=bindings,
+            storage_root=self.storage_root,
+        )
 
     async def _ensure_supervisor(self) -> ArtifactProcessingSupervisors:
         if self.supervisor is None:
@@ -263,6 +622,8 @@ class PluginManager:
         return self.supervisor
 
     async def _register(self, plugin: _Plugin) -> None:
+        """Make the plugin's family, merges, Source types, and Source binding known in this process."""
+
         manifest = plugin.manifest
         if manifest is None:
             raise ValueError("plugin manifest is unavailable")  # noqa: TRY003
@@ -270,6 +631,8 @@ class PluginManager:
         await self._register_source_definitions(manifest)
         register_plugin_family(generate.family)
         if self.register_merge is not None:
+            if self.unregister_merge is not None:
+                self.unregister_merge(generate.family)
             self.register_merge(
                 plugin_merge_service(
                     generate.family,
@@ -278,10 +641,26 @@ class PluginManager:
                     metadata=revision_metadata(manifest.name, manifest.fingerprint),
                 )
             )
+        unregister_source_binding(manifest.binding_name)
+        if generate.inputs is not None:
+            scopes = None if generate.scopes is None else frozenset(generate.scopes)
+            register_source_binding(manifest.binding_name, scopes, frozenset(generate.inputs.source_types))
+
+    async def _unregister(self, plugin: _Plugin, manifest: PluginManifest) -> None:
+        # Source Definition manifests stay registered: stored Sources refer to them.
+        unregister_plugin_family(manifest.spec.family)
+        if self.unregister_merge is not None:
+            self.unregister_merge(manifest.spec.family)
+        unregister_source_binding(manifest.binding_name)
+
+    async def _bind(self, plugin: _Plugin) -> None:
+        """Register the plugin's background generation with the Supervisor."""
+
+        manifest = plugin.manifest
+        assert manifest is not None  # noqa: S101 - only loaded plugins bind
+        generate = manifest.spec
         scopes = None if generate.scopes is None else frozenset(generate.scopes)
         inputs = generate.inputs
-        if inputs is not None:
-            register_source_binding(manifest.binding_name, scopes, frozenset(inputs.source_types))
         interval = None
         cron = None
         if inputs is not None:
@@ -299,21 +678,13 @@ class PluginManager:
         # Without a schedule or on_sources the plugin has no background generation and no binding.
         if not self.dispatch or (generate.schedule is None and not generate.on_sources):
             return
-        spec = PluginWorkerSpec(
-            database=self.config,
-            directory=str(plugin.directory),
-            manifest=manifest.model_dump(mode="json"),
-            security=self.security_builder(),
-            inference=self.inference_config,
-            storage_root=self.storage_root,
-        )
         supervisor = await self._ensure_supervisor()
         await supervisor.replace_binding(
             manifest.binding_name,
             ArtifactProcessingBinding(
                 binding_name=manifest.binding_name,
                 artifact_family=generate.family,
-                launcher=SpawnArtifactProcessingWorkerLauncher(partial(run_plugin_worker, spec)),
+                launcher=_VersionLauncher(self, plugin.name),
                 max_workers=generate.max_workers,
                 worker_timeout_seconds=generate.timeout_seconds,
                 automatic_processing_interval=interval,
@@ -332,6 +703,16 @@ class PluginManager:
             plugin.tasks.append(
                 asyncio.create_task(self._tick(manifest, generate.schedule.seconds), name=f"plugin-{plugin.name}")
             )
+
+    async def _unbind(self, plugin: _Plugin) -> None:
+        for task in plugin.tasks:
+            task.cancel()
+        await asyncio.gather(*plugin.tasks, return_exceptions=True)
+        plugin.tasks.clear()
+        manifest = plugin.manifest
+        if manifest is not None and self.dispatch and self.supervisor is not None:
+            # Removing a binding cancels its running Workers; their windows run again later.
+            await self.supervisor.replace_binding(manifest.binding_name, None)
 
     async def _register_source_definitions(self, manifest: PluginManifest) -> None:
         """Register the manifests of the plugin's Source Definitions; identical manifests are reused."""
@@ -376,6 +757,12 @@ class PluginManager:
 
     def get(self, name: str) -> PluginState:
         return self._plugin(name).state()
+
+    def openapi(self, name: str) -> dict[str, Any]:
+        manifest = self.loaded_manifest(name)
+        if manifest is None:
+            raise BaseValueNotFoundError("plugin", name)
+        return plugin_openapi(manifest)
 
     async def scopes(self, name: str, *, cursor: str | None, limit: int) -> PluginScopePage:
         """Per-Scope progress, read from the shared intent and cursor tables by any Server role."""
@@ -458,3 +845,82 @@ class PluginManager:
             if plugin.error is None and manifest is not None and manifest.spec.family == family:
                 return (manifest, plugin.host) if plugin.host is not None else None
         return None
+
+
+_ERRORS = {
+    "401": "The caller is not authenticated.",
+    "403": "The caller lacks the access the route requires.",
+    "404": "The plugin, route, or resource was not found.",
+    "413": "The request body exceeds the route's limit.",
+    "422": "The request or its content is invalid.",
+    "500": "The plugin failed.",
+    "503": "The plugin is temporarily unavailable.",
+    "504": "The plugin did not finish within the route's time limit.",
+}
+
+
+def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
+    """Describe the routes one plugin version declares; the plugin owns their compatibility."""
+
+    from powercontext.builtin.plugins.manifest import mcp_tool_name
+
+    error = {"$ref": "#/components/schemas/Error"}
+    paths: dict[str, dict[str, Any]] = {}
+    api = manifest.spec.api
+    for route in () if api is None else api.routes:
+        parameters = [
+            {"name": parameter, "in": "path", "required": True, "schema": {"type": "string"}}
+            for parameter in re.findall(r"{([A-Za-z_][A-Za-z0-9_]*)}", route.path)
+        ]
+        operation: dict[str, Any] = {
+            "operationId": mcp_tool_name(manifest.name, route.handler),
+            "parameters": parameters,
+            "x-powercontext-access": {
+                "access": route.access,
+                **({} if route.scope_param is None else {"scope_param": route.scope_param}),
+            },
+            "responses": {
+                "200": {
+                    "description": "The handler's result.",
+                    "content": {"application/json": {"schema": route.response_schema or {}}},
+                },
+                "204": {"description": "The handler returned nothing."},
+                **{
+                    status: {"description": text, "content": {"application/json": {"schema": error}}}
+                    for status, text in _ERRORS.items()
+                },
+            },
+        }
+        if route.description is not None:
+            operation["description"] = route.description
+        if route.body == "json":
+            schema = route.request_schema or {}
+            operation["requestBody"] = {"required": True, "content": {"application/json": {"schema": schema}}}
+        elif route.body == "binary":
+            content = {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}
+            operation["requestBody"] = {"required": True, "content": content}
+        paths.setdefault(f"/v1/plugins/{manifest.name}/api{route.path}", {})[route.method.lower()] = operation
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": f"{manifest.name} plugin", "version": manifest.fingerprint[:12]},
+        "paths": paths,
+        "components": {
+            "schemas": {
+                "Error": {
+                    "type": "object",
+                    "required": ["error"],
+                    "properties": {
+                        "error": {
+                            "type": "object",
+                            "required": ["code", "message", "details"],
+                            "properties": {
+                                "code": {"type": "string"},
+                                "message": {"type": "string"},
+                                "details": {"type": ["object", "null"]},
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }

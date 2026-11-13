@@ -58,10 +58,38 @@ def register_plugin_family(family: str) -> None:
     register_plugin_artifact_family(family)
 
 
+def unregister_plugin_family(family: str) -> None:
+    """A removed plugin's family is no longer readable: its content usually lives in the plugin's storage."""
+
+    from powercontext.server.authz.profiles import unregister_plugin_artifact_family
+
+    _PLUGIN_FAMILIES.discard(family)
+    unregister_plugin_artifact_family(family)
+
+
 def register_source_binding(binding_name: str, scopes: frozenset[str] | None, source_types: frozenset[str]) -> None:
     """Let Source writes in this process mark the plugin's Scope invocation dirty."""
 
     _SOURCE_BINDINGS[binding_name] = (scopes, source_types)
+
+
+def unregister_source_binding(binding_name: str) -> None:
+    _SOURCE_BINDINGS.pop(binding_name, None)
+
+
+def replace_registrations(
+    families: tuple[str, ...], bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
+) -> None:
+    """Make this process's plugin families and Source bindings exactly the given ones."""
+
+    for family in _PLUGIN_FAMILIES - set(families):
+        unregister_plugin_family(family)
+    for family in families:
+        register_plugin_family(family)
+    for binding in set(_SOURCE_BINDINGS) - {name for name, _, _ in bindings}:
+        unregister_source_binding(binding)
+    for binding, scopes, source_types in bindings:
+        register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
 
 
 def source_bindings(scope_id: str) -> tuple[str, ...]:

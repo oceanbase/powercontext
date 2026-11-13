@@ -108,7 +108,7 @@ async def plugin_asset(request: Request, name: str, path: str) -> Response:
     if loaded is None or suffix not in ASSET_TYPES or not path or ".." in path.split("/"):
         return Response(status_code=404)
     plugin, manifest = loaded
-    root = (plugin.directory / manifest.spec.pages.directory).resolve()
+    root = (plugin.code_directory / manifest.spec.pages.directory).resolve()
     target = (root / path).resolve()
     # Symbolic links may not lead outside the pages directory.
     if not target.is_relative_to(root) or not target.is_file() or target.stat().st_size > MAX_ASSET_BYTES:

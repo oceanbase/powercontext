@@ -361,9 +361,12 @@ def create_server_app(  # noqa: C901
                     on_supervisor=bind_supervisor,
                     plugins_dir=resolved.plugins_dir,
                     register_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.register,
+                    unregister_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.unregister,
                     dispatch=dispatch_plugins,
                     inference_config=config.inference,
                     storage_root=powercontext_data_dir() / "plugins",
+                    snapshot_root=powercontext_data_dir() / "plugin-versions",
+                    rescan_seconds=resolved.plugins_rescan_seconds,
                     # Host processes authorize callers in every role that serves requests.
                     host_security_builder=lambda: build_worker_security(
                         resolved,
