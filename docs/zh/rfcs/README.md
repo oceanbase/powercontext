@@ -68,7 +68,7 @@ RFC 是长期保留的公开设计记录。它的动机和每一条引用都必�
 uv run python scripts/check_public_content.py --all
 ```
 
-检查脚本只精确匹配内网主机名，因此 `*.internal.example`、`host.docker.internal` 这类合法的本地示例不会误报。外部名称无法机械匹配，仍需人工通读两个语种。
+检查脚本只匹配 `scripts/check_public_content.py::INTERNAL_HOST_SUFFIXES` 中固定的内网主机后缀清单（`antfin.com`、`alibaba-inc.com`、`alipay-inc.com`、`aliyun-inc.com`），因此 `*.internal.example`、`host.docker.internal` 这类合法的本地示例不会误报。其它内网域名、私有文档 ID、公开域名上的 SSO 私有空间无法机械识别；这些以及所有外部名称仍需人工通读两个语种。
 
 以上规则适用于整个仓库，参见 [CONTRIBUTING.md](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md) 的 "Write Documentation" 章节。
 

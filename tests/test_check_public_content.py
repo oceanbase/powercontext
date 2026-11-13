@@ -32,11 +32,11 @@ def run_checker(*paths: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def internal_url(host: str) -> str:
+def internal_url(host: str, suffix: str = "/requirements/doc") -> str:
     # Build the URL at runtime so this test file does not contain an intranet
     # link that the checker itself (or `prek run -a`) would flag.
     scheme = "https"
-    return f"{scheme}://{host}/requirements/doc"
+    return f"{scheme}://{host}{suffix}"
 
 
 def test_rejects_intranet_document_url(tmp_path: Path) -> None:
@@ -67,6 +67,37 @@ def test_rejects_every_configured_intranet_domain(tmp_path: Path) -> None:
     assert result.stderr.count("internal document URL is not allowed") == 4
 
 
+def test_rejects_intranet_url_next_to_cjk_punctuation_or_inline_code(tmp_path: Path) -> None:
+    # A bare URL (no path) is where the host capture used to absorb the
+    # following delimiter. Chinese docs and Markdown inline code are common
+    # in this repository, so all of these must be rejected.
+    url = internal_url("yuque.antfin.com", suffix="")
+    # Full-width delimiters are written as escapes: Ruff RUF001 flags those
+    # characters as ambiguous inside string literals, but the checker must
+    # still see the real Unicode characters at runtime.
+    lines = [
+        f"- 见 {url}\u3002",
+        f"- 见 {url}\uff0c然后是其它内容",
+        f"- 见 {url}\uff1b",
+        f"- \uff08见 {url}\uff09",
+        f"- 见\u3010{url}\u3011",
+        f"- 见\u201c{url}\u201d",
+        f"- see `{url}` for details",
+        f"| {url} | notes |",
+        f"- see {url}.",
+        f"- see {url}, next",
+    ]
+    doc = tmp_path / "punctuation.md"
+    doc.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    result = run_checker(doc)
+
+    assert result.returncode == 1
+    assert result.stderr.count("internal document URL is not allowed") == len(lines)
+    for number in range(1, len(lines) + 1):
+        assert f"punctuation.md:{number}:" in result.stderr
+
+
 def test_accepts_public_links_bare_domains_and_local_examples(tmp_path: Path) -> None:
     doc = tmp_path / "rules.md"
     doc.write_text(
@@ -78,6 +109,8 @@ def test_accepts_public_links_bare_domains_and_local_examples(tmp_path: Path) ->
             "- Local example: http://powercontext.internal.example:8765",
             "- Docker example: http://host.docker.internal:8000",
             "- Lookalike public host: https://notantfin.com/docs",
+            "- Chinese punctuation next to a public link: 见 https://github.com/oceanbase/powercontext。",
+            "- Inline code around a public link: 见 `https://github.com/oceanbase/powercontext` 的说明。",
         ])
         + "\n",
         encoding="utf-8",

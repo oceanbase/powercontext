@@ -43,7 +43,12 @@ INTERNAL_HOST_SUFFIXES = (
     "aliyun-inc.com",
 )
 MAX_FILE_BYTES = 4 * 1024 * 1024
-URL_RE = re.compile(r"https?://([^\s/<>\"'()\[\]{},;]+)", re.IGNORECASE)
+# Only URL-authority characters belong in the host capture. A permissive
+# "anything but ASCII punctuation" class also swallows CJK punctuation,
+# full-width brackets or quotes, and Markdown backticks, which commonly follow
+# a bare URL in Chinese docs and inline code. Those characters would become
+# part of the host and defeat the suffix check, silently accepting the link.
+URL_RE = re.compile(r"https?://([A-Za-z0-9._:@-]+)", re.IGNORECASE)
 
 
 def is_internal_host(host: str) -> bool:
