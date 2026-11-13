@@ -151,6 +151,13 @@ class DashboardAPI:
         except Exception as error:
             raise ReadError.from_exception(error) from error
 
+    async def source_directory(self, scope, *, limit, cursor=None):
+        """Read the same Source collection for processing and generation evidence."""
+        if self.builtin is not None:
+            return await self.project(scope, "source_directory", limit=limit, cursor=cursor)
+        url = httpx.URL(f"/v1/scopes/{segment(scope)}/sources", params={"limit": limit})
+        return await self.read(str(url.copy_add_param("cursor", cursor) if cursor else url))
+
     async def project(self, scope, operation, **params):
         """Finish the same authorization and audit lifecycle for bounded built-in projections."""
         from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit

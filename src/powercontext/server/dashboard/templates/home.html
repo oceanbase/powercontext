@@ -15,6 +15,7 @@ limitations under the License.
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/artifact-type.html' import artifact_type %}
 {% from 'components/section-heading.html' import section_heading %}
 <div class="home-view">
 {{ page_heading(data.title, data.summary) }}
@@ -49,7 +50,7 @@ limitations under the License.
     <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.home_activity_result }}</th><th scope="col">{{ t.home_activity_input }}</th></tr></thead>
     <tbody>{% for item in home_activity[:3] %}<tr>
       <td><time>{{ item.at|display_time }}</time></td>
-      <td>{% if item.state %}<span class="badge {{ item.badge }}">{{ item.state }}</span>{% endif %}{% if item.subtitle %}<div class="text-secondary small mt-1">{{ item.subtitle }}</div>{% endif %}</td>
+      <td><div class="d-flex flex-wrap gap-1">{% for family in item.artifact_families or [] %}<span class="badge bg-green-lt">{{ artifact_type(family) }}</span>{% else %}<span class="text-secondary">{{ 'Unknown' if item.artifact_families is none else 'None' }}</span>{% endfor %}</div></td>
       <td><a class="home-processing-input" href="{{ item.url }}">{{ item.title|truncate(180,true) }}</a></td>
     </tr>{% endfor %}</tbody>
   </table></div>

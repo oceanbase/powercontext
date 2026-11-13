@@ -18,16 +18,11 @@ limitations under the License.
 {% from 'components/pagination.html' import pagination %}
 <div class="processing-view">
   <style>
-    me .processing-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); gap: 1.25rem; }
-    me .processing-grid > * { min-width: 0; }
-    me .processing-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: 1rem; }
-    me .processing-preview { max-width: 45rem; overflow-wrap: anywhere; }
     me .processing-reference { overflow-wrap: anywhere; }
     me .processing-document + .processing-document { border-top: 1px solid var(--tblr-border-color); padding-top: 1rem; margin-top: 1rem; }
     me .processing-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .75rem 1rem; }
     me .processing-facts dt { font-weight: normal; color: var(--tblr-secondary-color); }
     me .processing-facts dd { margin: 0; overflow-wrap: anywhere; }
-    @media (max-width: 991px) { me .processing-grid { grid-template-columns: minmax(0, 1fr); } }
 
     me .processing-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.25rem; }
     me .processing-step { border: 1px solid var(--tblr-border-color); border-radius: .65rem; background: var(--tblr-bg-surface); overflow: hidden; }
@@ -40,70 +35,23 @@ limitations under the License.
     me .processing-step:nth-child(3) .processing-step-heading { background: color-mix(in srgb, var(--tblr-primary) 18%, var(--tblr-bg-surface)); }
     me .processing-step-body { padding: 1.25rem; }
     me .processing-step .processing-outcome { border: 0; border-radius: 0; padding: 0; }
-    me .processing-step .processing-verdict { font-size: 1.25rem; }
-    me .processing-step .processing-body { font-size: 1rem; }
-    me .processing-step .processing-answer-section { margin-top: 1rem; }
-    me .processing-step .processing-result-header { display: none; }
-    me .processing-step .processing-memory-body { font-size: 1rem; }
     me .processing-output-entry { padding: 1rem 0; }
     me .processing-output-entry:first-child { padding-top: 0; }
     me .processing-output-entry:last-child { padding-bottom: 0; }
     me .processing-output-entry + .processing-output-entry { border-top: 1px solid var(--tblr-border-color); }
-    me .processing-output-entry-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .75rem; }
-    me .processing-output-entry-heading a { font-size: .875rem; }
     me .processing-output-text { margin: .75rem 0 0; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
     me .processing-reading { max-width: 960px; margin-inline: auto; padding-top: .5rem; }
     me .processing-back { display: inline-block; margin: 0 0 1.5rem; font-size: .875rem; }
     me .processing-outcome { padding: 2rem 2.25rem; background: var(--tblr-bg-surface); border: 1px solid var(--tblr-border-color); border-radius: 10px; }
-    me .processing-result-header { display: flex; align-items: center; gap: .875rem; margin-bottom: 1rem; }
-    me .processing-eyebrow { color: var(--tblr-secondary-color); font-size: .8125rem; font-weight: 600; }
-    me .processing-verdict { margin: 0; color: var(--tblr-body-color); font-size: 2rem; font-weight: 700; line-height: 1.35; letter-spacing: -.025em; overflow-wrap: anywhere; }
-    me .processing-answer-section { margin-top: 1.75rem; }
     me .processing-section-title { margin: 0 0 .75rem; font-size: 1rem; font-weight: 650; color: var(--tblr-body-color); line-height: 1.5; }
-    me .processing-body { margin: 0 0 .75rem; font-size: 1.0625rem; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
-    me .processing-body:last-child { margin-bottom: 0; }
     me .processing-caption { margin-bottom: 0; color: var(--tblr-secondary-color); font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
-    me .processing-batch-note { margin-top: .75rem; }
-    me .processing-memory-result { border-left: 3px solid var(--tblr-primary); padding: .25rem 0 .25rem 1.25rem; }
-    me .processing-memory-result + .processing-memory-result { margin-top: 1.5rem; }
-    me .processing-result-action { display: inline-block; margin-bottom: .5rem; color: var(--tblr-secondary-color); font-size: .8125rem; }
-    me .processing-memory-body { margin: 0 0 1rem; font-size: 1.125rem; font-weight: 400; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
-    me .processing-result-link { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
-    me .processing-source-reading { padding: 1.75rem 2.25rem; margin-top: 1.25rem; }
     me .processing-input-body { margin: 0; border-left: 3px solid var(--tblr-border-color); padding: .25rem 0 .25rem 1.25rem; color: var(--tblr-body-color); font-size: 1.0625rem; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
     me .processing-record-details { border-top: 1px solid var(--tblr-border-color); margin-top: 1.75rem; padding-top: 1rem; }
-    me .processing-record-details > summary, me .processing-secondary-disclosure > summary, me .processing-more > summary { color: var(--tblr-secondary-color); font-size: .875rem; cursor: pointer; }
-    me .processing-secondary-disclosure { padding: 1.25rem 2.25rem; border-top: 1px solid var(--tblr-border-color); }
+    me .processing-record-details > summary, me .processing-more > summary { color: var(--tblr-secondary-color); font-size: .875rem; cursor: pointer; }
     me .processing-details-body { margin-top: 1.25rem; color: var(--tblr-secondary-color); font-size: .8125rem; line-height: 1.8; overflow-wrap: anywhere; }
-    me .processing-detail-label { margin: 1.25rem 0 .5rem; font-size: .875rem; font-weight: 600; }
-    me .processing-reference-list { padding-left: 1.25rem; overflow-wrap: anywhere; }
-    me .processing-older-attempts { margin-top: 1.25rem; padding-left: 1.25rem; border-left: 2px solid var(--tblr-border-color); }
-    me .processing-past-attempt + .processing-past-attempt { border-top: 1px solid var(--tblr-border-color); padding-top: 1.5rem; margin-top: 1.5rem; }
-    me .processing-attempt-title { margin: 0 0 .5rem; font-size: 1.25rem; font-weight: 600; line-height: 1.5; }
     me .processing-more { margin-top: 1rem; }
-    me .overview-number { font-size: 2.25rem; font-weight: 650; line-height: 1.2; letter-spacing: -.02em; margin: .35rem 0; }
-    me .overview-unit { font-size: 1rem; font-weight: 400; color: var(--tblr-secondary-color); }
-    me .overview-funnel { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1rem; }
-    me .overview-funnel > li { flex: 1 1 8rem; min-width: 0; display: grid; padding: 0; background: var(--tblr-bg-surface-secondary); border-radius: .5rem; }
-    me .overview-funnel > li.overview-arrow { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; justify-content: center; background: none; color: var(--tblr-secondary-color); padding: 0 .15rem; }
-    me .overview-funnel a { display: grid; gap: .5rem; padding: 1rem .75rem; color: inherit; text-decoration: none; border-radius: .5rem; height: 100%; }
-    me .overview-funnel a:hover { background: var(--tblr-primary-lt); }
-    me .overview-funnel .overview-unknown { font-size: 1rem; align-self: center; }
-    me .overview-funnel span { font-size: .8125rem; color: var(--tblr-secondary-color); }
-    me .overview-funnel strong { font-size: 1.5rem; line-height: 1.1; }
-    me .overview-funnel small { font-size: .75rem; color: var(--tblr-secondary-color); }
-    me .overview-attention { list-style: none; padding: 0; margin: 0; display: grid; }
-    me .overview-attention > li + li { border-top: 1px solid var(--tblr-border-color); margin-top: 1rem; padding-top: 1rem; }
-    me .overview-attention > li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .9rem; align-items: start; }
-    me .overview-attention > li > a { white-space: nowrap; }
     @media (max-width: 575px) {
-      me .overview-funnel { display: grid; grid-template-columns: minmax(0, 1fr); }
-      me .overview-funnel > li.overview-arrow { display: none; }
-      me .overview-attention > li { grid-template-columns: auto minmax(0, 1fr); }
-      me .overview-attention > li > a { grid-column: 2; }
       me .processing-outcome { padding: 1.5rem 1.25rem; }
-      me .processing-verdict { font-size: 1.75rem; }
-      me .processing-source-reading, me .processing-secondary-disclosure { padding: 1.25rem; }
       me .processing-facts { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
       me .processing-facts dd { margin-bottom: .75rem; }
     }
@@ -116,34 +64,15 @@ limitations under the License.
     me .processing-reading { font-size: .875rem; line-height: 1.8; }
     me .processing-reading-title { font-size: 1.5rem; line-height: 1.4; font-weight: 600; }
     me .processing-reading .processing-step-heading h2 { font-size: 1.25rem; line-height: 1.5; font-weight: 600; }
-    me .processing-reading .processing-history-title { display: inline; margin: 0; font-size: inherit; font-weight: inherit; line-height: inherit; }
-    me .processing-reading .processing-verdict,
-    me .processing-reading .processing-attempt-title { font-size: 1.125rem; line-height: 1.5; font-weight: 600; letter-spacing: normal; }
     me .processing-reading .processing-section-title { font-size: 1rem; line-height: 1.5; font-weight: 600; }
-    me .processing-reading .processing-output-label { margin: 0; font-size: 1.125rem; font-weight: 600; line-height: 1.5; }
     me .processing-reading h3.processing-section-title { font-size: 1.125rem; }
-    me .processing-reading .processing-detail-label { font-size: 1rem; }
-    me .processing-reading .processing-body,
-    me .processing-reading .processing-memory-body,
     me .processing-reading .processing-input-body,
-    me .processing-reading .processing-output-text,
-    me .processing-reading .processing-text { font-size: .875rem; line-height: 1.8; font-weight: 400; }
+    me .processing-reading .processing-output-text { font-size: .875rem; line-height: 1.8; font-weight: 400; }
     me .processing-reading .processing-caption,
-    me .processing-reading .processing-eyebrow,
     me .processing-reading .processing-details-body,
-    me .processing-reading .document-meta,
-    me .processing-reading .processing-result-action { font-size: .75rem; line-height: 1.7; }
+    me .processing-reading .document-meta { font-size: .75rem; line-height: 1.7; }
     me .processing-reading .processing-more > summary,
-    me .processing-reading .processing-record-details > summary,
-    me .processing-reading .processing-result-link .btn { font-size: .875rem; }
-    me .processing-reading .processing-answer-section { margin-top: 1.25rem; }
-    me .processing-step-body > .processing-outcome > .processing-answer-section:first-of-type { margin-top: 0; }
-    me .processing-reading .processing-secondary-disclosure { margin-top: 1.75rem; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--tblr-border-color); border-radius: 0; background: transparent; }
-    me .processing-history-entry .processing-attempt-title { margin-bottom: 0; }
-    me .processing-history-flow .processing-step-number { width: 1.5rem; height: 1.5rem; font-size: .75rem; }
-    me .processing-attempt-details .processing-input-body { font-size: inherit; line-height: 1.7; padding: .15rem 0 .15rem 1rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-    me .processing-reading .processing-older-attempts { margin-top: 1.25rem; padding: 0; border: 0; }
-    me .processing-reading .processing-result-header { margin-bottom: .75rem; }
+    me .processing-reading .processing-record-details > summary { font-size: .875rem; }
     me .processing-reading > .processing-outcome > h2.processing-section-title {
       margin: -2rem -2.25rem 1.25rem;
       padding: 1rem 2.25rem;
@@ -167,14 +96,15 @@ limitations under the License.
   {% if processing_source %}
     {% set source = processing_source %}
     <div class="processing-reading">
-      <a class="processing-back" href="{{ link(source_id=none) }}">← {{ t.processing_sources }}</a>
+      <a class="processing-back" href="{{ link(source_id=none, artifact_family=none, processing_artifacts_cursor=none, processing_artifacts_history=none) }}">← {{ t.processing_sources }}</a>
       <h1 class="processing-reading-title mb-4">{{ t.source_label }} #{{ source.position }}</h1>
       <section class="processing-outcome">
         <h2 class="processing-section-title">{{ t.source_original }}</h2>
-        <p class="processing-input-body">{{ source.preview }}</p>
+        <p class="processing-input-body">{{ source.text }}</p>
         {% if source.saved_at %}<p class="processing-caption mt-3">{{ t.processing_source_saved_time }} {{ source.saved_at|display_time }}</p>{% endif %}
       </section>
-      {% for family, refs in (source_artifacts or [])[:20]|groupby('family') %}
+      {% if request.query_params.get('artifact_family') %}<a class="d-inline-block mt-4" href="{{ link(artifact_family=none, processing_artifacts_cursor=none, processing_artifacts_history=none) }}">{{ t.processing_all_types }}</a>{% endif %}
+      {% for family, refs in (source_artifacts or [])|groupby('family') %}
       <section class="processing-outcome mt-4" id="artifact-{{ family }}">
         <h2 class="processing-section-title">{{ artifact_type(family) }}</h2>
         {% for ref in refs %}
@@ -193,6 +123,7 @@ limitations under the License.
         {% endfor %}
       </section>
       {% endfor %}
+      {% if processing_artifacts_pager %}{{ pagination(processing_artifacts_pager, t) }}{% endif %}
     </div>
   {% elif processing_run %}
     {% include 'components/dream-run-detail.html' %}

@@ -22,7 +22,7 @@ limitations under the License.
 <article class="reading-sheet">
   <div>
   <header class="reading-heading">
-    <a class="back-link d-block mb-4" href="{{ return_to or link('handoff') }}">← {{ t.usage_back if return_to_usage else t.back_handoffs }}</a>
+    <a class="back-link d-block mb-4" href="{{ return_to or link('handoff') }}">← {{ t.back_handoffs }}</a>
     <span class="method-type text-secondary small">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span>
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
       <h1>{{ data.handoff.objective }}</h1>

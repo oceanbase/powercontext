@@ -106,11 +106,10 @@ def render(
     if title_key == "processing":
         title_key = {
             "sources": "processing_sources_title",
-            "attempts": "processing_sources_title",
             "dreams": "processing_dream_tab",
         }.get(ctx["processing_kind"], "processing")
     elif title_key == "usage":
-        title_key = "usage_resources" if ctx["usage_tab"] == "resources" else "observation_usage"
+        title_key = "usage_resources"
     ctx["document_title"] = f"{ctx['t'][title_key]} · PowerContext"
     response = HTMLResponse(
         ENV.get_template(fragment if partial else full).render(plural=plural, **ctx),
@@ -174,7 +173,6 @@ def links(request: Request, ctx: dict[str, Any]):
                     "notes_revision_cursor",
                     "notes_history",
                     "note_state",
-                    "note_sort",
                     "skill_page",
                     "experience_page",
                     "experience_history",
@@ -187,22 +185,15 @@ def links(request: Request, ctx: dict[str, Any]):
                     "artifact_cursor",
                     "record_type",
                     "source_id",
+                    "artifact_family",
+                    "processing_artifacts_cursor",
+                    "processing_artifacts_history",
                     "run_id",
                     "run_status",
                     "processing_sources_cursor",
                     "processing_sources_history",
                     "processing_runs_cursor",
-                    "processing_attempts_cursor",
-                    "processing_attempts_history",
                     "processing_runs_history",
-                    "processing_day",
-                    "processing_period",
-                    "processing_start",
-                    "processing_end",
-                    "usage_cursor",
-                    "usage_history",
-                    "usage_id",
-                    "usage_kind",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:
@@ -316,7 +307,6 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
         "note_state": request.query_params.get("note_state", "active"),
-        "note_sort": "identity",
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -341,15 +331,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "inventory": None,
         "home_activity": [],
         "home_changes": [],
-        "usage_records": [],
-        "home_usage_records": [],
-        "usage_selected": None,
-        "usage_pager": None,
-        "usage_can_feedback": False,
-        "usage_feedback_id": "",
-        "usage_tab": "resources",
         "work_followup": [],
-        "processing_summaries": {},
         "selected_note": None,
         "requested_note": request.query_params.get("artifact") if page == "notes" else None,
         "notes_pager": None,
@@ -359,33 +341,20 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "related_sources": [],
         "source_record": None,
         "source": None,
-        "processing_kind": "overview",
-        "processing_overview": None,
-        "processing_coverage": None,
+        "processing_kind": "sources",
+        "processing_show_topic_status": False,
         "runtime_health": {},
         "runtime_configuration": None,
         "runtime_checked_at": None,
         "processing_status": None,
-        "processing_day": None,
-        "processing_period": request.query_params.get("processing_period", request.query_params.get("period", "7d")),
-        "processing_start": request.query_params.get("processing_start", ""),
-        "processing_end": request.query_params.get("processing_end", ""),
-        "processing_bounds": None,
-        "processing_order": "oldest",
         "processing_source": None,
         "processing_run": None,
         "processing_run_sources": [],
         "processing_items": [],
         "processing_pager": None,
-        "processing_summary": None,
-        "processing_summary_window": "7d",
         "source_artifacts": None,
-        "processing_history": None,
+        "processing_artifacts_pager": None,
         "processing_memory_previews": {},
-        "processing_results": {},
-        "processing_attempts_pager": {},
-        "note_processing": None,
-        "note_usage": None,
         "topic_memory_pager": None,
         "request_revision": request.query_params.get("revision"),
         "profile_history_view": request.query_params.get("view") == "history",
@@ -404,7 +373,6 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
     }
     if ctx["return_to"]:
         ctx["return_to"] = with_language(ctx["return_to"], ctx["language"])
-    ctx["return_to_usage"] = bool(ctx["return_to"] and ctx["return_to"].startswith("/dashboard/usage?"))
     ctx["link"] = links(request, ctx)
     return ctx
 
@@ -496,7 +464,6 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
         ctx["period"] not in {"today", "7d", "30d"}
         or ctx["method_kind"] not in {"experience", "skill"}
         or len(ctx["search_query"] or "") > (8192 if page == "notes" else 2000)
-        or ctx["note_sort"] not in {"identity", "recall_count"}
         or ctx["note_state"] not in {"active", "forgotten", "merged", "retired"}
     ):
         raise ReadError(422, "invalid_request")
@@ -861,9 +828,9 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
             if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
                 raise next(iter(ctx["errors"].values()))
         if page == "home" and ctx["scope_descriptor"]:
-            from powercontext.server.dashboard.processing import load_home_processing
+            from powercontext.server.dashboard.processing import load_topic_status
 
-            await load_home_processing(api, ctx)
+            await load_topic_status(api, ctx)
         if page == "methods" and ctx["scope_descriptor"]:
             from powercontext.server.dashboard.generation import load_generation
 

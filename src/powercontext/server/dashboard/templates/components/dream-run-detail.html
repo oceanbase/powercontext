@@ -65,7 +65,7 @@ limitations under the License.
       {% if run.target %}{% set destination = artifact_destination(run.target) %}<div class="processing-document"><strong>{{ t.processing_target }}</strong><div class="processing-reference">{% if destination %}<a href="{{ destination }}">{{ run.target.family }}/{{ run.target.artifact_id }}@{{ run.target.revision }}</a>{% else %}{{ run.target.family }}/{{ run.target.artifact_id }}@{{ run.target.revision }}{% endif %}</div></div>{% endif %}
       {% if manifest %}
         {% for ref in manifest.artifacts if ref != run.target %}{% set destination = artifact_destination(ref) %}<div class="processing-document processing-reference">{% if destination %}<a href="{{ destination }}">{{ t.get(ref.family,ref.family) }} · {{ ref.artifact_id }}@{{ ref.revision }}</a>{% else %}{{ ref.family }}/{{ ref.artifact_id }}@{{ ref.revision }}{% endif %}</div>{% endfor %}
-        {% for source in processing_run_sources %}<div class="processing-document processing-reference">{{ source.source_type }}/{{ source.source_id }}{% if source.source_type == 'content' %} <a href="{{ link(record_type='sources',run_status=none,processing_day=none,source_id=source.source_id,run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>{% endfor %}
+        {% for source in processing_run_sources %}<div class="processing-document processing-reference">{{ source.source_type }}/{{ source.source_id }}{% if source.source_type == 'content' %} <a href="{{ link(record_type='sources',run_status=none,source_id=source.source_id,run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>{% endfor %}
       {% endif %}
       <p class="mt-3">{{ t.processing_inputs_scope }}</p>
       <p class="mb-0">{{ t.processing_attempts_scope }}</p>

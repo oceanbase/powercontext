@@ -11,7 +11,7 @@
 
 """Bounded Scope projections over authoritative Artifact heads."""
 
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import and_, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.artifacts import with_artifact_content
@@ -237,7 +237,7 @@ async def revision_contents(connection, scope, family, artifact_id, revisions):
     )
 
 
-async def source_artifacts(connection, scope, source_id, *, limit):
+async def source_artifacts(connection, scope, source_id, *, limit, family=None, after=None):
     """Read bounded exact revision identities that directly cite one Content Source."""
     sources = ARTIFACT_LINEAGE_SOURCES_TABLE
     statement = (
@@ -251,4 +251,17 @@ async def source_artifacts(connection, scope, source_id, *, limit):
         .order_by(sources.c.family, sources.c.artifact_id, sources.c.revision.desc())
         .limit(limit)
     )
+    if family is not None:
+        statement = statement.where(sources.c.family == family)
+    if after is not None:
+        last_family, artifact_id, revision = after
+        statement = statement.where(
+            or_(
+                sources.c.family > last_family,
+                and_(sources.c.family == last_family, sources.c.artifact_id > artifact_id),
+                and_(
+                    sources.c.family == last_family, sources.c.artifact_id == artifact_id, sources.c.revision < revision
+                ),
+            )
+        )
     return [dict(row) for row in (await connection.execute(statement)).mappings()]

@@ -66,10 +66,10 @@ def _parameters(
 
 
 def _validate_history(params: dict[str, str]) -> None:
-    for key in ("cursor", "profile_cursor", "usage_cursor"):
+    for key in ("cursor", "profile_cursor"):
         if key in params and not 1 <= len(params[key]) <= 4096:
             raise ValueError
-    for key in ("handoff_history", "profile_history", "usage_history"):
+    for key in ("handoff_history", "profile_history"):
         if key not in params:
             continue
         history = json.loads(params[key])
@@ -88,21 +88,6 @@ def _validate_methods(params: dict[str, str]) -> None:
             raise ValueError
 
 
-def _validate_usage_return(params: dict[str, str]) -> None:
-    allowed = COMMON | {"view", "usage_id", "usage_kind", "usage_cursor", "usage_history"}
-    if params.keys() - allowed or params.get("view") != "records":
-        raise ValueError
-    if ("usage_id" in params) != ("usage_kind" in params):
-        raise ValueError
-    if "usage_id" in params and (
-        params["usage_kind"] not in {"preparation", "bootstrap"}
-        or not 1 <= len(params["usage_id"]) <= 64
-        or any(not 33 <= ord(char) <= 126 for char in params["usage_id"])
-    ):
-        raise ValueError
-    _validate_history(params)
-
-
 def collection_return(raw: str | None, scope: str, *, page: str | None = None) -> str | None:
     if not raw:
         return None
@@ -111,11 +96,6 @@ def collection_return(raw: str | None, scope: str, *, page: str | None = None) -
             path, params = _parameters(raw, METHODS_RETURN_MAX, backslash_values=frozenset({"q"}))
         else:
             path, params = _parameters(raw, 8192)
-        if path == "/dashboard/usage":
-            # A preparation can include another Scope's content. Returning to its
-            # origin grants no authority; the usage reader authorizes that Scope.
-            _validate_usage_return(params)
-            return path + "?" + urlencode(params)
         if params["scope"] != scope or (page and path != f"/dashboard/{page}"):
             return None
         if page == "methods":

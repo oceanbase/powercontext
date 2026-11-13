@@ -42,7 +42,7 @@ limitations under the License.
 {% if search_limited %}<p class="text-secondary">{{ t.notes_search_limit }}</p>{% endif %}
 {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% endif %}
 {% if not errors.get('notes') or data.notes or selected_note %}
-{% if record_only or return_to_usage %}<a class="d-inline-block mb-3" href="{{ return_to if return_to_usage else link('notes', artifact=none, revision=none, compare=none, notes_revision_cursor=none, fragment='') }}">← {{ t.usage_back if return_to_usage else t.notes_list }}</a>{% endif %}
+{% if record_only %}<a class="d-inline-block mb-3" href="{{ link('notes', artifact=none, revision=none, compare=none, notes_revision_cursor=none, fragment='') }}">← {{ t.notes_list }}</a>{% endif %}
 <div class="row row-cards">
   {% if not record_only or search_query %}<aside class="{{ 'col-12' if record_only else 'col-xl-4' }}">
   {% if record_only %}{% if search_query %}{{ search_form(t.search_notes, 8192, mode=search_mode) }}{% endif %}<details><summary class="mb-3">{{ t.note_search_results }}</summary>{% endif %}

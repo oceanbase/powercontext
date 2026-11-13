@@ -15,11 +15,9 @@ limitations under the License.
 -->
 <div class="processing-filter-toolbar">
   <span class="processing-filter-context">{{ data.title }} · UTC</span>
-  {% if processing_kind == 'attempts' %}{% with selected_period=processing_period, inline_processing_filters=true %}{% include 'components/period-picker.html' %}{% endwith %}{% endif %}
   <form class="processing-filter-form" method="get" action="/dashboard/processing" aria-label="{{ t.processing_filter_action }}">
-    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}"><input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="record_type" value="{{ processing_kind }}">{% include 'components/processing-period-fields.html' %}
-    <div class="processing-filter-field"><label for="run-status">{{ t.processing_filter_status }}</label><select class="form-select" id="run-status" name="run_status"><option value="">{{ t.processing_status_all }}</option>{% for status in (['queued','running','succeeded','failed'] if processing_kind == 'dreams' else ['started','succeeded','unsuccessful','failed','cancelled','conflict']) %}<option value="{{ status }}" {% if processing_status == status %}selected{% endif %}>{{ t.get('processing_' ~ ('status_' if processing_kind == 'dreams' else 'attempt_status_') ~ status,status) }}</option>{% endfor %}</select></div>
-    {% if processing_day %}<input type="hidden" name="processing_day" value="{{ processing_day }}">{% endif %}
+    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}"><input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="record_type" value="{{ processing_kind }}">
+    <div class="processing-filter-field"><label for="run-status">{{ t.processing_filter_status }}</label><select class="form-select" id="run-status" name="run_status"><option value="">{{ t.processing_status_all }}</option>{% for status in ['queued','running','succeeded','failed'] %}<option value="{{ status }}" {% if processing_status == status %}selected{% endif %}>{{ t.get('processing_status_' ~ status,status) }}</option>{% endfor %}</select></div>
     <button class="btn btn-primary" type="submit">{{ t.processing_filter_action }}</button>
   </form>
 </div>

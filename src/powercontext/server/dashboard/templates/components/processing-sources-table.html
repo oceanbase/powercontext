@@ -15,7 +15,7 @@ limitations under the License.
 -->
 {% from 'components/artifact-type.html' import artifact_type %}
 <div class="table-responsive" role="region" aria-label="{{ t.processing_sources }}" tabindex="0">
-<table class="processing-attempts-table processing-sources-table">
+<table class="processing-sources-table">
   <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.processing_table_status }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
   <tbody>{% for item in processing_items %}
     <tr class="processing-source-row">
@@ -23,7 +23,7 @@ limitations under the License.
       <td><span class="processing-source-id">{{ t.source_label }} #{{ item.position }}</span></td>
       <td><div class="processing-table-input">{{ item.preview }}</div></td>
       <td>{{ t.processing_source_content if item.source_type == 'content' else item.source_type }}</td>
-      <td><div class="d-flex flex-wrap gap-1">{% for family in item.artifact_families or [] %}<a class="badge bg-green-lt" data-artifact-family="{{ family }}" href="{{ link(source_id=item.source_id, fragment='artifact-' ~ family) }}">{{ artifact_type(family) }}</a>{% else %}<span class="text-secondary">{{ 'Unknown' if item.artifact_families is none else 'None' }}</span>{% endfor %}</div></td>
+      <td><div class="d-flex flex-wrap gap-1">{% for family in item.artifact_families or [] %}<a class="badge bg-green-lt" data-artifact-family="{{ family }}" href="{{ link(source_id=item.source_id, artifact_family=family, processing_artifacts_cursor=none, processing_artifacts_history=none, fragment='artifact-' ~ family) }}">{{ artifact_type(family) }}</a>{% else %}<span class="text-secondary">{{ 'Unknown' if item.artifact_families is none else 'None' }}</span>{% endfor %}</div></td>
       <td><a class="btn btn-sm btn-primary" href="{{ link(source_id=item.source_id) }}">{{ t.home_record_details }}</a></td>
     </tr>
   {% endfor %}</tbody>

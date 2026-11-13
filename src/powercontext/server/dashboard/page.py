@@ -142,9 +142,7 @@ async def _load_activity(snapshot, ctx, execution):
             {
                 "title": present_source(item)["preview"],
                 "at": item["saved_at"],
-                "state": ctx["t"]["processing_artifact_tag"] if item["has_artifact"] else "",
-                "badge": "bg-green-lt",
-                "subtitle": "",
+                "artifact_families": item.get("artifact_families"),
                 "url": ctx["link"]("processing", source_id=item["source_id"], record_type="sources"),
             }
             for item in directory["items"]
@@ -313,10 +311,6 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
         # Each detail, history and mutation keeps its own current authorization.
         # Finish the metadata snapshot before a transport adapter can make reads.
         if ctx["page"] == "processing":
-            if ctx["processing_source"]:
-                from powercontext.server.dashboard.processing import load_memory_previews
-
-                await load_memory_previews(api, ctx)
             return True
         if ctx["page"] == "review":
             from powercontext.server.dashboard.review import load_review

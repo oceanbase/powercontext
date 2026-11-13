@@ -15,11 +15,10 @@ limitations under the License.
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
-{% if page == 'usage' %}{{ page_heading(t.usage_resources if usage_tab == 'resources' else t.observation_usage) }}{% else %}{% include 'components/processing-heading.html' %}{% endif %}
-{% if page == 'usage' or (page == 'processing' and processing_kind == 'overview') %}
-{% set selected_period = processing_period if page == 'processing' else period %}
+{% if page == 'usage' %}
+{{ page_heading(t.usage_resources) }}
 <div class="observation-toolbar">
-  <span>{{ data.title }} · {{ processing_day if page == 'processing' and processing_day else t[selected_period] }} · UTC</span>
+  <span>{{ data.title }} · {{ t[period] }} · UTC</span>
   {% include 'components/period-picker.html' %}
 </div>
-{% endif %}
+{% else %}{% include 'components/processing-heading.html' %}{% endif %}

@@ -13,7 +13,6 @@
 
 import asyncio
 import json
-from urllib.parse import urlencode
 
 import httpx
 from pydantic import ValidationError
@@ -57,11 +56,7 @@ async def load_generation(api, request, ctx):
     options = []
     try:
         if kind == "source":
-            if api.builtin is not None:
-                result = await api.project(ctx["scope"], "source_directory", limit=PAGE_SIZE, cursor=cursor)
-            else:
-                params = {"limit": PAGE_SIZE, **({"cursor": cursor} if cursor else {})}
-                result = await api.read(f"/v1/scopes/{segment(ctx['scope'])}/sources?{urlencode(params)}")
+            result = await api.source_directory(ctx["scope"], limit=PAGE_SIZE, cursor=cursor)
             for item in result["items"]:
                 source = present_source(item)
                 options.append({

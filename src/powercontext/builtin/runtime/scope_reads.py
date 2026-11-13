@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -24,7 +25,7 @@ from powercontext.builtin.persistence.errors import InvalidStoredPayloadError
 from powercontext.builtin.persistence.revision_meta import meta_from_row
 from powercontext.builtin.persistence.statistics import decode_daily_usage
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
-from powercontext.builtin.records import InvalidBaseAccessRequestError
+from powercontext.builtin.records import InvalidBaseAccessRequestError, InvalidCursorError
 from powercontext.builtin.runtime.atomic_memory import ScopedAtomicMemory
 from powercontext.builtin.runtime.statistics import (
     RelationalScopedStatistics,
@@ -139,25 +140,6 @@ class ScopeReadSnapshot:
     async def scope(self):
         return await scope_reads.scope_header(self.connection, self.scope_id)
 
-    async def source_processing_directory(self, *, limit: int, after: int | None = None, context=None):
-        """Read one authorized Source page without reconstructing execution history."""
-        if type(limit) is not int or not 1 <= limit <= 20:
-            from powercontext.builtin.records import InvalidBaseAccessRequestError
-
-            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
-        await self._atomic.application.security.authorize(self.connection, self.scope_id, context, "read")
-        from powercontext.artifacts import ArtifactRef
-
-        result = await scope_reads.source_processing_directory(
-            self.connection, self.scope_id, self._records._sources, limit, after
-        )
-        for item in result["items"]:
-            for ref in item.pop("artifact_representatives"):
-                await self._atomic.application.security.authorize(
-                    self.connection, self.scope_id, context, "read", ArtifactRef.model_validate(ref)
-                )
-        return result
-
     async def usage(self, period: str, *, include_scope: bool = False):
         resolved = _resolve_period(StatisticsPeriod(period), _as_utc(self._as_of).date())
         estimator = self._statistics._token_estimator
@@ -271,15 +253,53 @@ class ScopeReadSnapshot:
                 continue
         return results
 
-    async def source_artifacts(self, source_id, *, limit=21, context=None):
+    async def source_artifacts(self, source_id, *, limit=20, family=None, cursor=None, context=None):
         from powercontext.artifacts import ArtifactRef
 
-        security = self._atomic.application.security
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
+        if family is not None and (not isinstance(family, str) or not family.strip() or len(family) > 128):
+            raise InvalidBaseAccessRequestError("family", "requires a nonblank Family of at most 128 characters")
+        application = self._atomic.application
+        security = application.security
         await security.authorize(self.connection, self.scope_id, context, "read")
-        refs = await scope_reads.source_artifacts(self.connection, self.scope_id, source_id, limit=limit)
-        for ref in refs:
+        bound = {
+            "endpoint": "dashboard_source_artifacts",
+            "version": 1,
+            "scope_id": self.scope_id,
+            "source_id": source_id,
+            "family": family,
+            "subject": security.subject(context),
+        }
+        raw = application.cursor.after_text(cursor, bound)
+        after = None
+        if raw:
+            try:
+                value = json.loads(raw)
+                if (
+                    not isinstance(value, list)
+                    or len(value) != 3
+                    or not all(isinstance(item, str) and item for item in value[:2])
+                    or type(value[2]) is not int
+                    or value[2] < 1
+                ):
+                    raise InvalidCursorError
+                after = tuple(value)
+            except ValueError as error:
+                raise InvalidCursorError from error
+        refs = await scope_reads.source_artifacts(
+            self.connection, self.scope_id, source_id, limit=limit + 1, family=family, after=after
+        )
+        items = refs[:limit]
+        for ref in items:
             await security.authorize(self.connection, self.scope_id, context, "read", ArtifactRef.model_validate(ref))
-        return refs
+        following = None
+        if len(refs) > limit:
+            last = items[-1]
+            following = application.cursor.encode(
+                bound, json.dumps([last["family"], last["artifact_id"], last["revision"]])
+            )
+        return {"items": items, "next_cursor": following}
 
     async def source_directory(self, *, limit=6, cursor=None, context=None):
         application = self._atomic.application
@@ -291,12 +311,20 @@ class ScopeReadSnapshot:
         }
         after = application.cursor.after_text(cursor, bound)
         if after and (not after.isascii() or not after.isdecimal() or len(after) > 20 or int(after) < 1):
-            from powercontext.builtin.records import InvalidCursorError
-
             raise InvalidCursorError
-        result = await self.source_processing_directory(
-            limit=limit, after=int(after) if after else None, context=context
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
+        await self._atomic.application.security.authorize(self.connection, self.scope_id, context, "read")
+        from powercontext.artifacts import ArtifactRef
+
+        result = await scope_reads.source_processing_directory(
+            self.connection, self.scope_id, self._records._sources, limit, int(after) if after else None
         )
+        for item in result["items"]:
+            for ref in item.pop("artifact_representatives"):
+                await self._atomic.application.security.authorize(
+                    self.connection, self.scope_id, context, "read", ArtifactRef.model_validate(ref)
+                )
         position = result["next_position"]
         return {
             "items": result["items"],

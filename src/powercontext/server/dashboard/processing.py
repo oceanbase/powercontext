@@ -106,7 +106,7 @@ async def load_run_previews(api, ctx, runs):
         await _load_memory_preview(api, ctx, ref)
 
 
-async def _load_topic_status(api, ctx) -> None:
+async def load_topic_status(api, ctx) -> None:
     try:
         ctx["processing_topic_status"] = await api.read(
             "/v1/topic-memory/processing/status", {"scope_id": ctx["scope"]}
@@ -130,16 +130,6 @@ def _validate_selection(kind, source_id, run_id, status):
         raise ReadError(422, "invalid_request")
 
 
-async def _source_directory(api, ctx, scope, cursor):
-    """Use the authorized projection when present, otherwise retain public Source browsing."""
-    if api.builtin is not None:
-        return await api.project(ctx["scope"], "source_directory", limit=PAGE_SIZE, cursor=cursor)
-    params = {"limit": PAGE_SIZE}
-    if cursor:
-        params["cursor"] = cursor
-    return await api.read(f"/v1/scopes/{scope}/sources?{urlencode(params)}")
-
-
 async def load_processing(api, request, ctx):
     kind = request.query_params.get("record_type") or ("dreams" if request.query_params.get("run_id") else "sources")
     if kind in {"overview", "attempts"}:
@@ -149,23 +139,34 @@ async def load_processing(api, request, ctx):
     status = (request.query_params.get("run_status") or None) if kind == "dreams" else None
     _validate_selection(kind, source_id, run_id, status)
     ctx["processing_show_topic_status"] = request.query_params.get("record_type") != "sources"
-    ctx.update(processing_kind=kind, processing_status=status, processing_order="newest")
+    ctx.update(processing_kind=kind, processing_status=status)
     ctx["artifact_destination"] = lambda ref: artifact_destination(ctx, ref)
     scope = segment(ctx["scope"])
     if kind == "sources":
-        await _load_topic_status(api, ctx)
+        if ctx["processing_show_topic_status"]:
+            await load_topic_status(api, ctx)
         if source_id is not None:
             ctx["processing_source"] = present_source(
                 await api.read(f"/v1/scopes/{scope}/sources/content/{segment(source_id)}")
             )
             if api.builtin is not None:
-                ctx["source_artifacts"] = await api.project(ctx["scope"], "source_artifacts", source_id=source_id)
+                result = await api.project(
+                    ctx["scope"],
+                    "source_artifacts",
+                    source_id=source_id,
+                    family=request.query_params.get("artifact_family"),
+                    cursor=request.query_params.get("processing_artifacts_cursor"),
+                )
+                ctx["source_artifacts"] = result["items"]
+                ctx["processing_artifacts_pager"] = cursor_links(
+                    request, ctx, "processing_artifacts", result["next_cursor"]
+                )
             await load_memory_previews(api, ctx)
             return
         family = "processing_sources"
         cursor = request.query_params.get(family + "_cursor")
         try:
-            result = await _source_directory(api, ctx, scope, cursor)
+            result = await api.source_directory(ctx["scope"], limit=PAGE_SIZE, cursor=cursor)
         except ReadError as error:
             ctx["errors"]["processing"] = error
             return
@@ -188,7 +189,3 @@ async def load_processing(api, request, ctx):
         ctx["processing_items"] = result["runs"]
         await load_run_previews(api, ctx, result["runs"])
     ctx["processing_pager"] = cursor_links(request, ctx, family, result.get("next_cursor"))
-
-
-async def load_home_processing(api, ctx):
-    await _load_topic_status(api, ctx)

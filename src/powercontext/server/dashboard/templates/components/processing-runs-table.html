@@ -30,7 +30,7 @@ limitations under the License.
           <div class="processing-table-input {{ 'mt-2' if not loop.first else '' }}">{% if preview and preview.title %}<strong>{{ preview.title|truncate(100,true) }}</strong>{% elif preview and preview.text %}{{ preview.text|truncate(140,true) }}{% else %}<span class="text-secondary">{{ t.get(ref.family, ref.family) }} · {{ t.revision }} {{ ref.revision }}</span>{% endif %}</div>
           {% endif %}{% endfor %}
           {% for source in sources %}{% if loop.index <= 2 %}
-          <div class="processing-table-input mt-2"><span class="text-secondary small">{{ t.source_label }} · {{ source.source_id|truncate(48,true) }}</span>{% if source.source_type == 'content' %} <a class="small" href="{{ link(record_type='sources',run_status=none,processing_day=none, source_id=source.source_id, run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>
+          <div class="processing-table-input mt-2"><span class="text-secondary small">{{ t.source_label }} · {{ source.source_id|truncate(48,true) }}</span>{% if source.source_type == 'content' %} <a class="small" href="{{ link(record_type='sources',run_status=none, source_id=source.source_id, run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>
           {% endif %}{% endfor %}
           {% set shown = [artifacts|length, 3]|min + [sources|length, 2]|min %}
           {% if artifacts|length + sources|length > shown %}<p class="small text-secondary mt-2 mb-0">{{ t.processing_attempt_more_inputs.format(count=artifacts|length + sources|length - shown) }}</p>{% endif %}
