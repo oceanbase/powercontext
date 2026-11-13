@@ -52,8 +52,8 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 | Experience | Partial | N/A | Partial | Partial | Missing | Missing |
 | Profile | Partial | N/A | Partial | Partial | Missing | Missing |
 | Skill | Partial | N/A | Partial | Partial | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Partial | Missing | Missing |
-| Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
+| Handoff | Partial | N/A | Partial | Partial | Partial | Missing |
+| Prompt | Partial | N/A | Partial | Partial | Partial | Missing |
 
 Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒度跟踪：
 
@@ -80,7 +80,7 @@ Topic Memory 的 operation 级覆盖：
 | Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。 |
 | Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
 
-Experience、Profile、Skill 与 Handoff 的 operation 级覆盖：
+Experience、Profile 与 Skill 的 operation 级覆盖：
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
@@ -88,9 +88,25 @@ Experience、Profile、Skill 与 Handoff 的 operation 级覆盖：
 | `profile.generate` | Business validation | Partial | 无效 Markdown 携带输入数量与原始校验异常类型，不暴露内容。 |
 | Experience / Skill typed generation | Output parsing | Partial | 无效 typed 结果使用共享 schema 映射；无法分类的 provider 细节保持 unknown。 |
 | Dream（`refine_experience`、`revise_profile`、`derive_skill`、`revise_skill`） | Generation / business validation | Partial | 捕获的 attempt 失败通过 `dream.attempt.failed` 记录，复用 worker/request 身份。证据超过上限、证据不可用或请求目标不受支持时，记录 `business_validation` 和失败位置。 |
-| `handoff.generate` | Business validation | Partial | objective、引用、rollover、字节上限违规均为无效输出，不是模型资源耗尽。 |
 | Publication / persistence | Persistence | Missing | 这些切片尚未分类全部存储入口。 |
 | Usage accounting | Usage accounting | Missing | 账务失败仍与处理结果分离。 |
+
+Handoff 与 Prompt 的 operation 级覆盖：
+
+| Operation | Stage | 状态 | 说明 |
+|---|---|---|---|
+| `handoff.generate` | Generation / output parsing / business validation | Partial | 显式 Prepare 和 Source 触发的生成均报告已知的 provider 和 schema 错误。目标、引用、rollover 和字节上限违规归为无效输出。证据不可用时记录校验阶段和失败位置。 |
+| `handoff.finalize` / `handoff.commit` | Business validation | Partial | 证据、Scope 和来源校验保留原有领域错误。版本冲突保留原有结果，省略存储故障原因。 |
+| `handoff.commit` | Persistence | Partial | Handoff 提交路径中的数据库驱动错误归为 `persistence` / `storage_failure`。 |
+| `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider 和 schema 错误沿用共享分类，无效示例结果归业务校验。生成示例不会保存 Prompt 版本。 |
+| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | Scope 管理写入操作报告已知的 Prompt 拒绝和数据库驱动错误，覆盖事务退出时的故障。其他 Prompt 写入路径尚未纳入。 |
+| Handoff / Prompt | Embedding | N/A | 这些处理路径不生成嵌入。 |
+| Handoff / Prompt | Usage accounting | Missing | 用量记账失败单独跟踪。 |
+
+上述入口每次操作失败最多记录一次 `artifact.operation.failed`。对相同 Family、操作、错误码和失败原因，每个进程在任意一秒内最多记录 16 条。
+日志沿用已有 Scope 和已绑定的请求或追踪标识。
+日志复用共享诊断字段，省略回溯、异常原文、SQL 和业务内容。证据不足时省略未知字段。
+日志不影响返回的错误、事务结果或重试行为。
 
 矩阵描述分类覆盖情况，不表示整个 issue 已完成。Dream 失败记录只包含有界诊断字段，不含异常文本或证据正文。
 持久化 run 结果和重试规则仍是权威状态；日志属于观测，不新增持久化失败历史。当前 durable block 分类只覆盖
@@ -105,9 +121,10 @@ Provider 的 `InferenceTimeoutError` 保留操作对应的 stage 和 `timeout` �
 ## 落地顺序
 
 1. 共享诊断契约、日志白名单字段、Worker 传播，以及 Memory / Atomic Memory 切片。
-2. Topic Memory：标注分阶段生成、索引/嵌入与持久化失败（本次变更）。
+2. Topic Memory：标注分阶段生成、索引/嵌入与持久化失败。
 3. Experience、Profile、Skill：标注生成输出校验与持久化入口。
-4. Handoff、Prompt：标注生成与发布失败，再补 usage accounting 分类并补全矩阵。
+4. Handoff、Prompt：标注生成与发布失败。
+5. 分类用量记账失败，并继续补齐矩阵中的其他缺口。
 
 新增 instrumentation 时，需要覆盖可观察行为：分类正确、跨真实 spawn Worker 传播、敏感值不出现，以及诊断
 失败不改变业务结果。
