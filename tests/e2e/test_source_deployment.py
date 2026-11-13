@@ -31,6 +31,11 @@ from tests.source_helpers import protected, requires_linux, wait_until
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples/source_plugins"
 DEPLOYMENT_TIMEOUT_SECONDS = 100
+# The detached manager binds an ephemeral port inside a spawned child. Reserve the
+# port immediately before that spawn: a port released while the Server polls for
+# readiness stays unowned for tens of seconds, during which a sibling xdist worker
+# can claim it and the manager exits before writing "ready" to its startup pipe.
+MANAGER_START_ATTEMPTS = 3
 
 
 @requires_linux
@@ -61,7 +66,10 @@ def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, r
                 ]
             }),
         )
-        server_port, manager_port = port(), port()
+        # The Server binds its port immediately; the detached manager only binds
+        # after readiness, so its port must be reserved at the last possible moment.
+        server_port = port()
+        manager_port = 0
         url = f"http://127.0.0.1:{server_port}"
         plugins = tmp_path / "plugins"
         plugins.mkdir()
@@ -89,7 +97,7 @@ def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, r
         environment["POWERCONTEXT_HOME"] = str(tmp_path / "home")
         entrypoint = str(Path(sys.executable).with_name("powercontext"))
 
-        async def cli(*args, success=True):
+        async def cli(*args, success=True, allow_failure=False):
             child = await asyncio.create_subprocess_exec(
                 entrypoint, *args, env=environment, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
@@ -99,6 +107,8 @@ def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, r
                 if child.returncode is None:
                     child.kill()
                     await child.wait()
+            if allow_failure:
+                return child.returncode, err.decode()
             if success:
                 assert child.returncode == 0, err.decode()
                 return json.loads(out)
@@ -106,17 +116,41 @@ def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, r
             return err.decode()
 
         manager_path = tmp_path / "manager.json" if remote else tmp_path / "deployment/manager.json"
-        if remote:
-            protected(
-                manager_path,
-                json.dumps({
-                    "server": {"url": url, "credential_file": str(tmp_path / "manager.token")},
-                    "deployment_id": "powercontext",
-                    "manager_id": "sources",
-                    "state_dir": str(tmp_path / "manager"),
-                    "port": manager_port,
-                }),
-            )
+
+        def manager_configuration(port_number):
+            return json.dumps({
+                "server": {"url": url, "credential_file": str(tmp_path / "manager.token")},
+                "deployment_id": "powercontext",
+                "manager_id": "sources",
+                "state_dir": str(tmp_path / "manager"),
+                "port": port_number,
+            })
+
+        def manager_process_log():
+            log_path = tmp_path / "manager" / "manager-process" / "process.log"
+            if not log_path.exists():
+                return "(no process.log was written)"
+            return log_path.read_text(errors="replace")[-2000:]
+
+        async def start_manager():
+            nonlocal manager_port
+            # Reserve the port at the last possible moment: the detached child binds
+            # it, so a port released before the Server readiness poll can be claimed
+            # by a sibling xdist worker. Retry only the startup race, and surface the
+            # child's log so a genuine startup defect is visible in CI output.
+            returncode, detail = 1, ""
+            for _ in range(MANAGER_START_ATTEMPTS):
+                manager_port = port()
+                protected(manager_path, manager_configuration(manager_port))
+                returncode, detail = await cli(
+                    "source", "manager", "start", "--config", str(manager_path), allow_failure=True
+                )
+                if returncode == 0 or "startup-failed" not in detail:
+                    break
+            if returncode != 0:
+                message = f"{detail}\n--- manager process.log ---\n{manager_process_log()}"
+                raise AssertionError(message)
+
         runtime_paths = []
         process = None
         with (tmp_path / "server.log").open("a") as log:
@@ -138,7 +172,7 @@ def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, r
             try:
                 process = await start_server()
                 if remote:
-                    await cli("source", "manager", "start", "--config", str(manager_path))
+                    await start_manager()
                 async with httpx.AsyncClient(
                     base_url=url, headers={"Authorization": "Bearer " + tokens["deployer"]}, timeout=65
                 ) as admin:
