@@ -66,7 +66,8 @@ from powercontext.server.settings import McpConfig, ServerSettings
 SCOPE = "project:langchain-middleware-test"
 MEMORY_TEXT = "Run database migrations before deploying the application."
 FINAL_ANSWER = "Apply the migrations first, then deploy the application."
-UNTRUSTED_LABEL = "untrusted historical evidence"
+# The middleware's marker, followed directly by the start of the Server's trust policy.
+CONTEXT_START = "PowerContext host-supplied context\n\nPowerContext prepared untrusted historical context.\n"
 EXPERIENCE_MARKER = "coralblueprint"
 STRUCTURED_ORDER = "migrate-first"
 
@@ -210,7 +211,7 @@ def test_middleware_injects_recall_without_persisting_it(tmp_path: Path) -> None
 
         system_texts = _system_texts(model.inputs[-1])
         assert len(system_texts) == 1
-        assert UNTRUSTED_LABEL in system_texts[0]
+        assert system_texts[0].startswith(CONTEXT_START)
         assert MEMORY_TEXT in system_texts[0]
         assert _system_texts(result["messages"]) == []
 
@@ -269,7 +270,7 @@ def test_middleware_injects_only_approved_experience(tmp_path: Path) -> None:
 
         system_texts = _system_texts(model.inputs[-1])
         assert len(system_texts) == 1
-        assert UNTRUSTED_LABEL in system_texts[0]
+        assert system_texts[0].startswith(CONTEXT_START)
         assert EXPERIENCE_MARKER in system_texts[0]
         assert '"kind":"experience"' in system_texts[0]
         assert '"artifact_ref"' in system_texts[0]
@@ -335,7 +336,7 @@ def test_middleware_captures_completed_turn_when_enabled(tmp_path: Path) -> None
         )
         assert len(record.sources) == 1
         assert record.sources[0].source_id.startswith("langchain-agent-turn-")
-        assert UNTRUSTED_LABEL not in captured.text
+        assert "PowerContext host-supplied context" not in captured.text
 
     _run(app, scenario)
 

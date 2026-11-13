@@ -12,6 +12,28 @@ and correlation semantics. [RFC 0046](../rfcs/0046_observability_foundations.md)
 For the Desktop host's process-local measurements and native safe export, use the separate
 [Desktop session observation contract](desktop-session-observations.md). It does not configure Server logging or tracing.
 
+## Read-only processing inspection
+
+`ProcessingStatusApplication` is a backend inspection layer, not a Dashboard or HTTP endpoint.
+Its caller must enforce the existing selected-Scope read authorization. It opens a consistent
+read snapshot under the Runtime lifecycle guard, without entering the usage-flushing scoped
+operation, dispatching work, invoking readiness or models, or materializing legacy diagnostics.
+
+| Path | Authoritative evidence | Interpretation |
+|---|---|---|
+| Memory / Atomic Memory, Experience, Profile Source windows | `SourceCursorRepository`, journal head | Input consumption only; positions and intent generations are different units. |
+| Invocation progress | Processing intents projected by `project_processing_observation` | Requested/handled and dirty/clean counters; acknowledgement does not prove publication. |
+| Topic Memory | Current cursor/head/target, budget, matching retained block and lease | Read-only frontier projection; legacy exhaustion has no invented block ID or failure timestamp. |
+| Dream paths, including tag revision | Family-filtered persisted runs and an independent pending query | Historical outcome and result reference; failure is not a current persistent block, and a running record does not prove a live executor. |
+| Executor visibility | `observe_scope` for the exact Scope and binding | Separate, timestamped process-local observation; absent after restart or with an external worker remains unavailable. |
+
+The latest ten Dream records are a bounded history window, not a count of pending work. Queries
+filter by operation or tag target Family before applying the limit. Pending work is queried
+independently so older queued runs cannot be hidden by recent successful runs. Source progress is
+not applicable for explicit-only Families; missing observations remain absent, not zero or healthy.
+No artifact-completion percentage is derived. The HTTP contract and Dashboard section/details
+presentation are separate deliverables and are not supplied by this inspection layer.
+
 ## Add an operational event
 
 Use a module logger and `powercontext._logging.log_safely`. Keep the message fixed and put approved diagnostic values

@@ -395,6 +395,7 @@ describe('optional host services', () => {
   it('registers nothing until both host services are available and disposes on unload', async () => {
     const effects: Array<() => void> = []
     const routeDisposer = vi.fn()
+    const register = vi.fn((_route: { path: string }) => routeDisposer)
     const inject = vi.fn((_deps: string[], callback: (host: unknown) => void) => callback({
       get: () => ({ get: () => ({ header: { cwd: '/workspace/repo' } }) }),
       effect: (factory: () => () => void) => {
@@ -402,7 +403,7 @@ describe('optional host services', () => {
         effects.push(dispose)
         return dispose
       },
-      webServer: { register: vi.fn(() => routeDisposer) },
+      webServer: { register },
       connection: connection(),
     }))
     const ctx = { inject, effect: vi.fn(), get: vi.fn() } as never
@@ -415,9 +416,10 @@ describe('optional host services', () => {
 
     registerStatusBridge(ctx, runtime)
     expect(inject).toHaveBeenCalledWith(['webServer', 'connection'], expect.any(Function))
-    expect(effects).toHaveLength(2)
+    expect(register.mock.calls.map(([route]) => route.path)).toEqual(['/powercontext/status', '/powercontext/dashboard'])
+    expect(effects).toHaveLength(3)
     for (const dispose of effects) dispose()
-    expect(routeDisposer).toHaveBeenCalledTimes(1)
+    expect(routeDisposer).toHaveBeenCalledTimes(2)
   })
 
   it('stays headless when the optional host services never arrive', () => {

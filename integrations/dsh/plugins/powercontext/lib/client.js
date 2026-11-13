@@ -596,6 +596,21 @@ const texts = {
 	"zh-CN": {
 		"status": "状态",
 		"diagnostics": "连接诊断",
+		"dashboard": "Dashboard",
+		"dashboardIntro": "在右侧面板查看现有 PowerContext 页面。",
+		"dashboardOpen": "打开 Dashboard",
+		"dashboardChecking": "正在检查 Dashboard…",
+		"dashboardNoSession": "暂无活动会话。可在外部浏览器查看 Dashboard；打开已有会话后再从这里进入右侧面板。",
+		"dashboardExternal": "在浏览器中打开",
+		"dashboardBridgeUnavailable": "无法检查 Dashboard。请确认 DSH 登录和插件 Host 接口后重试。",
+		"dashboardContainerUnavailable": "右侧 Browser 容器不可用。请确认当前会话和 DSH Browser 插件已启用。",
+		"dashboardLoopbackMismatch": "DSH Web 和 Dashboard 的本地地址不匹配，右侧面板无法保持登录。请使用相同的协议和主机名（例如都用 127.0.0.1，端口可以不同）。",
+		"dashboardDisabled": "Dashboard 未开启。请在 Server 配置中明确启用后重试；插件不会自动修改配置或重启服务。",
+		"dashboardAuthentication": "Dashboard 认证未通过。请检查 Server token；右侧页面的登录仍需手动完成。",
+		"dashboardServerUnavailable": "Server 或 Dashboard 路由不可达。检查 Server 启动日志；自定义认证 Provider 与 Dashboard 同时启用的组合不受支持，需由配置和日志确认。",
+		"dashboardLoadUnavailable": "Dashboard 返回了异常页面或状态。请检查 Server 和代理配置。",
+		"dashboardSessionUnavailable": "所选会话已不可用，请切换到有效会话后重试。",
+		"dashboardScopeUnresolved": "当前会话的 Scope 尚未解析。请检查工作目录绑定后重试。",
 		"language": "切换语言",
 		"refresh": "刷新状态",
 		"close": "关闭诊断",
@@ -676,6 +691,21 @@ const texts = {
 	"en": {
 		"status": "status",
 		"diagnostics": "Connection diagnostics",
+		"dashboard": "Dashboard",
+		"dashboardIntro": "View the existing PowerContext pages in the right panel.",
+		"dashboardOpen": "Open Dashboard",
+		"dashboardChecking": "Checking Dashboard…",
+		"dashboardNoSession": "No active conversation. You can view Dashboard in a separate browser; open an existing conversation to use the right panel here.",
+		"dashboardExternal": "Open in browser",
+		"dashboardBridgeUnavailable": "Could not check Dashboard. Verify the DSH sign-in and plugin Host route, then retry.",
+		"dashboardContainerUnavailable": "The right-panel Browser is unavailable. Check the current conversation and that the DSH Browser plugin is enabled.",
+		"dashboardLoopbackMismatch": "The local addresses differ, so Dashboard sign-in cannot persist in the DSH Web panel. Use the same scheme and hostname for both (for example, 127.0.0.1). Ports may differ.",
+		"dashboardDisabled": "Dashboard is off. Enable it explicitly in Server configuration, then retry; the plugin does not change configuration or restart Server.",
+		"dashboardAuthentication": "Dashboard authentication failed. Check the Server token; sign-in in the right panel remains manual.",
+		"dashboardServerUnavailable": "The Server or Dashboard route is unreachable. Check Server startup logs. Dashboard with a custom authentication provider is unsupported; confirm that cause from configuration and logs.",
+		"dashboardLoadUnavailable": "Dashboard returned an unexpected page or status. Check Server and proxy configuration.",
+		"dashboardSessionUnavailable": "The selected conversation is unavailable. Select a valid conversation and retry.",
+		"dashboardScopeUnresolved": "The current conversation's Scope is unresolved. Check its workspace binding, then retry.",
 		"language": "Change language",
 		"refresh": "Refresh status",
 		"close": "Close diagnostics",
@@ -844,6 +874,17 @@ const STATUS_STYLES = `
 .pc-icon-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 1px; }
 .pc-icon-button:disabled { opacity: .5; cursor: not-allowed; }
 .pc-panel-body { min-height: 0; overflow: auto; padding: 12px 14px 14px; overscroll-behavior: contain; }
+.pc-dashboard-entry { display: grid; gap: 9px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); }
+.pc-dashboard-intro { display: grid; gap: 2px; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; }
+.pc-dashboard-intro strong { color: var(--dsw-alias-label-primary, CanvasText); font-size: 13px; line-height: 18px; }
+.pc-dashboard-button { min-height: 36px; padding: 6px 12px; border: 0; border-radius: 8px; background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, CanvasText)); color: var(--dsw-alias-label-primary-inverted, Canvas); font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
+@media (hover: hover) { .pc-dashboard-button:not(:disabled):hover { background: var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary, CanvasText)); } }
+.pc-dashboard-button:not(:disabled):active { background: var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary, CanvasText)); transform: translateY(1px); }
+.pc-dashboard-button:disabled { opacity: .5; cursor: wait; }
+.pc-dashboard-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
+@media (pointer: coarse) { .pc-dashboard-button { min-height: 44px; } }
+.pc-dashboard-notice { margin: 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
+.pc-dashboard-entry a.pc-text-button { text-align: center; text-decoration: none; }
 .pc-summary { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); border-radius: 10px; background: var(--dsw-alias-bg-l2, rgba(127,127,127,.05)); }
 .pc-summary .pc-dot { position: static; margin-top: 5px; }
 .pc-summary-copy { min-width: 0; flex: 1; }
@@ -888,6 +929,87 @@ const STATUS_STYLES = `
   .pc-trigger, .pc-panel, .pc-icon-button, .pc-text-button { transition: none; }
 }
 `;
+
+//#endregion
+//#region src/dashboard-contract.ts
+const DASHBOARD_ROUTE = "/powercontext/dashboard";
+const DASHBOARD_SCHEMA = "powercontext.dsh-dashboard.v1";
+const STATES = new Set([
+	"available",
+	"disabled",
+	"authentication",
+	"server_unavailable",
+	"load_unavailable",
+	"session_unavailable",
+	"scope_unresolved"
+]);
+function parseDashboardPayload(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+	const item = value;
+	if (item.schema !== DASHBOARD_SCHEMA || !STATES.has(item.state)) return null;
+	const sessionId = item.session_id === null || typeof item.session_id === "string" ? item.session_id : void 0;
+	const scopeId = item.scope_id === null || typeof item.scope_id === "string" ? item.scope_id : void 0;
+	if (sessionId === void 0 || scopeId === void 0) return null;
+	const url = item.url;
+	if (item.state === "available") {
+		if (typeof url !== "string") return null;
+		try {
+			const parsed = new URL(url);
+			if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || !parsed.pathname.endsWith("/dashboard/home") || parsed.hash) return null;
+			if ([...parsed.searchParams.keys()].some((key) => key !== "scope")) return null;
+			const scopes = parsed.searchParams.getAll("scope");
+			if (scopes.length > 1 || scopes.length === 1 && !/^[a-zA-Z0-9_-]{1,128}$/.test(scopes[0])) return null;
+			if (scopes.length === 0 && scopeId !== null) return null;
+			if (scopes.length === 1 && scopes[0] !== scopeId) return null;
+		} catch {
+			return null;
+		}
+	} else if (url !== void 0) return null;
+	return {
+		schema: DASHBOARD_SCHEMA,
+		state: item.state,
+		...typeof url === "string" ? { url } : {},
+		session_id: sessionId,
+		scope_id: scopeId
+	};
+}
+
+//#endregion
+//#region src/ui/dashboard.ts
+const dashboardTextKey = {
+	available: "dashboardOpen",
+	disabled: "dashboardDisabled",
+	authentication: "dashboardAuthentication",
+	server_unavailable: "dashboardServerUnavailable",
+	load_unavailable: "dashboardLoadUnavailable",
+	session_unavailable: "dashboardSessionUnavailable",
+	scope_unresolved: "dashboardScopeUnresolved",
+	bridge_unavailable: "dashboardBridgeUnavailable"
+};
+function isLoopbackWebSite({ protocol, hostname }) {
+	return (protocol === "http:" || protocol === "https:") && (hostname === "localhost" || hostname === "localhost." || hostname === "[::1]" || /^127(?:\.\d+){3}$/.test(hostname));
+}
+/** Web's iframe needs a same-site context for the Dashboard's Strict session cookie. */
+function hasMismatchedLoopbackSite(dsh, dashboardUrl) {
+	const dashboard = new URL(dashboardUrl);
+	return isLoopbackWebSite(dsh) && isLoopbackWebSite(dashboard) && (dsh.protocol !== dashboard.protocol || dsh.hostname !== dashboard.hostname);
+}
+/** The browser reads a credential-free URL selected by the authenticated Host. */
+async function readDashboard(sessionId, fetcher = fetch, signal) {
+	const url = sessionId === void 0 ? DASHBOARD_ROUTE : `${DASHBOARD_ROUTE}?${new URLSearchParams({ session_id: sessionId })}`;
+	try {
+		const response = await fetcher(url, {
+			method: "GET",
+			headers: { Accept: "application/json" },
+			credentials: "same-origin",
+			signal
+		});
+		if (!response.ok) return { state: "bridge_unavailable" };
+		return parseDashboardPayload(await response.json()) ?? { state: "bridge_unavailable" };
+	} catch {
+		return { state: "bridge_unavailable" };
+	}
+}
 
 //#endregion
 //#region src/ui/client.tsx
@@ -1208,10 +1330,16 @@ function StatusPanel(props) {
 	const t = useText();
 	const [languageOpen, setLanguageOpen] = (0, react.useState)(false);
 	const languageRef = (0, react.useRef)(null);
-	const { wide, useSessions, useStatus, setSession, refresh } = props;
+	const { wide, useSessions, useStatus, setSession, refresh, openDashboard } = props;
 	const sessionId = useSessions((state$1) => activeSessionId(state$1));
 	const snapshot = useStatus((value) => value);
 	const [open, setOpen] = (0, react.useState)(false);
+	const [dashboardBusy, setDashboardBusy] = (0, react.useState)(false);
+	const [dashboardNotice, setDashboardNotice] = (0, react.useState)(null);
+	const [externalDashboard, setExternalDashboard] = (0, react.useState)(null);
+	const dashboardRequest = (0, react.useRef)(null);
+	const currentSession = (0, react.useRef)(sessionId);
+	currentSession.current = sessionId;
 	const [clockTick, setClockTick] = (0, react.useState)(() => Date.now());
 	const [anchor, setAnchor] = (0, react.useState)({
 		left: 12,
@@ -1225,6 +1353,49 @@ function StatusPanel(props) {
 	(0, react.useEffect)(() => {
 		setSession(sessionId);
 	}, [sessionId, setSession]);
+	(0, react.useEffect)(() => {
+		dashboardRequest.current?.abort();
+		dashboardRequest.current = null;
+		setDashboardBusy(false);
+		setDashboardNotice(null);
+		setExternalDashboard(null);
+	}, [sessionId]);
+	(0, react.useEffect)(() => () => {
+		dashboardRequest.current?.abort();
+	}, []);
+	const showDashboard = async () => {
+		dashboardRequest.current?.abort();
+		const request = new AbortController();
+		dashboardRequest.current = request;
+		const selected = sessionId;
+		setDashboardBusy(true);
+		setDashboardNotice(null);
+		setExternalDashboard(null);
+		const result = await readDashboard(selected, fetch, request.signal);
+		if (request.signal.aborted || currentSession.current !== selected) return;
+		dashboardRequest.current = null;
+		setDashboardBusy(false);
+		if (result.state !== "available" || result.url === void 0) {
+			setDashboardNotice(dashboardTextKey[result.state]);
+			return;
+		}
+		if (selected === void 0) {
+			setDashboardNotice("dashboardNoSession");
+			setExternalDashboard(result.url);
+			return;
+		}
+		if (hasMismatchedLoopbackSite(window.location, result.url)) {
+			setDashboardNotice("dashboardLoopbackMismatch");
+			setExternalDashboard(result.url);
+			return;
+		}
+		if (!openDashboard(result.url)) {
+			setDashboardNotice("dashboardContainerUnavailable");
+			setExternalDashboard(result.url);
+			return;
+		}
+		setOpen(false);
+	};
 	(0, react.useEffect)(() => {
 		if (!open) return;
 		const timer = window.setInterval(() => {
@@ -1463,6 +1634,37 @@ function StatusPanel(props) {
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: "pc-panel-body",
 					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+							className: "pc-dashboard-entry",
+							"aria-label": t("dashboard"),
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: "pc-dashboard-intro",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t("dashboard") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("dashboardIntro") })]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "pc-dashboard-button",
+									disabled: dashboardBusy,
+									onClick: () => {
+										showDashboard();
+									},
+									children: dashboardBusy ? t("dashboardChecking") : t("dashboardOpen")
+								}),
+								dashboardNotice !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: "pc-dashboard-notice",
+									role: "status",
+									children: t(dashboardNotice)
+								}),
+								externalDashboard !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+									className: "pc-text-button",
+									href: externalDashboard,
+									target: "_blank",
+									rel: "noopener noreferrer",
+									children: t("dashboardExternal")
+								})
+							]
+						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: `pc-summary pc-summary-${state}`,
 							role: "status",
@@ -1588,7 +1790,18 @@ function apply(ctx) {
 		inject: () => ({
 			hooks: { status: controller },
 			setSession: (sessionId) => controller.setSession(sessionId),
-			refresh: () => controller.refreshNow()
+			refresh: () => controller.refreshNow(),
+			openDashboard: (url) => {
+				const right = ctx.get("sidebarRight");
+				const tabs = ctx.get("sidebarRightTabs");
+				if (right === void 0 || tabs?.get("browser") === void 0) return false;
+				try {
+					right.openTab("browser", { params: { url } });
+					return true;
+				} catch {
+					return false;
+				}
+			}
 		})
 	}, PowerContextStatus));
 }
