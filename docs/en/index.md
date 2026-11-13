@@ -1,12 +1,12 @@
 ---
 title: PowerContext
-description: Keep project knowledge and active work available across people, agents, and sessions.
+description: Shared memory and session handoff service for coding agents. Keep project decisions, constraints, and task progress synced across Claude Code, Codex, and teammates.
 home:
   hero:
     title:
-      - Keep work moving
-      - across sessions.
-    lead: PowerContext keeps decisions, constraints, evidence, and current progress with the project. When a person or agent takes over, they can verify the state and continue without reconstructing the last conversation.
+      - Shared memory and handoff
+      - for your coding agents.
+    lead: PowerContext is a local context service that stores your project's decisions, constraints, verified checks, and task progress. Switch between Claude Code, Codex, or teammates and pick up directly from the latest state.
     action:
       label: Install and get started
       href: en/docs/get-started/quickstart/
@@ -76,11 +76,11 @@ home:
         - label: Next action
           value: Unblock signature check
   features:
-    title: The session ends before the work does.
-    lead: You make a decision, change the code, and stop before the task is complete. PowerContext keeps the useful context with the project so the next session can continue from the current state.
+    title: One project memory across every session.
+    lead: When a session ends mid-task, PowerContext keeps the decisions you made, the code state, and the next step ready for whichever agent takes over.
     scope: payments-api
     memory:
-      title: Decisions and constraints outlive the session, as revisions you can read back.
+      title: Project decisions and constraints stay saved as versioned revisions.
       label: The Dashboard's Memory list, with one entry open at its saved revision
       window: Memory
       revision_label: Revision
@@ -97,7 +97,7 @@ home:
           revision: 3
           state: active
         - id: m_p41x
-          title: The signing secret comes from the vault, never from .env
+          title: Read the signing secret exclusively from the vault
           revision: 1
           state: active
         - id: m_w8tz
@@ -118,7 +118,7 @@ home:
         - "Pull request #482 review"
         - Task Outcome · partial
     handoff:
-      title: The next session starts from the current state, not the whole transcript.
+      title: The next session starts from a structured handoff of the current state.
       label: A prepared Handoff listing the objective, verified progress, what is blocked and the next action
       window: Handoff
       ref: handoff/h_7c3d@3
@@ -132,7 +132,7 @@ home:
         - label: Next action
           value: Unblock signature check
     review:
-      title: What worked is reviewed before anyone reuses it.
+      title: Working fixes go through human review before entering shared memory.
       label: An Experience candidate in the Review Inbox, waiting for approval or rejection
       window: Review Inbox
       kind: Experience candidate
@@ -144,12 +144,12 @@ home:
         - label: Outcome
           value: 41 of 41 replays accepted
         - label: Lesson
-          value: Sign and verify bytes, not parsed JSON
+          value: Sign and verify raw request bytes directly
       approve: Approve
       reject: Reject
       approved: Approved as revision 1
     skill:
-      title: A reviewed procedure becomes a Skill, exported on purpose.
+      title: Approved workflows become reusable Skills exported to your agents.
       label: A managed Skill with its validation checks, approved revision and export target
       window: Skill
       name: replay-failed-webhooks
@@ -161,7 +161,7 @@ home:
       status: Approved · revision 2
       export: Exported to Codex
     recall:
-      title: Recall is bounded. Each turn gets a byte budget, not a dump.
+      title: Recall stays within a strict byte budget, injecting only relevant context each turn.
       label: A PreparedContext result showing how each section fills a shared byte budget
       window: PreparedContext
       status: ready
@@ -179,9 +179,9 @@ home:
           share: 10
   ecosystem:
     title:
-      - The work changes hands.
-      - The context stays.
-    lead: A task may start in one agent and continue in another. PowerContext keeps its knowledge, progress, and proven methods with the project so the next agent can pick up from the current state.
+      - Switch coding agents.
+      - Keep the full context.
+    lead: Start a feature in one coding agent and finish it in another. PowerContext keeps your project's memory, task progress, and approved skills in one shared server.
     docs_label: Open setup guide
     all_agents_label: View all supported agents
     status:
@@ -206,7 +206,7 @@ home:
         href: en/docs/develop/interfaces/
   proof:
     title: Measured on public benchmarks.
-    lead: Both results come from the published harness. The benchmarks page states the methods and where the numbers stop applying.
+    lead: Both results come from the published evaluation harness. The benchmarks page details the test methods and exact scope.
     stats:
       - value: 90.78%
         label: LoCoMo accuracy across 1,540 scored questions
@@ -223,8 +223,8 @@ home:
     play: Resume scrolling
     profile: "{name} on X"
   onboarding:
-    title: From installation to your first memory
-    lead: Start with a Server, configure the capabilities you need, then connect your Agent. The guide covers local use and access from another device.
+    title: From install to your first shared memory
+    lead: Run a local PowerContext server, enable the memory features you want, and connect your coding agents. Works locally on your machine or across devices.
     guide_label: Follow the complete guide
     copy_label: Copy command
     copied_label: Copied

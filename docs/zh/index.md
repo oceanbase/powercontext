@@ -1,12 +1,12 @@
 ---
 title: PowerContext
-description: 让项目知识和当前任务状态在人、Agent 与不同会话之间延续。
+description: 面向编程 Agent 的共享记忆与会话交接服务。让项目决定、约束和任务进度在 Claude Code、Codex 与团队成员之间持续同步。
 home:
   hero:
     title:
-      - 让工作跨会话
-      - 继续推进。
-    lead: PowerContext 把决定、约束、依据和当前进展留在项目中。换人、换 Agent 或换个会话时，可以直接核对当前状态并继续工作。
+      - 给编程 Agent 的
+      - 共享记忆与交接层。
+    lead: PowerContext 是本地运行的项目上下文服务，把架构决定、约束、验收依据和任务进度留在项目中。无论切换到 Claude Code、Codex 还是其他协作者，都能直接读取最新状态并接着开发。
     action:
       label: 安装并开始使用
       href: zh/docs/get-started/quickstart/
@@ -76,11 +76,11 @@ home:
         - label: 下一步
           value: 解决签名校验受阻
   features:
-    title: 会话结束了，工作还没有。
-    lead: 你做了决定、改了代码，但任务还没有完成。PowerContext 把有用的上下文留在项目中，让下一次接手从当前状态继续。
+    title: 每次会话结束，项目记忆继续留存。
+    lead: 哪怕任务中途结束会话，PowerContext 也会把你敲定的方案、代码进度和下一步动作留在项目中，方便下一位接手者直接推进。
     scope: payments-api
     memory:
-      title: 决定和约束不随会话消失，每一版都能回看。
+      title: 项目决定和约束按版本持久留存，每一版都能回看。
       label: Dashboard 的 Memory 列表，其中一条按保存的版本展开
       window: Memory
       revision_label: 版本
@@ -97,7 +97,7 @@ home:
           revision: 3
           state: active
         - id: m_p41x
-          title: 签名密钥从 Vault 读取，不写进 .env
+          title: 签名密钥统一从 Vault 读取，与 .env 隔离
           revision: 1
           state: active
         - id: m_w8tz
@@ -118,7 +118,7 @@ home:
         - "拉取请求 #482 的评审"
         - Task Outcome · 部分完成
     handoff:
-      title: 下一次会话从当前状态开始，不必重读整段对话。
+      title: 下一次会话直接承接结构化交接单，即刻从当前状态继续。
       label: 一份已准备的 Handoff，列出目标、已验证的进展、受阻项和下一步
       window: Handoff
       ref: handoff/h_7c3d@3
@@ -132,7 +132,7 @@ home:
         - label: 下一步
           value: 解决签名校验受阻
     review:
-      title: 有效的做法先经过审核，再被复用。
+      title: 验证有效的解法先经过审核，再沉淀为团队共享经验。
       label: 审核收件箱中的一条 Experience 候选，等待批准或拒绝
       window: 审核收件箱
       kind: Experience 候选
@@ -144,12 +144,12 @@ home:
         - label: 结果
           value: 41 次重放全部通过
         - label: 经验
-          value: 对字节签名和验签，不对解析后的 JSON
+          value: 直接对原始请求字节签名和验签
       approve: 批准
       reject: 拒绝
       approved: 已批准为第 1 版
     skill:
-      title: 审核通过的流程成为 Skill，需要时才导出。
+      title: 审核通过的流程封装为 Skill，按需导出给各个 Agent。
       label: 一个托管 Skill，包含校验检查、已批准的版本和导出目标
       window: Skill
       name: replay-failed-webhooks
@@ -161,7 +161,7 @@ home:
       status: 已批准 · 第 2 版
       export: 已导出到 Codex
     recall:
-      title: 召回有上限。每一轮拿到的是字节预算，不是全部历史。
+      title: 召回严格受控。每一轮只按字节预算注入最相关的上下文。
       label: 一次 PreparedContext 结果，显示各部分如何占用同一份字节预算
       window: PreparedContext
       status: ready
@@ -179,9 +179,9 @@ home:
           share: 10
   ecosystem:
     title:
-      - 工作换了 Agent，
-      - 上下文仍然延续。
-    lead: 一项任务可能从一个 Agent 开始，再交给另一个 Agent。PowerContext 把过程中形成的知识、进展和做法留在项目中，让下一位参与者从当前状态继续。
+      - 切换各类 Agent，
+      - 项目上下文始终延续。
+    lead: 一项任务可以从一个 Agent 开始，再交给另一个 Agent 完成。PowerContext 把项目记忆、任务进度和已审核的 Skill 统一保存在共享服务中，让下一位参与者直接接续。
     docs_label: 打开配置文档
     all_agents_label: 查看全部支持的 Agent
     status:
@@ -205,8 +205,8 @@ home:
         description: 组合你自己的 Source、Artifact 和 Trigger 实现。
         href: zh/docs/develop/interfaces/
   proof:
-    title: 在公开基准上测过。
-    lead: 两项结果都来自已公开的评测工具。评测页写明了方法，以及这些数字不再适用的边界。
+    title: 在公开基准上完成评测。
+    lead: 两项结果均来自公开的评测工具，评测页详细说明了测试方法与适用范围。
     stats:
       - value: 90.78%
         label: LoCoMo 准确率，共 1,540 个计分问题
@@ -223,8 +223,8 @@ home:
     play: 继续滚动
     profile: "{name} 的 X 主页"
   onboarding:
-    title: 从安装到第一条记忆
-    lead: 先部署 Server，通过向导选择所需能力，再接入 Agent。完整指南覆盖本机使用和从其他设备访问。
+    title: 从安装到保存第一条共享记忆
+    lead: 启动本地 PowerContext Server，通过向导开启所需记忆能力，再接入你的编程 Agent。同时支持本机使用与跨设备访问。
     guide_label: 按完整指南开始
     copy_label: 复制命令
     copied_label: 已复制
