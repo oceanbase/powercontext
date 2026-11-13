@@ -43,11 +43,6 @@ def memory_view(response: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             **item,
-            **(
-                {"recall_count": response["recall_counts"].get(item["artifact"]["artifact_id"], 0)}
-                if response.get("recall_counts") is not None
-                else {}
-            ),
             **item["artifact"],
             "note_key": f"atomic-memory/{item['artifact']['artifact_id']}@{item['artifact']['revision']}",
         }
@@ -105,18 +100,4 @@ def usage_view(usage: dict[str, Any], recall: dict[str, Any]) -> dict[str, Any]:
         "start": usage["period"]["start_date"],
         "end": usage["period"]["end_date"],
         "days": len(daily),
-    }
-
-
-def processing_summary(ctx, value):
-    state = value["state"]
-    label = ctx["t"]["processing_summary_" + state]
-    return {
-        **value,
-        "label": label,
-        "badge": "bg-red-lt"
-        if state == "failed"
-        else "bg-yellow-lt"
-        if state in {"unknown", "unconfirmed", "error"}
-        else "bg-secondary-lt",
     }

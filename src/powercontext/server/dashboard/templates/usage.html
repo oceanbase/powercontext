@@ -64,7 +64,7 @@ limitations under the License.
 {% if not usage_selected %}
 {% include 'components/observation-header.html' %}
 {% endif %}
-{% if usage_tab == 'records' %}{% include 'components/usage-records.html' %}{% else %}
+
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% else %}
 <section class="card usage-sheet">
   <div class="card-body">
@@ -95,5 +95,5 @@ limitations under the License.
 {% endif %}
 {% endif %}
 
-{% endif %}
+
 </div>

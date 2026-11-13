@@ -27,7 +27,7 @@ limitations under the License.
         <span class="text-truncate me-2">
           {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}
           <span class="d-block text-truncate">{{ item.text|truncate(48, true) }}</span>
-          <span class="note-recall-count d-block text-secondary small mt-2" title="{{ t.note_recall_basis }}">{{ t.note_recall_count.format(count=item.recall_count) if item.recall_count is defined and item.recall_count is not none else t.note_recall_unknown }}</span>{{ search_evidence(item, t) }}
+          {{ search_evidence(item, t) }}
         </span>
         <span class="accordion-button-toggle flex-shrink-0" aria-hidden="true"><img class="w-100 h-100" src="/dashboard/static/vendor/icons/chevron-down.svg" alt=""></span>
       </button>

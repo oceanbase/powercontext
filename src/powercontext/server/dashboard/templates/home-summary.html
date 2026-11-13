@@ -26,7 +26,7 @@ limitations under the License.
       {% endfor %}
     </div></div>
     <a href="{{ link('review',resource_type='all',review_status='pending') }}"><span>{{ t.home_pending_candidates }}</span><strong data-summary="pending">{{ inventory.candidates.pending }}</strong></a>
-    <a href="{{ link('usage',view='records') }}"><span>{{ t.home_context_preparations }}</span><strong>{{ stats.preparations if stats else t.home_unknown }}</strong><span class="small">{{ t[period] }}</span></a>
+    <a href="{{ link('usage',view='resources') }}"><span>{{ t.home_context_preparations }}</span><strong>{{ stats.preparations if stats else t.home_unknown }}</strong><span class="small">{{ t[period] }}</span></a>
   </div>
   {% if inventory.sources.total == 0 and inventory.artifacts.total == 0 %}<p class="text-secondary small mt-3 mb-0">{{ t.home_overview_empty }}</p>{% endif %}
   {% else %}<p class="text-secondary">{{ t.home_inventory_unavailable }}</p><div class="home-inventory-links home-metric-grid">{% for name,label in [('sources','home_saved_sources'),('memories','home_active_memories'),('pending','home_pending_candidates')] %}<span><span>{{ t[label] }}</span><strong data-summary="{{ name }}">{{ t.home_unknown }}</strong></span>{% endfor %}</div>{% if errors.get('inventory') %}{{ read_error(errors.inventory,t.home_inventory_now) }}{% endif %}{% endif %}

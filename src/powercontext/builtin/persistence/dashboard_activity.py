@@ -11,10 +11,9 @@
 
 """Bounded projections of authoritative processing, revisions and Work evidence."""
 
-from sqlalchemy import Integer, and_, case, cast, func, select
+from sqlalchemy import Integer, Text, case, cast, func, select
 
 from powercontext.builtin.persistence.artifacts import with_artifact_content
-from powercontext.builtin.persistence.memory_processing import _decode, json_text
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE as HEADS,
 )
@@ -25,64 +24,14 @@ from powercontext.builtin.persistence.tables import (
     CANDIDATE_VERSIONS_TABLE as CANDIDATES,
 )
 from powercontext.builtin.persistence.tables import (
-    MEMORY_PROCESSING_RECORDS_TABLE as ATTEMPTS,
-)
-from powercontext.builtin.persistence.tables import (
-    MEMORY_PROCESSING_SOURCES_TABLE as INPUTS,
-)
-from powercontext.builtin.persistence.tables import (
     SOURCES_TABLE as SOURCES,
 )
 
 
-async def processing(connection, scope_id, *, sources=None, limit=6):
-    if sources is None:
-        rows = (
-            (
-                await connection.execute(
-                    select(ATTEMPTS)
-                    .where(ATTEMPTS.c.scope_id == scope_id)
-                    .order_by(ATTEMPTS.c.started_at.desc(), ATTEMPTS.c.attempt_id.desc())
-                    .limit(limit)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return [(None, _decode(row)) for row in rows]
-    if not sources:
-        return []
-    ranked = (
-        select(
-            INPUTS.c.source_id,
-            ATTEMPTS.c.attempt_id,
-            func
-            .row_number()
-            .over(
-                partition_by=INPUTS.c.source_id, order_by=(ATTEMPTS.c.started_at.desc(), ATTEMPTS.c.attempt_id.desc())
-            )
-            .label("rank"),
-        )
-        .join(ATTEMPTS, and_(INPUTS.c.scope_id == ATTEMPTS.c.scope_id, INPUTS.c.attempt_id == ATTEMPTS.c.attempt_id))
-        .where(
-            INPUTS.c.scope_id == scope_id,
-            INPUTS.c.source_type == "content",
-            INPUTS.c.source_id.in_(sources),
-        )
-        .subquery()
-    )
-    rows = (
-        (
-            await connection.execute(
-                select(ATTEMPTS, ranked.c.source_id)
-                .join(ranked, ATTEMPTS.c.attempt_id == ranked.c.attempt_id)
-                .where(ATTEMPTS.c.scope_id == scope_id, ranked.c.rank == 1)
-            )
-        )
-        .mappings()
-        .all()
-    )
-    return [(row["source_id"], _decode(row)) for row in rows]
+def json_text(connection, column, path):
+    """Extract one JSON string field in a dialect-safe way for bounded filters."""
+    value = func.json_extract(cast(column, Text), path)
+    return func.json_unquote(value) if connection.dialect.name == "mysql" else value
 
 
 async def recent_revisions(connection, scope_id, *, limit=6):

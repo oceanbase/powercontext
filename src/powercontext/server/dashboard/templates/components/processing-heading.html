@@ -22,9 +22,4 @@ limitations under the License.
     {% endif %}
   </div>
   <p class="text-secondary mt-2 mb-0">{{ t[description] }}</p>
-  {% if processing_kind in ['sources','attempts'] %}
-  <nav class="d-flex gap-3 mt-3" aria-label="{{ t.processing_sources_title }}">
-    <a class="{{ 'fw-semibold' if processing_kind == 'sources' else '' }}" {% if processing_kind == 'sources' %}aria-current="page"{% endif %} href="{{ link(record_type='sources',source_id=none,run_id=none,run_status=none,processing_day=none,processing_attempts_cursor=none,processing_attempts_history=none,processing_sources_cursor=none,processing_sources_history=none) }}">{{ t.processing_source_view }}</a>
-    <a class="{{ 'fw-semibold' if processing_kind == 'attempts' else '' }}" {% if processing_kind == 'attempts' %}aria-current="page"{% endif %} href="{{ link(record_type='attempts',source_id=none,run_id=none,run_status=none,processing_day=none,processing_attempts_cursor=none,processing_attempts_history=none,processing_sources_cursor=none,processing_sources_history=none) }}">{{ t.processing_execution_view }}</a>
-  </nav>{% endif %}
 </header>

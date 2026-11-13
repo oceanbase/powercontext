@@ -61,19 +61,14 @@ class DashboardAPI:
             headers=headers,
         )
 
-    async def atomic_memory_list(
-        self, scope, *, state, limit, cursor, sort_by="identity", period="7d", artifact_ids=None, states=None
-    ):
+    async def atomic_memory_list(self, scope, *, state, limit, cursor):
         return await self.read(
             "/v1/atomic-memory/list",
             {
                 "scope_id": scope,
-                "states": states if states is not None else [state],
-                **({"artifact_ids": artifact_ids} if artifact_ids is not None else {}),
+                "states": [state],
                 "limit": limit,
                 "cursor": cursor,
-                "sort_by": sort_by,
-                "period": period,
             },
         )
 

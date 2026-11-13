@@ -217,6 +217,5 @@ def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:
             budgets[name] = sum(_column_budget(column) for column in index.columns)
 
     assert budgets
-    # The processing-source relation key is the widest declared key (2688 bytes).
-    assert max(budgets.values()) == 2688
+    assert max(budgets.values()) == 2640
     assert all(budget < INNODB_MAX_INDEX_BYTES for budget in budgets.values())

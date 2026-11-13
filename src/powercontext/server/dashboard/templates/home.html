@@ -42,14 +42,14 @@ limitations under the License.
 </section>
 {% endif %}
 <section id="recent-processing" class="home-panel home-processing">
-  <div class="section-heading d-flex flex-wrap justify-content-between align-items-center gap-3"><h2>{{ t.processing_sources_title }}</h2><div class="d-flex align-items-center gap-3"><a href="{{ link('processing',record_type='attempts') }}">{{ t.view_all }} →</a></div></div>
-  <h3 class="home-subheading">{{ t.recent_processing }}</h3>
+  <div class="section-heading d-flex flex-wrap justify-content-between align-items-center gap-3"><h2>{{ t.processing_sources_title }}</h2><div class="d-flex align-items-center gap-3"><a href="{{ link('processing',record_type='sources') }}">{{ t.view_all }} →</a></div></div>
+  <h3 class="home-subheading">{{ t.processing_recent_sources_title }}</h3>
   {% if errors.get('activity') %}{{ read_error(errors.activity, t.recent_processing) }}
   {% elif home_activity %}<div class="table-responsive"><table class="home-processing-table">
-    <thead><tr><th scope="col">{{ t.home_activity_time }}</th><th scope="col">{{ t.home_activity_result }}</th><th scope="col">{{ t.home_activity_input }}</th></tr></thead>
+    <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.home_activity_result }}</th><th scope="col">{{ t.home_activity_input }}</th></tr></thead>
     <tbody>{% for item in home_activity[:3] %}<tr>
       <td><time>{{ item.at|display_time }}</time></td>
-      <td><span class="badge {{ item.badge }}">{{ item.state }}</span>{% if item.subtitle %}<div class="text-secondary small mt-1">{{ item.subtitle }}</div>{% endif %}</td>
+      <td>{% if item.state %}<span class="badge {{ item.badge }}">{{ item.state }}</span>{% endif %}{% if item.subtitle %}<div class="text-secondary small mt-1">{{ item.subtitle }}</div>{% endif %}</td>
       <td><a class="home-processing-input" href="{{ item.url }}">{{ item.title|truncate(180,true) }}</a></td>
     </tr>{% endfor %}</tbody>
   </table></div>
@@ -75,13 +75,4 @@ limitations under the License.
 </section>
 {% for family in ['experience','skill'] if errors.get(family) %}{{ read_error(errors[family],t[family]) }}{% endfor %}
 
-<section id="usage" class="home-panel home-context-usage" aria-labelledby="home-context-heading">
-  <header class="section-heading d-flex flex-wrap justify-content-between align-items-start gap-3"><div><h2 id="home-context-heading" class="mb-2">{{ t.home_context_preparations }}</h2><p class="text-secondary small mb-0">{{ t[period] }} · <span data-summary="preparations">{{ stats.preparations if stats else t.home_unknown }}</span> {{ t.home_preparation_unit }}</p></div><a href="{{ link('usage',view='records') }}">{{ t.view_all }} →</a></header>
-  {% if errors.get('home_usage_records') %}{{ read_error(errors.home_usage_records,t.home_context_preparations) }}
-  {% elif home_usage_records %}<div class="table-responsive"><table class="home-processing-table home-context-table">
-    <thead><tr><th scope="col">{{ t.home_activity_time }}</th><th scope="col">{{ t.home_activity_result }}</th><th scope="col">{{ t.home_recalled_count }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
-    <tbody>{% for record in home_usage_records[:3] %}<tr><td><time>{{ record.created_at|display_time }}</time></td><td><span class="badge bg-secondary-lt">{{ t.usage_preparation_empty if record.state == 'empty' else t['usage_' + record.state] }}</span></td><td>{{ t.home_recalled_items.format(count=record['items']|length) }}</td><td><a class="btn btn-sm btn-ghost-secondary" href="{{ link('usage',view='records',usage_kind=record.record_kind,usage_id=record.record_id) }}">{{ t.home_record_details }}</a></td></tr>{% endfor %}</tbody>
-  </table></div>
-  {% else %}<p class="text-secondary mb-0">{{ t.home_preparations_empty }}</p>{% endif %}
-</section>
 </div>

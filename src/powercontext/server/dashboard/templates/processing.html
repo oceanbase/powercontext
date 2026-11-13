@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/artifact-type.html' import artifact_type %}
 {% from 'components/pagination.html' import pagination %}
 <div class="processing-view">
   <style>
@@ -143,143 +144,65 @@ limitations under the License.
     me .processing-attempt-details .processing-input-body { font-size: inherit; line-height: 1.7; padding: .15rem 0 .15rem 1rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     me .processing-reading .processing-older-attempts { margin-top: 1.25rem; padding: 0; border: 0; }
     me .processing-reading .processing-result-header { margin-bottom: .75rem; }
+    me .processing-reading > .processing-outcome > h2.processing-section-title {
+      margin: -2rem -2.25rem 1.25rem;
+      padding: 1rem 2.25rem;
+      background: var(--tblr-primary-lt);
+      border-bottom: 1px solid var(--tblr-border-color);
+      border-radius: 9px 9px 0 0;
+    }
+    @media (max-width: 575px) {
+      me .processing-reading > .processing-outcome > h2.processing-section-title {
+        margin: -1.5rem -1.25rem 1rem;
+        padding: .875rem 1.25rem;
+      }
+    }
   </style>
-  {% if not processing_source and not processing_run %}{% include 'components/observation-header.html' %}
-  {% if processing_kind == 'attempts' %}{% include 'components/processing-topic-status.html' %}{% endif %}
-  {% if processing_kind in ['attempts','dreams'] %}{% include 'components/processing-filters.html' %}{% endif %}
-
+  {% if not processing_source and not processing_run %}
+    {% include 'components/observation-header.html' %}
+    {% if processing_kind == 'sources' %}{% if processing_show_topic_status %}{% include 'components/processing-topic-status.html' %}{% endif %}
+    {% else %}{% include 'components/processing-filters.html' %}{% endif %}
   {% endif %}
   {% if errors.get('processing') %}{{ read_error(errors.processing, t.processing) }}{% endif %}
-  {% if errors.get('processing_window') %}
-    <p class="alert alert-warning" role="alert">{{ t.processing_date_invalid }}</p>
-  {% elif processing_source %}
+  {% if processing_source %}
     {% set source = processing_source %}
     <div class="processing-reading">
-      <a class="processing-back" href="{{ link(source_id=none, processing_attempts_cursor=none, processing_attempts_history=none) }}">← {{ t.processing_sources }}</a>
-      {% set history_total = processing_history.get('total') if processing_history else none %}
-      {% set history_offset = (processing_history.get('offset') or 0) if processing_history else 0 %}
-      {% set history_ordinary = processing_history and processing_history.source_mode not in ['internal', 'working_note'] %}
-      {% set page_newest = history_total - history_offset if history_total is not none else none %}
-      <h1 class="processing-reading-title {{ 'mb-2' if history_ordinary and page_newest is not none else 'mb-4' }}">{{ t.processing_steps_title }}</h1>
-      {% if history_ordinary and page_newest is not none %}<p class="processing-caption mb-4">{{ t.processing_latest_attempt_sequence.format(number=page_newest) }}</p>{% endif %}
-      {% include 'components/processing-steps.html' %}
-
-      {% if processing_history %}
-        {% set older = processing_history['items'] if processing_history.source_mode in ['internal', 'working_note'] else processing_history['items'][1:] %}
-        {% if older %}<details class="processing-secondary-disclosure">
-          <summary><h2 class="processing-history-title">{{ t.processing_reading_previous.format(count=older|length) }}</h2></summary>
-          <div class="processing-older-attempts">
-            {% set older_newest = page_newest - 1 if history_ordinary else page_newest %}
-            {% for record in older %}{% set attempt_number = older_newest - loop.index0 if older_newest is not none else none %}{% include 'components/processing-history-entry.html' %}{% endfor %}
+      <a class="processing-back" href="{{ link(source_id=none) }}">← {{ t.processing_sources }}</a>
+      <h1 class="processing-reading-title mb-4">{{ t.source_label }} #{{ source.position }}</h1>
+      <section class="processing-outcome">
+        <h2 class="processing-section-title">{{ t.source_original }}</h2>
+        <p class="processing-input-body">{{ source.preview }}</p>
+        {% if source.saved_at %}<p class="processing-caption mt-3">{{ t.processing_source_saved_time }} {{ source.saved_at|display_time }}</p>{% endif %}
+      </section>
+      {% for family, refs in (source_artifacts or [])[:20]|groupby('family') %}
+      <section class="processing-outcome mt-4" id="artifact-{{ family }}">
+        <h2 class="processing-section-title">{{ artifact_type(family) }}</h2>
+        {% for ref in refs %}
+          {% set preview = processing_memory_previews.get(ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision) %}
+          <div class="processing-output-entry">
+            {% if preview and preview.error %}{{ read_error(preview.error, artifact_type(family)) }}
+            {% elif preview %}
+              {% if preview.title %}<h3 class="processing-section-title">{{ preview.title }}</h3>{% endif %}
+              {% if preview.description %}<p class="processing-output-text">{{ preview.description }}</p>{% endif %}
+              {% if preview.text and preview.text != preview.title %}<p class="processing-output-text">{{ preview.text }}</p>{% endif %}
+            {% endif %}
+            {% set destination = artifact_destination(ref) %}
+            {% if destination %}<a href="{{ destination }}">{{ t.home_record_details }} →</a>{% endif %}
+            <div class="processing-caption mt-2">{{ t.revision }} {{ ref.revision }} · {{ ref.artifact_id }}</div>
           </div>
-        </details>{% endif %}
-      {% endif %}
-      {% if processing_attempts_pager %}{{ pagination(processing_attempts_pager, t) }}{% endif %}
-
-
+        {% endfor %}
+      </section>
+      {% endfor %}
     </div>
   {% elif processing_run %}
     {% include 'components/dream-run-detail.html' %}
   {% else %}
-    {% if processing_kind == 'overview' %}
-      {% if processing_bounds %}<p class="text-secondary small" data-overview-window>{{ t.observation_window.format(start=processing_bounds[0]|display_time, end=processing_bounds[1]|display_time) }}</p>{% endif %}
-      {% if errors.get('processing_overview') %}{{ read_error(errors.processing_overview, t.processing_overview) }}
-      {% elif processing_overview %}{% set o = processing_overview %}
-      <section class="card mb-4" aria-labelledby="processing-status-heading">
-        <div class="card-header"><h2 class="card-title" id="processing-status-heading">{{ t.processing_business_status }}</h2><a class="ms-auto" href="{{ link('runtime') }}">{{ t.runtime }} →</a></div>
-        <div class="card-body">
-          {% set topic = processing_topic_status|default(none) %}
-          {% if topic %}
-          <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
-            <div><strong>{{ t.topic_memory }}</strong><span class="badge ms-2 bg-{{ 'red' if topic.state == 'blocked' else 'yellow' if topic.state == 'pending' else 'secondary' }}-lt">{{ t['processing_topic_' ~ topic.state] }}</span></div>
-            <a href="{{ link('topics') }}">{{ t.topic_memory }} →</a>
-          </div>
-          {% if topic.block %}{% include 'components/topic-diagnosis.html' %}
-          <details class="processing-more"><summary>{{ t.processing_block_details }}</summary><p class="text-secondary small mt-2">{{ t.processing_topic_blocked_at }} {{ topic.block.blocked_at|display_time }} · {{ t.processing_topic_attempts }} {{ topic.block.attempts }}</p><p>{{ topic.block.error_code }}{% if topic.block.last_error_code %} · {{ topic.block.last_error_code }}{% endif %}</p><p>{{ t.processing_topic_positions.format(cursor=topic.source_cursor, head=topic.source_head) }}</p><p class="text-secondary small">{{ t.processing_live_scope }}</p></details>
-          {% else %}<p class="text-secondary">{{ t.processing_topic_pending_detail if topic.state == 'pending' else t.processing_topic_idle_detail }}</p>{% endif %}
-          {% elif errors.get('processing_topic_status') %}{{ read_error(errors.processing_topic_status, t.topic_memory) }}{% endif %}
-          {% if not topic or not topic.block %}<p class="text-secondary small">{{ t.processing_live_scope }}</p>{% endif %}
-          {% if o.inputs_waiting or o.inputs_waiting_is_lower_bound %}
-          <p><strong>{{ t.processing_overview_waiting_unknown if not o.inputs_waiting else plural(t, 'processing_overview_waiting_title_lower' if o.inputs_waiting_is_lower_bound else 'processing_overview_waiting_title', o.inputs_waiting) }}</strong></p>
-          <p class="text-secondary">{{ t.processing_overview_waiting_detail if o.inputs_waiting else t.processing_overview_waiting_scan_detail }}</p>
-          {% endif %}
-        </div>
-      </section>
-      {% if not o.attempts %}
-      <section class="card mb-4" aria-labelledby="overview-empty-heading"><div class="card-body">
-        <h2 class="card-title" id="overview-empty-heading">{{ t.processing_history_unknown }}</h2>
-        <p class="text-secondary">{{ t.processing_history_unknown_detail }}</p>
-        <a href="{{ link(record_type='attempts', source_id=none, run_id=none, run_status=none, processing_day=none) }}">{{ t.processing_attempts_tab }} →</a>
-      </div></section>
-      {% else %}
-      {% if o.inputs_failed or o.inputs_pending %}
-      <section class="card mb-4">
-        <div class="card-header"><h2 class="card-title">{{ t.processing_period_attention }}</h2></div>
-        <div class="card-body"><ul class="overview-attention">
-          {% if o.inputs_failed %}<li><span class="badge bg-red-lt">{{ t.processing_overview_failed_badge }}</span><div><strong>{{ plural(t, 'processing_overview_failed_inputs_title', o.inputs_failed) }}</strong><p class="text-secondary small mb-0">{{ t.processing_overview_failed_detail }}</p></div><a href="{{ link(record_type='attempts', run_status='unsuccessful', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></li>{% endif %}
-          {% if o.inputs_pending %}<li><span class="badge bg-blue-lt">{{ t.processing_overview_pending_badge }}</span><div><strong>{{ t.processing_overview_pending_title.format(count=o.inputs_pending) }}</strong><p class="text-secondary small mb-0">{{ t.processing_overview_pending_detail }}</p></div><a href="{{ link(record_type='attempts', run_status='started', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_processing }} →</a></li>{% endif %}
-        </ul></div>
-      </section>
-      {% endif %}
-      <section class="card mb-4" aria-labelledby="processing-results-heading">
-        <div class="card-header"><h2 class="card-title" id="processing-results-heading">{{ t.processing_period_results }}</h2></div>
-        <div class="card-body">
-          <ul class="overview-funnel" data-processing-results>
-            <li><a href="{{ link(record_type='attempts', run_status=none, processing_day=none, processing_attempts_cursor=none) }}"><span>{{ t.processing_recorded_inputs }}</span> <strong>{{ o.inputs_total }} <small>{{ t.processing_overview_unit_inputs }}</small></strong></a></li>
-            <li><a href="{{ link(record_type='attempts', run_status='succeeded', processing_day=none, processing_attempts_cursor=none) }}"><span>{{ t.processing_overview_step_processed }}</span> <strong>{{ o.inputs_completed }} <small>{{ t.processing_overview_unit_inputs }}</small></strong></a></li>
-            <li><a href="{{ link(record_type='attempts', run_status='succeeded', processing_day=none, processing_attempts_cursor=none) }}"><span>{{ t.processing_overview_step_memories }}</span> <strong>{{ o.created + o.updated }}</strong><small>{{ t.processing_overview_step_memories_detail.format(created=o.created, updated=o.updated) }}</small></a></li>
-            <li><a href="{{ link(record_type='attempts', run_status='succeeded', processing_day=none, processing_attempts_cursor=none) }}"><span>{{ t.processing_no_change_runs }}</span> <strong>{{ o.empty_attempts }} <small>{{ t.processing_run_unit }}</small></strong></a></li>
-          </ul>
-          <p class="text-secondary small mb-0">{{ t.processing_results_basis }}</p>
-        </div>
-      </section>
-      {% endif %}
-      <nav class="d-flex flex-wrap gap-4 mb-4" aria-label="{{ t.processing_inspect_records }}">
-        <a href="{{ link(record_type='attempts', source_id=none, run_id=none, run_status=none, processing_attempts_cursor=none) }}">{{ t.processing_attempts_tab }} →</a>
-        <a href="{{ link(record_type='dreams', source_id=none, run_id=none, run_status=none) }}">{{ t.processing_background_tasks }} →</a>
-        {% if processing_recent_sources is not defined %}<a href="{{ link(record_type='sources', source_id=none, run_id=none, run_status=none) }}">{{ t.processing_sources }} →</a>{% endif %}
-      </nav>
-      {% if processing_recent_sources is defined %}
-      <section class="card mb-4"><div class="card-header"><h2 class="card-title">{{ t.processing_recent_sources_title }}</h2><a class="ms-auto" href="{{ link(record_type='sources', source_id=none, run_id=none, run_status=none) }}">{{ t.processing_sources }} →</a></div>
-        <div class="card-body"><div class="record-list">
-        {% for item in processing_recent_sources %}{% set result = processing_summaries.get(item.source_id) %}
-          <div class="record-row"><div class="record-row-head"><a class="record-row-title" href="{{ link(record_type='sources', source_id=item.source_id, run_status=none) }}">{{ item.preview|truncate(140, true) }}</a><span class="badge {{ result.badge if result else 'bg-secondary-lt' }}">{{ result.label if result else t.processing_summary_error if errors.get('processing_summaries') else t.processing_summary_unknown }}</span></div>
-          <div class="document-meta"><span>{{ t.source_label }} #{{ item.position }}</span>{% if result and result.at %}<time>{{ result.at|display_time }}</time>{% endif %}</div></div>
-        {% else %}<p class="text-secondary">{{ t.processing_sources_empty }}</p>{% endfor %}
-        </div></div>
-      </section>
-      {% elif errors.get('processing_recent_sources') %}{{ read_error(errors.processing_recent_sources, t.processing_sources) }}{% endif %}
-      {% if o.failed_attempts %}<details class="supporting-details mb-4"><summary>{{ t.processing_overview_failure_history }} · {{ plural(t, 'processing_overview_failed_title', o.failed_attempts) }}</summary><p class="text-secondary">{{ t.processing_overview_failure_history_note }}</p><p>{% for stage, count in o.failed_by_stage.items() %}{{ t.get('processing_stage_' ~ stage, stage) }} ×{{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</p><a href="{{ link(record_type='attempts', run_status='unsuccessful', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></details>{% endif %}
-      {% endif %}
-    {% else %}
-
-    {% if processing_kind == 'attempts' %}
-    <section class="card mb-4" id="processing-summary">
-      <div class="card-body">
-        {% if errors.get('processing_summary') %}{{ read_error(errors.processing_summary, t.processing_account_title) }}
-        {% elif processing_summary %}
-        {% with processing_overview=processing_summary %}{% include 'components/home-processing.html' %}{% endwith %}
-        <p class="text-secondary small mb-0"><span>{{ t.processing_account_window_day if processing_summary_window == 'day' else t[processing_period] }}</span> · {% if processing_summary.since %}<time>{{ processing_summary.since|display_time }}</time> → {% endif %}<time>{{ processing_summary.until|display_time }}</time></p>{% endif %}
-      </div>
-    </section>
+    {% if processing_items %}
+      {% if processing_kind == 'sources' %}{% include 'components/processing-sources-table.html' %}
+      {% else %}{% include 'components/processing-runs-table.html' %}{% endif %}
+    {% elif not errors.get('processing') %}
+      <div class="empty"><h2 class="empty-title">{{ t.processing_sources_empty if processing_kind == 'sources' else t.processing_runs_filtered_empty if processing_status else t.processing_runs_empty }}</h2></div>
     {% endif %}
-    <section>
-      <h2 class="visually-hidden">{{ t.processing_sources if processing_kind == 'sources' else t.processing_attempts_tab if processing_kind == 'attempts' else t.processing_runs }}</h2>
-      {% if processing_kind == 'attempts' and processing_items %}
-        {% include 'components/processing-attempts-table.html' %}
-      {% elif processing_kind == 'sources' and processing_items %}
-        {% include 'components/processing-sources-table.html' %}
-      {% elif processing_kind == 'dreams' and processing_items %}
-        {% include 'components/processing-runs-table.html' %}
-      {% else %}
-      <div class="record-list">
-        {% if not processing_items %}{% if not errors.get('processing') %}<div class="empty"><h2 class="empty-title">{{ t.processing_sources_empty if processing_kind == 'sources' else (t.processing_attempts_empty if processing_day else t.processing_attempts_period_empty) if processing_kind == 'attempts' else (t.processing_runs_filtered_empty if processing_status else t.processing_runs_empty) }}</h2>{% if processing_kind == 'dreams' %}<p class="text-secondary">{{ t.processing_runs_empty_detail }}</p><a href="{{ link(record_type='attempts', run_status=none, run_id=none, source_id=none) }}">{{ t.processing_attempts_tab }} →</a>{% endif %}</div>{% endif %}{% endif %}
-      </div>
-      {% endif %}
-      {% if processing_pager %}<div class="card-footer">{{ pagination(processing_pager, t, always=true) }}</div>{% endif %}
-    </section>
-    {% if errors.get('processing_summaries') %}{{ read_error(errors.processing_summaries,t.processing) }}{% endif %}
-    <p class="text-secondary small mt-3">{{ (t.processing_sources_newest if processing_order == 'newest' else t.processing_sources_coverage) if processing_kind == 'sources' else t.processing_attempts_coverage if processing_kind == 'attempts' else t.processing_runs_coverage }}</p>
-    {% endif %}
+    {% if processing_pager %}<div class="card-footer">{{ pagination(processing_pager, t, always=true) }}</div>{% endif %}
   {% endif %}
 </div>

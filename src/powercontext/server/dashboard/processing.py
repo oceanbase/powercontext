@@ -11,7 +11,6 @@
 
 """Read durable inputs and recorded Dream executions without inferring missing history."""
 
-from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -73,7 +72,7 @@ async def _load_memory_preview(api, ctx, ref) -> None:
             next(
                 (
                     content[name]
-                    for name in ("text", "summary", "lesson", "description", "content", "instructions", "detail")
+                    for name in ("text", "summary", "lesson", "instructions", "description", "content", "detail")
                     if isinstance(content.get(name), str)
                 ),
                 None,
@@ -83,26 +82,15 @@ async def _load_memory_preview(api, ctx, ref) -> None:
             if isinstance(content, str)
             else None
         )
-        ctx["processing_memory_previews"][key] = {"title": title, "text": text, "error": None}
+        description = content.get("description") if isinstance(content, dict) else None
+        ctx["processing_memory_previews"][key] = {
+            "title": title,
+            "text": text,
+            "description": description if isinstance(description, str) and description not in (title, text) else None,
+            "error": None,
+        }
     except ReadError as error:
         ctx["processing_memory_previews"][key] = {"title": None, "text": None, "error": error}
-
-
-async def load_memory_previews(api, ctx):
-    """Read a bounded set of exact result bodies, never substitute input text."""
-    history = ctx["processing_history"] or {}
-    records = history.get("items", [])
-    refs = [] if history.get("direct_artifact") is None else [history["direct_artifact"]]
-    if records:
-        refs.extend(result["artifact"] for result in records[0]["results"])
-        refs.extend(records[0]["retained_artifacts"])
-    refs.extend(ctx.get("source_artifacts") or [])
-    for record in records[1:]:
-        refs.extend(result["artifact"] for result in record["results"])
-        refs.extend(record["retained_artifacts"])
-    selected = {f"{ref['family']}/{ref['artifact_id']}@{ref['revision']}": ref for ref in refs}
-    for ref in list(selected.values())[:20]:
-        await _load_memory_preview(api, ctx, ref)
 
 
 async def load_run_previews(api, ctx, runs):
@@ -118,88 +106,6 @@ async def load_run_previews(api, ctx, runs):
         await _load_memory_preview(api, ctx, ref)
 
 
-ATTEMPT_STATUSES = ("started", "succeeded", "failed", "cancelled", "conflict")
-DREAM_STATUSES = ("queued", "running", "succeeded", "failed")
-# One navigation token for the statuses the summary counts as unsuccessful inputs.
-# `inputs_failed` is every non-succeeded, non-started input, so a link that only
-# asked for `failed` opened an empty list when the attempt was cancelled or conflicted.
-UNSUCCESSFUL_STATUSES = ("failed", "cancelled", "conflict")
-UNSUCCESSFUL = "unsuccessful"
-ALL_HISTORY = "all"
-
-
-def _day_bounds(raw: str) -> tuple[str, str]:
-    """Bound one UTC calendar day; the page states the zone instead of guessing a local one."""
-    try:
-        selected = date.fromisoformat(raw)
-    except ValueError as error:
-        raise ReadError(422, "invalid_request") from error
-    start = datetime.combine(selected, time.min, tzinfo=UTC)
-    return start.isoformat(), (start + timedelta(days=1)).isoformat()
-
-
-def _validate_query(kind: str, source_id, run_id, status, day) -> None:
-    allowed_status = {
-        "overview": (None,),
-        "sources": (None,),
-        "dreams": (None, *DREAM_STATUSES),
-        "attempts": (None, *ATTEMPT_STATUSES, UNSUCCESSFUL),
-    }
-    if (
-        kind not in allowed_status
-        or (source_id is not None and (kind != "sources" or not source_id or len(source_id) > 256))
-        or (run_id is not None and (kind != "dreams" or not run_id or len(run_id) > 64))
-        or status not in allowed_status.get(kind, ())
-        or (day is not None and kind != "attempts")
-        or (kind == "overview" and (source_id is not None or run_id is not None or status is not None))
-    ):
-        raise ReadError(422, "invalid_request")
-
-
-def _period_bounds(period: str, start: str = "", end: str = "") -> tuple[str, str]:
-    """Resolve inclusive UTC dates to a bounded window stable across pagination."""
-    if period == "custom":
-        try:
-            first, last = date.fromisoformat(start), date.fromisoformat(end)
-            if first.isoformat() != start or last.isoformat() != end or not 0 <= (last - first).days < 92:
-                raise ValueError  # noqa: TRY301 - Normalize all invalid date ranges at the form boundary.
-            since = datetime.combine(first, time.min, tzinfo=UTC)
-            until = datetime.combine(last, time.min, tzinfo=UTC) + timedelta(days=1)
-        except (ValueError, OverflowError) as error:
-            raise ReadError(422, "invalid_request") from error
-        return since.isoformat(), until.isoformat()
-    days = {"today": 1, "7d": 7, "30d": 30, "90d": 90}.get(period)
-    if days is None:
-        raise ReadError(422, "invalid_request")
-    today = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
-    return (today - timedelta(days=days - 1)).isoformat(), (today + timedelta(days=1)).isoformat()
-
-
-def _resolve_window(ctx) -> bool:
-    """Keep invalid selections editable without querying a different reporting window.
-
-    ``all`` means every recorded attempt. It exists because Home's alert uses the
-    all-history summary: a failure older than the selected period must still be
-    reachable, so its link carries the same unbounded range instead of inheriting
-    Home's shorter one and hiding the very attempt that raised the alert.
-    """
-    if ctx["processing_period"] == ALL_HISTORY:
-        ctx["processing_bounds"] = None
-        ctx["processing_start"] = ""
-        ctx["processing_end"] = ""
-        return True
-    try:
-        since, until = _period_bounds(ctx["processing_period"], ctx["processing_start"], ctx["processing_end"])
-    except ReadError as error:
-        ctx["errors"]["processing_window"] = error
-        ctx["status"] = error.status
-        return False
-    ctx["processing_bounds"] = since, until
-    ctx["processing_start"] = since[:10]
-    ctx["processing_end"] = (datetime.fromisoformat(until).date() - timedelta(days=1)).isoformat()
-    return True
-
-
 async def _load_topic_status(api, ctx) -> None:
     try:
         ctx["processing_topic_status"] = await api.read(
@@ -209,217 +115,80 @@ async def _load_topic_status(api, ctx) -> None:
         ctx["errors"]["processing_topic_status"] = error
 
 
-async def _load_overview(api, ctx, scope) -> None:
-    bounds = ctx["processing_bounds"]
-    window = {"all_time": "true"} if bounds is None else {"since": bounds[0], "until": bounds[1]}
-    try:
-        ctx["processing_overview"] = await api.read(f"/v1/scopes/{scope}/processing/summary?{urlencode(window)}")
-    except ReadError as error:
-        ctx["errors"]["processing_overview"] = error
+async def load_memory_previews(api, ctx):
+    for ref in (ctx.get("source_artifacts") or [])[:20]:
+        await _load_memory_preview(api, ctx, ref)
 
-    await _load_topic_status(api, ctx)
+
+def _validate_selection(kind, source_id, run_id, status):
+    if (
+        kind not in {"sources", "dreams"}
+        or (source_id is not None and (kind != "sources" or not source_id or len(source_id) > 256))
+        or (run_id is not None and (kind != "dreams" or not run_id or len(run_id) > 64))
+        or (status is not None and (kind != "dreams" or status not in {"queued", "running", "succeeded", "failed"}))
+    ):
+        raise ReadError(422, "invalid_request")
+
+
+async def _source_directory(api, ctx, scope, cursor):
+    """Use the authorized projection when present, otherwise retain public Source browsing."""
     if api.builtin is not None:
-        try:
-            directory = await api.project(ctx["scope"], "source_directory", limit=6, cursor=None)
-            ctx["processing_recent_sources"] = [present_source(item) for item in directory["items"]]
-        except ReadError as error:
-            ctx["errors"]["processing_recent_sources"] = error
-
-
-def _attempt_window(ctx, day) -> dict[str, str]:
-    """Return the attempt list's time filter and the matching summary query.
-
-    An all-history selection has no bounds, so both reads ask the summary for the
-    same unbounded range rather than silently falling back to its seven-day default.
-    """
-    if day is not None:
-        ctx["processing_summary_window"] = "day"
-        since, until = _day_bounds(day)
-        return {"since": since, "until": until}
-    ctx["processing_summary_window"] = ctx["processing_period"]
-    if ctx["processing_bounds"] is None:
-        return {}
-    since, until = ctx["processing_bounds"]
-    return {"since": since, "until": until}
-
-
-async def _load_attempts(api, request, ctx, scope, status, day) -> None:
-    await _load_topic_status(api, ctx)
-    params: dict[str, str | int | list[str]] = {"limit": PAGE_SIZE}
-    if cursor := request.query_params.get("processing_attempts_cursor"):
+        return await api.project(ctx["scope"], "source_directory", limit=PAGE_SIZE, cursor=cursor)
+    params = {"limit": PAGE_SIZE}
+    if cursor:
         params["cursor"] = cursor
-    if status == UNSUCCESSFUL:
-        params["status"] = list(UNSUCCESSFUL_STATUSES)
-    elif status is not None:
-        params["status"] = status
-    window = _attempt_window(ctx, day)
-    params.update(window)
-    summary_params = dict(window) or {"all_time": "true"}
-    try:
-        ctx["processing_summary"] = await api.read(f"/v1/scopes/{scope}/processing/summary?{urlencode(summary_params)}")
-    except ReadError as error:
-        ctx["errors"]["processing_summary"] = error
-    try:
-        # A multi-status selection repeats the parameter; a single status stays one value.
-        result = await api.read(f"/v1/scopes/{scope}/processing?{urlencode(params, doseq=True)}")
-        ctx["processing_items"] = result["items"]
-        previews = {}
-        for item in result["items"]:
-            item["source_previews"] = []
-            for ref in item["sources"][:3]:
-                key = (ref["source_type"], ref["source_id"])
-                if key not in previews:
-                    try:
-                        value = await api.read(f"/v1/scopes/{scope}/sources/{segment(key[0])}/{segment(key[1])}")
-                        previews[key] = {
-                            "source_id": key[1],
-                            "source_type": key[0],
-                            "preview": present_source(value)["preview"],
-                        }
-                    except ReadError:
-                        previews[key] = {"source_id": key[1], "source_type": key[0], "preview": None}
-                item["source_previews"].append(previews[key])
-        ctx["processing_pager"] = cursor_links(request, ctx, "processing_attempts", result.get("next_cursor"))
-    except ReadError as error:
-        ctx["errors"]["processing"] = error
-
-
-def _request_kind(request) -> str:
-    """Keep the entry point implicit so old links still open the page they meant."""
-    kind = request.query_params.get("record_type")
-    if kind is not None:
-        return kind
-    if request.query_params.get("source_id"):
-        return "sources"
-    return "dreams" if request.query_params.get("run_id") else "overview"
-
-
-async def _load_source_history(api, request, ctx, scope, source_id) -> None:
-    ctx["processing_source"] = present_source(
-        await api.read(f"/v1/scopes/{scope}/sources/content/{segment(source_id)}")
-    )
-    try:
-        # Keep a full bounded page so attempt ordinals stay stable for typical histories.
-        params = {"limit": 20}
-        if cursor := request.query_params.get("processing_attempts_cursor"):
-            params["cursor"] = cursor
-        history = await api.read(
-            f"/v1/scopes/{scope}/sources/content/{segment(source_id)}/processing?{urlencode(params)}"
-        )
-        if not history.get("next_cursor"):
-            history["total"] = len(history["items"])
-            history["offset"] = 0
-        ctx["processing_history"] = history
-        ctx["processing_attempts_pager"] = cursor_links(
-            request,
-            ctx,
-            "processing_attempts",
-            ctx["processing_history"].get("next_cursor"),
-        )
-    except ReadError as error:
-        ctx["errors"]["processing_history"] = error
-    if api.builtin is None:
-        await load_memory_previews(api, ctx)
-
-
-async def _load_list_context(api, ctx, scope):
-    """Read source diagnostics or Dream input previews for the visible list."""
-    if ctx["processing_kind"] == "dreams":
-        await load_run_previews(api, ctx, ctx["processing_items"])
-        return
-    if ctx["processing_kind"] != "sources":
-        return
-    await _load_topic_status(api, ctx)
-    ctx["processing_counts"] = {}
-    ctx["processing_results"] = {}
-    for item in ctx["processing_items"]:
-        try:
-            history = await api.read(
-                f"/v1/scopes/{scope}/sources/{segment(item['source_type'])}/{segment(item['source_id'])}/processing?limit=20"
-            )
-            ctx["processing_counts"][item["source_id"]] = {
-                "count": len(history["items"]),
-                "more": bool(history.get("next_cursor")),
-            }
-            records = history["items"]
-            latest_results = (records[0].get("results") or []) if records else []
-            results = [
-                {"action": result["action"], "ref": result["artifact"]}
-                for result in latest_results
-                if any(
-                    ref["source_type"] == item["source_type"] and ref["source_id"] == item["source_id"]
-                    for ref in result["source_refs"]
-                )
-            ]
-            ctx["processing_results"][item["source_id"]] = results[:2]
-            for result in results[:2]:
-                await _load_memory_preview(api, ctx, result["ref"])
-        except ReadError:
-            # Unknown history must never look like zero recorded executions.
-            ctx["processing_counts"][item["source_id"]] = None
-            ctx["processing_results"][item["source_id"]] = []
+    return await api.read(f"/v1/scopes/{scope}/sources?{urlencode(params)}")
 
 
 async def load_processing(api, request, ctx):
-    kind = _request_kind(request)
+    kind = request.query_params.get("record_type") or ("dreams" if request.query_params.get("run_id") else "sources")
+    if kind in {"overview", "attempts"}:
+        kind = "sources"
     source_id = request.query_params.get("source_id")
     run_id = request.query_params.get("run_id")
-    status = request.query_params.get("run_status") or None
-    day = request.query_params.get("processing_day") or None
-    _validate_query(kind, source_id, run_id, status, day)
-    ctx["processing_kind"] = kind
-    ctx["processing_status"] = status
-    ctx["processing_day"] = day
+    status = (request.query_params.get("run_status") or None) if kind == "dreams" else None
+    _validate_selection(kind, source_id, run_id, status)
+    ctx["processing_show_topic_status"] = request.query_params.get("record_type") != "sources"
+    ctx.update(processing_kind=kind, processing_status=status, processing_order="newest")
     ctx["artifact_destination"] = lambda ref: artifact_destination(ctx, ref)
     scope = segment(ctx["scope"])
-    if source_id is not None:
-        await _load_source_history(api, request, ctx, scope, source_id)
-        return
-    if kind in {"overview", "attempts"} and not _resolve_window(ctx):
-        return
-    if kind == "overview":
-        await _load_overview(api, ctx, scope)
-        return
-    if run_id is not None:
-        ctx["processing_run"] = await api.read(f"/v1/scopes/{scope}/dream/{segment(run_id)}")
-        ctx["processing_run_sources"] = manifest_sources(ctx["processing_run"])
-        await load_run_previews(api, ctx, [ctx["processing_run"]])
-        return
-    family = {"sources": "processing_sources", "dreams": "processing_runs"}.get(kind, "processing_attempts")
-    params: dict[str, str | int] = {"limit": PAGE_SIZE}
-    cursor = request.query_params.get(family + "_cursor")
-    if cursor is not None:
-        params["cursor"] = cursor
-    if kind == "dreams" and status is not None:
-        params["status"] = status
-    if kind == "attempts":
-        await _load_attempts(api, request, ctx, scope, status, day)
-        return
-    path = "sources" if kind == "sources" else "dream" if kind == "dreams" else "processing"
-    try:
-        if kind == "sources" and api.builtin is not None:
-            result = await api.project(ctx["scope"], "source_directory", limit=PAGE_SIZE, cursor=cursor)
-            ctx["processing_order"] = "newest"
-            ctx["processing_items"] = [present_source(item) for item in result["items"]]
-        else:
-            result = await api.read(f"/v1/scopes/{scope}/{path}?{urlencode(params)}")
-            ctx["processing_items"] = (
-                result["runs"] if kind == "dreams" else [present_source(item) for item in result["items"]]
+    if kind == "sources":
+        await _load_topic_status(api, ctx)
+        if source_id is not None:
+            ctx["processing_source"] = present_source(
+                await api.read(f"/v1/scopes/{scope}/sources/content/{segment(source_id)}")
             )
-        ctx["processing_pager"] = cursor_links(request, ctx, family, result.get("next_cursor"))
-        await _load_list_context(api, ctx, scope)
-    except ReadError as error:
-        ctx["errors"]["processing"] = error
+            if api.builtin is not None:
+                ctx["source_artifacts"] = await api.project(ctx["scope"], "source_artifacts", source_id=source_id)
+            await load_memory_previews(api, ctx)
+            return
+        family = "processing_sources"
+        cursor = request.query_params.get(family + "_cursor")
+        try:
+            result = await _source_directory(api, ctx, scope, cursor)
+        except ReadError as error:
+            ctx["errors"]["processing"] = error
+            return
+        ctx["processing_items"] = [
+            present_source({"has_artifact": False, "artifact_families": None, **item}) for item in result["items"]
+        ]
+    else:
+        if run_id is not None:
+            ctx["processing_run"] = await api.read(f"/v1/scopes/{scope}/dream/{segment(run_id)}")
+            ctx["processing_run_sources"] = manifest_sources(ctx["processing_run"])
+            await load_run_previews(api, ctx, [ctx["processing_run"]])
+            return
+        family = "processing_runs"
+        params = {"limit": PAGE_SIZE}
+        if cursor := request.query_params.get(family + "_cursor"):
+            params["cursor"] = cursor
+        if status:
+            params["status"] = status
+        result = await api.read(f"/v1/scopes/{scope}/dream?{urlencode(params)}")
+        ctx["processing_items"] = result["runs"]
+        await load_run_previews(api, ctx, result["runs"])
+    ctx["processing_pager"] = cursor_links(request, ctx, family, result.get("next_cursor"))
 
 
 async def load_home_processing(api, ctx):
-    """Reuse processing facts on Home without loading a second source directory."""
-    import asyncio
-
-    async def summary():
-        try:
-            ctx["processing_overview"] = await api.project(ctx["scope"], "processing_summary", all_time=True)
-        except ReadError as error:
-            ctx["errors"]["processing_overview"] = error
-
-    await asyncio.gather(summary(), _load_topic_status(api, ctx))
+    await _load_topic_status(api, ctx)

@@ -923,7 +923,6 @@ from powercontext.server.dream_compatibility import (
     negotiate_dream_contract,
     require_extended_dream,
 )
-from powercontext.server.memory_processing import add_memory_processing_routes
 from powercontext.server.metrics import HttpMetricsMiddleware, HttpResponseMetricsMiddleware, http_operations
 from powercontext.server.ownership import (
     ArtifactOwnershipGap,
@@ -1617,12 +1616,6 @@ def create_app(
     _add_route(app, PUT_PROFILE_POLICY, put_profile_policy)
     _add_route(app, FLUSH_PROFILE, flush_profile)
     _add_route(app, GET_SOURCE, get_source)
-    add_memory_processing_routes(
-        app,
-        application_dependency=_require_application,
-        add_route=_add_route,
-        execution_context=_atomic_execution_context,
-    )
     _add_route(app, CREATE_ARTIFACT, create_artifact)
     _add_route(app, BIND_ARTIFACT_HANDLE, bind_artifact_handle)
     _add_route(app, RESOLVE_ARTIFACT_HANDLE, resolve_artifact_handle)

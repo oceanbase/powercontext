@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-{% set o = processing_overview %}{% set topic = processing_topic_status|default(none) %}
-{% if (topic and topic.state == 'blocked') or errors.get('processing_topic_status') or errors.get('processing_overview') or (o and (o.inputs_failed or o.inputs_pending)) %}
+{% set topic = processing_topic_status|default(none) %}
+{% if (topic and topic.state == 'blocked') or errors.get('processing_topic_status') %}
 <section id="home-issues" class="home-issues" aria-labelledby="home-issues-heading">
   <h2 id="home-issues-heading">{{ t.home_issues_title }}</h2>
   <div class="home-attention">
@@ -25,9 +25,6 @@ limitations under the License.
       <a href="{{ link('processing',record_type='attempts') }}">{{ t.home_record_details }} →</a>
     </div>
     {% elif errors.get('processing_topic_status') %}{{ read_error(errors.processing_topic_status,t.topic_memory) }}{% endif %}
-    {% if errors.get('processing_overview') %}{{ read_error(errors.processing_overview,t.processing) }}{% endif %}
-    {% if o and o.inputs_failed %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.processing_overview_failed_inputs_title.format(count=o.inputs_failed) }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='unsuccessful',processing_period='all',processing_start=none,processing_end=none,processing_day=none,processing_attempts_cursor=none) }}">{{ t.home_record_details }} →</a></div>{% endif %}
-    {% if o and o.inputs_pending %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.home_processing_unconfirmed }} · {{ o.inputs_pending }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='started',processing_period='all',processing_start=none,processing_end=none,processing_day=none,processing_attempts_cursor=none) }}">{{ t.home_record_details }} →</a></div>{% endif %}
   </div>
 </section>
 {% endif %}

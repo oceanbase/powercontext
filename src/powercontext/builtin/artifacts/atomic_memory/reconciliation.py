@@ -33,11 +33,6 @@ from powercontext.builtin.artifacts.atomic_memory.temporal import (
     text_time_literals,
 )
 from powercontext.builtin.inference import InvalidInferenceOutputError
-from powercontext.builtin.memory_processing import (
-    MAX_PROCESSING_DECISIONS,
-    MAX_PROCESSING_REASON_CHARS,
-    MemoryProcessingDecision,
-)
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
     ProcessingFailureReason,
@@ -206,10 +201,6 @@ class AtomicMemoryWindowWorkset:
         self.aliases: dict[str, str] = {}
         self.origins: dict[str, str] = {}
         self.reads: dict[str, AtomicMemoryRead] = {}
-        self.decisions: list[MemoryProcessingDecision] = []
-        self.decision_count = 0
-        self.extracted_count = 0
-        self.retained_keys: set[str] = set()
 
     def resolve(self, key: str) -> str:
         while key in self.aliases:
@@ -252,22 +243,6 @@ class AtomicMemoryWindowWorkset:
     ) -> str:
         request = self.request(proposal_key, related)
         validate_reconciliation_decision(request, output)
-        self.decision_count += 1
-        if len(self.decisions) < MAX_PROCESSING_DECISIONS:
-            self.decisions.append(
-                MemoryProcessingDecision(
-                    proposal_id=request.proposal.item_id,
-                    action=output.action,
-                    target_ids=output.target_ids,
-                    source_refs=tuple(
-                        item.source_ref
-                        for item in request.evidence
-                        if isinstance(item, AtomicMemoryEvidence) and item.evidence_id in request.proposal.evidence_ids
-                    ),
-                    reason=output.reason[:MAX_PROCESSING_REASON_CHARS],
-                    reason_truncated=len(output.reason) > MAX_PROCESSING_REASON_CHARS,
-                )
-            )
         key = self.resolve(proposal_key)
         proposal = self.items[key]
         supplied = {item.key: item for item in related}
@@ -277,7 +252,6 @@ class AtomicMemoryWindowWorkset:
                 self.items[key] = replace(proposal, retain=False)
                 return key
             target = targets[0]
-            self.retained_keys.add(target.key)
             self.items[target.key] = replace(target, evidence=unique_evidence((*target.evidence, *proposal.evidence)))
             del self.items[key]
             self.aliases[key] = target.key

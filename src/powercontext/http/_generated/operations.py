@@ -97,7 +97,6 @@ from powercontext.http._generated.models import (
     GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetMemoryEntryResponse,
-    GetScopeMemoryProcessingSummaryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
@@ -129,17 +128,12 @@ from powercontext.http._generated.models import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
-    ListMemoryRevisionProcessingRequest,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
-    ListScopeMemoryProcessingRequest,
     ListScopesRequest,
-    ListSourceMemoryProcessingRequest,
     ListSourcesRequest,
     MemoryCapacity,
     MemoryMutationResponse,
-    MemoryProcessingPage,
-    MemoryProcessingSummary,
     MergeAtomicMemoryRequest,
     PlanAccessOwnershipRequest,
     PrepareContextRequest,
@@ -259,10 +253,6 @@ FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
     "memory.explicit": {
         "version": {"major": 1, "minor": 0},
         "operations": ["remember_memory", "search_memory", "get_memory_entry"],
-    },
-    "memory.processing": {
-        "version": {"major": 1, "minor": 1},
-        "operations": ["get_scope_memory_processing_summary", "list_scope_memory_processing"],
     },
 }
 
@@ -3220,117 +3210,6 @@ CREATE_SOURCE = Operation[CreateSourceRequest, SourceRecord](
     access=AccessRequirement(
         action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
     ),
-)
-
-GET_SCOPE_MEMORY_PROCESSING_SUMMARY = Operation[GetScopeMemoryProcessingSummaryRequest, MemoryProcessingSummary](
-    method="GET",
-    path="/v1/scopes/{scope_id}/processing/summary",
-    operation_id="get_scope_memory_processing_summary",
-    request_type=GetScopeMemoryProcessingSummaryRequest,
-    request_location="query",
-    path_parameters=("scope_id",),
-    response_type=MemoryProcessingSummary,
-    success_status=200,
-    summary="Count recorded memory processing in a time window",
-    tags=("sources",),
-    scope_mode="none",
-    responses={
-        200: {
-            "description": "Counts for the recorded window.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
-)
-
-LIST_SCOPE_MEMORY_PROCESSING = Operation[ListScopeMemoryProcessingRequest, MemoryProcessingPage](
-    method="GET",
-    path="/v1/scopes/{scope_id}/processing",
-    operation_id="list_scope_memory_processing",
-    request_type=ListScopeMemoryProcessingRequest,
-    request_location="query",
-    path_parameters=("scope_id",),
-    response_type=MemoryProcessingPage,
-    success_status=200,
-    summary="List recorded memory processing in a Scope",
-    tags=("sources",),
-    scope_mode="none",
-    responses={
-        200: {
-            "description": "A page of recorded attempts. Started means completion is unconfirmed, not "
-            "that a worker is alive.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
-)
-
-LIST_SOURCE_MEMORY_PROCESSING = Operation[ListSourceMemoryProcessingRequest, MemoryProcessingPage](
-    method="GET",
-    path="/v1/scopes/{scope_id}/sources/{source_type}/{source_id}/processing",
-    operation_id="list_source_memory_processing",
-    request_type=ListSourceMemoryProcessingRequest,
-    request_location="query",
-    path_parameters=("scope_id", "source_type", "source_id"),
-    response_type=MemoryProcessingPage,
-    success_status=200,
-    summary="List recorded memory processing for a Source",
-    tags=("sources",),
-    scope_mode="none",
-    responses={
-        200: {
-            "description": "A page of recorded attempts. Started means completion is unconfirmed, not "
-            "that a worker is alive.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
-)
-
-LIST_MEMORY_REVISION_PROCESSING = Operation[ListMemoryRevisionProcessingRequest, MemoryProcessingPage](
-    method="GET",
-    path="/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/revisions/{revision}/processing",
-    operation_id="list_memory_revision_processing",
-    request_type=ListMemoryRevisionProcessingRequest,
-    request_location="query",
-    path_parameters=("scope_id", "artifact_id", "revision"),
-    response_type=MemoryProcessingPage,
-    success_status=200,
-    summary="List memory processing related to an exact memory revision",
-    tags=("sources",),
-    scope_mode="none",
-    responses={
-        200: {
-            "description": "A page of recorded attempts. Started means completion is unconfirmed, not "
-            "that a worker is alive.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
 GET_SOURCE = Operation[None, SourceRecord](

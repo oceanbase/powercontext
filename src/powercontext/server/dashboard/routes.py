@@ -316,7 +316,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
         "note_state": request.query_params.get("note_state", "active"),
-        "note_sort": request.query_params.get("note_sort", "recall_count"),
+        "note_sort": "identity",
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -347,7 +347,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "usage_pager": None,
         "usage_can_feedback": False,
         "usage_feedback_id": "",
-        "usage_tab": request.query_params.get("view", "resources"),
+        "usage_tab": "resources",
         "work_followup": [],
         "processing_summaries": {},
         "selected_note": None,
@@ -838,36 +838,6 @@ async def method_generation(request: Request) -> Response:
         await api.client.aclose()
 
 
-@router.post("/usage/feedback")
-async def usage_feedback(request: Request) -> Response:
-    from powercontext.server.dashboard.usage import submit_feedback
-
-    ctx = initial_context(request, "usage")
-    api = DashboardAPI(request)
-    try:
-        scope, payload = await submit_feedback(api, request)
-        return RedirectResponse(
-            "/dashboard/usage?"
-            + urlencode({
-                "scope": scope,
-                "period": ctx["period"],
-                "lang": ctx["language"],
-                "view": "records",
-                "usage_id": payload.record_id,
-                "usage_kind": payload.record_kind,
-                "feedback_saved": "1",
-            }),
-            status_code=303,
-        )
-    except ReadError as error:
-        if error.status == 401:
-            return login_response(request=request)
-        ctx.update(page_error=error, status=error.status)
-        return render(request, ctx)
-    finally:
-        await api.client.aclose()
-
-
 @router.get("/{page}")
 async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- Keep page loading, recovery and final rendering explicit.
     ctx = initial_context(request, page if page in PAGES else "home")
@@ -890,10 +860,6 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
                 await load_content(api, request, ctx)
             if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
                 raise next(iter(ctx["errors"].values()))
-        if page == "notes" and ctx["data"]["notes"]:
-            from powercontext.server.dashboard.content import load_note_counts
-
-            await load_note_counts(api, ctx)
         if page == "home" and ctx["scope_descriptor"]:
             from powercontext.server.dashboard.processing import load_home_processing
 
@@ -902,10 +868,6 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
             from powercontext.server.dashboard.generation import load_generation
 
             await load_generation(api, request, ctx)
-        if page == "usage":
-            from powercontext.server.dashboard.usage import finish_usage
-
-            await finish_usage(api, request, ctx)
         if page not in {"entry", "runtime", "observability"} and not ctx["scope_descriptor"] and not ctx["record_only"]:
             await load_entry_scopes(api, request, ctx)
     except ReadError as error:

@@ -13,24 +13,20 @@
 
 import asyncio
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from html import unescape
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 
-from powercontext.builtin.memory_processing import MemoryProcessingRecord
-from powercontext.builtin.persistence.memory_processing import MemoryProcessingRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CreateDreamRunRequest, GetDreamRunRequest
 from powercontext.server.app import create_app
-from powercontext.server.dashboard.preferences import CATALOGS
 from powercontext.server.dashboard.routes import LABELS, router
-from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline, open_dream_runtime, process_pending
 from tests.e2e.test_artifact_dreaming import Generator, MemoryPipeline, NoChangeGenerator, seed
-from tests.test_dashboard import create_scope, page_link
+from tests.test_dashboard import create_scope
 from tests.test_dashboard import dashboard as dashboard
 from tests.test_dashboard_profile_handoff import _revised_memory
 
@@ -167,93 +163,6 @@ def test_memory_source_login_returns_to_the_exact_memory(dashboard):
     assert resumed.status_code == 303
     assert resumed.headers["location"] == destination
     assert "Original note." in dashboard.get(destination).text
-
-
-def test_processing_sources_page_in_scope_and_links_exact_result(dashboard):
-    scope = create_scope(dashboard, "Source processing")["scope_id"]
-    empty = create_scope(dashboard, "Empty source scope", parent=scope)["scope_id"]
-    artifact = _revised_memory(dashboard, scope)
-    old = dashboard.get(f"/v1/scopes/{scope}/artifacts/atomic-memory/{artifact}/revisions/1").json()
-    for index in range(7):
-        result = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": f"Source record {index}."})
-        assert result.status_code == 201, result.text
-    first = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources"})
-    assert first.status_code == 200, first.text
-    assert '<table class="processing-attempts-table processing-sources-table">' in first.text
-    assert LABELS["processing_source_saved_time"] in first.text
-    assert LABELS["processing_table_source_id"] in first.text
-    assert f'<th scope="col">{LABELS["processing_table_original"]}</th>' in first.text
-    assert LABELS["processing_source_type"] in first.text and LABELS["processing_table_status"] in first.text
-    assert "核对 Agent 使用记录" not in first.text
-    second = dashboard.get(page_link(first.text, LABELS["next_page"]))
-    assert second.status_code == 200, second.text
-    first_sources = {
-        parse_qs(urlsplit(url).query)["source_id"][0]
-        for url in links(first.text, "/dashboard/processing")
-        if "source_id=" in url
-    }
-    second_sources = {
-        parse_qs(urlsplit(url).query)["source_id"][0]
-        for url in links(second.text, "/dashboard/processing")
-        if "source_id=" in url
-    }
-    assert len(first_sources) == 6
-    assert second_sources and first_sources.isdisjoint(second_sources)
-    source = old["sources"][0]["source_id"]
-    detail = dashboard.get("/dashboard/processing", params={"scope": scope, "source_id": source})
-    assert detail.status_code == 200, detail.text
-    assert "Original note." in detail.text
-    assert LABELS["processing_step_input"] in detail.text
-    assert LABELS["processing_step_process"] in detail.text
-    assert LABELS["processing_step_output"] in detail.text
-    result_link = next(url for url in links(detail.text, "/dashboard/notes") if "artifact=" in url)
-    assert parse_qs(urlsplit(result_link).query)["revision"] == ["1"]
-    assert "Original note." in dashboard.get(result_link).text
-    other = dashboard.get("/dashboard/processing", params={"scope": empty, "source_id": source})
-    assert other.status_code == 404
-    assert "Original note." not in other.text
-    empty_page = dashboard.get("/dashboard/processing", params={"scope": empty, "record_type": "sources"})
-    assert empty_page.status_code == 200
-    assert LABELS["processing_sources_empty"] in empty_page.text
-    assert "Source record" not in empty_page.text
-
-
-def test_processing_sources_show_latest_memory_result_preview(dashboard, monkeypatch):
-    from powercontext.server.dashboard.api import DashboardAPI
-
-    scope = create_scope(dashboard, "Source result preview")["scope_id"]
-    saved = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Source with a processed result."})
-    assert saved.status_code == 201, saved.text
-    source_id = saved.json()["source_id"]
-    artifact = _revised_memory(dashboard, scope)
-    original = DashboardAPI.read
-
-    async def history(self, path, payload=None):
-        if f"/sources/content/{source_id}/processing?" in path:
-            return {
-                "items": [
-                    {
-                        "results": [
-                            {
-                                "action": "revise",
-                                "artifact": {"family": "atomic-memory", "artifact_id": artifact, "revision": 2},
-                                "source_refs": [{"source_type": "content", "source_id": source_id}],
-                            }
-                        ]
-                    }
-                ],
-                "next_cursor": None,
-            }
-        return await original(self, path, payload)
-
-    monkeypatch.setattr(DashboardAPI, "read", history)
-    page = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"})
-    assert page.status_code == 200, page.text
-    assert "processing-result-preview" in page.text
-    assert "Revised note." in page.text and "Updated" in page.text
-    assert "Source with a processed result." in page.text
-    assert '<th scope="col">Source type</th>' in page.text and '<th scope="col">Processing status</th>' in page.text
-    assert "<td>Content</td>" in page.text
 
 
 @pytest.mark.parametrize("public_reads", [False, True])
@@ -400,191 +309,8 @@ def test_processing_dream_displays_persisted_outcome_and_inputs(tmp_path, outcom
     asyncio.run(scenario())
 
 
-def test_direct_writes_do_not_look_like_waiting_processing(dashboard):
-    scope = create_scope(dashboard, "Direct writes")["scope_id"]
-    saved = dashboard.post(
-        "/v1/memory/remember",
-        json={"scope_id": scope, "kind": "fact", "text": "Direct note that does not enter extraction."},
-    )
-    assert saved.status_code == 200, saved.text
-    summary = dashboard.get(f"/v1/scopes/{scope}/processing/summary")
-    assert summary.status_code == 200, summary.text
-    assert summary.json()["inputs_waiting"] == 0
-
-
-@pytest.mark.parametrize("kind", ["attempts", "sources", "dreams"])
-def test_runtime_records_have_peer_navigation_and_processing_help(dashboard, kind):
-    scope = create_scope(dashboard, "Processing navigation")["scope_id"]
-    page = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": kind, "lang": "en"})
-    assert page.status_code == 200, page.text
-    html_match = re.search(r"<aside\b.*?</aside>", page.text, re.S)
-    assert html_match is not None
-    sidebar = html_match[0]
-    active_tags = re.findall(r'<a\b[^>]*aria-current="page"[^>]*>', sidebar)
-    assert len(active_tags) == 1
-    html_match = re.search(r'href="([^"]+)"', active_tags[0])
-    assert html_match is not None
-    active_href = unescape(html_match[1])
-    assert parse_qs(urlsplit(active_href).query)["record_type"] == ["dreams" if kind == "dreams" else "sources"]
-    html_match = re.search(r'<ul class="navbar-nav w-100".*?</ul>', sidebar, re.S)
-    assert html_match is not None
-    navigation = html_match[0]
-    assert "record_type=attempts" not in navigation
-    assert sidebar.count("Automatic processing</span>") == 1
-    assert 'name="record_type" value="' + kind + '"' in sidebar
-    expected = {"sources": "Automatic processing", "attempts": "Automatic processing", "dreams": "Dream processing"}[
-        kind
-    ]
-    html_match = re.search(r"<h1\b[^>]*>(.*?)</h1>", page.text, re.S)
-    assert html_match is not None
-    assert html_match[1] == expected
-    assert 'class="nav nav-pills mb-4 processing-tabs"' not in page.text
-    assert f"<title>{expected} · PowerContext</title>" in page.text
-    assert f'data-title="{expected} · PowerContext"' in page.text
-    if kind != "sources":
-        assert f'aria-describedby="processing-help-{kind}"' in page.text
-        assert 'role="tooltip"' in page.text
-
-
-def test_source_outputs_distinguish_topics_with_the_same_revision(dashboard, monkeypatch):
-    scope = create_scope(dashboard, "Distinct related topics")["scope_id"]
-    source = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Project workflow evidence."}).json()
-    refs = []
-    for name in ("Release workflow", "Review workflow"):
-        created = dashboard.post(
-            f"/v1/scopes/{scope}/artifacts",
-            json={
-                "family": "topic-memory",
-                "content": {"title": name, "summary": name + " first summary.", "detail": name + " detail."},
-            },
-        )
-        assert created.status_code == 201, created.text
-        artifact = created.json()["artifact_id"]
-        path = f"/v1/scopes/{scope}/artifacts/topic-memory/{artifact}"
-        previous = dashboard.get(path)
-        revised = dashboard.put(
-            path,
-            headers={"If-Match": previous.headers["etag"]},
-            json={"content": {"title": name, "summary": name + " saved summary.", "detail": name + " second detail."}},
-        )
-        assert revised.status_code == 200, revised.text
-        refs.append({"family": "topic-memory", "artifact_id": artifact, "revision": 2})
-
-    # Supply the related-reference projection; exact bodies and links use real HTTP reads.
-    async def related(snapshot, source_id, **params):
-        assert snapshot.scope_id == scope and source_id == source["source_id"]
-        return refs
-
-    monkeypatch.setattr("powercontext.builtin.runtime.scope_reads.ScopeReadSnapshot.source_artifacts", related)
-    page = dashboard.get(
-        "/dashboard/processing",
-        params={"scope": scope, "record_type": "sources", "source_id": source["source_id"], "lang": "en"},
-    )
-    assert page.status_code == 200, page.text
-    disclosure = re.search(r"<details\b([^>]*data-linked-outputs[^>]*)>", page.text)
-    assert disclosure is not None and "open" not in disclosure[1]
-    rows = re.findall(r'<table class="processing-output-table">.*?<tbody>(.*?)</tbody>', page.text, re.S)
-    assert len(rows) == 1
-    assert "Release workflow" in rows[0] and "Review workflow" in rows[0]
-    assert "Release workflow saved summary." in rows[0] and "Review workflow saved summary." in rows[0]
-    destinations = links(rows[0], "/dashboard/topics")
-    assert len(destinations) == 2
-    for destination, ref in zip(destinations, refs, strict=True):
-        params = parse_qs(urlsplit(destination).query)
-        assert params["topic_artifact"] == [ref["artifact_id"]]
-        assert params["topic_revision"] == ["2"]
-        assert dashboard.get(destination).status_code == 200
-
-
-def test_failure_navigation_reaches_every_unsuccessful_attempt(dashboard):
-    """A summary counts cancelled and conflicted inputs, so its links must select them.
-
-    Home raises its alert from all recorded history, so the detail link must also
-    open all history; inheriting Home's shorter period would hide the very attempt
-    that raised the alert.
-    """
-    scope = create_scope(dashboard, "Unsuccessful attempts")["scope_id"]
-    recent = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Recently cancelled input."})
-    older = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Older cancelled input."})
-    assert recent.status_code == older.status_code == 201
-    runtime = dashboard.app.state.dashboard_runtime
-    assert runtime is not None
-
-    async def record(attempt_id, source_id, started_at):
-        record = MemoryProcessingRecord(
-            attempt_id=attempt_id,
-            scope_id=scope,
-            source_after=0,
-            source_through=1,
-            sources=(SourceRef(source_type="content", source_id=source_id),),
-            eligible_sources=(SourceRef(source_type="content", source_id=source_id),),
-            started_at=started_at,
-            completed_at=started_at,
-            status="cancelled",
-        )
-        async with runtime.primary_database.transaction() as connection:
-            await MemoryProcessingRepository().start(connection, record)
-
-    now = datetime.now(UTC)
-    asyncio.run(record("a" * 32, recent.json()["source_id"], now))
-    asyncio.run(record("b" * 32, older.json()["source_id"], now - timedelta(days=30)))
-
-    english = CATALOGS["en"]
-    overview = dashboard.get("/dashboard/processing", params={"scope": scope, "lang": "en"})
-    assert overview.status_code == 200, overview.text
-    attention = overview.text.split(english["processing_period_attention"], 1)[1].split("</section>", 1)[0]
-    failed_link = next(unescape(href) for href in re.findall(r'href="([^"]+)"', attention) if "run_status=" in href)
-    assert parse_qs(urlsplit(failed_link).query)["run_status"] == ["unsuccessful"]
-    windowed = dashboard.get(failed_link)
-    assert windowed.status_code == 200, windowed.text
-    assert english["processing_attempt_status_cancelled"] in windowed.text
-    assert "Recently cancelled input." in windowed.text
-    assert "Older cancelled input." not in windowed.text
-
-    home = dashboard.get("/dashboard/home", params={"scope": scope, "period": "7d", "lang": "en"})
-    assert home.status_code == 200, home.text
-    issues = home.text.split('id="home-issues"', 1)[1].split("</section>", 1)[0]
-    home_link = next(unescape(href) for href in re.findall(r'href="([^"]+)"', issues) if "run_status=" in href)
-    assert parse_qs(urlsplit(home_link).query)["processing_period"] == ["all"]
-    opened = dashboard.get(home_link)
-    assert opened.status_code == 200, opened.text
-    assert "Recently cancelled input." in opened.text
-    assert "Older cancelled input." in opened.text
-    assert english["processing_attempts_period_empty"] not in opened.text
-
-
-@pytest.mark.parametrize("unavailable", [False, True])
-def test_source_processing_count_distinguishes_truncated_and_unavailable_history(dashboard, monkeypatch, unavailable):
-    from powercontext.server.dashboard.api import DashboardAPI
-    from powercontext.server.dashboard.errors import ReadError
-
-    scope = create_scope(dashboard, "Source execution count")["scope_id"]
-    saved = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "One saved input."})
-    assert saved.status_code == 201
-    source_id = saved.json()["source_id"]
-    original = DashboardAPI.read
-
-    async def history(self, path, payload=None):
-        if f"/sources/content/{source_id}/processing?" in path:
-            if unavailable:
-                raise ReadError(503, "service_unavailable")
-            return {"items": [{}] * 20, "next_cursor": "more-history"}
-        return await original(self, path, payload)
-
-    monkeypatch.setattr(DashboardAPI, "read", history)
-    page = dashboard.get(
-        "/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en", "period": "today"}
-    )
-    assert page.status_code == 200
-    cells = re.findall(r"<td data-processing-count>(.*?)</td>", page.text, re.S)
-    assert len(cells) == 1
-    assert ("20+" in cells[0]) if not unavailable else ("Not reported" in cells[0])
-    assert len(re.findall(r'<tr class="processing-source-row">', page.text)) == 1
-
-
 @pytest.mark.parametrize("public_reads", [False, True])
 def test_processing_sources_show_save_time_before_processing(dashboard, monkeypatch, public_reads):
-    from datetime import UTC, datetime
 
     scope = create_scope(dashboard, "Source save time")["scope_id"]
     before = datetime.now(UTC).replace(second=0, microsecond=0)
@@ -606,57 +332,3 @@ def test_processing_sources_show_save_time_before_processing(dashboard, monkeypa
     at = datetime.strptime(timestamp[1], "%Y-%m-%d %H:%M UTC").replace(tzinfo=UTC)
     assert before <= at <= datetime.now(UTC)
     assert "Latest processing time" not in page.text
-
-
-@pytest.mark.parametrize("public_reads", [False, True])
-def test_source_result_preview_excludes_sibling_outputs(tmp_path, monkeypatch, public_reads):
-    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionOutput
-    from powercontext.builtin.inference import GenerationResult
-    from powercontext.builtin.runtime import CaptureSource
-    from powercontext.builtin.scope import ScopeDraft
-
-    class SelectivePipeline(MemoryPipeline):
-        async def generate(self, request, /):
-            result = await super().generate(request)
-            return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=result.output.candidates[:1]))
-
-    async def scenario():
-        async with open_dream_runtime(
-            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/sources.db")),
-            candidate_pipeline=atomic_memory_pipeline(SelectivePipeline()),
-        ) as runtime:
-            scope = (
-                await runtime.scopes.create(
-                    ScopeDraft(title="Batch attribution", summary="Exact evidence", idempotency_key="batch")
-                )
-            ).scope_id
-            for source_id in ("has-fact", "no-candidate"):
-                await runtime.sources.for_scope(scope).capture(
-                    CaptureSource(source_id=source_id, content=f"Input {source_id}", metadata={})
-                )
-            await runtime.atomic_memory.for_scope(scope).flush()
-            app = create_app(application=runtime)
-            app.include_router(router, prefix="/dashboard")
-            if not public_reads:
-                app.state.dashboard_runtime = runtime
-            if public_reads:
-                monkeypatch.setattr("powercontext.server.dashboard.api._builtin_runtime", lambda request: None)
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-            ) as client:
-                history = (await client.get(f"/v1/scopes/{scope}/sources/content/no-candidate/processing")).json()
-                assert len(history["items"][0]["results"]) == 1
-                assert [
-                    (ref["source_type"], ref["source_id"]) for ref in history["items"][0]["results"][0]["source_refs"]
-                ] == [("content", "has-fact")]
-                page = await client.get(
-                    "/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"}
-                )
-                assert page.status_code == 200, page.text
-                rows = re.findall(r'<tr class="processing-source-row">(.*?)</tr>', page.text, re.S)
-                assert len(rows) == 2
-                for source_id in ("has-fact", "no-candidate"):
-                    row = next(row for row in rows if f"Input {source_id}" in row)
-                    assert ("The replay test passed without duplicate writes." in row) == (source_id == "has-fact")
-
-    asyncio.run(scenario())

@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -21,7 +21,6 @@ from powercontext.builtin.persistence import scope_reads
 from powercontext.builtin.persistence.artifact_governance import decode_artifact_governance
 from powercontext.builtin.persistence.atomic_memory import _atomic_state
 from powercontext.builtin.persistence.errors import InvalidStoredPayloadError
-from powercontext.builtin.persistence.memory_processing import MemoryProcessingRepository
 from powercontext.builtin.persistence.revision_meta import meta_from_row
 from powercontext.builtin.persistence.statistics import decode_daily_usage
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
@@ -35,8 +34,6 @@ from powercontext.builtin.runtime.statistics import (
     _usage_statistics,
 )
 from powercontext.builtin.statistics import StatisticsPeriod
-
-PROCESSING_WAITING_SCAN = 1000
 
 
 def _content_heading(content, fallback):
@@ -63,7 +60,6 @@ class ScopeReadSnapshot:
         statistics: RelationalScopedStatistics,
         as_of: datetime,
         records,
-        context_usage=None,
     ) -> None:
         self.connection = connection
         self.scope_id = scope_id
@@ -72,7 +68,6 @@ class ScopeReadSnapshot:
         self._statistics = statistics
         self._as_of = as_of
         self._records = records
-        self._context_usage = context_usage
 
     async def content(
         self,
@@ -85,27 +80,10 @@ class ScopeReadSnapshot:
         browse: bool = True,
         include_scope: bool | None = None,
         context=None,
-        sort_by="identity",
-        period="7d",
     ):
         statement = None
         bound = {}
-        counts = None
-        ranked_cursor = None
-        if browse and sort_by == "recall_count":
-            if self._context_usage is None:
-                raise InvalidBaseAccessRequestError("sort_by", "recall counts are unavailable")
-            statement, counts, ranked_cursor = await self._context_usage.memory_list_query(
-                self.connection,
-                self.scope_id,
-                self._atomic,
-                states=(state,),
-                limit=limit,
-                cursor=cursor,
-                period=period,
-                context=context,
-            )
-        elif browse:
+        if browse:
             statement, bound, _ = self._atomic.list_query(
                 self.connection, states=(state,), limit=limit, cursor=cursor, context=context
             )
@@ -123,10 +101,6 @@ class ScopeReadSnapshot:
             if len(notes) > limit
             else None
         )
-        if counts is not None:
-            notes = sorted(notes, key=lambda row: (-counts[row["artifact_id"]], row["artifact_id"]))
-            notes = [{**row, "recall_count": counts[row["artifact_id"]]} for row in notes]
-            cursor = ranked_cursor
         return rows, notes[:limit], cursor, descriptor
 
     async def history(self, family, artifact_id, selected, *, limit, cursor=None, compare=None, include_current=False):
@@ -165,374 +139,60 @@ class ScopeReadSnapshot:
     async def scope(self):
         return await scope_reads.scope_header(self.connection, self.scope_id)
 
+    async def source_processing_directory(self, *, limit: int, after: int | None = None, context=None):
+        """Read one authorized Source page without reconstructing execution history."""
+        if type(limit) is not int or not 1 <= limit <= 20:
+            from powercontext.builtin.records import InvalidBaseAccessRequestError
+
+            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
+        await self._atomic.application.security.authorize(self.connection, self.scope_id, context, "read")
+        from powercontext.artifacts import ArtifactRef
+
+        result = await scope_reads.source_processing_directory(
+            self.connection, self.scope_id, self._records._sources, limit, after
+        )
+        for item in result["items"]:
+            for ref in item.pop("artifact_representatives"):
+                await self._atomic.application.security.authorize(
+                    self.connection, self.scope_id, context, "read", ArtifactRef.model_validate(ref)
+                )
+        return result
+
+    async def usage(self, period: str, *, include_scope: bool = False):
+        resolved = _resolve_period(StatisticsPeriod(period), _as_utc(self._as_of).date())
+        estimator = self._statistics._token_estimator
+        rows, descriptor = await scope_reads.usage_rows(
+            self.connection, self.scope_id, resolved, estimator, include_scope=include_scope
+        )
+        usage, recall = decode_daily_usage(rows, (self.scope_id,))
+        return (
+            _usage_statistics(resolved, usage[self.scope_id]),
+            _recall_statistics(resolved, estimator, recall[self.scope_id]),
+            descriptor,
+        )
+
+    async def artifact(self, row):
+        """Expand only the chosen immutable Revision's direct and publication lineage."""
+        return (await self._artifacts.decode_many(self.connection, self.scope_id, (row,)))[0]
+
+    def preview(self, row):
+        content = self._artifacts.decode_content(row).model_dump(mode="json", by_alias=True)
+        head = decode_artifact_governance({**row, "revision": row["current_revision"]})
+        ref = {"family": row["family"], "artifact_id": row["artifact_id"], "revision": row["revision"]}
+        value = {**content, **ref}
+        if row["family"] == "atomic-memory":
+            value.update(
+                artifact=ref,
+                **_atomic_state(head).model_dump(mode="json"),
+                current_artifact=head.artifact.model_dump(mode="json"),
+                is_current=ref == head.artifact.model_dump(),
+            )
+        elif row["family"] == "experience":
+            value["source_count"] = int(row["source_count"])
+        return value
+
     async def inventory(self):
         return await self._statistics.inventory(self.connection)
-
-    async def processing_coverage(self, *, start_date, end_date, context=None):
-        """Read current inventory and bounded daily evidence without inventing event history."""
-        await self._atomic.application.security.authorize(self.connection, self.scope_id, context, "read")
-        days = await self._statistics._repository.preparation_days(self.connection, self.scope_id, start_date, end_date)
-        inventory = await self.inventory()
-        return {
-            "sources": inventory.sources.total,
-            "memories": inventory.memory.entries.active,
-            "preparations": sum(count for _, count in days),
-            "days": [{"date": day.isoformat(), "preparations": count} for day, count in days],
-        }
-
-    async def source_artifacts(self, source_id, *, limit=21):
-        return await scope_reads.source_artifacts(self.connection, self.scope_id, source_id, limit=limit)
-
-    async def memory_processing(self, *, source=None, artifact=None, limit=10, cursor=None, context=None):
-        """Read private processing history only after checking every disclosed input."""
-        if (source is None) == (artifact is None) or type(limit) is not int or not 1 <= limit <= 20:
-            raise InvalidBaseAccessRequestError("processing", "requires one selector and a limit from 1 to 20")
-        application = self._atomic.application
-        security = application.security
-        await security.authorize(self.connection, self.scope_id, context, "read")
-        source_mode = None
-        direct_artifact = None
-        consumption_state = None
-        if source is not None:
-            await security.authorize_sources(self.connection, self.scope_id, context, (source,))
-            stored = await self._records._sources.get(self.connection, self.scope_id, source)
-            from powercontext.builtin.sources import ContentSource
-
-            source_mode = "ordinary"
-            if isinstance(stored.value, ContentSource):
-                if stored.value.internal is not None:
-                    source_mode = "internal"
-                    target = stored.value.internal.target
-                    from powercontext.artifacts import ArtifactRef
-
-                    direct_artifact = ArtifactRef(
-                        family=target.family,
-                        artifact_id=target.artifact_id,
-                        revision=target.revision,
-                    )
-                    await security.authorize(self.connection, self.scope_id, context, "read", direct_artifact)
-                elif stored.value.is_working_note:
-                    source_mode = "working_note"
-            if source_mode == "ordinary":
-                from powercontext.builtin.persistence.cursors import SourceCursorRepository
-                from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
-
-                progress = await SourceCursorRepository().load(
-                    self.connection, self.scope_id, SOURCE_WINDOW_TRIGGER_NAME
-                )
-                sequence = 0 if progress is None else progress.cursor.sequence
-                consumption_state = "consumed" if sequence >= stored.journal_position else "unconsumed"
-            else:
-                consumption_state = "not_applicable"
-        elif artifact is not None:
-            await application.service.get(
-                self.connection,
-                self.scope_id,
-                artifact.artifact_id,
-                context,
-                revision=artifact.revision,
-            )
-        bound = {
-            "endpoint": "memory_processing",
-            "version": 1,
-            "scope_id": self.scope_id,
-            "subject": security.subject(context),
-            "source": None if source is None else source.model_dump(mode="json"),
-            "artifact": None if artifact is None else artifact.model_dump(mode="json"),
-        }
-        after = application.cursor.after_text(cursor, bound)
-        items, following = await MemoryProcessingRepository().page(
-            self.connection,
-            self.scope_id,
-            source=source,
-            artifact=artifact,
-            limit=limit,
-            after=after,
-        )
-        for item in items:
-            await security.authorize_sources(self.connection, self.scope_id, context, item.sources)
-            refs = {
-                (ref.family, ref.artifact_id, ref.revision): ref
-                for ref in (
-                    *item.read_artifacts,
-                    *(result.artifact for result in item.results),
-                    *item.retained_artifacts,
-                )
-            }
-            for ref in refs.values():
-                await security.authorize(self.connection, self.scope_id, context, "read", ref)
-        return {
-            "items": [item.model_dump(mode="json") for item in items],
-            "next_cursor": application.cursor.encode(bound, following) if following else None,
-            "source_mode": source_mode,
-            "consumption_state": consumption_state,
-            "direct_artifact": None if direct_artifact is None else direct_artifact.model_dump(mode="json"),
-        }
-
-    async def artifact_usage(self, artifact, *, period="7d", context=None):
-        """Count preparations in the selected period that included this artifact."""
-        if self._context_usage is None:
-            from powercontext.builtin.records import BaseOperationNotSupportedError
-
-            raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "recorded preparations")
-        resolved = _resolve_period(StatisticsPeriod(period), _as_utc(self._as_of).date())
-        start = datetime.combine(resolved.start_date, time.min, tzinfo=UTC)
-        end = datetime.combine(resolved.end_date, time.min, tzinfo=UTC) + timedelta(days=1)
-        return await self._context_usage.artifact_usage(
-            self.connection, self.scope_id, artifact=artifact, start=start, end=end, context=context
-        )
-
-    async def processing_attempts(self, *, limit=10, cursor=None, status=None, since=None, until=None, context=None):
-        """Read the Scope's automatic processing attempts in reverse start order.
-
-        ``status`` accepts one status or a collection of statuses. A summary that
-        counts unsuccessful inputs counts cancelled and conflicted attempts too,
-        so navigation into those records selects every status it counted.
-        """
-        if type(limit) is not int or not 1 <= limit <= 20:
-            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
-        selected = None if status is None else list(dict.fromkeys((status,) if isinstance(status, str) else status))
-        if selected is not None and (
-            not selected
-            or any(item not in {"started", "succeeded", "failed", "cancelled", "conflict"} for item in selected)
-        ):
-            raise InvalidBaseAccessRequestError("status", "is not a processing status")
-        status = selected
-        application = self._atomic.application
-        security = application.security
-        await security.authorize(self.connection, self.scope_id, context, "read")
-        since = None if since is None else (since if since.tzinfo else since.replace(tzinfo=UTC)).astimezone(UTC)
-        until = None if until is None else (until if until.tzinfo else until.replace(tzinfo=UTC)).astimezone(UTC)
-        bound = {
-            "endpoint": "memory_processing_scope",
-            "version": 1,
-            "scope_id": self.scope_id,
-            "subject": security.subject(context),
-            "status": status,
-            "since": None if since is None else since.isoformat(),
-            "until": None if until is None else until.isoformat(),
-        }
-        # The signed cursor binds the whole selection, including every requested status.
-        after = application.cursor.after_text(cursor, bound)
-        items, following = await MemoryProcessingRepository().page_scope(
-            self.connection,
-            self.scope_id,
-            limit=limit,
-            after=after,
-            status=status,
-            since=since,
-            until=until,
-        )
-        for item in items:
-            await security.authorize_sources(self.connection, self.scope_id, context, item.sources)
-            refs = {
-                (ref.family, ref.artifact_id, ref.revision): ref
-                for ref in (
-                    *item.read_artifacts,
-                    *(result.artifact for result in item.results),
-                    *item.retained_artifacts,
-                )
-            }
-            for ref in refs.values():
-                await security.authorize(self.connection, self.scope_id, context, "read", ref)
-        return {
-            "items": [item.model_dump(mode="json") for item in items],
-            "next_cursor": application.cursor.encode(bound, following) if following else None,
-            "source_mode": None,
-            "consumption_state": None,
-            "direct_artifact": None,
-        }
-
-    async def _waiting_inputs(self, *, since, until) -> tuple[int, bool]:
-        """Count current outstanding Sources absent from the window's attempts.
-
-        The journal cursor only advances with a domain commit, so everything after
-        it is unprocessed. Attempts inside the selected window already contribute
-        their status; older failed or unconfirmed attempts must remain visible
-        as outstanding work rather than disappearing when their history ages out.
-        """
-        from powercontext.builtin.persistence.cursors import SourceCursorRepository
-        from powercontext.builtin.source_eligibility import is_generation_eligible
-        from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
-
-        progress = await SourceCursorRepository().load(self.connection, self.scope_id, SOURCE_WINDOW_TRIGGER_NAME)
-        sequence = 0 if progress is None else progress.cursor.sequence
-        rows = await self._records._sources.list(
-            self.connection, self.scope_id, after=sequence, limit=PROCESSING_WAITING_SCAN + 1
-        )
-        refs = tuple(
-            dict.fromkeys(
-                (row.ref.source_type, row.ref.source_id)
-                for row in rows[:PROCESSING_WAITING_SCAN]
-                if is_generation_eligible(row.value)
-            )
-        )
-        attempted = await MemoryProcessingRepository().attempted_sources(
-            self.connection, self.scope_id, refs, since=since, until=until
-        )
-        waiting = sum(ref not in attempted for ref in refs)
-        return waiting, len(rows) > PROCESSING_WAITING_SCAN
-
-    async def processing_summary(self, *, since=None, until=None, all_time=False, context=None):
-        """Count a bounded window, or all recorded history for the Home projection."""
-        application = self._atomic.application
-        await application.security.authorize(self.connection, self.scope_id, context, "read")
-        until = datetime.now(UTC) if until is None else until
-        until = until if until.tzinfo else until.replace(tzinfo=UTC)
-        until = until.astimezone(UTC)
-        if all_time:
-            since = None
-        else:
-            since = until - timedelta(days=7) if since is None else since
-            since = since if since.tzinfo else since.replace(tzinfo=UTC)
-            since = since.astimezone(UTC)
-            if since >= until or until - since > timedelta(days=92):
-                raise InvalidBaseAccessRequestError("window", "must be a positive range of at most 92 days")
-        summary = await MemoryProcessingRepository().summarize(self.connection, self.scope_id, since=since, until=until)
-        waiting, waiting_lower_bound = await self._waiting_inputs(since=since, until=until)
-        return {
-            "since": since.isoformat() if since is not None else None,
-            "until": until.isoformat(),
-            **summary,
-            "inputs_waiting": waiting,
-            "inputs_waiting_is_lower_bound": waiting_lower_bound,
-        }
-
-    async def source_directory(self, *, limit=6, cursor=None, context=None):
-        from sqlalchemy import select
-
-        from powercontext.builtin.persistence.records import _source_record
-        from powercontext.builtin.persistence.tables import SOURCES_TABLE
-
-        if type(limit) is not int or not 1 <= limit <= 20:
-            raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
-        application = self._atomic.application
-        await application.security.authorize(self.connection, self.scope_id, context, "read")
-        bound = {
-            "endpoint": "dashboard_sources",
-            "version": 1,
-            "scope_id": self.scope_id,
-            "subject": application.security.subject(context),
-        }
-        after = application.cursor.after_text(cursor, bound)
-        statement = select(SOURCES_TABLE).where(
-            SOURCES_TABLE.c.scope_id == self.scope_id, SOURCES_TABLE.c.source_type == "content"
-        )
-        if after:
-            if not after.isascii() or not after.isdecimal() or len(after) > 20 or int(after) < 1:
-                from powercontext.builtin.records import InvalidCursorError
-
-                raise InvalidCursorError
-            statement = statement.where(SOURCES_TABLE.c.journal_position < int(after))
-        rows = (
-            (
-                await self.connection.execute(
-                    statement.order_by(SOURCES_TABLE.c.journal_position.desc()).limit(limit + 1)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        items = []
-        for row in rows[:limit]:
-            stored = self._records._sources.decode_source(row)
-            item = _source_record(self.scope_id, stored).model_dump(mode="json")
-            item["saved_at"] = stored.saved_at.isoformat() if stored.saved_at else None
-            items.append(item)
-        following = (
-            application.cursor.encode(bound, str(rows[limit - 1]["journal_position"])) if len(rows) > limit else None
-        )
-        return {"items": items, "next_cursor": following}
-
-    async def activity(self, *, sources=None, limit=6, context=None):  # noqa: C901 -- Authorize all batch evidence before projecting per-Source outcomes.
-        from powercontext.artifacts import ArtifactRef
-        from powercontext.builtin.persistence import dashboard_activity
-        from powercontext.builtin.sources import ContentSource
-        from powercontext.sources import SourceRef
-
-        if not 1 <= limit <= 20 or (sources is not None and len(sources) > 20):
-            raise InvalidBaseAccessRequestError("activity", "requires at most 20 selected records")
-        security = self._atomic.application.security
-        await security.authorize(self.connection, self.scope_id, context, "read")
-        attempts = await dashboard_activity.processing(self.connection, self.scope_id, sources=sources, limit=limit)
-        refs = (
-            [SourceRef(source_type="content", source_id=value) for value in sources]
-            if sources is not None
-            else [source for _, record in attempts for source in record.sources[:1] if source.source_type == "content"]
-        )
-        stored = await self._records._sources.get_many(self.connection, self.scope_id, refs)
-        source_values = {value.ref.source_id: value.value for value in stored}
-        checked = set()
-        for _, record in attempts:
-            if record.attempt_id in checked:
-                continue
-            checked.add(record.attempt_id)
-            await security.authorize_sources(self.connection, self.scope_id, context, record.sources)
-            for ref in (
-                *record.read_artifacts,
-                *(item.artifact for item in record.results),
-                *record.retained_artifacts,
-            ):
-                await security.authorize(self.connection, self.scope_id, context, "read", ref)
-        summaries = []
-        selected = dict(attempts) if sources is not None else {}
-        identities = sources if sources is not None else [record.sources[0].source_id for _, record in attempts]
-        for index, source_id in enumerate(identities):
-            source = source_values.get(source_id)
-            record = selected.get(source_id) if sources is not None else attempts[index][1]
-            state = "unknown"
-            result_refs = []
-            if isinstance(source, ContentSource) and source.internal is not None:
-                state = "internal"
-                target = source.internal.target
-                ref = ArtifactRef(family=target.family, artifact_id=target.artifact_id, revision=target.revision)
-                await security.authorize(self.connection, self.scope_id, context, "read", ref)
-                result_refs = [ref.model_dump(mode="json")]
-            elif isinstance(source, ContentSource) and source.is_working_note:
-                state = "working_note"
-            elif record is not None:
-                relevant = [
-                    item
-                    for item in record.results
-                    if any(ref.source_id == source_id and ref.source_type == "content" for ref in item.source_refs)
-                ]
-                result_refs = [item.artifact.model_dump(mode="json") for item in relevant]
-                if record.status == "started":
-                    state = "unconfirmed"
-                elif record.status != "succeeded":
-                    state = "failed"
-                elif relevant:
-                    state = "created" if all(item.action == "create" for item in relevant) else "changed"
-                elif record.retained_artifacts and (
-                    len(record.sources) == 1
-                    or any(
-                        decision.action == "noop" and any(ref.source_id == source_id for ref in decision.source_refs)
-                        for decision in record.decisions
-                    )
-                ):
-                    state = "retained"
-                    result_refs = (
-                        [ref.model_dump(mode="json") for ref in record.retained_artifacts]
-                        if len(record.sources) == 1
-                        else []
-                    )
-                else:
-                    state = "empty"
-            summaries.append({
-                "source_id": source_id,
-                "title": _content_heading(
-                    source.wire_content if isinstance(source.wire_content, dict) else {"text": source.content},
-                    source_id,
-                )
-                if isinstance(source, ContentSource)
-                else source_id,
-                "state": state,
-                "results": result_refs,
-                "attempt_id": None if record is None else record.attempt_id,
-                "at": None if record is None else (record.completed_at or record.started_at).isoformat(),
-                "batch_size": 0 if record is None else len(record.sources),
-            })
-        return summaries
 
     async def recent_changes(self, *, limit=6, context=None):
         from powercontext.artifacts import ArtifactRef
@@ -611,44 +271,34 @@ class ScopeReadSnapshot:
                 continue
         return results
 
-    async def context_usage(self, **params):
-        if self._context_usage is None:
-            from powercontext.builtin.records import BaseOperationNotSupportedError
+    async def source_artifacts(self, source_id, *, limit=21, context=None):
+        from powercontext.artifacts import ArtifactRef
 
-            raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "recorded preparations")
-        return await self._context_usage.read(self.connection, self.scope_id, **params)
+        security = self._atomic.application.security
+        await security.authorize(self.connection, self.scope_id, context, "read")
+        refs = await scope_reads.source_artifacts(self.connection, self.scope_id, source_id, limit=limit)
+        for ref in refs:
+            await security.authorize(self.connection, self.scope_id, context, "read", ArtifactRef.model_validate(ref))
+        return refs
 
-    async def usage(self, period: str, *, include_scope: bool = False):
-        resolved = _resolve_period(StatisticsPeriod(period), _as_utc(self._as_of).date())
-        estimator = self._statistics._token_estimator
-        rows, descriptor = await scope_reads.usage_rows(
-            self.connection, self.scope_id, resolved, estimator, include_scope=include_scope
+    async def source_directory(self, *, limit=6, cursor=None, context=None):
+        application = self._atomic.application
+        bound = {
+            "endpoint": "dashboard_sources",
+            "version": 1,
+            "scope_id": self.scope_id,
+            "subject": application.security.subject(context),
+        }
+        after = application.cursor.after_text(cursor, bound)
+        if after and (not after.isascii() or not after.isdecimal() or len(after) > 20 or int(after) < 1):
+            from powercontext.builtin.records import InvalidCursorError
+
+            raise InvalidCursorError
+        result = await self.source_processing_directory(
+            limit=limit, after=int(after) if after else None, context=context
         )
-        usage, recall = decode_daily_usage(rows, (self.scope_id,))
-        return (
-            _usage_statistics(resolved, usage[self.scope_id]),
-            _recall_statistics(resolved, estimator, recall[self.scope_id]),
-            descriptor,
-        )
-
-    async def artifact(self, row):
-        """Expand only the chosen immutable Revision's direct and publication lineage."""
-        return (await self._artifacts.decode_many(self.connection, self.scope_id, (row,)))[0]
-
-    def preview(self, row):
-        content = self._artifacts.decode_content(row).model_dump(mode="json", by_alias=True)
-        head = decode_artifact_governance({**row, "revision": row["current_revision"]})
-        ref = {"family": row["family"], "artifact_id": row["artifact_id"], "revision": row["revision"]}
-        value = {**content, **ref}
-        if "recall_count" in row:
-            value["recall_count"] = row["recall_count"]
-        if row["family"] == "atomic-memory":
-            value.update(
-                artifact=ref,
-                **_atomic_state(head).model_dump(mode="json"),
-                current_artifact=head.artifact.model_dump(mode="json"),
-                is_current=ref == head.artifact.model_dump(),
-            )
-        elif row["family"] == "experience":
-            value["source_count"] = int(row["source_count"])
-        return value
+        position = result["next_position"]
+        return {
+            "items": result["items"],
+            "next_cursor": application.cursor.encode(bound, str(position)) if position else None,
+        }

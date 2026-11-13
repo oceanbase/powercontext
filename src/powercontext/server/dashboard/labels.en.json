@@ -939,6 +939,7 @@
   "processing_table_status": "Processing status",
   "processing_summary_no_changes": "{count} without changes",
   "processing_summary_failed_runs": "{count} failed runs",
+  "processing_artifact_tag": "Artifact formed",
   "processing_source_saved_time": "Saved at",
   "processing_source_type": "Source type",
   "processing_source_content": "Content",

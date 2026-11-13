@@ -1393,68 +1393,6 @@ const OPERATIONS = {
 		successStatuses: [201],
 		emptyStatuses: []
 	},
-	get_scope_memory_processing_summary: {
-		method: "GET",
-		path: "/v1/scopes/{scope_id}/processing/summary",
-		location: "query",
-		scopeMode: "none",
-		pathParameters: ["scope_id"],
-		queryParams: [
-			"all_time",
-			"since",
-			"until"
-		],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	list_scope_memory_processing: {
-		method: "GET",
-		path: "/v1/scopes/{scope_id}/processing",
-		location: "query",
-		scopeMode: "none",
-		pathParameters: ["scope_id"],
-		queryParams: [
-			"limit",
-			"cursor",
-			"status",
-			"since",
-			"until"
-		],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	list_source_memory_processing: {
-		method: "GET",
-		path: "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}/processing",
-		location: "query",
-		scopeMode: "none",
-		pathParameters: [
-			"scope_id",
-			"source_type",
-			"source_id"
-		],
-		queryParams: ["limit", "cursor"],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	list_memory_revision_processing: {
-		method: "GET",
-		path: "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/revisions/{revision}/processing",
-		location: "query",
-		scopeMode: "none",
-		pathParameters: [
-			"scope_id",
-			"artifact_id",
-			"revision"
-		],
-		queryParams: ["limit", "cursor"],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
 	get_source: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}",

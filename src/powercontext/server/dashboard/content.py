@@ -93,8 +93,6 @@ async def load_notes(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -
             result = await api.atomic_memory_list(
                 ctx["scope"],
                 state=ctx["note_state"],
-                sort_by=ctx["note_sort"] if ctx["page"] == "notes" else "identity",
-                period=ctx["period"],
                 limit=3 if ctx["page"] == "home" else PAGE_SIZE,
                 cursor=request.query_params.get("notes_cursor") if ctx["page"] == "notes" else None,
             )
@@ -107,48 +105,6 @@ async def load_notes(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -
         ctx["data"]["notes"] = memory_view(result)
         if ctx["page"] == "notes":
             ctx["notes_pager"] = cursor_links(request, ctx, "notes", result["next_cursor"])
-
-
-async def load_note_counts(api, ctx):
-    """Fill counts for only the displayed identities, independent of directory order."""
-    missing = [item for item in ctx["data"]["notes"] if "recall_count" not in item]
-    if missing:
-        try:
-            result = await api.atomic_memory_list(
-                ctx["scope"],
-                state="active",
-                states=["active", "forgotten", "merged", "retired"],
-                artifact_ids=[item["artifact_id"] for item in missing],
-                sort_by="recall_count",
-                period=ctx["period"],
-                limit=len(missing),
-                cursor=None,
-            )
-            counts = result.get("recall_counts")
-            if counts is None or any(item["artifact_id"] not in counts for item in missing):
-                raise ReadError(503, "service_unavailable")  # noqa: TRY301 - Normalize incomplete batches as unavailable.
-            for item in missing:
-                item["recall_count"] = counts[item["artifact_id"]]
-        except ReadError as error:
-            ctx["errors"]["note_counts"] = error
-            for item in missing:
-                item["recall_count"] = None
-    selected = ctx["selected_note"]
-    if selected:
-        current = next((item for item in ctx["data"]["notes"] if item["artifact_id"] == selected["artifact_id"]), None)
-        if current is not None:
-            selected["recall_count"] = current["recall_count"]
-
-
-def present_search(result, request, ctx):
-    items = memory_view({
-        "items": [{**hit["memory"], "matched_by": hit["matched_by"], "score": hit["score"]} for hit in result["hits"]]
-    })
-    window = list_page(items, request.query_params.get("notes_page"))
-    ctx["data"]["notes"] = window["items"]
-    ctx["notes_pager"] = list_links(ctx, "notes", window)
-    ctx["search_limited"] = len(result["hits"]) == 50
-    ctx["search_used_mode"] = result["mode"]
 
 
 async def load_stats(api: DashboardAPI, ctx: dict[str, Any]) -> None:
@@ -174,13 +130,6 @@ async def select_note(api: DashboardAPI, ctx: dict[str, Any]) -> None:
         )
         if current and "matched_by" in current:
             ctx["selected_note"].update(matched_by=current["matched_by"], score=current["score"])
-        try:
-            ctx["note_processing"] = await api.read(
-                f"/v1/scopes/{segment(scope)}/artifacts/atomic-memory/{segment(ref['artifact_id'])}"
-                f"/revisions/{ref['revision']}/processing?limit=3"
-            )
-        except ReadError as error:
-            ctx["errors"]["note_processing"] = error
     note_sources(ctx)
 
 
@@ -398,3 +347,14 @@ async def load_profile(api: DashboardAPI, request: Request, ctx: dict[str, Any],
     ctx["profile_html"] = profile_html(record["content"])
     ctx["source_record"] = record
     ctx["related_sources"] = [source for source in record["sources"] if source["source_type"] == "content"]
+
+
+def present_search(result, request, ctx):
+    items = memory_view({
+        "items": [{**hit["memory"], "matched_by": hit["matched_by"], "score": hit["score"]} for hit in result["hits"]]
+    })
+    window = list_page(items, request.query_params.get("notes_page"))
+    ctx["data"]["notes"] = window["items"]
+    ctx["notes_pager"] = list_links(ctx, "notes", window)
+    ctx["search_limited"] = len(result["hits"]) == 50
+    ctx["search_used_mode"] = result["mode"]

@@ -108,16 +108,6 @@ def add_atomic_memory_routes(  # noqa: C901
         application: Annotated[Any, Depends(application_dependency)],
     ) -> models.ListAtomicMemoryResponse:
         result = await _scoped(application, request.scope_id).list(
-            **(
-                {"sort_by": "recall_count", "period": request.period.value}
-                if request.sort_by.value == "recall_count"
-                else {}
-            ),
-            **(
-                {"artifact_ids": tuple(value.root for value in request.artifact_ids)}
-                if request.artifact_ids is not None
-                else {}
-            ),
             states=tuple(state.value for state in request.states) if request.states is not None else ("active",),
             kind=request.kind,
             tag_filter=_tag_filter(request),
@@ -126,9 +116,7 @@ def add_atomic_memory_routes(  # noqa: C901
             context=execution_context(http_request, "list_atomic_memories"),
         )
         return models.ListAtomicMemoryResponse(
-            items=[record_response(item) for item in result.items],
-            next_cursor=result.next_cursor,
-            recall_counts=result.recall_counts,
+            items=[record_response(item) for item in result.items], next_cursor=result.next_cursor
         )
 
     async def search_atomic_memory(
