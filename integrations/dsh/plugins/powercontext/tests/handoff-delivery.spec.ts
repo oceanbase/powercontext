@@ -454,6 +454,28 @@ describe('local DSH handoff deliveries', () => {
     expect(result.carrier.prepared.generation.receipt).toBe('generation-origin')
   })
 
+  it.each([16, 17])('discloses truncation of %i Host omissions in the captured source', async count => {
+    const omissions = Array.from({ length: count }, (_, i) => 'Host omission ' + (i + 1))
+    const readBoundary: BoundaryReader = async (_context, selected) => ({
+      source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: selected.throughSeq, text: 'Selected reply' },
+      events: [], workspace: { observedAt: selected.workspaceObservedAt, revision: 'abc', uncommittedChanges: '' },
+      omissions,
+    })
+    let captured: unknown
+    fetch.mockImplementationOnce(async (_url, init) => {
+      captured = JSON.parse(JSON.parse(init.body as string).content)
+      return response({}, 422)
+    })
+    open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 6000 } }) })
+    await service.prepare(caller(), input({ workInput: undefined }))
+    expect(captured).toMatchObject({ omissions: [
+      'No check evidence was available; whether checks ran is unknown.',
+      ...omissions.slice(0, 16),
+      ...(count > 16 ? ['Additional omissions reported by the Host could not be included.'] : []),
+    ] })
+  })
+
   it('records unavailable evidence without inventing an unrun check or substituting another reply', async () => {
     const reader: BoundaryReader = async (_context, selected) => ({
       source: selected, objective: work.objective,
@@ -503,28 +525,6 @@ describe('local DSH handoff deliveries', () => {
       ]) })
     },
   )
-
-  it.each([16, 17])('discloses truncation of %i Host omissions in the captured source', async count => {
-    const omissions = Array.from({ length: count }, (_, i) => 'Host omission ' + (i + 1))
-    const readBoundary: BoundaryReader = async (_context, selected) => ({
-      source: selected, objective: work.objective,
-      selectedReply: { messageId: selected.messageId, seq: selected.throughSeq, text: 'Selected reply' },
-      events: [], workspace: { observedAt: selected.workspaceObservedAt, revision: 'abc', uncommittedChanges: '' },
-      omissions,
-    })
-    let captured: unknown
-    fetch.mockImplementationOnce(async (_url, init) => {
-      captured = JSON.parse(JSON.parse(init.body as string).content)
-      return response({}, 422)
-    })
-    open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 6000 } }) })
-    await service.prepare(caller(), input({ workInput: undefined }))
-    expect(captured).toMatchObject({ omissions: [
-      'No check evidence was available; whether checks ran is unknown.',
-      ...omissions.slice(0, 16),
-      ...(count > 16 ? ['Additional omissions reported by the Host could not be included.'] : []),
-    ] })
-  })
 
   it('protects unconfirmed and pinned packages, and serializes deletion with a path consumer', async () => {
     let now = Date.parse(source.workspaceObservedAt)
