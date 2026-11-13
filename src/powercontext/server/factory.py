@@ -508,6 +508,9 @@ def create_server_app(  # noqa: C901
             tracing=resolved_tracing,
         )
     if resolved.dashboard.enabled:
+        from powercontext.server.dashboard.runtime import runtime_configuration
+
+        app.state.dashboard_runtime_configuration = runtime_configuration(config)
         mount_dashboard(app)
     return app
 
