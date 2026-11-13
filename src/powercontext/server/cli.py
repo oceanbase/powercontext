@@ -52,6 +52,7 @@ from powercontext.builtin.persistence.seekdb import (
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_reindex import plan_topic_memory_reindex, reindex_topic_memory
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
 from powercontext.builtin.runtime.composition import _embedding_models, open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
@@ -573,6 +574,139 @@ def atomic_memory_rebuild_projection(
             _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+@app.command("topic-memory-reindex")
+def topic_memory_reindex(
+    action: Annotated[
+        Literal["dry-run", "apply"],
+        typer.Option(help="Inspect readiness or stage and activate the configured profile."),
+    ] = "dry-run",
+    env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    maintenance_confirmed: Annotated[
+        bool, typer.Option(help="Confirm every API, host and Worker is stopped and Topic writes are paused.")
+    ] = False,
+    batch_size: Annotated[int, typer.Option(min=1, max=1000, help="Topics read per committed staging batch.")] = 25,
+    rebuild_atomic_memory: Annotated[
+        bool,
+        typer.Option(help="Also rebuild incompatible managed Atomic Memory projections with the target profile."),
+    ] = False,
+    progress: Annotated[bool, typer.Option(help="Write committed Topic and chunk counts to stderr.")] = True,
+) -> None:
+    """Migrate active Topic Memory vectors without changing authoritative Artifacts."""
+
+    if action == "apply" and not maintenance_confirmed:
+        raise typer.BadParameter(  # noqa: TRY003
+            "Topic Memory reindex requires --maintenance-confirmed after stopping every writer"
+        )
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with server_settings_context(env_file=env_file) as settings:
+        try:
+            ready = asyncio.run(
+                _topic_memory_reindex(
+                    settings,
+                    dry_run=action == "dry-run",
+                    maintenance_confirmed=maintenance_confirmed,
+                    batch_size=batch_size,
+                    rebuild_atomic_memory=rebuild_atomic_memory,
+                    show_progress=progress,
+                )
+            )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _topic_memory_reindex(
+    settings: ServerSettings,
+    *,
+    dry_run: bool,
+    maintenance_confirmed: bool,
+    batch_size: int,
+    rebuild_atomic_memory: bool,
+    show_progress: bool,
+) -> bool:
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
+    from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
+    from powercontext.builtin.persistence.sqlite.topic_memory_reindex import SQLiteTopicMemoryReindexBackend
+
+    inference = settings.inference
+    if (
+        inference.embedding_model is None
+        or inference.embedding_profile_id is None
+        or inference.embedding_dimension is None
+    ):
+        raise typer.BadParameter("Topic Memory reindex requires an explicit embedding model, profile and dimension")  # noqa: TRY003
+    embedding_profile = EmbeddingProfile(
+        profile_id=inference.embedding_profile_id,
+        model=inference.embedding_model,
+        dimension=inference.embedding_dimension,
+        distance="l2",
+        normalization=inference.embedding_normalization,
+    )
+    database = settings.database
+    if isinstance(database, SQLiteConfig):
+        if not database.is_persistent:
+            raise typer.BadParameter("Topic Memory reindex requires a persistent database")  # noqa: TRY003
+        opened = (
+            SQLiteProfile.open_readonly(database, load_vector_extension=True)
+            if dry_run
+            else SQLiteProfile.open(database, tables=(), load_vector_extension=True)
+        )
+        backend = SQLiteTopicMemoryReindexBackend(embedding_profile)
+    elif isinstance(database, OceanBaseConfig):
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if dry_run
+            else OceanBaseProfile.open(database, tables=())
+        )
+        backend = OceanBaseTopicMemoryReindexBackend(embedding_profile)
+    elif isinstance(database, SeekDBConfig):
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if dry_run else SeekDBProfile.open(database, tables=())
+        )
+        backend = OceanBaseTopicMemoryReindexBackend(embedding_profile)
+    else:
+        raise typer.BadParameter("unsupported Topic Memory reindex database")  # noqa: TRY003
+
+    def progress(counts: dict[str, int]) -> None:
+        if show_progress:
+            typer.echo(json.dumps({"progress": counts}, sort_keys=True), err=True)
+
+    async with AsyncExitStack() as resources:
+        profile = await resources.enter_async_context(opened)
+        async with profile.database.transaction() as connection:
+            inspection = await plan_topic_memory_reindex(
+                connection,
+                backend,
+                rebuild_atomic_memory=rebuild_atomic_memory,
+            )
+        if dry_run or inspection.errors:
+            report = inspection if dry_run else inspection.model_copy(update={"action": "apply"})
+        else:
+            inference_required = inspection.atomic_memory_rebuild_required or (
+                not inspection.activated and inspection.counts["topics_remaining"] > 0
+            )
+            embedding_model = (await _embedding_models(inference, resources, None))[0] if inference_required else None
+            report = await reindex_topic_memory(
+                profile.database,
+                backend,
+                embedding_model=embedding_model,
+                maintenance_confirmed=maintenance_confirmed,
+                dry_run=False,
+                batch_size=batch_size,
+                rebuild_atomic_memory=rebuild_atomic_memory,
+                progress=progress,
+            )
+    typer.echo(report.model_dump_json())
+    return report.ready
 
 
 @app.command("access-ownership-migrate")
