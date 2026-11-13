@@ -5855,8 +5855,7 @@ export interface components {
             /** @default 10 */
             limit: number;
             cursor?: string | null;
-            /** @enum {string|null} */
-            status?: "started" | "succeeded" | "failed" | "cancelled" | "conflict" | null;
+            status?: ("started" | "succeeded" | "failed" | "cancelled" | "conflict")[] | null;
             /** Format: date-time */
             since?: string | null;
             /** Format: date-time */
@@ -5911,8 +5910,11 @@ export interface components {
             retained_artifacts: components["schemas"]["ArtifactReference"][];
         };
         MemoryProcessingSummary: {
-            /** Format: date-time */
-            since: string;
+            /**
+             * Format: date-time
+             * @description Inclusive lower bound; null means the count covers all recorded history.
+             */
+            since: string | null;
             /** Format: date-time */
             until: string;
             attempts: number;
@@ -5938,6 +5940,8 @@ export interface components {
             unreported: number;
         };
         GetScopeMemoryProcessingSummaryRequest: {
+            /** @default false */
+            all_time: boolean;
             /** Format: date-time */
             since?: string | null;
             /** Format: date-time */
@@ -10162,6 +10166,8 @@ export interface operations {
     get_scope_memory_processing_summary: {
         parameters: {
             query?: {
+                /** @description Count the Scope's complete recorded attempt history instead of one bounded window. The response reports `since` as null. Home uses this so an unresolved failure or unconfirmed start older than the selected period still raises an alert; a detail link must then open the same all-history range rather than inheriting a shorter one. Cannot be combined with `since` or `until`. */
+                all_time?: boolean;
                 /** @description Inclusive lower bound on the attempt start time; defaults to seven days before `until`. */
                 since?: string;
                 /** @description Exclusive upper bound on the attempt start time; defaults to now. The range is at most 92 days. */
@@ -10198,7 +10204,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
-                status?: "started" | "succeeded" | "failed" | "cancelled" | "conflict";
+                /** @description Restrict the page to these recorded statuses. Repeat the parameter to select more than one status; omitting it returns every status. A summary that counts unsuccessful inputs counts cancelled and conflicted attempts too, so a link to those records must select all three. */
+                status?: ("started" | "succeeded" | "failed" | "cancelled" | "conflict")[];
                 /** @description Inclusive lower bound on the attempt start time. */
                 since?: string;
                 /** @description Exclusive upper bound on the attempt start time. */
