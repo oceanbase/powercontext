@@ -40,6 +40,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_channel_hits,
     atomic_memory_filter_sql,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_requirement_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_channels,
     sqlite_fts_coverage_sql,
@@ -329,24 +330,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             match_query = fts_match_query(request.query)
             if match_query is None:
                 return (), {}
-            terms, required = fts_query_requirements(request.query, floor=request.admission)
-            coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
-            parameters.update(coverage_parameters)
-            grouped = f"searchable_text:({match_query})"
-            parameters.update(
-                fts_query=grouped,
-                fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
-                fts_required=required,
-            )
-            rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
-            query_sql = (
-                f"SELECT {_HIT_COLUMNS}, -{rank} AS score, {rank} AS raw_score, "  # noqa: S608
-                f"'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-                f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-                "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-                "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
-                f"AND ({eligibility}) AND {coverage} >= :fts_required"
-            )
+            query_sql = self._related_fts_sql(scope_id, request, match_query, eligibility, parameters)
             rows, heads = await self._related_rows(connection, query_sql, parameters)
             sorted_rows = sorted(rows, key=lambda row: (-row["score"], row["artifact_id"]))
             return atomic_memory_channel_hits(sorted_rows), heads
@@ -370,6 +354,37 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             rows, key=lambda row: (-row["invalid_vectors"], row["distance"] or 0, row["artifact_id"] or "")
         )
         return atomic_memory_channel_hits(sorted_rows, vector=True), heads
+
+    @staticmethod
+    def _related_fts_sql(
+        scope_id: str,
+        request: AtomicMemoryRelatedRequest,
+        match_query: str,
+        eligibility: str,
+        parameters: dict[str, object],
+    ) -> str:
+        """Enumerate every memory sharing a term, then keep those meeting the related threshold."""
+        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
+        requirement, requirement_parameters, _ = atomic_memory_related_requirement_sql(
+            len(terms), "sqlite", floor=request.admission
+        )
+        parameters.update(coverage_parameters, **requirement_parameters)
+        grouped = f"searchable_text:({match_query})"
+        parameters.update(
+            fts_query=grouped,
+            fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
+            fts_required=required,
+        )
+        rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
+        return (
+            f"SELECT {_HIT_COLUMNS}, -{rank} AS score, {rank} AS raw_score, "  # noqa: S608
+            f"'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
+            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
+            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
+            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+            f"AND ({eligibility}) AND {coverage} >= {requirement}"
+        )
 
     async def _related_rows(
         self, connection: AsyncConnection, query_sql: str, parameters: dict[str, object]
@@ -478,15 +493,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         match_query = fts_match_query(request.query)
         if match_query is None:
             return None
-        terms, required = fts_query_requirements(request.query, floor=request.admission)
-        coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
-        parameters.update(coverage_parameters)
-        grouped = f"searchable_text:({match_query})"
-        parameters.update(
-            fts_query=grouped,
-            fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
-            fts_required=required,
-        )
+        fts_sql = self._related_fts_sql(scope_id, request, match_query, eligibility, parameters)
         query_vector = self._require_vectors(request)
         profile = self.profile
         if profile is None:
@@ -500,15 +507,6 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             min_semantic_similarity=(
                 DEFAULT_ADMISSION_FLOOR if request.admission is None else request.admission
             ).min_semantic_similarity,
-        )
-        rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
-        fts_sql = (
-            f"SELECT {_HIT_COLUMNS}, -{rank} AS score, {rank} AS raw_score, "  # noqa: S608
-            f"'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
-            f"AND ({eligibility}) AND {coverage} >= :fts_required"
         )
         vector_sql = atomic_memory_vector_sql(eligibility, "sqlite", bounded=False, threshold=True)
         channel_sql = (

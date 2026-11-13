@@ -243,3 +243,80 @@ def test_builtin_reconciliation_compares_only_related_window_siblings(tmp_path, 
     assert [
         (request["proposal"]["text"], [item["text"] for item in request["related"]]) for request in reconciliations
     ] == [(texts[2], [texts[0]])]
+
+
+def test_builtin_reconciliation_compares_a_long_candidate_with_a_short_memory_of_the_same_fact(tmp_path, monkeypatch):
+    # Lexical related recall also measures the stored side, so a long candidate reaches a short published memory or an
+    # earlier sibling of the same fact.
+    short = "The billing database is PostgreSQL 15."
+    unrelated = "Deploys to production never run on Friday afternoons."
+    long = (
+        "After last week's maintenance window, the billing team upgraded the billing database cluster "
+        "from PostgreSQL 15 to PostgreSQL 16 to get logical replication improvements, faster vacuum, "
+        "and better monitoring of slow checkout queries during the holiday traffic peak."
+    )
+    windows = [(short, unrelated), (long,), ("Release notes are written in English.", short, long)]
+    reconciliations = []
+
+    def respond(messages, _info) -> ModelResponse:
+        prompt = next(
+            part.content
+            for message in reversed(messages)
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
+        if prompt == "Reply with one token.":
+            return ModelResponse(parts=[TextPart("ok")])
+        request = json.loads(prompt)
+        if "proposal" in request:
+            reconciliations.append(request)
+            proposal = request["proposal"]
+            value = {
+                "action": "create",
+                "compared_ids": [item["item_id"] for item in request["related"]],
+                "content": {key: proposal[key] for key in ("kind", "text", "description")},
+                "evidence_ids": proposal["evidence_ids"],
+                "reason": "Recorded for the test.",
+            }
+        else:
+            evidence_id = request["evidence"][0]["evidence_id"]
+            value = {
+                "candidates": [
+                    {"kind": "fact", "text": text, "description": text[:60], "evidence_ids": [evidence_id]}
+                    for text in windows.pop(0)
+                ]
+            }
+        return ModelResponse(parts=[TextPart(json.dumps(value))])
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
+
+    async def flush(scope_id: str, runtime, number: int) -> None:
+        await runtime.sources.for_scope(scope_id).capture(
+            CaptureSource(source_id=f"note-{number}", content=f"Billing note {number}.", metadata={})
+        )
+        await runtime.atomic_memory.for_scope(scope_id).flush()
+
+    async def scenario():
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'builtin.db'}"),
+                inference=InferenceConfig(generation_model="test"),
+            ),
+            scheduler_path=tmp_path / "scheduler.db",
+        ) as runtime:
+            assert runtime.scopes is not None
+            published = (
+                await runtime.scopes.create(ScopeDraft(title="Billing", summary="Billing", idempotency_key="published"))
+            ).scope_id
+            await flush(published, runtime, 1)
+            await flush(published, runtime, 2)
+            window = (
+                await runtime.scopes.create(ScopeDraft(title="Window", summary="Window", idempotency_key="window"))
+            ).scope_id
+            await flush(window, runtime, 3)
+
+    asyncio.run(scenario())
+
+    assert [
+        (request["proposal"]["text"], [item["text"] for item in request["related"]]) for request in reconciliations
+    ] == [(long, [short]), (long, [short])]

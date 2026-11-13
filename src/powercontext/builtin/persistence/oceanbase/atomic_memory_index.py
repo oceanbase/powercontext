@@ -39,6 +39,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_channel_hits,
     atomic_memory_filter_sql,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_requirement_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_channels,
     oceanbase_fts_coverage_sql,
@@ -367,24 +368,25 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         vector = request.mode in {"vector", "hybrid"}
         max_distance = request.max_distance
         terms, required = fts_query_requirements(request.query, floor=request.admission) if lexical else ((), 0)
-        if required > len(terms):
-            terms = ()
+        requirement, requirement_parameters, lowest = (
+            atomic_memory_related_requirement_sql(len(terms), "mysql", floor=request.admission)
+            if terms
+            else ("1", {}, 0)
+        )
+        if lowest > len(terms):
+            # No memory can contain enough distinct query terms to be lexically related.
+            terms, requirement = (), "1"
         if not terms and not vector:
             return (), {}
         native = bool(terms) and await self._supports_native_fts(connection, terms=terms)
+        coverage = "0"
+        score = "0.0"
         if terms:
-            parameters["fts_query"] = " ".join(terms)
-            parameters["fts_required"] = required
-            if native:
-                parameters["fts_options"] = f"operator=or;minimum_should_match={required}"
-                coverage, score = ":fts_required", "SCORE()"
-            else:
+            parameters.update(requirement_parameters, fts_query=" ".join(terms), fts_required=required)
+            if not native or lowest < required:
                 coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
                 parameters.update(coverage_parameters)
-                score = "MATCH(searchable_text) AGAINST (:fts_query)"
-        else:
-            coverage = "0"
-            score = "0.0"
+            score = "SCORE()" if native else "MATCH(searchable_text) AGAINST (:fts_query)"
         profile = self.profile
         if vector:
             query_vector = self._require_vectors(request)
@@ -411,34 +413,59 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             # Native MATCH qualifies its own query block. Keep vector readiness
             # over every eligible row, including rows outside lexical admission.
             # Both channels and their authority heads remain one SQL snapshot.
-            query = (
-                f"SELECT {_HIT_COLUMNS}, {score} AS score, {score} AS raw_score, "  # noqa: S608
-                "'oceanbase_match' AS score_metric, :fts_required AS coverage, "
-                "NULL AS distance, 0 AS invalid_vectors FROM pc_atomic_memory_current "
-                f"WHERE scope_id = :scope_id AND ({eligibility}) AND {_NATIVE_FTS_MATCH}"
-            )
+            blocks = []
+            if required <= len(terms):
+                parameters["fts_options"] = f"operator=or;minimum_should_match={required}"
+                blocks.append(
+                    f"SELECT {_HIT_COLUMNS}, {score} AS score, {score} AS raw_score, "  # noqa: S608
+                    "'oceanbase_match' AS score_metric, :fts_required AS coverage, "
+                    ":fts_required AS fts_requirement, NULL AS distance, 0 AS invalid_vectors "
+                    f"FROM pc_atomic_memory_current WHERE scope_id = :scope_id AND ({eligibility}) "
+                    f"AND {_NATIVE_FTS_MATCH}"
+                )
+            if lowest < required:
+                # A memory shorter than the candidate can be related below the candidate's own
+                # threshold. Only such rows pay for the whole-word count, after sharing the
+                # fewest terms any memory needs. The unbounded LIMIT keeps OceanBase from
+                # merging this native MATCH block.
+                parameters["fts_reverse_options"] = f"operator=or;minimum_should_match={lowest}"
+                reverse = (
+                    f"SELECT {_HIT_COLUMNS}, {score} AS score, {score} AS raw_score, "  # noqa: S608
+                    f"'oceanbase_match' AS score_metric, {coverage} AS coverage, "
+                    f"{requirement} AS fts_requirement, NULL AS distance, 0 AS invalid_vectors "
+                    f"FROM pc_atomic_memory_current WHERE scope_id = :scope_id AND ({eligibility}) "
+                    "AND MATCH(searchable_text^1, :fts_query, :fts_reverse_options) "
+                    f"AND {requirement} < :fts_required LIMIT 18446744073709551615"
+                )
+                blocks.append(
+                    f"SELECT * FROM ({reverse}) AS reverse_hits "  # noqa: S608
+                    "WHERE reverse_hits.coverage >= reverse_hits.fts_requirement "
+                    "AND reverse_hits.coverage < :fts_required"
+                )
             if vector:
                 vectors = (
                     f"SELECT {_HIT_COLUMNS}, 0.0 AS score, 0.0 AS raw_score, "  # noqa: S608
-                    "'oceanbase_match' AS score_metric, 0 AS coverage, "
+                    "'oceanbase_match' AS score_metric, 0 AS coverage, 1 AS fts_requirement, "
                     f"{distance} AS distance, {readiness} AS invalid_vectors "
                     f"FROM pc_atomic_memory_current WHERE scope_id = :scope_id AND ({eligibility})"
                 )
-                query += (
-                    f" UNION ALL SELECT * FROM ({vectors}) AS vectors "  # noqa: S608
+                blocks.append(
+                    f"SELECT * FROM ({vectors}) AS vectors "  # noqa: S608
                     "WHERE vectors.distance <= :max_distance OR vectors.invalid_vectors > 0"
                 )
+            query = " UNION ALL ".join(f"({block})" if len(blocks) > 1 else block for block in blocks)
         else:
             query = (
                 f"SELECT {_HIT_COLUMNS}, {score} AS score, {score} AS raw_score, "  # noqa: S608
                 "'oceanbase_match' AS score_metric, "
-                f"{coverage} AS coverage, {distance} AS distance, {readiness} AS invalid_vectors "
+                f"{coverage} AS coverage, {requirement} AS fts_requirement, "
+                f"{distance} AS distance, {readiness} AS invalid_vectors "
                 "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
                 f"AND ({eligibility})"
             )
             admission = []
             if terms:
-                admission.append("(scored.score > 0 AND scored.coverage >= :fts_required)")
+                admission.append("(scored.score > 0 AND scored.coverage >= scored.fts_requirement)")
             if vector:
                 admission.append("scored.distance <= :max_distance")
                 admission.append("scored.invalid_vectors > 0")
@@ -472,7 +499,11 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                 "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
             )
         fts_rows = sorted(
-            (row for row in rows if terms and float(row["score"] or 0) > 0 and int(row["coverage"]) >= required),
+            (
+                row
+                for row in rows
+                if terms and float(row["score"] or 0) > 0 and int(row["coverage"]) >= float(row["fts_requirement"])
+            ),
             key=lambda row: (-float(row["score"]), str(row["artifact_id"])),
         )
         vector_rows = sorted(

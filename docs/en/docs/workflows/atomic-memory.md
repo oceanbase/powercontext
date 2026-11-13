@@ -267,9 +267,10 @@ Client methods for creation, replacement and exact historical reads.
 Search and list require `scope.read`, following the Memory and Topic Memory Scope boundary. An individual
 Artifact share permits its exact get and history reads; it does not grant a Scope inventory or search.
 If Scope read is revoked before reranking or context assembly, the request returns `403` even when an individual share remains.
-Source extraction enumerates the complete same-Scope threshold set owned by its principal, then checks the
-configured authorizer for Artifact read and write before comparing a memory. Denied candidates are skipped;
-authorization failures stop processing. The immutable Owner columns are only an extraction prefilter.
+Source extraction enumerates every active same-Scope memory that meets the related threshold, without an owner
+prefilter, then checks the configured authorizer for Artifact read and write before comparing a memory. Denied
+candidates are skipped; authorization failures stop processing. In fts and hybrid related modes the lexical threshold
+also measures the memory's own indexed words, so a long candidate still reaches a short memory of the same fact.
 
 Scope checks using the same database with supported Builtin or Casbin providers share the business snapshot.
 Independent decision stores and custom providers retain their configured read consistency contracts.
