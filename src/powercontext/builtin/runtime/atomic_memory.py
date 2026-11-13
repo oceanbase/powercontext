@@ -25,7 +25,7 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from hashlib import sha256
 from time import perf_counter
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 import rfc8785
@@ -120,6 +120,15 @@ logger = logging.getLogger(__name__)
 MAX_ATOMIC_MEMORY_DEPENDENCIES = 64
 MAX_ATOMIC_MEMORY_DEPENDENCY_DEPTH = 8
 AtomicMemoryDependencySnapshot = list[dict[str, Any]]
+AtomicMemoryRootChange = Literal["revised", "forgotten", "merged", "retired"]
+
+# An active root fails only when its head moved; a lifecycle change outranks the revision it may also have written.
+_ROOT_CHANGES: dict[AtomicMemoryStateValue, AtomicMemoryRootChange] = {
+    AtomicMemoryStateValue.ACTIVE: "revised",
+    AtomicMemoryStateValue.FORGOTTEN: "forgotten",
+    AtomicMemoryStateValue.MERGED: "merged",
+    AtomicMemoryStateValue.RETIRED: "retired",
+}
 
 
 _SEARCH_HIT_COLUMNS = (
@@ -158,10 +167,18 @@ def _search_hit_query(table):
 
 
 class AtomicMemoryDependencyError(InvalidRuntimeRequestError):
-    """Exact current roots or their bounded historical evidence cannot be validated."""
+    """Exact current roots or their bounded historical evidence cannot be validated.
 
-    def __init__(self, reason: str) -> None:
+    ``root`` and ``root_change`` are set only when the authorized read found that a requested root is no longer
+    the active head it was bound at; every other failure leaves them unset.
+    """
+
+    def __init__(
+        self, reason: str, *, root: ArtifactRef | None = None, root_change: AtomicMemoryRootChange | None = None
+    ) -> None:
         self.reason = reason
+        self.root = root
+        self.root_change = root_change
         super().__init__(f"atomic-memory-{reason}")
 
 
@@ -534,7 +551,9 @@ class ScopedAtomicMemory:
                         connection, self.scope_id, ref.artifact_id, context
                     )
                     if current.ref != ref or current.state is not AtomicMemoryStateValue.ACTIVE:
-                        raise AtomicMemoryDependencyError("source-changed")
+                        raise AtomicMemoryDependencyError(
+                            "source-changed", root=ref, root_change=_ROOT_CHANGES.get(current.state)
+                        )
                     expected = selected_by_ref.get((ref.artifact_id, ref.revision))
                     if selected is not None and (
                         expected is None
