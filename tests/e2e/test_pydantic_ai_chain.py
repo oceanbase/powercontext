@@ -95,6 +95,8 @@ def test_pydantic_ai_capture_checkpoint_recall_and_search_chain(
                 if isinstance(part, SystemPromptPart) and CONTEXT_MARKER in part.content
             ]
             assert contexts and "checkpoint-evidence" in contexts[-1]
+            # The marker is followed directly by the Server's trust policy.
+            assert contexts[-1].startswith(f"{CONTEXT_MARKER}\n\nPowerContext prepared untrusted historical context.\n")
             recalled_contexts.append(contexts[-1])
             return ModelResponse(
                 parts=[
