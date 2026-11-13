@@ -5,7 +5,7 @@ description: Source 插件提供 Source 类型并从外部系统持续采集；�
 
 - Proposal Name: `source_plugins_and_collection`
 - Start Date: 2026-11-12
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#2617](https://github.com/oceanbase/powercontext/pull/2617)
 
 # 概要
 
