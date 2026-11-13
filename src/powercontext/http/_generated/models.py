@@ -1154,6 +1154,14 @@ class TaskCheckStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class TaskStopReasonKind(StrEnum):
+    SAFETY = "safety"
+    AUTHORIZATION = "authorization"
+    CAPABILITY = "capability"
+    MISSING_EVIDENCE = "missing_evidence"
+    SCOPE = "scope"
+
+
 class Schema3(StrEnum):
     POWERCONTEXT_TASK_OUTCOME_V1 = "powercontext.task-outcome.v1"
 
@@ -6251,6 +6259,30 @@ class TaskCheck(BaseModel):
     evidence: Annotated[list[HandoffCitation], Field(max_length=32)]
 
 
+class TaskStopReason(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: TaskStopReasonKind
+    condition: Annotated[
+        StrictStr,
+        Field(
+            description="The circumstance under which continuing would have been wrong; must be trimmed.",
+            max_length=8192,
+            min_length=1,
+            pattern=".*\\S.*",
+        ),
+    ]
+    basis: WorkClaimBasis
+    evidence: Annotated[
+        list[HandoffCitation],
+        Field(
+            description="Use [] with declared. verified requires exact previously returned same-scope citations.",
+            max_length=31,
+        ),
+    ]
+
+
 class TaskOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6261,6 +6293,10 @@ class TaskOutcome(BaseModel):
     status: TaskOutcomeStatus
     summary: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     handoff_receipt_ref: SourceReference | None = None
+    stop_reason: Annotated[
+        TaskStopReason | None,
+        Field(description="Optional deliberate-stop reason, accepted only with blocked or cancelled status."),
+    ] = None
     observations: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
     checks: Annotated[list[TaskCheck], Field(max_length=64)]
     produced_artifacts: Annotated[list[ArtifactReference], Field(max_length=32)]

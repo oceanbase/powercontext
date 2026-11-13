@@ -15,11 +15,17 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 from sqlalchemy import text
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.server.settings import ServerSettings
+from tests.e2e.real_experience_skill import harness
 from tests.e2e.real_experience_skill.harness import _purge_existing_harness_scopes
 
 
@@ -139,3 +145,87 @@ def test_preflight_cleanup_discovers_registered_scope_and_removes_access_rows(tm
         "pc_access_relationships": 1,
         "pc_access_owners": 1,
     }
+
+
+@dataclass(frozen=True)
+class StartupScenario:
+    fail: bool
+    delay: float
+    deadline: float
+    shutdown_wait: float
+
+
+# A lifespan that crashes, one that misses the deadline but stops during the shutdown wait, and one that outlasts both.
+STARTUP_SCENARIOS = {
+    "crashes": StartupScenario(fail=True, delay=0.0, deadline=5.0, shutdown_wait=15.0),
+    "misses_deadline": StartupScenario(fail=False, delay=0.5, deadline=0.1, shutdown_wait=15.0),
+    "outlasts_shutdown_wait": StartupScenario(fail=False, delay=0.5, deadline=0.05, shutdown_wait=0.1),
+}
+
+
+def startup_app(*, fail: bool, delay: float, finished: threading.Event):
+    async def app(scope, receive, send):
+        assert scope["type"] == "lifespan"
+        await receive()
+        if fail:
+            await send({"type": "lifespan.startup.failed", "message": "fixture startup failure"})
+            return
+        await asyncio.sleep(delay)
+        finished.set()
+        await send({"type": "lifespan.startup.complete"})
+        await receive()
+        await send({"type": "lifespan.shutdown.complete"})
+
+    return app
+
+
+def wait_for_threads(threads_before: set[threading.Thread]) -> bool:
+    deadline = time.monotonic() + 10
+    while not set(threading.enumerate()) <= threads_before and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return set(threading.enumerate()) <= threads_before
+
+
+HARNESS_FAILURES = {
+    "crashes": r"did not start; its thread exited after [0-9.]+ s$",
+    "misses_deadline": r"did not start within 0\.1 s; it stopped after shutdown was requested$",
+    "outlasts_shutdown_wait": r"was still starting 0\.1 s after shutdown was requested; it is released once its thread exits$",
+}
+
+
+@pytest.mark.parametrize("scenario", STARTUP_SCENARIOS, ids=str)
+@pytest.mark.parametrize(
+    ("deadline", "start"),
+    [
+        ("_SERVER_STARTUP_SECONDS", lambda root: harness._start_server(root / "runtime.db", root / "scheduler.db")),
+        (
+            "_CONFIGURED_SERVER_STARTUP_SECONDS",
+            lambda root: harness._start_configured_server(ServerSettings(), root / "scheduler.db"),
+        ),
+    ],
+    ids=["baseline", "configured"],
+)
+def test_failed_startup_leaves_no_server_thread_or_late_socket_error(tmp_path, monkeypatch, deadline, start, scenario):
+    config = STARTUP_SCENARIOS[scenario]
+    finished = threading.Event()
+    app = startup_app(fail=config.fail, delay=config.delay, finished=finished)
+    thread_errors: list[BaseException | None] = []
+    # Uvicorn ends a failed lifespan with SystemExit, which the default hook ignores too.
+    monkeypatch.setattr(
+        threading,
+        "excepthook",
+        lambda failure: failure.exc_type is SystemExit or thread_errors.append(failure.exc_value),
+    )
+    monkeypatch.setattr(harness, "create_server_app", lambda **_: app)
+    monkeypatch.setattr(harness, deadline, config.deadline)
+    monkeypatch.setattr(harness, "_SERVER_SHUTDOWN_WAIT_SECONDS", config.shutdown_wait)
+    threads_before = set(threading.enumerate())
+
+    with pytest.raises(harness.RealCodexE2EError, match=HARNESS_FAILURES[scenario]):
+        start(tmp_path)
+
+    if scenario == "outlasts_shutdown_wait":
+        assert wait_for_threads(threads_before)
+    assert set(threading.enumerate()) <= threads_before
+    assert finished.is_set() is not config.fail
+    assert thread_errors == []
