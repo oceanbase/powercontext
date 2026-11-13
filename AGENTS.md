@@ -99,6 +99,10 @@ Include doctests when public examples are useful. For changes that affect suppor
 
 Run focused checks first and expand based on affected behavior. For claims about an external backend or host, distinguish actual execution from mocks, emulators, and direct hook invocation. Simulated inputs verify local handling; they do not establish that a real service produces those inputs or that a host supports the complete workflow.
 
+## Public Documentation Content
+
+This is a public repository, and merged content is a permanent public record. Never put external customer, user, partner, or internal project names, or Ant Group / Alibaba internal links that require corporate SSO (especially links to `yuque.antfin.com/...`), into docs, RFCs, examples, comments, or PR/issue text. Reference public GitHub issues, PRs, RFCs, or upstream documentation instead; if a requirement is not public, describe it in neutral terms. Keep `docs/en/` and `docs/zh/` identical in wording, field labels, and references, including any redaction. See the "Write Documentation" section of `CONTRIBUTING.md` and the "Public content and references" sections of `docs/{en,zh}/rfcs/README.md`.
+
 ## Blog Publishing and i18n
 
 Keep blog changes scoped to the blog. Preserve the existing appearance, navigation,
