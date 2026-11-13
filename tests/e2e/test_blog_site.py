@@ -127,6 +127,14 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
+        # Preserve the supplied dsh-pet-powercontext recordings and figures in both editions.
+        "dsh-pet-powercontext-memory/dsh-chat.gif",
+        "dsh-pet-powercontext-memory/dsh-memory-recall.gif",
+        "dsh-pet-powercontext-memory/dsh-facts.png",
+        "dsh-pet-powercontext-memory/dsh-sources.png",
+        "dsh-pet-powercontext-memory/dsh-settings.png",
+        "dsh-pet-powercontext-memory/dsh-memory-service.png",
+        "dsh-pet-powercontext-memory/reuse-cost.en.svg",
     }
     han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
     for language in ("en", "zh"):

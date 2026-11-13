@@ -44,3 +44,9 @@ authors:
     socials:
       github: Fengzdadi
       x: FengzeCai
+  beaten:
+    name: Beaten
+    description: PowerContext 贡献者
+    avatar: assets/blog/authors/beatenevo.jpg
+    socials:
+      github: beatenevo

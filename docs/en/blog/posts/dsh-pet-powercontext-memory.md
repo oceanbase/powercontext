@@ -1,0 +1,197 @@
+---
+title: Why My Fat Fish Remembers Well and Eats So Few Tokens
+description: "PowerContext long-term memory inside a DeepSeek Harness desktop pet: it still answers old facts after they leave the recent window, and reusing the same memory cuts known generation input by 88.9% and estimated known cost by 32.3%."
+slug: dsh-pet-powercontext-memory
+cover: assets/blog/dsh-pet-powercontext-memory/cover.png
+cover_alt: A deep-blue memory ribbon flows from a whale-girl desktop pet on a desk into a PowerContext memory box and on into a translucent card.
+date: 2026-11-13
+authors:
+  - beaten
+categories:
+  - Engineering
+draft: true
+pin: false
+---
+
+# Why My Fat Fish Remembers Well and Eats So Few Tokens
+
+I keep a fat fish in DeepSeek Harness. She is a whale girl named Mingyue, and she lives in the corner of my working window. One day I told her offhand: "My project is called Moonleaf, and I take my tea unsweetened." Then we talked about something else for a while. When I came back and asked her to remind me of my project and my tea, she answered both correctly.
+
+Two things struck me about that.
+
+First, she remembers further back than the native chat window does. Second, that exchange cost fewer tokens, not more.
+
+These look contradictory, but they share one cause: **she has long-term memory wired up through PowerContext**. Memory does not stuff more into the prompt. It swaps "restate everything every time" for "fetch it when it is needed".
+
+![A real conversation with the pet inside DeepSeek Harness](../../../assets/blog/dsh-pet-powercontext-memory/dsh-chat.gif)
+
+*The same view keeps the DSH workspace, the agent session and the pet chat panel. A message is actually sent, and the pet replies and animates. Both sides come from real model calls; the project name and drink preference are fictional demo inputs.*
+
+## Meet the protagonist
+
+The pet itself is [dsh-pet](https://github.com/PC2005-cloud/dsh-pet): a desktop companion that lives inside DeepSeek Harness, with a hundred-plus transparent animations, idle breathing, drag-and-throw physics, a right-click menu, multiple pets on one screen, and a frameless always-on-top window that can live on your desktop instead of in a browser.
+
+Memory comes from [dsh-pet-powercontext](https://github.com/ob-labs/dsh-pet-powercontext), which adds [PowerContext](https://github.com/oceanbase/powercontext) 1.5.0 long-term memory on top of dsh-pet. It is published on npm's beta channel, currently `0.1.0-beta.1`.
+
+It runs in two ways:
+
+- **As a DSH plugin**, installed into Harness and sharing the model configuration you already use.
+- **As a standalone app**, with no DSH required, and a memory service it starts on your own machine.
+
+## How she remembers
+
+Three things are easy to conflate, so let me separate them:
+
+| Thing | What it is | Where it lives |
+| --- | --- | --- |
+| Local chat archive | Every exchange you and she have had | A file on your machine |
+| Recent context | The last few turns carried with each request | Travels with the request |
+| Long-term memory | Facts extracted from those exchanges | The PowerContext service |
+
+Native mode carries only the last 10 turns. With memory enabled, the pet asynchronously syncs **completed exchanges** as Sources, PowerContext extracts atomic facts in the background, and the next question retrieves the few relevant ones instead of resending the whole transcript.
+
+The first-time budget is deliberately small: **4 recent turns**, **6000 bytes** of recent text, and **4096 bytes** of recalled text. Bytes are not tokens, and extraction, output and retries each cost on their own.
+
+![The pet recalls an old fact with zero recent rounds and opens the memory list](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-recall.gif)
+
+*After background extraction, the pet answers with the project name Moonleaf and "unsweetened jasmine tea" again. This recording sets recent chat to **0 rounds**: the actual model request carries recalled memories and the new question, with no earlier turns. Open "Remembered facts" to inspect what was extracted.*
+
+You can check what she actually holds. Every memory carries a revision, and you can read its sources, correct it, or forget it.
+
+![The list of remembered facts in the pet panel](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.png)
+
+*Screenshots keep the original product interface and the sample session.*
+
+"View sources" opens the original exchange behind the fact. This is the part that matters most: **every conclusion traces back to evidence**, instead of the model deciding on its own that you once said it.
+
+![The original dialogue behind a memory](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.png)
+
+*Screenshots keep the original product interface and the sample session.*
+
+Beyond that, "Correct" writes a new revision, and "Forget" moves the atomic memory out of recall while keeping its sources and history. Authoritative records stay separate from derived views, so rebuilding state never stamps today's interpretation onto old data.
+
+On first use, the settings page installs PowerContext 1.5.0 on the DSH host for you and checks both the generation model and the embedding model.
+
+![Managed long-term memory is ready in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-service.png)
+
+*Screenshots keep the original product interface and the sample session.*
+
+### Three boundaries worth keeping straight
+
+- **"Synced" does not mean "remembered"**. It only means the dialogue reached PowerContext. Extraction runs in the background and may not have happened yet. A ready service does not mean new dialogue has already become memory.
+- **Only pet dialogue is captured**. Not DSH coding-agent sessions, not old chats imported automatically, not the image payloads, not the periodic muttering or the sleep talk.
+- **Deleting local chat does not erase remote evidence**. Clearing that requires managing data retention on the server side separately.
+
+## Where the tokens actually go
+
+What gets saved is not "saying less each time". It is **not having to restate the whole history every time**.
+
+The report "Teach Yourself to Raise a Fat Fish Fast, Well and Cheap" ran three experiments with synthetic dialogue and real model calls. They boil down to one idea: **asking the same question repeatedly is cheaper with memory than by replaying full history, but the small window is already a saving of its own, and the two have to be accounted for separately.**
+
+### Experiment 1: a smaller recent window versus memory
+
+140 rounds organised across seven logical days, five kinds of facts checked five times each, with each fact pushed out of the recent window before the question.
+
+| Configuration | Chat input tokens | Old facts answered from outside the window | Unknown facts admitted |
+| --- | ---: | ---: | ---: |
+| Native, 10 recent rounds | 78,396 | 2/25 | 5/5 |
+| Native, 4 rounds / 6000 bytes | 50,314 | 0/25 | 5/5 |
+| Same recent budget + PowerContext | 87,339 | **25/25** | 5/5 |
+
+Shrinking the window cut chat input by **35.8%**, and cost it almost everything outside that window (0/25). With memory attached, all 25 checked facts came back correct — **but chat input ran higher than in both native groups**, because memory is not free either.
+
+### Experiment 2: importing more history
+
+100, 1000 and 10000 rounds of synthetic history, 30 planned questions each.
+
+| Imported history | Native: hit / returned / planned | Full history: hit / returned / planned | PowerContext: hit / returned / planned |
+| ---: | ---: | ---: | ---: |
+| 100 rounds | 3 / 30 / 30 | 30 / 30 / 30 | 26 / 30 / 30 |
+| 1000 rounds | 2 / 4 / 30 | 23 / 23 / 30 | 29 / 30 / 30 |
+| 10000 rounds | 3 / 30 / 30 | 0 / 0 / 30 | 30 / 30 / 30 |
+
+The 1000-round native group failed 26 times, so its low usage cannot be read as efficiency, and the 10000-round full-history group hit the service input limit and never returned at all. This experiment **did not show that more history means more savings**: importing more history also raises the cost of processing and maintaining it.
+
+### Experiment 3: reusing one fixed memory store
+
+A fixed 1000-round initial history, then 100 questions, waiting for background maintenance every ten, counting initial processing, maintenance and retries.
+
+![Known generation input and estimated known cost after reusing a fixed 1,000-round history](../../../assets/blog/dsh-pet-powercontext-memory/reuse-cost.en.svg)
+
+| Metric after 100 planned questions | PowerContext | Full history (control) |
+| --- | ---: | ---: |
+| Known generation input | about 1.14M tokens | about 10.26M tokens |
+| Known cost estimate | CNY 4.73 | CNY 6.99 |
+| Successful returns | 100/100 | 93/100 |
+| Target checks passed | 95/100 | 93/100 |
+| Unpriced calls | 0 | 7 |
+
+Known input dropped by **88.9%** and the known cost estimate by **32.3%**, a gap of roughly CNY 2.26. The first recorded point below the full-history control came at question 50; memory startup and initial processing cost about CNY 1.52 and later maintenance about CNY 2.70.
+
+### How to read those numbers
+
+The report is careful about its own limits, and the same limits apply to your pet:
+
+- **The control is full history, not the native 10-round mode.** The 88.9% is not a saving relative to native chat.
+- **Input fell 88.9% but cost fell 32.3%**, because 84.1% of the full-history input hit the cache while PowerContext produces roughly ten times the generation output.
+- **This is not a bill.** Known usage excludes calls without reported usage, and a call with missing usage is unknown, not free.
+- **Quality is not matched.** The groups answered different sets of questions successfully, over a corpus with few core facts and much repeated small talk.
+- **The prices are a historical assumption**, estimated at Beijing on-demand rates dated 2026-11-05, not a receipt.
+- **Long-term memory is not automatically cheaper.** Short conversations and large first-time imports can cost more.
+
+In short: keep the recent window small for the conversation in front of you, turn on memory only when you really need old facts, and then measure the whole workload together — background processing, output, cache, failures and answer quality.
+
+## It is not only about fish: PowerContext goes straight into DeepSeek Harness
+
+The pet's memory is one host adapter for PowerContext. The same server can be connected to DeepSeek Harness itself, so that **your coding agent sessions** get project-level memory too.
+
+The `powercontext-dsh` plugin adds a thin Cordis adapter that maps PowerContext's HTTP API into Harness. Before each turn it recalls relevant context and captures the user's input as a Source; the model then uses `pc_*` tools to read and write Memory, Handoff, Source, Experience and Skill explicitly.
+
+| Layer | Caller | Purpose |
+| --- | --- | --- |
+| HTTP client | Inside the plugin | Covers the full public API |
+| Automatic hooks | Agent loop | Prepare context and capture Sources each turn |
+| Named `pc_*` tools | The model | Memory, Handoff, Source, Experience, Skill |
+| `/pc` and general calls | People and models | Diagnostics, review, low-frequency work |
+
+Recall and capture are fail-open: if the server stops or times out, the conversation keeps going. For the full configuration and interface, see the [DeepSeek Harness integration guide](https://powercontext.oceanbase.io/en/docs/integrations/dsh/).
+
+## Other ways to keep fish
+
+If a single fish is not the goal, there are other routes:
+
+- **Same fish, different shell**: dsh-pet exposes two channels — an HTTP prefix `/dsh-pet-7340` mounted on the DSH web service, and an in-page Cordis service `petApi7340`. Other plugins and scripts can make it speak, play a chosen animation, and read its current state, and use it as a character with a personality.
+- **Raise your own**: dsh-pet is a reproducible asset pipeline — AI prompt to green-screen video to transparent animation to plugin. Change the character, the actions or the style, and walk the whole pipeline yourself.
+- **Skip DSH**: the standalone mode runs with one command, `npx --yes dsh-pet-powercontext@beta --setup`. It starts the memory service on your machine, so you never hand-write an `.env` or run a server by hand.
+- **Change the host**: the same PowerContext server also connects to Claude Code, Codex, OpenCode, ZCode and other hosts (those integrations are currently on the master branch), so project memory does not have to travel with one tool.
+
+## Getting started
+
+If you already run DSH:
+
+```bash
+dsh plugin --profile web add dsh-pet-powercontext@beta
+```
+
+For the DSH desktop app, swap `--profile web` for `--profile desktop`. If the upstream `dsh-pet` plugin is already enabled, disable it first — both share routes and the data directory, and keeping `$DSH_HOME/dsh-pet/` preserves your configuration and memory.
+
+**Restart DSH** afterwards: a running process still holds the old plugin in memory. Then open "Settings -> Pet Config" and chat from "Pet chat" using the DSH model you already have.
+
+![Character, size and position in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.png)
+
+*Screenshots keep the original product interface and the sample session.*
+
+Want to try it before deciding about memory? Install the plugin and leave long-term memory off. Chat, animations and the persona work as usual, and you can turn memory on later.
+
+## Wrapping up
+
+"Remembers well" and "eats few tokens" are not two separate wins. Memory trades "restate it every time" for "fetch it when needed", and that is exactly why old facts survive while each request no longer carries the whole transcript.
+
+It is also what PowerContext has always done: instead of stuffing more into the context, keep authoritative records, source evidence and derived views apart, so that every recall counts.
+
+Related projects:
+
+- [dsh-pet-powercontext](https://github.com/ob-labs/dsh-pet-powercontext) — the pet plus long-term memory
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) — the original pet and asset pipeline
+- [PowerContext](https://github.com/oceanbase/powercontext) — the project memory server
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
