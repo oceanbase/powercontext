@@ -52,8 +52,6 @@
   --pc-accent-wash: color-mix(in srgb, var(--pc-accent) 9%, var(--pc-surface));
   --pc-accent-text: color-mix(in srgb, var(--pc-accent) 86%, black);
   --pc-image-outline: rgb(0 0 0 / 0.1);
-  /* Matches the handoff figure's plate, which fades in over it. */
-  --pc-figure-surface: #fbfbfa;
 
   /* The always-dark layer: text set on a photograph over the ink scrim. */
   --pc-scrim: 22 14% 7%;
@@ -119,7 +117,6 @@
   --pc-accent-wash: color-mix(in srgb, var(--pc-accent) 13%, var(--pc-surface));
   --pc-accent-text: var(--pc-accent);
   --pc-image-outline: rgb(255 255 255 / 0.1);
-  --pc-figure-surface: #131313;
 
   --pc-shadow-1: 0 1px 0 rgb(0 0 0 / 0.3), 0 1px 2px rgb(0 0 0 / 0.4);
   --pc-shadow-3: 0 2px 0 rgb(0 0 0 / 0.3), 0 10px 24px -4px rgb(0 0 0 / 0.55);
@@ -220,138 +217,35 @@ html:lang(zh) .pc-display {
   }
 }
 
-/* Stage: a rounded card whose ground is a photograph ------------------- */
 
-.pc-frame {
+.pc-wrap {
   width: 100%;
   max-width: var(--fd-layout-width);
   margin-inline: auto;
-  padding-inline: 12px;
-}
-
-@media (min-width: 640px) {
-  .pc-frame {
-    padding-inline: 16px;
-  }
-}
-
-.pc-stage {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border-radius: var(--pc-radius-stage);
-  background: var(--pc-stage-ground, hsl(150 28% 14%));
-  outline: 1px solid var(--pc-image-outline);
-  outline-offset: -1px;
-}
-
-/* Scroll fill lifts the active photograph over the nav so it can cover the viewport. */
-.pc-home-sheet:has(> section[data-filling]) {
-  z-index: 45;
-}
-
-.pc-home-sheet > section[data-filling] .pc-stage {
-  outline-color: transparent;
-}
-
-.pc-stage-ground {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-}
-
-.pc-stage-ground img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  user-select: none;
-  pointer-events: none;
-}
-
-.pc-credit {
-  margin-top: 10px;
-  padding-inline: 4px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--pc-muted);
-  text-align: right;
-}
-
-.pc-credit a {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 3px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .pc-credit a:hover {
-    color: var(--pc-ink);
-  }
+  padding-inline: 16px;
 }
 
 /* Hero ------------------------------------------------------------------ */
 
 .pc-hero {
-  padding-top: 8px;
-}
-
-.pc-hero .pc-stage {
-  --pc-stage-ground: hsl(150 30% 13%);
-}
-
-.pc-hero-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    hsl(var(--pc-scrim) / 0.55) 0%,
-    hsl(var(--pc-scrim) / 0.42) 40%,
-    hsl(var(--pc-scrim) / 0) 72%
-  );
-}
-
-.pc-hero-body {
-  display: flex;
-  flex-direction: column;
-  gap: 40px;
-  padding: calc(var(--pc-stage-inset) + 8px) var(--pc-stage-inset) var(--pc-stage-inset);
+  padding-top: clamp(2.5rem, 9svh, 6rem);
 }
 
 .pc-hero-copy {
-  /* The copy is always on the dark scrim, whatever the page theme. */
-  --color-fd-foreground: var(--pc-on-photo);
-  --color-fd-muted: var(--pc-on-photo-face);
-  --color-fd-muted-foreground: var(--pc-on-photo-muted);
-  --color-fd-border: var(--pc-on-photo-line);
-  --color-fd-accent: var(--pc-on-photo-face-hover);
-  --color-fd-accent-foreground: var(--pc-on-photo);
-  --home-hero-background: hsl(var(--pc-scrim));
-
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  max-width: 40rem;
-  color: var(--pc-on-photo);
-}
-
-.pc-hero-label {
-  font-size: 14px;
-  line-height: 1.4;
-  color: var(--pc-on-photo-muted);
 }
 
 .pc-hero-title {
-  margin-top: 14px;
-  font-size: clamp(2.5rem, 4.6vw, 4.5rem);
-  line-height: 1;
+  max-width: 56rem;
+  font-size: clamp(2.75rem, 6.4vw, 4.75rem);
+  line-height: 0.98;
   letter-spacing: -0.03em;
-  color: var(--pc-on-photo);
 }
 
 html:lang(zh) .pc-hero-title {
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
   line-height: 1.12;
 }
 
@@ -360,26 +254,17 @@ html:lang(zh) .pc-hero-title {
 }
 
 .pc-hero-lead {
-  margin-top: 20px;
-  max-width: 34rem;
-  font-size: 17px;
+  max-width: 42rem;
+  margin-top: 24px;
+  font-size: 18px;
   line-height: 1.6;
-  color: var(--pc-on-photo-ink);
+  color: var(--pc-muted);
 }
 
-.pc-hero-lead a {
-  color: var(--pc-on-photo);
-  white-space: nowrap;
-  text-decoration: underline;
-  text-decoration-color: var(--pc-on-photo-line);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
-  transition: text-decoration-color 150ms var(--pc-ease-out);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .pc-hero-lead a:hover {
-    text-decoration-color: currentColor;
+@media (min-width: 640px) {
+  .pc-hero-lead {
+    margin-top: 28px;
+    font-size: 20px;
   }
 }
 
@@ -388,17 +273,18 @@ html:lang(zh) .pc-hero-title {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 28px;
+  margin-top: 36px;
 }
 
-/* The shared star button, restyled as a quiet pill on the photograph. */
-.pc-hero-actions > a:not(.pc-button) {
+/* The shared star button, restyled as the quiet second action. */
+.pc-hero-actions > a:not(.pc-button),
+.pc-hero-actions .pc-github-link {
   min-height: 44px;
   padding-inline: 18px;
+  border: 0;
   border-radius: 999px;
-  border-color: var(--pc-on-photo-line);
-  background: hsl(var(--pc-scrim) / 0.2);
-  color: var(--pc-on-photo);
+  background: var(--pc-flat);
+  color: var(--pc-ink);
   font-size: 15px;
   transition-property: background-color, transform;
   transition-duration: 150ms;
@@ -411,7 +297,7 @@ html:lang(zh) .pc-hero-title {
 
 @media (hover: hover) and (pointer: fine) {
   .pc-hero-actions > a:not(.pc-button):hover {
-    background: var(--pc-on-photo-face);
+    background: var(--pc-flat-hover);
   }
 }
 
@@ -419,16 +305,30 @@ html:lang(zh) .pc-hero-title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 20px;
-  margin-top: 24px;
+  gap: 8px 20px;
+  margin-top: 20px;
   font-size: 13px;
-  color: var(--pc-on-photo-muted);
+  color: var(--pc-muted);
 }
 
 .pc-hero-community > div {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.pc-hero-community a:not([aria-label]) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: inherit;
+  transition: color 150ms var(--pc-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pc-hero-community a:not([aria-label]):hover {
+    color: var(--pc-ink);
+  }
 }
 
 /* Five overlapping portraits. One extra sits clipped on the right and
@@ -473,90 +373,100 @@ html:lang(zh) .pc-hero-title {
   }
 }
 
-.pc-hero-community a:not([aria-label]) {
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  color: inherit;
-  transition: color 150ms var(--pc-ease-out);
+/* Without contributor data the avatar row keeps no empty slot. */
+.pc-contrib-avatars:has(.pc-contrib-track:empty) {
+  display: none;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .pc-hero-community a:not([aria-label]):hover {
-    color: var(--pc-on-photo);
-  }
-}
+/* Stage: the photograph under the copy that widens to fill the viewport.
+   hero-stage.tsx drives the card's clip and the demo's position on scroll. */
 
-@media (min-width: 1024px) {
-  .pc-hero .pc-stage {
-    min-height: clamp(600px, calc(100svh - 56px - 24px), 940px);
-    display: flex;
-  }
-
-  .pc-hero-scrim {
-    background: linear-gradient(
-      to top right,
-      hsl(var(--pc-scrim) / 0.55) 0%,
-      hsl(var(--pc-scrim) / 0.42) 38%,
-      hsl(var(--pc-scrim) / 0) 66%
-    );
-  }
-
-  .pc-hero-body {
-    flex: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-    align-items: end;
-    gap: 48px;
-    padding: var(--pc-stage-inset);
-  }
-
-  .pc-hero-composition {
-    align-self: center;
-    justify-self: end;
-    width: min(100%, calc((100svh - 200px) * 1.25));
-  }
-}
-
-/* Composition: the figure card with two session windows on its corners. */
-
-.pc-hero-composition {
+.pc-stage-track {
   position: relative;
-  width: 100%;
-  max-width: 640px;
-  padding: 17% 4% 22% 7%;
+  height: calc(100svh * (1 + var(--pc-stage-hold, 0.5)));
+  margin-top: clamp(2.5rem, 7svh, 5rem);
 }
 
-.pc-figure-slot {
-  position: relative;
-  /* The figure's own plate ratio (640 × 420), so the card never letterboxes. */
-  aspect-ratio: 640 / 420;
+.pc-stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
   overflow: hidden;
-  border-radius: var(--pc-radius-figure);
-  background: var(--pc-figure-surface);
-  box-shadow: 0 0 0 1px var(--pc-ring), var(--pc-shadow-5);
 }
 
-.pc-figure-slot > * {
+.pc-stage-card {
   position: absolute;
   inset: 0;
+  isolation: isolate;
+  background: var(--pc-ink-900);
+  /* The opening frame, before the stage is measured. */
+  clip-path: inset(0 12px 0 round 40px);
 }
 
-.pc-session {
+.pc-ground {
   position: absolute;
-  z-index: 1;
-  width: min(56%, 300px);
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
 }
 
-.pc-session-ending {
+.pc-stage-demo {
+  position: absolute;
   top: 0;
-  left: 0;
+  left: 50%;
+  width: min(100% - 32px, 1080px);
+  transform: translate3d(-50%, 40px, 0);
+  transform-origin: 50% 0;
+  will-change: transform;
 }
 
-.pc-session-next {
-  right: 0;
-  bottom: 0;
-  width: min(60%, 316px);
+@media (min-width: 640px) {
+  .pc-stage-demo {
+    width: min(100% - 64px, 1080px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-stage-track {
+    height: 100svh;
+  }
+}
+
+/* The demo: two sessions beside the Dashboard, and the cursors over them. */
+
+.pc-demo {
+  position: relative;
+}
+
+.pc-demo-windows {
+  display: grid;
+  gap: 12px;
+}
+
+.pc-demo-windows > * {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .pc-demo-windows {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* The sessions flank the Dashboard, one high and one low. */
+  .pc-demo [data-session='ending'] {
+    margin-bottom: 140px;
+  }
+
+  .pc-demo [data-session='next'] {
+    margin-top: 140px;
+  }
 }
 
 /* Mock windows ------------------------------------------------------------ */
@@ -751,109 +661,256 @@ html:lang(zh) .pc-hero-title {
   color: var(--pc-ink);
 }
 
-@media (max-width: 639px) {
-  /* Narrow: the windows only lap over the figure's top and bottom edges, so it stays visible. */
-  .pc-hero-composition {
-    padding: 96px 0 128px;
+.pc-ref {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--pc-faint);
+}
+
+.pc-chip {
+  flex-shrink: 0;
+  margin-right: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--pc-faint);
+}
+
+/* Draft states: a session shows its draft until the demo reaches its step. */
+.pc-demo[data-step='0'] [data-session='ending'] .pc-swap-final,
+.pc-demo[data-step='0'] [data-session='ending'] .pc-action-done,
+.pc-demo:is([data-step='0'], [data-step='1']) [data-session='next'] .pc-swap-final,
+.pc-demo:is([data-step='0'], [data-step='1']) [data-session='next'] .pc-action-done,
+.pc-demo[data-step='0'] .pc-board-head .pc-swap-final,
+.pc-demo[data-step='0'] .pc-loop li[data-at='1'] .pc-swap-final,
+.pc-demo:is([data-step='0'], [data-step='1']) .pc-loop li[data-at='2'] .pc-swap-final,
+.pc-demo .pc-loop li[data-at='3'] .pc-swap-final {
+  visibility: hidden;
+}
+
+.pc-demo[data-step='0'] [data-session='ending'] .pc-swap-draft,
+.pc-demo[data-step='0'] [data-session='ending'] .pc-action-ready,
+.pc-demo:is([data-step='0'], [data-step='1']) [data-session='next'] .pc-swap-draft,
+.pc-demo:is([data-step='0'], [data-step='1']) [data-session='next'] .pc-action-ready,
+.pc-demo[data-step='0'] .pc-board-head .pc-swap-draft,
+.pc-demo[data-step='0'] .pc-loop li[data-at='1'] .pc-swap-draft,
+.pc-demo:is([data-step='0'], [data-step='1']) .pc-loop li[data-at='2'] .pc-swap-draft,
+.pc-demo .pc-loop li[data-at='3'] .pc-swap-draft {
+  visibility: visible;
+}
+
+/* The Dashboard window. */
+
+.pc-board {
+  display: grid;
+  gap: 16px;
+  padding: 18px 18px 20px;
+}
+
+.pc-board-head {
+  margin: -8px -10px;
+  padding: 8px 10px;
+  border-radius: var(--pc-radius-control);
+  transition: background-color 250ms var(--pc-ease-out), box-shadow 250ms var(--pc-ease-out);
+}
+
+.pc-demo[data-step='3'] .pc-board-head {
+  background: var(--pc-accent-wash);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pc-accent) 30%, transparent);
+}
+
+.pc-board-kind,
+.pc-panel-kind,
+.pc-memory-label {
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--pc-faint);
+}
+
+.pc-board-heading {
+  margin-top: 2px;
+  font-family: var(--pc-font-display);
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.pc-board-head .pc-ref {
+  margin-top: 4px;
+}
+
+.pc-loop {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: var(--pc-radius-well);
+  background: var(--pc-line);
+  box-shadow: 0 0 0 1px var(--pc-line);
+}
+
+.pc-loop li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 0.9fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--pc-surface);
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--pc-faint);
+  transition: color 250ms var(--pc-ease-out);
+}
+
+.pc-loop-mark {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px var(--pc-dot);
+  transition: background-color 250ms var(--pc-ease-out), box-shadow 250ms var(--pc-ease-out);
+}
+
+.pc-loop-mark svg {
+  width: 11px;
+  height: 11px;
+  color: var(--pc-accent-ink);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 200ms var(--pc-ease-out), transform 250ms var(--pc-ease-out);
+}
+
+.pc-loop-name {
+  font-weight: 500;
+}
+
+.pc-loop-note {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pc-loop-note > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A step is done once the demo has reached it. */
+.pc-loop li[data-at='0'],
+.pc-demo:not([data-step='0']) .pc-loop li[data-at='1'],
+.pc-demo:is([data-step='2'], [data-step='3']) .pc-loop li[data-at='2'] {
+  color: var(--pc-ink);
+}
+
+.pc-loop li[data-at='0'] .pc-loop-mark,
+.pc-demo:not([data-step='0']) .pc-loop li[data-at='1'] .pc-loop-mark,
+.pc-demo:is([data-step='2'], [data-step='3']) .pc-loop li[data-at='2'] .pc-loop-mark {
+  background: var(--pc-accent);
+  box-shadow: none;
+}
+
+.pc-loop li[data-at='0'] .pc-loop-mark svg,
+.pc-demo:not([data-step='0']) .pc-loop li[data-at='1'] .pc-loop-mark svg,
+.pc-demo:is([data-step='2'], [data-step='3']) .pc-loop li[data-at='2'] .pc-loop-mark svg {
+  opacity: 1;
+  transform: none;
+}
+
+.pc-loop li .pc-loop-note {
+  color: var(--pc-muted);
+}
+
+.pc-board-carried > p {
+  font-size: 11.5px;
+  color: var(--pc-faint);
+}
+
+.pc-board-carried dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.pc-board-carried dt {
+  font-size: 11.5px;
+  color: var(--pc-muted);
+}
+
+.pc-board-carried dd {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 899px) {
+  .pc-board {
+    gap: 12px;
+    padding: 14px;
   }
 
-  .pc-session {
-    width: 70%;
+  .pc-board-heading {
+    font-size: 18px;
   }
 
-  .pc-session-next {
-    width: 74%;
+  .pc-board-carried {
+    display: none;
   }
 
-  .pc-window-bar {
-    height: 32px;
-    padding-left: 10px;
+  .pc-loop li {
+    grid-template-columns: 18px 7.5rem minmax(0, 1fr);
   }
 
-  .pc-window-action {
-    height: 22px;
-    line-height: 22px;
-    padding: 0 8px;
-    border-radius: 6px;
+  .pc-loop-name {
+    white-space: nowrap;
+  }
+
+  /* Stacked windows leave the cursors nowhere to rest, so they leave once the work is done. */
+  .pc-cursors {
+    transition: opacity 400ms var(--pc-ease-out);
+  }
+
+  .pc-demo[data-rested] .pc-cursors {
+    opacity: 0;
   }
 
   .pc-window-dots {
     display: none;
   }
-
-  .pc-window-body {
-    padding: 8px 10px 10px;
-    font-size: 11px;
-    line-height: 16px;
-  }
 }
 
-/* The opening: draft state set before paint, see intro.ts -------------- */
-
-html[data-pc-intro] .pc-hero .pc-stage {
-  clip-path: inset(0% 16% 12% 0% round var(--pc-radius-stage));
-}
-
-html[data-pc-intro] .pc-hero .pc-stage-ground {
-  transform: scale(1.12);
-  filter: blur(18px);
-}
-
-html[data-pc-intro] .pc-hero [data-intro='title'] {
-  transform: translate(56px, -40px);
-}
-
-html[data-pc-intro] .pc-hero [data-intro='lead'] {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-html[data-pc-intro] .pc-session:not([data-done]) .pc-swap-final,
-html[data-pc-intro] .pc-session:not([data-done]) .pc-action-done {
-  visibility: hidden;
-}
-
-html[data-pc-intro] .pc-session:not([data-done]) .pc-swap-draft,
-html[data-pc-intro] .pc-session:not([data-done]) .pc-action-ready {
-  visibility: visible;
-}
+/* Cursors: fixed colours in both themes, dark enough for the white tags. */
 
 .pc-cursors {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 100;
-  overflow: hidden;
+  z-index: 2;
+  display: none;
   pointer-events: none;
 }
 
-.pc-cursors > div {
-  position: absolute;
-  inset: 0;
+.pc-demo[data-live] .pc-cursors {
+  display: block;
 }
 
 .pc-cursor {
   position: absolute;
   top: 0;
   left: 0;
-  opacity: 0;
-  transform-origin: top left;
-  will-change: transform, opacity;
-}
-
-.pc-cursor[data-agent='visitor'] {
-  --pc-cursor: #c2410c;
+  will-change: transform;
 }
 
 .pc-cursor[data-agent='claude-code'] {
-  --pc-cursor: #9c36b5;
+  --pc-cursor: #c2410c;
 }
 
 .pc-cursor[data-agent='codex'] {
-  --pc-cursor: #237032;
+  --pc-cursor: #1d4ed8;
 }
 
-.pc-cursor[data-agent='opencode'] {
-  --pc-cursor: #c2255c;
+.pc-cursor[data-agent='visitor'] {
+  --pc-cursor: #15803d;
 }
 
 .pc-cursor-arrow {
@@ -865,11 +922,11 @@ html[data-pc-intro] .pc-session:not([data-done]) .pc-action-ready {
 }
 
 .pc-cursor-arrow path:first-child {
-  stroke: white;
-  stroke-opacity: 0.85;
+  stroke: rgb(255 255 255 / 0.9);
 }
 
 .pc-cursor-arrow path:last-child {
+  fill: var(--pc-cursor);
   stroke: var(--pc-cursor);
 }
 
@@ -877,67 +934,15 @@ html[data-pc-intro] .pc-session:not([data-done]) .pc-action-ready {
   position: absolute;
   top: 16px;
   left: 14px;
-  padding: 1px 8px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: var(--pc-cursor);
-  color: white;
+  color: #fff;
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
-}
-
-.pc-cursor[data-flip] .pc-cursor-tag {
-  transform: translateX(calc(-100% - 20px));
-}
-
-.pc-intro-box {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border: 1px solid var(--pc-cursor);
-  opacity: 0;
-}
-
-.pc-intro-box[data-agent='visitor'] {
-  --pc-cursor: #c2410c;
-}
-
-.pc-intro-box[data-agent='codex'] {
-  --pc-cursor: #237032;
-}
-
-.pc-intro-box[data-agent='opencode'] {
-  --pc-cursor: #c2255c;
-  background: color-mix(in srgb, var(--pc-cursor) 10%, transparent);
-}
-
-.pc-intro-box i {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border: 1px solid var(--pc-cursor);
-  background: white;
-}
-
-.pc-intro-box i:nth-child(1) { top: -4px; left: -4px; }
-.pc-intro-box i:nth-child(2) { top: -4px; right: -4px; }
-.pc-intro-box i:nth-child(3) { bottom: -4px; left: -4px; }
-.pc-intro-box i:nth-child(4) { bottom: -4px; right: -4px; }
-
-.pc-intro-photo {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 96px;
-  height: 64px;
-  border: 2px solid white;
-  border-radius: 10px;
-  background-position: center;
-  background-size: cover;
-  /* The cursor layer lives on <body>, outside .pc-home, so its shadow is spelled out. */
-  box-shadow: 0 2px 0 rgb(20 18 14 / 0.04), 0 10px 24px -4px rgb(20 18 14 / 0.18);
-  transform-origin: top left;
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.9);
 }
 
 /* Sections ---------------------------------------------------------------- */
@@ -1148,104 +1153,299 @@ html:lang(zh) .pc-section-title {
   }
 }
 
-.pc-note {
-  margin-top: 20px;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--pc-muted);
-}
 
-.pc-note strong {
-  font-weight: 500;
-  color: var(--pc-ink);
-}
+/* Features: cards that are windows onto one photograph -------------------- */
 
-/* Continuity */
-
-.pc-continuity .pc-stage {
-  --pc-stage-ground: hsl(140 22% 38%);
-  padding: var(--pc-stage-inset);
-}
-
-.pc-dashboard {
-  max-width: 940px;
-}
-
-.pc-dashboard .pc-window-body {
-  display: block;
-  padding: 0;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.pc-dashboard-scope {
-  flex-shrink: 0;
-  padding: 0 8px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
-  color: var(--pc-muted);
-}
-
-.pc-dashboard .pc-dashboard-panes {
+.pc-tour {
   display: grid;
-}
-
-.pc-dashboard .pc-window-body p {
-  overflow: visible;
-  white-space: normal;
-}
-
-@media (min-width: 768px) {
-  .pc-dashboard-panes {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  }
-
-  .pc-dashboard-detail {
-    border-top: 0;
-    border-left: 1px solid var(--pc-line);
-  }
-}
-
-.pc-dashboard-list {
-  padding: 8px;
-}
-
-.pc-dashboard-head,
-.pc-dashboard-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 60px 88px;
-  align-items: center;
   gap: 12px;
-  padding: 0 10px;
 }
 
-.pc-dashboard-head {
-  height: 32px;
-  font-size: 12px;
+.pc-tour-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 30rem;
+  clip-path: inset(0 round var(--pc-radius-stage));
+  background: var(--pc-ink-900);
+}
+
+.pc-tour-mock {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--pc-tour-inset) var(--pc-tour-inset) 0;
+}
+
+.pc-tour-mock > div {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.pc-tour-card[data-wide] .pc-tour-mock > div {
+  max-width: 46rem;
+}
+
+/* The one gradient: ink behind a caption set on the photograph. */
+.pc-tour-caption {
+  padding: 48px var(--pc-tour-inset) var(--pc-tour-inset);
+  background: linear-gradient(to top, hsl(var(--pc-scrim) / 0.6), hsl(var(--pc-scrim) / 0));
+}
+
+.pc-tour-caption h3 {
+  max-width: 34ch;
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 400;
+  color: var(--pc-on-photo);
+  text-wrap: balance;
+}
+
+.pc-home {
+  --pc-tour-inset: 20px;
+}
+
+@media (min-width: 640px) {
+  .pc-home {
+    --pc-tour-inset: 32px;
+  }
+
+  .pc-tour {
+    gap: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pc-home {
+    --pc-tour-inset: 40px;
+  }
+
+  /* The photograph is sized to the whole grid; each card clips its own part of it. */
+  .pc-tour {
+    position: relative;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pc-tour-card {
+    position: static;
+    min-height: 34rem;
+  }
+
+  .pc-tour-card[data-wide] {
+    grid-column: span 2;
+  }
+
+  .pc-tour-caption h3 {
+    font-size: 22px;
+  }
+}
+
+/* Mock panels inside the feature cards. */
+
+.pc-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px 16px 18px;
+}
+
+.pc-fields {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: var(--pc-radius-well);
+  background: var(--pc-line);
+  box-shadow: 0 0 0 1px var(--pc-line);
+}
+
+.pc-fields > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--pc-surface);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.pc-fields dt {
   color: var(--pc-faint);
 }
 
-.pc-dashboard-row {
-  min-height: 44px;
-  border-radius: 6px;
+.pc-panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* A depicted control: concentric with the panel (14 − 6 = 8). */
+.pc-mock-button {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-flat);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.pc-mock-button[data-primary] {
+  background: var(--pc-accent);
+  color: var(--pc-accent-ink);
+}
+
+.pc-skill-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.pc-skill-description {
+  margin-top: -8px;
+  font-size: 12.5px;
+  line-height: 18px;
   color: var(--pc-muted);
 }
 
-.pc-dashboard-row > span:first-child {
+.pc-checks {
+  display: grid;
+  gap: 6px;
+  margin-top: -6px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.pc-checks li,
+.pc-memory-detail li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pc-checks svg {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--pc-accent-text);
+}
+
+.pc-skill-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pc-line);
+  font-size: 12px;
+  color: var(--pc-muted);
+}
+
+.pc-skill-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pc-ink);
+}
+
+.pc-budget-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--pc-muted);
+}
+
+.pc-budget-head .pc-rev {
+  color: var(--pc-ink);
+}
+
+.pc-budget-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pc-well);
+}
+
+.pc-budget-bar span,
+.pc-budget-key {
+  background: var(--pc-accent);
+}
+
+.pc-budget-bar span[data-tone='1'],
+.pc-budget-key[data-tone='1'] {
+  background: color-mix(in srgb, var(--pc-accent) 58%, var(--pc-surface));
+}
+
+.pc-budget-bar span[data-tone='2'],
+.pc-budget-key[data-tone='2'] {
+  background: color-mix(in srgb, var(--pc-accent) 28%, var(--pc-surface));
+}
+
+.pc-budget-list {
+  display: grid;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.pc-budget-list li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.pc-budget-key {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.pc-budget-list .pc-rev {
+  color: var(--pc-muted);
+}
+
+/* The Memory window: a list, and one entry open at its revision. */
+
+.pc-memory {
+  display: grid;
+}
+
+.pc-memory-list {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 8px;
+}
+
+.pc-memory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2rem 4.75rem;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--pc-radius-control);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.pc-memory-row > span:first-child {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.pc-dashboard-row[data-open] {
+.pc-memory-row[data-open] {
   background: var(--pc-accent-wash);
-  color: var(--pc-ink);
 }
 
-.pc-dashboard-row[data-state='forgotten'],
-.pc-dashboard-row[data-state='retired'],
-.pc-dashboard-row[data-state='merged'] {
+.pc-memory-row:is([data-state='forgotten'], [data-state='retired'], [data-state='merged']) {
   color: var(--pc-faint);
 }
 
@@ -1260,18 +1460,16 @@ html:lang(zh) .pc-section-title {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .pc-state::before {
   content: '';
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 999px;
   background: currentColor;
-}
-
-.pc-state[data-state='active'] {
-  color: var(--pc-ink);
 }
 
 .pc-state[data-state='merged']::before {
@@ -1279,254 +1477,127 @@ html:lang(zh) .pc-section-title {
   box-shadow: inset 0 0 0 1.5px currentColor;
 }
 
-.pc-state[data-state='forgotten']::before,
-.pc-state[data-state='retired']::before {
+.pc-state:is([data-state='forgotten'], [data-state='retired'])::before {
   background: var(--pc-dot);
 }
 
-.pc-dashboard-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 20px 20px 22px;
-  border-top: 1px solid var(--pc-line);
-}
-
-.pc-dashboard-ref {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
-  color: var(--pc-muted);
-  overflow-wrap: anywhere;
-}
-
-.pc-dashboard-detail h3 {
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1.4;
-  text-wrap: balance;
-}
-
-.pc-dashboard-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  font-size: 12px;
-  color: var(--pc-muted);
-}
-
-.pc-dashboard-meta b {
-  margin-right: 6px;
-  font-weight: 400;
-  color: var(--pc-faint);
-}
-
-.pc-dashboard-meta .pc-rev {
-  color: var(--pc-accent-text);
-}
-
-.pc-dashboard-detail p {
-  color: var(--pc-muted);
-}
-
-.pc-dashboard .pc-dashboard-ref {
-  overflow-wrap: anywhere;
-}
-
-.pc-dashboard-sources h4 {
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--pc-faint);
-}
-
-.pc-dashboard-sources li {
-  display: flex;
-  align-items: center;
+.pc-memory-detail {
+  display: none;
+  align-content: start;
   gap: 8px;
-  min-height: 28px;
-  color: var(--pc-ink);
+  padding: 16px;
+  border-left: 1px solid var(--pc-line);
+  font-size: 12.5px;
+  line-height: 18px;
 }
 
-.pc-dashboard-sources li span {
+.pc-memory-title {
+  font-family: var(--pc-font-display);
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.pc-memory-body {
+  color: var(--pc-muted);
+}
+
+.pc-memory-detail ul {
+  display: grid;
+  gap: 5px;
+}
+
+.pc-memory-detail li span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-decoration: underline;
-  text-decoration-color: var(--pc-line);
-  text-underline-offset: 3px;
 }
 
-.pc-dashboard-sources svg {
+.pc-memory-detail svg {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   color: var(--pc-faint);
-}
-
-@media (max-width: 639px) {
-  .pc-dashboard-head,
-  .pc-dashboard-row {
-    grid-template-columns: minmax(0, 1fr) 54px 72px;
-    gap: 8px;
-  }
-}
-
-.pc-flow {
-  margin-top: 40px;
 }
 
 @media (min-width: 768px) {
-  .pc-flow {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .pc-memory {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+
+  .pc-memory-detail {
+    display: grid;
   }
 }
 
-.pc-flow > section {
-  position: relative;
-  padding: 24px;
-}
-
-@media (min-width: 1024px) {
-  .pc-flow > section {
-    padding: 28px 32px 32px;
-  }
-}
-
-.pc-flow h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.pc-flow h3 svg {
-  width: 16px;
-  height: 16px;
-  color: var(--pc-faint);
-}
-
-.pc-flow ul {
-  display: grid;
-  gap: 8px;
-  margin-top: 16px;
-  font-size: 15px;
-  color: var(--pc-muted);
-}
-
-.pc-flow li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.pc-flow li::before {
-  content: '';
-  flex-shrink: 0;
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--pc-faint);
-}
-
-.pc-flow-runtime ul {
-  color: var(--pc-ink);
-}
-
-/* Ecosystem */
-
-.pc-ledger-row {
-  display: grid;
-  gap: 16px;
-  padding: 24px;
-}
-
-@media (min-width: 1024px) {
-  .pc-ledger-row {
-    grid-template-columns: 240px minmax(0, 1fr);
-    gap: 32px;
-    padding: 28px 32px;
-  }
-}
-
-.pc-ledger-label {
-  padding-top: 10px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--pc-muted);
-}
+/* Ecosystem ---------------------------------------------------------------- */
 
 .pc-agents {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  margin: -6px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
+  .pc-agents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
   .pc-agents {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 .pc-agent {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto 16px;
   align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 8px 10px;
-  border-radius: var(--pc-radius-well);
-  color: var(--pc-ink);
-  transition-property: background-color, transform;
-  transition-duration: 150ms;
-  transition-timing-function: var(--pc-ease-out);
-}
-
-.pc-agent:active {
-  transform: scale(0.97);
+  gap: 14px;
+  min-height: 84px;
+  padding: 16px 20px;
+  text-decoration: none;
+  transition: background-color 150ms var(--pc-ease-out);
 }
 
 .pc-agent .pc-agent-icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 
-.pc-agent > span:last-child {
+.pc-agent-text {
   display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
 .pc-agent strong {
-  overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
+}
+
+.pc-agent-how {
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--pc-muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.pc-agent small {
+.pc-agent-status {
   font-size: 12px;
-  color: var(--pc-muted);
+  color: var(--pc-faint);
 }
 
-.pc-agent-all {
-  color: var(--pc-muted);
-  font-size: 14px;
-}
-
-.pc-agent-all > span:first-child {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: var(--pc-flat);
-}
-
-.pc-agent-all svg {
+.pc-agent-arrow {
   width: 16px;
   height: 16px;
+  color: var(--pc-faint);
+  transition: color 150ms var(--pc-ease-out), transform 200ms var(--pc-ease-out);
+}
+
+.pc-agent:focus-visible {
+  outline-offset: -3px;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1534,37 +1605,141 @@ html:lang(zh) .pc-section-title {
     background: var(--pc-flat);
   }
 
-  .pc-agent-all:hover {
+  .pc-agent:hover .pc-agent-arrow {
     color: var(--pc-ink);
+    transform: translate(2px, -2px);
   }
 }
 
-.pc-runtime {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
+.pc-connect {
+  display: grid;
+  gap: 40px;
+  margin-top: 48px;
 }
 
-.pc-artifacts {
+@media (min-width: 1024px) {
+  .pc-connect {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 72px;
+    margin-top: 64px;
+  }
+}
+
+.pc-connect h3 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.pc-connect-setup p {
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--pc-muted);
+}
+
+.pc-connect-setup .pc-command {
+  margin-top: 20px;
+  margin-left: 0;
+}
+
+.pc-connect-interfaces ul {
+  margin-top: 12px;
+  border-top: 1px solid var(--pc-line);
+}
+
+.pc-connect-interfaces a {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px 24px;
+  grid-template-columns: 8.5rem minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--pc-line);
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.pc-connect-interfaces strong {
+  font-weight: 500;
+}
+
+.pc-connect-interfaces a > span {
+  color: var(--pc-muted);
+}
+
+.pc-connect-interfaces svg {
+  width: 16px;
+  height: 16px;
+  color: var(--pc-faint);
+  transition: color 150ms var(--pc-ease-out), transform 200ms var(--pc-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pc-connect-interfaces a:hover svg {
+    color: var(--pc-ink);
+    transform: translateX(3px);
+  }
+}
+
+@media (max-width: 639px) {
+  .pc-connect-interfaces a {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    gap: 2px 16px;
+  }
+
+  .pc-connect-interfaces a > span {
+    grid-row: 2;
+    font-size: 14px;
+  }
+
+  .pc-connect-interfaces svg {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+}
+
+/* Proof --------------------------------------------------------------------- */
+
+.pc-stats {
+  display: grid;
+  gap: 40px;
 }
 
 @media (min-width: 768px) {
-  .pc-artifacts {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .pc-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 72px;
   }
 }
 
-.pc-artifacts dt {
-  font-size: 22px;
-  line-height: 1.2;
+.pc-stats > div {
+  display: flex;
+  flex-direction: column;
+  padding-top: 20px;
+  border-top: 1px solid var(--pc-line);
 }
 
-.pc-artifacts dd {
-  margin-top: 4px;
-  font-size: 14px;
+.pc-stats dt {
+  order: 2;
+  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.pc-stats dd.pc-display {
+  order: 1;
+  font-size: clamp(3.5rem, 8vw, 6rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-stat-detail {
+  order: 3;
+  max-width: 34rem;
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.6;
   color: var(--pc-muted);
 }
 

@@ -64,10 +64,10 @@ function Result({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * The two agent sessions on the figure's corners: the ending one prepares a
+ * The two agent sessions beside the Dashboard: the ending one prepares a
  * Handoff, the next one acknowledges it and lists what it received. Each
- * renders its final state; home.css shows the draft while the opening runs,
- * until the session is marked `data-done`.
+ * renders its final state; home.css shows the draft until the demo reaches
+ * the step that resolves it.
  */
 export function SessionWindow({ side, copy, agent }: {
   side: SessionSide;

@@ -17,16 +17,26 @@
 'use client';
 
 import { useEffect } from 'react';
-import { REVEAL_ATTR } from './intro';
 
+/** On <html> while sections wait to be revealed: `pending`, then `live`. */
+export const REVEAL_ATTR = 'data-pc-reveal';
 /** Share of an element that must be visible before it reveals. */
 const THRESHOLD = 0.2;
+/** A slow load drops the hidden state and shows the page. */
+const CLAIM_TIMEOUT_MS = 3000;
+
+/**
+ * Runs before the page paints: hides `[data-reveal]` blocks only when the
+ * client can reveal them, and never under reduced motion.
+ */
+export const revealScript = `(function(){var h=document.documentElement,a=${JSON.stringify(REVEAL_ATTR)};
+try{if(window.matchMedia("(prefers-reduced-motion: reduce)").matches||!("IntersectionObserver" in window))return;
+h.setAttribute(a,"pending");setTimeout(function(){if(h.getAttribute(a)==="pending")h.removeAttribute(a)},${CLAIM_TIMEOUT_MS});
+}catch(e){}})();`;
 
 /**
  * Reveals every `[data-reveal]` block on the home page once, the first time
- * it scrolls into view. The static HTML is fully visible; the pre-paint script
- * hides the blocks only when it can be sure this component will reveal them,
- * and never under reduced motion.
+ * it scrolls into view. The static HTML is fully visible without scripts.
  */
 export function RevealOnScroll() {
   useEffect(() => {
@@ -41,7 +51,10 @@ export function RevealOnScroll() {
       }
     }, { threshold: THRESHOLD });
     for (const element of document.querySelectorAll('.pc-home [data-reveal]')) observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      html.removeAttribute(REVEAL_ATTR);
+    };
   }, []);
   return null;
 }

@@ -20,6 +20,8 @@ export type AgentStatus = 'official' | 'community' | 'evaluation';
 
 export type Agent = {
   darkLogo: string;
+  /** How the host or framework connects, in the integration guides' own terms. */
+  integration: string;
   logo: string;
   name: string;
   /** Integration guide under `/{lang}/docs/integrations/`. */
@@ -34,18 +36,19 @@ const icon = (name: string) => ({
 
 /** Supported agents, in the order the home page lists them. */
 export const agents: Agent[] = [
-  { ...icon('codex'), name: 'Codex', slug: 'codex', status: 'official' },
-  { ...icon('claude-code'), name: 'Claude Code', slug: 'claude-code', status: 'community' },
-  { ...icon('deepseek'), name: 'DeepSeek Harness', slug: 'dsh', status: 'community' },
-  { ...icon('hermes'), name: 'Hermes Agent', slug: 'hermes', status: 'community' },
-  { ...icon('opencode'), name: 'OpenCode', slug: 'opencode', status: 'community' },
-  { ...icon('openclaw'), name: 'OpenClaw', slug: 'openclaw', status: 'community' },
-  { ...icon('pi'), name: 'Pi Coding Agent', slug: 'pi', status: 'community' },
+  { ...icon('codex'), name: 'Codex', slug: 'codex', integration: 'Prompt Hook + MCP + Skill', status: 'official' },
+  { ...icon('claude-code'), name: 'Claude Code', slug: 'claude-code', integration: 'Prompt Hook + MCP + Skill', status: 'community' },
+  { ...icon('deepseek'), name: 'DeepSeek Harness', slug: 'dsh', integration: 'HTTP plugin + pc_* + /pc', status: 'community' },
+  { ...icon('hermes'), name: 'Hermes Agent', slug: 'hermes', integration: 'MemoryProvider + /pc', status: 'community' },
+  { ...icon('opencode'), name: 'OpenCode', slug: 'opencode', integration: 'HTTP plugin + pc_*', status: 'community' },
+  { ...icon('openclaw'), name: 'OpenClaw', slug: 'openclaw', integration: 'Memory plugin + lifecycle hooks', status: 'community' },
+  { ...icon('pi'), name: 'Pi Coding Agent', slug: 'pi', integration: 'Extension + pc_* + /pc', status: 'community' },
   {
     darkLogo: 'https://thesvg.org/icons/workbuddy/default.svg?size=120',
     logo: 'https://thesvg.org/icons/workbuddy/default.svg?size=120',
     name: 'WorkBuddy',
     slug: 'workbuddy',
+    integration: 'Prompt Hook + MCP + Skill',
     status: 'community',
   },
   {
@@ -53,6 +56,7 @@ export const agents: Agent[] = [
     logo: 'https://github.com/bubbuild.png?size=120',
     name: 'Bub',
     slug: 'evaluation',
+    integration: 'Python Client plugin',
     status: 'evaluation',
   },
   {
@@ -60,10 +64,11 @@ export const agents: Agent[] = [
     logo: 'https://thesvg.org/icons/pydantic/default.svg?size=120',
     name: 'Pydantic AI',
     slug: 'pydantic-ai',
+    integration: 'Toolset',
     status: 'community',
   },
-  { ...icon('langchain'), name: 'LangChain', slug: 'langchain', status: 'community' },
-  { ...icon('langgraph'), name: 'LangGraph', slug: 'langgraph', status: 'community' },
+  { ...icon('langchain'), name: 'LangChain', slug: 'langchain', integration: 'Middleware', status: 'community' },
+  { ...icon('langgraph'), name: 'LangGraph', slug: 'langgraph', integration: 'Recall hook + Memory tools', status: 'community' },
 ];
 
 export function agentBySlug(slug: string): Agent {
