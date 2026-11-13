@@ -756,7 +756,10 @@ def test_native_service_retry_and_exit_classification(tmp_path: Path) -> None:
     try:
         _run("launchctl", "enable", f"gui/{_current_uid()}/{adapter.identifier}")
         _run("launchctl", "bootstrap", f"gui/{_current_uid()}", str(adapter.artifact_path))
-        _wait_for(lambda: not token.exists() and _attempt_count(state) == 3, timeout=20)
+        # launchd enforces a 10s minimum respawn throttle regardless of the
+        # requested ThrottleInterval, so three attempts and the token removal
+        # that follows the last failure span roughly 20s on an idle runner.
+        _wait_for(lambda: not token.exists() and _attempt_count(state) == 3, timeout=60)
         _wait_for(lambda: adapter.manager_state() is ManagerState.INACTIVE)
 
         assert adapter.manager_state() is ManagerState.INACTIVE
