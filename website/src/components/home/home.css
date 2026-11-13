@@ -2114,16 +2114,43 @@ html:lang(zh) .pc-section-title {
 }
 
 main.pc-home > footer {
+  --pc-footer: var(--pc-well);
+
   position: sticky;
   bottom: 0;
   z-index: 0;
   margin-top: 0;
   border-top: 0;
-  background: var(--pc-well);
+  background: var(--pc-footer);
 }
 
 .dark main.pc-home > footer {
-  background: hsl(24 12% 7%);
+  --pc-footer: hsl(24 12% 7%);
+}
+
+/* Footer helix: the old hero spiral, desaturated into the footer ink. */
+.pc-footer-helix {
+  --helix-surface: var(--pc-footer);
+  --helix-muted: color-mix(in srgb, var(--pc-faint) 70%, var(--helix-surface));
+  --helix-accent: color-mix(in srgb, var(--pc-accent) 30%, var(--pc-faint));
+  --helix-accent-deep: color-mix(in srgb, var(--helix-accent) 78%, var(--pc-ink));
+  --helix-fill: color-mix(in srgb, var(--helix-accent) 45%, var(--helix-surface));
+  --helix-fill-muted: color-mix(in srgb, var(--pc-faint) 22%, var(--helix-surface));
+
+  height: 160px;
+  overflow: hidden;
+}
+
+.pc-footer-helix canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 639px) {
+  .pc-footer-helix {
+    height: 112px;
+  }
 }
 
 /* Reveal on scroll: plays once; see reveal.tsx ---------------------------- */
