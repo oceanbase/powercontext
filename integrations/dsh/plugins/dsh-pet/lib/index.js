@@ -580,7 +580,7 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
+		headerParams: ["X-PowerContext-Resolve-Target"],
 		successStatuses: [200],
 		emptyStatuses: []
 	},
@@ -2174,13 +2174,22 @@ function boundedRecallQuery(prompt) {
 
 //#endregion
 //#region src/secrets.ts
-const SECRET_MARKERS = [
-	"sk-",
-	"api_key",
-	"BEGIN PRIVATE"
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
-function containsSecret(text) {
-	return SECRET_MARKERS.some((marker) => text.includes(marker));
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
 }
 
 //#endregion
