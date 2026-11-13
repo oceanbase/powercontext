@@ -318,24 +318,21 @@ export class PreflightService implements PreflightGate {
   }
 
   private async waitForInstall(context: CallContext, adapter: TargetAdapter, record: PreflightRecord) {
+    // A shared installer can finish while this caller is rechecking the target identity.
+    const existing = record.detection && this.installs.get(record.detection.configurationKey)
     const target = await adapter.detect(context.signal)
     if (target.state !== 'present' || !record.detection || !this.matches(adapter, target, record.detection)) {
       throw new HandoffError('stale_preflight')
     }
-    const check = await adapter.checkIntegration(target, context.signal)
     context.signal.throwIfAborted()
-    if (check.state === 'ready') return { state: 'completed' } as const
-    if (check.state === 'needs_user_action') return check
-    if (check.state === 'unknown') return { state: 'unknown' } as const
-    if (check.state !== record.integration || !check.repairable) throw new HandoffError('stale_preflight')
     const key = target.configurationKey
-    let pending = this.installs.get(key)
-    if (!pending) {
-      pending = this.install(adapter, target, record)
-      this.installs.set(key, pending)
-      const clear = () => { if (this.installs.get(key) === pending) this.installs.delete(key) }
-      void pending.then(clear, clear)
-    }
+    const shared = existing ?? this.installs.get(key)
+    if (shared) return shared
+    // Probe integration inside the shared operation: ready can be visible before an installer settles.
+    const pending = this.install(adapter, target, record)
+    this.installs.set(key, pending)
+    const clear = () => { if (this.installs.get(key) === pending) this.installs.delete(key) }
+    void pending.then(clear, clear)
     return pending
   }
 

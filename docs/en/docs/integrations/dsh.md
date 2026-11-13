@@ -23,8 +23,9 @@ native MCP discovery before validating capture and recall.
 
 The same package also exposes an independent browser entry, `./client`. After restart, DSH Web and Desktop show a
 PowerContext status control above the account area. If the control is absent, the host did not load the browser
-entry; existing tools and lifecycle behavior remain available, so this is not a Server failure. The control is not
-a Dashboard replacement: clicking it opens connection diagnostics only. Dashboard embedding remains future work.
+entry; existing tools and lifecycle behavior remain available, so this is not a Server failure. Click the control
+for connection diagnostics and the **Open Dashboard** action. With a selected conversation, the existing Dashboard
+opens in DSH's right sidebar.
 
 The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
 `beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
@@ -205,7 +206,7 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 ```
 
 Do not set this for a remote, shared, container, or SSH-forwarded host. The bridge does not add launch, install,
-target, or Dashboard routes.
+or target routes.
 
 While the page is visible, the client refreshes every ten seconds. It pauses while hidden, re-verifies immediately
 on return, backs off from two to thirty seconds after a failure, and marks a success older than thirty seconds as
@@ -216,8 +217,39 @@ session and invalidates responses from the previous selection. With no conversat
 not create one.
 
 Updating the plugin is an install-and-restart operation; the existing profile and connection settings are
-preserved. Uninstalling it removes the browser entry, the `/powercontext/status` route, subscriptions, and
+preserved. Uninstalling it removes the browser entry, the `/powercontext/status` and `/powercontext/dashboard` routes, subscriptions, and
 timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
+
+## Open the Dashboard in DSH
+
+Enable the [PowerContext Server Dashboard](../operate/configuration.md) explicitly before using this entry. From a
+selected DSH conversation, click **PowerContext** above the account area, then **Open Dashboard**. The existing
+Dashboard opens in the right sidebar: DSH Web uses its Browser iframe, while the 0.2.2-rc.1 Desktop release uses
+an isolated Browser webview. The diagnostics panel remains available from the same PowerContext control. The
+Dashboard's own permissions and write confirmations still apply.
+
+The selected conversation's workspace binding determines its Scope. Switching conversations and opening the
+Dashboard again selects the new Scope. If no conversation is selected, the panel offers **Open in browser** for
+the Server's default Dashboard entry; it does not create a conversation. The local Host checks Dashboard
+availability through the DSH-authenticated `GET /powercontext/dashboard` route. The returned URL contains only
+the Dashboard path and selected Scope, never a token. The Browser signs in directly to PowerContext when Server
+token authentication is enabled; DSH's Server credential is not copied into the page. Sign-in returns to the
+selected Scope. A failed sign-in stays on the Dashboard login page for correction.
+
+For local DSH Web, use the same scheme and loopback hostname for DSH and the Server Dashboard; the ports may
+differ. For example, use `http://127.0.0.1` for both. If one uses `localhost` and the other uses `127.0.0.1`,
+the iframe cannot keep the Dashboard sign-in cookie. The panel explains the mismatch and offers **Open in browser**
+for the same Scope.
+
+If Dashboard is disabled, the panel says to enable it in Server configuration. A rejected Host credential or an
+unavailable Server is reported separately; the API connection status is not changed by Dashboard availability.
+If the DSH Browser container is unavailable, the panel keeps diagnostics open, reports that it could not open
+the sidebar, and offers **Open in browser**. A Browser navigation failure is shown by DSH's Browser tab; refresh
+it after restoring the Server.
+PowerContext Server rejects Dashboard startup with a custom authentication Provider; diagnose that Server startup
+error separately from Browser loading. This plugin neither enables Dashboard nor changes Server authentication.
+The browser entry has been exercised on the official DSH 0.2.2-rc.1 Web and Desktop release; other host releases
+need their own container acceptance.
 
 ## Cross-agent handoff Host foundation
 

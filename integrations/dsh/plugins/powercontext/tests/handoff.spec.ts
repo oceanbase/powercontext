@@ -193,6 +193,31 @@ describe('preflight and installation', () => {
     expect(f.newPreflight().get(owner, first.preflightId, sessionId)).toEqual(first)
   })
 
+  it('does not accept an intermediate ready probe while a shared install can still fail', async () => {
+    const f = await fixture()
+    f.state.integration = missing
+    const [a, b] = await Promise.all([f.create('a'), f.create('b')])
+    const started = waitFor<void>()
+    const done = waitFor<InstallationResult>()
+    f.install.mockImplementationOnce(() => {
+      f.state.integration = { state: 'ready' }
+      started.resolve()
+      return done.promise
+    })
+    const first = f.decide(a, 'install')
+    await started.promise
+    const second = f.decide(b, 'install')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    const during = f.preflight.get(owner, b.preflightId, sessionId)
+    done.resolve({ state: 'failed' })
+
+    expect(during.state).toBe('installing')
+    for (const result of await Promise.all([first, second])) {
+      expect(result).toMatchObject({ state: 'failed', installation: 'failed' })
+      await expect(f.validate(result)).rejects.toMatchObject({ code: 'not_ready' })
+    }
+  })
+
   it('handles install failure, a restart requirement and post-install verification', async () => {
     const f = await fixture()
     f.state.integration = missing
