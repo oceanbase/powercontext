@@ -22,6 +22,8 @@ import { useEffect } from 'react';
 export const REVEAL_ATTR = 'data-pc-reveal';
 /** Share of an element that must be visible before it reveals. */
 const THRESHOLD = 0.2;
+/** Share of a looping illustration that must be visible for it to run. */
+const LOOP_THRESHOLD = 0.3;
 /** A slow load drops the hidden state and shows the page. */
 const CLAIM_TIMEOUT_MS = 3000;
 
@@ -36,7 +38,8 @@ h.setAttribute(a,"pending");setTimeout(function(){if(h.getAttribute(a)==="pendin
 
 /**
  * Reveals every `[data-reveal]` block on the home page once, the first time
- * it scrolls into view. The static HTML is fully visible without scripts.
+ * it scrolls into view, and runs each `[data-loop]` illustration only while
+ * it is on screen. The static HTML is fully visible without scripts.
  */
 export function RevealOnScroll() {
   useEffect(() => {
@@ -51,8 +54,14 @@ export function RevealOnScroll() {
       }
     }, { threshold: THRESHOLD });
     for (const element of document.querySelectorAll('.pc-home [data-reveal]')) observer.observe(element);
+    // Looping illustrations run only while they are on screen.
+    const loops = new IntersectionObserver((entries) => {
+      for (const entry of entries) entry.target.toggleAttribute('data-playing', entry.isIntersecting);
+    }, { threshold: LOOP_THRESHOLD });
+    for (const element of document.querySelectorAll('.pc-home [data-loop]')) loops.observe(element);
     return () => {
       observer.disconnect();
+      loops.disconnect();
       html.removeAttribute(REVEAL_ATTR);
     };
   }, []);

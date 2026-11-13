@@ -39,6 +39,10 @@ const PLAY_THRESHOLD = 0.3;
 const ARROW = 'M2 2 L2 17.5 L6.8 13 L13.8 12.8 Z';
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const EASE_IN_OUT = 'cubic-bezier(0.65, 0, 0.35, 1)';
+/** How long the finished state holds before the demo starts over. */
+const HOLD_MS = 4200;
+/** The windows clear and the cursors step away over this long. */
+const RESET_MS = 800;
 
 /** The Dashboard window: one Handoff, its four steps and what travels with it. */
 function Board({ board, prepared }: { board: Hero['board']; prepared: string }) {
@@ -85,10 +89,11 @@ function Board({ board, prepared }: { board: Hero['board']; prepared: string }) 
 
 /**
  * The hero illustration: two agent sessions and the Dashboard between them.
- * Named cursors do the work once, the first time the demo is on screen:
- * Claude Code hands off, the Dashboard records the prepared revision, Codex
- * acknowledges, and the visitor's cursor selects the Handoff. The cursors
- * then rest by their windows. The server renders the finished state; a script
+ * Named cursors do the work while the demo is on screen: Claude Code hands
+ * off, the Dashboard records the prepared revision, Codex acknowledges, and
+ * the visitor's cursor selects the Handoff. The cursors rest by their
+ * windows, then everything returns to the draft and plays again. The server
+ * renders the finished state; a script
  * right after the markup switches to the draft before paint unless motion is
  * reduced. A picture of the product: inert and labelled as an image.
  */
@@ -168,14 +173,22 @@ export function HeroDemo({ hero }: { hero: Hero }) {
       place('visitor', at('[data-board]', 0.5, 1, 0, 14));
     };
 
-    const run = async () => {
-      const ending = '[data-session="ending"] [data-action]';
-      const next = '[data-session="next"] [data-action]';
+    /** Resolves once the demo is on screen; the loop waits here while it is not. */
+    let visible = false;
+    let onVisible: (() => void) | null = null;
+    const whenVisible = () => (visible ? Promise.resolve() : new Promise<void>((resolve) => {
+      onVisible = resolve;
+    }));
+
+    const start = () => {
       place('claude-code', at('[data-session="ending"]', 0, 1, -40, 40));
       place('codex', at('[data-session="next"]', 1, 0, 40, -60));
       place('visitor', at('[data-board]', 0.5, 1, 0, 90));
-      demo.dataset.live = '';
+    };
 
+    const cycle = async () => {
+      const ending = '[data-session="ending"] [data-action]';
+      const next = '[data-session="next"] [data-action]';
       const claude = (async () => {
         await move('claude-code', at(ending, 0.5, 0.6), 760);
         await press('claude-code', ending);
@@ -196,48 +209,67 @@ export function HeroDemo({ hero }: { hero: Hero }) {
       await Promise.all([claude, codex, visitor]);
       await wait(500);
       if (stopped) return;
+
+      // Rest beside the windows while the finished state holds.
       rested = true;
       demo.dataset.rested = '';
       const before = new Map(positions);
       rest();
       const settled = new Map(positions);
-      await Promise.all(ACTORS.map(({ id }) => {
-        const from = before.get(id);
-        const to = settled.get(id);
-        if (!from || !to) return undefined;
-        positions.set(id, from);
-        return move(id, to, 900, EASE_IN_OUT);
-      }));
+      await Promise.all(ACTORS.map(({ id }) => glide(id, before.get(id), settled.get(id), 900)));
+      await wait(HOLD_MS);
+      if (stopped) return;
+
+      // Back to the draft: the cursors step away while the windows clear.
+      rested = false;
+      delete demo.dataset.rested;
+      const held = new Map(positions);
+      start();
+      const away = new Map(positions);
+      const windows = demo.querySelector<HTMLElement>('.pc-demo-windows');
+      const clear = windows
+        ? play(windows, [{ opacity: 1 }, { opacity: 0.35, offset: 0.5 }, { opacity: 1 }], { duration: RESET_MS, easing: EASE_IN_OUT })
+        : Promise.resolve();
+      void wait(RESET_MS / 2).then(() => step(0));
+      await Promise.all([clear, ...ACTORS.map(({ id }) => glide(id, held.get(id), away.get(id), RESET_MS))]);
+      await wait(400);
     };
 
-    const finish = () => {
-      stopped = true;
-      for (const timer of timers) window.clearTimeout(timer);
-      for (const animation of running) animation.cancel();
-      demo.dataset.step = String(FINAL_STEP);
+    /** Moves a cursor between two known points, whatever was committed in between. */
+    const glide = (actor: Actor, from: Point | undefined, to: Point | undefined, duration: number) => {
+      if (!from || !to) return Promise.resolve();
+      positions.set(actor, from);
+      return move(actor, to, duration, EASE_IN_OUT);
+    };
+
+    const run = async () => {
+      start();
       demo.dataset.live = '';
-      demo.dataset.rested = '';
-      rested = true;
-      rest();
+      while (!stopped) {
+        await whenVisible();
+        if (stopped) return;
+        await cycle();
+      }
     };
 
     const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) return;
-      observer.disconnect();
-      void run();
+      visible = Boolean(entry?.isIntersecting);
+      if (visible && onVisible) {
+        onVisible();
+        onVisible = null;
+      }
     }, { threshold: PLAY_THRESHOLD });
     observer.observe(demo);
+    void run();
 
     // The resting spots follow the windows when the layout changes.
     const resize = new ResizeObserver(() => {
       if (rested) rest();
     });
     resize.observe(demo);
-    window.addEventListener('keydown', finish, { once: true });
     return () => {
       observer.disconnect();
       resize.disconnect();
-      window.removeEventListener('keydown', finish);
       stopped = true;
       for (const timer of timers) window.clearTimeout(timer);
       for (const animation of running) animation.cancel();

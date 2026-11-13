@@ -147,6 +147,7 @@ home:
           value: 对字节签名和验签，不对解析后的 JSON
       approve: 批准
       reject: 拒绝
+      approved: 已批准为第 1 版
     skill:
       title: 审核通过的流程成为 Skill，需要时才导出。
       label: 一个托管 Skill，包含校验检查、已批准的版本和导出目标
