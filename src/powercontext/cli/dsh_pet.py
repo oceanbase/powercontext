@@ -36,14 +36,14 @@ from powercontext.cli.dsh_runtime import DshTarget
 from powercontext.cli.dsh_transport import read_dsh_settings
 from powercontext.cli.installation import SetupError, write_bytes, write_json
 from powercontext.cli.transport import is_remote_http
-from powercontext.client import PowerContextClient
+from powercontext.client import PowerContextClient, UnauthorizedResponseError
 from powercontext.http import AccessCheckRequest
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from powercontext.cli.transport import SetupTransport
-    from powercontext.http import ScopePage
+    from powercontext.http import ConnectionIdentity, ScopePage
 
 ADAPTER = "powercontext-dsh-pet"
 PET_VERSION = "0.4.8"
@@ -124,18 +124,41 @@ def disable_pet_memory(target: DshTarget, *, discard: bool = False) -> dict[str,
 
 
 @asynccontextmanager
-async def _destination_client(server_url: str) -> AsyncIterator[PowerContextClient]:
-    authorization = read_stored_authorization(credential_path("dsh"), server_url=server_url).authorization
-    token = authorization.removeprefix("Bearer ") if authorization else None
-    async with (
-        httpx.AsyncClient(timeout=4, trust_env=False) as transport,
-        PowerContextClient(server_url, token=token, http_client=transport, allow_insecure_http=False) as client,
-    ):
-        yield client
+async def _verified_destination(server_url: str) -> AsyncIterator[tuple[PowerContextClient, ConnectionIdentity]]:
+    async with httpx.AsyncClient(timeout=4, trust_env=False) as transport:
+        # Match runtime: auth-disabled bindings are loopback-only and must work
+        # without sending a credential owned by the ordinary DSH integration.
+        if urlsplit(server_url).hostname in {"localhost", "127.0.0.1", "::1"}:
+            async with PowerContextClient(server_url, http_client=transport, allow_insecure_http=False) as client:
+                try:
+                    identity = await client.get_connection_identity()
+                except UnauthorizedResponseError:
+                    pass  # This destination may require its URL-bound DSH credential.
+                else:
+                    if (
+                        identity.authentication.value != "disabled"
+                        or identity.access_mode.value != "disabled"
+                        or identity.principal is not None
+                    ):
+                        raise ValueError("Unexpected identity for anonymous pet memory.")  # noqa: TRY003
+                    yield client, identity
+                    return
+
+        authorization = read_stored_authorization(credential_path("dsh"), server_url=server_url).authorization
+        if not authorization:
+            raise ValueError("An authenticated pet memory Server requires a URL-bound DSH credential.")  # noqa: TRY003
+        token = authorization.removeprefix("Bearer ")
+        async with PowerContextClient(
+            server_url, token=token, http_client=transport, allow_insecure_http=False
+        ) as client:
+            identity = await client.get_connection_identity()
+            if identity.authentication.value != "authenticated" or identity.principal is None:
+                raise ValueError("The pet memory Server did not verify an authenticated principal.")  # noqa: TRY003
+            yield client, identity
 
 
 async def _list_pet_scopes(server_url: str) -> ScopePage:
-    async with _destination_client(server_url) as client:
+    async with _verified_destination(server_url) as (client, _):
         return await client.list_scopes(limit=20)
 
 
@@ -185,15 +208,8 @@ def _prompt_pet_binding(target: DshTarget, server_url: str) -> dict[str, str] | 
     return parse_pet_bindings([f"{pet}={scope_id}"]) if scope_id else None
 
 
-async def _verify_destination(server_url: str, bindings: dict[str, str]) -> dict[str, Any]:
-    async with _destination_client(server_url) as client:
-        identity = await client.get_connection_identity()
-        if identity.authentication.value == "disabled" and urlsplit(server_url).hostname not in {
-            "localhost",
-            "127.0.0.1",
-            "::1",
-        }:
-            raise ValueError("A remote pet memory Server must authenticate its requests.")  # noqa: TRY003
+async def _verify_pet_scopes(server_url: str, bindings: dict[str, str]) -> dict[str, Any]:
+    async with _verified_destination(server_url) as (client, identity):
         scopes = list(bindings.values())
         async with asyncio.TaskGroup() as tasks:
             for scope in scopes:
@@ -255,7 +271,7 @@ def enable_pet_memory(  # noqa: C901 - perform and report each setup boundary se
             return unchanged("opt_in_skipped")
 
     try:
-        identity = asyncio.run(_verify_destination(connection.server_url, bindings))
+        identity = asyncio.run(_verify_pet_scopes(connection.server_url, bindings))
     except Exception:
         # Never surface transport, provider, or server error bodies in setup output.
         return unchanged("server_identity_scope_or_permissions_unverified")

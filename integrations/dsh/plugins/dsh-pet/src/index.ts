@@ -146,13 +146,17 @@ function run(slot: Slot, root: string, home: string): () => void {
   }
 
   function authorization(target: Settings): string | undefined {
-    return storedAuthorization({ DSH_HOME: home }, target.server_url)
+    if (target.identity.authentication === 'authenticated') {
+      return storedAuthorization({ DSH_HOME: home }, target.server_url)
+    }
+    // An auth-disabled binding is loopback-only. Do not send a stale stored credential.
+    return undefined
   }
 
   async function connectedClient(target: Settings, signal: AbortSignal) {
     if (!current(target, signal)) return
     const auth = authorization(target)
-    if ((auth !== undefined) !== (target.identity.authentication === 'authenticated')) throw new IdentityChanged()
+    if (target.identity.authentication === 'authenticated' && auth === undefined) throw new IdentityChanged()
     const client = new PowerContextClient({
       baseUrl: target.server_url, authorization: auth, requestTimeoutMs: 4000, userAgent: name,
     })

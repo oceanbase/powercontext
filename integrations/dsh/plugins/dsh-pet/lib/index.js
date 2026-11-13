@@ -2465,12 +2465,12 @@ function run(slot, root, home) {
 		return !signal.aborted && refresh() === "registered" && !signal.aborted && settings === target;
 	}
 	function authorization(target) {
-		return storedAuthorization({ DSH_HOME: home }, target.server_url);
+		if (target.identity.authentication === "authenticated") return storedAuthorization({ DSH_HOME: home }, target.server_url);
 	}
 	async function connectedClient(target, signal) {
 		if (!current(target, signal)) return;
 		const auth = authorization(target);
-		if (auth !== void 0 !== (target.identity.authentication === "authenticated")) throw new IdentityChanged();
+		if (target.identity.authentication === "authenticated" && auth === void 0) throw new IdentityChanged();
 		const client = new PowerContextClient({
 			baseUrl: target.server_url,
 			authorization: auth,

@@ -189,6 +189,8 @@ Web and Desktop have separate pet bindings and delivery queues. Set up each prof
 Replace `<PET_SCOPE_ID>` with the actual ID, without the angle brackets. Repeat `--dsh-pet-bind` for other
 pets, with a different Scope each time. The bindings supplied to `on` are the complete set for that profile.
 Remote Servers require HTTPS and authentication; use the normal URL-bound DSH credential configuration.
+A loopback Server with authentication disabled must be reachable without credentials. Pet memory does not send
+a stored DSH credential to that Server.
 With access enforcement enabled, the credential needs Scope read and contribution access.
 Setup uses the dsh-pet already enabled in the selected profile and only installs the PowerContext memory adapter.
 A missing, disabled, ambiguous or incompatible pet does not block ordinary DSH setup. Check the separate

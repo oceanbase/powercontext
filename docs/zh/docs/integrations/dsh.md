@@ -152,6 +152,7 @@ Desktop 自带的命令运行 setup。Web 和 Desktop 分别保存桌宠绑定�
 
 把 `<PET_SCOPE_ID>` 换成真实 ID，不保留尖括号。多只宠物可重复传入 `--dsh-pet-bind`，每只使用不同的 Scope。
 每次 `on` 指定的是这个 profile 的完整绑定列表。远程 Server 必须使用 HTTPS 和鉴权，沿用绑定到地址的 DSH 凭据配置。
+关闭鉴权的环回 Server 必须允许无凭据访问；宠物记忆不会向该 Server 发送已保存的 DSH 凭据。
 启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。setup 使用所选 profile 已启用的 dsh-pet，只安装 PowerContext 记忆适配器。
 桌宠缺失、禁用、配置有歧义或版本不兼容时，不影响普通 DSH 安装。查看单独的 `dsh_pet_memory` 结果可确认适配器是否已开启。
 

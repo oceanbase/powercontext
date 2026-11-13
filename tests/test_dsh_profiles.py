@@ -17,7 +17,6 @@
 import json
 import os
 import shutil
-from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -26,6 +25,7 @@ import pytest
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
+from powercontext.cli.authorization import credential_path, write_stored_authorization
 from powercontext.cli.dsh_runtime import DshProfile, desktop_runtime, resolve_dsh_target
 from powercontext.cli.system import doctor_app, setup_app
 
@@ -105,7 +105,6 @@ def test_setup_and_default_doctor_reuse_the_selected_native_target(
 @pytest.fixture
 def pet_setup_boundary(setup_boundary, monkeypatch, server_checks):
     from powercontext.cli import dsh_pet, system
-    from powercontext.client import PowerContextClient
 
     plugin, native, inspect = setup_boundary
     adapter = plugin.parent / "dsh-pet"
@@ -136,43 +135,41 @@ def pet_setup_boundary(setup_boundary, monkeypatch, server_checks):
         }
         for scope_id in ("one", "two")
     ]
-    paths = []
+    requests = []
+    destination = {"require_credential": False}
+    routes = {
+        "/v1/scopes": {"items": scopes},
+        "/v1/scopes/two": scopes[1],
+        "/v1/connection/identity": {
+            "server_id": "fixture",
+            "authentication": "disabled",
+            "access_mode": "disabled",
+            "principal": None,
+        },
+    }
 
     def respond(request):
-        paths.append(request.url.path)
-        if request.url.path == "/v1/scopes":
-            return httpx.Response(200, json={"items": scopes})
-        if request.url.path == "/v1/connection/identity":
-            return httpx.Response(
-                200,
-                json={
-                    "server_id": "fixture",
-                    "authentication": "disabled",
-                    "access_mode": "disabled",
-                    "principal": None,
-                },
-            )
-        if request.url.path == "/v1/scopes/two":
-            return httpx.Response(200, json=scopes[1])
+        path = request.url.path
+        authorization = request.headers.get("authorization")
+        requests.append((path, authorization))
+        if destination["require_credential"] and authorization != "Bearer fixture-token":
+            return httpx.Response(401, json={"code": "unauthorized"})
+        if path in routes:
+            return httpx.Response(200, json=routes[path])
         return httpx.Response(404)
 
-    @asynccontextmanager
-    async def destination(server_url):
-        async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client,
-            PowerContextClient(server_url, http_client=http_client) as client,
-        ):
-            yield client
+    def client(**options):
+        return httpx.AsyncClient(transport=httpx.MockTransport(respond), **options)
 
-    monkeypatch.setattr(dsh_pet, "_destination_client", destination)
+    monkeypatch.setattr(dsh_pet, "httpx", Mock(AsyncClient=client))
     args = ["setup", "dsh", "--profile", "web", "--source", str(plugin), "--server-url", "http://127.0.0.1:1"]
     settings = Path(os.environ["DSH_HOME"]) / "profiles/web/.powercontext-dsh-pet/bindings.json"
-    return args, packages, settings, paths
+    return args, packages, settings, requests, destination, routes
 
 
 @pytest.mark.parametrize("scope_choice", ["2\n", "0\ntwo\n"])
 def test_terminal_setup_offers_pet_memory_and_saves_the_selected_scope(pet_setup_boundary, scope_choice):
-    args, packages, settings, _ = pet_setup_boundary
+    args, packages, settings, *_ = pet_setup_boundary
     runner = CliRunner()
     cli = create_cli([setup_app])
     result = runner.invoke(cli, args, input="y\n\n" + scope_choice)
@@ -194,7 +191,7 @@ def test_terminal_setup_offers_pet_memory_and_saves_the_selected_scope(pet_setup
 
 @pytest.mark.parametrize("case", ["decline", "skip_scope", "json", "pipe", "incompatible", "unknown_scope"])
 def test_setup_without_an_authorized_pet_binding_leaves_memory_off(pet_setup_boundary, monkeypatch, case):
-    args, packages, settings, paths = pet_setup_boundary
+    args, packages, settings, requests, *_ = pet_setup_boundary
     answers = {
         "decline": "\n",
         "skip_scope": "y\n\n\n",
@@ -213,10 +210,50 @@ def test_setup_without_an_authorized_pet_binding_leaves_memory_off(pet_setup_bou
 
     assert result.exit_code == 0, result.output
     assert ("Enable dsh-pet long-term memory" in result.output) == (case in {"decline", "skip_scope", "unknown_scope"})
-    assert ("/v1/scopes" in paths) == (case in {"skip_scope", "unknown_scope"})
+    assert (any(path == "/v1/scopes" for path, _ in requests)) == (case in {"skip_scope", "unknown_scope"})
     assert ("server_identity_scope_or_permissions_unverified" in result.output) == (case == "unknown_scope")
     assert "powercontext-dsh-pet" not in packages
     assert not settings.exists()
+
+
+@pytest.mark.parametrize("authority", ["anonymous", "proxy_only", "enforced", "denied"])
+def test_pet_setup_matches_runtime_authorization(pet_setup_boundary, authority):
+    args, packages, settings, requests, destination, routes = pet_setup_boundary
+    path = credential_path("dsh")
+    write_stored_authorization(path, server_url=args[-1], value="fixture-token")
+    destination["require_credential"] = authority != "anonymous"
+    if authority in {"enforced", "denied"}:
+        routes["/v1/connection/identity"].update(
+            authentication="authenticated", access_mode="enforced", principal={"type": "user", "id": "owner"}
+        )
+        allowed = authority == "enforced"
+        routes["/v1/access/check"] = {
+            "allowed": allowed,
+            "decisions": [
+                {"allowed": True, "reason_code": "granted"},
+                {"allowed": allowed, "reason_code": "granted" if allowed else "denied"},
+            ],
+        }
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]), [*args, "--dsh-pet-memory", "on", "--dsh-pet-bind", "main=two", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    pet = json.loads(result.stdout)["hosts"]["dsh"]["result"]["dsh_pet_memory"]
+    assert requests[0] == ("/v1/connection/identity", None)
+    if authority in {"proxy_only", "denied"}:
+        assert pet == {"status": "unchanged", "reason": "server_identity_scope_or_permissions_unverified"}
+        assert "powercontext-dsh-pet" not in packages
+        assert not settings.exists()
+    else:
+        assert pet["status"] == "enabled", (pet, requests)
+        assert json.loads(settings.read_text(encoding="utf-8"))["identity"] == routes["/v1/connection/identity"]
+    if authority == "anonymous":
+        assert ("/v1/scopes/two", None) in requests
+        assert all(authorization is None for _, authorization in requests)
+    if authority in {"enforced", "denied"}:
+        assert ("/v1/access/check", "Bearer fixture-token") in requests
+    assert json.loads(path.read_text(encoding="utf-8"))["authorization"] == "Bearer fixture-token"
 
 
 def test_uninitialized_desktop_fails_before_installation(tmp_path, desktop_command, setup_boundary):

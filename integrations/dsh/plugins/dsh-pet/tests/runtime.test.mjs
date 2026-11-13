@@ -191,12 +191,16 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   // Switch off the adapter's route while keeping the real Server available for observation.
   let offline = false
   let dropCaptureResponse = false
+  let petAuthorizationObserved = false
   const attempts = []
   const proxy = createServer(async (req, res) => {
     try {
       const chunks = []
       for await (const chunk of req) chunks.push(chunk)
       const body = Buffer.concat(chunks).toString()
+      if (['/v1/connection/identity', '/v1/atomic-memory/search', '/v1/sources/content'].includes(req.url)) {
+        petAuthorizationObserved ||= req.headers.authorization !== undefined
+      }
       if (offline) {
         res.writeHead(503, { 'content-type': 'application/json' }).end('{}')
         return
@@ -252,6 +256,12 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   const cli = resolve(repo, '.venv/bin/powercontext')
   const baseSetup = ['setup', 'dsh', '--profile', profile, '--dsh-command', dsh, '--source', repo,
     '--server-url', proxyUrl, '--json']
+  // The regular plugin can have a URL-bound token even when this Server has no
+  // authentication provider. Pet setup and runtime must use the anonymous identity.
+  await mkdir(join(env.DSH_HOME, 'powercontext'), { recursive: true, mode: 0o700 })
+  await writeFile(join(env.DSH_HOME, 'powercontext', 'credentials.json'), JSON.stringify({
+    version: 1, server_url: proxyUrl, authorization: 'Bearer fixture-token',
+  }), { mode: 0o600 })
   const setup = await run(cli, [...baseSetup, '--dsh-pet-memory', 'on',
     '--dsh-pet-bind', 'main=' + scope, '--dsh-pet-bind', 'second=' + second.scope_id])
   assert.equal(JSON.parse(setup.stdout).hosts.dsh.result.dsh_pet_memory.status, 'enabled', setup.stdout)
@@ -411,6 +421,7 @@ test('packaged pet adapter captures, extracts and recalls in real DSH ' + profil
   const native = await replay('I do not know.')
   await configurePet(100)
   const full = await replay(correction)
+  assert.equal(petAuthorizationObserved, false, 'pet requests must not send the stored token')
   t.diagnostic(JSON.stringify({
     scenario: 'corrected preference past the recent window',
     native_recent: { ...native, target_check: false },

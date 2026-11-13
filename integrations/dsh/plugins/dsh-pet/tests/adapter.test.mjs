@@ -50,11 +50,13 @@ async function fixture(t, profileName = 'web') {
   let loseResponse = false
   let holdRecall = false
   const calls = []
+  const authorizations = []
   const server = createServer(async (request, response) => {
     const chunks = []
     for await (const chunk of request) chunks.push(chunk)
     const payload = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null
     calls.push({ path: request.url, payload })
+    authorizations.push(request.headers.authorization)
     response.setHeader('content-type', 'application/json')
     if (request.url === '/v1/connection/identity') return response.end(JSON.stringify(serverIdentity))
     if (request.url === '/v1/atomic-memory/search') {
@@ -78,9 +80,15 @@ async function fixture(t, profileName = 'web') {
   t.after(() => { dispose?.(); server.closeAllConnections(); server.close() })
   const endpoint = 'http://127.0.0.1:' + server.address().port
   const binding = { pet_id: 'main', scope_id: 'test-pet-scope', generation: generation() }
-  const configure = async ({ enabled = true, bindings = [binding] } = {}) => {
+  const storeAuthorization = async () => {
+    await mkdir(join(home, 'powercontext'), { mode: 0o700 })
+    await writeFile(join(home, 'powercontext', 'credentials.json'), JSON.stringify({
+      version: 1, server_url: endpoint, authorization: 'Bearer fixture-token',
+    }), { mode: 0o600 })
+  }
+  const configure = async ({ enabled = true, bindings = [binding], expectedIdentity = identity('one') } = {}) => {
     await writeFile(settings + '.new', JSON.stringify({
-      version: 1, enabled, server_url: endpoint, identity: identity('one'), bindings,
+      version: 1, enabled, server_url: endpoint, identity: expectedIdentity, bindings,
     }), { mode: 0o600 })
     await rename(settings + '.new', settings)
   }
@@ -98,16 +106,17 @@ async function fixture(t, profileName = 'web') {
   const stop = () => dispose?.()
   const status = async () => JSON.parse(await readFile(join(root, 'status.json'), 'utf8').catch(() => '{}'))
   return {
-    start, stop, slot, configure, status, calls, binding,
+    start, stop, slot, configure, status, calls, binding, storeAuthorization, authorizations,
     get provider() { return provider },
     loseResponse: value => { loseResponse = value },
-    serverIdentity: value => { serverIdentity = identity(value) },
+    serverIdentity: value => { serverIdentity = value },
     holdRecall: value => { holdRecall = value },
   }
 }
 
-test('Desktop reuses the stored payload after losing a response and cannot drain to a new Server identity', async t => {
+test('Desktop replays to the verified unauthenticated Server without sending a stored credential', async t => {
   const f = await fixture(t, 'desktop')
+  await f.storeAuthorization()
   await f.configure()
   f.loseResponse(true)
   f.start()
@@ -115,19 +124,20 @@ test('Desktop reuses the stored payload after losing a response and cannot drain
   await f.provider.capture(input)
   await until(() => writes().length === 1, 'first delivery lost its response')
   f.stop()
-  f.serverIdentity('two')
+  f.serverIdentity(identity('two'))
   f.start()
   await until(async () => (await f.status()).bindings?.[0]?.capture === 'identity_changed', 'mismatch reported')
   assert.equal(writes().length, 1)
   assert.equal(await f.provider.recall(input), undefined)
   assert.ok(!f.calls.some(call => call.path === '/v1/atomic-memory/search'))
   f.stop()
-  f.serverIdentity('one')
+  f.serverIdentity(identity('one'))
   f.loseResponse(false)
   f.start()
   await until(async () => (await f.status()).bindings?.[0]?.capture === 'accepted', 'original destination acknowledged replay')
   assert.equal(writes().length, 2)
   assert.deepEqual(writes()[0], writes()[1])
+  assert.ok(f.authorizations.every(value => value === undefined))
   assert.equal(writes()[1].payload.scope_id, f.binding.scope_id)
   assert.deepEqual(JSON.parse(writes()[1].payload.content).messages, [
     { role: 'user', content: input.userText }, { role: 'assistant', content: input.replyText },
@@ -174,4 +184,32 @@ test('recall scopes the query and returns the original path after a stalled sear
   const started = performance.now()
   assert.equal(await f.provider.recall(input), undefined)
   assert.ok(performance.now() - started < 1500)
+})
+
+test('authenticated recall requires a URL-bound credential and the exact principal', async t => {
+  const f = await fixture(t)
+  const expectedIdentity = {
+    server_id: 'one', authentication: 'authenticated', access_mode: 'enforced',
+    principal: { type: 'user', id: 'expected' },
+  }
+  await f.configure({ expectedIdentity })
+  f.start()
+  assert.equal(await f.provider.recall(input), undefined)
+  assert.deepEqual(f.calls, [])
+
+  await f.storeAuthorization()
+  // Restart to clear the recall backoff after the previous rejection.
+  f.stop()
+  f.serverIdentity({ ...expectedIdentity, principal: { type: 'user', id: 'different' } })
+  f.start()
+  assert.equal(await f.provider.recall(input), undefined)
+  assert.deepEqual(f.calls.map(call => call.path), ['/v1/connection/identity'])
+
+  f.stop()
+  f.serverIdentity(expectedIdentity)
+  f.start()
+  assert.match((await f.provider.recall(input)).userText, /hibiscus/)
+  assert.deepEqual(f.calls.map(call => call.path),
+    ['/v1/connection/identity', '/v1/connection/identity', '/v1/atomic-memory/search'])
+  assert.ok(f.authorizations.every(value => value === 'Bearer fixture-token'))
 })
