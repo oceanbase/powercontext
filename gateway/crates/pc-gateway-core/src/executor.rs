@@ -40,7 +40,9 @@ use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
-use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
+use pc_gateway_transport::{
+    AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
+};
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
@@ -438,6 +440,11 @@ where
 
         // 释放阶段。
         let (raw, send_binding_for_release) = raw;
+        let original_body = raw.body.clone();
+        let raw = match restore_protocol_response(&call.request, renderer, raw) {
+            Ok(raw) => raw,
+            Err(outcome) => return outcome,
+        };
         let release_body = match String::from_utf8(raw.body.clone().to_vec()) {
             Ok(text) => text,
             Err(_) => {
@@ -447,103 +454,127 @@ where
                 }
             }
         };
-        let release_check = ContextCheckRequest::BeforeRelease {
-            scope_id: call.scope_id.clone(),
-            target_profile: call.target_profile.clone(),
-            request_binding: send_binding_for_release,
-            payload: ModelJsonPayload::new(
-                BTreeMap::from([("content-type".to_string(), raw.content_type.clone())]),
-                release_body.clone(),
-            ),
-            completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
+        // Preserve raw evidence as well as the exact caller-facing response.
+        let original_text = match std::str::from_utf8(&original_body) {
+            Ok(text) => text,
+            Err(_) => {
+                return ManagedOutcome::Withheld {
+                    reason_codes: vec!["invalid_response_encoding".into()],
+                    retryable: false,
+                }
+            }
         };
-        let verdict = self.gate.check(release_check).await;
-        recording.release_decision();
-        match verdict {
-            Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
-            Ok(result) => match result.decision {
-                CheckDecision::Allow => {
-                    // Release requires its own valid admission under the configured mode.
-                    let (_release_binding_used, _release_deadline_used) = match validate_allow(
-                        &result,
-                        CheckPhase::BeforeRelease,
-                        self.require_privacy_coverage,
-                    ) {
-                        Ok(v) => v,
-                        Err(outcome) => return outcome,
-                    };
-                    // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
-                    let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
-                    if now_ms() >= release_deadline {
-                        return ManagedOutcome::AdmissionExpired;
-                    }
-                    // 每个用户回合只在终止响应（不再调用工具）时沉淀一次规范化记录；工具循环的中间响应不沉淀。
-                    // 记录取自注入前的请求，不含准备结果（防止旧记忆被当成新用户证据）。
-                    let transcript = call
-                        .sediment
-                        .then(|| {
-                            turn_transcript(
-                                &pristine_request,
-                                &release_body,
-                                renderer.message_list_key(),
-                            )
-                        })
-                        .flatten();
-                    if let Some(transcript) = transcript {
-                        let digest = turn_digest(&call, &pristine_request).unwrap_or_else(|| {
-                            result
-                                .binding
-                                .as_deref()
-                                .map(simple_digest)
-                                .unwrap_or_else(|| simple_digest(&release_body))
-                        });
-                        let capture = CaptureContentSourceRequest {
-                            scope_id: call.scope_id.clone(),
-                            source_id: format!("gw-turn-{digest}"),
-                            content: transcript.text,
-                            metadata: Some(serde_json::json!({
-                                "kind": "gateway_turn",
-                                "target_profile": call.target_profile,
-                                "powercontext_capture_coverage": transcript.coverage,
-                            })),
+        let mut inspect_original = original_body != raw.body;
+        let mut release_deadline = u64::MAX;
+        loop {
+            let release_check = ContextCheckRequest::BeforeRelease {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                request_binding: send_binding_for_release.clone(),
+                payload: ModelJsonPayload::new(
+                    BTreeMap::from([("content-type".to_string(), raw.content_type.clone())]),
+                    if inspect_original {
+                        original_text.to_owned()
+                    } else {
+                        release_body.clone()
+                    },
+                ),
+                completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
+            };
+            let verdict = self.gate.check(release_check).await;
+            recording.release_decision();
+            return match verdict {
+                Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
+                Ok(result) => match result.decision {
+                    CheckDecision::Allow => {
+                        // Release requires its own valid admission under the configured mode.
+                        let (_release_binding_used, _release_deadline_used) = match validate_allow(
+                            &result,
+                            CheckPhase::BeforeRelease,
+                            self.require_privacy_coverage,
+                        ) {
+                            Ok(v) => v,
+                            Err(outcome) => return outcome,
                         };
-                        match self.gate.capture(capture).await {
-                            Ok(_) => {}
-                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
-                            Err(GateError::GateRejected(409)) => {
-                                evidence.record_not_sent(0, "sediment_duplicate")
-                            }
-                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
-                        }
-                        // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
+                        // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
+                        release_deadline = release_deadline
+                            .min(parse_rfc3339_ms(&result.valid_until).unwrap_or(0));
                         if now_ms() >= release_deadline {
                             return ManagedOutcome::AdmissionExpired;
                         }
+                        if inspect_original {
+                            inspect_original = false;
+                            continue;
+                        }
+                        // 每个用户回合只在终止响应（不再调用工具）时沉淀一次规范化记录；工具循环的中间响应不沉淀。
+                        // 记录取自注入前的请求，不含准备结果（防止旧记忆被当成新用户证据）。
+                        let transcript = call
+                            .sediment
+                            .then(|| {
+                                turn_transcript(
+                                    &pristine_request,
+                                    &release_body,
+                                    renderer.message_list_key(),
+                                )
+                            })
+                            .flatten();
+                        if let Some(transcript) = transcript {
+                            let digest =
+                                turn_digest(&call, &pristine_request).unwrap_or_else(|| {
+                                    result
+                                        .binding
+                                        .as_deref()
+                                        .map(simple_digest)
+                                        .unwrap_or_else(|| simple_digest(&release_body))
+                                });
+                            let capture = CaptureContentSourceRequest {
+                                scope_id: call.scope_id.clone(),
+                                source_id: format!("gw-turn-{digest}"),
+                                content: transcript.text,
+                                metadata: Some(serde_json::json!({
+                                    "kind": "gateway_turn",
+                                    "target_profile": call.target_profile,
+                                    "powercontext_capture_coverage": transcript.coverage,
+                                })),
+                            };
+                            match self.gate.capture(capture).await {
+                                Ok(_) => {}
+                                // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
+                                Err(GateError::GateRejected(409)) => {
+                                    evidence.record_not_sent(0, "sediment_duplicate")
+                                }
+                                Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
+                            }
+                            // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
+                            if now_ms() >= release_deadline {
+                                return ManagedOutcome::AdmissionExpired;
+                            }
+                        }
+                        recording.authorized();
+                        ManagedOutcome::Released {
+                            binding: result.binding,
+                            status: raw.status,
+                            content_type: raw.content_type.clone(),
+                            body: raw.body,
+                        }
                     }
-                    recording.authorized();
-                    ManagedOutcome::Released {
-                        binding: result.binding,
-                        status: raw.status,
-                        content_type: raw.content_type.clone(),
-                        body: raw.body,
+                    CheckDecision::Block => {
+                        self.transport
+                            .cancel(&AdmittedSend {
+                                binding: String::new(),
+                                payload: bytes::Bytes::new(),
+                                target_url: call.target_url.clone(),
+                                headers: call.headers.clone(),
+                                stream: call.request.stream,
+                            })
+                            .await;
+                        ManagedOutcome::Blocked {
+                            reason_codes: result.reason_codes,
+                        }
                     }
-                }
-                CheckDecision::Block => {
-                    self.transport
-                        .cancel(&AdmittedSend {
-                            binding: String::new(),
-                            payload: bytes::Bytes::new(),
-                            target_url: call.target_url.clone(),
-                            headers: call.headers.clone(),
-                            stream: call.request.stream,
-                        })
-                        .await;
-                    ManagedOutcome::Blocked {
-                        reason_codes: result.reason_codes,
-                    }
-                }
-                CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
-            },
+                    CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
+                },
+            };
         }
     }
 
@@ -742,6 +773,10 @@ where
             SendOutcome::Delivered(raw) => {
                 recording.received(&raw);
                 execution.model_send(ModelSendState::ResponseReceived);
+                let raw = match restore_protocol_response(&call.request, renderer, raw) {
+                    Ok(raw) => raw,
+                    Err(outcome) => return outcome,
+                };
                 ManagedOutcome::Degraded {
                     status: raw.status,
                     content_type: raw.content_type,
@@ -770,6 +805,25 @@ where
     }
 }
 
+fn restore_protocol_response<R: WireRenderer>(
+    request: &CanonicalRequest,
+    renderer: &R,
+    mut raw: RawResponse,
+) -> Result<RawResponse, ManagedOutcome> {
+    raw.body = renderer
+        .restore_response(request, raw.body)
+        .ok_or_else(|| ManagedOutcome::Withheld {
+            reason_codes: vec!["response_identity_unavailable".into()],
+            retryable: false,
+        })?;
+    if raw.body.len() > pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT {
+        return Err(indeterminate_outcome(
+            SendIndeterminateReason::BufferLimitExceeded,
+        ));
+    }
+    Ok(raw)
+}
+
 // Capacity failure withholds the incomplete body without clearing possible billing.
 // Other uncertain sends keep their existing indeterminate terminal; none is retried.
 fn indeterminate_outcome(reason: SendIndeterminateReason) -> ManagedOutcome {
@@ -787,7 +841,26 @@ fn content_headers(headers: &[(String, String)], content_type: &str) -> BTreeMap
     out.insert("content-type".to_string(), content_type.to_string());
     for (k, v) in headers {
         let lower = k.to_ascii_lowercase();
-        if matches!(lower.as_str(), "authorization" | "x-api-key" | "cookie") {
+        // Subscription account/device identity is configured by the gateway, never copied
+        // from caller headers. It belongs to authentication, not the model-json carrier.
+        if matches!(
+            lower.as_str(),
+            "authorization"
+                | "x-api-key"
+                | "cookie"
+                | "chatgpt-account-id"
+                | "user-agent"
+                | "copilot-integration-id"
+                | "x-github-api-version"
+                | "editor-version"
+                | "editor-plugin-version"
+                | "x-msh-platform"
+                | "x-msh-version"
+                | "x-msh-device-name"
+                | "x-msh-device-model"
+                | "x-msh-os-version"
+                | "x-msh-device-id"
+        ) {
             continue;
         }
         out.insert(lower, v.clone());

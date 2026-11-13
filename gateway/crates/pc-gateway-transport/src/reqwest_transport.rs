@@ -31,23 +31,45 @@ pub struct ReqwestTransport {
     client: reqwest::Client,
     /// 流式/非流式响应的缓冲字节上限（容量保护）。
     max_buffer_bytes: usize,
+    subscription_responses_sse: bool,
+    codeassist_chat: bool,
+    copilot_chat: bool,
 }
 
 impl ReqwestTransport {
     pub fn new(timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
             .timeout(timeout)
             .build()
             .expect("reqwest client build");
         Self {
             client,
             max_buffer_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
+            subscription_responses_sse: false,
+            codeassist_chat: false,
+            copilot_chat: false,
         }
     }
 
     pub fn with_buffer_limit(mut self, max_buffer_bytes: usize) -> Self {
         self.max_buffer_bytes = max_buffer_bytes.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
+    }
+
+    pub fn with_subscription_responses_sse(mut self, enabled: bool) -> Self {
+        self.subscription_responses_sse = enabled;
+        self
+    }
+
+    pub fn with_codeassist_chat(mut self, enabled: bool) -> Self {
+        self.codeassist_chat = enabled;
+        self
+    }
+
+    pub fn with_copilot_chat(mut self, enabled: bool) -> Self {
+        self.copilot_chat = enabled;
         self
     }
 }
@@ -61,6 +83,13 @@ impl Default for ReqwestTransport {
 impl Transport for ReqwestTransport {
     fn send<'a>(&'a self, send: AdmittedSend) -> impl Future<Output = SendOutcome> + Send + 'a {
         Box::pin(async move {
+            let model = if self.codeassist_chat {
+                serde_json::from_slice::<serde_json::Value>(&send.payload)
+                    .ok()
+                    .and_then(|v| v["model"].as_str().map(String::from))
+            } else {
+                None
+            };
             let mut req = self.client.post(&send.target_url);
             let mut has_content_type = false;
             for (k, v) in &send.headers {
@@ -95,7 +124,7 @@ impl Transport for ReqwestTransport {
                 Ok(resp) => resp,
             };
             let status = resp.status().as_u16();
-            let content_type = resp
+            let mut content_type = resp
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
@@ -135,6 +164,77 @@ impl Transport for ReqwestTransport {
                 }
             }
             let complete_ms = start.elapsed().as_millis() as u64;
+            if self.copilot_chat
+                && send.target_url.ends_with("/chat/completions")
+                && (200..300).contains(&status)
+            {
+                if send.stream {
+                    // Copilot's SDK also consumes streamed deltas directly. Completion
+                    // metadata defaults apply to JSON responses, not SSE framing.
+                    content_type = "text/event-stream".into();
+                } else {
+                    match pc_gateway_protocol::copilot_chat_response(&body) {
+                        Some(normalized) => {
+                            body = normalized;
+                            content_type = "application/json".into();
+                        }
+                        None => {
+                            return SendOutcome::IncompleteResponse {
+                                reason: SendIndeterminateReason::LostAfterHandoff,
+                                status,
+                                response_first_byte_ms: first_byte,
+                            }
+                        }
+                    }
+                }
+            }
+            if self.codeassist_chat && (200..300).contains(&status) {
+                match model
+                    .as_deref()
+                    .and_then(|model| pc_gateway_protocol::codeassist_chat_response(&body, model))
+                {
+                    Some(normalized) => {
+                        body = normalized;
+                        content_type = "application/json".into();
+                    }
+                    None => {
+                        return SendOutcome::IncompleteResponse {
+                            reason: SendIndeterminateReason::LostAfterHandoff,
+                            status,
+                            response_first_byte_ms: first_byte,
+                        }
+                    }
+                }
+            }
+            if self.subscription_responses_sse
+                && send.target_url.ends_with("/responses")
+                && (200..300).contains(&status)
+            {
+                // These subscription routes explicitly request SSE. Like the upstream SDK,
+                // decode that protocol even when a peer omits Content-Type; a complete
+                // terminal response is still mandatory before Core can check release.
+                let terminal = pc_gateway_protocol::buffered_subscription_response(&body);
+                match terminal {
+                    Some(terminal) => {
+                        body = terminal;
+                        content_type = "application/json".into();
+                    }
+                    None => {
+                        return SendOutcome::IncompleteResponse {
+                            reason: SendIndeterminateReason::LostAfterHandoff,
+                            status,
+                            response_first_byte_ms: first_byte,
+                        }
+                    }
+                }
+            }
+            if body.len() > self.max_buffer_bytes {
+                return SendOutcome::IncompleteResponse {
+                    reason: SendIndeterminateReason::BufferLimitExceeded,
+                    status,
+                    response_first_byte_ms: first_byte,
+                };
+            }
             let usage = extract_usage(&body, &content_type);
             SendOutcome::Delivered(RawResponse {
                 status,

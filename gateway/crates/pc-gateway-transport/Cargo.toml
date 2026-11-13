@@ -21,6 +21,7 @@ description = "PowerContext Gateway: transport — send admitted bytes, cancel, 
 
 [dependencies]
 pc-gateway-types = { workspace = true }
+pc-gateway-protocol = { workspace = true }
 pc-gateway-evidence = { workspace = true }
 bytes = { workspace = true }
 futures-core = { workspace = true }
@@ -28,3 +29,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
+tempfile = { workspace = true }
+uuid = { workspace = true }
+libc = "0.2"

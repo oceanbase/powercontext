@@ -20,10 +20,13 @@
 //! - 可能已送达 → 返回不确定，不自动付费重发；
 //! - 未 admission 的字节绝不出网。
 
+mod claude;
 mod reqwest_transport;
 mod retry;
 mod sender;
+mod subscription;
 
 pub use reqwest_transport::*;
 pub use retry::*;
 pub use sender::*;
+pub use subscription::*;
