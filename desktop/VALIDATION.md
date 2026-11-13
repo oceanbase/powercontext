@@ -3231,3 +3231,41 @@ and `desktop/.artifacts/server-wheel/`. Previous profiles retain their original 
 contract, artifact and evidence identities. This is local SQLite protocol qualification,
 not an installed WebView or credential-persistence test, other-platform qualification,
 external database deployment, gateway transport acceptance, or release approval.
+
+## Server a211ba84 merged gateway contract protocol qualification
+
+`sqlite-gateway-deadline-a211ba84-v1` qualifies the thirteen bundled Desktop
+operations against Server source `a211ba8491a3ab18de6b79906ee23760f130207b`
+and the merged Gateway deadline and cancellation contract.
+
+- Normalized OpenAPI SHA-256: `382b67847c63cf8cdd6561a85053ddf1bde2673a03934e03f208dde6b8430acc`.
+- Wheel: `powercontext-1.5.2.dev105+ga211ba849-py3-none-any.whl`.
+- Wheel SHA-256: `d1575941d03ae449bc83553daf29ce82072749ffba1b1adaccf2188f288c40a9`.
+- Native debug probe SHA-256: `9c44e7d16739ad02e64a5e8cf13b7df66ce90902fbbdb0f32bafc98dca308078`.
+
+All 749 packaged Server and service-bootstrap runtime files match the clean Git
+source archive after CRLF normalization; no runtime file is missing or added. The
+wheel was built from the clean merge commit before adding this product profile. The
+native `server_probe` was built with the product Cargo lock and Rust 1.95.0, without
+`ci-fixtures`.
+
+On 2026-11-13, Linux 6.6.87.2 WSL2 x86_64 and Python 3.14.4 passed all four modes
+in `desktop/tests/real_server.py`: anonymous loopback, static Bearer, HTTPS with an
+explicit CA/base path, and enforced Provider access. The ordinary product
+`ConnectionManager` reported `bundled product records` and this exact profile for
+all four modes. Checks cover discovery, connection identity, exact Scope selection,
+statistics, Memory save/search/exact revision reads, committed writes with lost
+responses without replay, and independent Server survival after client exit.
+Provider mode also checks Principal changes, same-identity revocation, scoped native
+authorization without Server observation permission, and 51 same-title Scopes.
+Statistics usage is controlled fixture input, not an external model-provider
+execution claim.
+
+The harness report is retained under ignored `desktop/.artifacts/real-server.json`;
+the wheel is retained under ignored `desktop/.artifacts/server-wheel/`. The harness
+records the Desktop working tree as dirty because this profile had not yet been
+committed; the Server wheel itself is bound to the clean recorded source. Previous
+profiles retain their original source, contract, artifact and evidence identities.
+This is local SQLite protocol qualification, not an installed WebView or
+credential-persistence test, other-platform qualification, external database
+deployment, gateway transport acceptance, or release approval.
