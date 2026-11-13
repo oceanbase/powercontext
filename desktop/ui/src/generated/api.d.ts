@@ -935,6 +935,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List collection runners
+         * @description Lists the Server's own runner and every runner that has synced, with the Source plugins each loaded, whether each plugin version is compatible with the version this Server loaded, and when each runner last synced. A capability's description, parameter schema, and identity come from the Source plugin this Server loaded.
+         */
+        get: operations["pc_source_runners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-runners/{runner}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync a collection runner
+         * @description Records the runner's loaded Source plugins and last-seen time and returns every enabled target assigned to it across Scopes, with each target's checkpoint. Only the runner itself may sync: the caller's identifier equals the runner name, or the caller is the subject that first synced with this name. Targets of plugins whose version this Server does not accept are withheld and listed as rejected.
+         */
+        post: operations["sync_source_runner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-runners/{runner}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a collection runner record
+         * @description Deletes a runner's record once it has no targets.
+         */
+        delete: operations["delete_source_runner"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/source-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a Scope's collection targets
+         * @description Returns each target's configuration and the status its runner last reported.
+         */
+        get: operations["pc_source_status"];
+        put?: never;
+        /**
+         * Add a collection target
+         * @description Assigns a target of a Source plugin capability to a runner. Parameters are validated against the parameter schema of the plugin version this Server loaded, and the declared identity parameters form the target key. A target with the same Scope, runner, capability, and key is returned unchanged when its parameters match and is a conflict otherwise. Targets of the Server's own runner, named server, require server.admin.
+         */
+        post: operations["pc_source_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/source-targets/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a collection target
+         * @description Deletes the target and its checkpoint. Sources it collected stay. Targets of the server runner require server.admin.
+         */
+        delete: operations["pc_source_target_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Change or pause a collection target
+         * @description Enables or disables a target, or replaces its parameters. Identity parameters cannot change: to collect another object, add a target. A disabled target keeps its checkpoint and resumes from it. Targets of the server runner require server.admin.
+         */
+        patch: operations["pc_source_target_set_enabled"];
+        trace?: never;
+    };
     "/v1/plugins/{name}/scopes": {
         parameters: {
             query?: never;
@@ -2520,265 +2628,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/source-management/capabilities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** pc source capabilities */
-        post: operations["pc_source_capabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/add": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source add
-         * @description Use the discovered write or collect capability and version. Collect capabilities require an explicit instance_id. Write runs in the Server using loaded Definition and Projection implementations, without an instance or management service. Write waits for Source references or an error in the original call; no durable request or status query is created. Collect establishes or reuses a persistent target and never resumes a stopped target. No mode or idempotency_key is accepted; write retries use the underlying Source identity rules.
-         */
-        post: operations["pc_source_add"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source status
-         * @description Query a collect target by scope_id and target_id. Result view requires scope.read and returns received Source references and submission time, not per-round completion. Control view requires scope.contribute and returns enabled and tracking without input or results.
-         */
-        post: operations["pc_source_status"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/target-set-enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop or resume a collect target
-         * @description Set collect target enabled state using scope.contribute. Repeating the current state is safe. Resume requires stopped confirmation; it does not restart an ended apply or enable a disabled instance. No revision or retry key is required.
-         */
-        post: operations["pc_source_target_set_enabled"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instances": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source instances
-         * @description Discover instances with scope_id from the Server capability catalog. Control view requires instance_id and server.admin, and returns enabled, actual and availability without business configuration.
-         */
-        post: operations["pc_source_instances"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instance-set-enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source instance set enabled
-         * @description Set instance business enabled state using server.admin. Repeating the same state does not restart apply. Restarting an ended run requires disable, confirmed stopped, then enable. The Runtime process stays online.
-         */
-        post: operations["pc_source_instance_set_enabled"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/configure": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** source configure */
-        post: operations["source_configure"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/write/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load a trusted Server-local Source write plugin
-         * @description Requires server.admin. The Server imports the local directory or module, validates and registers its Source Definitions, and persists its entry for restart. An identical deployment is reusable; conflicting configurations fail. Existing code is replaced only through controlled Server restart.
-         */
-        post: operations["load_source_write_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/open": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel open */
-        post: operations["source_channel_open"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/catalog": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel catalog */
-        post: operations["source_channel_catalog"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/poll": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel poll */
-        post: operations["source_channel_poll"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/reply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel reply */
-        post: operations["source_channel_reply"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel close */
-        post: operations["source_channel_close"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instances/{instance_id}/{operation}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Authenticated instance control, permission checks and durable result exchange
-         * @description Served by the optional standalone Source manager. Instances initiate every exchange; this is not a Server or public MCP endpoint. The operation path chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and the applicable fields. Source observations continue to go directly to the PC Server.
-         */
-        post: operations["source_instance_exchange"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/access/ownership/plan": {
         parameters: {
             query?: never;
@@ -3530,7 +3379,7 @@ export interface components {
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
         /** @enum {string} */
-        PluginKind: "artifact";
+        PluginKind: "artifact" | "source";
         /** @enum {string} */
         PluginLoadStatus: "loaded" | "failed";
         /** @enum {string} */
@@ -3544,6 +3393,115 @@ export interface components {
             access: "authenticated" | "scope.read" | "scope.contribute";
             /** @description The route is also an MCP tool. */
             mcp: boolean;
+        };
+        /** @description The Source plugin and version a runner used; the Server accepts it only within the loaded plugin's compatible range. */
+        PluginVersionRef: {
+            name: string;
+            version: string;
+        };
+        SourceRunnerPluginReport: {
+            name: string;
+            /** @description Null when the plugin failed to load on the runner. */
+            version: string | null;
+            /** @description Safe load failure category on the runner. */
+            error: string | null;
+        };
+        SourceRunnerSyncRequest: {
+            plugins: components["schemas"]["SourceRunnerPluginReport"][];
+        };
+        SourceRunnerTarget: {
+            scope_id: string;
+            target_id: string;
+            capability: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+            /** @description The target's last committed checkpoint; null before the first commit. */
+            checkpoint: unknown;
+        };
+        SourceRunnerRejection: {
+            name: string;
+            /** @enum {string} */
+            code: "plugin_version_incompatible" | "plugin_not_loaded";
+        };
+        SourceRunnerSyncResult: {
+            targets: components["schemas"]["SourceRunnerTarget"][];
+            rejected: components["schemas"]["SourceRunnerRejection"][];
+        };
+        SourceRunnerCapability: {
+            name: string;
+            /** @description The version the runner reported. */
+            version: string | null;
+            error: string | null;
+            /** @description This Server loaded the plugin and accepts the runner's version. */
+            compatible: boolean;
+            /** @description From the plugin this Server loaded; null when it loaded none. */
+            description: string | null;
+            parameters_schema: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Identity parameters and their normalization steps. */
+            identity: {
+                [key: string]: string[];
+            } | null;
+        };
+        SourceRunner: {
+            runner: string;
+            /**
+             * Format: date-time
+             * @description Null for the Server's own runner.
+             */
+            last_seen_at: string | null;
+            capabilities: components["schemas"]["SourceRunnerCapability"][];
+        };
+        SourceRunnerPage: {
+            items: components["schemas"]["SourceRunner"][];
+        };
+        SourceTargetCreateRequest: {
+            runner: string;
+            capability: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+        };
+        SourceTargetUpdateRequest: {
+            enabled?: boolean;
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceTargetStatus: {
+            /** Format: date-time */
+            last_attempt_at: string | null;
+            /** Format: date-time */
+            last_success_at: string | null;
+            consecutive_failures: number;
+            last_error_code: string | null;
+            last_error_message: string | null;
+        };
+        /** @description The outcome of the collection attempt whose checkpoint this commits. */
+        SourceTargetResultStatus: {
+            succeeded: boolean;
+            error_code?: string | null;
+            error_message?: string | null;
+        };
+        SourceTarget: {
+            scope_id: string;
+            target_id: string;
+            runner: string;
+            capability: string;
+            target_key: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+            enabled: boolean;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            status: components["schemas"]["SourceTargetStatus"];
+        };
+        SourceTargetPage: {
+            items: components["schemas"]["SourceTarget"][];
         };
         /** @description An OpenAPI 3.1 document describing one plugin's routes. */
         PluginOpenApiDocument: {
@@ -4196,6 +4154,8 @@ export interface components {
         SubmitSourceObservationRequest: {
             scope_id: string;
             observation: components["schemas"]["SourceObservation"];
+            /** @description Set by collection runners. The Server checks the version against the Source plugin it loaded and has that plugin resolve and project the observation; unsupported versions return plugin_version_incompatible. */
+            plugin?: components["schemas"]["PluginVersionRef"];
         };
         SourceObservationReceipt: {
             source: components["schemas"]["SourceReference"];
@@ -4205,6 +4165,10 @@ export interface components {
             binding: components["schemas"]["ConnectorBinding"];
             expected: unknown;
             checkpoint: unknown;
+            /** @description Set by collection runners for a target's checkpoint; checked like a runner's observations. */
+            plugin?: components["schemas"]["PluginVersionRef"];
+            /** @description The collection attempt's outcome, recorded on the target together with the checkpoint. */
+            status?: components["schemas"]["SourceTargetResultStatus"];
         };
         CommitHandoffRequest: {
             scope_id: string;
@@ -6327,183 +6291,6 @@ export interface components {
             /** @default [] */
             versions: components["schemas"]["Candidate"][];
         };
-        SourceCapabilityQuery: {
-            scope_id: string;
-            capability?: string;
-            instance_id?: string;
-            input?: {
-                [key: string]: unknown;
-            };
-        };
-        SourceWritePluginLoadRequest: {
-            id: string;
-            entry: string;
-        };
-        SourceWritePluginState: {
-            id: string;
-            entry: string;
-            capabilities: {
-                [key: string]: unknown;
-            }[];
-        };
-        SourceAddRequest: {
-            scope_id: string;
-            capability: string;
-            capability_version: string;
-            instance_id?: string;
-            input: {
-                [key: string]: unknown;
-            };
-        };
-        SourceStatusRequest: {
-            scope_id: string;
-            target_id: string;
-            /**
-             * @default result
-             * @enum {string}
-             */
-            view: "result" | "control";
-        };
-        SourceInstanceSetEnabledRequest: {
-            instance_id: string;
-            enabled: boolean;
-        };
-        SourceConfigureRequest: {
-            /** @default false */
-            update: boolean;
-            registration: {
-                [key: string]: unknown;
-            };
-        };
-        SourceCapabilityResponse: {
-            capabilities: {
-                [key: string]: unknown;
-            }[];
-            /** @enum {string} */
-            management: "not-configured" | "online" | "unavailable";
-        };
-        SourceInstancesResponse: {
-            instances: {
-                [key: string]: unknown;
-            }[];
-            capabilities?: {
-                [key: string]: unknown;
-            }[];
-            /** @enum {string} */
-            management?: "not-configured" | "online" | "unavailable";
-        };
-        SourceCollectionResult: {
-            /** @enum {string} */
-            outcome: "saved" | "unchanged";
-            source_refs: components["schemas"]["SourceTypeReference"][];
-        };
-        SourceManagementReceipt: {
-            target_id?: string;
-            /** @enum {string} */
-            tracking?: "enabled" | "stopping" | "stopped";
-            result?: components["schemas"]["SourceCollectionResult"];
-            error?: string;
-            instance_id?: string;
-            capability?: string;
-            capability_version?: string;
-            /** @enum {string} */
-            availability?: "online" | "offline" | "unavailable";
-            updated_at?: string;
-            /** @enum {string} */
-            kind?: "collect" | "write";
-            enabled?: boolean;
-            /** @description Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history. */
-            source_refs?: components["schemas"]["SourceTypeReference"][];
-            /** @description Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses. */
-            last_submitted_at?: string | null;
-        };
-        SourceInstanceStatus: {
-            targets_initialized?: boolean;
-            target_id?: string;
-            instance_id: string;
-            enabled?: boolean;
-            actual?: string;
-            run_id?: string | null;
-            availability?: string;
-            reused?: boolean;
-        };
-        SourceChannelOpen: {
-            protocol: string;
-            deployment_id: string;
-            manager_id: string;
-        };
-        SourceChannelRequest: {
-            generation: string;
-            message_id?: string;
-            response?: {
-                [key: string]: unknown;
-            };
-            catalog?: {
-                [key: string]: unknown;
-            };
-        };
-        SourceChannelResponse: {
-            generation?: string;
-            protocol?: string;
-            confirmed?: boolean;
-            messages?: {
-                [key: string]: unknown;
-            }[];
-        };
-        SourceInstanceExchangeRequest: {
-            generation?: string;
-            protocol?: string;
-            message_id?: string;
-            execution_location?: string;
-            configuration_digest?: string;
-            run_id?: string;
-            execution?: string;
-            target_id?: string;
-            capabilities?: {
-                [key: string]: unknown;
-            }[];
-            response?: {
-                [key: string]: unknown;
-            };
-            owner?: {
-                [key: string]: unknown;
-            };
-            /** @enum {string} */
-            status?: "running" | "complete" | "completed" | "pending" | "failed" | "stopped" | "cleanup-failed";
-            /** @description One confirmed Source submission reported by the Runtime; not a batch or historical reference list. */
-            source_refs?: components["schemas"]["SourceTypeReference"][];
-            error?: string;
-            targets?: {
-                [key: string]: unknown;
-            }[];
-            cursor?: string;
-            owner_exited?: boolean;
-            previous_owner?: {
-                [key: string]: unknown;
-            };
-            submitted_at?: string;
-        };
-        SourceInstanceExchangeResponse: {
-            [key: string]: unknown;
-        };
-        SourceTargetSetEnabledRequest: {
-            scope_id: string;
-            target_id: string;
-            enabled: boolean;
-        };
-        SourceInstancesQuery: {
-            scope_id?: string;
-            capability?: string;
-            instance_id?: string;
-            input?: {
-                [key: string]: unknown;
-            };
-            /**
-             * @default discovery
-             * @enum {string}
-             */
-            view: "discovery" | "control";
-        };
         PlanAccessOwnershipRequest: {
             /** @description Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments. */
             scope_ids?: string[];
@@ -8302,6 +8089,207 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_runners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runners ordered by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRunnerPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    sync_source_runner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runner: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRunnerSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description The runner's current targets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRunnerSyncResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    delete_source_runner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runner: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner record is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Targets ordered by ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTargetPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The same target already exists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            /** @description The target was added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The target is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The changed target. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -11061,436 +11049,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_capabilities: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceCapabilityQuery"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceCapabilityResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_add: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceAddRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceStatusRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_target_set_enabled: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceTargetSetEnabledRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_instances: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstancesQuery"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstancesResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_instance_set_enabled: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstanceSetEnabledRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceStatus"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_configure: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceConfigureRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceStatus"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    load_source_write_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceWritePluginLoadRequest"];
-            };
-        };
-        responses: {
-            /** @description The Server has loaded and persisted the executable write capabilities. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceWritePluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_open: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelOpen"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_catalog: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_poll: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_reply: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_close: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_instance_exchange: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                instance_id: string;
-                operation: "owner" | "connect" | "poll" | "reply" | "sync" | "execution" | "results" | "stopped-targets" | "close";
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstanceExchangeRequest"];
-            };
-        };
-        responses: {
-            /** @description Instance control exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceExchangeResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

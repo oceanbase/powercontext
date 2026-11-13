@@ -110,8 +110,10 @@ from powercontext.builtin.persistence.tables import (
     SCOPE_EXTERNAL_REFERENCES_TABLE,
     SCOPES_TABLE,
     SKILL_PACKAGES_TABLE,
+    SOURCE_COLLECT_TARGETS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
+    SOURCE_RUNNERS_TABLE,
     SOURCES_TABLE,
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
@@ -177,6 +179,8 @@ RecordType = Literal[
     "source_journal_head",
     "source",
     "source_evidence_binding",
+    "source_runner",
+    "source_collect_target",
     "skill_package",
     "artifact_revision",
     "artifact_handle",
@@ -330,6 +334,15 @@ _SPECS: dict[RecordType, _RecordSpec] = {
         SOURCE_EVIDENCE_BINDINGS_TABLE,
         ("scope_id", "source_type", "source_id"),
         ("material_digest", "definition_name", "definition_version", "manifest_fingerprint", "declaration"),
+    ),
+    # A runner travels with the targets assigned to it so its name stays bound to the same subject.
+    # Its capabilities and last-seen time are refreshed by its next sync.
+    "source_runner": _RecordSpec(SOURCE_RUNNERS_TABLE, ("runner",), ("subject",), scope_field=None),
+    # Status columns are the runner's report and restart empty.
+    "source_collect_target": _RecordSpec(
+        SOURCE_COLLECT_TARGETS_TABLE,
+        ("scope_id", "target_id"),
+        ("runner", "capability", "target_key", "parameters", "enabled", "updated_at", "updated_by"),
     ),
     "skill_package": _RecordSpec(
         SKILL_PACKAGES_TABLE,
@@ -1049,6 +1062,17 @@ async def _export_rows(
             yield cast(Mapping[str, Any], row)
         return
 
+    if kind == "source_runner":
+        targets = SOURCE_COLLECT_TARGETS_TABLE
+        runners = SOURCE_RUNNERS_TABLE
+        referenced = select(targets.c.runner).where(targets.c.scope_id.in_(scopes)).distinct()
+        rows = await connection.stream(
+            select(runners).where(runners.c.runner.in_(referenced)).order_by(runners.c.runner)
+        )
+        async for row in rows.mappings():
+            yield cast(Mapping[str, Any], row)
+        return
+
     # Definition manifests are global, but export authority is scope-bound.
     # Include immutable manifests referenced by observations or retained bindings.
     table = SOURCE_DEFINITION_MANIFESTS_TABLE
@@ -1188,6 +1212,8 @@ def _row_values(record: _Record) -> dict[str, Any]:
         values["value_search"] = str(record.payload["value"])
     elif record.record_type == "skill_package":
         values["created_at"] = datetime.now(UTC)
+    elif record.record_type == "source_runner":
+        values.update(capabilities=b"[]", capabilities_digest=hashlib.sha256(b"[]").hexdigest(), last_seen_at=None)
     return values
 
 
@@ -1547,6 +1573,13 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
         strings("fingerprint")
         bytes_values("manifest")
         _source_definition(record)
+    elif kind == "source_runner":
+        strings("subject")
+    elif kind == "source_collect_target":
+        strings("runner", "capability", "target_key", "updated_at", "updated_by")
+        bytes_values("parameters")
+        if type(payload["enabled"]) is not bool:
+            raise BundleFormatError("record payload has an invalid boolean field")
     elif kind == "source_evidence_binding":
         strings("material_digest", "definition_name", "definition_version")
         strings("manifest_fingerprint", nullable=("manifest_fingerprint",))
@@ -2137,6 +2170,9 @@ def _validate_record_dependencies(  # noqa: C901 - logical record kinds have dis
             },
         ):
             raise BundleFormatError("observation references missing or mismatched Source definition")
+    elif record.record_type == "source_collect_target":
+        if payload["runner"] != "server" and not contains("source_runner", {"runner": payload["runner"]}):
+            raise BundleFormatError("collection target references a missing runner")
     elif record.record_type == "source_evidence_binding":
         if not contains(
             "source",

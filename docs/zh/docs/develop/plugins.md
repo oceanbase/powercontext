@@ -13,6 +13,7 @@ description: 用一个目录和 plugin.py 扩展 PowerContext：生成、展示�
 | 展示和检索 | 给出每个版本的默认展示；按需实现检索，让通用检索接口和 Prepared Context 能用上插件的数据 |
 | 支持用户修改 | 实现新建、修改、合并、遗忘、恢复方法，让通用 Artifact 接口作用于插件的 family |
 | 定义 Source 类型 | 声明插件自己的 Source 类型和 Projection，记录用户要求做的事，例如一次上传 |
+| 采集 Source | 用 `SourcePlugin` 从外部系统持续采集，由 Server 或设备上的 runner 按分配的目标执行，见 [Source 插件](../workflows/source-plugins.md) |
 | 提供接口 | 声明 HTTP 路由，挂在 `/v1/plugins/<插件名>/api/` 下，由 core 认证并转发给插件 |
 | 提供 Dashboard 页面 | 随插件提供静态页面，在 Dashboard 中以沙箱 iframe 展示 |
 | 使用专属存储和模型 | 在 core 分配的独立存储中保存自己的数据，调用 Server 配置的 embedding 和生成模型 |
@@ -298,6 +299,9 @@ plugin = ArtifactPlugin(
   ```
 
   `generate` 中按 `source.ref.source_type` 区分。
+
+不生成 Artifact、只提供 Source 类型，或者需要从外部系统持续采集时，`plugin.py` 改为赋值一个 `SourcePlugin`，见
+[Source 插件](../workflows/source-plugins.md)。Source 插件同样可以声明 `api`、`pages` 和 `upgrade`。
 
 ## 提供接口
 

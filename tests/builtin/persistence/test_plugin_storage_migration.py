@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""v1_5_0_005 removes the previous plugin framework's storage only when it holds no data."""
+"""v1_5_0_005 and v1_5_0_006 remove the previous plugin frameworks' storage only when it holds no data."""
 
 from __future__ import annotations
 
@@ -97,9 +97,9 @@ def test_upgrade_refuses_retained_plugin_data_and_drops_only_empty_storage(tmp_p
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM pc_artifact_family_schemas")
     plan = upgraded.plan()
-    assert plan.revisions == ("v1_5_0_005",)
-    assert plan.domain_steps == ("plugin_artifacts",)
-    assert apply(upgraded).revision == "v1_5_0_005"
+    assert plan.revisions == ("v1_5_0_005", "v1_5_0_006")
+    assert plan.domain_steps == ("plugin_artifacts", "source_collection")
+    assert apply(upgraded).revision == "v1_5_0_006"
     assert upgraded.verify().state == "ready"
     with closing(sqlite3.connect(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
@@ -109,3 +109,24 @@ def test_upgrade_refuses_retained_plugin_data_and_drops_only_empty_storage(tmp_p
         artifacts = {row[1]: row for row in connection.execute("PRAGMA table_info(pc_artifacts)")}
         assert artifacts["metadata"][3] == 0
         assert connection.execute("SELECT scope_id FROM pc_scopes").fetchall() == [("kept",)]
+
+
+def test_upgrade_refuses_loaded_source_write_plugins_and_adds_collection_tables(tmp_path):
+    database = tmp_path / "managed.db"
+    old = SQLiteMigrationRunner(database, previous_bundle(tmp_path / "previous"), configuration=configuration())
+    assert apply(old).revision == PREVIOUS
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("INSERT INTO pc_source_write_plugins VALUES (?, ?)", ("tickets", b"loaded definition"))
+
+    upgraded = SQLiteMigrationRunner(database, server_bundle(), configuration=configuration())
+    with pytest.raises(MigrationError) as refused:
+        upgraded.plan()
+    assert refused.value.code == "unsupported_plugin_data"
+
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DELETE FROM pc_source_write_plugins")
+    assert apply(upgraded).revision == "v1_5_0_006"
+    with closing(sqlite3.connect(database)) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
+    assert "pc_source_write_plugins" not in tables
+    assert {"pc_source_runners", "pc_source_collect_targets"} <= tables

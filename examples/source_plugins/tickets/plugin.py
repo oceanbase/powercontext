@@ -12,16 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Capture immutable ticket snapshots with text and structured projections."""
+"""Collect tickets from a JSON file on the runner, with text and structured projections.
+
+Each target names one file. A ticket becomes a new Source whenever its content changes;
+the checkpoint keeps a digest per ticket, so unchanged tickets are not submitted again.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+from pathlib import Path
 from typing import cast
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from powercontext.plugins import (
+    Collect,
+    CollectedItem,
+    CollectRequest,
+    CollectResult,
+    Interval,
+    SourcePlugin,
+    TargetSpec,
+)
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     Source,
@@ -96,3 +112,62 @@ class TicketDefinition:
 
     async def read(self, source: TicketSource, /) -> TicketCapture:
         return source.capture
+
+
+class TicketFile(BaseModel):
+    file: str = Field(min_length=1, description="Path of a JSON array of tickets on the runner")
+    namespace: str = Field(default="tickets", min_length=1)
+    project: str = Field(default="default", min_length=1)
+
+
+class Checkpoint(BaseModel):
+    # A digest per item already submitted from this target.
+    seen: dict[str, str] = Field(default_factory=dict)
+
+
+class TicketCollector:
+    async def collect(self, request: CollectRequest) -> CollectResult:
+        result = CollectResult()
+        for target in request.targets:
+            settings = TicketFile.model_validate(target.parameters)
+            try:
+                tickets = json.loads(await asyncio.to_thread(Path(settings.file).read_text, encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                # Only this target fails; the others in the call still commit.
+                result.fail(target, code="file_unreadable", message=type(error).__name__)
+                continue
+            seen = Checkpoint.model_validate(target.checkpoint or {}).seen
+            items = []
+            for ticket in tickets:
+                capture = TicketCapture(
+                    namespace=settings.namespace,
+                    project=settings.project,
+                    ticket_id=str(ticket["id"]),
+                    title=ticket["title"],
+                    body=ticket["body"],
+                    labels=ticket.get("labels", []),
+                    metadata=ticket.get("metadata", {}),
+                )
+                digest = capture.snapshot_id()
+                if seen.get(capture.ticket_id) != digest and len(items) < request.max_items:
+                    items.append(CollectedItem(definition=TicketDefinition.name, value=capture))
+                    seen[capture.ticket_id] = digest
+            result.add(target, items, checkpoint=Checkpoint(seen=seen).model_dump())
+        return result
+
+
+async def setup(ctx):
+    return TicketCollector()
+
+
+plugin = SourcePlugin(
+    version="1.0.0",
+    definitions=(TicketDefinition(),),
+    collect=Collect(schedule=Interval(seconds=10)),
+    target=TargetSpec(
+        description="Collect tickets from a JSON file on the runner",
+        parameters=TicketFile,
+        identity={"file": ("strip",)},
+    ),
+    setup=setup,
+)

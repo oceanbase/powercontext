@@ -72,9 +72,6 @@ function rawOperation(name: string): string | undefined {
 }
 
 function usesScope(operation: string, args: unknown): 'current' | 'selection' | 'none' {
-  // Source business calls carry scope_id in their body; instance controls are Server-wide.
-  if (['pc_source_capabilities', 'pc_source_add', 'pc_source_status', 'pc_source_target_set_enabled'].includes(operation)) return 'current'
-  if (operation === 'pc_source_instances') return isRecord(args) && args.view === 'control' ? 'none' : 'current'
   const metadata = OPERATIONS[operation as keyof typeof OPERATIONS]
   // scopeMode describes implicit Scope resolution; path scope_id still binds an MCP call to the host Scope.
   if (metadata.pathParameters.some(parameter => parameter === 'scope_id')) return 'current'

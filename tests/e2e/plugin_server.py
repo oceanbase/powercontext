@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import socket
@@ -34,9 +35,17 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 
 @asynccontextmanager
 async def running_server(
-    directory: Path, plugins: Path | None = None, *, extra_env: Mapping[str, str | None] | None = None
+    directory: Path,
+    plugins: Path | None = None,
+    *,
+    extra_env: Mapping[str, str | None] | None = None,
+    identities: dict[str, str] | None = None,
 ):
-    """Start the Server; an ``extra_env`` value of ``None`` removes that default variable."""
+    """Run Server with the admin Bearer, or with an identity map of ``{name: token}`` where ``admin`` administers.
+
+    An ``extra_env`` value of ``None`` removes that default variable.
+    """
+
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -57,7 +66,11 @@ async def running_server(
         # Worker children import test-owned plugin helpers from the repository.
         "PYTHONPATH": os.pathsep.join(filter(None, (str(REPOSITORY), env.get("PYTHONPATH")))),
     })
-    for key, value in (extra_env or {}).items():
+    overrides: dict[str, str | None] = dict(extra_env or {})
+    if identities is not None:
+        overrides |= {"POWERCONTEXT_SERVER_AUTH_ENABLED": None, "POWERCONTEXT_SERVER_AUTH_TOKEN": None}
+        overrides |= _identity_environment(directory, identities)
+    for key, value in overrides.items():
         if value is None:
             env.pop(key, None)
         else:
@@ -105,6 +118,34 @@ async def running_server(
             except TimeoutError:
                 process.kill()
                 await process.wait()
+
+
+def _identity_environment(directory: Path, identities: dict[str, str]) -> dict[str, str]:
+    """Write an identity map of ``{name: token}`` plus the admin token, and configure Server to use it."""
+
+    tokens = {"admin": ADMIN_AUTHORIZATION_VALUE, **identities}
+    mapping = directory / "identities.json"
+    mapping.write_text(
+        json.dumps({
+            "identities": [
+                {
+                    "credential_id": name,
+                    "token_digest": hashlib.sha256(token.encode()).hexdigest(),
+                    "subject": {"type": "service", "id": name},
+                }
+                for name, token in tokens.items()
+            ]
+        })
+    )
+    mapping.chmod(0o600)
+    return {
+        "POWERCONTEXT_SERVER_AUTH": json.dumps({
+            "enabled": True,
+            "identities_file": str(mapping),
+            "administrators": ["service:admin"],
+        }),
+        "POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID": "admin",
+    }
 
 
 async def create_scope(client: httpx.AsyncClient, key: str) -> str:

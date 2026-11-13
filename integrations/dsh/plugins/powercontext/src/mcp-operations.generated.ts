@@ -134,17 +134,14 @@ export const MCP_OPERATIONS = {
   "pc_source_add": {
     "readOnly": false
   },
-  "pc_source_capabilities": {
-    "readOnly": true
-  },
-  "pc_source_instance_set_enabled": {
-    "readOnly": false
-  },
-  "pc_source_instances": {
+  "pc_source_runners": {
     "readOnly": true
   },
   "pc_source_status": {
     "readOnly": true
+  },
+  "pc_source_target_delete": {
+    "readOnly": false
   },
   "pc_source_target_set_enabled": {
     "readOnly": false

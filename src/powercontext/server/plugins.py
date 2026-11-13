@@ -49,6 +49,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
+from powercontext.builtin.plugins.collector import collection_family, run_source_collect_worker
 from powercontext.builtin.plugins.executor import PluginWorkerSpec, run_plugin_worker
 from powercontext.builtin.plugins.families import (
     register_plugin_family,
@@ -139,22 +140,27 @@ class _Plugin:
     def state(self) -> PluginState:
         manifest = self.manifest
         spec = None if manifest is None else manifest.spec
+        artifact = None if manifest is None else manifest.artifact
+        source = None if manifest is None else manifest.source
         triggers = []
-        if spec is not None:
+        if artifact is not None:
             triggers = [
                 name
-                for name, enabled in (("schedule", spec.schedule is not None), ("sources", spec.on_sources))
+                for name, enabled in (("schedule", artifact.schedule is not None), ("sources", artifact.on_sources))
                 if enabled
             ]
+        elif source is not None and source.collect is not None:
+            triggers = ["schedule"]
+        scopes = artifact.scopes if artifact is not None else None if source is None else source.scopes
         return PluginState.model_validate({
             "name": self.name,
-            "kind": "artifact",
+            "kind": "source" if source is not None else "artifact",
             "status": "failed" if self.failure is not None else "loaded",
             "error": self.failure,
-            "family": None if spec is None else spec.family,
-            "binding_name": None if manifest is None else manifest.binding_name,
-            "scopes": None if spec is None or spec.scopes is None else list(spec.scopes),
-            "source_types": None if spec is None or spec.inputs is None else list(spec.inputs.source_types),
+            "family": None if artifact is None else artifact.family,
+            "binding_name": None if manifest is None or not _binds(manifest) else manifest.binding_name,
+            "scopes": None if scopes is None else list(scopes),
+            "source_types": None if artifact is None or artifact.inputs is None else list(artifact.inputs.source_types),
             "triggers": triggers,
             "version_digest": None if manifest is None else manifest.fingerprint,
             "declaration_digest": None if manifest is None else manifest.declaration_digest,
@@ -202,8 +208,27 @@ def _binding_fields(manifest: PluginManifest) -> dict[str, Any]:
     """The declaration fields that decide the plugin's Supervisor binding and schedule."""
 
     return manifest.spec.model_dump(
-        include={"family", "inputs", "schedule", "on_sources", "scopes", "max_workers", "timeout_seconds"}
+        include={"family", "inputs", "schedule", "on_sources", "scopes", "max_workers", "timeout_seconds", "collect"}
     )
+
+
+def _binds(manifest: PluginManifest) -> bool:
+    """Whether the plugin has background work: generation, or collection by the Server's own runner."""
+
+    if manifest.artifact is not None:
+        return manifest.artifact.schedule is not None or manifest.artifact.on_sources
+    return manifest.source is not None and manifest.source.collect is not None
+
+
+def _family(manifest: PluginManifest) -> str | None:
+    return None if manifest.artifact is None else manifest.artifact.family
+
+
+def _worker_seconds(manifest: PluginManifest) -> float:
+    if manifest.artifact is not None:
+        return manifest.artifact.timeout_seconds
+    collect = None if manifest.source is None else manifest.source.collect
+    return 0.0 if collect is None else collect.timeout_seconds
 
 
 class _VersionLauncher:
@@ -222,7 +247,7 @@ class _VersionLauncher:
         manifest = plugin.manifest
         if manifest is None:
             raise RuntimeError("the plugin is no longer loaded")  # noqa: TRY003
-        self._manager.retain(plugin.snapshot, manifest.spec.timeout_seconds)
+        self._manager.retain(plugin.snapshot, _worker_seconds(manifest))
         spec = PluginWorkerSpec(
             database=self._manager.config,
             directory=str(plugin.code_directory),
@@ -231,7 +256,8 @@ class _VersionLauncher:
             inference=self._manager.inference_config,
             storage_root=self._manager.storage_root,
         )
-        return await SpawnArtifactProcessingWorkerLauncher(partial(run_plugin_worker, spec)).start(assignment)
+        entrypoint = run_plugin_worker if manifest.artifact is not None else run_source_collect_worker
+        return await SpawnArtifactProcessingWorkerLauncher(partial(entrypoint, spec)).start(assignment)
 
 
 class PluginManager:
@@ -401,10 +427,19 @@ class PluginManager:
             if any(
                 other is not plugin
                 and other.manifest is not None
-                and other.manifest.spec.family == manifest.spec.family
+                and _family(manifest) is not None
+                and _family(other.manifest) == _family(manifest)
                 for other in self.plugins.values()
             ):
                 raise ValueError("family is already provided by another plugin")  # noqa: TRY003, TRY301
+            types = {item["name"] for item in manifest.source_manifests}
+            if any(
+                other is not plugin
+                and other.manifest is not None
+                and types & {item["name"] for item in other.manifest.source_manifests}
+                for other in self.plugins.values()
+            ):
+                raise ValueError("a Source type is already provided by another plugin")  # noqa: TRY003, TRY301
         except Exception as error:
             self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
             return
@@ -506,7 +541,7 @@ class PluginManager:
             )
             return
         old_snapshot, old_host = plugin.snapshot, plugin.host
-        family_changed = old.spec.family != manifest.spec.family
+        family_changed = _family(old) != _family(manifest)
         rebind = family_changed or _binding_fields(old) != _binding_fields(manifest)
         try:
             if rebind:
@@ -525,7 +560,7 @@ class PluginManager:
                 self._spawn(self._retire(old_host, old_snapshot))
             return
         if old_snapshot is not None:
-            self.retain(old_snapshot, old.spec.timeout_seconds)
+            self.retain(old_snapshot, _worker_seconds(old))
         if old_host is not None:
             self._spawn(self._retire(old_host, old_snapshot))
         plugin.activated_at = datetime.now(UTC)
@@ -554,7 +589,7 @@ class PluginManager:
         plugin.manifest = plugin.host = None
         self._sync_registry()
         if snapshot is not None:
-            self.retain(snapshot, manifest.spec.timeout_seconds)
+            self.retain(snapshot, _worker_seconds(manifest))
         if host is not None:
             self._spawn(self._retire(host, snapshot))
         self._event(plugin, "removed")
@@ -576,12 +611,16 @@ class PluginManager:
         task.add_done_callback(self._background.discard)
 
     def _registry(self) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]]:
-        loaded = [plugin.manifest for plugin in self.plugins.values() if plugin.manifest is not None]
-        families = tuple(sorted(manifest.spec.family for manifest in loaded))
+        loaded = [
+            (plugin.manifest, plugin.manifest.artifact)
+            for plugin in self.plugins.values()
+            if plugin.manifest is not None and plugin.manifest.artifact is not None
+        ]
+        families = tuple(sorted(artifact.family for _, artifact in loaded))
         bindings = tuple(
-            (manifest.binding_name, manifest.spec.scopes, manifest.spec.inputs.source_types)
-            for manifest in loaded
-            if manifest.spec.inputs is not None
+            (manifest.binding_name, artifact.scopes, artifact.inputs.source_types)
+            for manifest, artifact in loaded
+            if artifact.inputs is not None
         )
         return families, bindings
 
@@ -595,8 +634,9 @@ class PluginManager:
 
     def _host_spec(self, manifest: PluginManifest, directory: Path) -> PluginHostSpec:
         families, bindings = self._registry()
-        if manifest.spec.family not in families:
-            families = tuple(sorted((*families, manifest.spec.family)))
+        family = _family(manifest)
+        if family is not None and family not in families:
+            families = tuple(sorted((*families, family)))
         return PluginHostSpec(
             database=self.config,
             directory=str(directory),
@@ -627,8 +667,10 @@ class PluginManager:
         manifest = plugin.manifest
         if manifest is None:
             raise ValueError("plugin manifest is unavailable")  # noqa: TRY003
-        generate = manifest.spec
         await self._register_source_definitions(manifest)
+        generate = manifest.artifact
+        if generate is None:
+            return
         register_plugin_family(generate.family)
         if self.register_merge is not None:
             if self.unregister_merge is not None:
@@ -648,17 +690,23 @@ class PluginManager:
 
     async def _unregister(self, plugin: _Plugin, manifest: PluginManifest) -> None:
         # Source Definition manifests stay registered: stored Sources refer to them.
-        unregister_plugin_family(manifest.spec.family)
+        family = _family(manifest)
+        if family is None:
+            return
+        unregister_plugin_family(family)
         if self.unregister_merge is not None:
-            self.unregister_merge(manifest.spec.family)
+            self.unregister_merge(family)
         unregister_source_binding(manifest.binding_name)
 
     async def _bind(self, plugin: _Plugin) -> None:
-        """Register the plugin's background generation with the Supervisor."""
+        """Register the plugin's background generation or collection with the Supervisor."""
 
         manifest = plugin.manifest
         assert manifest is not None  # noqa: S101 - only loaded plugins bind
-        generate = manifest.spec
+        generate = manifest.artifact
+        if generate is None:
+            await self._bind_collection(plugin, manifest)
+            return
         scopes = None if generate.scopes is None else frozenset(generate.scopes)
         inputs = generate.inputs
         interval = None
@@ -703,6 +751,75 @@ class PluginManager:
             plugin.tasks.append(
                 asyncio.create_task(self._tick(manifest, generate.schedule.seconds), name=f"plugin-{plugin.name}")
             )
+
+    async def _bind_collection(self, plugin: _Plugin, manifest: PluginManifest) -> None:
+        """The Server's own runner collects this plugin's targets in Supervisor Workers."""
+
+        declared = manifest.source
+        if not self.dispatch or declared is None or declared.collect is None:
+            return
+        collect = declared.collect
+        allowed = None if declared.scopes is None else frozenset(declared.scopes)
+
+        async def in_scope(connection, candidates):
+            return frozenset(candidates if allowed is None else set(candidates) & allowed)
+
+        supervisor = await self._ensure_supervisor()
+        await supervisor.replace_binding(
+            manifest.binding_name,
+            ArtifactProcessingBinding(
+                binding_name=manifest.binding_name,
+                artifact_family=collection_family(manifest.name),
+                launcher=_VersionLauncher(self, plugin.name),
+                max_workers=collect.max_workers,
+                worker_timeout_seconds=collect.timeout_seconds,
+                automatic_scope_filter=in_scope,
+                invocation_scope_filter=in_scope,
+            ),
+        )
+        plugin.tasks.append(asyncio.create_task(self._collect_due(manifest), name=f"plugin-{plugin.name}"))
+
+    async def _collect_due(self, manifest: PluginManifest) -> None:
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        declared = manifest.source
+        assert declared is not None and declared.collect is not None  # noqa: S101 - collecting plugins only
+        schedule = declared.collect.schedule
+        while True:
+            if isinstance(schedule, Interval):
+                delay = schedule.seconds
+            else:
+                zone = ZoneInfo(schedule.timezone or tzlocal.get_localzone_name())
+                now = datetime.now(UTC)
+                upcoming = CronTrigger.from_crontab(schedule.expression, timezone=zone).get_next_fire_time(None, now)
+                delay = 60.0 if upcoming is None else max(0.0, (upcoming - now).total_seconds())
+            await asyncio.sleep(delay)
+            await self.request_collection(manifest.name)
+
+    async def request_collection(self, name: str, scope_id: str | None = None) -> None:
+        """Ask the Server's own runner to collect a plugin's targets now, in one Scope or wherever it has targets."""
+
+        from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+        manifest = self.loaded_manifest(name)
+        if manifest is None or manifest.source is None or manifest.source.collect is None or not self.dispatch:
+            return
+        intents = ArtifactProcessingIntentRepository()
+        try:
+            async with self.database.transaction() as connection:
+                scopes = (
+                    (scope_id,)
+                    if scope_id is not None
+                    else await SourceCollectionRepository().scopes_with_targets(connection, SERVER_RUNNER, name)
+                )
+                for scope in scopes:
+                    await intents.request(connection, scope, manifest.binding_name)
+            if self.supervisor is not None:
+                self.supervisor.wake(manifest.binding_name)
+        except Exception as error:
+            log_safely(logger, logging.WARNING, f"Plugin collection request failed ({type(error).__name__})")
 
     async def _unbind(self, plugin: _Plugin) -> None:
         for task in plugin.tasks:
@@ -780,7 +897,7 @@ class PluginManager:
         if cursor is not None:
             statement = statement.where(intents.c.scope_id > cursor)
         sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
-        consumes = manifest.spec.inputs is not None
+        consumes = manifest.artifact is not None and manifest.artifact.inputs is not None
         items = []
         async with self.database.transaction() as connection:
             rows = (await connection.execute(statement)).mappings().all()
@@ -806,14 +923,14 @@ class PluginManager:
         """The families of the plugins this manager loaded."""
 
         return frozenset(
-            plugin.manifest.spec.family
+            family
             for plugin in self.plugins.values()
-            if plugin.error is None and plugin.manifest is not None
+            if plugin.error is None and plugin.manifest is not None and (family := _family(plugin.manifest)) is not None
         )
 
     def plugin_for_family(self, family: str) -> PluginManifest | None:
         for plugin in self.plugins.values():
-            if plugin.error is None and plugin.manifest is not None and plugin.manifest.spec.family == family:
+            if plugin.error is None and plugin.manifest is not None and _family(plugin.manifest) == family:
                 return plugin.manifest
         return None
 
@@ -839,10 +956,18 @@ class PluginManager:
                 return manifest, plugin.host
         return None
 
+    def source_plugin(self, name: str) -> tuple[PluginManifest, PluginHost | None] | None:
+        """A loaded Source plugin and its host process, by plugin name."""
+
+        plugin = self.plugins.get(name)
+        if plugin is None or plugin.error is not None or plugin.manifest is None or plugin.manifest.source is None:
+            return None
+        return plugin.manifest, plugin.host
+
     def host_for_family(self, family: str) -> tuple[PluginManifest, PluginHost] | None:
         for plugin in self.plugins.values():
             manifest = plugin.manifest
-            if plugin.error is None and manifest is not None and manifest.spec.family == family:
+            if plugin.error is None and manifest is not None and _family(manifest) == family:
                 return (manifest, plugin.host) if plugin.host is not None else None
         return None
 

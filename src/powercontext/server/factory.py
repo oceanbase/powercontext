@@ -187,9 +187,6 @@ def create_server_app(  # noqa: C901
             authentication_provider=authentication_provider,
         )
     )
-    from powercontext.source_management.deployment import prepare as prepare_source_deployment
-
-    configured_authentication, _ = prepare_source_deployment(resolved, configured_authentication)
     config = BuiltinConfig(
         code=resolved.code,
         runtime=resolved.runtime,
@@ -214,7 +211,7 @@ def create_server_app(  # noqa: C901
     readiness_probe = _ServerReadinessProbe(metrics, tracing=resolved_tracing)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901 - shared Server and plugin resource lifecycle
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
         if resolved.allow_insecure_http:
             _log_insecure_remote_http_warning()
@@ -389,9 +386,6 @@ def create_server_app(  # noqa: C901
                 )
                 await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
-            gateway = await _source_gateway(runtime, resolved)
-            await resources.enter_async_context(gateway)
-            app.state.source_gateway = gateway
             app.state.plugin_api_max_body_bytes = resolved.plugin_api_max_body_bytes
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
@@ -414,24 +408,15 @@ def create_server_app(  # noqa: C901
             app.state.capability_provider = current_capabilities
             app.state.server_info = server_info(server_id)
             await readiness_probe()
-            deployment_task = None
-            if resolved.source_plugins_dir is not None or resolved.source_management.autostart:
-                from powercontext.source_management.deployment import DeploymentCoordinator
-
-                deployment_task = asyncio.create_task(DeploymentCoordinator(resolved).startup())
             if metrics is not None:
                 await resources.enter_async_context(readiness_probe.monitor())
             try:
                 yield
             finally:
-                if deployment_task is not None:
-                    deployment_task.cancel()
-                    await asyncio.gather(deployment_task, return_exceptions=True)
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
                 app.state.plugin_manager = None
                 app.state.application = None
-                app.state.source_gateway = None
                 app.state.dashboard_runtime = None
                 app.state.capability_provider = None
                 app.state.access_control = configured_access_control
@@ -538,18 +523,6 @@ async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: by
             deployment_id=server_id,
         )
     return server_id
-
-
-async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
-    from powercontext.source_management.gateway import SourceGateway
-    from powercontext.source_management.write import SourceWritePlugins
-
-    records = runtime._records()
-    write_plugins = None
-    if isinstance(records, RelationalRecordService):
-        write_plugins = SourceWritePlugins(records.database, settings.workspace)
-        await write_plugins.restore()
-    return SourceGateway(settings, write_plugins)
 
 
 def _state_access_checks(app: FastAPI) -> Callable[[], Awaitable[Mapping[str, str]]]:

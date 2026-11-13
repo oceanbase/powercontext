@@ -56,6 +56,11 @@ def write_plugin(root: Path, name: str, code: str, **spec: Any) -> Path:
     return directory
 
 
+def _family(manifest) -> str:
+    assert manifest.artifact is not None
+    return manifest.artifact.family
+
+
 async def invoke(database, directory: Path, scope_id: str):
     manifest, _ = load_plugin(directory)
     async with database.transaction() as connection:
@@ -64,7 +69,7 @@ async def invoke(database, directory: Path, scope_id: str):
     assignment = ArtifactProcessingWorkAssignment(
         binding_name=manifest.binding_name,
         scope_id=scope_id,
-        artifact_family=manifest.spec.family,
+        artifact_family=_family(manifest),
         claimed_request_generation=intent.requested_generation,
         fence=lease.fence("single-process"),
         worker_id="test-worker",
@@ -86,7 +91,7 @@ async def edit(database, directory: Path, scope_id: str, artifact_id: str, conte
     writer = PluginArtifactWriter(
         database=database,
         scope_id=scope_id,
-        family=manifest.spec.family,
+        family=_family(manifest),
         sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
         change=UserChange("update", artifact_id),
     )
@@ -98,7 +103,7 @@ def governance(database, directory: Path, scope_id: str):
     """The merge, forget and restoration the Server's generic routes run for a plugin family."""
 
     manifest, _ = load_plugin(directory)
-    family = manifest.spec.family
+    family = _family(manifest)
     service = plugin_merge_service(family, ArtifactMergeAccess(family), SourceRepository(BUILTIN_SOURCE_REGISTRY))
     application = ArtifactMergeApplication(
         database, (service,), default_context=ArtifactSearchExecutionContext(trusted_local=True)

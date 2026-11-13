@@ -62,6 +62,7 @@ from powercontext.plugins import (
     AccessDenied,
     ApiError,
     ApiRequest,
+    ArtifactPluginSpec,
     BinaryResponse,
     Caller,
     CreateRequest,
@@ -145,7 +146,9 @@ class _Host:
         self.spec = spec
         self.send_lock = asyncio.Lock()
         self.manifest = PluginManifest.model_validate(spec.manifest)
-        self.family = self.manifest.spec.family
+        artifact = self.manifest.artifact
+        # Source plugins own no family: they have no Artifact reads, writes, presentation, or search.
+        self.family = None if artifact is None else artifact.family
         self.access: Any = None
         self.deployment_id: str | None = None
         self.plugin: Any = None
@@ -209,7 +212,8 @@ class _Host:
         loaded, declaration = load_plugin(directory, self.manifest.name)
         if loaded != self.manifest:
             raise PluginConfigError("the plugin changed after the Server checked it; restart the Server")  # noqa: TRY003
-        replace_registrations(tuple({*spec.plugin_families, self.family}), spec.source_bindings)
+        families = {*spec.plugin_families, *(() if self.family is None else (self.family,))}
+        replace_registrations(tuple(families), spec.source_bindings)
         self.database = await resources.enter_async_context(open_plugin_database(spec.database))
         from powercontext.builtin.authz.worker import open_worker_security
 
@@ -242,8 +246,10 @@ class _Host:
             await self._upgrade(declaration.upgrade, context)
         if not serve:
             return ()
-        self.plugin = await declaration.setup(context)
-        declared = self.manifest.spec
+        self.plugin = None if declaration.setup is None else await declaration.setup(context)
+        declared = self.manifest.artifact
+        if declared is None:
+            return ()
         background = declared.schedule is not None or declared.on_sources
         required = ("render_artifact", *(("generate",) if background else ()))
         missing = [name for name in required if not callable(getattr(self.plugin, name, None))]
@@ -265,7 +271,7 @@ class _Host:
     def _plugin_writer(self, scope_id: str) -> PluginArtifactWriter:
         """A writer acting as the plugin, like a Worker's, with no invocation cursor."""
 
-        spec = self.manifest.spec
+        spec = self._artifact()
         security = self.security
 
         async def authorize(connection: Any) -> None:
@@ -277,7 +283,7 @@ class _Host:
         return PluginArtifactWriter(
             database=self.database,
             scope_id=scope_id,
-            family=self.family,
+            family=spec.family,
             sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
             metadata=revision_metadata(self.manifest.name, self.manifest.fingerprint),
             begin=authorize,
@@ -333,6 +339,8 @@ class _Host:
             return await self._api(request)
         if request.method == "create_source":
             return await self._create_source(request)
+        if request.method == "project_source":
+            return self._project_source(request)
         if request.method == "render_artifact":
             return await self._render(request)
         if request.method == "search_artifacts":
@@ -397,12 +405,33 @@ class _Host:
         ref = await self.store_source(scope_id, request.payload["source_type"], value)
         return HostResponse(request.id, "ok", result=ref.model_dump(mode="json"))
 
+    def _artifact(self) -> ArtifactPluginSpec:
+        spec = self.manifest.artifact
+        if spec is None:
+            raise RuntimeError("Source plugins have no Artifact family to read or write")  # noqa: TRY003
+        return spec
+
+    def _project_source(self, request: HostRequest) -> HostResponse:
+        """Recompute a runner's observation with this plugin version; the Server stores the result."""
+
+        from powercontext.builtin.plugins.observations import ObservationRejected, reproject
+        from powercontext.sources.observations import SourceObservation
+
+        if self.definitions is None:
+            return HostResponse(request.id, "not_found")
+        observation = SourceObservation.model_validate(request.payload["observation"])
+        try:
+            projected = reproject(self.definitions, self.manifest.source_manifests, observation)
+        except ObservationRejected as error:
+            return HostResponse(request.id, "invalid_content", message=str(error))
+        return HostResponse(request.id, "ok", result=projected.model_dump(mode="json"))
+
     def _writer(self, scope_id: str, *, change: UserChange | None = None) -> PluginArtifactWriter:
-        spec = self.manifest.spec
+        spec = self._artifact()
         return PluginArtifactWriter(
             database=self.database,
             scope_id=scope_id,
-            family=self.family,
+            family=spec.family,
             sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
             metadata=revision_metadata(self.manifest.name, self.manifest.fingerprint),
             transaction_timeout_seconds=spec.transaction_timeout_seconds,
@@ -413,9 +442,10 @@ class _Host:
 
     async def _authorize(self, scope_id: str, action: str, artifact_id: str | None) -> None:
         call = _CURRENT.get()
-        ref = None if artifact_id is None else ArtifactRef(family=self.family, artifact_id=artifact_id, revision=1)
+        family = self._artifact().family
+        ref = None if artifact_id is None else ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
         async with self.database.transaction() as connection:
-            await ArtifactMergeAccess(self.family).authorize(connection, scope_id, call.context, action, ref)
+            await ArtifactMergeAccess(family).authorize(connection, scope_id, call.context, action, ref)
 
     async def _change(self, request: HostRequest) -> HostResponse:
         method = getattr(self.plugin, request.method, None)
@@ -591,19 +621,9 @@ class _Host:
 
         if self.definitions is None:
             raise ValueError("the plugin declares no Source Definitions")  # noqa: TRY003
-        from powercontext.builtin.sources.observation_validation import validate_source_observation
-        from powercontext.sources.observations import SourceDefinitionManifest, project_source_for_transport
+        from powercontext.builtin.plugins.observations import observe
 
-        selected = self.definitions.definition_for_name(definition)
-        if not isinstance(value, selected.input_class):
-            raise TypeError(f"{definition} expects {selected.input_class.__name__}")  # noqa: TRY003
-        observation = project_source_for_transport(self.definitions, await self.definitions.resolve(value))
-        manifest = next(
-            SourceDefinitionManifest.model_validate(item)
-            for item in self.manifest.source_manifests
-            if item["name"] == definition
-        )
-        validate_source_observation(observation, manifest)
+        observation = await observe(self.definitions, self.manifest.source_manifests, definition, value)
         repository = SourceRepository(BUILTIN_SOURCE_REGISTRY)
         async with self.database.transaction() as connection:
             stored = await repository.add(connection, scope_id, observation)

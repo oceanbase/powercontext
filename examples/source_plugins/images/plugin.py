@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Captured PNG/JPEG content with validated bytes and immutable identity."""
+"""A Source type for PNG and JPEG images with validated bytes and an immutable identity.
+
+The plugin only provides the type: callers write images through the generic Source API
+with ``source_type`` ``example-image``. The Server needs Pillow
+(``powercontext[source-images]``).
+"""
 
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ import io
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from powercontext.plugins import SourcePlugin
 from powercontext.sources import Source, SourceMaterialization
 
 
@@ -76,3 +82,6 @@ class ImageDefinition:
 
     async def read(self, source: ImageSource, /) -> ImageCapture:
         return source.capture
+
+
+plugin = SourcePlugin(version="1.0.0", definitions=(ImageDefinition(),))

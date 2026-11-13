@@ -131,8 +131,9 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
+        "v1_5_0_006",
     )
-    assert apply(upgraded).revision == "v1_5_0_005"
+    assert apply(upgraded).revision == "v1_5_0_006"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -176,7 +177,7 @@ def test_pending_portable_restore_blocks_migration_readiness_without_repair(tmp_
 
 @pytest.mark.parametrize("vectors", [False, True])
 @pytest.mark.parametrize("include_owner", [False, True])
-def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, vectors, include_owner):
+def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, vectors, include_owner):
     embedding = EmbeddingProfile(profile_id="source-vectors", model="fixture", dimension=3) if vectors else None
     config = configuration(embedding)
     previous = previous_bundle(tmp_path / "previous", embedding, through=("v1_4_1_004" if include_owner else "s1402"))
@@ -191,7 +192,7 @@ def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, v
     bundle = server_bundle(embedding_profile=embedding)
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     assert upgraded.plan().revisions == (
-        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_003", "v1_5_0_004", "v1_5_0_005")
+        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_003", "v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
         if include_owner
         else (
             "v1_4_1_004",
@@ -202,19 +203,23 @@ def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, v
             "v1_5_0_003",
             "v1_5_0_004",
             "v1_5_0_005",
+            "v1_5_0_006",
         )
     )
-    assert apply(upgraded).revision == "v1_5_0_005"
-    definition = b'{"configuration":{"id":"tickets","entry":"tickets"}}'
+    assert apply(upgraded).revision == "v1_5_0_006"
+    capabilities = b'[{"error":null,"name":"tickets","version":"1.0.0"}]'
     with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]
-        connection.execute("INSERT INTO pc_source_write_plugins VALUES (?, ?)", ("tickets", definition))
+        connection.execute(
+            "INSERT INTO pc_source_runners (runner, subject, capabilities, capabilities_digest) VALUES (?, ?, ?, ?)",
+            ("robot-7", "service:robot", capabilities, "0" * 64),
+        )
     reopened = SQLiteMigrationRunner(database, bundle, configuration=config)
     assert reopened.verify().state == "ready"
     assert not apply(reopened).changed
     with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute("SELECT plugin_id, definition FROM pc_source_write_plugins").fetchall() == [
-            ("tickets", definition)
+        assert connection.execute("SELECT runner, capabilities FROM pc_source_runners").fetchall() == [
+            ("robot-7", capabilities)
         ]
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
     apply(fresh)

@@ -45,8 +45,6 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
             "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
             "VALUES ('original','title','summary','original','title','summary',1)"
         )
-        if previous_revision == "v1_4_1_006":
-            connection.execute("INSERT INTO pc_source_write_plugins VALUES (?, ?)", ("tickets", b"retained definition"))
         if previous_revision == "v1_4_1_004":
             connection.execute(
                 "INSERT INTO pc_access_owner_recovery (operation_id,deployment_id,scope_id,completed,payload) "
@@ -72,10 +70,9 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
             connection.execute("SELECT operation_id,payload,completed FROM pc_access_owner_recovery").fetchall()
             == expected_intents
         )
-        expected_plugins = [("tickets", b"retained definition")] if previous_revision == "v1_4_1_006" else []
-        assert connection.execute("SELECT * FROM pc_source_write_plugins").fetchall() == expected_plugins
-        # v1_5_0_005 drops the empty storage of the removed Artifact plugin framework.
-        assert not connection.execute("SELECT 1 FROM sqlite_schema WHERE name='pc_artifact_family_schemas'").fetchall()
+        # v1_5_0_005 and v1_5_0_006 drop the empty storage of the removed plugin frameworks.
+        for retired in ("pc_artifact_family_schemas", "pc_source_write_plugins"):
+            assert not connection.execute("SELECT 1 FROM sqlite_schema WHERE name=?", (retired,)).fetchall()
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", current, configuration=configuration(embedding))
     apply(fresh)
     assert upgraded.plan().schema_fingerprint == fresh.plan().schema_fingerprint

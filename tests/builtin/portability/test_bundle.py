@@ -616,6 +616,58 @@ def test_bundle_round_trips_authoritative_scope_data_and_excludes_projections(tm
     asyncio.run(scenario())
 
 
+def test_bundle_restores_collection_targets_with_their_runner_and_without_status(tmp_path: Path) -> None:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    async def scenario() -> None:
+        archive = tmp_path / "scope.pcb"
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'source.db'}"), tables=BUILTIN_TABLES
+        ) as source:
+            repository = SourceCollectionRepository()
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                await repository.record_sync(
+                    connection, "robot-7", "service:robot", [{"name": "tickets", "version": "1.0.0", "error": None}]
+                )
+                for runner in ("robot-7", "server"):
+                    target, _ = await repository.add_target(
+                        connection,
+                        scope_id="project:one",
+                        runner=runner,
+                        capability="tickets",
+                        target_key=hashlib.sha256(runner.encode()).hexdigest(),
+                        parameters={"file": runner},
+                        actor="service:admin",
+                    )
+                    await repository.record_status(
+                        connection, "project:one", target.target_id, runner, error_code="file_unreadable"
+                    )
+            await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'target.db'}"), tables=BUILTIN_TABLES
+        ) as target:
+            await PortableBundleService(target.database).restore(archive, supported_source_types=("content",))
+            repository = SourceCollectionRepository()
+            async with target.database.transaction() as connection:
+                restored = await repository.targets(connection, "project:one")
+                runner = await repository.runner(connection, "robot-7")
+        assert sorted((item.runner, item.parameters["file"], item.enabled) for item in restored) == [
+            ("robot-7", "robot-7", True),
+            ("server", "server", True),
+        ]
+        # The runner keeps the subject its name is bound to; what it reports returns at its next sync.
+        assert runner is not None and (runner.subject, runner.capabilities, runner.last_seen_at) == (
+            "service:robot",
+            (),
+            None,
+        )
+        assert all(item.status.consecutive_failures == 0 and item.status.last_error_code is None for item in restored)
+
+    asyncio.run(scenario())
+
+
 def test_export_is_byte_deterministic_and_preserves_scope_relationships(tmp_path: Path) -> None:
     async def scenario() -> None:
         first = tmp_path / "first.pcb"

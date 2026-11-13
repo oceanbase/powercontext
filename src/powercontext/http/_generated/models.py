@@ -683,6 +683,7 @@ class ArtifactDreamingOperationCapability(BaseModel):
 
 class PluginKind(StrEnum):
     ARTIFACT = "artifact"
+    SOURCE = "source"
 
 
 class PluginLoadStatus(StrEnum):
@@ -717,6 +718,161 @@ class PluginRoute(BaseModel):
     path: Annotated[StrictStr, Field(description="Route template under /v1/plugins/{name}/api.")]
     access: Access
     mcp: Annotated[StrictBool, Field(description="The route is also an MCP tool.")]
+
+
+class PluginVersionRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    version: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class SourceRunnerPluginReport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    version: Annotated[
+        StrictStr | None, Field(description="Null when the plugin failed to load on the runner.", max_length=64)
+    ]
+    error: Annotated[StrictStr | None, Field(description="Safe load failure category on the runner.", max_length=1024)]
+
+
+class SourceRunnerSyncRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    plugins: Annotated[list[SourceRunnerPluginReport], Field(max_length=200)]
+
+
+class SourceRunnerTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    capability: StrictStr
+    parameters: dict[str, Any]
+    checkpoint: Annotated[
+        Any | None, Field(description="The target's last committed checkpoint; null before the first commit.")
+    ]
+
+
+class Code1(StrEnum):
+    PLUGIN_VERSION_INCOMPATIBLE = "plugin_version_incompatible"
+    PLUGIN_NOT_LOADED = "plugin_not_loaded"
+
+
+class SourceRunnerRejection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: StrictStr
+    code: Code1
+
+
+class SourceRunnerSyncResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    targets: list[SourceRunnerTarget]
+    rejected: list[SourceRunnerRejection]
+
+
+class SourceRunnerCapability(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: StrictStr
+    version: Annotated[StrictStr | None, Field(description="The version the runner reported.")]
+    error: Annotated[StrictStr | None, Field(...)]
+    compatible: Annotated[
+        StrictBool, Field(description="This Server loaded the plugin and accepts the runner's version.")
+    ]
+    description: Annotated[
+        StrictStr | None, Field(description="From the plugin this Server loaded; null when it loaded none.")
+    ]
+    parameters_schema: Annotated[dict[str, Any] | None, Field(...)]
+    identity: Annotated[
+        dict[str, list[StrictStr]] | None, Field(description="Identity parameters and their normalization steps.")
+    ]
+
+
+class SourceRunner(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    runner: StrictStr
+    last_seen_at: Annotated[AwareDatetime | None, Field(description="Null for the Server's own runner.")]
+    capabilities: list[SourceRunnerCapability]
+
+
+class SourceRunnerPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceRunner]
+
+
+class SourceTargetCreateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    runner: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    capability: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    parameters: dict[str, Any]
+
+
+class SourceTargetUpdateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: StrictBool | None = None
+    parameters: dict[str, Any] | None = None
+
+
+class SourceTargetStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    last_attempt_at: Annotated[AwareDatetime | None, Field(...)]
+    last_success_at: Annotated[AwareDatetime | None, Field(...)]
+    consecutive_failures: Annotated[StrictInt, Field(ge=0)]
+    last_error_code: Annotated[StrictStr | None, Field(...)]
+    last_error_message: Annotated[StrictStr | None, Field(...)]
+
+
+class SourceTargetResultStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    succeeded: StrictBool
+    error_code: Annotated[StrictStr | None, Field(max_length=128)] = None
+    error_message: Annotated[StrictStr | None, Field(max_length=1024)] = None
+
+
+class SourceTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    runner: StrictStr
+    capability: StrictStr
+    target_key: StrictStr
+    parameters: dict[str, Any]
+    enabled: StrictBool
+    updated_at: AwareDatetime
+    updated_by: StrictStr
+    status: SourceTargetStatus
+
+
+class SourceTargetPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceTarget]
 
 
 class PluginOpenApiDocument(BaseModel):
@@ -1456,6 +1612,12 @@ class SubmitSourceObservationRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     observation: SourceObservation
+    plugin: Annotated[
+        PluginVersionRef | None,
+        Field(
+            description="Set by collection runners. The Server checks the version against the Source plugin it loaded and has that plugin resolve and project the observation; unsupported versions return plugin_version_incompatible."
+        ),
+    ] = None
 
 
 class CommitConnectorCheckpointRequest(BaseModel):
@@ -1465,6 +1627,14 @@ class CommitConnectorCheckpointRequest(BaseModel):
     binding: ConnectorBinding
     expected: Annotated[Any | None, Field(...)]
     checkpoint: Annotated[Any | None, Field(...)]
+    plugin: Annotated[
+        PluginVersionRef | None,
+        Field(description="Set by collection runners for a target's checkpoint; checked like a runner's observations."),
+    ] = None
+    status: Annotated[
+        SourceTargetResultStatus | None,
+        Field(description="The collection attempt's outcome, recorded on the target together with the checkpoint."),
+    ] = None
 
 
 class Kind1(StrEnum):
@@ -4375,273 +4545,6 @@ class CatalogTagResult(BaseModel):
     tags: Annotated[list[Tag3], Field(max_length=32)]
     tag_digest: Annotated[StrictStr, Field(min_length=1)]
     etag: Annotated[StrictStr, Field(min_length=1)]
-
-
-class SourceCapabilityQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any] | None = None
-
-
-class SourceWritePluginLoadRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")]
-    entry: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
-
-
-class SourceWritePluginState(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: StrictStr
-    entry: StrictStr
-    capabilities: list[dict[str, Any]]
-
-
-class SourceAddRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any]
-
-
-class View(StrEnum):
-    RESULT = "result"
-    CONTROL = "control"
-
-
-class SourceStatusRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    view: View = View.RESULT
-
-
-class SourceInstanceSetEnabledRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool
-
-
-class SourceConfigureRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    update: StrictBool = False
-    registration: dict[str, Any]
-
-
-class Management(StrEnum):
-    NOT_CONFIGURED = "not-configured"
-    ONLINE = "online"
-    UNAVAILABLE = "unavailable"
-
-
-class SourceCapabilityResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    capabilities: list[dict[str, Any]]
-    management: Management
-
-
-class SourceInstancesResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instances: list[dict[str, Any]]
-    capabilities: list[dict[str, Any]] | None = None
-    management: Management | None = None
-
-
-class Outcome5(StrEnum):
-    SAVED = "saved"
-    UNCHANGED = "unchanged"
-
-
-class SourceCollectionResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    outcome: Outcome5
-    source_refs: list[SourceTypeReference]
-
-
-class Tracking(StrEnum):
-    ENABLED = "enabled"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-
-
-class Availability(StrEnum):
-    ONLINE = "online"
-    OFFLINE = "offline"
-    UNAVAILABLE = "unavailable"
-
-
-class Kind12(StrEnum):
-    COLLECT = "collect"
-    WRITE = "write"
-
-
-class SourceManagementReceipt(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    tracking: Tracking | None = None
-    result: SourceCollectionResult | None = None
-    error: StrictStr | None = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability_version: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    availability: Availability | None = None
-    updated_at: StrictStr | None = None
-    kind: Kind12 | None = None
-    enabled: StrictBool | None = None
-    source_refs: Annotated[
-        list[SourceTypeReference] | None,
-        Field(
-            description="Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history.",
-            max_length=1,
-        ),
-    ] = None
-    last_submitted_at: Annotated[
-        StrictStr | None,
-        Field(
-            description="Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses."
-        ),
-    ] = None
-
-
-class SourceInstanceStatus(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    targets_initialized: StrictBool | None = None
-    target_id: StrictStr | None = None
-    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool | None = None
-    actual: StrictStr | None = None
-    run_id: StrictStr | None = None
-    availability: StrictStr | None = None
-    reused: StrictBool | None = None
-
-
-class SourceChannelOpen(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    protocol: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    deployment_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    manager_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class SourceChannelRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    response: dict[str, Any] | None = None
-    catalog: dict[str, Any] | None = None
-
-
-class SourceChannelResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    confirmed: StrictBool | None = None
-    messages: list[dict[str, Any]] | None = None
-
-
-class Status6(StrEnum):
-    RUNNING = "running"
-    COMPLETE = "complete"
-    COMPLETED = "completed"
-    PENDING = "pending"
-    FAILED = "failed"
-    STOPPED = "stopped"
-    CLEANUP_FAILED = "cleanup-failed"
-
-
-class SourceInstanceExchangeRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    execution_location: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    configuration_digest: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    run_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    execution: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
-    response: dict[str, Any] | None = None
-    owner: dict[str, Any] | None = None
-    status: Status6 | None = None
-    source_refs: Annotated[
-        list[SourceTypeReference] | None,
-        Field(
-            description="One confirmed Source submission reported by the Runtime; not a batch or historical reference list.",
-            max_length=1,
-            min_length=1,
-        ),
-    ] = None
-    error: Annotated[StrictStr | None, Field(max_length=1024)] = None
-    targets: Annotated[list[dict[str, Any]] | None, Field(max_length=256)] = None
-    cursor: Annotated[StrictStr | None, Field(max_length=256)] = None
-    owner_exited: StrictBool | None = None
-    previous_owner: dict[str, Any] | None = None
-    submitted_at: StrictStr | None = None
-
-
-class SourceInstanceExchangeResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-
-
-class SourceTargetSetEnabledRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool
-
-
-class View1(StrEnum):
-    DISCOVERY = "discovery"
-    CONTROL = "control"
-
-
-class SourceInstancesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any] | None = None
-    view: View1 = View1.DISCOVERY
 
 
 class ScopeId1(RootModel[StrictStr]):

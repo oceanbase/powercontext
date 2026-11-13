@@ -42,7 +42,7 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, SourceCursor
-from powercontext.plugins import GenerateRequest, GenerationSource, PluginContext
+from powercontext.plugins import ArtifactPlugin, GenerateRequest, GenerationSource, PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,9 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
     spec: PluginWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /, *, database: Any = None
 ) -> ArtifactProcessingWorkerCompletion:
     manifest = PluginManifest.model_validate(spec.manifest)
-    generate = manifest.spec
+    generate = manifest.artifact
+    if generate is None:
+        raise ValueError("only Artifact plugins generate")  # noqa: TRY003
     if assignment.binding_name != manifest.binding_name or assignment.artifact_family != generate.family:
         raise ValueError("assignment does not match the plugin declaration")  # noqa: TRY003
     register_plugin_family(generate.family)
@@ -170,7 +172,7 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
             if call:
                 directory = Path(spec.directory)
                 loaded, declaration = load_plugin(directory, manifest.name)
-                if loaded != manifest:
+                if loaded != manifest or not isinstance(declaration, ArtifactPlugin):
                     raise ValueError("the plugin changed after the Server checked it; restart the Server")  # noqa: TRY003
                 async with AsyncExitStack() as plugin_resources:
                     from powercontext.builtin.plugins.storage import open_plugin_resources

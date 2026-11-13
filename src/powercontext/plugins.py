@@ -214,11 +214,31 @@ class PluginPages(BaseModel):
         return value
 
 
-class ArtifactPluginSpec(BaseModel):
-    """The data part of a declaration: what core needs before it runs plugin code."""
+class PluginSpec(BaseModel):
+    """Declaration fields every kind of plugin shares: its host processes, routes, and pages."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
+    # Time limit of one user change, presentation, search, or Source write in the host process.
+    change_timeout_seconds: float = Field(default=30, gt=0)
+    # Suggested ceiling on this plugin's host processes in each Server process; deployers may override it.
+    host_processes: int = Field(default=1, ge=1)
+    # Time limit of ``upgrade``, which runs every time a version of the plugin loads.
+    upgrade_timeout_seconds: float = Field(default=600, gt=0)
+    api: PluginApiSpec | None = None
+    pages: PluginPages | None = None
+
+    @model_validator(mode="after")
+    def pages_need_api(self) -> PluginSpec:
+        if self.pages is not None and self.api is None:
+            raise ValueError("pages call the plugin's own routes; declare api as well")  # noqa: TRY003
+        return self
+
+
+class ArtifactPluginSpec(PluginSpec):
+    """The data part of an Artifact plugin's declaration: what core needs before it runs plugin code."""
+
+    kind: Literal["artifact"] = "artifact"
     family: str = Field(pattern=r"^[a-z][a-z0-9-]{0,127}$")
     inputs: Inputs | None = None
     schedule: Interval | Cron | None = None
@@ -229,14 +249,6 @@ class ArtifactPluginSpec(BaseModel):
     max_workers: int = Field(default=1, ge=1)
     timeout_seconds: float = Field(default=300, gt=0)
     transaction_timeout_seconds: float = Field(default=30, gt=0)
-    # Time limit of one user change or plugin API call in the host process.
-    change_timeout_seconds: float = Field(default=30, gt=0)
-    # Suggested ceiling on this plugin's host processes in each Server process; deployers may override it.
-    host_processes: int = Field(default=1, ge=1)
-    # Time limit of ``upgrade``, which runs every time a version of the plugin loads.
-    upgrade_timeout_seconds: float = Field(default=600, gt=0)
-    api: PluginApiSpec | None = None
-    pages: PluginPages | None = None
 
     @field_validator("family")
     @classmethod
@@ -267,8 +279,6 @@ class ArtifactPluginSpec(BaseModel):
             raise ValueError("scheduled plugins without inputs must list scopes explicitly")  # noqa: TRY003
         if self.transaction_timeout_seconds > self.timeout_seconds:
             raise ValueError("transaction_timeout_seconds must not exceed timeout_seconds")  # noqa: TRY003
-        if self.pages is not None and self.api is None:
-            raise ValueError("pages call the plugin's own routes; declare api as well")  # noqa: TRY003
         return self
 
 
@@ -405,8 +415,11 @@ class PluginContext:
         storage: PluginStorage | None = None,
         models: PluginModels | None = None,
         host: Any = None,
+        center: PluginCenter | None = None,
     ) -> None:
         self.name = name
+        # Set only on a device runner: the plugin's own routes on the central Server.
+        self.center = center
         self.scope_id = scope_id
         self.plugin_dir = plugin_dir
         self.logger = logger
@@ -738,6 +751,199 @@ class ArtifactPlugin(ArtifactPluginSpec):
     upgrade: Callable[[PluginContext], Awaitable[None]] | None = Field(default=None, exclude=True)
 
 
+Normalizer = Annotated[str, Field(pattern=r"^(strip|lower|collapse_spaces|remove_prefix:.+|remove_suffix:.+)$")]
+
+
+class TargetDeclaration(BaseModel):
+    """The data part of a collection target: its parameter schema and which parameters identify it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    description: str = Field(min_length=1, max_length=2048)
+    # Parameters that form the target's unique key, each with its normalization steps.
+    identity: dict[str, tuple[Normalizer, ...]] = Field(min_length=1)
+    parameters_schema: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class TargetSpec(TargetDeclaration):
+    """What a collection target takes: a parameters model, and the parameters that make a target unique."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    parameters: type[BaseModel] = Field(exclude=True)
+
+    @model_validator(mode="after")
+    def describe_parameters(self) -> TargetSpec:
+        fields = self.parameters.model_fields
+        for name in self.identity:
+            if name not in fields or fields[name].annotation is not str:
+                raise ValueError(f"identity parameter {name} must be a string field of parameters")  # noqa: TRY003
+        # Devices may run older plugin versions; parameters from a newer center must not be rejected.
+        if self.parameters.model_config.get("extra") == "forbid":
+            raise ValueError("target parameters must ignore unknown fields")  # noqa: TRY003
+        object.__setattr__(self, "parameters_schema", self.parameters.model_json_schema())
+        return self
+
+
+class Collect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    schedule: Interval | Cron
+    # Enabled targets of one Scope given to one call; more rotate into later calls.
+    max_targets: int = Field(default=50, ge=1, le=1000)
+    max_items: int = Field(default=200, ge=1, le=10000)
+    timeout_seconds: float = Field(default=120, gt=0)
+    max_workers: int = Field(default=1, ge=1)
+
+
+class SourcePluginSpec(PluginSpec):
+    """The data part of a Source plugin's declaration; the plugin name is also its collection capability."""
+
+    kind: Literal["source"] = "source"
+    version: str
+    # The oldest device version this center version still accepts; defaults to ``version``.
+    min_compatible_version: str | None = None
+    collect: Collect | None = None
+    target: TargetDeclaration | None = None
+    # Scopes the Server's own runner may collect into; None allows every Scope.
+    scopes: tuple[Annotated[str, Field(min_length=1, max_length=256)], ...] | None = Field(
+        default=None, min_length=1, max_length=1000
+    )
+
+    @model_validator(mode="after")
+    def consistent(self) -> SourcePluginSpec:
+        from packaging.version import InvalidVersion, Version
+
+        try:
+            version = Version(self.version)
+            oldest = Version(self.min_compatible_version or self.version)
+        except InvalidVersion:
+            raise ValueError("version and min_compatible_version must be PEP 440 versions") from None  # noqa: TRY003
+        if oldest > version:
+            raise ValueError("min_compatible_version must not exceed version")  # noqa: TRY003
+        if self.min_compatible_version is None:
+            object.__setattr__(self, "min_compatible_version", self.version)
+        if (self.collect is None) != (self.target is None):
+            raise ValueError("collect and target go together")  # noqa: TRY003
+        return self
+
+    def accepts(self, device_version: str) -> bool:
+        """Whether this center version accepts a device running ``device_version``."""
+
+        from packaging.version import InvalidVersion, Version
+
+        try:
+            device = Version(device_version)
+        except InvalidVersion:
+            return False
+        return Version(self.min_compatible_version or self.version) <= device <= Version(self.version)
+
+
+class CollectTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target_id: str
+    parameters: dict[str, JsonValue]
+    # The target's last committed checkpoint; None the first time; read-only.
+    checkpoint: JsonValue | None = None
+
+
+class CollectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope_id: str
+    reason: Literal["schedule", "target_added"] = "schedule"
+    targets: tuple[CollectTarget, ...]
+    max_items: int
+
+
+class CollectedItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
+
+    # The name of one of the plugin's Source Definitions, and an instance of its input class.
+    definition: str
+    value: BaseModel
+
+
+class TargetResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    items: list[CollectedItem] = Field(default_factory=list)
+    checkpoint: JsonValue | None = None
+    has_more: bool = False
+    # Set by ``fail``: this target keeps its checkpoint and records the error; others still commit.
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class CollectResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    targets: dict[str, TargetResult] = Field(default_factory=dict)
+
+    def add(
+        self,
+        target: CollectTarget,
+        items: Sequence[CollectedItem],
+        *,
+        checkpoint: JsonValue | None,
+        has_more: bool = False,
+    ) -> None:
+        self.targets[target.target_id] = TargetResult(items=list(items), checkpoint=checkpoint, has_more=has_more)
+
+    def fail(self, target: CollectTarget, *, code: str, message: str) -> None:
+        """Report that only this target failed."""
+
+        self.targets[target.target_id] = TargetResult(error_code=code[:128], error_message=message[:1024])
+
+
+class SourceCollector(Protocol):
+    async def collect(self, request: CollectRequest, /) -> CollectResult: ...
+
+
+class PluginResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: int
+    content_type: str | None = None
+    json_body: JsonValue | None = None
+    content: bytes | None = None
+
+
+class PluginCenter(Protocol):
+    """A device runner's calls to its own plugin's routes on the central Server, with the runner's credential."""
+
+    async def call_plugin(
+        self,
+        method: str,
+        path: str,
+        /,
+        *,
+        json: JsonValue | None = None,
+        content: bytes | None = None,
+        content_type: str | None = None,
+    ) -> PluginResponse: ...
+
+
+class SourcePlugin(SourcePluginSpec):
+    """The declaration of a plugin that provides Source types and, with ``collect``, collects into them."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    definitions: tuple[Any, ...] = Field(min_length=1, exclude=True)
+    target: TargetSpec | None = None
+    # Returns the collector; plugin routes are methods of its result too. Required with collect or api.
+    setup: Callable[[PluginContext], Awaitable[Any]] | None = Field(default=None, exclude=True)
+    api: PluginApi | None = None
+    upgrade: Callable[[PluginContext], Awaitable[None]] | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def setup_when_needed(self) -> SourcePlugin:
+        if (self.collect is not None or self.api is not None) and self.setup is None:
+            raise ValueError("collect and api need setup")  # noqa: TRY003
+        return self
+
+
 def _path_parameters(path: str) -> tuple[str, ...]:
     import re
 
@@ -761,6 +967,11 @@ __all__ = [
     "BinaryResponse",
     "Caller",
     "ChatMessage",
+    "Collect",
+    "CollectRequest",
+    "CollectResult",
+    "CollectTarget",
+    "CollectedItem",
     "CreateRequest",
     "Cron",
     "ForgetRequest",
@@ -775,12 +986,15 @@ __all__ = [
     "ModelUnavailable",
     "PluginApi",
     "PluginApiSpec",
+    "PluginCenter",
     "PluginContext",
     "PluginModels",
     "PluginPages",
+    "PluginResponse",
     "PluginScope",
     "PluginScopes",
     "PluginSources",
+    "PluginSpec",
     "PluginStorage",
     "RenderRequest",
     "Rendering",
@@ -790,6 +1004,12 @@ __all__ = [
     "SearchHit",
     "SearchRequest",
     "SearchResult",
+    "SourceCollector",
+    "SourcePlugin",
+    "SourcePluginSpec",
+    "TargetDeclaration",
+    "TargetResult",
+    "TargetSpec",
     "UndoMergePreview",
     "UpdateRequest",
 ]

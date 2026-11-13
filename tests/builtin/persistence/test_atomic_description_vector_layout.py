@@ -43,7 +43,7 @@ def test_managed_sqlite_vector_schema_includes_registered_nullable_description(t
     database = tmp_path / "vector.db"
     runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
     result = runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True)
-    assert result.revision == "v1_5_0_005"
+    assert result.revision == "v1_5_0_006"
     with closing(sqlite3.connect(database)) as connection:
         columns = {row[1]: row for row in connection.execute("PRAGMA table_info(pc_atomic_memory_current)")}
         assert columns["description"][2:4] == ("VARCHAR(200)", 0)
@@ -156,7 +156,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration)
     plan = upgraded.plan()
     assert plan.source_revision == "v1_4_1_004"
-    assert plan.target_revision == "v1_5_0_005"
+    assert plan.target_revision == "v1_5_0_006"
     assert plan.revisions == (
         "v1_4_1_005",
         "v1_4_1_006",
@@ -165,6 +165,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
+        "v1_5_0_006",
     )
     assert plan.domain_steps == (
         "artifact_storage",
@@ -173,7 +174,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
         "plugin_artifacts",
     )
     assert upgraded.evidence_path.read_bytes() == original_evidence_bytes
-    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == "v1_5_0_005"
+    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == "v1_5_0_006"
     assert upgraded.verify().state == "ready"
     evidence = json.loads(upgraded.evidence_path.read_text(encoding="utf-8"))
     for revision, checksum in original_evidence["release_checksums"].items():

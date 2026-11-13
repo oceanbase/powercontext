@@ -13,6 +13,7 @@ A plugin is a folder in the Server's plugin directory, with `plugin.py` as its e
 | Present and search | Give each revision's default presentation, and optionally search, so the generic search API and Prepared Context can use the plugin's data |
 | Support user changes | Implement create, update, merge, forget, and restore methods so the generic Artifact APIs work on the plugin's family |
 | Define Source types | Declare the plugin's own Source types and Projections to record what users asked for, such as an upload |
+| Collect Sources | Collect continuously from external systems with a `SourcePlugin`, run by the Server's runner or runners on devices for assigned targets; see [Source plugins](../workflows/source-plugins.md) |
 | Provide APIs | Declare HTTP routes under `/v1/plugins/<plugin name>/api/`; core authenticates callers and forwards requests to the plugin |
 | Provide Dashboard pages | Ship static pages that the Dashboard shows in a sandboxed iframe |
 | Use dedicated storage and models | Keep the plugin's own data in separate storage that core allocates, and call the embedding and generation models Server configures |
@@ -318,6 +319,10 @@ plugin = ArtifactPlugin(
   ```
 
   In `generate`, branch on `source.ref.source_type`.
+
+To provide only Source types without generating Artifacts, or to collect continuously from external systems, assign a
+`SourcePlugin` in `plugin.py` instead; see [Source plugins](../workflows/source-plugins.md). Source plugins can declare
+`api`, `pages`, and `upgrade` too.
 
 ## Provide APIs
 

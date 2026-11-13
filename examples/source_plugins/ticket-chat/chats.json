@@ -1,23 +1,4 @@
 {
-  "tickets": [
-    {
-      "ticket_id": "42",
-      "title": "部署失败",
-      "body": "检查发布任务的构建日志。",
-      "labels": [
-        "发布",
-        "数据库"
-      ],
-      "metadata": {
-        "priority": 3,
-        "active": true,
-        "owner": null,
-        "details": {
-          "attempts": 2
-        }
-      }
-    }
-  ],
   "chats": [
     {
       "chat_id": "release-42",
