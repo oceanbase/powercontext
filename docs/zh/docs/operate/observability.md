@@ -123,6 +123,7 @@ Child 返回结果不能单独证明业务完成。强制终止进程可能来�
 
 Supervisor 在本地入队时输出 `artifact_processing.queued`，开始一次执行时输出
 `artifact_processing.dispatched`，结束该次执行时输出 `artifact_processing.attempt.completed`。
+以控制冲突结束的执行，其 outcome 为 `conflict`，`error_code` 为 `cursor_conflict` 或 `head_conflict`。
 `queue_wait_ms` 使用单调时钟，不包含入队前的策略等待和重试退避。
 完成事件的 `duration_ms` 单独表示 supervisor 的执行耗时，与排队时间和 child 执行时间分开计算。
 这些事件用于执行诊断，不能当作新发布 Artifact 的数量。
@@ -434,7 +435,8 @@ Scope 的后台处理结果尚未确认写入成功；长时间大于零可能�
 “策略阻塞”在页面中显示为“被规则阻止”。它不是 Worker 崩溃，也不是一次新的失败；它表示同一批 Source
 已经达到允许的重试或资源预算，系统停止继续调用模型。常见 `error_code` 如下：
 
-- `window_attempt_limit`：同一 Cursor 后的这批 Source 已尝试 3 次，仍未完成。请求数和 Token 预算不一定用完。
+- `window_attempt_limit`：同一 Cursor 后的这批 Source 已尝试 3 次，仍未完成。因并发 replace 或 Dream 导致
+  Topic head 冲突的尝试不计入。请求数和 Token 预算不一定用完。
 - `window_provider_budget_exceeded`：同一批 Source 已达到请求数或 Token 预算。
 - `source_complexity_limit`：该窗口的 Source 结构超过处理上限。
 

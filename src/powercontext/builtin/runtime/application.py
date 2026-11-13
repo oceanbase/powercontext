@@ -166,6 +166,7 @@ from powercontext.builtin.persistence.bootstrap_receipts import (
 )
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.skill_publications import SkillPublication
+from powercontext.builtin.processing_diagnostics import observe_processing_failure
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.records import (
     ArtifactCreated,
@@ -798,6 +799,13 @@ class ScopedRecordApplication:
                 embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if family == "atomic-memory" else None,
             ),
             self._runtime._locked(self.scope_id),
+            (
+                observe_processing_failure(
+                    "prompt", "prompt.create", self.scope_id, storage_location="prompt-create-storage"
+                )
+                if family == "prompt"
+                else nullcontext()
+            ),
         ):
             return await self._runtime._records().create_artifact(
                 self.scope_id,
@@ -910,6 +918,13 @@ class ScopedRecordApplication:
                 embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if family == "atomic-memory" else None,
             ),
             self._runtime._locked(self.scope_id),
+            (
+                observe_processing_failure(
+                    "prompt", "prompt.replace", self.scope_id, storage_location="prompt-replace-storage"
+                )
+                if family == "prompt"
+                else nullcontext()
+            ),
         ):
             return await self._runtime._records().replace_artifact(
                 self.scope_id,
@@ -957,7 +972,10 @@ class ScopedPromptApplication:
     async def generate_demonstrations(
         self, key: str, request: GeneratePromptDemonstrations, /
     ) -> PromptDemonstrationResult:
-        async with self._runtime._scope_operation(self.scope_id):
+        async with (
+            self._runtime._scope_operation(self.scope_id),
+            observe_processing_failure("prompt", "prompt.generate_demonstrations", self.scope_id),
+        ):
             service = self._runtime._prompt_service
             if service is None:
                 raise PromptError("prompt_customization_unavailable")
@@ -1194,6 +1212,7 @@ class ScopedContextApplication:
         binding_identity: str = "local",
         atomic_context: ArtifactSearchExecutionContext | None = None,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+        resolve_target: bool = False,
     ) -> ContextCheckResult:
         """Admit final bytes without retrieving or changing the current context."""
         async with self._runtime._scope_operation(self.scope_id):
@@ -1216,6 +1235,7 @@ class ScopedContextApplication:
                 binding_identity=binding_identity,
                 now=self._runtime._clock(),
                 validate_reuse=validate,
+                resolve_target=resolve_target,
             )
 
     async def _prepare(

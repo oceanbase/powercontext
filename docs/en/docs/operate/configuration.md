@@ -306,7 +306,10 @@ Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempt
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
 characters including metadata; nested input is also bounded. Exhaustion preserves Sources, Cursor, Pending, and the
 same-Scope tail, and stops further provider calls. Flush and restart do not reset it; inspect
-`pc_topic_memory_work_budgets` and structured errors for operator remediation.
+`pc_topic_memory_work_budgets` and structured errors for operator remediation. A head conflict, where a concurrent
+replace or Dream moves a Topic head after the Worker read it, does not spend an attempt: the Worker records
+`head_conflict` as that attempt's last error, rereads the head and recomputes. Its reserved requests and token capacity
+stay charged, so a head that keeps moving stops at `window_provider_budget_exceeded` instead of retrying indefinitely.
 
 Topic generation accepts `max_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `presence_penalty`, `frequency_penalty`,
 `timeout`, `openai_reasoning_effort`, `openai_text_verbosity`, `service_tier`, `openai_service_tier`,

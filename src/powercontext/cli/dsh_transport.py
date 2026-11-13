@@ -35,6 +35,7 @@ def read_dsh_settings(
     prospective: bool = False,
     executable: str | None = None,
     require_installed: bool = False,
+    inspect_pet: bool = False,
 ) -> dict[str, Any]:
     """Compose the installed host's current or prospective configuration."""
     from powercontext.cli.dsh import dsh_executable
@@ -71,6 +72,7 @@ def read_dsh_settings(
         str(prospective).lower(),
         anchor,
         str(require_installed).lower(),
+        str(inspect_pet).lower(),
     ]
     try:
         result = subprocess.run(  # noqa: S603 - fixed helper and separate arguments, no shell.

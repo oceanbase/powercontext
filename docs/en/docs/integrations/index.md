@@ -60,6 +60,7 @@ when updating a plugin; this policy adds credential checks without changing capt
 | --- | --- | --- |
 | Claude Code | `UserPromptSubmit` text | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false` or setup `--no-capture-prompts` |
 | Codex | `UserPromptSubmit` text | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` |
+| DSH | User text of the messages before each model step | `POWERCONTEXT_DSH_CAPTURE_PROMPTS=false` |
 | WorkBuddy | Submitted joined prompt text | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS=false` |
 | OpenCode | User text parts, excluding synthetic parts | `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` |
 | Pi | `before_agent_start` prompt | `POWERCONTEXT_PI_CAPTURE_PROMPTS=false` |

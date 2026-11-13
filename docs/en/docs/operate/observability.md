@@ -128,6 +128,8 @@ the supervisor records interruption or failure instead.
 
 The supervisor emits `artifact_processing.queued` on local queue admission, `artifact_processing.dispatched`
 when it starts an attempt, and `artifact_processing.attempt.completed` when it finalizes that attempt.
+An attempt that ends in a control conflict finalizes with outcome `conflict`; its `error_code` is `cursor_conflict` or
+`head_conflict`.
 `queue_wait_ms` uses a monotonic clock and excludes earlier policy waits and retry backoff before queue admission.
 On completion, `duration_ms` measures the supervisor attempt separately from queue time and child execution time.
 These are execution diagnostics, not counts of newly published Artifacts.
@@ -488,8 +490,8 @@ The dashboard labels a policy block as “被规则阻止” (“blocked by a ru
 another failure; it means the same Source frontier has reached its retry or resource allowance and the system stopped
 starting more model work. Common `error_code` values are:
 
-- `window_attempt_limit`: the same frontier has used three attempts and has not completed. Request and token budgets
-  may still be available.
+- `window_attempt_limit`: the same frontier has used three attempts and has not completed. Attempts that lost a
+  Topic head conflict to a concurrent replace or Dream are not counted. Request and token budgets may still be available.
 - `window_provider_budget_exceeded`: the same frontier reached its request or token budget.
 - `source_complexity_limit`: the Source window exceeds the processing limit.
 

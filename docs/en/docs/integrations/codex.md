@@ -77,6 +77,30 @@ The plugin has two paths to the same Server:
   user's prompt as Source evidence;
 - MCP gives Codex explicit tools to read and maintain Memory, plus an explicit Handoff workflow.
 
+### Approve MCP tools that change data
+
+Codex asks for approval before it runs an MCP tool that the server does not mark read-only. PowerContext marks its
+reading tools, such as `search_memory`, read-only; tools that change data, such as `remember_memory` and
+`handoff_current_work`, need approval. The plugin's `PreToolUse` hook answers `allow` only to bind each call to the
+session's Scope. In Codex that rewrites the call without approving it, so the approval is still asked for.
+
+In an interactive session, approve the call when Codex asks. A non-interactive run has no one to answer: under
+`codex exec` with `approval_policy = "never"`, the call fails with "MCP tool call requires approval, but approval
+policy is never" and nothing reaches the Server. For unattended runs, approve the tools the task needs in Codex's
+`config.toml`, one tool at a time:
+
+```toml
+[plugins."powercontext@powercontext".mcp_servers.powercontext.tools.remember_memory]
+approval_mode = "approve"
+```
+
+Use the plugin ID that `codex plugin list` reports, `powercontext@<marketplace>`. An approved tool runs whenever the
+model calls it, without asking, in every session that uses this Codex configuration, interactive ones included. The
+call still uses the saved credential, and while the plugin's hooks are trusted it stays in the session's bound Scope;
+approval does not let the model choose another Scope. Setting `default_tools_approval_mode = "approve"` in the
+server's table, `[plugins."powercontext@powercontext".mcp_servers.powercontext]`, instead approves every PowerContext
+MCP tool, including tools added by later plugin versions. Setup never grants either approval.
+
 ## Hand off the current work in one turn
 
 In a Codex session with the plugin installed and the PowerContext Server available, enter:

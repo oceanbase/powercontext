@@ -103,6 +103,13 @@ that no longer owns the current frontier returns HTTP 409. Cursor, target and So
 and its retry timestamp remain readable after progress resumes. Normal flushes and restarts retain their existing
 budget behavior. Each explicitly accepted retry grants the same three-attempt and provider ceilings.
 
+A manual replace or Dream can move a Topic head while a Worker is generating against it. The Worker's publication then
+fails its head check and writes nothing; the Worker records `head_conflict` as the attempt's last error, and the next
+attempt rereads the head and recomputes. Such an attempt does not count toward the three-attempt ceiling, but its
+provider reservations do. A head that keeps moving therefore ends with `window_provider_budget_exceeded`. That
+reason is usually also the block's `last_error_code`, because the ceiling is crossed during an attempt; a low
+`attempts` count shows that recomputations after head conflicts, not failed attempts, used the budget.
+
 The equivalent Python Client SDK methods are `get_topic_memory_processing_status`,
 `get_topic_memory_processing_block`, and `retry_topic_memory_processing`. Their HTTP routes are
 `POST /v1/topic-memory/processing/status`, `POST /v1/topic-memory/processing/blocks/get`, and
