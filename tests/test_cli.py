@@ -665,6 +665,11 @@ def test_code_cli_reports_explicit_legacy_database_required(tmp_path, monkeypatc
         ("atomic-memory-migrate", "_atomic_memory_maintenance", ["--action", "verify"]),
         ("identity-reset", "_reset_server_identity", ["--maintenance-confirmed"]),
         ("atomic-memory-rebuild-projection", "_atomic_memory_maintenance", ["--maintenance-confirmed"]),
+        (
+            "topic-memory-reindex",
+            "_topic_memory_reindex",
+            ["--action", "apply", "--maintenance-confirmed"],
+        ),
     ],
 )
 def test_server_maintenance_reports_database_permission_guidance(
