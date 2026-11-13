@@ -376,6 +376,11 @@ flush 或修改绑定。Doctor 探测和手动操作也不会覆盖自动执行�
 - DSH 原生 MCP client 连接 `/mcp/`，并将 Server 工具以 `mcp__powercontext__<operation>` 暴露给模型；
 - `/pc` 命令和自动生命周期阶段使用有界 HTTP client 执行宿主控制与诊断。
 
+自动路径遵循[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。上下文准备前，召回查询中识别出的凭据会替换为 `[REDACTED]`，
+包括 `api_key=…`、`password: …` 等凭据赋值，`Authorization` 和 `Cookie` 头，bearer 与服务商 token，私钥，
+以及插件配置的 Server token。含有其中任一项的提示词不会被采集。只是包含标记字样的普通词语，例如 `task-runner`
+或 `token budgets`，会原样采集。该规则识别常见形态，不能覆盖所有 secret。
+
 MCP 面覆盖完整 PowerContext profile：Memory 读写、Source 采集、Work Contract、Handoff 与确认、任务结果、
 Experience、托管和外部 Skill、候选审查、Scope 管理、持久 Scope binding 以及 Artifact 发布；同时还暴露
 profile 契约之外的 Server MCP 工具。插件不会注册 Pi/Hermes 风格的直接 HTTP 操作工具。

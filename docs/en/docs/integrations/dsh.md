@@ -449,6 +449,13 @@ The plugin has three deliberately different paths to the same Server:
 - DSH's native MCP client connects to `/mcp/` and exposes the Server tools as `mcp__powercontext__<operation>`;
 - `/pc` commands and automatic lifecycle stages use the bounded HTTP client for host control and diagnostics.
 
+The automatic path follows the [automatic prompt privacy](index.md#automatic-prompt-privacy) policy. Before
+preparation, recognized credentials in the recall query are replaced with `[REDACTED]`: credential assignments such
+as `api_key=…` or `password: …`, `Authorization` and `Cookie` headers, bearer and provider tokens, private keys, and
+the configured Server token. A prompt that contains any of them is not captured. Ordinary words that only contain a
+marker, such as `task-runner` or `token budgets`, are captured unchanged. The rule recognizes common shapes, not
+every secret.
+
 The MCP surface covers the full PowerContext profile: Memory read/write, Source capture, Work Contract, Handoff and
 acknowledgement, task outcome, Experience, managed and external Skill workflows, candidate inspection, Scope
 organization, persistent Scope binding, and artifact publication. It also exposes the Server's additional MCP tools that
