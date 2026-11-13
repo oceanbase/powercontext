@@ -25,6 +25,7 @@ path = "src/main.rs"
 
 [dependencies]
 pc-gateway-core = { workspace = true }
+pc-gateway-auth = { workspace = true }
 pc-gateway-types = { workspace = true }
 pc-gateway-protocol = { workspace = true }
 pc-gateway-transport = { workspace = true }

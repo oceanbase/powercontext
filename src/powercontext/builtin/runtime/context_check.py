@@ -48,6 +48,7 @@ _SEND_PURPOSE = "context-check.before_send"
 _RELEASE_PURPOSE = "context-check.before_release"
 _MARKERS = ("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1", "BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
 _ALLOWED_HEADERS = frozenset({"content-type", "anthropic-version", "anthropic-beta"})
+_GOOGLE_LOCATION = re.compile(r"^/request/contents/(0|[1-9][0-9]*)/parts/(0|[1-9][0-9]*)/text$")
 _MESSAGE_LOCATION = re.compile(r"^/(messages|input)/(0|[1-9][0-9]*)/content(?:/(0|[1-9][0-9]*)/text)?$")
 
 
@@ -162,9 +163,37 @@ def _withheld(
     )
 
 
-def _message_text(
+def _codeassist_message_text(
+    body: dict[str, object], location: ModelJsonTextLocation
+) -> tuple[str, tuple[int, int, int]]:
+    match = _GOOGLE_LOCATION.fullmatch(location.pointer)
+    if match is None:
+        raise InvalidRuntimeRequestError("context-location-unsupported")
+    request = body.get("request")
+    contents = request.get("contents") if isinstance(request, dict) else None
+    index, part_index = map(int, match.groups())
+    if not isinstance(contents, list) or index >= len(contents):
+        raise InvalidRuntimeRequestError("context-location-invalid")
+    content = contents[index]
+    if not isinstance(content, dict) or content.get("role") != "user":
+        raise InvalidRuntimeRequestError("context-location-trust")
+    parts = content.get("parts")
+    if not isinstance(parts, list) or part_index >= len(parts):
+        raise InvalidRuntimeRequestError("context-location-invalid")
+    part = parts[part_index]
+    text = part.get("text") if isinstance(part, dict) and set(part) == {"text"} else None
+    if not isinstance(text, str):
+        raise InvalidRuntimeRequestError("context-location-trust")
+    return text, (index, part_index, location.start_byte)
+
+
+def _message_text(  # noqa: C901 - protocol-specific text locations retain role and part trust checks
     body: dict[str, object], location: ModelJsonTextLocation, protocol: str
 ) -> tuple[str, tuple[int, int, int]]:
+    if protocol in {"google-codeassist", "google-codeassist-chat"}:
+        return _codeassist_message_text(body, location)
+    if protocol == "claude-cli-prompt":
+        protocol = "openai-chat"
     match = _MESSAGE_LOCATION.fullmatch(location.pointer)
     if match is None:
         raise InvalidRuntimeRequestError("context-location-unsupported")
@@ -216,7 +245,9 @@ def _require_unsplit_markers(parts: Iterable[object]) -> None:
     tail = ""
     for part in parts:
         text = part if isinstance(part, str) else None
-        if isinstance(part, dict) and part.get("type") in ("text", "input_text", "output_text"):
+        if isinstance(part, dict) and (
+            part.get("type") in ("text", "input_text", "output_text") or set(part) <= {"text", "thought"}
+        ):
             text = part.get("text")
         if not isinstance(text, str):
             tail = ""

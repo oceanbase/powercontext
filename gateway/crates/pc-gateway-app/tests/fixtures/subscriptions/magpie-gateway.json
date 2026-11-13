@@ -1,0 +1,429 @@
+{
+  "upstream": "yetone/magpie",
+  "commit": "331f4a1393c481e8abe8793597332e14dfe3e07e",
+  "license": "MIT",
+  "source_files": [
+    "internal/gateway/grok_namespace_test.go",
+    "internal/gateway/namespace_test.go",
+    "internal/gateway/responses_allowed_tools_test.go"
+  ],
+  "adaptation": "The Gateway buffers upstream JSON and creates client SSE after release checking. Requests omit the client stream flag, which the runner supplies.",
+  "cases": [
+    {
+      "id": "namespaced-calls",
+      "source_test": "TestGrokGetsNamespacedTools",
+      "request": {
+        "model": "grok/grok-4.7",
+        "tools": [
+          {
+            "type": "function",
+            "name": "exec_command",
+            "parameters": {
+              "type": "object"
+            }
+          },
+          {
+            "type": "namespace",
+            "name": "collaboration",
+            "description": "Tools in the collaboration namespace.",
+            "tools": [
+              {
+                "type": "function",
+                "name": "spawn_agent",
+                "description": "Spawns an agent.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "custom",
+                "name": "freeform",
+                "description": "no JSON schema"
+              }
+            ]
+          }
+        ],
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "type": "function_call",
+            "call_id": "c1",
+            "name": "spawn_agent",
+            "namespace": "collaboration",
+            "arguments": "{}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "c1",
+            "output": "ok"
+          }
+        ]
+      },
+      "upstream_tools": [
+        {
+          "type": "function",
+          "name": "exec_command",
+          "parameters": {
+            "type": "object"
+          }
+        },
+        {
+          "type": "function",
+          "name": "collaboration__spawn_agent",
+          "description": "Spawns an agent.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "response": {
+        "id": "r1",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "c9",
+            "name": "collaboration__spawn_agent",
+            "arguments": "{\"message\":\"go\"}",
+            "status": "completed"
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 3
+        }
+      },
+      "expected_response": {
+        "id": "r1",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "c9",
+            "name": "spawn_agent",
+            "arguments": "{\"message\":\"go\"}",
+            "status": "completed",
+            "namespace": "collaboration",
+            "encrypted_function_args": []
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 3
+        }
+      }
+    },
+    {
+      "id": "required subset",
+      "source_test": "TestParseResponsesAllowedTools",
+      "response_origin": "Project-authored reply; the upstream case asserts forwarded selection.",
+      "request": {
+        "model": "m",
+        "input": "hello",
+        "tools": [
+          {
+            "type": "function",
+            "name": "safeA"
+          },
+          {
+            "type": "function",
+            "name": "forbidden"
+          },
+          {
+            "type": "function",
+            "name": "safeB"
+          },
+          {
+            "type": "web_search_preview"
+          }
+        ],
+        "tool_choice": {
+          "type": "allowed_tools",
+          "mode": "required",
+          "tools": [
+            {
+              "type": "function",
+              "name": "safeA"
+            },
+            {
+              "type": "function",
+              "name": "safeB"
+            }
+          ]
+        }
+      },
+      "upstream_tools": [
+        {
+          "type": "function",
+          "name": "safeA"
+        },
+        {
+          "type": "function",
+          "name": "safeB"
+        }
+      ],
+      "upstream_choice": "required",
+      "response": {
+        "id": "r-allowed",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-allowed",
+            "call_id": "c-allowed",
+            "name": "safeA",
+            "arguments": "{}",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected_response": {
+        "id": "r-allowed",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-allowed",
+            "call_id": "c-allowed",
+            "name": "safeA",
+            "arguments": "{}",
+            "status": "completed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto one",
+      "source_test": "TestParseResponsesAllowedTools",
+      "response_origin": "Project-authored reply; the upstream case asserts forwarded selection.",
+      "request": {
+        "model": "m",
+        "input": "hello",
+        "tools": [
+          {
+            "type": "function",
+            "name": "safeA"
+          },
+          {
+            "type": "function",
+            "name": "forbidden"
+          },
+          {
+            "type": "function",
+            "name": "safeB"
+          },
+          {
+            "type": "web_search_preview"
+          }
+        ],
+        "tool_choice": {
+          "type": "allowed_tools",
+          "mode": "auto",
+          "tools": [
+            {
+              "type": "function",
+              "name": "safeB"
+            }
+          ]
+        }
+      },
+      "upstream_tools": [
+        {
+          "type": "function",
+          "name": "safeB"
+        }
+      ],
+      "upstream_choice": "auto",
+      "response": {
+        "id": "r-allowed",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-allowed",
+            "call_id": "c-allowed",
+            "name": "safeB",
+            "arguments": "{}",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected_response": {
+        "id": "r-allowed",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-allowed",
+            "call_id": "c-allowed",
+            "name": "safeB",
+            "arguments": "{}",
+            "status": "completed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "allowed namespaced tool",
+      "source_test": "TestParseResponsesAllowedNamespacedTool",
+      "request": {
+        "model": "m",
+        "input": "hi",
+        "tools": [
+          {
+            "type": "function",
+            "name": "exec_command",
+            "parameters": {
+              "type": "object"
+            }
+          },
+          {
+            "type": "namespace",
+            "name": "collaboration",
+            "description": "Tools in the collaboration namespace.",
+            "tools": [
+              {
+                "type": "function",
+                "name": "spawn_agent",
+                "description": "Spawns an agent.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "custom",
+                "name": "freeform",
+                "description": "no JSON schema"
+              }
+            ]
+          }
+        ],
+        "tool_choice": {
+          "type": "allowed_tools",
+          "mode": "required",
+          "tools": [
+            {
+              "type": "function",
+              "namespace": "collaboration",
+              "name": "spawn_agent"
+            }
+          ]
+        }
+      },
+      "upstream_tools": [
+        {
+          "type": "function",
+          "name": "collaboration__spawn_agent",
+          "description": "Spawns an agent.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "upstream_choice": "required",
+      "response": {
+        "id": "r1",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "c9",
+            "name": "collaboration__spawn_agent",
+            "arguments": "{\"message\":\"go\"}",
+            "status": "completed"
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 3
+        }
+      },
+      "expected_response": {
+        "id": "r1",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "c9",
+            "name": "spawn_agent",
+            "arguments": "{\"message\":\"go\"}",
+            "status": "completed",
+            "namespace": "collaboration",
+            "encrypted_function_args": []
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 3
+        }
+      }
+    },
+    {
+      "id": "required empty",
+      "source_test": "TestParseResponsesAllowedTools",
+      "request": {
+        "model": "m",
+        "input": "hello",
+        "tools": [
+          {
+            "type": "function",
+            "name": "safeA"
+          },
+          {
+            "type": "function",
+            "name": "forbidden"
+          },
+          {
+            "type": "function",
+            "name": "safeB"
+          },
+          {
+            "type": "web_search_preview"
+          }
+        ],
+        "tool_choice": {
+          "type": "allowed_tools",
+          "mode": "required",
+          "tools": []
+        }
+      },
+      "reject": true
+    }
+  ]
+}

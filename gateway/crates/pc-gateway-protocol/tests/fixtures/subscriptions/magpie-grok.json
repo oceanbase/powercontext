@@ -1,0 +1,492 @@
+{
+  "upstream": "yetone/magpie",
+  "commit": "331f4a1393c481e8abe8793597332e14dfe3e07e",
+  "path": "internal/provider/grok_test.go",
+  "cases": [
+    {
+      "id": "null-reasoning",
+      "source_test": "TestGrokBodyDropsNullReasoningContent",
+      "request": {
+        "input": [
+          {
+            "type": "reasoning",
+            "id": "rs_1",
+            "summary": [],
+            "content": null,
+            "encrypted_content": "a+b/c="
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "encrypted_content": "a+b/c=",
+            "id": "rs_1",
+            "summary": [],
+            "type": "reasoning"
+          },
+          {
+            "content": "hi",
+            "role": "user",
+            "type": "message"
+          }
+        ]
+      }
+    },
+    {
+      "id": "non-null-reasoning",
+      "source_test": "TestGrokBodyDropsNullReasoningContent",
+      "request": {
+        "input": [
+          {
+            "type": "reasoning",
+            "content": [],
+            "encrypted_content": "x"
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "reasoning",
+            "content": [],
+            "encrypted_content": "x"
+          }
+        ]
+      }
+    },
+    {
+      "id": "agent-task",
+      "source_test": "TestGrokBodyAgentMessageGoesAsUser",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "author": "/root",
+            "recipient": "/root/research",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Message Type: NEW_TASK\nPayload:\nresearch the failure"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "content": [
+              {
+                "text": "From /root to /root/research\n\n",
+                "type": "input_text"
+              },
+              {
+                "text": "Message Type: NEW_TASK\nPayload:\nresearch the failure",
+                "type": "input_text"
+              }
+            ],
+            "role": "user",
+            "type": "message"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-0",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "encrypted_content",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "encrypted_content",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-1",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "header"
+              },
+              {
+                "type": "encrypted_content",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "header"
+              },
+              {
+                "type": "encrypted_content",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-2",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "input_text",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "input_text",
+                "encrypted_content": "sealed fixture"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-3",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "encrypted_content": "sealed fixture",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "header"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "encrypted_content": "sealed fixture",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "header"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-4",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "future_content",
+                "payload": "keep me"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "future_content",
+                "payload": "keep me"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-5",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": []
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "sealed-agent-6",
+      "source_test": "TestGrokBodyLeavesSealedAgentMessage",
+      "request": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": null
+          }
+        ]
+      },
+      "expected": {
+        "input": [
+          {
+            "type": "agent_message",
+            "content": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "unsupported-tools",
+      "source_test": "TestGrokBodyLeavesOutCustomTools",
+      "request": {
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "type": "function",
+            "name": "shell"
+          },
+          {
+            "type": "custom",
+            "name": "apply_patch",
+            "format": {
+              "type": "grammar"
+            }
+          },
+          {
+            "type": "namespace",
+            "name": "multi_agent_v1",
+            "tools": []
+          },
+          {
+            "type": "namespace",
+            "name": "collaboration",
+            "description": "agents",
+            "tools": [
+              {
+                "type": "function",
+                "name": "spawn_agent",
+                "parameters": {
+                  "type": "object"
+                }
+              },
+              {
+                "type": "custom",
+                "name": "freeform"
+              }
+            ]
+          },
+          {
+            "type": "namespace",
+            "name": "odd",
+            "tools": [
+              {
+                "type": "custom",
+                "name": "x"
+              }
+            ]
+          },
+          {
+            "type": "web_search",
+            "external_web_access": false
+          }
+        ],
+        "tool_choice": {
+          "type": "custom",
+          "name": "apply_patch"
+        },
+        "max_output_tokens": 100
+      },
+      "expected": {
+        "model": "grok-4.7",
+        "tools": [
+          {
+            "type": "function",
+            "name": "shell"
+          },
+          {
+            "type": "function",
+            "name": "collaboration__spawn_agent",
+            "parameters": {
+              "type": "object"
+            }
+          },
+          {
+            "type": "web_search"
+          }
+        ],
+        "max_output_tokens": 100
+      }
+    },
+    {
+      "id": "namespaced-calls",
+      "source_test": "TestGrokBodyFlattensNamespacedCalls",
+      "request": {
+        "tools": [
+          {
+            "type": "function",
+            "name": "exec_command"
+          },
+          {
+            "type": "namespace",
+            "name": "codex_app",
+            "tools": [
+              {
+                "type": "function",
+                "name": "set_thread_title"
+              }
+            ]
+          },
+          {
+            "type": "namespace",
+            "name": "functions",
+            "tools": [
+              {
+                "type": "function",
+                "name": "view_image"
+              }
+            ]
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "name": "set_thread_title",
+          "namespace": "codex_app"
+        },
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "c1",
+            "name": "spawn_agent",
+            "namespace": "collaboration",
+            "arguments": "{}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "c1",
+            "output": "ok"
+          },
+          {
+            "type": "function_call",
+            "call_id": "c2",
+            "name": "exec_command",
+            "arguments": "{}"
+          },
+          {
+            "type": "function_call",
+            "call_id": "c3",
+            "name": "view_image",
+            "namespace": "functions",
+            "arguments": "{}"
+          }
+        ]
+      },
+      "expected": {
+        "tools": [
+          {
+            "type": "function",
+            "name": "exec_command"
+          },
+          {
+            "type": "function",
+            "name": "codex_app__set_thread_title"
+          },
+          {
+            "type": "function",
+            "name": "view_image"
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "name": "codex_app__set_thread_title"
+        },
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "c1",
+            "name": "collaboration__spawn_agent",
+            "arguments": "{}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "c1",
+            "output": "ok"
+          },
+          {
+            "type": "function_call",
+            "call_id": "c2",
+            "name": "exec_command",
+            "arguments": "{}"
+          },
+          {
+            "type": "function_call",
+            "call_id": "c3",
+            "name": "view_image",
+            "arguments": "{}"
+          }
+        ]
+      }
+    }
+  ]
+}

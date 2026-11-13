@@ -906,8 +906,8 @@ name = "httpcore2"
 version = "2.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
+    { name = "h11", marker = "sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
 wheels = [
@@ -1666,11 +1666,21 @@ requires-dist = [
     { name = "alembic", marker = "extra == 'ops'", specifier = ">=1.16,<2" },
     { name = "alembic", marker = "extra == 'seekdb'", specifier = ">=1.16,<2" },
     { name = "alembic", marker = "extra == 'server'", specifier = ">=1.16,<2" },
+    { name = "anyio", marker = "extra == 'builtin'", specifier = ">=4,<5" },
+    { name = "anyio", marker = "extra == 'cli'", specifier = ">=4,<5" },
+    { name = "anyio", marker = "extra == 'ops'", specifier = ">=4,<5" },
+    { name = "anyio", marker = "extra == 'seekdb'", specifier = ">=4,<5" },
+    { name = "anyio", marker = "extra == 'server'", specifier = ">=4,<5" },
     { name = "apscheduler", marker = "extra == 'builtin'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'cli'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'ops'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'seekdb'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'server'", specifier = ">=3.11,<4" },
+    { name = "authlib", marker = "extra == 'builtin'", specifier = ">=1.7,<2" },
+    { name = "authlib", marker = "extra == 'cli'", specifier = ">=1.7,<2" },
+    { name = "authlib", marker = "extra == 'ops'", specifier = ">=1.7,<2" },
+    { name = "authlib", marker = "extra == 'seekdb'", specifier = ">=1.7,<2" },
+    { name = "authlib", marker = "extra == 'server'", specifier = ">=1.7,<2" },
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.1,<9" },
     { name = "cryptography", marker = "extra == 'builtin'", specifier = ">=46,<51" },
     { name = "cryptography", marker = "extra == 'cli'", specifier = ">=46,<51" },
@@ -1737,11 +1747,11 @@ requires-dist = [
     { name = "pycasbin", marker = "extra == 'seekdb'", specifier = ">=2.8,<3" },
     { name = "pycasbin", marker = "extra == 'server'", specifier = ">=2.8,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'builtin'", specifier = ">=2.64.0,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'cli'", specifier = ">=2.64.0,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'ops'", specifier = ">=2.64.0,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'seekdb'", specifier = ">=2.64.0,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'server'", specifier = ">=2.64.0,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "google", "openai"], marker = "extra == 'builtin'", specifier = ">=2.64.0,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "google", "openai"], marker = "extra == 'cli'", specifier = ">=2.64.0,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "google", "openai"], marker = "extra == 'ops'", specifier = ">=2.64.0,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "google", "openai"], marker = "extra == 'seekdb'", specifier = ">=2.64.0,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "google", "openai"], marker = "extra == 'server'", specifier = ">=2.64.0,<3" },
     { name = "pydantic-settings", marker = "extra == 'builtin'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'cli'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'client'", specifier = ">=2.7,<3" },
@@ -1833,6 +1843,7 @@ notebooks = [
 resource-build = [
     { name = "aiosqlite", specifier = ">=0.22,<1" },
     { name = "alembic", specifier = ">=1.16,<2" },
+    { name = "anyio", specifier = ">=4,<5" },
     { name = "apscheduler", specifier = ">=3.11,<4" },
     { name = "click", specifier = ">=8.1,<9" },
     { name = "filelock", specifier = ">=3.16,<4" },

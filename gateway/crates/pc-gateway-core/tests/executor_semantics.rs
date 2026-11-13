@@ -78,6 +78,7 @@ struct FakeGate {
     check_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
     results: Mutex<VecDeque<Result<ContextCheckResult, GateError>>>,
     seen: Mutex<Vec<(CheckPhase, String)>>,
+    payload_headers: Mutex<Vec<std::collections::BTreeMap<String, String>>>,
     prepared_seen: Mutex<Vec<Vec<PreparedContextLocation>>>,
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
@@ -100,6 +101,12 @@ impl GateClient for FakeGate {
         &self,
         request: ContextCheckRequest,
     ) -> impl Future<Output = Result<ContextCheckResult, GateError>> + Send {
+        if let ContextCheckRequest::BeforeSend { payload, .. } = &request {
+            self.payload_headers
+                .lock()
+                .unwrap()
+                .push(payload.headers.clone());
+        }
         let (phase, note) = match &request {
             ContextCheckRequest::BeforeSend { payload, .. } => {
                 (CheckPhase::BeforeSend, payload.body.clone())
@@ -365,6 +372,7 @@ fn harness(
         check_holds: Mutex::new(VecDeque::new()),
         results: Mutex::new(gate_results.into()),
         seen: Mutex::new(Vec::new()),
+        payload_headers: Mutex::new(Vec::new()),
         prepared_seen: Mutex::new(Vec::new()),
         prepare_result: Mutex::new(None),
         prepare_barrier: Mutex::new(None),
@@ -385,6 +393,49 @@ fn harness(
 }
 
 // ---------- 用例 ----------
+
+#[tokio::test]
+async fn subscription_final_bytes_are_checked_and_auth_metadata_stays_outside_content() {
+    use pc_gateway_protocol::{GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer};
+    let (executor, _, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let mut call = call(DegradePolicy::Pause);
+    call.request.output_limits.max_output_tokens = None;
+    call.headers.extend([
+        ("chatgpt-account-id".into(), "synthetic-account".into()),
+        ("editor-version".into(), "vscode/1.140.0".into()),
+        ("x-msh-device-id".into(), "synthetic-device".into()),
+        ("user-agent".into(), "PowerContextGateway/0.1.0".into()),
+    ]);
+    let renderer = SubscriptionRenderer {
+        inner: GatewayRenderer::Responses(Default::default()),
+        subscription: Some(SubscriptionProtocol::Codex),
+    };
+    let outcome = executor
+        .run(request_control(), call, &renderer, &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let checks = gate.seen.lock().unwrap();
+    let before_send = &checks[0].1;
+    let value: serde_json::Value = serde_json::from_str(before_send).unwrap();
+    assert_eq!(value["stream"], true);
+    assert_eq!(value["store"], false);
+    assert_eq!(value["instructions"], "You are Codex.");
+    assert_eq!(
+        transport.sends.lock().unwrap()[0].as_ref(),
+        before_send.as_bytes()
+    );
+    assert_eq!(
+        gate.payload_headers.lock().unwrap()[0],
+        std::collections::BTreeMap::from([("content-type".into(), "application/json".into()),])
+    );
+}
 
 #[tokio::test]
 async fn released_execution_retains_control_and_complete_response_facts() {
