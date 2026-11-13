@@ -80,13 +80,13 @@ RFC #2549 已经为热加载和自定义接口铺好了基础：
 
 ## 2. 插件自定义接口
 
-插件在声明中加上 `api`，列出自己的路由；处理函数是 `create(ctx)` 返回对象上的方法。下面的文档插件把每个知识库对应为
+插件在声明中加上 `api`，列出自己的路由；处理函数是 `setup(ctx)` 返回对象上的方法。下面的文档插件把每个知识库对应为
 一个 Scope：创建知识库就是创建一个 Scope，上传的文件存进插件存储，Source 只记录位置和摘要：
 
 ```python
 from pydantic import BaseModel
 
-from powercontext.plugins import ApiError, ApiRequest, BinaryResponse, PluginApi, Route, SourcePlugin
+from powercontext.plugins import ApiError, ApiRequest, ArtifactPlugin, BinaryResponse, PluginApi, Rendering, Route
 
 
 class NewKnowledgeBase(BaseModel):
@@ -106,6 +106,9 @@ class UploadResult(BaseModel):
 class Documents:
     def __init__(self, ctx) -> None:
         self.ctx = ctx
+
+    async def render_artifact(self, request) -> Rendering:
+        return Rendering(text="# " + request.artifact.content["name"])
 
     async def create_knowledge_base(self, request: ApiRequest) -> KnowledgeBase:
         body: NewKnowledgeBase = request.body
@@ -131,11 +134,12 @@ class Documents:
         return BinaryResponse(content=found.content, content_type=found.media_type)
 
 
-async def create(ctx) -> Documents:
+async def setup(ctx) -> Documents:
     return Documents(ctx)
 
 
-plugin = SourcePlugin(
+plugin = ArtifactPlugin(
+    family="kb-document",
     definitions=(DocumentInputDefinition(),),
     api=PluginApi(routes=(
         Route(method="POST", path="/knowledge-bases", handler="create_knowledge_base", access="authenticated",
@@ -145,7 +149,7 @@ plugin = SourcePlugin(
         Route(method="GET", path="/knowledge-bases/{kb_id}/documents/{source_id}/original", handler="original",
               access="scope.read", scope_param="kb_id"),
     )),
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -176,7 +180,7 @@ GET  /v1/plugins/documents/openapi.json                                         
 ```python
 from powercontext.plugins import PluginPages
 
-plugin = SourcePlugin(
+plugin = ArtifactPlugin(
     ...,
     pages=PluginPages(directory="ui", entry="index.html", title={"zh": "文档", "en": "Documents"}),
 )
@@ -271,12 +275,12 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 async def upgrade(ctx: PluginContext) -> None:
     """每次加载本版本时调用；自行判断已有数据是否需要升级。"""
 
-plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_seconds=600)
+plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600)
 ```
 
 - **调用时机**：每次加载一个插件版本都会调用，包括 Server 启动时加载和热加载切换到新版本，不只在首次安装时调用。插件
   自己记录数据的版本（例如写在专属存储中，或写进 Artifact 内容），与代码中的版本比较后决定做什么。
-- **在哪里执行**：新宿主进程在 `create(ctx)` 之前执行 `upgrade(ctx)`，完成后才报告就绪；声明了 `upgrade` 的插件，宿主
+- **在哪里执行**：新宿主进程在 `setup(ctx)` 之前执行 `upgrade(ctx)`，完成后才报告就绪；声明了 `upgrade` 的插件，宿主
   进程在加载时立即启动。新版本就绪之前，core 不向它转发同步调用和接口请求，也不用新快照派发后台调用。
 - **失败**：`upgrade` 抛出异常或超过 `upgrade_timeout_seconds`（默认 600 秒）时，按新版本检查失败处理：热加载时继续使用
   旧版本；Server 启动时插件为 `failed`。
@@ -299,7 +303,7 @@ plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_sec
 class Route(BaseModel):
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     path: str                                   # 相对路径，以 / 开头，可含 {参数}
-    handler: str                                # create(ctx) 返回对象上的方法名
+    handler: str                                # setup(ctx) 返回对象上的方法名
     access: Literal["authenticated", "scope.read", "scope.contribute"]
     scope_param: str | None = None              # access 为 Scope 权限时必填：作为 Scope ID 的路径参数
     body: Literal["none", "json", "binary"] = "none"
@@ -314,7 +318,7 @@ class PluginApi(BaseModel):
     routes: Sequence[Route]
 ```
 
-- `SourcePlugin` 和 `ArtifactPlugin` 都可以声明 `api`。声明 `api` 的插件需要宿主进程。
+- `ArtifactPlugin` 和 RFC #2617 的 `SourcePlugin` 都可以声明 `api`。声明 `api` 的插件需要宿主进程。
 - 路由挂载在 `/v1/plugins/{name}/api{path}`。同一插件内 `(method, path)` 不能重复；`handler` 必须存在且是 async 方法，
   在检查子进程中校验。
 - `access` 为 `scope.read` 或 `scope.contribute` 时，`scope_param` 必须是 `path` 中的参数；core 检查调用者对该 Scope 的
@@ -360,7 +364,7 @@ class ApiError(Exception):
 
 ### 2.3 处理函数能做什么
 
-处理函数在宿主进程中执行，`create(ctx)` 在每个宿主进程中只执行一次，Scope 随每个请求传入（与 RFC #2549 相同）。除了
+处理函数在宿主进程中执行，`setup(ctx)` 在每个宿主进程中只执行一次，Scope 随每个请求传入（与 RFC #2549 相同）。除了
 RFC #2549 的上下文（专属存储、模型、日志），自定义接口调用还提供：
 
 | 能力 | 说明 |

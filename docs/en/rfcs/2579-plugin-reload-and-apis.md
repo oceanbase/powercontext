@@ -99,14 +99,14 @@ Deployers work on the plugin directory directly:
 
 ## 2. Plugin-defined APIs
 
-A plugin adds `api` to its declaration to list its routes; handlers are methods on the object `create(ctx)` returns. The
+A plugin adds `api` to its declaration to list its routes; handlers are methods on the object `setup(ctx)` returns. The
 document plugin below maps each knowledge base to a Scope: creating a knowledge base creates a Scope, uploaded files go
 into plugin storage, and the Source records only their location and digest:
 
 ```python
 from pydantic import BaseModel
 
-from powercontext.plugins import ApiError, ApiRequest, BinaryResponse, PluginApi, Route, SourcePlugin
+from powercontext.plugins import ApiError, ApiRequest, ArtifactPlugin, BinaryResponse, PluginApi, Rendering, Route
 
 
 class NewKnowledgeBase(BaseModel):
@@ -126,6 +126,9 @@ class UploadResult(BaseModel):
 class Documents:
     def __init__(self, ctx) -> None:
         self.ctx = ctx
+
+    async def render_artifact(self, request) -> Rendering:
+        return Rendering(text="# " + request.artifact.content["name"])
 
     async def create_knowledge_base(self, request: ApiRequest) -> KnowledgeBase:
         body: NewKnowledgeBase = request.body
@@ -152,11 +155,12 @@ class Documents:
         return BinaryResponse(content=found.content, content_type=found.media_type)
 
 
-async def create(ctx) -> Documents:
+async def setup(ctx) -> Documents:
     return Documents(ctx)
 
 
-plugin = SourcePlugin(
+plugin = ArtifactPlugin(
+    family="kb-document",
     definitions=(DocumentInputDefinition(),),
     api=PluginApi(routes=(
         Route(method="POST", path="/knowledge-bases", handler="create_knowledge_base", access="authenticated",
@@ -166,7 +170,7 @@ plugin = SourcePlugin(
         Route(method="GET", path="/knowledge-bases/{kb_id}/documents/{source_id}/original", handler="original",
               access="scope.read", scope_param="kb_id"),
     )),
-    create=create,
+    setup=setup,
 )
 ```
 
@@ -203,7 +207,7 @@ A plugin adds `pages` to its declaration, pointing to static files in the plugin
 ```python
 from powercontext.plugins import PluginPages
 
-plugin = SourcePlugin(
+plugin = ArtifactPlugin(
     ...,
     pages=PluginPages(directory="ui", entry="index.html", title={"zh": "文档", "en": "Documents"}),
 )
@@ -322,13 +326,13 @@ The active plugin record lives only in each process's memory and is not synchron
 async def upgrade(ctx: PluginContext) -> None:
     """Called each time this version loads; decides whether existing data needs upgrading."""
 
-plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_seconds=600)
+plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600)
 ```
 
 - **When**: on every load of a plugin version, both at Server startup and when hot reload switches to a new version, not
   only on first install. The plugin records the version of its data itself (for example in its dedicated storage or in
   Artifact content) and compares it with the version in its code to decide what to do.
-- **Where**: a new host process runs `upgrade(ctx)` before `create(ctx)` and reports ready only afterwards; plugins that
+- **Where**: a new host process runs `upgrade(ctx)` before `setup(ctx)` and reports ready only afterwards; plugins that
   declare `upgrade` start their host process as soon as they load. Until the new version is ready, core forwards no
   synchronous calls or API requests to it and dispatches no background calls with the new snapshot.
 - **Failure**: if `upgrade` raises or exceeds `upgrade_timeout_seconds` (600 seconds by default), core treats the new
@@ -356,7 +360,7 @@ plugin = ArtifactPlugin(..., create=create, upgrade=upgrade, upgrade_timeout_sec
 class Route(BaseModel):
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     path: str                                   # relative path starting with /, may contain {parameters}
-    handler: str                                # method name on the object create(ctx) returns
+    handler: str                                # method name on the object setup(ctx) returns
     access: Literal["authenticated", "scope.read", "scope.contribute"]
     scope_param: str | None = None              # required for Scope access: the path parameter holding the Scope ID
     body: Literal["none", "json", "binary"] = "none"
@@ -371,7 +375,7 @@ class PluginApi(BaseModel):
     routes: Sequence[Route]
 ```
 
-- Both `SourcePlugin` and `ArtifactPlugin` can declare `api`. A plugin that declares `api` needs a host process.
+- Both `ArtifactPlugin` and the `SourcePlugin` of RFC #2617 can declare `api`. A plugin that declares `api` needs a host process.
 - Routes are mounted at `/v1/plugins/{name}/api{path}`. `(method, path)` must be unique within a plugin; `handler` must
   exist and be an async method, which the check child process validates.
 - When `access` is `scope.read` or `scope.contribute`, `scope_param` must be a parameter in `path`; core checks the
@@ -423,7 +427,7 @@ class ApiError(Exception):
 
 ### 2.3 What handlers can do
 
-Handlers run in the host process; `create(ctx)` runs only once per host process, and each request carries its Scope (as
+Handlers run in the host process; `setup(ctx)` runs only once per host process, and each request carries its Scope (as
 in RFC #2549). Besides the RFC #2549 context (dedicated storage, models, logger), plugin API calls provide:
 
 | Capability | Description |
