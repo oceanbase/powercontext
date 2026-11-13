@@ -3023,3 +3023,31 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml \
   --test session bundled_product_qualification_covers_every_desktop_operation
 make contract-test
 ```
+
+## Server bf0e57f3 merged contract protocol qualification
+
+`sqlite-core-target-stop-reason-bf0e57f3-v1` qualifies the thirteen bundled Desktop
+operations against Server source `bf0e57f31a07a17434356e3778de006741d24cef` and
+the combined Core target-resolution and Task stop-reason OpenAPI contract.
+
+- Normalized OpenAPI SHA-256: `34470a526707dafb36c9264928e541d73298f10e3768f57f010beef415cc9f66`.
+- Wheel: `powercontext-1.5.1.dev309+gbf0e57f31-py3-none-any.whl`.
+- Wheel SHA-256: `54ce5234f06d1d842b8673ce71638f19bf6b3f179703aad2738ab025f83cd219`.
+
+All 747 packaged Server and service-bootstrap runtime files match the clean Git source
+archive after CRLF normalization; no runtime file is missing or added. The wheel was
+built from that commit before adding this product profile. The native `server_probe`
+was built against the merged Desktop contract and provisional bundled profile without
+`ci-fixtures`. On 2026-11-13, macOS 27.0.1 ARM64 and Python 3.14.5 passed all four
+real HTTP/SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, static
+Bearer, HTTPS with explicit CA/base path, and enforced Provider. The ordinary product
+`ConnectionManager` reported `bundled product records` and this exact profile for all
+four modes. The native bundled-operation coverage test also passed. The harness report
+records the Desktop working tree as dirty because this profile had not yet been committed;
+the Server wheel itself is bound to the clean recorded source.
+
+The report and wheel are retained under ignored `desktop/.artifacts/real-server.json`
+and `desktop/.artifacts/server-wheel/`. Previous profiles retain their original source,
+contract, artifact and evidence identities. This is local SQLite protocol qualification,
+not an installed WebView or credential-persistence test, other-platform qualification,
+external database deployment, gateway transport acceptance, or release approval.
