@@ -561,15 +561,21 @@ class MySQLMigrationRunner:
             if revision != target:
                 raise MigrationError("invalid_bundle", "Alembic selected an unexpected migration revision.")
             guard()
-            recovery = self.schema.recovery(mysql_inventory(connection), source)
+            inventory = mysql_inventory(connection)
+            recovery = self.schema.recovery(inventory, source)
             if recovery.revision != revision:
                 raise MigrationError("recovery_required", "The stored intent does not match the schema transition.")
-            for statement in recovery.pending_statements:
+            completed = len(self.schema.statements(revision)) - len(recovery.pending_statements)
+            for position, statement in enumerate(recovery.pending_statements, start=completed):
                 guard()
                 self.schema.execute(connection, statement, self.configuration, revision=revision)
                 # DDL may already have committed; rollback cannot undo it.
                 guard()
-                self.schema.recovery(mysql_inventory(connection), source)
+                inventory = self.schema.reflect_after_statement(
+                    connection, inventory, revision=revision, position=position
+                )
+            # Reinspect every definition before domain writes and Alembic's
+            # version advance, including drift outside each statement's scope.
             self.schema.verify(mysql_inventory(connection), revision)
             self.bundle.domains.apply(
                 connection,

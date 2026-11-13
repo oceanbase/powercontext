@@ -29,6 +29,7 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -40,6 +41,7 @@ from sqlalchemy.engine import make_url
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from tests.e2e.oceanbase_process import CLI_BOOTSTRAP, StartupDeadline, run_cli
 
 
 @pytest.fixture
@@ -99,7 +101,9 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         "POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS": "1",
         "POWERCONTEXT_SERVER_METRICS_BACKGROUND_PORT": str(port),
     })
-    migration_command = [sys.executable, "-c", "from powercontext.server.cli import app; app()", "db-migrate"]
+    reports = os.environ.get("MIGRATION_REPORTS")
+    diagnostic_dir = Path(reports) / f"metrics-{role}" if reports else tmp_path
+    migration_command = [sys.executable, "-c", CLI_BOOTSTRAP, "db-migrate"]
     migration_options = [
         "--evidence-dir",
         str(tmp_path / "migration-evidence"),
@@ -108,17 +112,15 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         "--backup",
         "skip",
     ]
-    planned = subprocess.run(
+    planned = run_cli(
         [*migration_command, "plan", *migration_options],
         cwd=tmp_path,
         env=environment,
-        capture_output=True,
-        text=True,
+        output=diagnostic_dir / "migration-plan",
         timeout=180,
-        check=False,
     )
     assert planned.returncode == 0, planned.stdout + planned.stderr
-    applied = subprocess.run(
+    applied = run_cli(
         [
             *migration_command,
             "apply",
@@ -131,20 +133,19 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         ],
         cwd=tmp_path,
         env=environment,
-        capture_output=True,
-        text=True,
+        output=diagnostic_dir / "migration-apply",
         timeout=360,
-        check=False,
     )
     assert applied.returncode == 0, applied.stdout + applied.stderr
     assert json.loads(applied.stdout)["server_ready"] is True
-    log_path = tmp_path / "server.log"
+    diagnostic_dir.mkdir(parents=True, exist_ok=True)
+    log_path = diagnostic_dir / "server.log"
     with log_path.open("w+") as output:
         process = subprocess.Popen(
             [
                 sys.executable,
                 "-c",
-                "from powercontext.server.cli import app; app()",
+                CLI_BOOTSTRAP,
                 "run",
                 "--no-env-file",
                 "--role",
@@ -162,14 +163,14 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         )
         try:
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=5) as client:
-                deadline = time.monotonic() + 90
+                deadline = StartupDeadline(process, diagnostic_dir / "startup", timeout=90)
                 while True:
                     assert process.poll() is None, log_path.read_text()
                     try:
                         response = client.get("/metrics")
                         break
                     except httpx.ConnectError:
-                        assert time.monotonic() < deadline, log_path.read_text()
+                        assert deadline.pending(), log_path.read_text()
                         time.sleep(0.1)
                 assert response.status_code == 401
                 assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401

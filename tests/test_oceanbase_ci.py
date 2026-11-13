@@ -251,6 +251,9 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
             args = shlex.split(command)
             suites = args[args.index("--tests") + 1 :] if "--tests" in args else list(SUITES)
             case_timeout = int(args[args.index("--test-timeout") + 1]) if "--test-timeout" in args else 180
+            if "--initialization-timeout" in args:
+                case_timeout += int(args[args.index("--initialization-timeout") + 1])
+                case_timeout += int(args[args.index("--cleanup-timeout") + 1]) + 60
             shard_count = len(job["strategy"]["matrix"]["shard"]) if "--shard" in args else 1
             budgets.append((step, suites, case_timeout, shard_count))
         if steps:
@@ -420,3 +423,135 @@ def test_oceanbase_acceptance_reserves_startup_and_evidence_outside_test_deadlin
     assert (
         native_minutes(job["timeout-minutes"]) >= sum(native_minutes(step["timeout-minutes"]) for step in workload) + 10
     )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group supervision")
+@pytest.mark.parametrize(("cleanup", "passes"), [(0.7, True), (60, False)])
+def test_case_phases_reserve_cleanup_after_initialization_and_execution(tmp_path, monkeypatch, cleanup, passes):
+    from run_atomic_memory_clean_migration import run_node
+
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    monkeypatch.setenv("PYTEST_ADDOPTS", "")
+    suite = tmp_path / "test_phases.py"
+    suite.write_text(
+        "import time, pytest\n"
+        "@pytest.fixture\ndef database():\n"
+        "    time.sleep(0.6)\n    yield\n"
+        f"    time.sleep({cleanup})\n"
+        "def test_ready(database):\n    time.sleep(0.6)\n"
+    )
+    limits = {"collection": 10, "initialization": 1.5, "execution": 1.5, "cleanup": 1.5}
+    output = tmp_path / "case"
+    assert run_node(str(suite) + "::test_ready", output, timeout_seconds=15, phase_limits=limits) is passes
+    assert "PASSED" in (output / "pytest.log").read_text()
+    result = json.loads((output / "pytest.diagnostics/execution.json").read_text())
+    assert result["exit_code"] == (0 if passes else 124)
+    assert {phase["phase"] for phase in result["phases"]} == set(limits)
+    assert result["phases"][-1].get("timed_out", False) is not passes
+    if not passes:
+        assert 'File "' in (output / "pytest.diagnostics/python-stacks.log").read_text()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group supervision")
+def test_inner_cli_timeout_captures_evidence_and_terminates_descendants(docker_probe, monkeypatch):
+    from tests.e2e.oceanbase_process import run_cli
+
+    monkeypatch.setenv("OCEANBASE_CI_CONTAINER", "test")
+    marker = docker_probe.parent / "child.pid"
+    command = [
+        sys.executable,
+        "-c",
+        "import faulthandler,signal,subprocess,sys,time; from pathlib import Path; "
+        "faulthandler.register(signal.SIGUSR1); "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+        f"Path({str(marker)!r}).write_text(str(child.pid)); "
+        "print('{\"ready\": false}',flush=True); time.sleep(60)",
+    ]
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired) as failure:
+        run_cli(command, env=dict(os.environ), output=docker_probe, timeout=2)
+    assert time.monotonic() - started < 5
+    assert json.loads(failure.value.output) == {"ready": False}
+    assert 'File "<string>"' in (docker_probe / "stderr.log").read_text()
+    assert (docker_probe / "before-timeout/snapshot.json").exists()
+    assert json.loads((docker_probe / "execution.json").read_text())["timed_out"] is True
+    child = Path("/proc") / marker.read_text() / "stat"
+    # A killed orphan may briefly await init's reaper; it must not remain running.
+    assert not child.exists() or child.read_text().split()[2] == "Z"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group supervision")
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_inner_cli_preserves_json_and_nonzero_exit(tmp_path, exit_code):
+    from tests.e2e.oceanbase_process import run_cli
+
+    result = run_cli(
+        [sys.executable, "-c", f"import sys; print('{{\"ready\": true}}'); sys.exit({exit_code})"],
+        env=dict(os.environ),
+        output=tmp_path,
+        timeout=10,
+    )
+    assert result.returncode == exit_code
+    assert json.loads(result.stdout) == {"ready": True}
+    assert json.loads((tmp_path / "execution.json").read_text())["timed_out"] is False
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group supervision")
+def test_inner_cli_cancellation_stops_its_children_without_waiting_for_deadline(tmp_path):
+    root = Path(__file__).parents[1]
+    marker = tmp_path / "child.pid"
+    command = [
+        sys.executable,
+        "-c",
+        "import subprocess,sys,time; from pathlib import Path; "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+        f"Path({str(marker)!r}).write_text(str(child.pid)); time.sleep(60)",
+    ]
+    script = (
+        "import os; from pathlib import Path; from tests.e2e.oceanbase_process import run_cli; "
+        f"run_cli({command!r}, env=dict(os.environ), output=Path({str(tmp_path)!r}), timeout=60)"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join((str(root), str(root / "scripts")))},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert marker.exists()
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=5) != 0
+        report = json.loads((tmp_path / "execution.json").read_text())
+        assert report["cancelled_signal"] == signal.SIGTERM
+        assert report["timed_out"] is False
+        child = Path("/proc") / marker.read_text() / "stat"
+        assert not child.exists() or child.read_text().split()[2] == "Z"
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group supervision")
+def test_cleanup_deadline_keeps_stack_capture_alive_through_interpreter_exit(tmp_path, monkeypatch):
+    from run_atomic_memory_clean_migration import run_node
+
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    monkeypatch.setenv("PYTEST_ADDOPTS", "")
+    suite = tmp_path / "test_atexit.py"
+    suite.write_text("import atexit,time\natexit.register(time.sleep,60)\ndef test_ready(): pass\n")
+    output = tmp_path / "case"
+    assert not run_node(
+        str(suite) + "::test_ready",
+        output,
+        timeout_seconds=20,
+        phase_limits={"collection": 10, "initialization": 2, "execution": 2, "cleanup": 2},
+    )
+    assert "PASSED" in (output / "pytest.log").read_text()
+    report = json.loads((output / "pytest.diagnostics/execution.json").read_text())
+    assert report["exit_code"] == 124
+    assert report["phases"][-1]["phase"] == "cleanup"
+    assert (output / "pytest.diagnostics/python-stacks.log").stat().st_size > 0

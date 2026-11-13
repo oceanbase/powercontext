@@ -78,8 +78,8 @@ def _nonlocking_reads():
         checking_record.reset(token)
 
 
-@pytest.mark.parametrize("entry,vector", [("server", False), ("sdk", True), ("background", False)])
-def test_concurrent_publication_does_not_reject_managed_startup(migration_backend, monkeypatch, entry, vector):
+@pytest.fixture
+def initialized_startup_database(migration_backend, monkeypatch, vector):
     for module in (connections, oceanbase_profile, seekdb_profile):
         monkeypatch.setattr(module, "create_async_engine", _read_committed_engine)
     embedding = ControlledEmbedding(profile(3)) if vector else None
@@ -94,6 +94,14 @@ def test_concurrent_publication_does_not_reject_managed_startup(migration_backen
     prepare_server_database(
         settings, evidence_dir=evidence, embedding_profile=None if embedding is None else embedding.profile
     )
+    return settings, evidence, embedding
+
+
+@pytest.mark.parametrize("entry,vector", [("server", False), ("sdk", True), ("background", False)])
+def test_concurrent_publication_does_not_reject_managed_startup(
+    migration_backend, monkeypatch, entry, initialized_startup_database
+):
+    settings, evidence, embedding = initialized_startup_database
     app = create_server_app(
         settings=settings, scheduler_path=migration_backend.directory / "scheduler.db", embedding_model=embedding
     )

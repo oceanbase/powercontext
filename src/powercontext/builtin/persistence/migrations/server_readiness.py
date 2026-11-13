@@ -25,13 +25,18 @@ from .models import MigrationError, digest
 
 def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
     bundle = check_server_layout(connection, allow_declared_spaces=_startup)
-    if _startup and connection.dialect.name == "sqlite":
+    _check_server_data(connection, bundle, archive_recovery=_archive_recovery, startup=_startup)
+
+
+def _check_server_data(connection, bundle, *, archive_recovery=False, startup=False):
+    """Validate live invariants after layout admission on this same connection."""
+    if startup and connection.dialect.name == "sqlite":
         _check_sqlite_startup_history(connection, bundle)
     pending_restore = connection.exec_driver_sql(
         "SELECT 1 FROM pc_portable_restore_receipts WHERE projections_ready = false LIMIT 1"
     ).first()
     if pending_restore is not None:
-        if _archive_recovery:
+        if archive_recovery:
             # Only the explicit archive restore path may open an incomplete
             # projection set. Its registered schema is still checked above.
             return
@@ -148,7 +153,9 @@ def prepare_server_storage(settings, *, injected_embedding=False, embedding_prof
             stored = bundle.vector_profile.profile if bundle.vector_profile is not None else None
             if stored != profile:
                 raise MigrationError("embedding_profile_mismatch", "Server configuration differs from managed storage.")
-            check_server_schema(connection, _startup=True)
+            # The layout and embedding profile were checked immediately above.
+            # Keep live-data admission here without reflecting every table twice.
+            _check_server_data(connection, bundle, startup=True)
 
         MaintenanceConnections(database).run(verify)
         return

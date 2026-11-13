@@ -85,6 +85,8 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         ),
         (["scripts/scan_e2e_evidence.sh"], {"tests", "harness"}),
         (["scripts/run_atomic_memory_clean_migration.py"], {"tests", "database", "upgrade"}),
+        (["scripts/pytest_ci_phases.py"], {"tests", "database"}),
+        (["tests/e2e/oceanbase_process.py"], {"tests", "database", "oceanbase_acceptance"}),
         (["scripts/check_atomic_memory_migration_shards.py"], {"tests", "database"}),
         ([".github/oceanbase-migration-durations.json"], {"tests", "database"}),
         (
@@ -313,6 +315,7 @@ def test_harness_workflow_change_selects_acceptance_and_database_suites(reposito
         "tests/e2e/atomic_memory_migration_fixture.py",
         "tests/e2e/server_storage.py",
         "tests/e2e/dream_support.py",
+        "tests/e2e/oceanbase_process.py",
         "tests/builtin/persistence/contract.py",
         "tests/legacy_memory.py",
     ],

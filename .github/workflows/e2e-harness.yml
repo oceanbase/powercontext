@@ -337,8 +337,8 @@ jobs:
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
-    timeout-minutes: 295
+    # Test steps total 262m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 302
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -390,12 +390,12 @@ jobs:
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
-        # Full Server DDL was still progressing at 277s in CI, before listener verification.
-        # One 600s lifecycle, 180s collection and process termination grace fit within 15m.
+        # Initialization 420s, listener/assertions 120s, cleanup 60s, per-case collection 60s.
+        # The 90s cold-start deadline is independent of full Server DDL and DROP DATABASE.
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --initialization-timeout 420 --test-timeout 120 --cleanup-timeout 60 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence and vectors without skips
@@ -416,11 +416,12 @@ jobs:
             tests/e2e/test_atomic_memory_grant_migration.py
 
       - name: Test concurrent managed startup without skips
-        # Up to two full Server cases (300s each), plus collection (180s).
-        timeout-minutes: 15
+        # Up to two cases: initialization 300s, startup/assertions 120s, cleanup 60s, collection 60s.
+        # Reserve cleanup even when a passing test consumes its complete startup budget.
+        timeout-minutes: 22
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --initialization-timeout 300 --test-timeout 120 --cleanup-timeout 60 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
@@ -669,6 +670,8 @@ jobs:
         if: matrix.native
         env:
           OCEANBASE_CONTAINER: ${{ steps.oceanbase_setup.outputs.container_id }}
+          OCEANBASE_CI_CONTAINER: ${{ steps.oceanbase_setup.outputs.container_id }}
+          MIGRATION_REPORTS: ${{ runner.temp }}/oceanbase-acceptance/inner-phases
         run: |
           native_deadline=$((SECONDS + 3450))
           test -n "$OCEANBASE_CONTAINER"
