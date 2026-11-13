@@ -1331,7 +1331,11 @@ const OPERATIONS = {
 		location: "query",
 		scopeMode: "none",
 		pathParameters: ["scope_id"],
-		queryParams: ["since", "until"],
+		queryParams: [
+			"all_time",
+			"since",
+			"until"
+		],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
