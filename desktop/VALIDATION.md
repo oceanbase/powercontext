@@ -444,6 +444,23 @@ Product qualification records remain unchanged. These isolated local processes d
 external production deployments, managed installation/apply, installed Windows/macOS UI,
 login/reboot, signing or notarization. UI tests mock IPC, and native unit HTTP fixtures are synthetic.
 
+### Linux local-service validation
+
+The Linux Desktop job runs the full Rust suite, including the Linux Ops Bridge and trusted-window IPC boundary tests. The separate [native personal service workflow](../.github/workflows/native-service.yml) runs the lifecycle suite against the runner's real systemd `--user` manager. It covers installation, start/restart, uninstall, foreign registrations, unrelated user services, recovery after an external stop, an unavailable user manager, and the user-session boundary. The native checks verify `default.target` login activation, explicit stop without disabling that activation, unchanged pre-existing linger state, and absence of a system-level unit. They do not force logout of the active CI account; GNOME logout/login behavior is reserved for installed Ubuntu Desktop qualification. The Linux managed-resource candidate job builds a real Ops bundle from a pinned standalone Python runtime and runs the generated bundle through the native manifest/digest trust test; the candidate remains unsigned and is not a release qualification.
+
+To reproduce the systemd lifecycle checks on a disposable Linux user manager:
+
+```sh
+sudo systemctl start "user@$(id -u).service"
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS=1
+export POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER="powercontext-local-validation-$(id -u).service"
+uv run --no-sync pytest -q tests/native/test_personal_service_lifecycle.py
+```
+
+The Desktop page uses `ops.inspect` for read-only status inspection and dispatches explicitly approved lifecycle plans through `ops.apply`; with a valid Linux binding, the page can install, repair, start, stop or restart the personal service. These operations use the current user's `systemctl --user` manager and do not enable linger, write system units or require root. A passing Rust, lifecycle or candidate-bundle test does not by itself qualify a signed package or a normal user's login-session configuration.
+
 ## Deployment context validation
 
 On 2026-10-28, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 ran the deployment-identity
