@@ -158,6 +158,67 @@ the Server default/workspace binding, or set it to an existing Scope intentional
 Environment overrides take precedence over plugin patch values, which take precedence over defaults. They must be
 present in the process launching DSH; changing another terminal's environment does not update a running host.
 
+## Optional long-term memory for dsh-pet
+
+Pet chat in DSH Web and Desktop can recall older preferences from a dedicated PowerContext Scope while keeping the pet's
+native persona, recent window and local history. The adapter is separate from the ordinary DSH agent plugin
+and is off by default. The initial combination is DSH `0.2.2-rc.1`, dsh-pet `0.4.8`, and the adapter
+and Server from the same PowerContext checkout or release. Desktop acceptance covers the macOS arm64 app.
+Standalone pets do not use the adapter.
+
+Create a [separate Scope](../workflows/scopes-and-access.md) for each pet on the Server. Use the exact pet
+instance ID (the built-in default is `main`) and Scope ID. The selected profile must already contain one
+enabled dsh-pet entry. Configure generation and [Memory processing](../get-started/configure-models.md)
+on that Server to turn eligible text exchanges into searchable Memory.
+
+Run `powercontext setup dsh` in a terminal to configure pet memory for the first time. If the selected profile
+already has a compatible dsh-pet enabled, setup offers to enable long-term memory. Confirm, enter the pet instance
+ID (Enter accepts `main`), and select a dedicated Scope by number or enter its exact ID. Skipping keeps pet memory
+off and ordinary DSH setup completes. Rerunning setup without pet options preserves an existing pet memory configuration.
+
+For scripts, piped input, or `--json`, opt in with both explicit options:
+
+```bash
+powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
+  --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
+```
+
+For Desktop, use `--profile desktop` instead. Initialize that profile by opening the installed DSH
+Desktop app once, then fully quit it before running setup. Use its [Desktop-installed command](#install-matching-server-and-plugin-versions).
+Web and Desktop have separate pet bindings and delivery queues. Set up each profile you want to use.
+
+Replace `<PET_SCOPE_ID>` with the actual ID, without the angle brackets. Repeat `--dsh-pet-bind` for other
+pets, with a different Scope each time. The bindings supplied to `on` are the complete set for that profile.
+Remote Servers require HTTPS and authentication; use the normal URL-bound DSH credential configuration.
+A loopback Server with authentication disabled must be reachable without credentials. Pet memory does not send
+a stored DSH credential to that Server.
+With access enforcement enabled, the credential needs Scope read and contribution access.
+Setup uses the dsh-pet already enabled in the selected profile and only installs the PowerContext memory adapter.
+A missing, disabled, ambiguous or incompatible pet does not block ordinary DSH setup. Check the separate
+`dsh_pet_memory` result to see whether the adapter was enabled.
+
+Restart the selected host, then run `powercontext doctor dsh --profile web` or
+`powercontext doctor dsh --profile desktop`. Provider registration,
+recall, pending delivery and Source acceptance are separate observations. A Source acceptance does not
+mean the Server extracted a Memory. Recall is limited to the bound Scope; an empty result, outage or
+timeout leaves the original chat input intact. If the single provider slot is occupied, the adapter leaves it alone.
+
+Opting in sends newly completed text questions and replies to the configured Server. That Server may
+process the text with its configured model providers, and recalled text is passed to the pet's chat model.
+Attachments and past local history are excluded. The private local queue retains up to 128 records per
+binding and skips records older than seven days. Retrying an already queued record reuses its Source
+identity and payload. Changing the Server identity or Scope never sends the old queue to the new destination.
+
+```bash
+powercontext setup dsh --profile web --dsh-pet-memory off
+powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
+```
+
+The first command stops recall, capture and delivery. The second also discards unsent records for this profile.
+Use `--profile desktop` to change the Desktop profile instead. Neither retracts a request the Server already accepted. Clearing the pet's local chat does not clear this queue
+or delete remote Sources or Memories. Restarting or enabling the exact same binding again can retry its remaining
+pending records; run one DSH host per profile.
+
 ## Sidebar status and diagnostics
 
 The sidebar control appears above the account area. Its color and accessible label are always paired:

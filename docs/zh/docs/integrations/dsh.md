@@ -124,6 +124,56 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
 [远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
 
+## 可选：为 dsh-pet 开启长期记忆
+
+DSH Web 和 Desktop 的桌宠聊天可以从独立的 PowerContext Scope 查找旧偏好，原有的人设、近期窗口和本地聊天记录照常使用。
+适配器与普通 DSH Agent 插件分开，默认关闭。首个组合是 DSH `0.2.2-rc.1`、dsh-pet `0.4.8`，
+以及来自同一个 PowerContext checkout 或发行版本的适配器与 Server。Desktop 验收覆盖 macOS arm64 应用。
+独立桌宠模式不使用此适配器。
+
+先在 Server 上为每只宠物创建一个[独立 Scope](../workflows/scopes-and-access.md)。使用确切的宠物实例 ID
+（内置默认宠物是 `main`）和 Scope ID。选定的 profile 必须已经包含一条启用的 dsh-pet 条目。
+在 Server 配置生成模型和 [Memory 处理](../get-started/configure-models.md)，文字问答才有机会变成可查找的记忆。
+
+第一次配置时，在终端运行 `powercontext setup dsh`。如果所选 profile 已启用兼容的 dsh-pet，setup 会询问是否开启长期记忆。
+确认后，填写宠物实例 ID（回车使用 `main`），再按编号选择专用 Scope，或输入准确的 Scope ID。
+跳过时长期记忆保持关闭，普通 DSH 安装照常完成。已经配置过的桌宠记忆，重新运行 setup 时省略桌宠选项会保留原配置。
+
+在脚本、管道或 `--json` 模式中开启时，必须同时显式传入以下两个选项：
+
+```bash
+powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
+  --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
+```
+
+Desktop 请改用 `--profile desktop`。先打开已安装的 DSH Desktop 初始化 profile，再完全退出，然后用
+Desktop 自带的命令运行 setup。Web 和 Desktop 分别保存桌宠绑定与待上传队列；
+需要使用哪个 profile，就对哪个 profile 配置。
+
+把 `<PET_SCOPE_ID>` 换成真实 ID，不保留尖括号。多只宠物可重复传入 `--dsh-pet-bind`，每只使用不同的 Scope。
+每次 `on` 指定的是这个 profile 的完整绑定列表。远程 Server 必须使用 HTTPS 和鉴权，沿用绑定到地址的 DSH 凭据配置。
+关闭鉴权的环回 Server 必须允许无凭据访问；宠物记忆不会向该 Server 发送已保存的 DSH 凭据。
+启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。setup 使用所选 profile 已启用的 dsh-pet，只安装 PowerContext 记忆适配器。
+桌宠缺失、禁用、配置有歧义或版本不兼容时，不影响普通 DSH 安装。查看单独的 `dsh_pet_memory` 结果可确认适配器是否已开启。
+
+重启所选宿主后，运行 `powercontext doctor dsh --profile web` 或 `powercontext doctor dsh --profile desktop`。provider 注册、召回、待上传和 Source 接收各自有状态。
+Server 接收了 Source，不代表已经提取 Memory。召回只查已绑定的 Scope；空结果、断网或超时都保留原始聊天输入。
+若记忆单槽已有其它 provider，适配器不抢占。
+
+开启后，新完成的文字问题和回复会发送到配置的 Server。Server 可能使用配置的模型服务处理这些文本；
+召回的旧事会传给桌宠聊天模型。附件和旧本地历史不会上传。私有队列每个绑定最多保留 128 条，
+超过七天的记录不会发送。重试已入队记录时沿用原 Source 身份和载荷。更换 Server 身份或 Scope 时，
+旧队列不会发往新目标。
+
+```bash
+powercontext setup dsh --profile web --dsh-pet-memory off
+powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
+```
+
+第一条命令停止召回、采集和上传，第二条还会丢弃该 profile 的未发送记录。要操作 Desktop 的配置，请把命令中的 profile 改为 `desktop`。两条命令都不能撤回已被 Server 接收的请求。
+清空桌宠聊天不会清空这个队列，也不会删除远端 Source 或 Memory。重启后或用完全相同的绑定重新启用时，
+未过期的待上传记录可能继续重试。同一个 profile 请只运行一个 DSH Host。
+
 ## 侧栏状态与诊断
 
 侧栏控件位于账号区域上方，颜色始终配有无障碍标签：

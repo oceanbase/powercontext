@@ -109,7 +109,7 @@ function ownerLocal(env: NodeJS.ProcessEnv, configured: boolean | undefined): bo
   return value
 }
 
-function storedAuthorization(env: NodeJS.ProcessEnv, baseUrl: string): string | undefined {
+export function storedAuthorization(env: NodeJS.ProcessEnv, baseUrl: string): string | undefined {
   const configuredHome = env.DSH_HOME
   const root = configuredHome?.trim() ? configuredHome : join(homedir(), '.dsh')
   const path = join(root, 'powercontext', 'credentials.json')
