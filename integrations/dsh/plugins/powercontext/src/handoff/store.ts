@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { constants, closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, readdirSync,
   realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -28,6 +29,7 @@ export const DELIVERY_SCHEMA = 'powercontext.dsh-delivery.v1'
 export const MAX_PACKAGE_BYTES = 1024 * 1024 + 32 * 1024 // Existing client response limit + envelope.
 const MAX_RECORD_BYTES = 64 * 1024
 export const MAX_REQUEST_KEYS = 64
+const DARWIN_O_EXLOCK = 0x20 // <sys/fcntl.h>; not exported by Node.
 
 export interface StoredPackage {
   sha256: string
@@ -89,17 +91,19 @@ function privateEntry(stat: Stats, directory: boolean): void {
 }
 
 /**
- * One local Host owns a directory. Every transaction is synchronous and runs to completion
+ * The open directory descriptor holds the Host's exclusive lock until close or process exit.
+ * Every transaction is synchronous and runs to completion
  * between awaits; each delivery's files are separate and normal requests never scan the disk.
  */
 export class DeliveryStore {
   readonly records = new Map<string, DeliveryRecord>()
   private readonly root: string
   private readonly rootStat: Stats
-  private readonly marker: string
+  private rootFd: number | undefined
 
   constructor(directory: string) {
-    if (!isAbsolute(directory) || !process.getuid || !constants.O_NOFOLLOW) {
+    const darwin = process.platform === 'darwin'
+    if ((!darwin && process.platform !== 'linux') || !isAbsolute(directory) || !process.getuid || !constants.O_NOFOLLOW) {
       throw new DeliveryError('integration_unavailable')
     }
     const path = resolve(directory)
@@ -111,26 +115,24 @@ export class DeliveryStore {
     }
     this.rootStat = lstatSync(this.root)
     privateEntry(this.rootStat, true)
-    this.marker = join(this.root, '.host-' + process.pid)
-    // Publish before scanning. Two racing Hosts can both fail closed but cannot both enter.
-    closeSync(openSync(this.marker, 'wx', 0o600))
+    const fd = openSync(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+      | constants.O_NONBLOCK | (darwin ? DARWIN_O_EXLOCK : 0))
+    this.rootFd = fd
     try {
-      const entries = readdirSync(this.root)
-      for (const name of entries) {
-        const host = /^\.host-([1-9]\d*)$/.exec(name)
-        if (host && name !== basename(this.marker)) {
-          try {
-            process.kill(Number(host[1]), 0)
-          } catch (error) {
-            if (!errno(error, 'ESRCH')) throw error
-            // A stale marker does not hold the directory. Leave it untouched: its PID could
-            // have been recycled and a new Host may be claiming the same filename.
-            continue
-          }
-          throw new DeliveryError('integration_unavailable')
-        }
+      const opened = fstatSync(fd)
+      privateEntry(opened, true)
+      if (opened.ino !== this.rootStat.ino || opened.dev !== this.rootStat.dev) invalid()
+      if (!darwin) {
+        // util-linux flock locks the inherited open file description, which we keep
+        // after the helper exits. It does not open or replace a separate lock file.
+        const lock = spawnSync('/usr/bin/flock', ['--nonblock', '3'], {
+          stdio: ['ignore', 'ignore', 'ignore', fd], env: { LANG: 'C' }, cwd: '/', timeout: 1000,
+        })
+        if (lock.status !== 0) throw new DeliveryError('integration_unavailable')
       }
-      for (const name of entries) {
+      this.checkRoot()
+      // Legacy PID markers are inert; only the kernel lock establishes ownership.
+      for (const name of readdirSync(this.root)) {
         const id = name.slice(0, -'.record.json'.length)
         if (name.endsWith('.record.json') && deliveryIdPattern.test(id)) {
           const record = decodeRecord(JSON.parse(this.read(name, MAX_RECORD_BYTES).toString('utf8')), id)
@@ -145,10 +147,12 @@ export class DeliveryStore {
     }
   }
 
-  private checkRoot(): void {
+  private checkRoot(): number {
+    if (this.rootFd === undefined) throw new DeliveryError('integration_unavailable')
     const stat = lstatSync(this.root)
     privateEntry(stat, true)
     if (stat.ino !== this.rootStat.ino || stat.dev !== this.rootStat.dev) invalid()
+    return this.rootFd
   }
 
   private read(name: string, maximum: number): Buffer {
@@ -173,12 +177,7 @@ export class DeliveryStore {
   }
 
   private syncDirectory(): void {
-    const fd = openSync(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+    fsyncSync(this.checkRoot())
   }
 
   private unlink(name: string): void {
@@ -250,6 +249,8 @@ export class DeliveryStore {
   }
 
   close(): void {
-    this.unlink(basename(this.marker))
+    const fd = this.rootFd
+    this.rootFd = undefined
+    if (fd !== undefined) closeSync(fd)
   }
 }
