@@ -479,6 +479,28 @@ describe('local DSH handoff deliveries', () => {
     ]) })
   })
 
+  it.each(['check --api_key fixture-value', 'check ' + 'x'.repeat(8192)])(
+    'discloses a failed check when its command cannot be captured (%#)', async command => {
+      const readBoundary: BoundaryReader = async (_context, selected) => ({
+        source: selected, objective: work.objective,
+        selectedReply: { messageId: selected.messageId, seq: selected.throughSeq, text: 'Selected reply' },
+        events: [{ kind: 'check', sessionId: selected.sessionId, seq: 1, command, status: 'failed', exitCode: 1 }],
+        workspace: null,
+      })
+      open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 12000 } }) })
+      let captured = ''
+      fetch.mockImplementationOnce(async (_url, init) => {
+        captured = JSON.parse(init.body as string).content
+        return response({}, 422)
+      })
+      await service.prepare(caller(), input({ workInput: undefined }))
+      expect(captured).not.toContain(command)
+      expect(JSON.parse(captured)).toMatchObject({ omissions: expect.arrayContaining([
+        expect.stringContaining('observed check failed'),
+      ]) })
+    },
+  )
+
   it('protects unconfirmed and pinned packages, and serializes deletion with a path consumer', async () => {
     let now = Date.parse(source.workspaceObservedAt)
     open({ now: () => now, limits: { maxDeliveries: 1 } })
