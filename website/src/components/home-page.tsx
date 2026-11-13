@@ -20,6 +20,8 @@ import {
   EcosystemSection, FeaturesSection, OnboardingSection, ProofSection,
 } from '@/components/home/home-sections';
 import { RevealOnScroll } from '@/components/home/reveal';
+import { TestimonialsSection } from '@/components/home/testimonial-wall';
+import { testimonialsFor } from '@/components/home/testimonials';
 import { SiteFooter } from '@/components/site-footer';
 import { getHomeContent } from '@/lib/home-content';
 import { githubRepository } from '@/lib/github-stars';
@@ -48,6 +50,7 @@ export async function HomePage({ lang }: { lang: Language }) {
         <FeaturesSection content={home.features} />
         <EcosystemSection content={home.ecosystem} copy={home.onboarding} lang={lang} />
         <ProofSection content={home.proof} />
+        <TestimonialsSection content={home.testimonials} testimonials={testimonialsFor(lang)} />
         <OnboardingSection content={home.onboarding} lang={lang} />
       </div>
       <RevealOnScroll />

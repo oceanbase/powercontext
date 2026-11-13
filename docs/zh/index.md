@@ -217,6 +217,11 @@ home:
     link:
       label: 评测方法、结果和适用边界
       href: zh/benchmarks/
+  testimonials:
+    title: 用户怎么说
+    pause: 暂停滚动
+    play: 继续滚动
+    profile: "{name} 的 X 主页"
   onboarding:
     title: 从安装到第一条记忆
     lead: 先部署 Server，通过向导选择所需能力，再接入 Agent。完整指南覆盖本机使用和从其他设备访问。
