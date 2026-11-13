@@ -26,7 +26,7 @@ import { INTRO_ATTR, PART_ATTR, PLAYED_KEY } from './intro';
 import { SessionWindow } from './session-windows';
 
 type Point = { x: number; y: number };
-type Hero = HomeContent['hero'];
+type Hero = Omit<HomeContent['hero'], 'label'>;
 
 const ACTORS: Array<{ id: Actor; label: keyof Hero['cursors'] }> = [
   { id: 'visitor', label: 'visitor' },

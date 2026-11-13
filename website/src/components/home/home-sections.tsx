@@ -20,9 +20,8 @@ import type { ReactNode } from 'react';
 import { BrandLogo } from '@/components/brand-logo';
 import type { HomeContent } from '@/lib/home-content';
 import type { Language } from '@/lib/i18n';
-import { repositoryUrl } from '@/lib/urls';
 import { AgentIcon, agents, type Agent } from './agents';
-import { Backdrop, PhotoCredit } from './backdrop';
+import { Backdrop } from './backdrop';
 import { CopyCommand } from './copy-command';
 import { MockWindow } from './session-windows';
 
@@ -66,11 +65,6 @@ export function OnboardingSection({ content, lang }: { content: HomeContent['onb
           </li>
         ))}
       </ol>
-      <p className="pc-note" data-reveal="">
-        <strong>{content.preview_label}</strong>{' '}
-        {content.preview_note}{' '}
-        <a className="pc-link" href={repositoryUrl} rel="noreferrer" target="_blank">{content.repository_label}</a>
-      </p>
     </section>
   );
 }
@@ -129,7 +123,7 @@ function DashboardWindow({ dashboard, label }: { dashboard: HomeContent['continu
   );
 }
 
-export function ContinuitySection({ content, credit }: { content: HomeContent['continuity']; credit: string }) {
+export function ContinuitySection({ content }: { content: HomeContent['continuity'] }) {
   const [current, runtime, next] = content.steps;
   return (
     <section aria-labelledby="pc-continuity-title" className="pc-section pc-continuity">
@@ -139,7 +133,6 @@ export function ContinuitySection({ content, credit }: { content: HomeContent['c
           <Backdrop id="lupine" />
           <DashboardWindow dashboard={content.dashboard} label={content.visual_label} />
         </div>
-        <PhotoCredit id="lupine" template={credit} />
       </div>
       <div className="pc-grid pc-flow" data-reveal="">
         {[current, runtime, next].map((step, index) => (

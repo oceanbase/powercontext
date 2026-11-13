@@ -18,6 +18,7 @@ import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { HomeHero } from '@/components/home/home-hero';
 import { ContinuitySection, EcosystemSection, OnboardingSection } from '@/components/home/home-sections';
 import { RevealOnScroll } from '@/components/home/reveal';
+import { StageFill } from '@/components/home/stage-fill';
 import { SiteFooter } from '@/components/site-footer';
 import { getHomeContent } from '@/lib/home-content';
 import { githubRepository } from '@/lib/github-stars';
@@ -36,16 +37,19 @@ export async function HomePage({ lang }: { lang: Language }) {
 
   return (
     <HomeLayout {...baseOptions(lang)} className="pc-home">
-      <HomeHero
-        contributors={contributors}
-        home={home}
-        lang={lang}
-        stars={githubStars.repository === repository ? githubStars.count : null}
-      />
-      <OnboardingSection content={home.onboarding} lang={lang} />
-      <ContinuitySection content={home.continuity} credit={home.photo_credit} />
-      <EcosystemSection content={home.ecosystem} lang={lang} />
+      <div className="pc-home-sheet">
+        <HomeHero
+          contributors={contributors}
+          home={home}
+          lang={lang}
+          stars={githubStars.repository === repository ? githubStars.count : null}
+        />
+        <OnboardingSection content={home.onboarding} lang={lang} />
+        <ContinuitySection content={home.continuity} />
+        <EcosystemSection content={home.ecosystem} lang={lang} />
+      </div>
       <RevealOnScroll />
+      <StageFill />
       <SiteFooter lang={lang} />
     </HomeLayout>
   );

@@ -58,19 +58,3 @@ export function Backdrop({ id, priority = false }: { id: BackdropId; priority?: 
     </div>
   );
 }
-
-/** The photo credit under a stage, from a `{author}` / `{source}` template. */
-export function PhotoCredit({ id, template }: { id: BackdropId; template: string }) {
-  const { author, url } = backdrops[id];
-  const [before, after = ''] = template.split('{author}');
-  const [middle, end = ''] = after.split('{source}');
-  return (
-    <p className="pc-credit">
-      {before}
-      <a href={url} rel="noreferrer" target="_blank">{author}</a>
-      {middle}
-      <a href="https://unsplash.com/" rel="noreferrer" target="_blank">Unsplash</a>
-      {end}
-    </p>
-  );
-}
