@@ -118,7 +118,7 @@ class ManagedLayout:
                 config / "PowerContextManaged",
                 state / "PowerContextManaged",
                 cache / "PowerContextManaged",
-                default_data_dir(),
+                data / "powercontext",
             )
         raise OpsError("unsupported_platform")
 

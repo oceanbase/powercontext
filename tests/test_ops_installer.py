@@ -37,13 +37,15 @@ from tests.test_ops_resources import _FILES, _archive, _spec
 from tests.test_service import FakeAdapter, _manager_probe
 
 
-def make_managed_ops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ops, FakeAdapter, ManagedInstaller]:
+def make_managed_ops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, layout: ManagedLayout | None = None
+) -> tuple[Ops, FakeAdapter, ManagedInstaller]:
     for key in tuple(os.environ):
         if key == "POWERCONTEXT_HOME" or key.startswith("POWERCONTEXT_SERVER_"):
             monkeypatch.delenv(key)
     monkeypatch.setattr("powercontext.ops.resources._current_platform", lambda: ("windows", "x86_64"))
     root = protect_directory(tmp_path / "managed", create=True)
-    layout = ManagedLayout(*(root / name for name in ("programs", "config", "state", "cache", "data")))
+    layout = layout or ManagedLayout(*(root / name for name in ("programs", "config", "state", "cache", "data")))
     spec = _spec(_archive())
     installer = ManagedInstaller(ResourceCatalog("a" * 64, (spec,)), spec, layout)
     prepared_count = 0
@@ -85,12 +87,11 @@ def test_linux_layout_uses_user_xdg_locations(monkeypatch: pytest.MonkeyPatch, t
     assert layout.configuration == tmp_path / "xdg_config_home/PowerContextManaged"
     assert layout.state == tmp_path / "xdg_state_home/PowerContextManaged"
     assert layout.cache == tmp_path / "xdg_cache_home/PowerContextManaged"
-    assert layout.data == tmp_path / "application-data"
+    assert layout.data == tmp_path / "xdg_data_home/powercontext"
 
 
 def test_linux_layout_ignores_relative_xdg_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(installer_module.sys, "platform", "linux")
-    monkeypatch.setattr(installer_module, "default_data_dir", lambda: tmp_path / "application-data")
     relative = {
         "XDG_DATA_HOME": "relative-data",
         "XDG_CONFIG_HOME": "relative-config",
@@ -107,7 +108,24 @@ def test_linux_layout_ignores_relative_xdg_locations(monkeypatch: pytest.MonkeyP
     assert layout.configuration == home / ".config/PowerContextManaged"
     assert layout.state == home / ".local/state/PowerContextManaged"
     assert layout.cache == home / ".cache/PowerContextManaged"
-    assert layout.data == tmp_path / "application-data"
+    assert layout.data == home / ".local/share/powercontext"
+
+
+def test_linux_preflight_uses_validated_xdg_data_for_target_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(installer_module.sys, "platform", "linux")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_DATA_HOME", "relative-data")
+    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+        monkeypatch.delenv(name, raising=False)
+
+    ops, _adapter, _installer = make_managed_ops(tmp_path, monkeypatch, layout=ManagedLayout.current_user())
+    plan = _plan(ops, "install", http_port=_free_port())
+
+    assert plan["target_summary"]["data_dir"] == str(home / ".local/share/powercontext")
 
 
 @pytest.fixture

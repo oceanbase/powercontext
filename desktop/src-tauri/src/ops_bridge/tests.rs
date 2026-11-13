@@ -1004,6 +1004,18 @@ fn linux_xdg_home_environment_preserves_a_non_default_layout() {
         relative.get("XDG_DATA_HOME").and_then(|path| path.to_str())
     );
 
+    let parent = std::collections::BTreeMap::from([
+        ("XDG_CONFIG_HOME", dir.path().join("config/../config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+    ]);
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| parent.get(name).cloned()).unwrap();
+    assert!(!environment.contains_key("XDG_CONFIG_HOME"));
+    assert_eq!(
+        environment.get("XDG_DATA_HOME").map(String::as_str),
+        parent.get("XDG_DATA_HOME").and_then(|path| path.to_str())
+    );
+
     let empty = [
         ("XDG_CONFIG_HOME", PathBuf::new()),
         ("XDG_DATA_HOME", PathBuf::new()),
