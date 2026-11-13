@@ -40,6 +40,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.sources import SourceRef, SourceSequenceLocator
 from tests.e2e.dream_support import memory_source_text
 
@@ -531,6 +532,61 @@ def test_source_flush_automatically_merges_existing_memories_and_preserves_histo
             assert tuple(hit.hit.artifact_ref for hit in (await memory.search("Database rollout")).hits) == (
                 merged.ref,
             )
+
+    asyncio.run(scenario())
+
+
+def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_path: Path) -> None:
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_PolicyExtractor(), reconciler=_PolicyReconciler(), estimator=character_token_estimator()
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'merge-tags.db'}"),
+        runtime=RuntimeConfig(atomic_memory_related_mode="fts"),
+    )
+    shared = tuple(f"zz-shared-{index}" for index in range(4))
+    labels = {
+        CANARY: (*shared, *(f"canary-{index:02}" for index in range(20))),
+        PAUSE: (*shared, *(f"pause-{index:02}" for index in range(20))),
+    }
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+            context = await contexts.get(SCOPE)
+            memory = contexts.atomic_memory.for_scope(SCOPE)
+            for source_id, text in (("canary-rule", CANARY), ("pause-rule", PAUSE)):
+                await contexts.records.capture_source(SCOPE, "content", source_id, text, {})
+                await context.triggers.flush(limit=1)
+            originals = (await memory.list()).items
+            for original in originals:
+                target = ArtifactTagTarget(family="atomic-memory", artifact_id=original.ref.artifact_id)
+                current = await contexts.records.get_tags(SCOPE, target)
+                await contexts.records.replace_tags(
+                    SCOPE, target, labels[original.artifact.content.text], expected_etag=current.etag
+                )
+
+            await contexts.records.capture_source(SCOPE, "content", "consolidate-rules", CONSOLIDATION, {})
+            result = await context.triggers.flush(limit=1)
+            assert result.previous_cursor == 2 and result.current_cursor == 3
+            (merged,) = (await memory.list()).items
+            assert merged.artifact.content.text == POLICY
+            # Labels shared by more inputs come first, then normalized key order fills the 32-label limit.
+            tags = await contexts.records.get_tags(
+                SCOPE, ArtifactTagTarget(family="atomic-memory", artifact_id=merged.ref.artifact_id)
+            )
+            assert set(tags.tags) == {
+                *shared,
+                *(f"canary-{index:02}" for index in range(20)),
+                *(f"pause-{index:02}" for index in range(8)),
+            }
+            for label, expected in (("zz-shared-0", (merged.ref,)), ("pause-19", ())):
+                hits = (await memory.search("Database rollout", tag_filter=TagFilter(tags=(label,)))).hits
+                assert tuple(hit.hit.artifact_ref for hit in hits) == expected
+            for original in originals:
+                retained = await contexts.records.get_tags(
+                    SCOPE, ArtifactTagTarget(family="atomic-memory", artifact_id=original.ref.artifact_id)
+                )
+                assert set(retained.tags) == set(labels[original.artifact.content.text])
 
     asyncio.run(scenario())
 

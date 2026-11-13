@@ -56,7 +56,8 @@ from powercontext_langgraph import PowerContextRecall, PowerContextScope, powerc
 
 AUTH_TOKEN = "langgraph-e2e-token"  # noqa: S105 - non-secret test credential.
 MEMORY_TEXT = "Adopt hexagonal architecture for the payment gateway."
-UNTRUSTED_LABEL = "untrusted historical evidence"
+# The recall marker, followed directly by the start of the Server's trust policy.
+CONTEXT_START = "PowerContext host-supplied context\n\nPowerContext prepared untrusted historical context.\n"
 EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "integrations" / "langgraph" / "examples"
 
 
@@ -134,7 +135,7 @@ def test_langgraph_write_then_recall_over_real_http(tmp_path: Path, authenticati
         system_texts = [message.text for message in model_input if message.type == "system"]
         assert len(system_texts) == 1
         assert model_input[0].type == "system"
-        assert UNTRUSTED_LABEL in system_texts[0]
+        assert system_texts[0].startswith(CONTEXT_START)
         assert MEMORY_TEXT in system_texts[0]
 
         # The recall context is ephemeral: it never enters the persisted history.
@@ -187,5 +188,5 @@ def test_inspect_recall_example_runs(capsys: pytest.CaptureFixture[str]) -> None
         sys.modules.pop("_local_server", None)
 
     printed = capsys.readouterr().out
-    assert UNTRUSTED_LABEL in printed
+    assert CONTEXT_START in printed
     assert seed_text in printed
