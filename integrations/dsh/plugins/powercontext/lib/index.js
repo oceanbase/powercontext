@@ -3023,11 +3023,28 @@ const CONTENT_FIELDS = new Map([
 	["finalize_handoff", ["draft"]],
 	["commit_handoff", ["handoff"]]
 ]);
-function containsSecret(text) {
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+];
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
+}
+function containsSecretMarker(text) {
 	return SECRET_MARKERS.some((marker) => text.includes(marker));
 }
 function containsSecretValue(value) {
-	if (typeof value === "string") return containsSecret(value);
+	if (typeof value === "string") return containsSecretMarker(value);
 	if (!value || typeof value !== "object") return false;
 	return Object.values(value).some(containsSecretValue);
 }
@@ -4059,7 +4076,7 @@ async function captureUserPrompt(input) {
 		observation?.skip("capture", "capture_disabled");
 		return;
 	}
-	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt, input.config.authorization)) {
 		observation?.skip("capture", input.prompt.length > MAX_SOURCE_LENGTH ? "source_too_long" : "sensitive_content");
 		logSafely(input.log, {
 			event: "capture_content_source",
@@ -4175,7 +4192,7 @@ async function recallContent(input, query, scopeId, observation) {
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const result = await input.client.request("prepare_context", {
 			scope_id: scopeId,
-			query: boundedRecallQuery(query),
+			query: boundedRecallQuery(scrubSecrets(query, input.config.authorization)),
 			max_bytes: input.config.maxBytes,
 			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);
