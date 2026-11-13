@@ -662,6 +662,30 @@ describe("PowerContext lifecycle", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  it("checkpoints compaction reported with only the agent-scoped session key", async () => {
+    const harness = createLifecycleHarness();
+    const beforeCompaction = harness.hooks.get("before_compaction")!;
+
+    // OpenClaw's built-in runner reports in-session auto-compaction this way; the key's agent is canonicalized as
+    // OpenClaw canonicalizes it for the run's other hooks.
+    await beforeCompaction(
+      { messageCount: 1, messages: [{ role: "user", content: "remember this" }] },
+      { sessionKey: "agent:Ops.Team:telegram:direct:user-1" },
+    );
+    await beforeCompaction(
+      { messageCount: 1, messages: [{ role: "user", content: "no agent to resolve" }] },
+      { sessionKey: "telegram:direct:user-1" },
+    );
+
+    expect(harness.scopeResolutionRequests).toHaveLength(1);
+    expect(harness.scopeResolutionRequests[0].binding_keys).toContainEqual(
+      { integration: "openclaw", kind: "agent", external_id: "ops-team" },
+    );
+    expect(harness.capturedScopes).toEqual(["scp_default"]);
+    expect(harness.flushScopes).toEqual(["scp_default"]);
+    expect(harness.warnings).toEqual([]);
+  });
+
   it("retries until the flush cursor acknowledges the exact captured position", async () => {
     const vector = conformanceCase("cursor_catches_up");
     const harness = createLifecycleHarness();
