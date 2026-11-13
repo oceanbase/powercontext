@@ -82,7 +82,7 @@ Use [REVIEW.md](REVIEW.md) when reviewing changes.
 
 ## Generated Integration Helpers
 
-`src/powercontext_integration_lifecycle/` is the source of the helpers that copy-installed Python plugins ship. The helpers may import only the standard library and must run on Python 3.9, because Claude Code runs its hooks with the `python3` on `PATH`. Their copies under `integrations/` are checked in; do not edit them by hand. After changing the source, run `make integration-lifecycle`; `make check` rejects a stale copy.
+`src/powercontext_integration_lifecycle/` is the source of the helpers that copy-installed Python plugins ship. The helpers may import only the standard library and must run on Python 3.9, because Claude Code runs its hooks with the `python3` on `PATH`. `integrations/lifecycle/` is the source of the TypeScript helpers that the DSH, OpenClaw, OpenCode, and Pi plugins ship. They may import only Node.js built-in modules, because the plugins do not share their dependencies. Their copies under `integrations/` are checked in; do not edit them by hand. After changing the source, run `make integration-lifecycle`; `make check` rejects a stale copy.
 
 ## Testing Guidelines
 

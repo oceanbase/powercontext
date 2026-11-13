@@ -186,6 +186,11 @@ patterns = [
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]
 
+# The TypeScript lifecycle source is copied into these plugins; ZCode and Cindy run the Pi and DSH plugins.
+[shared.lifecycle_typescript]
+patterns = ["integrations/lifecycle/**", "scripts/generate_integration_lifecycle.py"]
+suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
+
 # Shared Python changes still exercise all runtime consumers. Diagnostic source
 # capture and lock probes have their own inputs rather than joining every build.
 [shared.runtime]
