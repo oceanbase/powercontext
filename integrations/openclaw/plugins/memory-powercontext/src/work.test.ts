@@ -154,6 +154,57 @@ describe("PowerContext work tools", () => {
     });
   });
 
+  it.each([
+    ["safety", "blocked", "declared"],
+    ["authorization", "blocked", "verified"],
+    ["capability", "cancelled", "verified"],
+    ["missing_evidence", "blocked", "verified"],
+    ["scope", "cancelled", "declared"],
+  ])("exposes and forwards a %s stop reason unchanged", async (kind, status, basis) => {
+    const { deps, requests } = fixture();
+    const tool = createTaskOutcomeTool(context, deps)!;
+    const reason = {
+      kind,
+      condition: "继续执行需要先确认前提条件。",
+      basis,
+      evidence: basis === "declared" ? [] : [
+        { kind: "source", source_ref: { name: "content", source_id: "evidence-1" } },
+        { kind: "artifact", artifact_ref: { family: "handoff", artifact_id: "h-1", revision: 2 } },
+      ],
+    };
+    const outcome = {
+      schema: "powercontext.task-outcome.v1",
+      trust: "untrusted_observation",
+      objective: "Attempt an action.",
+      status,
+      summary: "The caller deliberately stopped.",
+      observations: [{ text: "The caller reported stopping.", basis: "declared", evidence: [] }],
+      checks: [],
+      produced_artifacts: [],
+      remaining_work: [],
+    };
+    const params = { source_id: "outcome-1", outcome: { ...outcome, stop_reason: reason } };
+
+    expect(tool.parameters.properties.outcome.properties.stop_reason).toBeDefined();
+    expect(Value.Check(tool.parameters, params)).toBe(true);
+    expect(Value.Check(tool.parameters, { outcome })).toBe(true);
+    expect(Value.Check(tool.parameters, { outcome: { ...outcome, stop_reason: null } })).toBe(true);
+    for (const invalid of [
+      { ...reason, kind: "refused" },
+      { ...reason, condition: " " },
+      { ...reason, evidence: Array(32).fill({ kind: "source", source_ref: { name: "content", source_id: "evidence-1" } }) },
+    ]) {
+      expect(Value.Check(tool.parameters, { outcome: { ...outcome, stop_reason: invalid } })).toBe(false);
+    }
+
+    await tool.execute("call-stop", params);
+
+    expect(requests.find(({ path }) => path === "/v1/work/outcomes/record")).toEqual({
+      path: "/v1/work/outcomes/record",
+      body: { scope_id: "scope-1", ...params },
+    });
+  });
+
   it("treats nullable handoff inputs as omitted optional fields", async () => {
     const { deps, requests } = fixture();
     const revision = { family: "handoff", artifact_id: "h-1", revision: 1 };

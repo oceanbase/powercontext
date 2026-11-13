@@ -9089,6 +9089,33 @@ components:
           maxItems: 32
           items:
             $ref: "#/components/schemas/HandoffCitation"
+    TaskStopReasonKind:
+      type: string
+      enum: [safety, authorization, capability, missing_evidence, scope]
+    TaskStopReason:
+      description: >-
+        A caller-recorded judgement about why continuing would have been wrong.
+        It grants no permission, approval, or retry budget and is not success or failure evidence.
+      type: object
+      additionalProperties: false
+      required: [kind, condition, basis, evidence]
+      properties:
+        kind:
+          $ref: "#/components/schemas/TaskStopReasonKind"
+        condition:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+          description: The circumstance under which continuing would have been wrong; must be trimmed.
+        basis:
+          $ref: "#/components/schemas/WorkClaimBasis"
+        evidence:
+          type: array
+          maxItems: 31
+          description: Use [] with declared. verified requires exact previously returned same-scope citations.
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
     TaskOutcome:
       type: object
       additionalProperties: false
@@ -9115,6 +9142,10 @@ components:
         handoff_receipt_ref:
           $ref: "#/components/schemas/SourceReference"
           nullable: true
+        stop_reason:
+          $ref: "#/components/schemas/TaskStopReason"
+          nullable: true
+          description: Optional deliberate-stop reason, accepted only with blocked or cancelled status.
         observations:
           type: array
           minItems: 1

@@ -55,10 +55,10 @@ in its processing path.
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
 | Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Experience | Partial | N/A | Partial | Missing | Missing | Missing |
-| Profile | Partial | N/A | Partial | Missing | Missing | Missing |
-| Skill | Partial | N/A | Partial | Missing | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
+| Experience | Partial | N/A | Partial | Partial | Missing | Missing |
+| Profile | Partial | N/A | Partial | Partial | Missing | Missing |
+| Skill | Partial | N/A | Partial | Partial | Missing | Missing |
+| Handoff | Partial | N/A | Partial | Partial | Missing | Missing |
 | Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
 
 Memory / Atomic Memory and Topic Memory are tracked at operation granularity while they are the active slices:
@@ -86,10 +86,31 @@ Topic Memory operation-level coverage:
 | Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
 | Usage accounting | Usage accounting | Missing | The window provider budget is reported as `generation` / `usage_limit`; accounting failures are not classified. |
 
-The first two rollout slices cover Memory / Atomic Memory and Topic Memory: provider failures,
-budget exhaustion, and extraction/reconciliation/domain validation are classified, and safe
-accounting fields travel from the child Worker to the supervisor log. Other Families keep their
-current behavior until their own slice lands; the matrix is updated in the same change as each slice.
+Experience, Profile, Skill, and Handoff operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `experience.incubate` | Business validation | Partial | Bounded input and out-of-window evidence carry explicit diagnostics; structural limits do not establish context overflow. |
+| `profile.generate` | Business validation | Partial | Invalid Markdown carries the input count and original validation exception type without exposing the content. |
+| Experience / Skill typed generation | Output parsing | Partial | Invalid typed results use the shared schema mapping; unclassified provider details remain unknown. |
+| Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity. Evidence limits, unavailable evidence, and rejected request targets carry `business_validation` and their failure location. |
+| `handoff.generate` | Business validation | Partial | Objective, citation, rollover, and byte-limit violations are invalid output, not model resource exhaustion. |
+| Publication / persistence | Persistence | Missing | These slices do not yet classify all storage entry points. |
+| Usage accounting | Usage accounting | Missing | Accounting failures remain separate from processing outcomes. |
+
+The matrices describe classification coverage, not completion of the whole issue. Dream failure
+records contain bounded diagnostic fields only, never exception text or evidence content. Its
+persisted run outcome and retry policy remain authoritative; the failure record is an observation,
+not a new durable failure history. Durable-block classification currently covers Topic Memory only;
+Dream uses its existing Run outcomes and attempt logs, not a durable scheduler block.
+
+A timeout from Dream's own execution deadline produces the terminal Run code `budget_exceeded`.
+Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded` and
+`exception_type=TimeoutError`. The stage identifies the owner of the execution budget. A bare
+`TimeoutError` raised before that deadline expires follows the terminal `generation_failed` path
+and logs `timeout` without inferring a stage.
+Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
+retryable within the existing Run budget.
 
 ## Rollout
 

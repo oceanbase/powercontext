@@ -28,6 +28,11 @@ from powercontext.builtin.artifacts.handoff import (
     LLMHandoffGenerationPipeline,
 )
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.sources import ContentSource
 from powercontext.sources import SourceRef
 
@@ -115,7 +120,7 @@ def test_llm_pipeline_rejects_evidence_outside_the_bounded_request() -> None:
             )
         )
 
-        with pytest.raises(InvalidInferenceOutputError, match="outside the request"):
+        with pytest.raises(InvalidInferenceOutputError, match="outside the request") as raised:
             await pipeline.generate(
                 HandoffGenerationRequest(
                     objective="Complete parser error handling.",
@@ -123,6 +128,11 @@ def test_llm_pipeline_rejects_evidence_outside_the_bounded_request() -> None:
                     max_bytes=4096,
                 )
             )
+        diagnostics = classify_processing_error(raised.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+        assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+        assert diagnostics.failure_location == "handoff-generation-citation"
 
     asyncio.run(scenario())
 
@@ -143,7 +153,7 @@ def test_llm_pipeline_rejects_uncited_statements() -> None:
             )
         )
 
-        with pytest.raises(InvalidInferenceOutputError, match="does not cite evidence"):
+        with pytest.raises(InvalidInferenceOutputError, match="does not cite evidence") as raised:
             await pipeline.generate(
                 HandoffGenerationRequest(
                     objective="Complete parser error handling.",
@@ -151,5 +161,10 @@ def test_llm_pipeline_rejects_uncited_statements() -> None:
                     max_bytes=4096,
                 )
             )
+        diagnostics = classify_processing_error(raised.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+        assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+        assert diagnostics.failure_location == "handoff-generation-citation"
 
     asyncio.run(scenario())

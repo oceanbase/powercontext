@@ -65,6 +65,19 @@ unlinked Outcome in the same scope does not cover it. The operation stores a `ta
 Experience incubation can inspect, but does not generate or approve an Experience by itself. Integrations call it only
 at a real completion or interruption boundary, not solely because a prompt, Stop event, or Session ended.
 
+For `blocked` or `cancelled`, an optional `stop_reason` records why continuing would have been wrong. Its `kind` is
+`safety`, `authorization`, `capability`, `missing_evidence`, or `scope`; `condition` is nonblank, trimmed text.
+Like claims, its `basis` is `declared` with empty `evidence`, or `verified` with exact same-scope citations
+(at most 31). Other outcome statuses reject a reason. Omitting it preserves the existing stored representation
+and content digest, including for older `blocked` outcomes; historical records gain no inferred reason.
+Read the structured reason from the outcome Source's `content` through `get_source`. The continuity projection
+counts it as an outcome with its original status and does not expose the reason or classify it as success or
+failure. The reason itself is excluded from recurrence failure evidence and `avoided` derivation; existing
+observation and check rules still apply. It records a judgement without establishing that stopping was correct,
+granting permission, approval, or a retry budget, or ensuring that another agent will honour it.
+OpenClaw's `powercontext_task_outcome` and Pi's `pc_task_outcome` expose the same optional field and forward it
+to the Server, which owns status and evidence validation.
+
 Claims and checks are either `declared` with no evidence or `verified` with exact same-scope citations. A readable
 citation proves identity and availability, not freshness. Current instructions, live workspace state, capabilities,
 and authorization still take precedence over all Work and Handoff records.
