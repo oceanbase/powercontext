@@ -227,7 +227,7 @@ def _server_probe(root: Path, spec: dict[str, Any], version: str, environment_va
         identity["architecture"].lower()
     )
     if (
-        identity["platform"] != {"macos": "darwin", "windows": "win32"}[spec["platform"]]
+        identity["platform"] != {"macos": "darwin", "windows": "win32", "linux": "linux"}[spec["platform"]]
         or architecture != spec["architecture"]
     ):
         raise ValueError("Installed runtime platform does not match its resource identity")
@@ -299,7 +299,7 @@ def produce(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(prefix="pc-candidate-") as temporary:
         work = Path(temporary).resolve()
         runtime = work / "python"
-        aliases = extract_runtime(inputs / "python.tar.gz", runtime)
+        aliases = extract_runtime(inputs / "python.tar.gz", runtime, case_sensitive=spec["platform"] == "linux")
         if aliases != metadata["normalized_runtime_aliases"]:
             raise ValueError("Runtime alias normalization differs from the prepared input")
         licenses = _licenses(inputs, runtime, metadata)

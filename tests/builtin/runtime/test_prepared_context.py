@@ -15,9 +15,10 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 import pytest
 from pydantic import JsonValue, ValidationError
@@ -40,6 +41,7 @@ from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.prepared_code import CodeEvidenceRef, PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
     _MIN_TRUNCATED_CONTENT_BYTES,
+    PreparedContextBudgetTrace,
     PreparedContextBuild,
     PreparedContextBuilder,
     PreparedContextOmissions,
@@ -946,6 +948,261 @@ def test_omission_counting_leaves_rendered_content_and_origins_unchanged() -> No
         _hit("first", "First constraint").hit.artifact_ref,
         _hit("second", "Second constraint").hit.artifact_ref,
     )
+
+
+_BUDGET_OMISSION_REASONS = {
+    "dropped_below_min_bytes": "below_min_bytes",
+    "dropped_no_fitting_truncation": "no_fitting_truncation",
+    "entry_limit": "entry_limit",
+    "family_limit": "family_limit",
+}
+
+
+def _recorded(request: PrepareContextRequest, **inputs: Any) -> tuple[PreparedContextBuild, PreparedContextBudgetTrace]:
+    traces: list[PreparedContextBudgetTrace] = []
+    build = PreparedContextBuilder(budget_recorder=traces.append).build_scopes_result(request=request, **inputs)
+    assert build == PreparedContextBuilder().build_scopes_result(request=request, **inputs)
+    assert len(traces) == 1
+    return build, traces[0]
+
+
+def _record_omissions(trace: PreparedContextBudgetTrace) -> dict[tuple[str, str], int]:
+    return dict(
+        Counter(
+            (record.kind, _BUDGET_OMISSION_REASONS[record.disposition])
+            for record in trace.records
+            if record.disposition in _BUDGET_OMISSION_REASONS
+        )
+    )
+
+
+def _delivered_fragment_bytes(trace: PreparedContextBudgetTrace) -> list[int]:
+    return [record.fragment_bytes for record in trace.records if record.disposition in {"full", "truncated"}]
+
+
+def test_budget_trace_attributes_every_default_candidate_that_reached_fitting() -> None:
+    large = "Large early private-body-sentinel constraint. " * 50
+    hits = (_hit("large", large), _hit("medium", "Medium constraint " * 10), _hit("short", "hi"))
+    request = PrepareContextRequest(query="private-query-sentinel", max_bytes=1200, include_receipt=True)
+    build, trace = _recorded(
+        request, current_scope_id="current", memory_candidates=(PreparedMemoryCandidates("current", hits),)
+    )
+
+    assert [(record.origin, record.rank, record.disposition) for record in trace.records] == [
+        (hits[0].hit.artifact_ref, 1, "truncated"),
+        (hits[1].hit.artifact_ref, 2, "dropped_no_fitting_truncation"),
+        (hits[2].hit.artifact_ref, 3, "dropped_below_min_bytes"),
+    ]
+    delivered = _items(build.context.content)[0]["content"]
+    assert delivered.endswith("…") and large.startswith(delivered.removesuffix("…"))
+    first = trace.records[0]
+    assert first.source_bytes == first.display_bytes == len(large.encode("utf-8"))
+    assert first.delivered_bytes == len(delivered.encode("utf-8"))
+    assert [(record.delivered_bytes, record.fragment_bytes) for record in trace.records[1:]] == [(0, 0), (0, 0)]
+    assert (trace.path, trace.max_bytes, trace.content_bytes) == ("default", 1200, build.context.content_bytes)
+    assert build.omissions == PreparedContextOmissions(
+        truncated_items=1, dropped_items=2, dropped_below_min_bytes=1, dropped_no_fitting_truncation=1
+    )
+    assert _record_omissions(trace) == {(kind, reason): count for kind, reason, count in build.omitted}
+    assert _delivered_fragment_bytes(trace) == [fragment.rendered_bytes for fragment in build.fragments]
+    assert "sentinel" not in repr(trace)
+
+
+def test_budget_trace_records_the_entry_limit_but_not_upstream_family_caps() -> None:
+    memory = tuple(_hit(f"memory-{index}", f"Memory constraint {index}") for index in range(10))
+    experiences = tuple(_experience_hit(f"experience-{index}") for index in range(3))
+    build, trace = _recorded(
+        PrepareContextRequest(query="budget", max_bytes=32768, include_receipt=True),
+        current_scope_id="current",
+        memory_candidates=(PreparedMemoryCandidates("current", memory),),
+        experience_candidates=(PreparedExperienceCandidates("current", experiences),),
+    )
+
+    assert [record.disposition for record in trace.records] == ["full"] * 8 + ["entry_limit"] * 4
+    assert [record.rank for record in trace.records] == list(range(1, 13))
+    assert [record.origin for record in trace.records[8:]] == [hit.hit.artifact_ref for hit in memory[6:]]
+    assert [record.origin for record in trace.records if record.disposition == "full"] == list(build.origins)
+    assert experiences[2].artifact_ref not in [record.origin for record in trace.records]
+    assert ("experience", "family_limit", 1) in build.omitted
+    assert _record_omissions(trace) == {("atomic-memory", "entry_limit"): 4}
+    assert build.omissions == PreparedContextOmissions()
+    assert _delivered_fragment_bytes(trace) == [fragment.rendered_bytes for fragment in build.fragments]
+
+
+@pytest.mark.parametrize(
+    ("size", "disposition"), [(63, "dropped_below_min_bytes"), (64, "dropped_no_fitting_truncation")]
+)
+def test_budget_trace_keeps_the_minimum_truncation_boundary(size: int, disposition: str) -> None:
+    build, trace = _recorded(
+        PrepareContextRequest(query="entry", max_bytes=512),
+        current_scope_id="current",
+        memory_candidates=(PreparedMemoryCandidates("current", (_hit("boundary", "x" * size),)),),
+    )
+
+    assert build.context.status == "empty"
+    assert trace.content_bytes == 0
+    assert [(record.disposition, record.display_bytes, record.delivered_bytes) for record in trace.records] == [
+        (disposition, size, 0)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("assembly", "drop"),
+    [
+        # The default path truncates raw bytes and never keeps a prefix shorter than the floor.
+        (None, "dropped_no_fitting_truncation"),
+        # The assembly path reports a fitting display prefix that is shorter than the floor.
+        (ContextAssembly(), "dropped_below_min_bytes"),
+    ],
+)
+def test_budget_trace_truncations_keep_the_floor_on_multibyte_text(assembly: ContextAssembly | None, drop: str) -> None:
+    text = "记忆🙂\u202e" * 120
+    dispositions = set()
+    for max_bytes in range(512, 2600, 37):
+        build, trace = _recorded(
+            PrepareContextRequest.model_validate(
+                {"query": "记忆", "max_bytes": max_bytes} | ({} if assembly is None else {"assembly": assembly})
+            ),
+            current_scope_id="current",
+            memory_candidates=(PreparedMemoryCandidates("current", (_hit("unicode", text),)),),
+        )
+        (record,) = trace.records
+        dispositions.add(record.disposition)
+        assert trace.content_bytes == build.context.content_bytes <= max_bytes
+        if record.disposition == "truncated":
+            assert record.delivered_bytes >= _MIN_TRUNCATED_CONTENT_BYTES
+            assert record.delivered_bytes - len("…".encode()) < record.display_bytes
+        elif record.disposition == "full":
+            assert record.delivered_bytes == record.display_bytes
+        else:
+            assert record.delivered_bytes == 0
+    assert dispositions == {"full", "truncated", drop}
+
+
+def test_budget_trace_measures_the_escaped_assembly_body() -> None:
+    assembly = ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": 8}], "show": ["recall_rank"]})
+    large = "Large early constraint.\r\n" * 100
+    hits = (_hit("large", large), _hit("control", "Bell\x07 and\u2028line"), _hit("short", "hi"))
+    build, trace = _recorded(
+        PrepareContextRequest(query="budget", max_bytes=8000, assembly=assembly, include_receipt=True),
+        current_scope_id="current",
+        memory_candidates=(PreparedMemoryCandidates("current", hits),),
+    )
+
+    assert [(record.origin, record.rank, record.disposition) for record in trace.records] == [
+        (ArtifactAddress(scope_id="current", artifact=hit.hit.artifact_ref), rank, disposition)
+        for hit, rank, disposition in zip(hits, (1, 2, 3), ("truncated", "full", "full"), strict=True)
+    ]
+    large_record, control_record, short_record = trace.records
+    assert (large_record.source_bytes, large_record.display_bytes) == (2500, 2400)
+    assert 64 <= large_record.delivered_bytes <= 2000
+    # U+2028 becomes a line feed and BEL a visible escape, so the body this path delivers is ``Bell\u0007 and\nline``.
+    assert (control_record.source_bytes, control_record.display_bytes, control_record.delivered_bytes) == (16, 19, 19)
+    assert (short_record.display_bytes, short_record.delivered_bytes) == (2, 2)
+    assert (trace.path, trace.content_bytes) == ("assembly", build.context.content_bytes)
+    assert build.omissions == PreparedContextOmissions(truncated_items=1)
+    assert _delivered_fragment_bytes(trace) == [fragment.rendered_bytes for fragment in build.fragments]
+
+
+def test_budget_trace_ranks_unique_candidates_left_after_a_section_cap() -> None:
+    assembly = ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": 2}]})
+    hits = (
+        _hit("a", "Alpha"),
+        _hit("b", "Beta"),
+        _hit("c", "Gamma"),
+        _hit("a", "Alpha"),
+        _hit("blank", "   "),
+        _hit("d", "Delta"),
+    )
+    build, trace = _recorded(
+        PrepareContextRequest(query="budget", assembly=assembly, include_receipt=True),
+        current_scope_id="current",
+        memory_candidates=(PreparedMemoryCandidates("current", hits),),
+    )
+
+    def address(artifact_id: str) -> ArtifactAddress:
+        return ArtifactAddress(scope_id="current", artifact=_hit(artifact_id, "").hit.artifact_ref)
+
+    assert [(record.origin, record.rank, record.disposition) for record in trace.records] == [
+        (address("a"), 1, "full"),
+        (address("b"), 2, "full"),
+        (address("c"), 3, "family_limit"),
+        (address("d"), 4, "family_limit"),
+    ]
+    # The Receipt counts every entry left after the cap, the repeated ``a`` included; the blank body never reached
+    # the section. Records keep only the unique candidates the cap removed.
+    assert {(kind, reason): count for kind, reason, count in build.omitted} == {
+        ("atomic-memory", "family_limit"): 3,
+        ("atomic-memory", "blank"): 1,
+    }
+    assert all((record.delivered_bytes, record.fragment_bytes) == (0, 0) for record in trace.records[2:])
+
+
+def test_budget_trace_of_code_context_covers_the_history_share() -> None:
+    assembly = ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": 8}]})
+    memory = tuple(_hit(f"memory-{index}", f"History {index}") for index in range(8))
+    build, trace = _recorded(
+        PrepareContextRequest(query="budget", include_code=True, max_bytes=8000, assembly=assembly),
+        current_scope_id="scope",
+        code_candidates=_code_candidates(),
+        memory_candidates=(PreparedMemoryCandidates("scope", memory),),
+    )
+
+    assert build.code_origins
+    assert [record.origin for record in trace.records if record.disposition == "full"] == list(build.origins)
+    assert {record.disposition for record in trace.records} == {"full", "entry_limit"}
+    assert len(trace.records) == len(memory)
+    assert trace.max_bytes <= 8000
+
+
+def test_budget_trace_of_code_context_records_an_unscoped_remainder() -> None:
+    # Code evidence fills the entry limit before the topic section, so its unscoped topics are never itemized.
+    assembly = ContextAssembly.model_validate({
+        "sections": [{"family": "memory", "limit": 8}, {"family": "topic-memory", "limit": 2}]
+    })
+    memory = tuple(_hit(f"memory-{index}", f"History {index}") for index in range(10))
+    build, trace = _recorded(
+        PrepareContextRequest(query="budget", include_code=True, max_bytes=8000, assembly=assembly),
+        current_scope_id=None,
+        code_candidates=_code_candidates(1),
+        memory_candidates=(PreparedMemoryCandidates("current", memory),),
+        topic_memory_hits=(_topic_hit("topic-1"), _topic_hit("topic-2")),
+    )
+
+    topics = [record for record in trace.records if record.kind == "topic-memory"]
+    assert build.code_origins
+    assert [(record.origin, record.rank, record.disposition) for record in topics] == [
+        (ArtifactRef(family="topic-memory", artifact_id="topic-1", revision=1), 1, "entry_limit"),
+        (ArtifactRef(family="topic-memory", artifact_id="topic-2", revision=1), 2, "entry_limit"),
+    ]
+
+
+class _RecorderFailureError(RuntimeError):
+    pass
+
+
+def test_budget_recording_never_changes_or_fails_a_build() -> None:
+    reported: list[PreparedContextBudgetTrace] = []
+
+    def failing(trace: PreparedContextBudgetTrace) -> None:
+        reported.append(trace)
+        raise _RecorderFailureError
+
+    candidates = (PreparedMemoryCandidates("current", (_hit("large", "Large constraint " * 200), _hit("short", "hi"))),)
+    for assembly in ({}, {"assembly": ContextAssembly()}):
+        request = PrepareContextRequest.model_validate(
+            {"query": "budget", "max_bytes": 900, "include_receipt": True} | assembly
+        )
+        recording = PreparedContextBuilder(budget_recorder=failing)
+        plain = PreparedContextBuilder()
+
+        assert recording.build_scopes_result(
+            request=request, current_scope_id="current", memory_candidates=candidates
+        ) == plain.build_scopes_result(request=request, current_scope_id="current", memory_candidates=candidates)
+        assert recording.probe_budget(
+            request=request, current_scope_id="current", memory_candidates=candidates
+        ) == plain.probe_budget(request=request, current_scope_id="current", memory_candidates=candidates)
+    assert [trace.path for trace in reported] == ["default", "assembly"]
 
 
 def _code_candidates(count: int = 5) -> tuple[PreparedCodeCandidate, ...]:

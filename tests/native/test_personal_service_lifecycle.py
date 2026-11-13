@@ -19,6 +19,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -715,6 +716,148 @@ def test_native_service_rejects_foreign_registration(tmp_path: Path) -> None:
         _remove_foreign_registration(adapter)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd user-service isolation is Linux-specific")
+def test_native_linux_lifecycle_does_not_touch_an_unrelated_user_service(tmp_path: Path) -> None:
+    adapter = _native_adapter()
+    controller = ServiceController(adapter)
+    environment = _environment_file(tmp_path)
+    unrelated = f"powercontext-unrelated-{uuid.uuid4().hex}.service"
+
+    def unrelated_active() -> bool:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", unrelated],  # noqa: S607 - native manager command
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "active"
+
+    try:
+        _run("systemd-run", "--user", f"--unit={unrelated}", "/bin/sleep", "300")
+        _wait_for(unrelated_active)
+
+        assert controller.install(env_file=environment).ok
+        stopped = controller.stop()
+        assert stopped.manager is ManagerState.INACTIVE
+        assert unrelated_active()
+
+        removed = controller.uninstall()
+        assert removed.registration is RegistrationState.NOT_INSTALLED
+        assert unrelated_active()
+    finally:
+        _capture_native_failure(adapter, tmp_path)
+        with suppress(Exception):
+            controller.uninstall()
+        _cleanup(adapter)
+        _run_ignoring_failure("systemctl", "--user", "stop", unrelated)
+        _run_ignoring_failure("systemctl", "--user", "reset-failed", unrelated)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd user-service recovery is Linux-specific")
+def test_native_linux_service_recovers_after_external_stop(tmp_path: Path) -> None:
+    adapter = _native_adapter()
+    controller = ServiceController(adapter)
+    environment = _environment_file(tmp_path)
+
+    try:
+        installed = controller.install(env_file=environment)
+        assert installed.ok, f"{installed}\n\n{_failure_diagnostics(adapter, tmp_path)}"
+
+        # Simulate an external stop (for example, a service manager action or
+        # another local control surface). The controller must not mistake this
+        # for ownership loss, and recovery must use the registered definition.
+        adapter.stop()
+        assert adapter.manager_state() in {ManagerState.INACTIVE, ManagerState.FAILED}
+
+        recovered = controller.start()
+        assert recovered.ok, f"{recovered}\n\n{_failure_diagnostics(adapter, tmp_path)}"
+        assert recovered.manager is ManagerState.ACTIVE
+        assert not controller.maintenance_path.exists()
+    finally:
+        _capture_native_failure(adapter, tmp_path)
+        with suppress(Exception):
+            controller.uninstall()
+        _cleanup(adapter)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd user-service support is Linux-specific")
+def test_native_linux_unavailable_user_manager_is_reported_without_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing user bus is actionable and never becomes a system-service fallback."""
+
+    if shutil.which("systemctl") is None:
+        pytest.skip("systemctl is not installed")
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime / 'missing-bus'}")
+    adapter = SystemdUserAdapter(
+        config_home=tmp_path / "config",
+        identifier=f"powercontext-native-unavailable-{uuid.uuid4().hex}.service",
+    )
+
+    manager_probe = subprocess.run(
+        ["systemctl", "--user", "show-environment"],  # noqa: S607 - intentional unavailable-manager probe
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert manager_probe.returncode != 0
+
+    support, detail = adapter.support()
+
+    assert support is SupportState.UNSUPPORTED
+    assert "no available systemd user manager" in detail
+    assert not adapter.artifact_path.exists()
+    assert not (Path("/etc/systemd/system") / adapter.identifier).exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd user-session behavior is Linux-specific")
+def test_native_linux_user_session_scope_preserves_linger_and_system_boundary(tmp_path: Path) -> None:
+    """Login activation is user-scoped and does not alter logout/linger policy."""
+
+    if shutil.which("loginctl") is None:
+        pytest.skip("loginctl is not installed")
+    adapter = _native_adapter(suffix="session-boundary")
+    controller = ServiceController(adapter)
+    environment = _environment_file(tmp_path)
+    system_unit = Path("/etc/systemd/system") / adapter.identifier
+    initial_linger = _user_linger_state()
+    assert not system_unit.exists()
+
+    try:
+        installed = controller.install(env_file=environment)
+        assert installed.ok, f"{installed}\n\n{_failure_diagnostics(adapter, tmp_path)}"
+
+        unit = adapter.artifact_path.read_text(encoding="utf-8")
+        assert adapter.artifact_path.parent.name == "user"
+        assert adapter.artifact_path.parent.parent.name == "systemd"
+        assert "WantedBy=default.target" in unit
+        assert not system_unit.exists()
+        enabled_link = adapter.artifact_path.parent / "default.target.wants" / adapter.identifier
+        assert enabled_link.is_symlink()
+        assert enabled_link.resolve() == adapter.artifact_path.resolve()
+        assert _user_linger_state() == initial_linger
+
+        controller.stop()
+        assert adapter.manager_state() is ManagerState.INACTIVE
+        assert enabled_link.is_symlink()
+        assert _user_linger_state() == initial_linger
+
+        assert controller.start().ok, _failure_diagnostics(adapter, tmp_path)
+        assert adapter.manager_state() is ManagerState.ACTIVE
+    finally:
+        _capture_native_failure(adapter, tmp_path)
+        with suppress(Exception):
+            controller.uninstall()
+        _cleanup(adapter)
+        assert not system_unit.exists()
+        assert _user_linger_state() == initial_linger
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="launchd retry classification is macOS-specific")
 def test_native_service_retry_and_exit_classification(tmp_path: Path) -> None:
     adapter = _native_adapter(suffix="retry")
@@ -1110,6 +1253,11 @@ def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
         timeout=30,
         check=True,
     )
+
+
+def _user_linger_state() -> str:
+    result = _run("loginctl", "show-user", str(os.getuid()), "--property=Linger", "--value")
+    return result.stdout.strip()
 
 
 def _run_ignoring_failure(*arguments: str) -> None:

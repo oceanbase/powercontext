@@ -413,6 +413,34 @@ test("new connections offer only current-contract profiles and keep no selection
   expect(desktopApi.save).not.toHaveBeenCalled();
   expect(desktopApi.check).not.toHaveBeenCalled();
 });
+test("an unqualified saved legacy profile remains unavailable after the contract changes", async () => {
+  const legacy = qualifications.find(
+    (p) => p.id === "sqlite-atomic-112db11e-v1",
+  )!;
+  const saved = { ...profile, compatibility: legacy.id };
+  render(
+    <Connections
+      state={{ ...state(saved), compatibilityProfiles: [legacy] }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  const option = within(selector).getByRole("option", {
+    name: (text) => text.includes(legacy.id),
+  }) as HTMLOptionElement;
+  expect(selector.value).toBe(legacy.id);
+  expect(option.disabled).toBe(true);
+  expect(screen.getByRole("alert").textContent).toMatch(
+    /different API contract from this Desktop build/,
+  );
+});
 test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
   const user = userEvent.setup();
   const legacy: CompatibilityProfile = {
