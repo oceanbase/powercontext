@@ -21,7 +21,7 @@ import { HomeContributors } from '@/components/home-contributors';
 import type { HomeContent } from '@/lib/home-content';
 import type { Language } from '@/lib/i18n';
 import { repositoryUrl } from '@/lib/urls';
-import { Backdrop, PhotoCredit } from './backdrop';
+import { Backdrop } from './backdrop';
 import { HeroScene } from './hero-scene';
 import { introScript, PART_ATTR } from './intro';
 
@@ -46,6 +46,7 @@ export function HomeHero({ home, lang, contributors, stars }: {
 }) {
   const { hero } = home;
   const community = hero.community;
+  const { label: _heroLabel, ...sceneHero } = hero;
   return (
     <section aria-labelledby="pc-hero-title" className="pc-hero">
       <script dangerouslySetInnerHTML={{ __html: introScript }} />
@@ -55,7 +56,6 @@ export function HomeHero({ home, lang, contributors, stars }: {
           <div aria-hidden="true" className="pc-hero-scrim" />
           <div className="pc-hero-body">
             <div className="pc-hero-copy">
-              <p className="pc-hero-label">{hero.label}</p>
               <h1 className="pc-display pc-hero-title" id="pc-hero-title" {...part('title')}>
                 {hero.title.map((line) => <span key={line}>{line}</span>)}
               </h1>
@@ -92,10 +92,9 @@ export function HomeHero({ home, lang, contributors, stars }: {
                 </div>
               </div>
             </div>
-            <HeroScene hero={hero} />
+            <HeroScene hero={sceneHero} />
           </div>
         </div>
-        <PhotoCredit id="iris" template={home.photo_credit} />
       </div>
     </section>
   );

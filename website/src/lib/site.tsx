@@ -17,6 +17,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { BrandLogo } from '@/components/brand-logo';
 import { GitHubStars } from '@/components/github-stars';
+import { ThemeSwitch } from '@/components/theme-switch';
 import { defaultLanguage, type Language } from './i18n';
 import { repositoryUrl } from './urls';
 import { githubRepository } from './github-stars';
@@ -41,6 +42,9 @@ export function baseOptions(lang: Language): BaseLayoutProps {
   const label = labels[lang];
 
   return {
+    slots: {
+      themeSwitch: ThemeSwitch,
+    },
     nav: {
       title: <BrandLogo className="w-36" priority />,
       url: lang === defaultLanguage ? '/' : `/${lang}`,

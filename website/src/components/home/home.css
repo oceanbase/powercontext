@@ -245,6 +245,15 @@ html:lang(zh) .pc-display {
   outline-offset: -1px;
 }
 
+/* Scroll fill lifts the active photograph over the nav so it can cover the viewport. */
+.pc-home-sheet:has(> section[data-filling]) {
+  z-index: 45;
+}
+
+.pc-home-sheet > section[data-filling] .pc-stage {
+  outline-color: transparent;
+}
+
 .pc-stage-ground {
   position: absolute;
   inset: 0;
@@ -420,6 +429,48 @@ html:lang(zh) .pc-hero-title {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Five overlapping portraits. One extra sits clipped on the right and
+   scrolls into the row; the ellipsis stays outside this window. */
+.pc-contrib-avatars {
+  width: calc(5 * 1.75rem - 4 * 0.5rem);
+  overflow: hidden;
+  perspective: 240px;
+}
+
+.pc-contrib-track {
+  transition: transform 560ms var(--pc-ease-out);
+}
+
+.pc-contrib-track img {
+  flex: none;
+  backface-visibility: hidden;
+}
+
+.pc-contrib-avatars.is-advancing .pc-contrib-track img:first-child {
+  animation: pc-contrib-flip-out 560ms var(--pc-ease-out) forwards;
+}
+
+.pc-contrib-avatars.is-advancing .pc-contrib-track img:last-child {
+  animation: pc-contrib-flip-in 560ms var(--pc-ease-out);
+}
+
+@keyframes pc-contrib-flip-out {
+  to { transform: rotateX(-90deg); }
+}
+
+@keyframes pc-contrib-flip-in {
+  from { transform: rotateX(90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-contrib-track,
+  .pc-contrib-avatars.is-advancing .pc-contrib-track img:first-child,
+  .pc-contrib-avatars.is-advancing .pc-contrib-track img:last-child {
+    animation: none;
+    transition: none;
+  }
 }
 
 .pc-hero-community a:not([aria-label]) {
@@ -1519,6 +1570,28 @@ html:lang(zh) .pc-section-title {
 
 .pc-home-end {
   height: 24px;
+}
+
+/* Closing layer: the page sheet slides off the footer pinned underneath it. */
+.pc-home-sheet {
+  position: relative;
+  z-index: 10;
+  padding-bottom: 80px;
+  background: var(--pc-paper);
+  box-shadow: 0 18px 40px -18px rgb(20 18 14 / 0.16);
+}
+
+main.pc-home > footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 0;
+  margin-top: 0;
+  border-top: 0;
+  background: var(--pc-well);
+}
+
+.dark main.pc-home > footer {
+  background: hsl(24 12% 7%);
 }
 
 /* Reveal on scroll: plays once; see reveal.tsx ---------------------------- */
