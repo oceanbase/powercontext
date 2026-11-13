@@ -27,9 +27,6 @@ jobs:
   linux-systemd-user:
     needs: changes
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
-    # Linux native service qualification is optional under #2112; do not make
-    # it block the required macOS and Windows service checks.
-    continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:

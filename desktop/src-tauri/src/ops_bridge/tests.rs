@@ -992,9 +992,17 @@ fn linux_xdg_home_environment_preserves_a_non_default_layout() {
         assert_eq!(environment.get(name).map(String::as_str), path.to_str());
     }
 
-    let invalid =
-        std::collections::BTreeMap::from([("XDG_CONFIG_HOME", PathBuf::from("relative/config"))]);
-    assert!(trust::trusted_linux_xdg_environment_from(|name| invalid.get(name).cloned()).is_err());
+    let relative = std::collections::BTreeMap::from([
+        ("XDG_CONFIG_HOME", PathBuf::from("relative/config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+    ]);
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| relative.get(name).cloned()).unwrap();
+    assert!(!environment.contains_key("XDG_CONFIG_HOME"));
+    assert_eq!(
+        environment.get("XDG_DATA_HOME").map(String::as_str),
+        relative.get("XDG_DATA_HOME").and_then(|path| path.to_str())
+    );
 
     let empty = [
         ("XDG_CONFIG_HOME", PathBuf::new()),

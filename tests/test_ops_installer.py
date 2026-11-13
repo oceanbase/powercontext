@@ -88,6 +88,28 @@ def test_linux_layout_uses_user_xdg_locations(monkeypatch: pytest.MonkeyPatch, t
     assert layout.data == tmp_path / "application-data"
 
 
+def test_linux_layout_ignores_relative_xdg_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(installer_module.sys, "platform", "linux")
+    monkeypatch.setattr(installer_module, "default_data_dir", lambda: tmp_path / "application-data")
+    relative = {
+        "XDG_DATA_HOME": "relative-data",
+        "XDG_CONFIG_HOME": "relative-config",
+        "XDG_STATE_HOME": "relative-state",
+        "XDG_CACHE_HOME": "relative-cache",
+    }
+    for name, value in relative.items():
+        monkeypatch.setenv(name, value)
+
+    layout = ManagedLayout.current_user()
+    home = Path.home()
+
+    assert layout.programs == home / ".local/share/PowerContextManaged/programs"
+    assert layout.configuration == home / ".config/PowerContextManaged"
+    assert layout.state == home / ".local/state/PowerContextManaged"
+    assert layout.cache == home / ".cache/PowerContextManaged"
+    assert layout.data == tmp_path / "application-data"
+
+
 @pytest.fixture
 def managed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ops, FakeAdapter, ManagedInstaller]:
     return make_managed_ops(tmp_path, monkeypatch)

@@ -152,7 +152,7 @@ pnpm --dir desktop desktop:dev
 
 在 Linux 上，「本地 Server」设置页可以通过可信的 Ops Bridge 检查 PowerContext 的用户服务。这个检查是只读的：它只显示是否支持、是否注册、管理归属、管理器状态、存活状态、就绪状态和维护状态，不会把路径、命令、环境值或原始进程输出显示给界面。
 
-Ops Bridge 只处理已登记的 PowerContext 服务目标，并拒绝不可信窗口、远程来源和渲染器传入的任意输入。本地服务缺失或暂时不可用时，远程 Server 连接仍然可以使用。本工作流不增加安装、启动、停止或重启按钮；这些修改操作仍由服务管理边界负责，并且必须继续遵守归属和审批规则。
+Ops Bridge 只处理已登记的 PowerContext 服务目标，并拒绝不可信窗口、远程来源和渲染器传入的任意输入。本地服务缺失或暂时不可用时，远程 Server 连接仍然可以使用。页面通过 `ops.inspect` 执行只读状态检查；在有效的 Linux binding 下，经过明确批准并通过 `ops.apply` 派发的计划可以安装、修复、启动、停止或重启个人服务。这些生命周期操作仍然必须遵守相同的归属和审批规则。
 
 服务单元写入当前用户的 `$XDG_CONFIG_HOME/systemd/user/`；未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/systemd/user/`，所有管理器调用都使用 `systemctl --user`。正常安装和恢复不需要 `sudo`，不会写入 `/etc/systemd/system/` 之类的系统级 unit，也不会调用 `loginctl enable-linger`。用户登录时，已有的用户级 systemd manager 可以通过 `default.target` 激活已启用的服务；用户注销时，服务遵循该用户 manager 的正常生命周期。如果账户本来已经由用户或管理员启用了 linger，PowerContext 不会修改它，也不会默默创建系统级持久化。
 

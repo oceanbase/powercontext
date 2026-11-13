@@ -170,7 +170,7 @@ jobs:
           {
             echo "bundle=$POWERCONTEXT_OPS_TEST_BUNDLE"
             echo "bundle_manifest_sha256=$POWERCONTEXT_OPS_TEST_BUNDLE_SHA256"
-            CARGO_BUILD_JOBS=2 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
+            CARGO_BUILD_JOBS=2 rustup run 1.95.0 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
           } 2>&1 | tee build/resource-evidence/native-ops-bridge.txt
       - name: Retain unqualified candidate evidence
         if: success()

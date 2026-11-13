@@ -366,10 +366,14 @@ pub(super) fn trusted_linux_xdg_environment_from(
         let Some(path) = configured(name).filter(|path| !path.as_os_str().is_empty()) else {
             continue;
         };
-        if !path.is_absolute()
-            || path
-                .components()
-                .any(|component| matches!(component, Component::ParentDir))
+        if !path.is_absolute() {
+            // The XDG Base Directory Specification says to ignore relative
+            // values and use the platform default instead.
+            continue;
+        }
+        if path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
         {
             return Err(Error::Unavailable);
         }

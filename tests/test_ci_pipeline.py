@@ -337,14 +337,14 @@ def test_ci_result_ignores_only_the_separate_optional_linux_call():
     assert run.returncode == 0, run.stdout + run.stderr
 
 
-def test_linux_desktop_and_native_validation_are_optional_platform_gates():
+def test_linux_desktop_only_is_an_optional_platform_gate():
     desktop = workflow("desktop.yml")["jobs"]
     native = workflow("native-service.yml")["jobs"]
 
     assert desktop["linux"]["continue-on-error"] is True
     assert "continue-on-error" not in desktop["windows"]
     assert "continue-on-error" not in desktop["macos"]
-    assert native["linux-systemd-user"]["continue-on-error"] is True
+    assert "continue-on-error" not in native["linux-systemd-user"]
     assert "continue-on-error" not in native["macos-launchagent"]
     assert "continue-on-error" not in native["windows-task-scheduler"]
 
