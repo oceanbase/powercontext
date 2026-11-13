@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[tokio::main]
 async fn main() {
     use powercontext_desktop::{
         diagnostics::{DiagnosticKind, LocalDiagnostics},
         error::SafeError,
     };
-    #[cfg(any(windows, target_os = "linux"))]
     use sha2::{Digest, Sha256};
     #[cfg(windows)]
     {
@@ -91,7 +90,7 @@ async fn main() {
         assert_eq!(integrations.hosts.len(), 10);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
         let support = service
             .items
@@ -144,6 +143,17 @@ async fn main() {
         kimi.checks.iter().any(|item| item.field == "profile"),
         "configured Kimi diagnostics must preserve the profile check"
     );
+    let dsh = integrations
+        .hosts
+        .iter()
+        .find(|host| host.host == "dsh")
+        .expect("DSH diagnostics host");
+    assert!(
+        dsh.checks
+            .iter()
+            .any(|item| item.field == "dsh_pet_memory" && item.status == "skipped"),
+        "the isolated CLI has pet memory off by default and Desktop must preserve its status"
+    );
     let mut legacy = registration.clone();
     legacy["version"] = "0.0.0".into();
     let legacy_path = invalid_directory.path().join("legacy.json");
@@ -155,7 +165,6 @@ async fn main() {
     assert_eq!(legacy_service.items, service.items);
     assert_eq!(legacy_service.cli_version, service.cli_version);
 
-    #[cfg(any(windows, target_os = "linux"))]
     {
         let synthetic_executable = invalid_directory.path().join(if cfg!(windows) {
             "powercontext.exe"
@@ -211,7 +220,7 @@ async fn main() {
                 "digestMismatchRejected":true,"unavailableVersionDoesNotBlock":true}})
     );
 }
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn main() {
-    panic!("Windows or Linux qualification required");
+    panic!("Windows, Linux, or macOS qualification required");
 }

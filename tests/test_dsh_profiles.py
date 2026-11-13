@@ -20,10 +20,12 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
+from powercontext.cli.authorization import credential_path, write_stored_authorization
 from powercontext.cli.dsh_runtime import DshProfile, desktop_runtime, resolve_dsh_target
 from powercontext.cli.system import doctor_app, setup_app
 
@@ -98,6 +100,160 @@ def test_setup_and_default_doctor_reuse_the_selected_native_target(
     assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == original
     configured = CliRunner().invoke(create_cli(), ["config", "agent", "dsh", "--json"])
     assert configured.exit_code == 0, configured.output
+
+
+@pytest.fixture
+def pet_setup_boundary(setup_boundary, monkeypatch, server_checks):
+    from powercontext.cli import dsh_pet, system
+
+    plugin, native, inspect = setup_boundary
+    adapter = plugin.parent / "dsh-pet"
+    (adapter / "lib").mkdir(parents=True)
+    (adapter / "lib/index.js").touch()
+    (adapter / "package.json").write_text('{"name":"powercontext-dsh-pet","version":"0.1.0"}')
+    packages = {"dsh-pet": {"entry": "enabled", "version": "0.4.8"}}
+    inspect.return_value = {"petPackages": packages, "memoryProtocol": "atomic-artifact-v1"}
+    monkeypatch.setattr(dsh_pet, "read_dsh_settings", inspect)
+
+    def run_dsh(*args, **_):
+        if args == ("--version",):
+            return "0.2.2-rc.1\n"
+        if args == ("plugin", "--profile", "web", "add", str(adapter)):
+            packages["powercontext-dsh-pet"] = {"entry": "enabled", "version": "0.1.0"}
+        return "id: powercontext-dsh\n"
+
+    native.side_effect = run_dsh
+    monkeypatch.setattr(system, "stdin_is_tty", lambda: True)
+    scopes = [
+        {
+            "scope_id": scope_id,
+            "title": "Pet",
+            "summary": "Fixture",
+            "version": 1,
+            "context_references": [],
+            "external_references": [],
+        }
+        for scope_id in ("one", "two")
+    ]
+    requests = []
+    destination = {"require_credential": False}
+    routes = {
+        "/v1/scopes": {"items": scopes},
+        "/v1/scopes/two": scopes[1],
+        "/v1/connection/identity": {
+            "server_id": "fixture",
+            "authentication": "disabled",
+            "access_mode": "disabled",
+            "principal": None,
+        },
+    }
+
+    def respond(request):
+        path = request.url.path
+        authorization = request.headers.get("authorization")
+        requests.append((path, authorization))
+        if destination["require_credential"] and authorization != "Bearer fixture-token":
+            return httpx.Response(401, json={"code": "unauthorized"})
+        if path in routes:
+            return httpx.Response(200, json=routes[path])
+        return httpx.Response(404)
+
+    def client(**options):
+        return httpx.AsyncClient(transport=httpx.MockTransport(respond), **options)
+
+    monkeypatch.setattr(dsh_pet, "httpx", Mock(AsyncClient=client))
+    args = ["setup", "dsh", "--profile", "web", "--source", str(plugin), "--server-url", "http://127.0.0.1:1"]
+    settings = Path(os.environ["DSH_HOME"]) / "profiles/web/.powercontext-dsh-pet/bindings.json"
+    return args, packages, settings, requests, destination, routes
+
+
+@pytest.mark.parametrize("scope_choice", ["2\n", "0\ntwo\n"])
+def test_terminal_setup_offers_pet_memory_and_saves_the_selected_scope(pet_setup_boundary, scope_choice):
+    args, packages, settings, *_ = pet_setup_boundary
+    runner = CliRunner()
+    cli = create_cli([setup_app])
+    result = runner.invoke(cli, args, input="y\n\n" + scope_choice)
+
+    assert result.exit_code == 0, result.output
+    assert "Enable dsh-pet long-term memory in the web profile?" in result.output
+    assert "'Pet' (ID: 'one')" in result.output and "'Pet' (ID: 'two')" in result.output
+    assert "dsh_pet_memory: enabled" in result.output
+    assert packages["powercontext-dsh-pet"]["entry"] == "enabled"
+    config = json.loads(settings.read_text(encoding="utf-8"))
+    assert config["enabled"] is True
+    assert [(row["pet_id"], row["scope_id"]) for row in config["bindings"]] == [("main", "two")]
+
+    rerun = runner.invoke(cli, args)
+    assert rerun.exit_code == 0, rerun.output
+    assert "Enable dsh-pet long-term memory" not in rerun.output
+    assert json.loads(settings.read_text(encoding="utf-8")) == config
+
+
+@pytest.mark.parametrize("case", ["decline", "skip_scope", "json", "pipe", "incompatible", "unknown_scope"])
+def test_setup_without_an_authorized_pet_binding_leaves_memory_off(pet_setup_boundary, monkeypatch, case):
+    args, packages, settings, requests, *_ = pet_setup_boundary
+    answers = {
+        "decline": "\n",
+        "skip_scope": "y\n\n\n",
+        "json": "y\n\n2\n",
+        "pipe": "y\n\n2\n",
+        "incompatible": "y\n\n2\n",
+        "unknown_scope": "y\n\n0\nunknown\n",
+    }
+    if case == "json":
+        args = [*args, "--json"]
+    if case == "pipe":
+        monkeypatch.setattr("powercontext.cli.system.stdin_is_tty", lambda: False)
+    if case == "incompatible":
+        packages["dsh-pet"]["version"] = "0.4.7"
+    result = CliRunner().invoke(create_cli([setup_app]), args, input=answers[case])
+
+    assert result.exit_code == 0, result.output
+    assert ("Enable dsh-pet long-term memory" in result.output) == (case in {"decline", "skip_scope", "unknown_scope"})
+    assert (any(path == "/v1/scopes" for path, _ in requests)) == (case in {"skip_scope", "unknown_scope"})
+    assert ("server_identity_scope_or_permissions_unverified" in result.output) == (case == "unknown_scope")
+    assert "powercontext-dsh-pet" not in packages
+    assert not settings.exists()
+
+
+@pytest.mark.parametrize("authority", ["anonymous", "proxy_only", "enforced", "denied"])
+def test_pet_setup_matches_runtime_authorization(pet_setup_boundary, authority):
+    args, packages, settings, requests, destination, routes = pet_setup_boundary
+    path = credential_path("dsh")
+    write_stored_authorization(path, server_url=args[-1], value="fixture-token")
+    destination["require_credential"] = authority != "anonymous"
+    if authority in {"enforced", "denied"}:
+        routes["/v1/connection/identity"].update(
+            authentication="authenticated", access_mode="enforced", principal={"type": "user", "id": "owner"}
+        )
+        allowed = authority == "enforced"
+        routes["/v1/access/check"] = {
+            "allowed": allowed,
+            "decisions": [
+                {"allowed": True, "reason_code": "granted"},
+                {"allowed": allowed, "reason_code": "granted" if allowed else "denied"},
+            ],
+        }
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]), [*args, "--dsh-pet-memory", "on", "--dsh-pet-bind", "main=two", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    pet = json.loads(result.stdout)["hosts"]["dsh"]["result"]["dsh_pet_memory"]
+    assert requests[0] == ("/v1/connection/identity", None)
+    if authority in {"proxy_only", "denied"}:
+        assert pet == {"status": "unchanged", "reason": "server_identity_scope_or_permissions_unverified"}
+        assert "powercontext-dsh-pet" not in packages
+        assert not settings.exists()
+    else:
+        assert pet["status"] == "enabled", (pet, requests)
+        assert json.loads(settings.read_text(encoding="utf-8"))["identity"] == routes["/v1/connection/identity"]
+    if authority == "anonymous":
+        assert ("/v1/scopes/two", None) in requests
+        assert all(authorization is None for _, authorization in requests)
+    if authority in {"enforced", "denied"}:
+        assert ("/v1/access/check", "Bearer fixture-token") in requests
+    assert json.loads(path.read_text(encoding="utf-8"))["authorization"] == "Bearer fixture-token"
 
 
 def test_uninitialized_desktop_fails_before_installation(tmp_path, desktop_command, setup_boundary):

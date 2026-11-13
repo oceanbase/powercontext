@@ -273,7 +273,10 @@ flush 超时后统计可能尚不完整，在一个 Server 上读取统计也不
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
 嵌套复杂度。耗尽后保留 Source、Cursor、Pending 和同 Scope 尾部，停止后续 provider 调用；flush 和重启均不重置。
-运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。
+运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。Worker 读取 Topic head 后，如果并发的 replace
+或 Dream 移动了该 head（head 冲突），这次尝试不计入尝试次数：Worker 将 `head_conflict` 记为该次尝试的最后错误，
+重新读取 head 后重新计算。该次尝试预留的请求数和 token 容量仍然计入，因此 head 持续变化时会在
+`window_provider_budget_exceeded` 处停止，不会无限重试。
 
 Topic generation 只允许有界标量设置：`max_tokens`、`temperature`、`top_p`、`top_k`、`seed`、`presence_penalty`、
 `frequency_penalty`、`timeout`、`openai_reasoning_effort`、`openai_text_verbosity`、`service_tier`、

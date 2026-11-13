@@ -132,6 +132,8 @@ class ContextCheckResult(_CheckModel):
     valid_until: datetime
     correlate_until: datetime | None = None
     binding: str | None = None
+    target_endpoint: str | None = None
+    target_protocol: str | None = None
 
 
 def _fingerprint(config: InferenceProtectionConfig) -> str:
@@ -349,6 +351,7 @@ async def check_context(
     binding_identity: str,
     now: datetime,
     validate_reuse: Callable[[str], Awaitable[ValidatedContextReuse]],
+    resolve_target: bool = False,
 ) -> ContextCheckResult:
     """Check complete final bytes under current authorization supplied by the owner."""
     now = now.astimezone(UTC)
@@ -410,8 +413,11 @@ async def check_context(
         "valid_until": deadline.isoformat(),
     }
     if isinstance(request, CheckContextBeforeSend):
+        target = config.targets[request.target_profile]
         granted["prepared_bindings"] = [item.binding for item in request.prepared_contexts]
+        granted["endpoint"] = target.endpoint
     else:
+        target = None
         granted["request_digest"] = sha256(request.request_binding.encode()).hexdigest()
     try:
         binding = codec.seal(
@@ -430,4 +436,6 @@ async def check_context(
         valid_until=deadline,
         correlate_until=correlate_until,
         binding=binding,
+        target_endpoint=target.endpoint if resolve_target and target is not None else None,
+        target_protocol=target.protocol if resolve_target and target is not None else None,
     )
