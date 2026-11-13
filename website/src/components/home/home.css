@@ -331,46 +331,43 @@ html:lang(zh) .pc-hero-title {
   }
 }
 
-/* Five overlapping portraits. One extra sits clipped on the right and
-   scrolls into the row; the ellipsis stays outside this window. */
+/* Five overlapping portraits. A sixth waits unseen in the next slot; on each
+   advance the row moves one step, the first portrait leaves and the sixth
+   arrives. The step then resets with no transition, in the same frame the
+   list shifts by one, so nothing moves or appears when the row stops. The
+   ellipsis stays outside this window. */
 .pc-contrib-avatars {
   width: calc(5 * 1.75rem - 4 * 0.5rem);
   overflow: hidden;
-  perspective: 240px;
 }
 
-.pc-contrib-track {
-  transition: transform 560ms var(--pc-ease-out);
+.pc-contrib-avatars.is-advancing .pc-contrib-track {
+  transition: transform 560ms var(--pc-ease-in-out);
 }
 
 .pc-contrib-track img {
   flex: none;
-  backface-visibility: hidden;
+}
+
+.pc-contrib-track img:nth-child(6) {
+  opacity: 0;
 }
 
 .pc-contrib-avatars.is-advancing .pc-contrib-track img:first-child {
-  animation: pc-contrib-flip-out 560ms var(--pc-ease-out) forwards;
+  animation: pc-contrib-out 560ms var(--pc-ease-in-out) forwards;
 }
 
-.pc-contrib-avatars.is-advancing .pc-contrib-track img:last-child {
-  animation: pc-contrib-flip-in 560ms var(--pc-ease-out);
+.pc-contrib-avatars.is-advancing .pc-contrib-track img:nth-child(6) {
+  animation: pc-contrib-in 560ms var(--pc-ease-in-out) forwards;
 }
 
-@keyframes pc-contrib-flip-out {
-  to { transform: rotateX(-90deg); }
+@keyframes pc-contrib-out {
+  to { opacity: 0; transform: scale(0.6); }
 }
 
-@keyframes pc-contrib-flip-in {
-  from { transform: rotateX(90deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pc-contrib-track,
-  .pc-contrib-avatars.is-advancing .pc-contrib-track img:first-child,
-  .pc-contrib-avatars.is-advancing .pc-contrib-track img:last-child {
-    animation: none;
-    transition: none;
-  }
+@keyframes pc-contrib-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
 }
 
 /* Without contributor data the avatar row keeps no empty slot. */
