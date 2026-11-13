@@ -261,7 +261,7 @@ FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
         "operations": ["remember_memory", "search_memory", "get_memory_entry"],
     },
     "memory.processing": {
-        "version": {"major": 1, "minor": 0},
+        "version": {"major": 1, "minor": 1},
         "operations": ["get_scope_memory_processing_summary", "list_scope_memory_processing"],
     },
 }

@@ -26,8 +26,8 @@ limitations under the License.
     </div>
     {% elif errors.get('processing_topic_status') %}{{ read_error(errors.processing_topic_status,t.topic_memory) }}{% endif %}
     {% if errors.get('processing_overview') %}{{ read_error(errors.processing_overview,t.processing) }}{% endif %}
-    {% if o and o.inputs_failed %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.processing_overview_failed_inputs_title.format(count=o.inputs_failed) }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='failed') }}">{{ t.home_record_details }} →</a></div>{% endif %}
-    {% if o and o.inputs_pending %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.home_processing_unconfirmed }} · {{ o.inputs_pending }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='started') }}">{{ t.home_record_details }} →</a></div>{% endif %}
+    {% if o and o.inputs_failed %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.processing_overview_failed_inputs_title.format(count=o.inputs_failed) }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='unsuccessful',processing_period='all',processing_start=none,processing_end=none,processing_day=none,processing_attempts_cursor=none) }}">{{ t.home_record_details }} →</a></div>{% endif %}
+    {% if o and o.inputs_pending %}<div class="home-attention-item"><div class="home-issue-module"><strong>{{ t.processing_sources_title }}</strong><span class="home-issue-reason"> · {{ t.home_processing_unconfirmed }} · {{ o.inputs_pending }}</span></div><a href="{{ link('processing',record_type='attempts',run_status='started',processing_period='all',processing_start=none,processing_end=none,processing_day=none,processing_attempts_cursor=none) }}">{{ t.home_record_details }} →</a></div>{% endif %}
   </div>
 </section>
 {% endif %}

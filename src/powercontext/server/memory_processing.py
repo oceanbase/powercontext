@@ -28,8 +28,11 @@ from powercontext.sources import SourceRef
 ProcessingStatus = Literal["started", "succeeded", "failed", "cancelled", "conflict"]
 
 
-def _check_query(request: Request, allowed: set[str]) -> None:
-    if set(request.query_params) - allowed or any(len(request.query_params.getlist(key)) > 1 for key in allowed):
+def _check_query(request: Request, allowed: set[str], *, repeatable: set[str] | None = None) -> None:
+    repeated = (repeatable or set()) & allowed
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(key)) > 1 for key in allowed - repeated
+    ):
         raise InvalidBaseAccessRequestError("query", "contains unknown or repeated parameters")
 
 
@@ -52,11 +55,13 @@ def add_memory_processing_routes(app, *, application_dependency, add_route, exec
         application: Annotated[Any, Depends(application_dependency)],
         limit: Annotated[int, Query(ge=1, le=20)] = 10,
         cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
-        status: Annotated[ProcessingStatus | None, Query()] = None,
+        status: Annotated[list[ProcessingStatus] | None, Query(min_length=1, max_length=5)] = None,
         since: Annotated[datetime | None, Query()] = None,
         until: Annotated[datetime | None, Query()] = None,
     ) -> models.MemoryProcessingPage:
-        _check_query(http_request, {"limit", "cursor", "status", "since", "until"})
+        _check_query(http_request, {"limit", "cursor", "status", "since", "until"}, repeatable={"status"})
+        if status is not None and len(set(status)) != len(status):
+            raise InvalidBaseAccessRequestError("status", "must not repeat a value")
         context = execution_context(http_request, "list_scope_memory_processing")
         async with deferred_decision_audit(context), _reader(application)(scope_id) as snapshot:
             value = await snapshot.processing_attempts(
@@ -73,13 +78,16 @@ def add_memory_processing_routes(app, *, application_dependency, add_route, exec
         scope_id: Annotated[str, Path(min_length=1, max_length=256)],
         http_request: Request,
         application: Annotated[Any, Depends(application_dependency)],
+        all_time: Annotated[bool, Query()] = False,
         since: Annotated[datetime | None, Query()] = None,
         until: Annotated[datetime | None, Query()] = None,
     ) -> models.MemoryProcessingSummary:
-        _check_query(http_request, {"since", "until"})
+        _check_query(http_request, {"all_time", "since", "until"})
+        if all_time and (since is not None or until is not None):
+            raise InvalidBaseAccessRequestError("all_time", "cannot be combined with a bounded window")
         context = execution_context(http_request, "get_scope_memory_processing_summary")
         async with deferred_decision_audit(context), _reader(application)(scope_id) as snapshot:
-            value = await snapshot.processing_summary(since=since, until=until, context=context)
+            value = await snapshot.processing_summary(since=since, until=until, all_time=all_time, context=context)
         return models.MemoryProcessingSummary.model_validate(value)
 
     async def source_history(

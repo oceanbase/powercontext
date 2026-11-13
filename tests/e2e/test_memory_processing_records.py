@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from html import unescape
 
 import httpx
 import pytest
@@ -667,6 +668,54 @@ def test_old_unresolved_failure_remains_visible_after_leaving_the_period(tmp_pat
                 assert summary.status_code == 200, summary.text
                 assert summary.json()["inputs_waiting"] == 0
                 assert summary.json()["inputs_completed"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_home_alert_opens_the_same_all_history_range_it_counted(tmp_path):
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/all-history.db"))
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(ScopeDraft(title="Old alert", summary="Queue", idempotency_key="h"))
+            with time_machine.travel(datetime.now(UTC) - timedelta(days=30), tick=False):
+                await runtime.sources.for_scope(scope.scope_id).capture(
+                    CaptureSource(source_id="stuck", content=TEXT, metadata={})
+                )
+                with pytest.raises(InferenceUnavailableError):
+                    await runtime.atomic_memory.for_scope(scope.scope_id).flush(limit=1)
+            app = app_for(runtime)
+            # Home reads the built-in all-history projection, not a public HTTP read.
+            app.state.dashboard_runtime = runtime
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                base = f"/v1/scopes/{scope.scope_id}/processing"
+                windowed = (await client.get(f"{base}/summary")).json()
+                assert windowed["attempts"] == 0
+                history = (await client.get(f"{base}/summary", params={"all_time": "true"})).json()
+                assert history["attempts"] == 1
+                assert history["inputs_failed"] == 1
+                assert history["since"] is None
+                assert (
+                    await client.get(f"{base}/summary", params={"all_time": "true", "since": "2026-01-01T00:00:00Z"})
+                ).status_code in {400, 422}
+
+                home = await client.get(
+                    "/dashboard/home", params={"scope": scope.scope_id, "period": "7d", "lang": "en"}
+                )
+                assert home.status_code == 200, home.text
+                issues = home.text.split('id="home-issues"', 1)[1].split("</section>", 1)[0]
+                assert "have no successful run" in issues
+                destination = next(
+                    unescape(href) for href in re.findall(r'href="([^"]+)"', issues) if "run_status=" in href
+                )
+                opened = await client.get(destination)
+                assert opened.status_code == 200, opened.text
+                assert "Failed" in opened.text and TEXT in opened.text
+                assert "No automatic processing was recorded in this period." not in opened.text
+                failures = (await client.get(f"{base}", params={"status": ["failed", "cancelled", "conflict"]})).json()
+                assert len(failures["items"]) == 1
+                assert (await client.get(f"{base}", params={"status": ["failed", "failed"]})).status_code in {400, 422}
+                assert (await client.get(f"{base}", params={"status": ["failed", "unknown"]})).status_code in {400, 422}
 
     asyncio.run(scenario())
 

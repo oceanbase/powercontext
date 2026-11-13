@@ -22,7 +22,7 @@ x-powercontext-feature-contracts:
   access.principal: {major: 1, minor: 0}
   scope.selection: {major: 1, minor: 0}
   memory.explicit: {major: 1, minor: 0}
-  memory.processing: {major: 1, minor: 0}
+  memory.processing: {major: 1, minor: 1}
 security:
   - BearerAuth: []
   - {}
@@ -4229,6 +4229,14 @@ paths:
             minLength: 1
             maxLength: 256
             pattern: '.*\S.*'
+        - name: all_time
+          in: query
+          description: >-
+            Count the Scope's complete recorded attempt history instead of one bounded window. The response
+            reports `since` as null. Home uses this so an unresolved failure or unconfirmed start older than
+            the selected period still raises an alert; a detail link must then open the same all-history range
+            rather than inheriting a shorter one. Cannot be combined with `since` or `until`.
+          schema: {type: boolean, default: false}
         - name: since
           in: query
           description: Inclusive lower bound on the attempt start time; defaults to seven days before `until`.
@@ -4288,9 +4296,20 @@ paths:
           schema: {type: string, minLength: 1, maxLength: 4096}
         - name: status
           in: query
+          description: >-
+            Restrict the page to these recorded statuses. Repeat the parameter to select more than one status;
+            omitting it returns every status. A summary that counts unsuccessful inputs counts cancelled and
+            conflicted attempts too, so a link to those records must select all three.
+          style: form
+          explode: true
           schema:
-            type: string
-            enum: [started, succeeded, failed, cancelled, conflict]
+            type: array
+            minItems: 1
+            maxItems: 5
+            uniqueItems: true
+            items:
+              type: string
+              enum: [started, succeeded, failed, cancelled, conflict]
         - name: since
           in: query
           description: Inclusive lower bound on the attempt start time.
@@ -13819,9 +13838,14 @@ components:
         limit: {type: integer, minimum: 1, maximum: 20, default: 10}
         cursor: {type: string, nullable: true, minLength: 1, maxLength: 4096}
         status:
-          type: string
+          type: array
           nullable: true
-          enum: [started, succeeded, failed, cancelled, conflict]
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            type: string
+            enum: [started, succeeded, failed, cancelled, conflict]
         since: {type: string, format: date-time, nullable: true}
         until: {type: string, format: date-time, nullable: true}
     ListSourceMemoryProcessingRequest:
@@ -13900,7 +13924,11 @@ components:
         - adopted
         - unreported
       properties:
-        since: {type: string, format: date-time}
+        since:
+          type: string
+          format: date-time
+          nullable: true
+          description: Inclusive lower bound; null means the count covers all recorded history.
         until: {type: string, format: date-time}
         attempts: {type: integer, minimum: 0}
         changed_attempts: {type: integer, minimum: 0}
@@ -13933,6 +13961,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        all_time: {type: boolean, default: false}
         since: {type: string, format: date-time, nullable: true}
         until: {type: string, format: date-time, nullable: true}
     MemoryProcessingPage:

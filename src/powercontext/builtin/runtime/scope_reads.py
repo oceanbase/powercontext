@@ -283,11 +283,21 @@ class ScopeReadSnapshot:
         )
 
     async def processing_attempts(self, *, limit=10, cursor=None, status=None, since=None, until=None, context=None):
-        """Read the Scope's automatic processing attempts in reverse start order."""
+        """Read the Scope's automatic processing attempts in reverse start order.
+
+        ``status`` accepts one status or a collection of statuses. A summary that
+        counts unsuccessful inputs counts cancelled and conflicted attempts too,
+        so navigation into those records selects every status it counted.
+        """
         if type(limit) is not int or not 1 <= limit <= 20:
             raise InvalidBaseAccessRequestError("limit", "must be from 1 to 20")
-        if status is not None and status not in {"started", "succeeded", "failed", "cancelled", "conflict"}:
+        selected = None if status is None else list(dict.fromkeys((status,) if isinstance(status, str) else status))
+        if selected is not None and (
+            not selected
+            or any(item not in {"started", "succeeded", "failed", "cancelled", "conflict"} for item in selected)
+        ):
             raise InvalidBaseAccessRequestError("status", "is not a processing status")
+        status = selected
         application = self._atomic.application
         security = application.security
         await security.authorize(self.connection, self.scope_id, context, "read")
@@ -302,6 +312,7 @@ class ScopeReadSnapshot:
             "since": None if since is None else since.isoformat(),
             "until": None if until is None else until.isoformat(),
         }
+        # The signed cursor binds the whole selection, including every requested status.
         after = application.cursor.after_text(cursor, bound)
         items, following = await MemoryProcessingRepository().page_scope(
             self.connection,

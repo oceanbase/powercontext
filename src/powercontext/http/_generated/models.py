@@ -3420,7 +3420,7 @@ class ReplaceMemoryArtifactEntry(BaseModel):
     text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
 
 
-class Status6(StrEnum):
+class StatusEnum(StrEnum):
     STARTED = "started"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -3434,7 +3434,7 @@ class ListScopeMemoryProcessingRequest(BaseModel):
     )
     limit: Annotated[StrictInt, Field(ge=1, le=20)] = 10
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
-    status: Status6 | None = None
+    status: Annotated[list[StatusEnum] | None, Field(max_length=5, min_length=1)] = None
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
 
@@ -3468,6 +3468,14 @@ class Action1(StrEnum):
     MERGE = "merge"
 
 
+class Status6(StrEnum):
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    CONFLICT = "conflict"
+
+
 class Outcome6(StrEnum):
     CHANGED = "changed"
     NO_CHANGE = "no_change"
@@ -3480,7 +3488,10 @@ class MemoryProcessingSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    since: AwareDatetime
+    since: Annotated[
+        AwareDatetime | None,
+        Field(description="Inclusive lower bound; null means the count covers all recorded history."),
+    ]
     until: AwareDatetime
     attempts: Annotated[StrictInt, Field(ge=0)]
     changed_attempts: Annotated[StrictInt, Field(ge=0)]
@@ -3515,6 +3526,7 @@ class GetScopeMemoryProcessingSummaryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    all_time: StrictBool = False
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
 
@@ -4449,7 +4461,7 @@ class SourceChannelResponse(BaseModel):
     messages: list[dict[str, Any]] | None = None
 
 
-class Status8(StrEnum):
+class Status7(StrEnum):
     RUNNING = "running"
     COMPLETE = "complete"
     COMPLETED = "completed"
@@ -4474,7 +4486,7 @@ class SourceInstanceExchangeRequest(BaseModel):
     capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
     response: dict[str, Any] | None = None
     owner: dict[str, Any] | None = None
-    status: Status8 | None = None
+    status: Status7 | None = None
     source_refs: Annotated[
         list[SourceTypeReference] | None,
         Field(

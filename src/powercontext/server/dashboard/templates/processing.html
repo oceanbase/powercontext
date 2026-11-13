@@ -216,7 +216,7 @@ limitations under the License.
       <section class="card mb-4">
         <div class="card-header"><h2 class="card-title">{{ t.processing_period_attention }}</h2></div>
         <div class="card-body"><ul class="overview-attention">
-          {% if o.inputs_failed %}<li><span class="badge bg-red-lt">{{ t.processing_overview_failed_badge }}</span><div><strong>{{ plural(t, 'processing_overview_failed_inputs_title', o.inputs_failed) }}</strong><p class="text-secondary small mb-0">{{ t.processing_overview_failed_detail }}</p></div><a href="{{ link(record_type='attempts', run_status='failed', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></li>{% endif %}
+          {% if o.inputs_failed %}<li><span class="badge bg-red-lt">{{ t.processing_overview_failed_badge }}</span><div><strong>{{ plural(t, 'processing_overview_failed_inputs_title', o.inputs_failed) }}</strong><p class="text-secondary small mb-0">{{ t.processing_overview_failed_detail }}</p></div><a href="{{ link(record_type='attempts', run_status='unsuccessful', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></li>{% endif %}
           {% if o.inputs_pending %}<li><span class="badge bg-blue-lt">{{ t.processing_overview_pending_badge }}</span><div><strong>{{ t.processing_overview_pending_title.format(count=o.inputs_pending) }}</strong><p class="text-secondary small mb-0">{{ t.processing_overview_pending_detail }}</p></div><a href="{{ link(record_type='attempts', run_status='started', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_processing }} →</a></li>{% endif %}
         </ul></div>
       </section>
@@ -249,7 +249,7 @@ limitations under the License.
         </div></div>
       </section>
       {% elif errors.get('processing_recent_sources') %}{{ read_error(errors.processing_recent_sources, t.processing_sources) }}{% endif %}
-      {% if o.failed_attempts %}<details class="supporting-details mb-4"><summary>{{ t.processing_overview_failure_history }} · {{ plural(t, 'processing_overview_failed_title', o.failed_attempts) }}</summary><p class="text-secondary">{{ t.processing_overview_failure_history_note }}</p><p>{% for stage, count in o.failed_by_stage.items() %}{{ t.get('processing_stage_' ~ stage, stage) }} ×{{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</p><a href="{{ link(record_type='attempts', run_status='failed', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></details>{% endif %}
+      {% if o.failed_attempts %}<details class="supporting-details mb-4"><summary>{{ t.processing_overview_failure_history }} · {{ plural(t, 'processing_overview_failed_title', o.failed_attempts) }}</summary><p class="text-secondary">{{ t.processing_overview_failure_history_note }}</p><p>{% for stage, count in o.failed_by_stage.items() %}{{ t.get('processing_stage_' ~ stage, stage) }} ×{{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</p><a href="{{ link(record_type='attempts', run_status='unsuccessful', processing_day=none, processing_attempts_cursor=none) }}">{{ t.processing_overview_view_failed }} →</a></details>{% endif %}
       {% endif %}
     {% else %}
 
@@ -259,7 +259,7 @@ limitations under the License.
         {% if errors.get('processing_summary') %}{{ read_error(errors.processing_summary, t.processing_account_title) }}
         {% elif processing_summary %}
         {% with processing_overview=processing_summary %}{% include 'components/home-processing.html' %}{% endwith %}
-        <p class="text-secondary small mb-0"><span>{{ t.processing_account_window_day if processing_summary_window == 'day' else t[processing_period] }}</span> · <time>{{ processing_summary.since|display_time }}</time> → <time>{{ processing_summary.until|display_time }}</time></p>{% endif %}
+        <p class="text-secondary small mb-0"><span>{{ t.processing_account_window_day if processing_summary_window == 'day' else t[processing_period] }}</span> · {% if processing_summary.since %}<time>{{ processing_summary.since|display_time }}</time> → {% endif %}<time>{{ processing_summary.until|display_time }}</time></p>{% endif %}
       </div>
     </section>
     {% endif %}

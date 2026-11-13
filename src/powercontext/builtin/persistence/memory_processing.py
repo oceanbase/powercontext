@@ -123,8 +123,9 @@ class MemoryProcessingRepository:
         """Page one Scope's attempts in reverse start order with bounded filters."""
         table = MEMORY_PROCESSING_RECORDS_TABLE
         criteria = [table.c.scope_id == scope_id]
-        if status is not None:
-            criteria.append(json_text(connection, table.c.payload, "$.status") == status)
+        statuses = None if status is None else ((status,) if isinstance(status, str) else tuple(status))
+        if statuses:
+            criteria.append(json_text(connection, table.c.payload, "$.status").in_(statuses))
         if since is not None:
             criteria.append(table.c.started_at >= since)
         if until is not None:

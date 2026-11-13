@@ -4473,6 +4473,71 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
+                        "name": "all_time",
+                        "in": "query",
+                        "description": "Count "
+                        "the "
+                        "Scope's "
+                        "complete "
+                        "recorded "
+                        "attempt "
+                        "history "
+                        "instead "
+                        "of "
+                        "one "
+                        "bounded "
+                        "window. "
+                        "The "
+                        "response "
+                        "reports "
+                        "`since` "
+                        "as "
+                        "null. "
+                        "Home "
+                        "uses "
+                        "this "
+                        "so "
+                        "an "
+                        "unresolved "
+                        "failure "
+                        "or "
+                        "unconfirmed "
+                        "start "
+                        "older "
+                        "than "
+                        "the "
+                        "selected "
+                        "period "
+                        "still "
+                        "raises "
+                        "an "
+                        "alert; "
+                        "a "
+                        "detail "
+                        "link "
+                        "must "
+                        "then "
+                        "open "
+                        "the "
+                        "same "
+                        "all-history "
+                        "range "
+                        "rather "
+                        "than "
+                        "inheriting "
+                        "a "
+                        "shorter "
+                        "one. "
+                        "Cannot "
+                        "be "
+                        "combined "
+                        "with "
+                        "`since` "
+                        "or "
+                        "`until`.",
+                        "schema": {"type": "boolean", "default": False},
+                    },
+                    {
                         "name": "since",
                         "in": "query",
                         "description": "Inclusive "
@@ -4573,9 +4638,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {
                         "name": "status",
                         "in": "query",
+                        "description": "Restrict "
+                        "the page "
+                        "to these "
+                        "recorded "
+                        "statuses. "
+                        "Repeat the "
+                        "parameter "
+                        "to select "
+                        "more than "
+                        "one "
+                        "status; "
+                        "omitting "
+                        "it returns "
+                        "every "
+                        "status. A "
+                        "summary "
+                        "that "
+                        "counts "
+                        "unsuccessful "
+                        "inputs "
+                        "counts "
+                        "cancelled "
+                        "and "
+                        "conflicted "
+                        "attempts "
+                        "too, so a "
+                        "link to "
+                        "those "
+                        "records "
+                        "must "
+                        "select all "
+                        "three.",
+                        "style": "form",
+                        "explode": True,
                         "schema": {
-                            "type": "string",
-                            "enum": ["started", "succeeded", "failed", "cancelled", "conflict"],
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 5,
+                            "uniqueItems": True,
+                            "items": {
+                                "type": "string",
+                                "enum": ["started", "succeeded", "failed", "cancelled", "conflict"],
+                            },
                         },
                     },
                     {
@@ -14569,8 +14674,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "limit": {"type": "integer", "maximum": 20.0, "minimum": 1.0, "default": 10},
                     "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
                     "status": {
-                        "type": "string",
-                        "enum": ["started", "succeeded", "failed", "cancelled", "conflict"],
+                        "items": {
+                            "type": "string",
+                            "enum": ["started", "succeeded", "failed", "cancelled", "conflict"],
+                        },
+                        "type": "array",
+                        "maxItems": 5,
+                        "minItems": 1,
+                        "uniqueItems": True,
                         "nullable": True,
                     },
                     "since": {"type": "string", "format": "date-time", "nullable": True},
@@ -14672,7 +14783,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "MemoryProcessingSummary": {
                 "properties": {
-                    "since": {"type": "string", "format": "date-time"},
+                    "since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Inclusive lower bound; null means the count covers all recorded history.",
+                        "nullable": True,
+                    },
                     "until": {"type": "string", "format": "date-time"},
                     "attempts": {"type": "integer", "minimum": 0.0},
                     "changed_attempts": {"type": "integer", "minimum": 0.0},
@@ -14785,6 +14901,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "GetScopeMemoryProcessingSummaryRequest": {
                 "properties": {
+                    "all_time": {"type": "boolean", "default": False},
                     "since": {"type": "string", "format": "date-time", "nullable": True},
                     "until": {"type": "string", "format": "date-time", "nullable": True},
                 },
@@ -16213,6 +16330,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},
-        "memory.processing": {"major": 1, "minor": 0},
+        "memory.processing": {"major": 1, "minor": 1},
     },
 }

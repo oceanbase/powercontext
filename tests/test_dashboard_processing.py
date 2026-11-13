@@ -13,16 +13,21 @@
 
 import asyncio
 import re
+from datetime import UTC, datetime, timedelta
 from html import unescape
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 
+from powercontext.builtin.memory_processing import MemoryProcessingRecord
+from powercontext.builtin.persistence.memory_processing import MemoryProcessingRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CreateDreamRunRequest, GetDreamRunRequest
 from powercontext.server.app import create_app
+from powercontext.server.dashboard.preferences import CATALOGS
 from powercontext.server.dashboard.routes import LABELS, router
+from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline, open_dream_runtime, process_pending
 from tests.e2e.test_artifact_dreaming import Generator, MemoryPipeline, NoChangeGenerator, seed
 from tests.test_dashboard import create_scope, page_link
@@ -489,6 +494,63 @@ def test_source_outputs_distinguish_topics_with_the_same_revision(dashboard, mon
         assert params["topic_artifact"] == [ref["artifact_id"]]
         assert params["topic_revision"] == ["2"]
         assert dashboard.get(destination).status_code == 200
+
+
+def test_failure_navigation_reaches_every_unsuccessful_attempt(dashboard):
+    """A summary counts cancelled and conflicted inputs, so its links must select them.
+
+    Home raises its alert from all recorded history, so the detail link must also
+    open all history; inheriting Home's shorter period would hide the very attempt
+    that raised the alert.
+    """
+    scope = create_scope(dashboard, "Unsuccessful attempts")["scope_id"]
+    recent = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Recently cancelled input."})
+    older = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Older cancelled input."})
+    assert recent.status_code == older.status_code == 201
+    runtime = dashboard.app.state.dashboard_runtime
+    assert runtime is not None
+
+    async def record(attempt_id, source_id, started_at):
+        record = MemoryProcessingRecord(
+            attempt_id=attempt_id,
+            scope_id=scope,
+            source_after=0,
+            source_through=1,
+            sources=(SourceRef(source_type="content", source_id=source_id),),
+            eligible_sources=(SourceRef(source_type="content", source_id=source_id),),
+            started_at=started_at,
+            completed_at=started_at,
+            status="cancelled",
+        )
+        async with runtime.primary_database.transaction() as connection:
+            await MemoryProcessingRepository().start(connection, record)
+
+    now = datetime.now(UTC)
+    asyncio.run(record("a" * 32, recent.json()["source_id"], now))
+    asyncio.run(record("b" * 32, older.json()["source_id"], now - timedelta(days=30)))
+
+    english = CATALOGS["en"]
+    overview = dashboard.get("/dashboard/processing", params={"scope": scope, "lang": "en"})
+    assert overview.status_code == 200, overview.text
+    attention = overview.text.split(english["processing_period_attention"], 1)[1].split("</section>", 1)[0]
+    failed_link = next(unescape(href) for href in re.findall(r'href="([^"]+)"', attention) if "run_status=" in href)
+    assert parse_qs(urlsplit(failed_link).query)["run_status"] == ["unsuccessful"]
+    windowed = dashboard.get(failed_link)
+    assert windowed.status_code == 200, windowed.text
+    assert english["processing_attempt_status_cancelled"] in windowed.text
+    assert "Recently cancelled input." in windowed.text
+    assert "Older cancelled input." not in windowed.text
+
+    home = dashboard.get("/dashboard/home", params={"scope": scope, "period": "7d", "lang": "en"})
+    assert home.status_code == 200, home.text
+    issues = home.text.split('id="home-issues"', 1)[1].split("</section>", 1)[0]
+    home_link = next(unescape(href) for href in re.findall(r'href="([^"]+)"', issues) if "run_status=" in href)
+    assert parse_qs(urlsplit(home_link).query)["processing_period"] == ["all"]
+    opened = dashboard.get(home_link)
+    assert opened.status_code == 200, opened.text
+    assert "Recently cancelled input." in opened.text
+    assert "Older cancelled input." in opened.text
+    assert english["processing_attempts_period_empty"] not in opened.text
 
 
 @pytest.mark.parametrize("unavailable", [False, True])

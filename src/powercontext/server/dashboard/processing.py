@@ -120,6 +120,12 @@ async def load_run_previews(api, ctx, runs):
 
 ATTEMPT_STATUSES = ("started", "succeeded", "failed", "cancelled", "conflict")
 DREAM_STATUSES = ("queued", "running", "succeeded", "failed")
+# One navigation token for the statuses the summary counts as unsuccessful inputs.
+# `inputs_failed` is every non-succeeded, non-started input, so a link that only
+# asked for `failed` opened an empty list when the attempt was cancelled or conflicted.
+UNSUCCESSFUL_STATUSES = ("failed", "cancelled", "conflict")
+UNSUCCESSFUL = "unsuccessful"
+ALL_HISTORY = "all"
 
 
 def _day_bounds(raw: str) -> tuple[str, str]:
@@ -137,7 +143,7 @@ def _validate_query(kind: str, source_id, run_id, status, day) -> None:
         "overview": (None,),
         "sources": (None,),
         "dreams": (None, *DREAM_STATUSES),
-        "attempts": (None, *ATTEMPT_STATUSES),
+        "attempts": (None, *ATTEMPT_STATUSES, UNSUCCESSFUL),
     }
     if (
         kind not in allowed_status
@@ -170,7 +176,18 @@ def _period_bounds(period: str, start: str = "", end: str = "") -> tuple[str, st
 
 
 def _resolve_window(ctx) -> bool:
-    """Keep invalid selections editable without querying a different reporting window."""
+    """Keep invalid selections editable without querying a different reporting window.
+
+    ``all`` means every recorded attempt. It exists because Home's alert uses the
+    all-history summary: a failure older than the selected period must still be
+    reachable, so its link carries the same unbounded range instead of inheriting
+    Home's shorter one and hiding the very attempt that raised the alert.
+    """
+    if ctx["processing_period"] == ALL_HISTORY:
+        ctx["processing_bounds"] = None
+        ctx["processing_start"] = ""
+        ctx["processing_end"] = ""
+        return True
     try:
         since, until = _period_bounds(ctx["processing_period"], ctx["processing_start"], ctx["processing_end"])
     except ReadError as error:
@@ -193,11 +210,10 @@ async def _load_topic_status(api, ctx) -> None:
 
 
 async def _load_overview(api, ctx, scope) -> None:
-    since, until = ctx["processing_bounds"]
+    bounds = ctx["processing_bounds"]
+    window = {"all_time": "true"} if bounds is None else {"since": bounds[0], "until": bounds[1]}
     try:
-        ctx["processing_overview"] = await api.read(
-            f"/v1/scopes/{scope}/processing/summary?{urlencode({'since': since, 'until': until})}"
-        )
+        ctx["processing_overview"] = await api.read(f"/v1/scopes/{scope}/processing/summary?{urlencode(window)}")
     except ReadError as error:
         ctx["errors"]["processing_overview"] = error
 
@@ -210,26 +226,42 @@ async def _load_overview(api, ctx, scope) -> None:
             ctx["errors"]["processing_recent_sources"] = error
 
 
+def _attempt_window(ctx, day) -> dict[str, str]:
+    """Return the attempt list's time filter and the matching summary query.
+
+    An all-history selection has no bounds, so both reads ask the summary for the
+    same unbounded range rather than silently falling back to its seven-day default.
+    """
+    if day is not None:
+        ctx["processing_summary_window"] = "day"
+        since, until = _day_bounds(day)
+        return {"since": since, "until": until}
+    ctx["processing_summary_window"] = ctx["processing_period"]
+    if ctx["processing_bounds"] is None:
+        return {}
+    since, until = ctx["processing_bounds"]
+    return {"since": since, "until": until}
+
+
 async def _load_attempts(api, request, ctx, scope, status, day) -> None:
     await _load_topic_status(api, ctx)
-    params: dict[str, str | int] = {"limit": PAGE_SIZE}
+    params: dict[str, str | int | list[str]] = {"limit": PAGE_SIZE}
     if cursor := request.query_params.get("processing_attempts_cursor"):
         params["cursor"] = cursor
-    if status is not None:
+    if status == UNSUCCESSFUL:
+        params["status"] = list(UNSUCCESSFUL_STATUSES)
+    elif status is not None:
         params["status"] = status
-    ctx["processing_summary_window"] = ctx["processing_period"]
-    if day is not None:
-        params["since"], params["until"] = _day_bounds(day)
-        ctx["processing_summary_window"] = "day"
-    else:
-        params["since"], params["until"] = ctx["processing_bounds"]
-    summary_params = {key: params[key] for key in ("since", "until") if key in params}
+    window = _attempt_window(ctx, day)
+    params.update(window)
+    summary_params = dict(window) or {"all_time": "true"}
     try:
         ctx["processing_summary"] = await api.read(f"/v1/scopes/{scope}/processing/summary?{urlencode(summary_params)}")
     except ReadError as error:
         ctx["errors"]["processing_summary"] = error
     try:
-        result = await api.read(f"/v1/scopes/{scope}/processing?{urlencode(params)}")
+        # A multi-status selection repeats the parameter; a single status stays one value.
+        result = await api.read(f"/v1/scopes/{scope}/processing?{urlencode(params, doseq=True)}")
         ctx["processing_items"] = result["items"]
         previews = {}
         for item in result["items"]:
