@@ -86,6 +86,57 @@ def _profile_prompt_refs():
     return () if selection is None or selection.artifact is None else (selection.artifact,)
 
 
+async def _generate_within_budget(
+    generator: ProfileGenerator, window: tuple[Any, ...], previous_content: str | None
+) -> tuple[tuple[Any, ...], int, str | None]:
+    """Generate from as much of the window as the configured budget admits.
+
+    A rejected request halves the window and retries, so the run keeps the Profile it
+    already has and leaves the remaining Sources unconsumed. A single Source that
+    does not fit on its own is still rejected instead of being silently skipped.
+    """
+
+    timeout = getattr(generator, "timeout_seconds", None)
+    deadline = asyncio.timeout(timeout)
+    try:
+        async with deadline:
+            return await _generate_profile_prefix(generator, window, previous_content)
+    except TimeoutError as error:
+        if not deadline.expired():
+            raise
+        from powercontext.builtin.inference import InferenceTimeoutError
+
+        raise InferenceTimeoutError("profile.generate", timeout or 0) from error
+
+
+async def _generate_profile_prefix(generator, window, previous_content):
+    from powercontext.builtin.inference import InferenceBudgetExceededError
+
+    candidates = window
+    while True:
+        eligible = tuple(item for item in candidates if is_generation_eligible(item.value))
+        if not eligible:
+            return (), candidates[-1].journal_position, None
+        try:
+            markdown = await generator.generate(
+                ProfileGenerationInput(
+                    previous_content=previous_content,
+                    sources=tuple(item.value.model_dump_json() for item in eligible),
+                )
+            )
+        except InferenceBudgetExceededError as error:
+            if (
+                len(candidates) <= 1
+                or error.requests_sent
+                or error.decision.phase not in {"selection", "initial_dispatch"}
+                or error.decision.dimension not in {"input_tokens", "context_tokens"}
+            ):
+                raise
+            candidates = candidates[: max(1, len(candidates) // 2)]
+            continue
+        return eligible, candidates[-1].journal_position, markdown
+
+
 class RelationalProfileService:
     def __init__(
         self,
@@ -254,12 +305,8 @@ class RelationalProfileService:
                 from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
 
                 raise GenerationCapabilityUnavailableError("profile")
-            markdown = await self.generator.generate(
-                ProfileGenerationInput(
-                    previous_content=None if current is None else current.content.content,
-                    sources=tuple(item.value.model_dump_json() for item in evidence),
-                )
-            )
+            previous_content = None if current is None else current.content.content
+            evidence, through, markdown = await _generate_within_budget(self.generator, window, previous_content)
             if markdown is not None:
                 try:
                     markdown = normalize_profile_markdown(markdown)

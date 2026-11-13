@@ -33,6 +33,8 @@ from powercontext.builtin.artifacts.generation import (
 from powercontext.builtin.artifacts.prompt.service import ScopedPrompts, current_prompt, prompt_operation
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillGenerator
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer
+from powercontext.builtin.inference.budget import hard_limit_decision
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.atomic_memory import AtomicMemoryStateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -117,7 +119,7 @@ class ReviewedGenerationService:
             raise GenerationCapabilityUnavailableError(Experience.family)
         if target is not None and target.family != Experience.family:
             raise InvalidCandidateError("target", "must identify an Experience")
-        evidence = await self._evidence(sources, artifacts)
+        evidence = await self._evidence(sources, artifacts, operation="experience.generate")
         proposal = await self._experience_generator.generate(_generation_input(evidence, target))
         if proposal is None:
             return GeneratedCandidateResult()
@@ -145,7 +147,7 @@ class ReviewedGenerationService:
         if self._skill_generator is None:
             raise GenerationCapabilityUnavailableError(Skill.family)
         validate_skill_lineage(origin, sources, artifacts, target)
-        evidence = await self._evidence(sources, artifacts)
+        evidence = await self._evidence(sources, artifacts, operation="skill.generate")
         proposal = await self._skill_generator.generate(_generation_input(evidence, target))
         if proposal is None:
             return GeneratedCandidateResult()
@@ -163,6 +165,8 @@ class ReviewedGenerationService:
         self,
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
+        *,
+        operation: str,
     ) -> tuple[GenerationEvidence, ...]:
         evidence: list[GenerationEvidence] = []
         if self._authorize is not None:
@@ -171,7 +175,7 @@ class ReviewedGenerationService:
         try:
             async with self._database.transaction() as connection:
                 source_rows = await self._sources.require_for_generation(connection, self._scope_id, sources)
-                evidence.extend(_source_evidence(row.ref, row.value) for row in source_rows)
+                evidence.extend(_source_evidence(row.ref, row.value, operation=operation) for row in source_rows)
                 for ref in artifacts:
                     if ref.family == "prompt":
                         raise InvalidCandidateError("evidence", "Prompt configuration is not factual evidence")
@@ -180,7 +184,7 @@ class ReviewedGenerationService:
                         state = await AtomicMemoryStateRepository().get(connection, self._scope_id, ref.artifact_id)
                         if state.state is not AtomicMemoryStateValue.ACTIVE:
                             raise InvalidCandidateError("evidence", "Atomic Memory is not active")
-                    evidence.append(_artifact_evidence(ref, artifact))
+                    evidence.append(_artifact_evidence(ref, artifact, operation=operation))
         except RepositoryNotFoundError as error:
             raise InvalidCandidateError("evidence", "reference is not available in this scope") from error
         if not evidence:
@@ -195,29 +199,42 @@ def _with_prompt_lineage(artifacts: tuple[ArtifactRef, ...], key: str) -> tuple[
     return (*artifacts, selection.artifact)
 
 
-def _source_evidence(ref: SourceRef, source: Source) -> GenerationEvidence:
+def _source_evidence(ref: SourceRef, source: Source, *, operation: str) -> GenerationEvidence:
     return _bounded_evidence(
         evidence_id=f"source:{ref.source_type}/{ref.source_id}",
         kind=GenerationEvidenceKind.SOURCE,
         content=source.model_dump_json(),
+        operation=operation,
     )
 
 
-def _artifact_evidence(ref: ArtifactRef, artifact: Artifact[BaseModel]) -> GenerationEvidence:
+def _artifact_evidence(ref: ArtifactRef, artifact: Artifact[BaseModel], *, operation: str) -> GenerationEvidence:
     return _bounded_evidence(
         evidence_id=f"artifact:{ref.family}/{ref.artifact_id}@{ref.revision}",
         kind=GenerationEvidenceKind.ARTIFACT,
         content=artifact.model_dump_json(),
+        operation=operation,
     )
 
 
-def _bounded_evidence(*, evidence_id: str, kind: GenerationEvidenceKind, content: str) -> GenerationEvidence:
-    return GenerationEvidence(
-        evidence_id=evidence_id,
-        kind=kind,
-        content=content[:MAX_GENERATION_EVIDENCE_CHARS],
-        truncated=len(content) > MAX_GENERATION_EVIDENCE_CHARS,
-    )
+def _bounded_evidence(
+    *,
+    evidence_id: str,
+    kind: GenerationEvidenceKind,
+    content: str,
+    operation: str,
+) -> GenerationEvidence:
+    if len(content) > MAX_GENERATION_EVIDENCE_CHARS:
+        raise InferenceBudgetExceededError(
+            hard_limit_decision(
+                operation=operation,
+                dimension="input_bytes",
+                estimated_value=len(content),
+                limit_value=MAX_GENERATION_EVIDENCE_CHARS,
+                unit="characters",
+            )
+        )
+    return GenerationEvidence(evidence_id=evidence_id, kind=kind, content=content)
 
 
 def _generation_input(

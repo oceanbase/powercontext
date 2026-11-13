@@ -24,7 +24,9 @@ import httpx2
 import pytest
 
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
+from powercontext.builtin.inference.budget import EmbeddingBudget
 from powercontext.builtin.inference.errors import (
+    InferenceBudgetExceededError,
     InferenceConfigurationError,
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -56,6 +58,7 @@ def _model(
     headers=None,
     http_client=None,
     timeout_seconds: float = 30.0,
+    budget: EmbeddingBudget | None = None,
 ) -> MiniMaxEmbeddingModel:
     return MiniMaxEmbeddingModel(
         base_url="https://api.minimaxi.com/v1",
@@ -65,6 +68,7 @@ def _model(
         batch_size=batch_size,
         timeout_seconds=timeout_seconds,
         http_client=http_client,
+        budget=budget,
     )
 
 
@@ -347,5 +351,168 @@ def test_embed_classifies_http_status_reason(status_code, reason) -> None:
         assert diagnostics.stage is ProcessingStage.EMBEDDING
         assert diagnostics.reason is reason
         assert diagnostics.cause_exception_type == "HTTPStatusError"
+
+    asyncio.run(scenario())
+
+
+def _recording_client(handler_responses: list[tuple[str, ...]], calls: list[dict[str, Any]]):
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        return _ok_response([[0.1, 0.2, 0.3] for _ in body["texts"]])
+
+    return handler
+
+
+def test_embedding_budget_rejects_one_oversized_text_before_dispatch() -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(_recording_client([], calls))) as client:
+            model = _model(http_client=client, budget=EmbeddingBudget(max_input_tokens_per_text=4))
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await model.embed(("ok", "x" * 40))
+            decision = rejected.value.decision
+            assert decision.dimension == "embedding_item_tokens"
+            assert decision.estimated_value == 10
+            assert decision.limit_value == 4
+
+    asyncio.run(scenario())
+    assert calls == []
+
+
+def test_embedding_budget_keeps_batch_limit_separate_from_item_limit() -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(_recording_client([], calls))) as client:
+            model = _model(
+                http_client=client,
+                budget=EmbeddingBudget(max_input_tokens_per_text=4, max_input_tokens_per_batch=6),
+            )
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await model.embed(("abcdefgh", "abcdefgh", "abcdefgh", "abcdefgh"))
+            assert rejected.value.decision.dimension == "embedding_batch_tokens"
+
+    asyncio.run(scenario())
+    assert calls == []
+
+
+def test_embedding_budget_limits_the_item_count_independently() -> None:
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(_recording_client([], []))) as client:
+            model = _model(http_client=client, batch_size=10, budget=EmbeddingBudget(max_batch_items=1))
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await model.embed(("alpha", "beta"))
+            assert rejected.value.decision.dimension == "embedding_batch_items"
+            assert rejected.value.decision.unit == "items"
+
+    asyncio.run(scenario())
+
+
+def test_embedding_budget_without_limits_keeps_the_baseline_dispatch() -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(_recording_client([], calls))) as client:
+            model = _model(http_client=client, budget=EmbeddingBudget())
+            result = await model.embed(("alpha", "beta"))
+            assert len(result.vectors) == 2
+
+    asyncio.run(scenario())
+    assert len(calls) == 1
+
+
+def test_embedding_budget_counts_multibyte_text_per_character() -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(_recording_client([], calls))) as client:
+            ascii_model = _model(http_client=client, budget=EmbeddingBudget(max_input_tokens_per_text=3))
+            admitted = await ascii_model.embed(("abcd",))
+            assert len(admitted.vectors) == 1
+
+            cjk_model = _model(http_client=client, budget=EmbeddingBudget(max_input_tokens_per_text=3))
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await cjk_model.embed(("中文中文",))
+
+            decision = rejected.value.decision
+            assert decision.dimension == "embedding_item_tokens"
+            assert decision.estimated_value == 4
+            assert decision.limit_value == 3
+
+    asyncio.run(scenario())
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("query", [False, True])
+def test_later_oversized_text_is_rejected_before_the_first_batch(query: bool) -> None:
+    sent = []
+
+    async def handler(request):
+        sent.append(request)
+        return _ok_response([[1.0, 0.0, 0.0]])
+
+    async def scenario():
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+            model = _model(http_client=client, batch_size=1, budget=EmbeddingBudget(max_input_tokens_per_text=2))
+            with pytest.raises(InferenceBudgetExceededError):
+                await (model.embed_query(("ok", "X" * 100)) if query else model.embed(("ok", "X" * 100)))
+        assert sent == []
+
+    asyncio.run(scenario())
+
+
+def test_embedding_error_preserves_preceding_batch_usage() -> None:
+    async def scenario():
+        from powercontext.builtin.inference.budget import hard_limit_decision
+
+        class FailingModel(MiniMaxEmbeddingModel):
+            calls = 0
+
+            async def _embed_one(self, batch, *, embedding_type):
+                self.calls += 1
+                if self.calls == 2:
+                    raise InferenceBudgetExceededError(
+                        hard_limit_decision(
+                            operation="embed",
+                            dimension="embedding_item_tokens",
+                            estimated_value=3,
+                            limit_value=2,
+                            unit="tokens",
+                        )
+                    )
+                return [[1.0, 0.0, 0.0]], 3
+
+        model = FailingModel(base_url="https://example.test", model="test", profile=TEST_PROFILE, batch_size=1)
+        try:
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await model.embed(("first", "second"))
+            assert rejected.value.usage is not None
+            assert rejected.value.usage.requests == 1
+            assert rejected.value.usage.input_tokens == 3
+        finally:
+            await model.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_embedding_http_failure_preserves_completed_batch_usage() -> None:
+    async def scenario():
+        calls = []
+
+        async def handler(request):
+            calls.append(request)
+            if len(calls) == 2:
+                return httpx2.Response(503, json={"error": "unavailable"})
+            return _ok_response([[1.0, 0.0, 0.0]])
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+            model = _model(http_client=client, batch_size=1)
+            with pytest.raises(InferenceUnavailableError) as rejected:
+                await model.embed(("first", "second"))
+            assert rejected.value.usage is not None
+            assert rejected.value.usage.requests == 1
+            assert rejected.value.usage.input_tokens == 1
 
     asyncio.run(scenario())

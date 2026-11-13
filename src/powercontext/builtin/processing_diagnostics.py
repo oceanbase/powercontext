@@ -272,6 +272,25 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
     names = {base.__name__ for base in type(error).__mro__}
     operation = getattr(error, "operation", None)
     stage = stage_for_operation(operation)
+    if "InferenceBudgetExceededError" in names:
+        decision = getattr(error, "decision", None)
+        dimension = getattr(decision, "dimension", None)
+        tokens = getattr(decision, "unit", None) == "tokens"
+        input_tokens = tokens and dimension in {"input_tokens", "embedding_item_tokens", "embedding_batch_tokens"}
+        reason = (
+            ProcessingFailureReason.TIMEOUT
+            if dimension == "deadline"
+            else ProcessingFailureReason.CONTEXT_OVERFLOW
+            if dimension in {"context_tokens", "input_tokens", "embedding_item_tokens", "embedding_batch_tokens"}
+            else ProcessingFailureReason.USAGE_LIMIT
+        )
+        return ProcessingDiagnostics(
+            stage=stage_for_operation(getattr(decision, "operation", None)) or ProcessingStage.BUSINESS_VALIDATION,
+            reason=reason,
+            estimated_input_tokens=getattr(decision, "estimated_value", None) if input_tokens else None,
+            effective_budget=getattr(decision, "limit_value", None) if tokens else None,
+            token_estimator_id=getattr(decision, "estimator_id", None) if tokens else None,
+        )
     if "InferenceTimeoutError" in names or isinstance(error, TimeoutError):
         return ProcessingDiagnostics(stage=stage, reason=ProcessingFailureReason.TIMEOUT)
     if "InferenceUnavailableError" in names:

@@ -501,6 +501,8 @@ Phoenix/Langfuse 或所选 backend 的部署文档执行。Metrics dashboard、t
 
 ### Artifact 直接读取观测
 
+`inference.budget.rejected` 记录一次在发出前被拒绝的推理请求：`operation` 是受保护的生成操作，`stage` 是 Topic Memory 阶段（其余为空），`budget_dimension` 与 `budget_phase` 说明触发的维度与派发阶段，`estimated_value`、`limit_value` 与 `budget_unit` 给出有界的比较事实，`estimator_id`、`estimator_version` 说明估算身份，`outcome` 固定为 `rejected`。该记录不含 Prompt、消息、证据正文或 Scope 内容；同一个异常只记录一次。
+
 `artifact.read.completed` 记录已派发的 `get_artifact` 和 `get_artifact_revision` 操作，计时包含条件读取判断与响应组装。`family` 是受支持的 Artifact 读取类型或 `other`。字符串字段 `read_outcome` 的值为：`success`（返回内容）、`not_modified`（HTTP 304）、`failure`、`cancelled`。304 的普通 `outcome` 仍为 `success`。失败保留映射后的 `error_code`、`status_code` 和有界 `error_category`。JSON 与控制台使用相同白名单；参考 Collector 保留 `read_outcome` 结构化字段，不将其提升为索引标签。
 
 `powercontext_server_artifact_read_duration_seconds` 是以秒为单位的直方图，仅使用有界 `operation`、`family`、`outcome` 标签；其 `_count` 序列提供各读取结果的完成计数。日志 `duration_ms` 的单位是毫秒。计时覆盖应用派发，不含宿主网络时间。HTTP/MCP 对每次应用派发只统计一次，条件读取也遵循该规则。入口认证和校验拒绝仍由 transport 记录。请求、Trace 与 Scope 复用已绑定标识，仅保留在日志和 Trace 中。不记录内容、Artifact ID、ETag、查询或凭据。

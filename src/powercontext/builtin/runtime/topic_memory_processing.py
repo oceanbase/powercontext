@@ -92,6 +92,7 @@ from powercontext.builtin.inference import (
     character_token_estimator,
     embed_query,
 )
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -270,12 +271,18 @@ class TopicMemoryWindowSelector:
         estimator: TokenEstimator,
         *,
         context_window_tokens: int,
+        input_tokens_limit: int | None = None,
         probe_fixed_prompt: str | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
         self._estimator = estimator
-        self._input_limit = max(1, int(context_window_tokens * 0.80))
+        # The derived share of the context window is an estimate of the Probe
+        # allowance; a configured operation allowance may only narrow it.
+        derived_limit = max(1, int(context_window_tokens * 0.80))
+        self._input_limit = (
+            derived_limit if input_tokens_limit is None else max(1, min(derived_limit, input_tokens_limit))
+        )
         self._probe_fixed_prompt = (
             topic_memory_stage_fixed_prompt(
                 TOPIC_MEMORY_PROBE_INSTRUCTIONS,
@@ -570,6 +577,9 @@ class TopicMemoryProcessor:
                     await self._publisher.publish(
                         assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
                     )
+            except InferenceBudgetExceededError:
+                await budget.record_failure("input_budget_exceeded")
+                raise
             except TopicMemoryGenerationError as error:
                 if error.code in RECORDED_TOPIC_MEMORY_REJECTIONS:
                     await budget.fail(error.code)
@@ -1834,6 +1844,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         TOPIC_MEMORY_REDUCTION_INSTRUCTIONS,
         TOPIC_MEMORY_TEMPORARY_INSTRUCTIONS,
         BudgetedTopicMemoryGenerator,
+        narrow_stage_budget,
         topic_memory_stage_budget,
         topic_memory_stage_fixed_prompt,
         validate_topic_memory_stage_capacity,
@@ -1861,13 +1872,6 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         model_settings=inference.generation_model_settings,
     )
     validate_topic_memory_stage_capacity(budget, character_token_estimator())
-    limits = InferenceLimits(
-        timeout_seconds=inference.generation_timeout_seconds,
-        max_requests=inference.generation_max_requests,
-        max_output_tokens_per_request=budget.max_output_tokens_per_request,
-        output_tokens_limit=budget.output_tokens_limit,
-        allow_continuations=False,
-    )
     settings = cast(ModelSettings, dict(inference.generation_model_settings))
     async with AsyncExitStack() as resources:
         _, model = await _open_pydantic_ai_model(
@@ -1913,6 +1917,19 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             stage_name: str,
         ):
             prompt_key = f"topic_memory.{stage_name}"
+            stage_allowance = inference.generation_budget(prompt_key)
+            try:
+                stage_budget = narrow_stage_budget(budget, stage_allowance)
+            except TopicMemoryGenerationError as error:
+                raise BuiltinConfigurationError(f"topic-memory-{stage_name}-budget") from error
+            operation_limits = inference.generation_limits(prompt_key)
+            stage_limits = InferenceLimits(
+                timeout_seconds=operation_limits.timeout_seconds,
+                max_requests=operation_limits.max_requests,
+                max_output_tokens_per_request=stage_budget.max_output_tokens_per_request,
+                output_tokens_limit=stage_budget.output_tokens_limit,
+                allow_continuations=False,
+            )
             selection = current_prompt(prompt_key)
             if selection is not None and selection.artifact is not None:
                 prompt_refs[stage_name] = selection.artifact
@@ -1924,15 +1941,18 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
                 instructions=selected_instructions,
                 input_type=input_type,
                 output_type=output_type,
-                limits=limits,
+                limits=stage_limits,
                 model_settings=settings,
                 name=name,
                 prompt_key=prompt_key,
+                budget=stage_allowance,
+                operation=prompt_key,
+                stage=stage_name,
             )
             bounded = BudgetedTopicMemoryGenerator(
                 raw,
                 estimator=contexts.token_estimator,
-                budget=budget,
+                budget=stage_budget,
                 fixed_prompt=fixed_prompt,
             )
             return UsageReportingStructuredGenerator(bounded)
@@ -2040,6 +2060,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
                     contexts.repositories.sources,
                     contexts.token_estimator,
                     context_window_tokens=inference.generation_model_context_window_tokens,
+                    input_tokens_limit=inference.generation_budget("topic_memory.probe").allowed_input_tokens,
                 ),
                 cursors=contexts.repositories.cursors,
                 leases=contexts.repositories.processing_leases,

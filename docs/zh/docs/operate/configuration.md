@@ -201,6 +201,12 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING` | `disabled` | `auto` 时，仅模型名前缀为 `anthropic`、`openai`、`openai-chat`、`openai-responses` 的 generation 模型改用流式请求并在本地聚合为完整响应。其他前缀仍走非流式。`disabled` 时全部保持非流式请求 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS` | `60` | 流式聚合时的最大空闲秒数：覆盖等待流建立并收到首个模型事件，以及相邻模型事件（正文、思考、工具调用）之间的间隔。供应商心跳不重置这个计时，超过即按超时处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Topic 处理预算使用的 generation model 总上下文窗口 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_REQUEST_BUDGET` | `{}` | 部署级生成请求预算 JSON object：`context_semantics`（`joint_window` 或 `separate_limits`）、`input_tokens_limit`、`output_tokens_limit`、`output_reserve_tokens`、`safety_margin_ratio`、`safety_margin_tokens`、`estimator_id`、`estimator_version`。未设置时按上下文窗口 125000、输出预留 4096、安全余量 5% 推导；上下文窗口由 `GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` 声明 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_OPERATION_BUDGETS` | `{}` | 逐 operation 的生成预算 JSON object，键必须是已注册的 operation（`atomic_memory.extract`、`atomic_memory.reconcile`、`experience.incubate`、`experience.generate`、`handoff.generate`、`memory.rerank`、`memory.write-gate`、`profile.generate`、`prompt_demonstrations`、`skill.generate`、`topic_memory.<stage>`）；每项可设 `input_tokens_limit`、`output_tokens_limit`、`max_requests`、`timeout_seconds`，只能收窄部署上限，放宽会在启动期被拒绝 |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_CONTEXT_WINDOW_TOKENS` | 未设置 | 独立 decision 端点的上下文窗口（正整数）。与 `DECISION_REQUEST_BUDGET` 必须同时声明，并需要 `DECISION_MODEL` |
+| `POWERCONTEXT_SERVER_INFERENCE_DECISION_REQUEST_BUDGET` | 未设置 | 独立 decision 端点的容量 JSON object，字段同 `GENERATION_REQUEST_BUDGET`；设置后 `memory.write-gate` 按该容量准入 |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_CONTEXT_WINDOW_TOKENS` | 未设置 | 独立 rerank 端点的上下文窗口（正整数）。与 `RERANK_REQUEST_BUDGET` 必须同时声明，并需要 `RERANK_MODEL` |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_REQUEST_BUDGET` | 未设置 | 独立 rerank 端点的容量 JSON object；设置后 `memory.rerank` 的 demonstration 生成按该容量准入 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model；必须同时设置 profile ID 和 dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |
@@ -211,6 +217,10 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | vector normalization：`unit` 或 `none` |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | 单次 embedding 请求的超时秒数 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_INPUT_TOKENS_PER_TEXT_LIMIT` | 未设置 | 单条文本的估算 token 上限；超出时在发出任何请求前拒绝 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_INPUT_TOKENS_PER_BATCH_LIMIT` | 未设置 | 单次 embedding 请求整批文本的估算 token 上限，与单条上限互相独立 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_ITEMS_LIMIT` | 未设置 | 单次 embedding 请求的条数上限，与 token 上限互相独立 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_ESTIMATOR` | `character:weighted` | embedding 预算使用的估算器身份，未知身份在启动期被拒绝 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` | generation model | LLM rerank 可选的独立 Pydantic AI model |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | 继承值或 provider 默认值 | 自定义 LLM reranker provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS` | `{}` | LLM reranker client 静态 header JSON object；value 按 secret 处理 |

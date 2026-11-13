@@ -150,6 +150,7 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
     """Expose only known categories, never exception messages or custom codes."""
 
     known_codes = {
+        "InferenceBudgetExceededError": "inference_budget_exceeded",
         "InferenceConfigurationError": "model_configuration_error",
         "PydanticAIConfigurationError": "model_configuration_error",
         "InferenceTimeoutError": "model_timeout",

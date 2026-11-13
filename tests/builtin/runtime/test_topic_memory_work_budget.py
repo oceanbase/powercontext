@@ -711,3 +711,67 @@ def test_rejected_reservation_readback_does_not_invent_token_evidence(dimension)
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
+
+
+def test_single_request_admission_rejection_does_not_reset_the_work_ledger():
+    from pydantic_ai.models.function import FunctionModel
+
+    from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryProbeInput
+    from powercontext.builtin.inference.budget import BudgetProvenance, EffectiveRequestBudget
+    from powercontext.builtin.inference.errors import InferenceBudgetExceededError
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+    from powercontext.builtin.inference.tokens import character_token_estimator
+
+    async def scenario():
+        manager, profile, _, topics = await _repositories()
+        calls = 0
+        try:
+            sources, assignment = await _capture(profile)
+
+            async def respond(_messages, _info):
+                nonlocal calls
+                calls += 1
+                return TopicMemoryProbeOutput()
+
+            budget = EffectiveRequestBudget(
+                estimator=character_token_estimator().profile,
+                provenance=BudgetProvenance(
+                    context_window="test",
+                    input_limit="test",
+                    output_limit="test",
+                    output_reserve="test",
+                    safety_margin="test",
+                    estimator="test",
+                ),
+                context_window_tokens=400_000,
+                input_tokens_limit=5,
+                output_reserve_tokens=1_000,
+                safety_margin_tokens=0,
+            )
+            generator = PydanticAIStructuredGenerator(
+                model=FunctionModel(respond),
+                instructions="Generate probes.",
+                input_type=TopicMemoryProbeInput,
+                output_type=TopicMemoryProbeOutput,
+                limits=InferenceLimits(max_requests=2, max_output_tokens_per_request=512, output_tokens_limit=1024),
+                budget=budget,
+                operation="topic_memory.probe",
+            )
+
+            with pytest.raises(InferenceBudgetExceededError):
+                await _processor(profile, sources, topics, generator).process(assignment)
+
+            assert calls == 0
+            row = await _row(profile)
+            assert row is not None
+            assert row["attempts"] == 1
+            assert row["requests"] == 2
+            assert row["tokens"] == 250_000
+            async with profile.database.transaction() as connection:
+                cursor = await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                assert cursor is None or cursor.cursor.sequence == 0
+            await _assert_unpublished(profile, topics)
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())

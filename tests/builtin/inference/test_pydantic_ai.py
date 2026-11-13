@@ -1269,3 +1269,41 @@ def test_embedding_public_path_reports_usage_limit_in_embedding_stage() -> None:
         assert diagnostics.cause_exception_type == "UsageLimitExceeded"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("query", [False, True])
+def test_embedding_budget_checks_later_items_before_sending_any_batch(query: bool) -> None:
+    from powercontext.builtin.inference.budget import EmbeddingBudget
+    from powercontext.builtin.inference.errors import InferenceBudgetExceededError
+
+    async def scenario():
+        recording = RecordingEmbeddingModel()
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(recording),
+            profile=TEST_PROFILE,
+            batch_size=1,
+            budget=EmbeddingBudget(max_input_tokens_per_text=2),
+        )
+        with pytest.raises(InferenceBudgetExceededError):
+            await (adapter.embed_query(("ok", "X" * 100)) if query else adapter.embed(("ok", "X" * 100)))
+        assert recording.calls == []
+
+    asyncio.run(scenario())
+
+
+def test_embedding_failure_retains_usage_from_the_previous_batch() -> None:
+    async def scenario():
+        class FailingEmbedding(RecordingEmbeddingModel):
+            async def embed(self, inputs, *, input_type, settings=None):
+                if self.calls:
+                    raise InferenceUnavailableError("embed")
+                return await super().embed(inputs, input_type=input_type, settings=settings)
+
+        adapter = PydanticAIEmbeddingModel(embedder=Embedder(FailingEmbedding()), profile=TEST_PROFILE, batch_size=1)
+        with pytest.raises(InferenceUnavailableError) as rejected:
+            await adapter.embed(("first", "second"))
+        assert rejected.value.usage is not None
+        assert rejected.value.usage.requests == 1
+        assert rejected.value.usage.input_tokens == 1
+
+    asyncio.run(scenario())

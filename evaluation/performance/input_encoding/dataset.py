@@ -97,12 +97,13 @@ def projection(instance) -> ArtifactGenerationInput:
             content=source["content"],
             metadata=source["metadata"],
         ).model_dump_json()
+        # 12k-char source parts stay well under the contract bound, so the projection
+        # never needs to shorten evidence; oversized evidence is rejected upstream.
         evidence.append(
             GenerationEvidence(
                 evidence_id=f"source:content/{source['source_id']}",
                 kind=GenerationEvidenceKind.SOURCE,
-                content=content[:64_000],
-                truncated=len(content) > 64_000,
+                content=content,
             )
         )
     return ArtifactGenerationInput(evidence=tuple(evidence))
@@ -150,7 +151,7 @@ def offline(dataset: Path, output: Path, *, iterations: int = 3) -> dict[str, An
                     "roundtrip_equal": restored == original,
                     "latency_ms": times,
                 }
-            row.update({"status": "measured", "truncated": any(x.truncated for x in value.evidence), "modes": reports})
+            row.update({"status": "measured", "modes": reports})
         except ValueError as error:
             row.update({"status": "projection_rejected", "error_type": type(error).__name__})
         rows.append(row)

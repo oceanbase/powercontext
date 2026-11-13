@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, field_v
 
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.inference import GenerationResult, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
     ProcessingFailureReason,
@@ -110,6 +111,36 @@ def topic_memory_stage_budget(
         transcript_reserve=reserve,
         output_tokens_limit=output_limit,
         max_output_tokens_per_request=per_request,
+    )
+
+
+def narrow_stage_budget(
+    budget: TopicMemoryStageBudget,
+    allowed: EffectiveRequestBudget,
+) -> TopicMemoryStageBudget:
+    """Narrow one stage's derived budget to its configured per-operation allowance.
+
+    Deployment capacity stays the derivation basis; a configured allowance can only
+    shrink a stage, never enlarge it. A stage that cannot keep its retry guarantees
+    inside the narrowed allowance is rejected instead of being silently clamped.
+    """
+
+    input_tokens_limit = min(budget.input_tokens_limit, allowed.allowed_input_tokens)
+    if input_tokens_limit < 1:
+        raise TopicMemoryGenerationError("input_budget_exceeded")
+    max_output_tokens_per_request = budget.max_output_tokens_per_request
+    if allowed.output_tokens_limit is not None:
+        # The derived stage output limit already reserves room for retries, so a
+        # configured output allowance caps one provider response, exactly like
+        # ``generation_model_settings.max_tokens`` does during derivation.
+        max_output_tokens_per_request = min(max_output_tokens_per_request, allowed.output_tokens_limit)
+    if max_output_tokens_per_request < 1:
+        raise TopicMemoryGenerationError("output_budget_exceeded")
+    return budget.model_copy(
+        update={
+            "input_tokens_limit": input_tokens_limit,
+            "max_output_tokens_per_request": max_output_tokens_per_request,
+        }
     )
 
 

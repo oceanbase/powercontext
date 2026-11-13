@@ -35,9 +35,10 @@ import httpx2
 
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
+from powercontext.builtin.inference.budget import EmbeddingBudget, validate_embedding_batches
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
-    InferencePrivacyError,
+    InferenceError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
@@ -75,6 +76,7 @@ class MiniMaxEmbeddingModel:
         timeout_seconds: float = 30.0,
         http_client: httpx2.AsyncClient | None = None,
         protection: InferenceProtectionConfig | None = None,
+        budget: EmbeddingBudget | None = None,
     ) -> None:
         if not model or not model.strip():
             raise InferenceConfigurationError("embedding-model-empty")
@@ -88,6 +90,7 @@ class MiniMaxEmbeddingModel:
         self._model = model
         self._batch_size = batch_size
         self._timeout = timeout_seconds
+        self._budget = budget
         self._endpoint = f"{base_url.rstrip('/')}/embeddings"
         request_headers: dict[str, str] = {"Content-Type": "application/json"}
         if headers:
@@ -130,9 +133,7 @@ class MiniMaxEmbeddingModel:
 
         return await self._embed(texts, embedding_type=_MINIMAX_QUERY_TYPE)
 
-    async def _embed(  # noqa: C901 - bounded transport and HTTP status mapping
-        self, texts: tuple[str, ...], *, embedding_type: str
-    ) -> EmbeddingResult:
+    async def _embed(self, texts: tuple[str, ...], *, embedding_type: str) -> EmbeddingResult:
         """Embed one MiniMax document or query batch."""
 
         if not texts:
@@ -145,58 +146,16 @@ class MiniMaxEmbeddingModel:
                 )
             except asyncio.CancelledError:
                 raise
-            except (InvalidInferenceOutputError, InferenceConfigurationError):
-                raise
-            except TimeoutError as error:
-                raise attach_diagnostics(
-                    InferenceTimeoutError("embed", self._timeout),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.EMBEDDING,
-                        reason=ProcessingFailureReason.TIMEOUT,
-                        cause_exception_type=type(error).__name__,
-                    ),
-                ) from error
-            except httpx2.TimeoutException as error:
-                raise attach_diagnostics(
-                    InferenceTimeoutError("embed", self._timeout),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.EMBEDDING,
-                        reason=ProcessingFailureReason.TIMEOUT,
-                        cause_exception_type=type(error).__name__,
-                    ),
-                ) from error
-            except httpx2.HTTPStatusError as error:
-                status = error.response.status_code
-                if status == 429:
-                    reason = ProcessingFailureReason.RATE_LIMIT
-                elif status in {408, 504}:
-                    reason = ProcessingFailureReason.TIMEOUT
-                elif status in {401, 403}:
-                    reason = ProcessingFailureReason.CONFIGURATION
-                elif status in {409, 425} or status >= 500:
-                    reason = ProcessingFailureReason.PROVIDER_UNAVAILABLE
-                else:
-                    reason = None
-                raise attach_diagnostics(
-                    InferenceUnavailableError("embed"),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.EMBEDDING,
-                        reason=reason,
-                        cause_exception_type=type(error).__name__,
-                    ),
-                ) from error
-            except httpx2.HTTPError as error:
-                raise attach_diagnostics(
-                    InferenceUnavailableError("embed"),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.EMBEDDING,
-                        reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
-                        cause_exception_type=type(error).__name__,
-                    ),
-                ) from error
+            except Exception as error:
+                mapped = _map_embedding_error(error, self._timeout)
+                if mapped is None or mapped is error:
+                    raise
+                raise mapped from error
             return result
 
     async def _embed_batches(self, texts: tuple[str, ...], *, embedding_type: str) -> EmbeddingResult:
+        if self._budget is not None and self._budget.has_limits:
+            validate_embedding_batches(self._budget, texts, self._batch_size)
         vectors: list[tuple[float, ...]] = []
         requests = 0
         input_tokens: int | None = 0
@@ -204,14 +163,17 @@ class MiniMaxEmbeddingModel:
             batch = texts[start : start + self._batch_size]
             try:
                 rows, tokens = await self._embed_one(batch, embedding_type=embedding_type)
-            except InferencePrivacyError as error:
-                if requests:
+                requests += 1
+                input_tokens = input_tokens + tokens if input_tokens is not None and tokens is not None else None
+                vectors.extend(self._validated_vectors(batch, rows))
+            except Exception as error:
+                mapped = _map_embedding_error(error, self._timeout)
+                if mapped is not None and requests:
                     prior = InferenceUsage(requests=requests, input_tokens=input_tokens)
-                    error.usage = prior if error.usage is None else combine_inference_usage(prior, error.usage)
+                    mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+                if mapped is not None and mapped is not error:
+                    raise mapped from error
                 raise
-            vectors.extend(self._validated_vectors(batch, rows))
-            requests += 1
-            input_tokens = input_tokens + tokens if input_tokens is not None and tokens is not None else None
         return EmbeddingResult(
             vectors=tuple(vectors),
             usage=InferenceUsage(
@@ -293,3 +255,39 @@ def is_minimax_embedding(base_url: str | None, model: str | None) -> bool:
 
 
 __all__ = ["MiniMaxEmbeddingModel", "is_minimax_embedding"]
+
+
+def _map_embedding_error(error: Exception, timeout: float) -> InferenceError | None:
+    """Normalize MiniMax errors before attaching completed-batch usage."""
+
+    if isinstance(error, InferenceError):
+        return error
+    if isinstance(error, (TimeoutError, httpx2.TimeoutException)):
+        mapped = InferenceTimeoutError("embed", timeout)
+        reason = ProcessingFailureReason.TIMEOUT
+    elif isinstance(error, httpx2.HTTPStatusError):
+        status = error.response.status_code
+        mapped = InferenceUnavailableError("embed")
+        if status == 429:
+            reason = ProcessingFailureReason.RATE_LIMIT
+        elif status in {408, 504}:
+            reason = ProcessingFailureReason.TIMEOUT
+        elif status in {401, 403}:
+            reason = ProcessingFailureReason.CONFIGURATION
+        elif status in {409, 425} or status >= 500:
+            reason = ProcessingFailureReason.PROVIDER_UNAVAILABLE
+        else:
+            reason = None
+    elif isinstance(error, httpx2.HTTPError):
+        mapped = InferenceUnavailableError("embed")
+        reason = ProcessingFailureReason.PROVIDER_UNAVAILABLE
+    else:
+        return None
+    return attach_diagnostics(
+        mapped,
+        ProcessingDiagnostics(
+            stage=ProcessingStage.EMBEDDING,
+            reason=reason,
+            cause_exception_type=type(error).__name__,
+        ),
+    )

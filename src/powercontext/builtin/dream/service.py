@@ -71,6 +71,7 @@ from powercontext.builtin.evidence.models import (
 from powercontext.builtin.evidence.resolver import EvidenceAuthorizer, EvidenceReference, EvidenceResolver, evidence_id
 from powercontext.builtin.evidence.selection import select_evidence
 from powercontext.builtin.inference.errors import (
+    InferenceBudgetExceededError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
@@ -834,4 +835,6 @@ def _error_code(error: Exception) -> str:
         return "tag_precondition_failed"
     if isinstance(error, (InvalidInferenceOutputError, InvalidCandidateError)):
         return "invalid_generation_output"
+    if isinstance(error, InferenceBudgetExceededError):
+        return "input_budget_exceeded"
     return "generation_failed"

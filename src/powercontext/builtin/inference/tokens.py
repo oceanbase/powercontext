@@ -70,4 +70,19 @@ def character_token_estimator() -> TokenEstimator:
     )
 
 
-__all__ = ["TokenEstimator", "TokenEstimatorProfile", "character_token_estimator"]
+def resolve_token_estimator(profile: TokenEstimatorProfile) -> TokenEstimator:
+    """Return the estimator for one stable profile identity.
+
+    A deployment may only reference an estimator this build can actually run, so
+    an unknown identity is a configuration error rather than a silent fallback.
+    """
+
+    estimator = character_token_estimator()
+    if profile != estimator.profile:
+        raise ValueError(  # noqa: TRY003
+            f"unknown token estimator: {profile.estimator_id}@{profile.version}"
+        )
+    return estimator
+
+
+__all__ = ["TokenEstimator", "TokenEstimatorProfile", "character_token_estimator", "resolve_token_estimator"]

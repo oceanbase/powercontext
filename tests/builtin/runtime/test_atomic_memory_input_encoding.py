@@ -35,7 +35,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import PromptService
-from powercontext.builtin.inference.errors import InferencePrivacyError, InvalidInferenceOutputError
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError, InferencePrivacyError
 from powercontext.builtin.inference.input_encoding import decode_input
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy, UpstreamProfile
@@ -195,7 +195,7 @@ def test_stage_budget_uses_the_exact_input_sent_and_rejects_uncompressed_overflo
 
                 with collect_input_encodings() as reports:
                     if mode == "off":
-                        with pytest.raises(InvalidInferenceOutputError, match="atomic-memory-input-budget"):
+                        with pytest.raises(InferenceBudgetExceededError, match=r"atomic_memory\.extract"):
                             await context.triggers.flush(limit=3)
                         assert (await context.triggers.cursor()).sequence == 0
                         assert prompts == reports == []
@@ -436,3 +436,49 @@ def test_structured_content_allow_still_requires_full_wire_admission() -> None:
     assert denied.decision == "withhold"
     assert denied.reason_codes == ("model_mismatch",)
     assert not denied.coverage.complete
+
+
+def test_operation_budget_shrinks_the_window_without_skipping_sources(monkeypatch, tmp_path) -> None:
+    from powercontext.builtin.runtime.config import GenerationOperationBudgetConfig
+
+    async def respond(messages, info):
+        return ModelResponse(parts=[TextPart('{"candidates":[]}')])
+
+    async def open_model(*args, **kwargs):
+        model = FunctionModel(respond)
+        return model, model
+
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", open_model)
+
+    async def scenario():
+        async with AsyncExitStack() as resources:
+            pipelines = await composition._generation_pipelines(
+                InferenceConfig(
+                    generation_model="test",
+                    generation_operation_budgets={
+                        "atomic_memory.extract": GenerationOperationBudgetConfig(input_tokens_limit=6000),
+                    },
+                ),
+                RuntimeConfig(),
+                resources,
+                None,
+                BUILTIN_SOURCE_REGISTRY,
+            )
+            pipeline = pipelines[1]
+            assert pipeline is not None
+            config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'budget.db'}"))
+            async with composition.open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+                scope = await contexts.get("bounded-operation")
+                for index in range(3):
+                    await scope.sources.capture(ContentCapture(source_id=f"s-{index}", content="Fact " + "X" * 8000))
+                with pytest.raises(InferenceBudgetExceededError):
+                    await scope.triggers.flush(limit=3)
+                assert (await scope.triggers.cursor()).sequence == 0
+                first = await scope.triggers.flush(limit=3)
+                assert first.source_count == 1
+                assert (await scope.triggers.cursor()).sequence == 1
+                await scope.triggers.flush(limit=3)
+                await scope.triggers.flush(limit=3)
+                assert (await scope.triggers.cursor()).sequence == 3
+
+    asyncio.run(scenario())
