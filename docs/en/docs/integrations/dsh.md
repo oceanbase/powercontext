@@ -24,8 +24,8 @@ native MCP discovery before validating capture and recall.
 The same package also exposes an independent browser entry, `./client`. After restart, DSH Web and Desktop show a
 PowerContext status control above the account area. If the control is absent, the host did not load the browser
 entry; existing tools and lifecycle behavior remain available, so this is not a Server failure. Click the control
-for connection diagnostics and the **Open Dashboard** action. With a selected conversation, the existing Dashboard
-opens in DSH's right sidebar.
+for connection diagnostics, version controls, and the **Open Dashboard** action. With a selected conversation,
+the existing Dashboard opens in DSH's right sidebar.
 
 The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
 `beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
@@ -33,9 +33,8 @@ before installation. Local `.tgz` installation verifies the archive path, not np
 
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The latest official release checked for this implementation is
-`0.2.2-rc.1` (a prerelease published on 2026-11-04); the P1/P2 Web and Desktop bundled-runtime acceptance was run
-against that exact package. The deterministic SDK runtime contract tests remain pinned to their older fixture.
+Install DeepSeek Harness Web or Desktop. The P1/P2 Web and Desktop bundled-runtime acceptance was run against
+the official `0.2.2-rc.1` prerelease (published on 2026-11-04). The deterministic SDK runtime contract tests remain pinned to their older fixture.
 Do not infer support for another DSH release from this result. Choose one PowerContext installation path and keep
 the Server and plugin together.
 
@@ -230,13 +229,13 @@ The sidebar control appears above the account area. Its color and accessible lab
 | Green | Liveness, readiness, and the required PreparedContext capability were verified |
 | Red | Connection, DSH authentication, or a required capability failed |
 
-Clicking the control opens a read-only diagnostics panel in Simplified Chinese by default. The language icon
+Clicking the control opens a diagnostics panel in Simplified Chinese by default. The language icon
 switches to English; an explicit choice persists in the current browser's local storage, with Chinese as the
 fallback. The compact view shows connection state, Server address, workspace and Scope. Expand **Technical details**
 for the conversation ID, deployment mode, authentication source (never the credential), readiness dependencies,
 context schema and automatic-path observations.
-The footer reads `package_version` from `GET /v1/server-info` through the Host and shows the current Server package
-version. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
+The footer shows the running plugin version. **Technical details** shows the connected Server's package version
+from `GET /v1/server-info`. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
 the plugin version or API contract version. The bounded metadata read does not determine readiness.
 The panel reuses the same in-memory `RuntimeStatus` as `/pc`, rather than reconstructing history from logs.
 It never calls a model, sends a diagnostic prompt, or polls `/pc doctor`.
@@ -277,9 +276,28 @@ prints the launch token, Authorization value, or a bearer header. A conversation
 session and invalidates responses from the previous selection. With no conversation, the panel says so and does
 not create one.
 
-Updating the plugin is an install-and-restart operation; the existing profile and connection settings are
-preserved. Uninstalling it removes the browser entry, the `/powercontext/status` and `/powercontext/dashboard` routes, subscriptions, and
-timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
+Updating and restarting the plugin preserves the existing profile and connection settings. Uninstalling it removes
+the browser entry, the `/powercontext/status`, `/powercontext/dashboard`, and `/powercontext/updates` routes,
+subscriptions, and timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
+
+### Check for PowerContext updates
+
+The local DSH Host checks published PowerContext releases shortly after startup and every hour, even when the panel
+is closed or the Server is offline. To check immediately, use the refresh icon in the version footer. The footer
+links to the release notes, and the control's tooltip describes the check or installation state. Checks never install
+an update. The default channel is stable; set `updateChannel: preview` in the plugin patch to include prereleases,
+or set `updateHold: true` to keep the installed plugin version.
+
+When the matching Server is already running and DSH can verify the exact compatible package on an eligible npm source,
+the icon becomes **Update**. Select it to let DSH install the plugin in the current profile. Finish active turns first.
+You can close the panel while installation runs; reopen it to check progress. If DSH asks for a reload or restart,
+the running version changes only once the new plugin loads. If the registry does not have the package yet, check again later. Linked
+checkouts, Git installs, archives, and custom registries retain their existing update workflow. Tests cover the
+npm update capability reported by DSH `0.2.2-rc.2` using a simulated plugin manager. They do not verify installation
+from the public npm registry or the full workflow on a real rc.2 host.
+
+**Technical details** links to the [Server upgrade guide](../get-started/install-and-run.md#update-or-replace-an-installation).
+Use the deployment's supported process for updating, restarting, and, when required, migrating its database.
 
 ## Open the Dashboard in DSH
 
