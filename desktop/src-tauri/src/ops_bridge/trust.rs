@@ -353,6 +353,30 @@ fn trusted_linux_xdg_environment() -> Result<BTreeMap<String, String>, Error> {
 }
 
 #[cfg(target_os = "linux")]
+fn trusted_linux_xdg_path(configured: Option<PathBuf>) -> Option<PathBuf> {
+    let path = configured.filter(|path| !path.as_os_str().is_empty())?;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    Some(path)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_local_data_dir_from(
+    home: Option<&Path>,
+    configured_data_home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let home = home?;
+    let data_home =
+        trusted_linux_xdg_path(configured_data_home).unwrap_or_else(|| home.join(".local/share"));
+    Some(data_home.join("PowerContext"))
+}
+
+#[cfg(target_os = "linux")]
 pub(super) fn trusted_linux_xdg_environment_from(
     configured: impl Fn(&str) -> Option<PathBuf>,
 ) -> Result<BTreeMap<String, String>, Error> {
@@ -363,18 +387,11 @@ pub(super) fn trusted_linux_xdg_environment_from(
         "XDG_STATE_HOME",
         "XDG_CACHE_HOME",
     ] {
-        let Some(path) = configured(name).filter(|path| !path.as_os_str().is_empty()) else {
-            continue;
-        };
-        if !path.is_absolute()
-            || path
-                .components()
-                .any(|component| matches!(component, Component::ParentDir))
-        {
+        let Some(path) = trusted_linux_xdg_path(configured(name)) else {
             // Ignore unusable XDG values and let the Python consumer use its
             // platform default instead of disabling Local Server.
             continue;
-        }
+        };
         environment.insert(name.to_owned(), path_string(&path)?);
     }
     Ok(environment)

@@ -111,6 +111,23 @@ def test_linux_layout_ignores_relative_xdg_locations(monkeypatch: pytest.MonkeyP
     assert layout.data == home / ".local/share/powercontext"
 
 
+def test_linux_layout_ignores_parent_xdg_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(installer_module.sys, "platform", "linux")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    for name in ("DATA", "CONFIG", "STATE", "CACHE"):
+        monkeypatch.setenv(f"XDG_{name}_HOME", str(tmp_path / "xdg/child/../" / name.lower()))
+
+    layout = ManagedLayout.current_user()
+
+    assert layout.programs == home / ".local/share/PowerContextManaged/programs"
+    assert layout.configuration == home / ".config/PowerContextManaged"
+    assert layout.state == home / ".local/state/PowerContextManaged"
+    assert layout.cache == home / ".cache/PowerContextManaged"
+    assert layout.data == home / ".local/share/powercontext"
+
+
 def test_linux_preflight_uses_validated_xdg_data_for_target_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -126,6 +143,24 @@ def test_linux_preflight_uses_validated_xdg_data_for_target_summary(
     plan = _plan(ops, "install", http_port=_free_port())
 
     assert plan["target_summary"]["data_dir"] == str(home / ".local/share/powercontext")
+
+
+def test_linux_preflight_preserves_absolute_xdg_data_for_target_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(installer_module.sys, "platform", "linux")
+    home = tmp_path / "home"
+    home.mkdir()
+    data = tmp_path / "custom-data"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+        monkeypatch.delenv(name, raising=False)
+
+    ops, _adapter, _installer = make_managed_ops(tmp_path, monkeypatch, layout=ManagedLayout.current_user())
+    plan = _plan(ops, "install", http_port=_free_port())
+
+    assert plan["target_summary"]["data_dir"] == str(data / "powercontext")
 
 
 @pytest.fixture

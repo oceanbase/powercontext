@@ -1031,6 +1031,32 @@ fn linux_xdg_home_environment_preserves_a_non_default_layout() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_desktop_support_dir_uses_the_validated_xdg_data_base() {
+    let dir = fixture_dir();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    for configured in [
+        Some(dir.path().join("pc-xdg/child/../data")),
+        Some(PathBuf::from("relative-data")),
+        Some(PathBuf::new()),
+        None,
+    ] {
+        let fallback = trust::trusted_linux_local_data_dir_from(Some(&home), configured)
+            .unwrap()
+            .join("Ops");
+        assert_eq!(fallback, home.join(".local/share/PowerContext/Ops"));
+    }
+
+    let override_dir = dir.path().join("custom-data");
+    let custom = trust::trusted_linux_local_data_dir_from(Some(&home), Some(override_dir.clone()))
+        .unwrap()
+        .join("Ops");
+    assert_eq!(custom, override_dir.join("PowerContext/Ops"));
+}
+
 #[test]
 fn database_admission_v1_extensions_remain_bounded_and_actionable() {
     let r = request(OpsAction::Inspect, json!({}));
