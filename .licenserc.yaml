@@ -69,9 +69,6 @@ header:
     - 'src/powercontext/http/_generated/**'
     # Vendored distributions retain their upstream licenses and copyright notices.
     - 'LICENSES/**'
-    # The vendored Anatomy kit (MIT) and the figure output generated from it.
-    - 'website/figures/anatomy-kit/**'
-    - 'website/figures/handoff-turntable/generated/**'
     # Protocol recordings and upstream notices retain their original bytes and licenses.
     - 'gateway/crates/pc-gateway-app/tests/fixtures/**'
     - 'src/powercontext/builtin/artifacts/lexical_data/*.txt'

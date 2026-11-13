@@ -36,25 +36,28 @@ export type BackdropId = keyof typeof backdrops;
 
 const WIDTHS = [960, 1600, 2400] as const;
 
-/** A stage's photograph. Decorative: it carries no alt text. */
+/**
+ * A photograph used as ground. `hero` covers the stage; `tour` is the one
+ * frame every feature card is a window onto. Decorative: no alt text.
+ */
 export function Backdrop({ id, priority = false }: { id: BackdropId; priority?: boolean }) {
   const { file, position } = backdrops[id];
   const source = (width: number) => withBasePath(`/backdrops/${file}-${width}.webp`);
   return (
-    <div className="pc-stage-ground" data-backdrop="">
-      <img
-        alt=""
-        decoding="async"
-        draggable={false}
-        fetchPriority={priority ? 'high' : 'auto'}
-        height={1000}
-        loading={priority ? 'eager' : 'lazy'}
-        sizes="(min-width: 1400px) 1368px, calc(100vw - 24px)"
-        src={source(1600)}
-        srcSet={WIDTHS.map((width) => `${source(width)} ${width}w`).join(', ')}
-        style={{ objectPosition: position }}
-        width={1600}
-      />
-    </div>
+    <img
+      alt=""
+      aria-hidden="true"
+      className="pc-ground"
+      decoding="async"
+      draggable={false}
+      fetchPriority={priority ? 'high' : 'auto'}
+      height={1000}
+      loading={priority ? 'eager' : 'lazy'}
+      sizes={priority ? '100vw' : '(min-width: 1400px) 1368px, 100vw'}
+      src={source(1600)}
+      srcSet={WIDTHS.map((width) => `${source(width)} ${width}w`).join(', ')}
+      style={{ objectPosition: position }}
+      width={1600}
+    />
   );
 }
