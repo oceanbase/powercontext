@@ -23,7 +23,7 @@ from itertools import groupby
 from time import perf_counter
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, exists, func, inspect, literal, select, tuple_
+from sqlalchemy import and_, case, exists, func, inspect, literal, select, tuple_
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -380,6 +380,20 @@ async def verify_atomic_memory_evidence(
     )
 
 
+def _verification_columns(index: AtomicMemoryIndex, available: set[str], dialect: str):
+    projection_columns = []
+    for column in index.table.c:
+        if column.name == "description" and column.name not in available:
+            projection_columns.append(literal(None).label("description"))
+        elif column.name == "embedding" and dialect == "mysql":
+            # OceanBase enforces the registered vector dimension. This audit uses
+            # only presence; avoid transferring and decoding every vector value.
+            projection_columns.append(case((column.is_(None), None), else_=True).label("embedding"))
+        else:
+            projection_columns.append(column)
+    return projection_columns
+
+
 async def verify_atomic_memory_current(
     connection: AsyncConnection,
     index: AtomicMemoryIndex,
@@ -414,10 +428,7 @@ async def verify_atomic_memory_current(
     )
     # Intermediate registered revisions predate the nullable description column.
     # Compare absent metadata as null without selecting a column not yet added.
-    projection_columns = [
-        literal(None).label("description") if column.name == "description" and column.name not in columns else column
-        for column in index.table.c
-    ]
+    projection_columns = _verification_columns(index, columns, connection.dialect.name)
     errors: list[str] = []
     if history_counts.get("evidence_projection_differences"):
         errors.append(
@@ -425,24 +436,28 @@ async def verify_atomic_memory_current(
         )
     after = None
     active = 0
-    while batch := await _identity_batch(connection, after, batch_size):
+    # Two bound values per identity must fit older SQLite parameter limits.
+    page_size = min(batch_size, 400) if connection.dialect.name == "sqlite" else batch_size
+    while batch := await _identity_batch(connection, after, page_size):
+        # The caller owns the same consistent snapshot used for authority reads.
+        # Bound the projection read to this page; preserve every per-row verdict.
+        projected = {
+            (str(row["scope_id"]), str(row["artifact_id"])): row
+            for row in (
+                await connection.execute(
+                    select(*projection_columns).where(
+                        tuple_(index.table.c.scope_id, index.table.c.artifact_id).in_(batch)
+                    )
+                )
+            ).mappings()
+        }
         for scope_id, artifact_id in batch:
             record = await _record(connection, artifacts, scope_id, artifact_id, for_update=False)
             after = scope_id, artifact_id
             if record.state.state is not AtomicMemoryStateValue.ACTIVE:
                 continue
             active += 1
-            row = (
-                (
-                    await connection.execute(
-                        select(*projection_columns).where(
-                            index.table.c.scope_id == scope_id, index.table.c.artifact_id == artifact_id
-                        )
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
+            row = projected.get((scope_id, artifact_id))
             if row is None:
                 errors.append(f"{scope_id}/{artifact_id}: active projection is missing")
                 continue
