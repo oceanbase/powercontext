@@ -116,6 +116,8 @@ export type HomeContent = {
       fields: HomeField[];
       approve: string;
       reject: string;
+      /** Shown once the depicted approval lands. */
+      approved: string;
     };
     skill: HomeFeature & {
       name: string;

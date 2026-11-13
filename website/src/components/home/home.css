@@ -1252,11 +1252,13 @@ html:lang(zh) .pc-section-title {
 
 .pc-fields {
   display: grid;
-  gap: 1px;
   overflow: hidden;
   border-radius: var(--pc-radius-well);
-  background: var(--pc-line);
   box-shadow: 0 0 0 1px var(--pc-line);
+}
+
+.pc-fields > div + div {
+  border-top: 1px solid var(--pc-line);
 }
 
 .pc-fields > div {
@@ -1264,7 +1266,6 @@ html:lang(zh) .pc-section-title {
   grid-template-columns: 5.5rem minmax(0, 1fr);
   gap: 12px;
   padding: 9px 12px;
-  background: var(--pc-surface);
   font-size: 12.5px;
   line-height: 18px;
 }
@@ -1527,6 +1528,175 @@ html:lang(zh) .pc-section-title {
   .pc-memory-detail {
     display: grid;
   }
+}
+
+/* Feature loops: each card plays a short scene, over and over, while it is
+   on screen (reveal.tsx sets `data-playing`). The base styles are the
+   finished state, which is what reduced motion and a script-less page show. */
+
+.pc-tour-card {
+  --pc-loop: 10s;
+}
+
+.pc-tick {
+  display: inline-grid;
+}
+
+.pc-tick > span {
+  grid-area: 1 / 1;
+}
+
+.pc-tick > span:first-child {
+  visibility: hidden;
+}
+
+.pc-decision {
+  display: grid;
+  align-items: center;
+}
+
+.pc-decision > * {
+  grid-area: 1 / 1;
+}
+
+.pc-decision .pc-panel-actions {
+  visibility: hidden;
+}
+
+.pc-decision-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--pc-accent-text);
+}
+
+.pc-decision-done svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pc-budget-bar span {
+  transform-origin: 0 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* An item arrives at its turn, holds, and leaves with the rest. */
+  @keyframes pc-seq-1 {
+    0%, 5% { opacity: 0; transform: translateY(6px); }
+    11%, 92% { opacity: 1; transform: none; }
+    98%, 100% { opacity: 0; transform: none; }
+  }
+
+  @keyframes pc-seq-2 {
+    0%, 13% { opacity: 0; transform: translateY(6px); }
+    19%, 92% { opacity: 1; transform: none; }
+    98%, 100% { opacity: 0; transform: none; }
+  }
+
+  @keyframes pc-seq-3 {
+    0%, 21% { opacity: 0; transform: translateY(6px); }
+    27%, 92% { opacity: 1; transform: none; }
+    98%, 100% { opacity: 0; transform: none; }
+  }
+
+  @keyframes pc-seq-4 {
+    0%, 29% { opacity: 0; transform: translateY(6px); }
+    35%, 92% { opacity: 1; transform: none; }
+    98%, 100% { opacity: 0; transform: none; }
+  }
+
+  @keyframes pc-seq-5 {
+    0%, 40% { opacity: 0; transform: translateY(6px); }
+    46%, 92% { opacity: 1; transform: none; }
+    98%, 100% { opacity: 0; transform: none; }
+  }
+
+  /* The earlier value shows first, then gives way to the current one. */
+  @keyframes pc-swap-out {
+    0%, 38% { visibility: visible; opacity: 1; transform: none; }
+    42%, 100% { visibility: hidden; opacity: 0; transform: translateY(-5px); }
+  }
+
+  @keyframes pc-swap-in {
+    0%, 41% { visibility: hidden; opacity: 0; transform: translateY(5px); }
+    46%, 100% { visibility: visible; opacity: 1; transform: none; }
+  }
+
+  @keyframes pc-flash {
+    0%, 40%, 62%, 100% { box-shadow: inset 0 0 0 1px transparent; }
+    46% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pc-accent) 55%, transparent); }
+  }
+
+  @keyframes pc-press {
+    0%, 34%, 42%, 100% { transform: none; }
+    38% { transform: scale(0.94); }
+  }
+
+  @keyframes pc-grow-1 {
+    0%, 6% { transform: scaleX(0); }
+    20%, 92% { transform: none; opacity: 1; }
+    98%, 100% { transform: none; opacity: 0; }
+  }
+
+  @keyframes pc-grow-2 {
+    0%, 20% { transform: scaleX(0); }
+    30%, 92% { transform: none; opacity: 1; }
+    98%, 100% { transform: none; opacity: 0; }
+  }
+
+  @keyframes pc-grow-3 {
+    0%, 30% { transform: scaleX(0); }
+    38%, 92% { transform: none; opacity: 1; }
+    98%, 100% { transform: none; opacity: 0; }
+  }
+
+  .pc-tour-card :is(.pc-fields > div, .pc-checks li, .pc-skill-foot, .pc-budget-list li, .pc-budget-bar span,
+    .pc-memory-detail li, .pc-tick > span, .pc-memory-row[data-open], .pc-decision > *, .pc-mock-button[data-primary]) {
+    animation-duration: var(--pc-loop);
+    animation-timing-function: var(--pc-ease-out);
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+  }
+
+  /* Off screen, a card waits at the start of its scene. */
+  html[data-pc-reveal] .pc-tour-card:not([data-playing]) * {
+    animation-play-state: paused;
+  }
+
+  /* Handoff: the prepared state is written down a field at a time. */
+  .pc-tour-card[data-feature='handoff'] .pc-fields > div:nth-child(1) { animation-name: pc-seq-1; }
+  .pc-tour-card[data-feature='handoff'] .pc-fields > div:nth-child(2) { animation-name: pc-seq-2; }
+  .pc-tour-card[data-feature='handoff'] .pc-fields > div:nth-child(3) { animation-name: pc-seq-3; }
+  .pc-tour-card[data-feature='handoff'] .pc-fields > div:nth-child(4) { animation-name: pc-seq-4; }
+
+  /* Memory: the open entry advances a revision and its sources arrive. */
+  .pc-tour-card[data-feature='memory'] .pc-tick > span:first-child { animation-name: pc-swap-out; }
+  .pc-tour-card[data-feature='memory'] .pc-tick > span:last-child { animation-name: pc-swap-in; }
+  .pc-tour-card[data-feature='memory'] .pc-memory-row[data-open] { animation-name: pc-flash; }
+  .pc-tour-card[data-feature='memory'] .pc-memory-detail li:nth-child(1) { animation-name: pc-seq-3; }
+  .pc-tour-card[data-feature='memory'] .pc-memory-detail li:nth-child(2) { animation-name: pc-seq-4; }
+  .pc-tour-card[data-feature='memory'] .pc-memory-detail li:nth-child(3) { animation-name: pc-seq-5; }
+
+  /* Review: the candidate is approved and the decision replaces the controls. */
+  .pc-tour-card[data-feature='review'] .pc-panel-actions { animation-name: pc-swap-out; }
+  .pc-tour-card[data-feature='review'] .pc-decision-done { animation-name: pc-swap-in; }
+  .pc-tour-card[data-feature='review'] .pc-mock-button[data-primary] { animation-name: pc-press; }
+
+  /* Skill: each check passes, then the export lands. */
+  .pc-tour-card[data-feature='skill'] .pc-checks li:nth-child(1) { animation-name: pc-seq-1; }
+  .pc-tour-card[data-feature='skill'] .pc-checks li:nth-child(2) { animation-name: pc-seq-2; }
+  .pc-tour-card[data-feature='skill'] .pc-skill-foot { animation-name: pc-seq-4; }
+
+  /* Recall: the sections fill the byte budget one after another. */
+  .pc-tour-card[data-feature='recall'] .pc-budget-bar span:nth-child(1) { animation-name: pc-grow-1; }
+  .pc-tour-card[data-feature='recall'] .pc-budget-bar span:nth-child(2) { animation-name: pc-grow-2; }
+  .pc-tour-card[data-feature='recall'] .pc-budget-bar span:nth-child(3) { animation-name: pc-grow-3; }
+  .pc-tour-card[data-feature='recall'] .pc-budget-list li:nth-child(1) { animation-name: pc-seq-1; }
+  .pc-tour-card[data-feature='recall'] .pc-budget-list li:nth-child(2) { animation-name: pc-seq-2; }
+  .pc-tour-card[data-feature='recall'] .pc-budget-list li:nth-child(3) { animation-name: pc-seq-3; }
 }
 
 /* Ecosystem ---------------------------------------------------------------- */

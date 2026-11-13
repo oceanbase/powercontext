@@ -147,6 +147,7 @@ home:
           value: Sign and verify bytes, not parsed JSON
       approve: Approve
       reject: Reject
+      approved: Approved as revision 1
     skill:
       title: A reviewed procedure becomes a Skill, exported on purpose.
       label: A managed Skill with its validation checks, approved revision and export target

@@ -22,6 +22,7 @@ import type { Language } from '@/lib/i18n';
 import { AgentIcon, agentBySlug, agents } from './agents';
 import { Backdrop } from './backdrop';
 import { CopyCommand } from './copy-command';
+import { CountUp } from './count-up';
 import { normalizeHref } from './home-hero';
 import { MockWindow } from './session-windows';
 
@@ -68,6 +69,16 @@ function Fields({ fields }: { fields: Array<{ label: string; value: string }> })
   );
 }
 
+/** A revision number that the loop advances from the one before it. */
+function RevisionTick({ prefix, revision }: { prefix: string; revision: number }) {
+  return (
+    <span className="pc-rev pc-tick">
+      <span aria-hidden="true">{prefix}{revision - 1}</span>
+      <span>{prefix}{revision}</span>
+    </span>
+  );
+}
+
 function MemoryMock({ memory, scope }: { memory: Features['memory']; scope: string }) {
   const [open] = memory.entries;
   return (
@@ -82,13 +93,15 @@ function MemoryMock({ memory, scope }: { memory: Features['memory']; scope: stri
               key={entry.id}
             >
               <span>{entry.title}</span>
-              <span className="pc-rev">@{entry.revision}</span>
+              {entry.id === open.id
+                ? <RevisionTick prefix="@" revision={entry.revision} />
+                : <span className="pc-rev">@{entry.revision}</span>}
               <span className="pc-state" data-state={entry.state}>{memory.states[entry.state]}</span>
             </div>
           ))}
         </div>
         <div className="pc-memory-detail">
-          <p className="pc-ref">atomic-memory/{open.id}@{open.revision}</p>
+          <p className="pc-ref">atomic-memory/{open.id}<RevisionTick prefix="@" revision={open.revision} /></p>
           <p className="pc-memory-title">{open.title}</p>
           <p className="pc-memory-body">{memory.body}</p>
           <p className="pc-memory-label">{memory.sources_label}</p>
@@ -120,9 +133,12 @@ function ReviewMock({ review }: { review: Features['review'] }) {
       <div className="pc-panel">
         <p className="pc-panel-kind">{review.kind}</p>
         <Fields fields={review.fields} />
-        <div className="pc-panel-actions">
-          <span className="pc-mock-button" data-primary="">{review.approve}</span>
-          <span className="pc-mock-button">{review.reject}</span>
+        <div className="pc-decision">
+          <div className="pc-panel-actions">
+            <span className="pc-mock-button" data-primary="">{review.approve}</span>
+            <span className="pc-mock-button">{review.reject}</span>
+          </div>
+          <p className="pc-decision-done"><Check aria-hidden="true" strokeWidth={2.25} />{review.approved}</p>
         </div>
       </div>
     </MockWindow>
@@ -182,16 +198,19 @@ function RecallMock({ recall }: { recall: Features['recall'] }) {
 /**
  * One feature: the mock floats on the shared photograph and the title is its
  * caption, bottom-left over the ink scrim. The mock is a picture of the
- * product, so it is inert and labelled as an image.
+ * product, so it is inert and labelled as an image; home.css loops a short
+ * scene in it while the card is on screen.
  */
-function FeatureCard({ title, label, wide = false, children }: {
+function FeatureCard({ feature, title, label, wide = false, children }: {
+  /** Names the card's looping illustration in home.css. */
+  feature: string;
   title: string;
   label: string;
   wide?: boolean;
   children: ReactNode;
 }) {
   return (
-    <li className="pc-tour-card" data-wide={wide ? '' : undefined}>
+    <li className="pc-tour-card" data-feature={feature} data-loop="" data-wide={wide ? '' : undefined}>
       <Backdrop id="lupine" />
       <div aria-label={label} className="pc-tour-mock" role="img">
         <div data-reveal="" inert>{children}</div>
@@ -209,13 +228,13 @@ export function FeaturesSection({ content }: { content: Features }) {
     <section aria-labelledby="pc-features-title" className="pc-section">
       <SectionHead id="pc-features-title" lead={content.lead} title={content.title} />
       <ul className="pc-tour">
-        <FeatureCard label={handoff.label} title={handoff.title}><HandoffMock handoff={handoff} /></FeatureCard>
-        <FeatureCard label={memory.label} title={memory.title} wide>
+        <FeatureCard feature="handoff" label={handoff.label} title={handoff.title}><HandoffMock handoff={handoff} /></FeatureCard>
+        <FeatureCard feature="memory" label={memory.label} title={memory.title} wide>
           <MemoryMock memory={memory} scope={content.scope} />
         </FeatureCard>
-        <FeatureCard label={review.label} title={review.title}><ReviewMock review={review} /></FeatureCard>
-        <FeatureCard label={skill.label} title={skill.title}><SkillMock skill={skill} /></FeatureCard>
-        <FeatureCard label={recall.label} title={recall.title}><RecallMock recall={recall} /></FeatureCard>
+        <FeatureCard feature="review" label={review.label} title={review.title}><ReviewMock review={review} /></FeatureCard>
+        <FeatureCard feature="skill" label={skill.label} title={skill.title}><SkillMock skill={skill} /></FeatureCard>
+        <FeatureCard feature="recall" label={recall.label} title={recall.title}><RecallMock recall={recall} /></FeatureCard>
       </ul>
     </section>
   );
@@ -293,7 +312,7 @@ export function ProofSection({ content }: { content: HomeContent['proof'] }) {
         {content.stats.map((stat) => (
           <div key={stat.label}>
             <dt>{stat.label}</dt>
-            <dd className="pc-display">{stat.value}</dd>
+            <dd className="pc-display"><CountUp value={stat.value} /></dd>
             <dd className="pc-stat-detail">{stat.detail}</dd>
           </div>
         ))}
