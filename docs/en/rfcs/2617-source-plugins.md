@@ -24,12 +24,15 @@ the central Server.
   Scope and names the runner and the plugin that collect it. Users add, change, and remove them through the Source
   management APIs or the Dashboard without logging in to the device.
 - **Pull sync**: runners sync with the central Server on a schedule, fetching every target assigned to them and reporting
-  the plugins they loaded with their parameter formats. The central Server never pushes to devices; there is no reverse
-  channel.
+  the plugins they loaded with their versions. The central Server never pushes to devices; there is no reverse channel.
 - **Deduplication**: a plugin declares which parameters form a target's unique key and how they are normalized, so the
   central Server recognizes duplicates as targets are added.
 - **Results**: Sources and checkpoints go through core's existing remote ingestion APIs; each target's latest status is
   reported together with its checkpoint.
+- **Versions**: a Source plugin declares its version and its minimum compatible version explicitly. The version loaded on
+  the central Server is the specified version; the central Server accepts a device's requests, and hands them to its own
+  copy of the plugin, only when the device's plugin version is within the range the central version declares. Data
+  upgrades use the `upgrade(ctx)` hook from RFC #2579 and run only on the central Server.
 - **Large content**: the framework does not prescribe a transfer method; the same Source plugin can also run on the central
   Server, provide a route that receives files, and read them back in its Projections.
 
@@ -74,11 +77,13 @@ Goals:
 Source plugins live in the same plugin directory as Artifact plugins and have the same shape:
 
 ```python
-plugin = SourcePlugin(definitions=(CameraEventDefinition(),), collect=Collect(...), target=..., setup=setup)
+plugin = SourcePlugin(version="1.2.0", definitions=(CameraEventDefinition(),), collect=Collect(...), target=..., setup=setup)
 ```
 
 | Interface | Required | Description |
 | --- | --- | --- |
+| `version` | Yes | The plugin version, compared under PEP 440 |
+| `min_compatible_version` | No | The lowest device version the central Server still accepts while running this version; defaults to `version` |
 | `definitions` | Yes | A sequence of `SourceDefinition`, the same as a plugin's own Source types in RFC #2549 |
 | `target` | For collection | The Pydantic model of target parameters and the identity expression; see below |
 | `setup(ctx) -> SourceCollector` | For collection | The factory, returning an object that implements `collect` |
@@ -121,6 +126,8 @@ async def setup(ctx):
 
 
 plugin = SourcePlugin(
+    version="1.2.0",
+    min_compatible_version="1.0.0",
     definitions=(CameraEventDefinition(),),
     collect=Collect(schedule=Interval(seconds=30)),
     target=TargetSpec(
@@ -149,7 +156,7 @@ capability.
   runner is named after the credential's subject by default (for example the service account `robot-7`); `--name` sets
   another name, and devices that share a credential must each set one.
 - **Sync**: a runner calls the central sync API on a schedule (every 30 seconds by default) to do three things:
-  1. report the plugins it loaded, each plugin's parameter format and identity expression, and when it was last seen;
+  1. report the plugins it loaded, each plugin's version and load error, and when it was last seen;
   2. fetch every target assigned to it, across all Scopes;
   3. compare them with the targets it is running, start new ones, and stop removed or disabled ones.
 - A runner needs no Scope list: the targets assigned to it carry their Scopes. After a new Scope is created and a target is
@@ -168,12 +175,15 @@ pc_source_target_set_enabled(scope_id="robot-7-data", target_id="...", enabled=f
 pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 ```
 
-- **Choosing a runner and capability**: `pc_source_runners` lists every runner with the plugins it loaded, their parameter
-  formats, and when it was last seen. The Dashboard builds its form from it: choose a Scope, then a runner, then a
-  capability, then fill in the parameters.
-- **Validation and deduplication**: the central Server validates `parameters` against the format the plugin reported and
-  computes the target key from the identity expression. When a target with the same key already exists for the same Scope,
-  runner, and capability, the existing target is returned; the same key with different parameters is a conflict.
+- **Choosing a runner and capability**: `pc_source_runners` lists every runner with the plugins and versions it loaded,
+  whether those versions are compatible with the central Server, and when it was last seen. A capability's description,
+  parameter format, and identity expression come from the plugin loaded on the central Server. The Dashboard builds its
+  form from them: choose a Scope, then a runner, then a capability, then fill in the parameters; a capability has the same
+  form on every runner.
+- **Validation and deduplication**: the central Server validates `parameters` against the format of the plugin version it
+  loaded and computes the target key from the identity expression. When a target with the same key already exists for the
+  same Scope, runner, and capability, the existing target is returned; the same key with different parameters is a
+  conflict.
 - **Status**: each target's latest attempt time, latest success time, consecutive failures, and latest error are reported
   by the runner together with its checkpoint. A `last_seen_at` later than the target's `updated_at` means the runner has
   fetched the latest configuration.
@@ -191,8 +201,8 @@ A runner collects, per Scope, the enabled targets assigned to it:
   through `POST /v1/connector-checkpoints/commit` with the old checkpoint as the expected value, together with the target's
   status. If anything fails midway, the checkpoint does not advance and the next call collects again from the old
   checkpoint; resubmitted Sources have the same identity and content, and the central Server deduplicates them.
-- `resolve` and Projections run on the device; the central Server validates against the registered definition manifests
-  and does not load plugin code.
+- Every device request carries the plugin version; the central Server checks it as described in section 8 and hands the
+  request to the same plugin loaded on the central Server.
 
 ## 6. Large content
 
@@ -213,12 +223,36 @@ never change once written, so Projection results stay deterministic.
 
 ## 7. Operations
 
-- Definition manifests (the declarations of Source types and Projections) are registered on the central Server per plugin
-  version, which needs `server.admin`; the deployer registers them once when publishing the plugin, for example with
-  `powercontext source-definitions register <plugin directory>`. Devices need only `scope.contribute` on the Scopes they
-  serve. A device that finds its definitions unregistered at startup reports it in its status.
+- Every Source plugin a device uses must also be deployed in the central Server's plugin directory. The central Server
+  registers a plugin's definition manifests (the declarations of Source types and Projections) when it loads the plugin,
+  as in RFC #2549, with no separate registration command. Devices need only `scope.contribute` on the Scopes they serve.
 - When a runner goes offline, its record and targets remain; whether it is online is judged from `last_seen_at`. When a
   device is retired, users delete its targets and record.
+
+## 8. Versions and upgrades
+
+The plugin version loaded on the central Server is the specified version for its capability, and device versions are
+compared with it; the plugin is responsible for data format compatibility.
+
+- **Compatible range**: when a device's plugin version satisfies
+  `central min_compatible_version <= device version <= central version`, the central Server accepts its sync, Source
+  submission, checkpoint commit, and `call_plugin` requests and hands them to its own plugin; otherwise it rejects them
+  with `plugin_version_incompatible`. At sync, targets of an incompatible plugin are not delivered, while the runner's other
+  plugins sync as usual; the runner list shows which devices need upgrading. Requests for a plugin the central Server has
+  not loaded are rejected too.
+- **Upgrade the central Server first, then devices**: a device version newer than the central one is also rejected,
+  because the central Server cannot judge whether newer code is compatible. After the central upgrade, older devices
+  within the range keep working and can upgrade one by one.
+- **What compatibility means**: by declaring `min_compatible_version`, a plugin promises that the new central version can
+  process Sources submitted by devices within the range; a new version that still needs to read an old version's Sources
+  keeps declaring the old definitions (RFC #2579). The only thing a device reads from the central Server is target
+  parameters. They are filled in under the central version's format and may carry fields an older device does not know, so
+  device-side parameter models must ignore unknown fields (Pydantic's default; do not set `extra="forbid"`). When a new
+  parameter must take effect on every device, raise `min_compatible_version`. Checkpoints are written and read by the same
+  device and never cross between the central Server and devices.
+- **Data upgrades**: the central Server calls `upgrade(ctx)` each time it loads a plugin version, under the rules of RFC
+  #2579. Devices do not call `upgrade`: core keeps no plugin data on devices, and a plugin checks and migrates its own
+  local files in `setup(ctx)`.
 
 # Reference-level explanation
 
@@ -238,6 +272,8 @@ class Collect(BaseModel):
     max_workers: int = 1
 
 class SourcePlugin(BaseModel):
+    version: str                            # PEP 440
+    min_compatible_version: str | None = None   # defaults to version
     definitions: Sequence[SourceDefinition]
     collect: Collect | None = None
     target: TargetSpec | None = None        # required when collect is set
@@ -246,6 +282,8 @@ class SourcePlugin(BaseModel):
 ```
 
 - The plugin name is the capability name and must match `^[a-z][a-z0-9-]{0,63}$`.
+- `version` and `min_compatible_version` must be valid PEP 440 versions with `min_compatible_version <= version`;
+  otherwise the plugin fails to load.
 - Normalization steps come from a fixed set: `strip`, `lower`, `collapse_spaces`, `remove_prefix:<value>`, and
   `remove_suffix:<value>`. The central Server and runners share one implementation. The target key is the SHA-256 of the
   capability name plus each parameter's normalized value, ordered by parameter name.
@@ -291,7 +329,7 @@ class SourceCollector(Protocol):
 
 | Data | Handling |
 | --- | --- |
-| `pc_source_runners` | Added: `runner` (primary key), `capabilities` (canonical JSON: each plugin's name, description, parameter JSON Schema, and identity expression), `capabilities_digest`, `last_seen_at` |
+| `pc_source_runners` | Added: `runner` (primary key), `capabilities` (canonical JSON: each plugin's name, version, and load error), `capabilities_digest`, `last_seen_at` |
 | `pc_source_collect_targets` | Added: primary key `(scope_id, target_id)`; `runner` (indexed), `capability`, `target_key`, `parameters` (canonical JSON), `enabled`, `updated_at`, `updated_by`; unique `(scope_id, runner, capability, target_key)`; written by the runner: `last_attempt_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `last_error_message` |
 | `pc_connector_checkpoints` | Kept; target checkpoints, keyed by `(scope_id, target_id)` |
 | `pc_sources`, Projections, the Source journal, `pc_source_definition_manifests` | Kept |
@@ -311,21 +349,25 @@ class SourceCollector(Protocol):
 
 | API | Permission | Description |
 | --- | --- | --- |
-| `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every runner, its capabilities, and when it was last seen |
-| `POST /v1/source-runners/{runner}/sync` | The runner itself | The request carries the capability list; the response returns every enabled target assigned to the runner with its checkpoint |
+| `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every runner, its capabilities, whether their versions are compatible with the central Server, and when it was last seen; capability descriptions and parameter formats come from the central plugin |
+| `POST /v1/source-runners/{runner}/sync` | The runner itself | The request carries the capability list (plugin versions and load errors); the response returns every enabled target of a compatible version assigned to the runner with its checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | Deletes a runner record; a conflict while it still has targets |
 | `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
 | `GET /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_status`) | Scope read | Targets, their configuration, and status |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | Source write on the Scope | Changes `parameters` or enables and disables |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | Source write on the Scope | Deletes a target and its checkpoint |
-| `POST /v1/connector-checkpoints/commit` | Existing | The request gains an optional `status`: latest attempt, success, error category, and message |
+| `POST /v1/source-observations` | Existing | Requests from a runner gain the plugin name and version, checked against the compatible range |
+| `POST /v1/connector-checkpoints/commit` | Existing | The request gains an optional `status`: latest attempt, success, error category, and message; requests from a runner gain the plugin name and version, checked against the compatible range |
 
 "The runner itself" means the authenticated subject equals the runner name, or the subject recorded when the runner first
 reported.
 
+Requests sent through `call_plugin` carry the plugin version too.
+
 Removed: the instance, configuration, channel, and write-plugin loading APIs under `/v1/source-management/*`; MCP
 `pc_source_instances` and `pc_source_instance_set_enabled`; the `source load` command; and the `powercontext.yml` /
-`write.yml` manifests.
+`write.yml` manifests. The central Server registers definitions when it loads a plugin; there is no separate definition
+registration command.
 
 ## 5. Device-side context
 
@@ -363,7 +405,11 @@ through `ctx.storage`.
 - **Configuration takes effect with a delay**: up to the sync interval, 30 seconds by default.
 - **Devices sharing a credential must be named by hand**: two devices with the same name get the same targets, which core
   cannot tell apart; only alternating reports in the status show it.
-- **Definition registration still needs an administrator**: the deployer registers once when publishing the plugin.
+- **The central Server must be able to load every Source plugin on devices**: libraries used only on devices cannot be
+  imported at the top of `plugin.py`, or the central load fails; splitting dependencies by side is left to the later
+  plugin installation and dependency proposal.
+- **The central Server must upgrade first**: when devices upgrade before it, requests from the newer devices are rejected
+  until the central Server upgrades.
 
 # Rationale and alternatives
 
@@ -375,6 +421,9 @@ through `ctx.storage`.
 | The central Server pushes configuration through a reverse channel (the old framework) | Configuration applies immediately, but it needs long-lived connections, leases, and instance registration, the main source of the old framework's complexity |
 | Targets with a revision and an "applied revision" | Helps concurrency control and showing what is applied; but runners fetch everything on each sync and time-based checks are enough, which also avoids clock and incremental-fetch problems |
 | `identify_target` written as plugin code | More expressive, but the central Server cannot run it for a plugin on a device, so duplicates are found only afterwards |
+| Each runner reports its own parameter format and targets are validated against their runner's format | The central Server need not upgrade first; but a capability has different forms on different devices, targets must be revalidated one by one after a format change, and there is no way to judge whether a device version is compatible |
+| The plugin provides a parameter migration function and core rewrites target parameters | Incompatible formats could upgrade automatically; but runners would write back parameters users filled in, conflicting with user edits, and raising `min_compatible_version` already constrains device versions |
+| Devices also call `upgrade(ctx)` | Symmetric with the central Server; but core keeps no plugin data on devices, and running the same `upgrade` on both sides would require the plugin to tell which side it is on |
 | No deduplication | Duplicate targets only collect twice, and Sources are still deduplicated by identity; but panel configuration needs an immediate hint, and lists and statistics need unique targets |
 
 # Prior art
@@ -393,7 +442,6 @@ through `ctx.storage`.
 
 | Question | Notes |
 | --- | --- |
-| A dedicated role for collection nodes | Definition registration needs `server.admin` today. Whether to add a server-level role that can only register definitions and sync its own targets |
 | Visibility of the runner list | Every authenticated user can see the runner list and capabilities today. Whether it should be limited by Scope |
 | Targets per runner | Fetching everything on each sync suits a few to a few dozen targets per device; whether a Server runner collecting hundreds or thousands of accounts needs paging or incremental sync |
 | Default runners | Whether plugins or deployers may name a default runner per capability to reduce choices on the panel |
@@ -401,5 +449,5 @@ through `ctx.storage`.
 # Future possibilities
 
 - Plugin installation and dependencies: installing from PyPI, a Git URL, or a wheel, with plugins on devices downloading the
-  specified version during sync.
+  version the central Server specifies during sync, and dependencies declared separately for the central Server and devices.
 - Push notification: an optional long-lived connection besides sync, so configuration applies sooner.

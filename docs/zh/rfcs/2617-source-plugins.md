@@ -19,10 +19,12 @@ Source 类型，需要时从外部系统持续采集。采集可以在中心 Ser
   `powercontext source-agent` 启动的进程也是 runner，名字取自它的凭据主体。
 - **采集目标集中存放**：目标保存在中心的 `pc_source_collect_targets` 中，属于某个 Scope，指定由哪个 runner、用哪个插件
   采集。用户通过 Source 管理接口或 Dashboard 增删改，不需要登录设备。
-- **拉取同步**：runner 定时到中心同步，一次取回分配给自己的全部目标，并上报自己加载的插件及其参数格式；中心不向设备推送，
+- **拉取同步**：runner 定时到中心同步，一次取回分配给自己的全部目标，并上报自己加载的插件及其版本；中心不向设备推送，
   没有反向通道。
 - **去重**：插件声明哪些参数组成目标的唯一键及其规范化规则，中心添加目标时就能识别重复。
 - **结果**：Source 和 checkpoint 沿用 core 已有的远程采集接口提交；每个目标的最近状态随 checkpoint 一起汇报。
+- **版本**：Source 插件显式声明版本和最低兼容版本。中心加载的版本就是指定版本；设备上的插件版本落在中心声明的兼容范围
+  内，中心才接受它的请求，交给中心的插件处理。数据升级沿用 RFC #2579 的 `upgrade(ctx)`，只在中心执行。
 - **大块内容**：框架不规定传输方式；同一个 Source 插件可以同时在中心运行，提供接收文件的接口，并在 Projection 中读出文件。
 
 本提案取代 [Source 插件框架 RFC #2012](2012-source-plugin-system.md) 的插件契约与管理机制：管理服务、实例登记、反向通道和
@@ -58,11 +60,13 @@ RFC #2549 把 Artifact 插件改成"插件实现接口、core 在需要时调用
 Source 插件与 Artifact 插件放在同一个插件目录下，形态相同：
 
 ```python
-plugin = SourcePlugin(definitions=(CameraEventDefinition(),), collect=Collect(...), target=..., setup=setup)
+plugin = SourcePlugin(version="1.2.0", definitions=(CameraEventDefinition(),), collect=Collect(...), target=..., setup=setup)
 ```
 
 | 接口 | 必需 | 说明 |
 | --- | --- | --- |
+| `version` | 是 | 插件版本，按 PEP 440 比较大小 |
+| `min_compatible_version` | 否 | 中心运行本版本时仍接受的最低设备版本，默认等于 `version` |
 | `definitions` | 是 | `SourceDefinition` 序列，与 RFC #2549 中插件自带的 Source 类型相同 |
 | `target` | 采集时是 | 目标参数的 Pydantic 模型和唯一性表达式，见下文 |
 | `setup(ctx) -> SourceCollector` | 采集时是 | 工厂，返回实现了 `collect` 的对象 |
@@ -105,6 +109,8 @@ async def setup(ctx):
 
 
 plugin = SourcePlugin(
+    version="1.2.0",
+    min_compatible_version="1.0.0",
     definitions=(CameraEventDefinition(),),
     collect=Collect(schedule=Interval(seconds=30)),
     target=TargetSpec(
@@ -130,7 +136,7 @@ plugin = SourcePlugin(
   它只加载插件目录中的 Source 插件，用凭据连接中心。runner 的名字默认取自凭据的主体（例如服务账号 `robot-7`），也可以用
   `--name` 指定；多台设备共用一个凭据时必须分别指定。
 - **同步**：runner 定时（默认 30 秒）调用中心的同步接口，完成三件事：
-  1. 上报自己加载的插件、每个插件的参数格式和唯一性表达式，以及最近在线时间；
+  1. 上报自己加载的插件、每个插件的版本和加载错误，以及最近在线时间；
   2. 取回分配给自己的全部目标（跨所有 Scope）；
   3. 与本地正在执行的目标比对，开始新目标，停止已删除或已停用的目标。
 - runner 不需要配置 Scope 列表：分配给它的目标本身带着 Scope。新建 Scope 并分配目标后，下一次同步就开始采集。
@@ -148,9 +154,10 @@ pc_source_target_set_enabled(scope_id="robot-7-data", target_id="...", enabled=f
 pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 ```
 
-- **选择 runner 和能力**：`pc_source_runners` 列出所有 runner、它们加载的插件、参数格式和最近在线时间。Dashboard 据此生成
-  "选 Scope → 选 runner → 选能力 → 按参数格式填写"的表单。
-- **校验与去重**：中心按插件上报的参数格式校验 `parameters`，按唯一性表达式算出目标键。同一个 Scope、runner、能力下键相同的
+- **选择 runner 和能力**：`pc_source_runners` 列出所有 runner、它们加载的插件及版本、版本是否与中心兼容，以及最近在线时间。
+  能力的说明、参数格式和唯一性表达式取自中心加载的插件。Dashboard 据此生成"选 Scope → 选 runner → 选能力 → 按参数格式
+  填写"的表单；同一能力在所有 runner 上是同一个表单。
+- **校验与去重**：中心按自己加载的插件版本的参数格式校验 `parameters`，按唯一性表达式算出目标键。同一个 Scope、runner、能力下键相同的
   目标已经存在时，返回已有目标；键相同但参数不同时返回冲突。
 - **状态**：每个目标的最近尝试时间、最近成功时间、连续失败次数和最近错误，由 runner 随 checkpoint 一起汇报。
   `last_seen_at` 晚于目标的 `updated_at`，说明 runner 已经拉到最新配置。
@@ -167,7 +174,7 @@ runner 每次采集一个 Scope 中分配给它的已启用目标：
 - 在端侧，runner 先通过 `POST /v1/source-observations` 提交 Source，再以旧 checkpoint 为期望值通过
   `POST /v1/connector-checkpoints/commit` 提交新 checkpoint，同时带上目标的状态。中途失败时 checkpoint 不前进，下次从旧
   checkpoint 重新采集；重新提交的 Source 身份和内容相同，由中心去重。
-- `resolve` 和 Projection 在端侧执行，中心按已登记的定义清单校验，不需要加载插件代码。
+- 设备的每个请求都带上插件版本，中心按第 8 节核对后，交给中心加载的同一插件处理。
 
 ## 6. 大块内容
 
@@ -185,10 +192,26 @@ runner 每次采集一个 Scope 中分配给它的已启用目标：
 
 ## 7. 运维
 
-- 定义清单（Source 类型和 Projection 的声明）按插件版本登记到中心，需要 `server.admin`，由部署者在发布插件时登记一次，
-  例如 `powercontext source-definitions register <插件目录>`。设备只需要所服务 Scope 的 `scope.contribute` 权限。设备启动时
-  发现定义未登记，就在状态中报告。
+- 设备使用的每个 Source 插件都要部署在中心的插件目录中。中心加载插件时登记它的定义清单（Source 类型和 Projection 的
+  声明），与 RFC #2549 相同，不需要单独的登记命令。设备只需要所服务 Scope 的 `scope.contribute` 权限。
 - runner 下线后，它的记录和目标保留；在线状态通过 `last_seen_at` 判断。设备退役时由用户删除它的目标和记录。
+
+## 8. 版本与升级
+
+中心加载的插件版本是这项能力的指定版本，设备的版本与它比对；数据格式是否兼容由插件负责。
+
+- **兼容范围**：设备上的插件版本满足 `中心的 min_compatible_version <= 设备版本 <= 中心的 version` 时，中心接受它的同步、
+  Source 提交、checkpoint 提交和 `call_plugin` 请求，交给中心的插件处理；否则拒绝并返回 `plugin_version_incompatible`。
+  同步时，不兼容插件的目标不下发，同一 runner 上其他插件照常同步；runner 列表显示哪些设备需要升级。中心没有加载该插件时，
+  同样拒绝。
+- **先升级中心，再升级设备**：比中心新的设备版本也被拒绝，因为中心无法判断更新的代码是否兼容。中心升级后，兼容范围内的
+  旧设备继续工作，可以逐台升级。
+- **兼容的含义**：插件声明 `min_compatible_version` 时，承诺中心的新版本能处理范围内设备提交的 Source；新版本仍需读取
+  旧版本的 Source 时，继续声明旧版本的定义（RFC #2579）。设备从中心读取的只有目标参数：参数按中心版本的格式填写，可能
+  带有旧设备不认识的字段，设备端的参数模型必须忽略未知字段（Pydantic 的默认行为，不能设置 `extra="forbid"`）。新参数
+  必须在所有设备上生效时，提高 `min_compatible_version`。checkpoint 由同一台设备写入和读取，不跨中心与设备。
+- **数据升级**：中心每次加载一个插件版本时调用 `upgrade(ctx)`，规则与 RFC #2579 相同。设备不调用 `upgrade`：core 不在
+  设备上为插件保存数据，插件自己的本地文件在 `setup(ctx)` 中检查和迁移。
 
 # 参考级说明
 
@@ -208,6 +231,8 @@ class Collect(BaseModel):
     max_workers: int = 1
 
 class SourcePlugin(BaseModel):
+    version: str                            # PEP 440
+    min_compatible_version: str | None = None   # 默认等于 version
     definitions: Sequence[SourceDefinition]
     collect: Collect | None = None
     target: TargetSpec | None = None        # collect 不为空时必填
@@ -216,6 +241,7 @@ class SourcePlugin(BaseModel):
 ```
 
 - 插件名就是能力名，必须匹配 `^[a-z][a-z0-9-]{0,63}$`。
+- `version` 和 `min_compatible_version` 必须是合法的 PEP 440 版本，且 `min_compatible_version <= version`，否则插件加载失败。
 - 规范化步骤从固定集合中选择：`strip`、`lower`、`collapse_spaces`、`remove_prefix:<值>`、`remove_suffix:<值>`。中心和 runner
   使用同一份实现。目标键是能力名加上各参数规范化后的值，按参数名排序后取 SHA-256。
 - 唯一性表达式中的参数必须是 `parameters` 中的字符串字段；未列出的参数不参与唯一性。
@@ -256,7 +282,7 @@ class SourceCollector(Protocol):
 
 | 数据 | 处理 |
 | --- | --- |
-| `pc_source_runners` | 新增：`runner`（主键）、`capabilities`（规范化 JSON：每个插件的名字、说明、参数 JSON Schema、唯一性表达式）、`capabilities_digest`、`last_seen_at` |
+| `pc_source_runners` | 新增：`runner`（主键）、`capabilities`（规范化 JSON：每个插件的名字、版本和加载错误）、`capabilities_digest`、`last_seen_at` |
 | `pc_source_collect_targets` | 新增：主键 `(scope_id, target_id)`；`runner`（索引）、`capability`、`target_key`、`parameters`（规范化 JSON）、`enabled`、`updated_at`、`updated_by`；唯一约束 `(scope_id, runner, capability, target_key)`；runner 写入的 `last_attempt_at`、`last_success_at`、`consecutive_failures`、`last_error_code`、`last_error_message` |
 | `pc_connector_checkpoints` | 保留；目标的 checkpoint，键为 `(scope_id, target_id)` |
 | `pc_sources`、Projection、Source journal、`pc_source_definition_manifests` | 保留 |
@@ -273,19 +299,22 @@ class SourceCollector(Protocol):
 
 | 接口 | 权限 | 说明 |
 | --- | --- | --- |
-| `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有 runner、它们的能力和最近在线时间 |
-| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 请求带能力清单；返回分配给该 runner 的全部已启用目标及其 checkpoint |
+| `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有 runner、它们的能力、版本是否与中心兼容和最近在线时间；能力的说明和参数格式取自中心的插件 |
+| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标及其 checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
 | `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限 | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
 | `GET /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_status`） | Scope 读权限 | 目标、配置和状态 |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | Scope 的 Source 写权限 | 修改 `parameters` 或启停 |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | Scope 的 Source 写权限 | 删除目标及其 checkpoint |
-| `POST /v1/connector-checkpoints/commit` | 现有 | 请求增加可选的 `status`：最近尝试、成功、错误分类和信息 |
+| `POST /v1/source-observations` | 现有 | 来自 runner 的请求增加插件名和版本，按兼容范围核对 |
+| `POST /v1/connector-checkpoints/commit` | 现有 | 请求增加可选的 `status`：最近尝试、成功、错误分类和信息；来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 
 "runner 本身"指认证主体等于 runner 名，或 runner 记录登记时的主体。
 
+`call_plugin` 发出的请求同样带上插件版本。
+
 移除：`/v1/source-management/*` 中的实例、配置、通道和 write 插件加载接口，MCP `pc_source_instances`、
-`pc_source_instance_set_enabled`，`source load` 命令和 `powercontext.yml` / `write.yml` 清单。
+`pc_source_instance_set_enabled`，`source load` 命令和 `powercontext.yml` / `write.yml` 清单。中心加载插件时自动登记定义，不提供单独的定义登记命令。
 
 ## 5. 设备端上下文
 
@@ -320,7 +349,9 @@ class PluginCenter(Protocol):
 - **规范化规则受限**：唯一性只能用固定的规范化步骤，URL 规范化等复杂规则写不出来；插件可以在采集时自行合并相同对象。
 - **配置生效有延迟**：等于同步间隔，默认 30 秒。
 - **共用凭据的设备要手动起名**：名字相同的两台设备会拿到同一批目标，core 无法区分，只能在状态中看到交替汇报。
-- **定义登记仍需要管理员**：插件发布时由部署者登记一次。
+- **中心必须能加载设备上的每个 Source 插件**：只在设备上使用的库不能在 `plugin.py` 顶部导入，否则中心加载失败；按端
+  拆分依赖留给后续的插件安装与依赖提案。
+- **必须先升级中心**：设备先于中心升级时，新版本设备的请求被拒绝，直到中心升级。
 
 # 理由与备选
 
@@ -332,6 +363,9 @@ class PluginCenter(Protocol):
 | 中心通过反向通道推送配置（旧框架） | 配置即时生效，但需要长连接、租约和实例登记，是旧框架复杂度的主要来源 |
 | 每个目标带修订号和"已应用修订号" | 便于并发控制和展示生效状态；但 runner 每次全量拉取、按时间判断生效已经足够，且避免了时钟和增量拉取的问题 |
 | `identify_target` 写成插件代码 | 表达能力强，但插件在设备上时中心执行不了，重复只能事后发现 |
+| 每台 runner 上报自己的参数格式，目标按所属 runner 的格式校验 | 不要求中心先升级；但同一能力在不同设备上表单不同，格式变化后要逐个重新校验目标，也无法判断设备版本是否兼容 |
+| 插件提供参数迁移函数，由 core 改写目标参数 | 不兼容的格式可以自动升级；但会让 runner 回写用户填写的参数，与用户的修改冲突；提高 `min_compatible_version` 已经能约束设备版本 |
+| 设备也调用 `upgrade(ctx)` | 与中心对称；但 core 在设备上没有插件数据，同一份 `upgrade` 在两端执行还要求插件区分自己在哪一端 |
 | 去掉去重 | 重复目标只会重复采集，Source 本身仍由身份去重；但面板配置需要即时提示，列表和统计也需要唯一的目标 |
 
 # 先例
@@ -346,12 +380,11 @@ class PluginCenter(Protocol):
 
 | 问题 | 说明 |
 | --- | --- |
-| 采集节点的专用角色 | 定义登记目前需要 `server.admin`。是否增加一个只能登记定义、同步自己目标的服务器级角色 |
 | runner 列表的可见范围 | 目前所有已登录用户都能看到 runner 列表和能力。是否需要按 Scope 限制 |
 | 单个 runner 的目标数 | 每次全量拉取适合每台设备几个到几十个目标；服务端 runner 采集成百上千个账号时是否需要分页或增量 |
 | 默认 runner | 是否允许插件或部署者为某项能力指定默认 runner，减少面板上的选择 |
 
 # 后续可能
 
-- 插件安装与依赖：从 PyPI、Git 地址或 wheel 安装，设备上的插件随同步下载指定版本。
+- 插件安装与依赖：从 PyPI、Git 地址或 wheel 安装，设备上的插件随同步下载中心指定的版本；按中心和设备分别声明依赖。
 - 推送通知：在同步之外提供可选的长连接，让配置更快生效。
