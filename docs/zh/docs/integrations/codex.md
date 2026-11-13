@@ -68,6 +68,27 @@ Setup 会分别报告安装完成和诊断结果；基础 Memory 支持仍可使
   Source 证据；
 - MCP 为 Codex 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
+### 批准会修改数据的 MCP 工具
+
+对于 server 未标记为只读的 MCP 工具，Codex 会在运行前请求批准。PowerContext 把 `search_memory` 等读取类工具标记为只读；
+`remember_memory`、`handoff_current_work` 等会修改数据的工具需要批准。插件的 `PreToolUse` Hook 返回 `allow`
+只是为了把每次调用绑定到会话的 Scope。在 Codex 中，这只会改写调用而不会批准它，因此仍会请求批准。
+
+在交互式会话中，Codex 询问时批准即可。非交互运行中无人应答：使用 `codex exec` 且 `approval_policy = "never"` 时，
+调用会以 "MCP tool call requires approval, but approval policy is never" 失败，且不会有任何请求到达 Server。
+对无人值守的运行，在 Codex 的 `config.toml` 中逐个批准任务需要的工具：
+
+```toml
+[plugins."powercontext@powercontext".mcp_servers.powercontext.tools.remember_memory]
+approval_mode = "approve"
+```
+
+插件 ID 使用 `codex plugin list` 报告的 `powercontext@<marketplace>`。被批准的工具在模型调用时直接运行、不再询问，
+适用于使用这份 Codex 配置的所有会话，包括交互式会话。调用仍使用保存的凭据；只要插件的 Hook 已被信任，调用就保持在会话绑定的
+Scope 内，批准不会让模型选择其他 Scope。若改为在 server 表 `[plugins."powercontext@powercontext".mcp_servers.powercontext]`
+中设置 `default_tools_approval_mode = "approve"`，则会批准 PowerContext 的全部 MCP 工具，包括后续插件版本新增的工具。
+setup 不会授予上述任何批准。
+
 ## 一句话交接当前工作
 
 在已经安装插件且 PowerContext Server 可用的 Codex 会话中，直接输入：
