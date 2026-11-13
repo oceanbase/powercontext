@@ -152,6 +152,13 @@ export type HomeContent = {
     stats: Array<{ value: string; label: string; detail: string }>;
     link: HomeAction;
   };
+  testimonials: {
+    title: string;
+    pause: string;
+    play: string;
+    /** Accessible name of a card's link; `{name}` is the author's display name. */
+    profile: string;
+  };
   onboarding: {
     title: string;
     lead: string;

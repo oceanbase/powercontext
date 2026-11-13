@@ -1913,6 +1913,196 @@ html:lang(zh) .pc-section-title {
   color: var(--pc-muted);
 }
 
+/* Testimonials: one drifting row of posts --------------------------------- */
+
+.pc-quotes {
+  overflow: hidden;
+  padding-top: 88px;
+}
+
+@media (min-width: 1024px) {
+  .pc-quotes {
+    padding-top: 136px;
+  }
+}
+
+.pc-quotes-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+/* Concentric with nothing: a round control, 40px to hit. */
+.pc-quotes-toggle {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--pc-flat);
+  transition-property: background-color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: var(--pc-ease-out);
+}
+
+.pc-quotes-toggle:active {
+  transform: scale(0.95);
+}
+
+.pc-quotes-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.pc-quotes-row {
+  display: flex;
+  max-width: 100rem;
+  margin: 40px auto 0;
+  padding-block: 4px 24px;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+
+.pc-quotes-track {
+  display: flex;
+  width: max-content;
+  animation: pc-marquee var(--pc-marquee, 44s) linear infinite;
+}
+
+/* The track holds its cards twice and moves by one copy's width. */
+@keyframes pc-marquee {
+  to { transform: translateX(-50%); }
+}
+
+.pc-quotes-row:is(:hover, :focus-within) .pc-quotes-track,
+.pc-quotes[data-paused] .pc-quotes-track {
+  animation-play-state: paused;
+}
+
+.pc-quotes-set {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.pc-quotes-set > li {
+  display: flex;
+  padding-right: 16px;
+}
+
+.pc-quote {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 19rem;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--pc-surface);
+  box-shadow: 0 0 0 1px var(--pc-line), var(--pc-shadow-1);
+  transition: background-color 150ms var(--pc-ease-out);
+}
+
+@media (min-width: 640px) {
+  .pc-quote {
+    width: 23rem;
+  }
+}
+
+.pc-quote figcaption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pc-quote img {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  outline: 1px solid var(--pc-image-outline);
+  outline-offset: -1px;
+}
+
+.pc-quote-author {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.pc-quote-author > * {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pc-quote-author a {
+  font-weight: 500;
+}
+
+/* The name's link covers the card. */
+.pc-quote-author a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+}
+
+.pc-quote-author a:focus-visible {
+  outline: none;
+}
+
+.pc-quote-author a:focus-visible::after {
+  outline: 2px solid var(--pc-accent);
+  outline-offset: 2px;
+}
+
+.pc-quote-author > span {
+  color: var(--pc-muted);
+}
+
+.pc-quote-x {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+}
+
+.pc-quote blockquote {
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pc-quotes-toggle:hover {
+    background: var(--pc-flat-hover);
+  }
+
+  .pc-quote:hover {
+    background: var(--pc-well);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-quotes-toggle,
+  .pc-quotes-set[data-repeat] {
+    display: none;
+  }
+
+  .pc-quotes-row {
+    padding-inline: 16px;
+    overflow-x: auto;
+    mask-image: none;
+  }
+
+  .pc-quotes-track {
+    animation: none;
+  }
+}
+
 .pc-home-end {
   height: 24px;
 }

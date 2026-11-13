@@ -217,6 +217,11 @@ home:
     link:
       label: Methods, results, and limitations
       href: en/benchmarks/
+  testimonials:
+    title: What people say
+    pause: Pause scrolling
+    play: Resume scrolling
+    profile: "{name} on X"
   onboarding:
     title: From installation to your first memory
     lead: Start with a Server, configure the capabilities you need, then connect your Agent. The guide covers local use and access from another device.
