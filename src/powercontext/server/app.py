@@ -3638,7 +3638,7 @@ async def _call_plugin_host(
 ) -> Any:
     """Forward an authenticated request to the plugin host and translate its outcome."""
 
-    from powercontext.server.plugin_hosts import PluginHostUnavailable
+    from powercontext.server.plugin_hosts import PluginHostTimeout, PluginHostUnavailable
 
     access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
     caller = None if access is None else _require_principal()
@@ -3649,6 +3649,8 @@ async def _call_plugin_host(
         )
     except PluginHostUnavailable:
         raise PluginCallError(503, "plugin_unavailable", "The plugin is temporarily unavailable.") from None
+    except PluginHostTimeout:
+        raise PluginCallError(504, "plugin_timeout", "The plugin did not finish within its time limit.") from None
     if response.outcome == "ok":
         return response.result
     if response.outcome == "invalid_content":
@@ -4100,15 +4102,28 @@ async def _with_plugin_sections(http_request: Request, scope_id: str, request: A
             )
         manifest, host = found
         search = {**(section.search or {}), "query": request.query, "limit": section.limit}
-        result = await _call_plugin_host(
-            http_request,
-            host,
-            "search_artifacts",
-            scope_id=scope_id,
-            payload={"search": search, "max_bytes": request.max_bytes},
-            timeout=manifest.spec.change_timeout_seconds,
-            operation=PREPARE_CONTEXT.operation_id,
-        )
+        try:
+            result = await _call_plugin_host(
+                http_request,
+                host,
+                "search_artifacts",
+                scope_id=scope_id,
+                payload={"search": search, "max_bytes": request.max_bytes},
+                timeout=manifest.spec.change_timeout_seconds,
+                operation=PREPARE_CONTEXT.operation_id,
+            )
+        except PluginCallError as error:
+            if error.status < 500:
+                raise
+            # An unavailable plugin leaves its section empty; the receipt records the failed search.
+            log_safely(
+                logger,
+                logging.INFO,
+                "Plugin context unavailable",
+                extra={"event": "context.plugin.unavailable", "reason": error.code},
+            )
+            sections.append(section.model_copy(update={"search_failed": True}))
+            continue
         hits = tuple(
             ContextPluginHit(artifact=ArtifactRef.model_validate(hit["ref"]), text=hit["text"])
             for hit in result["hits"][: section.limit]

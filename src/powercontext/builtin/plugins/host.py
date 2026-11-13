@@ -40,7 +40,9 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.plugins.executor import open_plugin_database
 from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
 from powercontext.builtin.plugins.host_protocol import (
+    HostCancel,
     HostFailed,
+    HostHeartbeat,
     HostReady,
     HostRequest,
     HostResponse,
@@ -80,6 +82,7 @@ from powercontext.sources import SourceRef
 
 logger = logging.getLogger(__name__)
 
+HEARTBEAT_SECONDS = 1.0
 _CHANGE_METHODS = {
     "create_artifact": "create",
     "update_artifact": "update",
@@ -135,7 +138,8 @@ class _Host:
                 )
                 return
             await self._send(HostReady(implemented=implemented))
-            tasks: set[asyncio.Task[None]] = set()
+            heartbeat = asyncio.create_task(self._beat())
+            tasks: dict[str, asyncio.Task[None]] = {}
             while True:
                 try:
                     message = await asyncio.to_thread(self.connection.recv)
@@ -143,11 +147,25 @@ class _Host:
                     break
                 if isinstance(message, HostShutdown):
                     break
+                if isinstance(message, HostCancel):
+                    running = tasks.get(message.id)
+                    if running is not None:
+                        running.cancel()
+                    continue
                 task = asyncio.create_task(self._handle(message))
-                tasks.add(task)
-                task.add_done_callback(tasks.discard)
+                tasks[message.id] = task
+                task.add_done_callback(lambda _, key=message.id: tasks.pop(key, None))
             if tasks:
-                await asyncio.wait(tasks, timeout=10)
+                await asyncio.wait(tasks.values(), timeout=10)
+            heartbeat.cancel()
+
+    async def _beat(self) -> None:
+        while True:
+            try:
+                await self._send(HostHeartbeat())
+            except (EOFError, OSError):
+                return
+            await asyncio.sleep(HEARTBEAT_SECONDS)
 
     async def _start(self, resources: AsyncExitStack) -> tuple[str, ...]:
         spec = self.spec

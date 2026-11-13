@@ -14,10 +14,12 @@
 
 """Server-side management of plugin host processes.
 
-Each Server process keeps at most one host process per plugin. It is a spawned,
-fresh interpreter connected by a duplex Pipe; the Server forwards authenticated
-requests to it, terminates it when a request outlives its time limit, and restarts
-it after a backoff.
+Each Server process keeps a group of host processes per plugin; plugins never share one.
+A host process is a spawned, fresh interpreter connected by a duplex Pipe. The group
+always keeps one process, starts another while every process is full and requests
+queue, up to the plugin's limit and the Server's total, and stops extra processes once
+they idle. A request past its time limit is cancelled in the host; a host whose
+heartbeat stops (its event loop is blocked) is terminated and restarted after a backoff.
 """
 
 from __future__ import annotations
@@ -33,7 +35,9 @@ from uuid import uuid4
 from powercontext._logging import log_safely
 from powercontext.builtin.plugins.host import run_plugin_host
 from powercontext.builtin.plugins.host_protocol import (
+    HostCancel,
     HostFailed,
+    HostHeartbeat,
     HostMethod,
     HostReady,
     HostRequest,
@@ -46,112 +50,279 @@ logger = logging.getLogger(__name__)
 
 READY_TIMEOUT_SECONDS = 60.0
 HOST_CONCURRENCY = 8
+HEARTBEAT_TIMEOUT_SECONDS = 5.0
+IDLE_STOP_SECONDS = 300.0
+_WATCH_SECONDS = 1.0
+_SHUTDOWN_SECONDS = 10.0
+_TERMINATE_SECONDS = 5.0
 _BACKOFF_START = 1.0
 _BACKOFF_LIMIT = 60.0
 _HEALTHY_RESET_SECONDS = 300.0
 
 
 class PluginHostUnavailable(RuntimeError):
-    """The host process is starting, in restart backoff, or was terminated during the call."""
+    """No host process can take the call: starting, in restart backoff, or terminated during it."""
 
 
-class PluginHost:
-    def __init__(self, name: str, spec: PluginHostSpec) -> None:
-        self.name = name
-        self.spec = spec
-        self.implemented: tuple[str, ...] = ()
-        # Why the plugin cannot run at all, such as a missing required method; it is not restarted.
-        self.failure: str | None = None
-        self._process: Any = None
-        self._connection: Any = None
-        self._ready: asyncio.Future[None] | None = None
-        self._reader: asyncio.Task[None] | None = None
-        self._pending: dict[str, asyncio.Future[HostResponse]] = {}
-        self._slots = asyncio.Semaphore(HOST_CONCURRENCY)
+class PluginHostTimeout(RuntimeError):
+    """The call outlived its time limit and was cancelled in the host."""
+
+
+class HostProcessBudget:
+    """The ceiling on host processes of all plugins in one Server process."""
+
+    def __init__(self, total: int | None = None) -> None:
+        self.total = total
+        self.running = 0
+
+    def take(self, *, resident: bool) -> bool:
+        # The one process each plugin keeps always starts; the ceiling limits growth under load.
+        if not resident and self.total is not None and self.running >= self.total:
+            return False
+        self.running += 1
+        return True
+
+    def give_back(self) -> None:
+        self.running -= 1
+
+
+class _HostProcess:
+    def __init__(self, group: PluginHost) -> None:
+        self.group = group
+        self.process: Any = None
+        self.connection: Any = None
+        self.ready = False
+        # False once the process is being stopped; it takes no new calls.
+        self.accepting = True
+        self.in_flight = 0
+        self.pending: dict[str, asyncio.Future[HostResponse]] = {}
+        self.started_at = time.monotonic()
+        self.last_beat = self.started_at
+        self.idle_since = self.started_at
+        self.reason = "crash"
         self._send_lock = asyncio.Lock()
-        self._start_lock = asyncio.Lock()
-        self._backoff = 0.0
-        self._not_before = 0.0
-        self._started_at = 0.0
-        self._closing = False
+        self._exited = asyncio.Event()
 
-    async def start(self) -> None:
-        """Start in the background; callers wait for readiness within their own time limit."""
-
-        async with self._start_lock:
-            if self._ready is not None or self._closing:
-                return
-            if self.failure is not None:
-                raise PluginHostUnavailable(self.name)
-            if time.monotonic() < self._not_before:
-                raise PluginHostUnavailable(self.name)
-            context = multiprocessing.get_context("spawn")
-            parent, child = context.Pipe(duplex=True)
-            process = context.Process(
-                target=run_plugin_host, args=(child, self.spec), name=f"powercontext-plugin-host-{self.name}"
-            )
-            await asyncio.to_thread(process.start)
-            child.close()
-            self._process, self._connection = process, parent
-            self._ready = asyncio.get_running_loop().create_future()
-            self._started_at = time.monotonic()
-            self._reader = asyncio.create_task(self._read(parent), name=f"plugin-host-{self.name}")
-            log_safely(logger, logging.INFO, f"Plugin host {self.name} started")
-
-    async def _read(self, connection: Any) -> None:
-        ready = self._ready
+    async def run(self) -> None:
+        group = self.group
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe(duplex=True)
+        self.process = context.Process(
+            target=run_plugin_host, args=(child, group.spec), name=f"powercontext-plugin-host-{group.name}"
+        )
+        self.connection = parent
         try:
+            await asyncio.to_thread(self.process.start)
+            child.close()
+            log_safely(logger, logging.INFO, f"Plugin host {group.name} started")
             while True:
-                message = await asyncio.to_thread(connection.recv)
+                message = await asyncio.to_thread(parent.recv)
+                self.last_beat = time.monotonic()
+                if isinstance(message, HostHeartbeat):
+                    continue
                 if isinstance(message, HostReady):
-                    self.implemented = message.implemented
-                    if ready is not None and not ready.done():
-                        ready.set_result(None)
+                    group.implemented = message.implemented
+                    self.ready = True
+                    self.idle_since = time.monotonic()
+                    group.notify()
                 elif isinstance(message, HostFailed):
-                    log_safely(logger, logging.WARNING, f"Plugin host {self.name} failed to start ({message.error})")
+                    log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
                     if message.permanent:
-                        self.failure = message.error
+                        group.failure = message.error
                     break
                 elif isinstance(message, HostResponse):
-                    future = self._pending.pop(message.id, None)
+                    future = self.pending.pop(message.id, None)
                     if future is not None and not future.done():
                         future.set_result(message)
         except (EOFError, OSError):
             pass
-        except asyncio.CancelledError:
-            raise
-        await self._terminate("crash")
+        except Exception as error:
+            log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed ({type(error).__name__})")
+        finally:
+            await asyncio.shield(self._cleanup())
 
-    async def _terminate(self, reason: str) -> None:
-        process, connection, ready = self._process, self._connection, self._ready
-        if process is None:
-            return
-        self._process = self._connection = self._ready = None
-        for future in self._pending.values():
+    async def _cleanup(self) -> None:
+        self.accepting = self.ready = False
+        for future in self.pending.values():
             if not future.done():
-                future.set_exception(PluginHostUnavailable(self.name))
-        self._pending.clear()
-        if ready is not None and not ready.done():
-            ready.set_exception(PluginHostUnavailable(self.name))
-            ready.exception()
-        if connection is not None:
-            connection.close()
-        await asyncio.to_thread(_stop_process, process)
-        if not self._closing and self.failure is None:
-            healthy = time.monotonic() - self._started_at >= _HEALTHY_RESET_SECONDS
-            self._backoff = _BACKOFF_START if healthy or not self._backoff else min(self._backoff * 2, _BACKOFF_LIMIT)
-            self._not_before = time.monotonic() + self._backoff
-            log_safely(logger, logging.WARNING, f"Plugin host {self.name} stopped ({reason}); restarting later")
-            asyncio.get_running_loop().call_later(self._backoff, self._restart)
+                future.set_exception(PluginHostUnavailable(self.group.name))
+        self.pending.clear()
+        if self.process is not None and self.process.pid is not None:
+            await asyncio.to_thread(_stop_process, self.process)
+        self.connection.close()
+        self._exited.set()
+        self.group.exited(self)
+
+    async def send(self, message: object) -> None:
+        if self.connection is None:
+            raise OSError("the host process has not started")  # noqa: TRY003
+        async with self._send_lock:
+            await asyncio.to_thread(self.connection.send, message)
+
+    async def request(self, request: HostRequest, deadline: float) -> HostResponse:
+        future: asyncio.Future[HostResponse] = asyncio.get_running_loop().create_future()
+        self.pending[request.id] = future
+        try:
+            try:
+                await self.send(request)
+            except OSError:
+                raise PluginHostUnavailable(self.group.name) from None
+            try:
+                return await asyncio.wait_for(asyncio.shield(future), max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                raise PluginHostTimeout(self.group.name) from None
+        finally:
+            if not future.done():
+                # Timed out or the caller went away: cancel the task so its write transaction rolls back.
+                self.pending.pop(request.id, None)
+                self.group.spawn_task(self._cancel(request.id))
+
+    async def _cancel(self, request_id: str) -> None:
+        with suppress(OSError):
+            await self.send(HostCancel(request_id))
+
+    async def stop(self, reason: str) -> None:
+        """Terminate the process; ``run`` then sees the Pipe close, reaps it, and cleans up."""
+
+        self.accepting = False
+        self.reason = reason
+        if self.process is None or self.process.pid is None:
+            return
+        self.process.terminate()
+        try:
+            await asyncio.wait_for(self._exited.wait(), _TERMINATE_SECONDS)
+        except TimeoutError:
+            self.process.kill()
+
+    async def shut_down(self, reason: str) -> None:
+        """Ask the host to finish its calls and exit, and terminate it if it does not."""
+
+        self.accepting = False
+        self.reason = reason
+        with suppress(OSError):
+            await self.send(HostShutdown())
+        try:
+            await asyncio.wait_for(self._exited.wait(), _SHUTDOWN_SECONDS)
+        except TimeoutError:
+            await self.stop(reason)
+
+
+class PluginHost:
+    """The host processes of one plugin in this Server process."""
+
+    def __init__(
+        self, name: str, spec: PluginHostSpec, *, limit: int = 1, budget: HostProcessBudget | None = None
+    ) -> None:
+        self.name = name
+        self.spec = spec
+        self.limit = limit
+        self.implemented: tuple[str, ...] = ()
+        # Why the plugin cannot run at all, such as a missing required method; it is not restarted.
+        self.failure: str | None = None
+        self._budget = budget or HostProcessBudget()
+        self._processes: list[_HostProcess] = []
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._changed = asyncio.Event()
+        self._watcher: asyncio.Task[None] | None = None
+        self._backoff = 0.0
+        self._not_before = 0.0
+        self._closing = False
+
+    async def start(self) -> None:
+        """Start the process the plugin always keeps; callers wait for readiness within their own time limit."""
+
+        if self._watcher is None and not self._closing:
+            self._watcher = asyncio.create_task(self._watch(), name=f"plugin-host-watch-{self.name}")
+        if not self._processes and not self._launch(resident=True):
+            raise PluginHostUnavailable(self.name)
+
+    def _launch(self, *, resident: bool) -> bool:
+        if self._closing or self.failure is not None or time.monotonic() < self._not_before:
+            return False
+        if not self._budget.take(resident=resident):
+            return False
+        process = _HostProcess(self)
+        self._processes.append(process)
+        self.spawn_task(process.run())
+        return True
+
+    def spawn_task(self, coroutine: Any) -> None:
+        task = asyncio.create_task(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    def notify(self) -> None:
+        # Wake every waiter; each takes the current event before it waits.
+        self._changed.set()
+        self._changed = asyncio.Event()
+
+    def exited(self, process: _HostProcess) -> None:
+        self._processes.remove(process)
+        self._budget.give_back()
+        self.notify()
+        if process.reason == "idle" or self._closing or self.failure is not None:
+            return
+        log_safely(logger, logging.WARNING, f"Plugin host {self.name} stopped ({process.reason})")
+        if self._processes:
+            return
+        healthy = time.monotonic() - process.started_at >= _HEALTHY_RESET_SECONDS
+        self._backoff = _BACKOFF_START if healthy or not self._backoff else min(self._backoff * 2, _BACKOFF_LIMIT)
+        self._not_before = time.monotonic() + self._backoff
+        asyncio.get_running_loop().call_later(self._backoff, self._restart)
 
     def _restart(self) -> None:
-        if not self._closing:
-            task = asyncio.ensure_future(self._restart_quietly())
-            task.add_done_callback(lambda done: done.exception())
+        if not self._processes:
+            self._launch(resident=True)
 
-    async def _restart_quietly(self) -> None:
-        with suppress(PluginHostUnavailable):
-            await self.start()
+    async def _watch(self) -> None:
+        while True:
+            await asyncio.sleep(_WATCH_SECONDS)
+            now = time.monotonic()
+            serving = [process for process in self._processes if process.accepting]
+            for process in serving:
+                if process.ready and now - process.last_beat > HEARTBEAT_TIMEOUT_SECONDS:
+                    self.spawn_task(process.stop("unresponsive"))
+                elif not process.ready and now - process.started_at > READY_TIMEOUT_SECONDS:
+                    self.spawn_task(process.stop("start_timeout"))
+            idle = [
+                process
+                for process in serving
+                if process.ready and process.in_flight == 0 and now - process.idle_since >= IDLE_STOP_SECONDS
+            ]
+            # The group always keeps one process; stop the newest idle extras first.
+            for process in reversed(idle[: max(0, len(serving) - 1)]):
+                self.spawn_task(process.shut_down("idle"))
+
+    def _grow(self) -> None:
+        serving = [process for process in self._processes if process.accepting]
+        if len(serving) < self.limit and all(process.ready for process in serving):
+            self._launch(resident=False)
+
+    async def _acquire(self, deadline: float) -> _HostProcess:
+        """Take a slot on the least busy ready process, queueing until one frees up."""
+
+        while True:
+            if self.failure is not None:
+                raise PluginHostUnavailable(self.name)
+            serving = [process for process in self._processes if process.accepting]
+            ready = [process for process in serving if process.ready]
+            free = [process for process in ready if process.in_flight < HOST_CONCURRENCY]
+            if free:
+                chosen = min(free, key=lambda process: process.in_flight)
+                chosen.in_flight += 1
+                return chosen
+            if ready:
+                self._grow()
+            elif not serving and not self._launch(resident=True):
+                raise PluginHostUnavailable(self.name)
+            changed = self._changed
+            try:
+                await asyncio.wait_for(changed.wait(), max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                # Queued behind busy processes counts against the call; waiting for a start does not.
+                if any(process.ready and process.accepting for process in self._processes):
+                    raise PluginHostTimeout(self.name) from None
+                raise PluginHostUnavailable(self.name) from None
 
     async def call(
         self,
@@ -162,54 +333,38 @@ class PluginHost:
         audit: Any,
         payload: dict[str, Any],
         body: Any = None,
-        timeout: float,  # noqa: ASYNC109 - the deadline also decides when to replace the process
+        timeout: float,  # noqa: ASYNC109 - the deadline also decides when the host cancels the call
     ) -> HostResponse:
         deadline = time.monotonic() + timeout
-        if self._ready is None:
+        if self._watcher is None:
             await self.start()
-        ready = self._ready
-        if ready is None:
-            raise PluginHostUnavailable(self.name)
+        process = await self._acquire(deadline)
+        request = HostRequest(
+            id=uuid4().hex,
+            method=method,
+            scope_id=scope_id,
+            caller=caller,
+            audit=audit,
+            payload=payload,
+            body=body,
+        )
         try:
-            await asyncio.wait_for(asyncio.shield(ready), max(0.0, deadline - time.monotonic()))
-        except TimeoutError:
-            raise PluginHostUnavailable(self.name) from None
-        async with self._slots:
-            connection = self._connection
-            if connection is None:
-                raise PluginHostUnavailable(self.name)
-            request = HostRequest(
-                id=uuid4().hex,
-                method=method,
-                scope_id=scope_id,
-                caller=caller,
-                audit=audit,
-                payload=payload,
-                body=body,
-            )
-            future: asyncio.Future[HostResponse] = asyncio.get_running_loop().create_future()
-            self._pending[request.id] = future
-            async with self._send_lock:
-                await asyncio.to_thread(connection.send, request)
-            try:
-                return await asyncio.wait_for(asyncio.shield(future), max(0.0, deadline - time.monotonic()))
-            except TimeoutError:
-                # A blocked plugin cannot be interrupted reliably; replace the whole process.
-                await self._terminate("timeout")
-                raise PluginHostUnavailable(self.name) from None
+            return await process.request(request, deadline)
+        finally:
+            process.in_flight -= 1
+            if process.in_flight == 0:
+                process.idle_since = time.monotonic()
+            self.notify()
 
     async def close(self) -> None:
         self._closing = True
-        connection = self._connection
-        if connection is not None:
-            with suppress(OSError):
-                connection.send(HostShutdown())
-            process = self._process
-            if process is not None:
-                await asyncio.to_thread(process.join, 10)
-        await self._terminate("server_stop")
-        if self._reader is not None:
-            self._reader.cancel()
+        if self._watcher is not None:
+            self._watcher.cancel()
+        await asyncio.gather(
+            *(process.shut_down("server_stop") for process in list(self._processes)), return_exceptions=True
+        )
+        if self._tasks:
+            await asyncio.wait(list(self._tasks), timeout=_SHUTDOWN_SECONDS)
 
 
 def _stop_process(process: Any) -> None:

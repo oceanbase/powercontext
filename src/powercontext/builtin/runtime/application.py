@@ -1454,6 +1454,11 @@ class ScopedContextApplication:
                 for section in (request.assembly.sections if request.assembly is not None else ())
                 if section.family not in BUILTIN_CONTEXT_FAMILIES
             },
+            failed_plugins=[
+                section.family
+                for section in (request.assembly.sections if request.assembly is not None else ())
+                if section.search_failed
+            ],
         )
         started_build = perf_counter() if evidence is not None else None
         with self._runtime._stage(
@@ -1590,9 +1595,12 @@ class ScopedContextApplication:
         code: Sequence[PreparedCodeCandidate],
         *,
         plugins: Mapping[str, bool],
+        failed_plugins: Sequence[str] = (),
     ) -> None:
         if evidence is None:
             return
+        for family in failed_plugins:
+            evidence.search(family, "none", "failed")
         retrieved = {
             **plugins,
             MEMORY_FAMILY: any(group.hits for group in memory),

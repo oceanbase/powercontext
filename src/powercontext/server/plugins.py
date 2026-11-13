@@ -27,7 +27,7 @@ import asyncio
 import json
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -35,6 +35,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import tzlocal
 from sqlalchemy import select
 
 from powercontext._logging import log_safely
@@ -62,7 +63,7 @@ from powercontext.builtin.runtime.processing_discovery import SourceProcessingPe
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.http._generated.models import PluginPage, PluginScopePage, PluginScopeState, PluginState
 from powercontext.plugins import Cron, Interval
-from powercontext.server.plugin_hosts import PluginHost
+from powercontext.server.plugin_hosts import HostProcessBudget, PluginHost
 
 logger = logging.getLogger(__name__)
 CHECK_TIMEOUT_SECONDS = 60
@@ -148,6 +149,8 @@ class PluginManager:
         storage_root: Path | None = None,
         host_security_builder: Callable[[], dict[str, Any] | None] | None = None,
         serve_requests: bool = True,
+        host_processes: Mapping[str, int] | None = None,
+        host_processes_total: int | None = None,
     ) -> None:
         self.database = database
         self.register_merge = register_merge
@@ -165,6 +168,8 @@ class PluginManager:
         self.host_security_builder = host_security_builder or security_builder
         # Instances that receive no requests (the background role) start no host processes.
         self.serve_requests = serve_requests
+        self.host_processes = dict(host_processes or {})
+        self.host_budget = HostProcessBudget(host_processes_total)
 
     async def __aenter__(self) -> PluginManager:
         directory = self.plugins_dir
@@ -219,6 +224,8 @@ class PluginManager:
                     source_bindings=bindings,
                     storage_root=self.storage_root,
                 ),
+                limit=self.host_processes.get(plugin.name, manifest.spec.host_processes),
+                budget=self.host_budget,
             )
             # Every loaded plugin's host starts now, so the first request does not wait for a spawn.
             task = asyncio.create_task(self._start_host(plugin.host), name=f"plugin-host-start-{plugin.name}")
@@ -311,7 +318,7 @@ class PluginManager:
                 worker_timeout_seconds=generate.timeout_seconds,
                 automatic_processing_interval=interval,
                 cron=None if cron is None else cron.expression,
-                timezone="Asia/Shanghai" if cron is None else cron.timezone,
+                timezone="Asia/Shanghai" if cron is None else cron.timezone or tzlocal.get_localzone_name(),
                 pending_provider=None
                 if inputs is None
                 else SourceProcessingPendingProvider(self.database, manifest.binding_name, generate.family),

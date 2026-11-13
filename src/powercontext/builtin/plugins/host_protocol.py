@@ -98,3 +98,15 @@ class HostResponse:
 @dataclass(frozen=True)
 class HostShutdown:
     pass
+
+
+@dataclass(frozen=True)
+class HostCancel:
+    """The request outlived its time limit; cancel its task so its write transaction rolls back."""
+
+    id: str
+
+
+@dataclass(frozen=True)
+class HostHeartbeat:
+    """Sent every second by a task on the host's event loop, so a blocked loop stops sending it."""

@@ -76,7 +76,8 @@ class Cron(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     expression: str = Field(min_length=1)
-    timezone: str = "Asia/Shanghai"
+    # An IANA time zone name; None uses the time zone of the machine running the Server.
+    timezone: str | None = None
 
 
 _PROJECTION = r"^[^@\s]+@[^@\s]+$"
@@ -230,6 +231,8 @@ class ArtifactPluginSpec(BaseModel):
     transaction_timeout_seconds: float = Field(default=30, gt=0)
     # Time limit of one user change or plugin API call in the host process.
     change_timeout_seconds: float = Field(default=30, gt=0)
+    # Suggested ceiling on this plugin's host processes in each Server process; deployers may override it.
+    host_processes: int = Field(default=1, ge=1)
     api: PluginApiSpec | None = None
     pages: PluginPages | None = None
 

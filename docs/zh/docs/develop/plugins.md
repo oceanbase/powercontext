@@ -116,10 +116,11 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `family` | 插件拥有的 Artifact family，不能与内置 family 或其他插件重复 |
 | `inputs` | `Inputs(source_types=..., projection=..., projections={...}, max_sources=50)`：消费哪些 Source 类型、每种类型以哪个 Projection 交付、一次最多交付多少条。`projection` 适用于所有类型，`projections` 按类型单独指定 |
 | `on_sources` | 有新 Source 时运行 |
-| `schedule` | `Interval(seconds=...)` 或 `Cron(expression=..., timezone=...)`，定时运行。`schedule` 和 `on_sources` 都不填时插件没有后台生成，不需要实现 `generate`，Artifact 只由用户修改和插件接口写入 |
+| `schedule` | `Interval(seconds=...)` 或 `Cron(expression=..., timezone=...)`，定时运行；`timezone` 不填时使用 Server 所在机器的时区。`schedule` 和 `on_sources` 都不填时插件没有后台生成，不需要实现 `generate`，Artifact 只由用户修改和插件接口写入 |
 | `scopes` | 只服务这些 Scope；配置了 `schedule` 但不消费 Source 的插件必须填写 |
 | `timeout_seconds`、`transaction_timeout_seconds` | 一次生成和其中写事务的时限 |
-| `change_timeout_seconds` | 一次用户修改或接口调用的时限 |
+| `change_timeout_seconds` | 一次用户修改、展示或检索的时限 |
+| `host_processes` | 每个 Server 进程中本插件宿主进程数的上限，默认 1；部署者可以覆盖 |
 | `definitions` | 插件自己的 Source 定义，见"定义 Source 类型" |
 | `api` | 插件的接口，见"提供接口" |
 | `pages` | Dashboard 页面，见"Dashboard 页面" |
@@ -348,8 +349,17 @@ plugin = ArtifactPlugin(
   `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`。超出时 core 返回 413，不调用插件。
 - 每次调用受 `timeout_seconds`（默认 30 秒）约束，超时返回 504。
 
-接口、展示、检索和用户修改方法在一个常驻的宿主进程中执行，插件加载后就启动；工厂 `setup(ctx)` 在宿主进程中只执行一次，
-插件对象服务所有请求。宿主进程崩溃或超时会被重启，期间接口返回 503。
+接口、展示、检索和用户修改方法在宿主进程中执行。每个插件有自己的一组宿主进程，不与其他插件共用：插件加载后启动第一个并
+一直保留；所有进程都忙、且有请求排队时再启动一个，直到 `host_processes`；多出的进程空闲 5 分钟后停止。工厂 `setup(ctx)`
+在每个宿主进程中执行一次，插件对象服务该进程收到的所有请求，所以不要假设所有请求都在同一个进程中。
+
+- 一个宿主进程同时处理多个请求，都在同一个事件循环上。调用超过时限时，core 只取消这个请求（写事务随之回滚）并返回 504，
+  同一进程中的其他请求不受影响。
+- 阻塞事件循环会让取消无法生效，宿主进程的心跳也随之中断。心跳中断 5 秒后 core 终止该进程：超时的请求返回 504，进程中的
+  其他请求返回 503，进程退避后重启。CPU 密集或同步阻塞的代码放进 `await asyncio.to_thread(...)`；需要几分钟的工作交给
+  后台的 `generate`。
+- Prepared Context 中的插件 section 在插件不可用（超时、宿主进程不可用或检索失败）时省略，回执中记录该 family 的检索
+  失败，其他 section 照常返回。
 
 ## 专属存储和模型
 
@@ -408,7 +418,8 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 | 现象 | 处理 |
 | --- | --- |
 | `/v1/plugins` 中插件为 `failed` | 查看 `error`：导入失败时检查依赖是否装进了 Server 环境；缺少必须实现的方法时补上方法 |
-| 接口返回 503 | 宿主进程正在启动或重启；查看 Server 日志中的插件错误 |
+| 接口返回 503 | 宿主进程正在启动或重启，或者因事件循环被阻塞而被终止；查看 Server 日志中的插件错误 |
+| 接口返回 504 `plugin_timeout` | 调用超过了时限；耗时的工作放进 `asyncio.to_thread` 或交给 `generate`，或者调大时限 |
 | 接口返回 500 `plugin_error` | 处理函数抛出了未处理的异常；Server 日志记录了异常类型 |
 | 修改插件后 Worker 不再执行 | 插件文件在运行中被修改，重启 Server |
 | 生成的 Artifact 没有出现 | 用 `GET /v1/plugins/<插件名>/scopes` 查看各 Scope 是否还有待处理的 Source |

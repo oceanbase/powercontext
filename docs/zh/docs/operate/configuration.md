@@ -105,6 +105,8 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | 未设置 | 私有 UDS 上可信代理的外部协议，只接受 `http` 或 `https`，必须同时设置 `HTTP_UDS`；仅在可信代理终止 TLS 时设置 `https`。仍忽略转发的协议与客户端 IP header |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | 解析前允许的外部 HTTP 请求体字节数，包括分块上传 |
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | 插件接口（`/v1/plugins/{name}/api/...` 及 Dashboard 插件页面的转发）的请求体和响应体上限，替代上一项；插件路由可以声明更小的上限，不能超过此值 |
+| `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | 按插件名覆盖插件声明的 `host_processes`，JSON 对象，例如 `{"knowledge-base": 4}`；值是每个 Server 进程中该插件宿主进程数的上限 |
+| `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | 未设置 | 每个 Server 进程中所有插件的宿主进程总数上限；达到上限时不再为负载增加进程，请求在已有进程上排队。每个插件常驻的第一个进程不受此限制 |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | 每进程进行中的外部 HTTP 请求上限，包括完整流式响应 |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |

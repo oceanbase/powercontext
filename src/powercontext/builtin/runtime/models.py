@@ -309,19 +309,21 @@ class ContextAssemblySection(_PreparedContextModel):
 
     A plugin family takes its entries from ``hits``, which the Server fills from the
     plugin's ``search_artifacts`` before assembly; ``search`` carries the caller's
-    search fields for that plugin and is rejected for built-in families.
+    search fields for that plugin and is rejected for built-in families. The Server sets
+    ``search_failed`` when the plugin was unavailable, so the section stays empty.
     """
 
     family: Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9-]*$")]
     limit: Annotated[int, Field(ge=1, le=8)]
     search: dict[str, JsonValue] | None = None
     hits: tuple[ContextPluginHit, ...] = ()
+    search_failed: bool = False
 
     @model_validator(mode="after")
     def validate_limit(self) -> ContextAssemblySection:
         if self.family == "experience" and self.limit > 2:
             raise ValueError("Experience sections cannot include more than two entries")  # noqa: TRY003
-        if self.family in BUILTIN_CONTEXT_FAMILIES and (self.search is not None or self.hits):
+        if self.family in BUILTIN_CONTEXT_FAMILIES and (self.search is not None or self.hits or self.search_failed):
             raise ValueError("search applies only to plugin families")  # noqa: TRY003
         if any(hit.artifact.family != self.family for hit in self.hits):
             raise ValueError("hits must belong to the section family")  # noqa: TRY003

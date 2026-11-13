@@ -122,10 +122,11 @@ This plugin has the basic parts of a plugin:
 | `family` | The Artifact family the plugin owns; it must not reuse a built-in family or another plugin's |
 | `inputs` | `Inputs(source_types=..., projection=..., projections={...}, max_sources=50)`: the Source types consumed, the Projection each type arrives in, and the most Sources delivered at once. `projection` applies to every type; `projections` names one per type |
 | `on_sources` | Run when new Sources arrive |
-| `schedule` | `Interval(seconds=...)` or `Cron(expression=..., timezone=...)` to run on a schedule. With neither `schedule` nor `on_sources`, the plugin has no background generation and need not implement `generate`; its Artifacts are written only by user changes and its own APIs |
+| `schedule` | `Interval(seconds=...)` or `Cron(expression=..., timezone=...)` to run on a schedule; without `timezone`, the time zone of the machine running Server applies. With neither `schedule` nor `on_sources`, the plugin has no background generation and need not implement `generate`; its Artifacts are written only by user changes and its own APIs |
 | `scopes` | Serve only these Scopes; required for plugins that set `schedule` but consume no Sources |
 | `timeout_seconds`, `transaction_timeout_seconds` | Time limits for one generation run and its write transaction |
-| `change_timeout_seconds` | Time limit for one user change or API call |
+| `change_timeout_seconds` | Time limit for one user change, presentation, or search |
+| `host_processes` | The most host processes of this plugin in each Server process, 1 by default; deployers can override it |
 | `definitions` | The plugin's own Source Definitions; see "Define Source types" |
 | `api` | The plugin's APIs; see "Provide APIs" |
 | `pages` | Dashboard pages; see "Dashboard pages" |
@@ -374,9 +375,20 @@ plugin = ArtifactPlugin(
   plugin when a body is too large.
 - Each call is bounded by `timeout_seconds` (30 seconds by default) and returns 504 when it runs over.
 
-APIs, presentation, search, and user-change methods run in a long-lived host process that starts once the plugin loads;
-the factory `setup(ctx)` runs once in it, and the plugin object serves every request. A host process that crashes or times out is
-restarted, and APIs return 503 meanwhile.
+APIs, presentation, search, and user-change methods run in host processes. Each plugin has its own group of host
+processes and shares none with other plugins: the first starts once the plugin loads and always stays; another starts
+while every process is busy and requests queue, up to `host_processes`; extra processes stop after 5 idle minutes. The
+factory `setup(ctx)` runs once in each host process, and the plugin object serves every request that process receives, so
+do not assume all requests reach the same process.
+
+- A host process handles several requests at once on one event loop. When a call runs past its time limit, core cancels
+  only that request (its write transaction rolls back) and returns 504; other requests in the process are unaffected.
+- Blocking the event loop keeps cancellation from taking effect and also stops the host process's heartbeat. Five seconds
+  after the heartbeat stops, core terminates the process: the timed-out request returns 504, the process's other requests
+  return 503, and the process restarts after a backoff. Put CPU-heavy or synchronously blocking code in
+  `await asyncio.to_thread(...)`, and leave work that takes minutes to the background `generate`.
+- In Prepared Context, a plugin section is left out when the plugin is unavailable (a timeout, no available host process,
+  or a failed search); the receipt records the family's failed search, and the other sections are returned as usual.
 
 ## Dedicated storage and models
 
@@ -439,7 +451,8 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 | Symptom | What to do |
 | --- | --- |
 | The plugin is `failed` in `/v1/plugins` | Read `error`: for import failures, check that dependencies are installed in the Server environment; for a missing required method, add it |
-| APIs return 503 | The host process is starting or restarting; check the Server log for plugin errors |
+| APIs return 503 | The host process is starting or restarting, or was terminated because its event loop was blocked; check the Server log for plugin errors |
+| APIs return 504 `plugin_timeout` | The call ran past its time limit; move slow work into `asyncio.to_thread` or `generate`, or raise the limit |
 | APIs return 500 `plugin_error` | A handler raised an unhandled exception; the Server log records its type |
 | Workers stop running after a plugin change | Plugin files changed while Server was running; restart Server |
 | Generated Artifacts do not appear | Check `GET /v1/plugins/<plugin name>/scopes` for Scopes with pending Sources |

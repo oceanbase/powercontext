@@ -373,6 +373,8 @@ def create_server_app(  # noqa: C901
                         enabled=True,
                         injected=configured_access_control is not None,
                     ),
+                    host_processes=resolved.plugin_host_processes,
+                    host_processes_total=resolved.plugin_total_host_processes,
                 )
             )
             if active_access_control is not None:
