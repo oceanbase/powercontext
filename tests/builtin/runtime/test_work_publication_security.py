@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.experience import (
     ExperienceCandidateInput,
     ExperienceContent,
 )
+from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.profile.service import (
     PreparedProfileFlush,
     ProfileFlushResult,
@@ -41,11 +42,14 @@ from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import _work_authorizer
 from powercontext.builtin.runtime.config import CoordinationConfig, DeploymentConfig, WorkerConfig
 from powercontext.builtin.runtime.membership import RuntimeMembership
+from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.work_handlers import (
+    CURRENT_WORK_PAYLOAD_VERSION,
     ExperienceWorkHandler,
     ProfileWorkHandler,
     WorkExecutionError,
     experience_work_spec,
+    profile_work_spec,
 )
 from powercontext.builtin.runtime.worker import DurableWorker
 from powercontext.builtin.scope import ScopeDraft
@@ -231,11 +235,15 @@ class _ProfileRecordingSecurity:
     access = None
     context = AUDIT
 
-    def __init__(self, recorded: dict[str, Any]) -> None:
+    def __init__(self, recorded: dict[str, Any], *, deny_transaction: bool = False, deny_commit: bool = True) -> None:
         self._recorded = recorded
+        self._deny_transaction = deny_transaction
+        self._deny_commit = deny_commit
 
     async def authorize_transaction(self, connection: Any, scope_id: str) -> None:
         self._recorded["transaction_scope"] = scope_id
+        if self._deny_transaction:
+            raise PermissionError("scope.contribute revoked during generation")  # noqa: TRY003
 
     async def experience_commit(self, connection: Any, candidates: Any, *, scope_id: str) -> None:
         self._recorded["experience_scope"] = scope_id
@@ -244,9 +252,10 @@ class _ProfileRecordingSecurity:
         self._recorded["prepare_scope"] = scope_id
 
     async def authorize_profile_commit(self, connection: Any, current: Any, *, scope_id: str) -> None:
-        # The grant is revoked between generation and the fenced publication.
         self._recorded["commit_scope"] = scope_id
-        raise PermissionError("scope.contribute revoked during generation")  # noqa: TRY003
+        if self._deny_commit:
+            # The grant is revoked between generation and the fenced publication.
+            raise PermissionError("scope.contribute revoked during generation")  # noqa: TRY003
 
     async def profile_commit(self, connection: Any, artifact: Any, candidate: Any, *, scope_id: str) -> None:
         self._recorded["owner_scope"] = scope_id
@@ -265,6 +274,7 @@ class _RecordingProfiles:
         return PreparedProfileFlush(scope_id=scope_id, after=0, high=high_watermark or 1, evidence_count=1, result=None)
 
     async def commit_flush(self, connection, prepared, *, authorize_commit=None, on_commit=None):
+        self._recorded["commit_called"] = True
         self._recorded["commit_hook"] = authorize_commit
         self._recorded["owner_hook"] = on_commit
         if authorize_commit is not None:
@@ -296,8 +306,31 @@ def test_profile_handler_wires_the_publication_hooks_and_maps_a_denial() -> None
         assert excinfo.value.failure.code == "profile_write_denied"
         assert excinfo.value.failure.retryable is False
         assert recorded["prepare_scope"] == _ProfileClaim.scope_id
+        assert recorded["transaction_scope"] == _ProfileClaim.scope_id
         assert recorded["commit_scope"] == _ProfileClaim.scope_id
         assert recorded["commit_hook"] is not None and recorded["owner_hook"] is not None
+
+    asyncio.run(scenario())
+
+
+def test_profile_handler_denies_when_only_the_transaction_recheck_fails() -> None:
+    """The real provider no-ops the Head check on first publication; the fence must still deny."""
+
+    recorded: dict[str, Any] = {}
+
+    async def scenario() -> None:
+        profiles = cast(RelationalProfileService, _RecordingProfiles(recorded))
+        security = _ProfileRecordingSecurity(recorded, deny_transaction=True, deny_commit=False)
+        handler = ProfileWorkHandler(profiles, max_concurrency=1, security=security)
+        prepared = await handler.prepare(cast(WorkClaim, _ProfileClaim()))
+        assert prepared.commit is not None
+        with pytest.raises(WorkExecutionError) as excinfo:
+            await prepared.commit(cast(AsyncConnection, None))
+        assert excinfo.value.failure.category == "authorization"
+        assert excinfo.value.failure.code == "profile_write_denied"
+        assert excinfo.value.failure.retryable is False
+        assert recorded["transaction_scope"] == _ProfileClaim.scope_id
+        assert "commit_called" not in recorded
 
     asyncio.run(scenario())
 
@@ -377,5 +410,103 @@ def test_membership_gate_leaves_queued_work_unclaimed(tmp_path) -> None:
                 assert stored.status is WorkStatus.SUCCEEDED
             finally:
                 await membership.stop()
+
+    asyncio.run(scenario())
+
+
+class _RevokingProfileGenerator:
+    """Generate one Profile while the Scope contribution grant is being revoked."""
+
+    def __init__(self) -> None:
+        self.revoke: Any = None
+
+    async def generate(self, value: Any) -> str:
+        if self.revoke is not None:
+            await self.revoke()
+        return "# Preferences\n\nGenerated profile after the contribution grant was revoked."
+
+
+def test_profile_publication_rechecks_contribution_inside_the_fenced_transaction(tmp_path) -> None:
+    """A revoked scope.contribute must stop the first Profile before any durable write.
+
+    The real WorkerSecurity no-ops ``authorize_profile_commit`` for a first
+    publication (there is no current Profile) and only checks Artifact write for
+    an existing Head, which its owner keeps after losing Scope contribution.
+    Only ``authorize_transaction`` rechecks the contribution inside the fence.
+    """
+
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-publication-security.db'}")
+        )
+        assert isinstance(config.database, SQLiteConfig)
+        async with SQLiteProfile.open(config.database, tables=(*BUILTIN_TABLES, *ACCESS_TABLES)) as profile:
+            contexts = RelationalContexts(database=profile.database)
+            scope = (
+                await contexts.scopes.create(
+                    ScopeDraft(
+                        title="Profile publication security",
+                        summary="Revoke contribution during generation",
+                        idempotency_key="profile-publication-security",
+                    )
+                )
+            ).scope_id
+            await contexts.records.create_source(scope, "content", "First durable profile fact.")
+            await contexts.profiles.put_policy(scope, generation_enabled=True, expected_version=0)
+            generator = _RevokingProfileGenerator()
+            contexts.profiles.generator = generator
+            spec_dict = WorkerSecuritySpec(principal=BACKGROUND, deployment_id="test").model_dump(mode="json")
+
+            async with (
+                open_builtin_access_control(config.database, bootstrap_administrators=(ADMIN,)) as admin,
+                open_worker_security(spec_dict, profile.database) as security,
+            ):
+                grant = await admin.create_binding(
+                    ADMIN,
+                    CreateBinding(
+                        subject=BACKGROUND,
+                        resource=ResourceRef.scope(scope),
+                        role=AccessRole.SCOPE_CONTRIBUTOR,
+                        idempotency_key="grant-profile-contribute",
+                    ),
+                    context=AUDIT,
+                )
+
+                async def revoke() -> None:
+                    await admin.revoke_binding(
+                        ADMIN,
+                        grant.binding_id,
+                        expected_version=1,
+                        idempotency_key="revoke-profile-contribute",
+                        context=AUDIT,
+                    )
+
+                generator.revoke = revoke
+                spec = await profile_work_spec(
+                    contexts, scope, max_attempts=2, payload_version=CURRENT_WORK_PAYLOAD_VERSION
+                )
+                assert spec is not None
+                repository = WorkRepository()
+                async with profile.database.transaction() as connection:
+                    enqueued = await repository.enqueue(connection, spec)
+                worker = DurableWorker(
+                    database=profile.database,
+                    worker_id="worker-a",
+                    handlers=(ProfileWorkHandler(contexts.profiles, max_concurrency=1, security=security),),
+                    config=WorkerConfig(concurrency=1),
+                    authorizer=_work_authorizer(security),
+                )
+                # Entry authorization passed; the grant is revoked during
+                # generation; the fenced publication must deny, not publish.
+                assert await worker.run_once() == 1
+                async with profile.database.transaction() as connection:
+                    stored = await repository.get(connection, enqueued.work.work_id)
+                    cursor = await SourceCursorRepository().load(connection, scope, PROFILE_SOURCE_WINDOW_BINDING)
+                    latest = await contexts.profiles.latest(connection, scope)
+                assert stored.status is WorkStatus.FAILED
+                assert stored.error_category == "authorization"
+                assert stored.error_code == "profile_write_denied"
+                assert cursor is None
+                assert latest is None
 
     asyncio.run(scenario())

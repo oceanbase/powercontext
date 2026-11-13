@@ -619,6 +619,14 @@ class ProfileWorkHandler:
 
         async def commit(connection: AsyncConnection) -> WorkResult:
             try:
+                if self._security is not None:
+                    # Recheck Scope contribution inside the Work completion
+                    # transaction. authorize_profile_commit is a no-op for a
+                    # first Profile and only checks Artifact write for an
+                    # existing Head, which its owner keeps after losing
+                    # scope.contribute. Only this recheck gates every Profile,
+                    # Candidate and cursor write with the revoked grant.
+                    await self._security.authorize_transaction(connection, claim.scope_id)
                 flushed = await self._profiles.commit_flush(
                     connection,
                     prepared,
