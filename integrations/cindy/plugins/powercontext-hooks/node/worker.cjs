@@ -2195,6 +2195,7 @@ function containsSecret(text, authorization$1) {
 const CONTEXT_START = "<!-- powercontext:cindy-context:v1 -->";
 const CONTEXT_END = "<!-- /powercontext:cindy-context:v1 -->";
 const HOOK_BUDGET_MS = 1800;
+const CAPTURE_RESERVE_MS = 500;
 function authorization(config, raw) {
 	if (config.allow_insecure_http !== void 0 && typeof config.allow_insecure_http !== "boolean") throw new Error("invalid_transport_consent");
 	const baseUrl = normalizeServerUrl(config.server_url ?? "http://127.0.0.1:8000", config.allow_insecure_http ?? false);
@@ -2346,6 +2347,7 @@ async function runHook(input, credential, fetchImpl) {
 		code: "hook_deadline",
 		capture: "not_sent"
 	};
+	const hookEnd = Date.now() + remaining;
 	if (typeof input.text !== "string" || !input.text.trim() || typeof input.session_id !== "string" || !input.session_id.trim() || input.session_id.length > 256 || typeof input.hook_id !== "string" || !input.hook_id.trim() || input.hook_id.length > 256) return {
 		...outcome,
 		ok: false,
@@ -2399,9 +2401,11 @@ async function runHook(input, credential, fetchImpl) {
 				code: failureCode(error)
 			};
 		}
+		const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now();
 		if (input.text.length > 8192) outcome.prepare = "query_too_long";
+		else if (prepareMs <= 0) outcome.prepare = "not_sent";
 		else try {
-			const signal = combineSignals([controller.signal, AbortSignal.timeout(800)]);
+			const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)]);
 			const response = await client.request("prepare_context", {
 				scope_id: scopeId,
 				query: input.text,

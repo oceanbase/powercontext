@@ -24,6 +24,11 @@ const main = readFileSync(resolve(__dirname, '../plugins/powercontext-hooks/main
 const config = { enabled: true, server_url: 'http://127.0.0.1:8000', scope_id: 'project' };
 const input = { config, session_id: 'session', hook_id: 'event', text: 'What is the deployment codename?' };
 const response = (value, status = 200) => new Response(JSON.stringify(value), { status });
+// Like fetch, a delayed fixture response rejects when its request is aborted.
+const delay = (ms, signal) => new Promise((done, reject) => {
+  const timer = setTimeout(done, ms);
+  signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+});
 
 function server(prepared = 'Deployment codename: QUARTZ-8413.') {
   const captures = [];
@@ -162,6 +167,52 @@ test('a hook timeout returns one allow verdict and ignores a late rewrite', asyn
   release({ ok: true, result: { ok: true, prepare: 'ready', content: 'late history' } });
   await pending;
   assert.equal(adapter.sent.length, 1);
+});
+
+test('context that takes more than a second to prepare is injected and the prompt is captured', async () => {
+  const backend = server();
+  const request = async (url, init) => {
+    if (url.endsWith('/context/prepare')) await delay(1050, init.signal);
+    return backend.request(url, init);
+  };
+  const adapter = host(config, async value => ({ ok: true, result: await runHook(value.params, undefined, request) }));
+  await adapter.dispatch(event);
+  assert.equal(adapter.sent[0].action, 'rewrite');
+  assert.ok(adapter.sent[0].text.includes('QUARTZ-8413'));
+  assert.equal(backend.captures[0].content, input.text);
+});
+
+test('a preparation that never answers stops before the hook deadline and the prompt is still captured', async () => {
+  const backend = server();
+  let stopped;
+  const request = (url, init) => url.endsWith('/context/prepare')
+    ? new Promise((_, reject) => init.signal.addEventListener('abort', () => {
+      stopped = Date.now();
+      reject(init.signal.reason);
+    }, { once: true }))
+    : backend.request(url, init);
+  const started = Date.now();
+  const outcome = await runHook({ ...input, deadline_at: started + 1800 }, undefined, request);
+  const elapsed = Date.now() - started;
+  assert.equal(outcome.prepare, 'unavailable');
+  assert.equal(outcome.capture, 'accepted');
+  assert.ok(stopped - started >= 1200, `preparation stopped after ${stopped - started} ms`);
+  assert.ok(elapsed < 1800, `hook finished after ${elapsed} ms`);
+});
+
+test('a slow Scope resolution that leaves only capture time sends no preparation', async () => {
+  const backend = server();
+  let prepared = false;
+  const request = async (url, init) => {
+    if (url.endsWith('/scope-bindings/resolve')) await delay(1400, init.signal);
+    if (url.endsWith('/context/prepare')) prepared = true;
+    return backend.request(url, init);
+  };
+  const started = Date.now();
+  const outcome = await runHook({ ...input, deadline_at: started + 1800 }, undefined, request);
+  assert.equal(prepared, false);
+  assert.equal(outcome.prepare, 'not_sent');
+  assert.equal(outcome.capture, 'accepted');
 });
 
 test('oversized rewrites allow the original message without truncating it', async () => {
