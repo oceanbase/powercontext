@@ -414,8 +414,8 @@ Inference probe 保留原有正常结果 300 秒、临时失败 30 秒的缓存�
 | `artifact_processing_last_success_timestamp_seconds` | 最近一次 supervisor 验证 acknowledgement 的时间，不是 child return 时间 |
 | `artifact_processing_oldest_observed_pending_timestamp_seconds` | 本地 ready/running/retry 中最早且仍保留的 admission 时间；零表示没有观察到 |
 | `artifact_processing_invocation_duration_seconds{family,outcome}` | 已完成 reap 的 invocation attempt histogram，包含 launch、execution、acknowledgement；每次 retry 单独采样 |
-| `model_usage_queue_depth`、`model_usage_queue_capacity` | 父进程 recorder 的 queue 和 capacity；不包含正在写入的记录和 child queue |
-| `model_usage_dropped_records_total`、`model_usage_write_failures_total` | 父进程 recorder 与已收到的 child report 中累计丢失记录及失败或结果不确定的写入次数；不是 billing ledger |
+| `model_usage_queue_depth`、`model_usage_queue_capacity` | 父进程 recorder 的 queue 和 capacity，按原始记录计数；不包含正在写入的批次（最多 32 条）和 child queue |
+| `model_usage_dropped_records_total`、`model_usage_write_failures_total` | 被丢弃、写入失败或结果不确定的原始记录数，包含已收到的 child report；失败批次按其中的原始记录数计数，不按事务数计数；不是 billing ledger |
 | `model_usage_worker_reports_total{outcome}` | 收到 recorder 计数的 `received` attempt，以及缺少观察的 `missing` attempt；missing 不表示零丢失 |
 | `metrics_collection_failures_total` | Processing snapshot 刷新失败次数；失败时可能保留上一次 snapshot |
 
