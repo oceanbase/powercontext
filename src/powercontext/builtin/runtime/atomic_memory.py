@@ -22,6 +22,7 @@ import logging
 from collections.abc import Sequence
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from hashlib import sha256
 from time import perf_counter
 from typing import Any, Literal, cast
@@ -29,7 +30,7 @@ from uuid import uuid4
 
 import rfc8785
 from pydantic import BaseModel
-from sqlalchemy import LargeBinary, Text, and_, func, literal, or_, select
+from sqlalchemy import LargeBinary, Text, and_, bindparam, func, literal, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
@@ -128,6 +129,41 @@ _ROOT_CHANGES: dict[AtomicMemoryStateValue, AtomicMemoryRootChange] = {
     AtomicMemoryStateValue.MERGED: "merged",
     AtomicMemoryStateValue.RETIRED: "retired",
 }
+
+
+_SEARCH_HIT_COLUMNS = (
+    "artifact_id",
+    "revision",
+    "state_version",
+    "kind",
+    "text",
+    "content_hash",
+    "searchable_text",
+    "embedding_input_hash",
+    "profile_fingerprint",
+    "projection_format",
+)
+
+
+@lru_cache(maxsize=16)
+def _search_hit_query(table):
+    """Bind fresh candidates to the authority query for this backend's table."""
+    heads = ARTIFACT_HEADS_TABLE
+    return with_artifact_content(
+        select(heads, *(table.c[name].label(f"projection_{name}") for name in _SEARCH_HIT_COLUMNS)).select_from(
+            table.outerjoin(
+                heads,
+                and_(
+                    heads.c.scope_id == table.c.scope_id,
+                    heads.c.family == "atomic-memory",
+                    heads.c.artifact_id == table.c.artifact_id,
+                ),
+            )
+        )
+    ).where(
+        table.c.scope_id == bindparam("scope_id"),
+        table.c.artifact_id.in_(bindparam("artifact_ids", expanding=True)),
+    )
 
 
 class AtomicMemoryDependencyError(InvalidRuntimeRequestError):
@@ -969,36 +1005,13 @@ class ScopedAtomicMemory:
             return ()
         ids = tuple(hit.artifact_ref.artifact_id for hit in hits)
         application = self.application
-        table = application.index.table
-        columns = (
-            "artifact_id",
-            "revision",
-            "state_version",
-            "kind",
-            "text",
-            "content_hash",
-            "searchable_text",
-            "embedding_input_hash",
-            "profile_fingerprint",
-            "projection_format",
-        )
-        heads = ARTIFACT_HEADS_TABLE
+        columns = _SEARCH_HIT_COLUMNS
         rows = {
             row["projection_artifact_id"]: row
             for row in (
                 await connection.execute(
-                    with_artifact_content(
-                        select(heads, *(table.c[name].label(f"projection_{name}") for name in columns)).select_from(
-                            table.outerjoin(
-                                heads,
-                                and_(
-                                    heads.c.scope_id == table.c.scope_id,
-                                    heads.c.family == "atomic-memory",
-                                    heads.c.artifact_id == table.c.artifact_id,
-                                ),
-                            )
-                        )
-                    ).where(table.c.scope_id == self.scope_id, table.c.artifact_id.in_(ids))
+                    _search_hit_query(application.index.table),
+                    {"scope_id": self.scope_id, "artifact_ids": ids},
                 )
             ).mappings()
         }
@@ -1023,6 +1036,7 @@ class ScopedAtomicMemory:
         artifacts = await application.artifacts.decode_many(
             connection, self.scope_id, tuple(rows[hit.artifact_ref.artifact_id] for hit in hits)
         )
+        profile_fingerprint = application.publisher.profile_fingerprint if verify_vectors else None
         for hit, artifact in zip(hits, artifacts, strict=True):
             if not isinstance(artifact, AtomicMemory):
                 raise ArtifactSearchContractError("atomic-memory", "Selected result has another Artifact Family")
@@ -1030,9 +1044,7 @@ class ScopedAtomicMemory:
             content = artifact.content
             payload_hash = sha256(canonical_json(content.model_dump(mode="json", by_alias=True))).hexdigest()
             input_hash = (
-                None
-                if application.publisher.profile_fingerprint is None
-                else atomic_memory_embedding_input_hash(content.kind, content.text)
+                None if profile_fingerprint is None else atomic_memory_embedding_input_hash(content.kind, content.text)
             )
             if (
                 hit.kind != content.kind
@@ -1043,7 +1055,7 @@ class ScopedAtomicMemory:
                 or projection["searchable_text"]
                 != analyze_text(atomic_memory_embedding_input(content.kind, content.text))
                 or (verify_vectors and projection["embedding_input_hash"] != input_hash)
-                or (verify_vectors and projection["profile_fingerprint"] != application.publisher.profile_fingerprint)
+                or (verify_vectors and projection["profile_fingerprint"] != profile_fingerprint)
                 or projection["projection_format"] != ATOMIC_MEMORY_PROJECTION_FORMAT
             ):
                 raise AtomicMemoryIndexError("stale-projection", "Atomic Memory projection content is inconsistent")
