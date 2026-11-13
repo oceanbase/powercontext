@@ -557,3 +557,26 @@ def test_in_process_keyed_create_requires_current_scope_contribution(tmp_path: P
                 assert _count(database, "SELECT COUNT(*) FROM pc_atomic_memory_idempotency") == 1
 
     asyncio.run(scenario())
+
+
+def test_untrusted_in_process_context_cannot_probe_an_occupied_key() -> None:
+    """An explicit context that is neither access-controlled nor trusted local is denied before any lookup."""
+    from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.server.authz import AccessDeniedError
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(ScopeDraft(title="Keys", summary="SDK keys", idempotency_key="keys"))
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            content = (AtomicMemoryContent(kind="preference", text="Use pnpm"),)
+            other = (AtomicMemoryContent(kind="preference", text="Use npm"),)
+            await memory.create(content, idempotency_key="known")
+
+            untrusted = ArtifactSearchExecutionContext()
+            for value, key in ((content, None), (content, "unused"), (content, "known"), (other, "known")):
+                with pytest.raises(AccessDeniedError):
+                    await memory.create(value, idempotency_key=key, context=untrusted)
+            assert len((await memory.list()).items) == 1
+
+    asyncio.run(scenario())

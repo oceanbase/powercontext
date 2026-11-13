@@ -548,10 +548,14 @@ class AtomicMemoryManagementWriter:
         )
 
     async def authorize_creates(self, scope_id: str, artifact_ids: Sequence[str], *, execution_context=None) -> None:
-        """Check creation authority alone, for callers that may answer without preparing a write."""
+        """Check creation authority alone, for callers that may answer without preparing a write.
+
+        Only an absent context skips the check; the domain policy decides trusted local and
+        untrusted contexts exactly as it does for an ordinary creation.
+        """
         from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
 
-        if execution_context is None or execution_context.access is None:
+        if execution_context is None:
             return
         async with (
             deferred_decision_audit(execution_context),
