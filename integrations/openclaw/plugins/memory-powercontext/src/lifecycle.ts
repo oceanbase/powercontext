@@ -31,6 +31,7 @@ import {
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
 import { resolvePowerContextScope } from "./scope.js";
+import { containsSecret, scrubSecrets } from "./secrets.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
@@ -104,6 +105,11 @@ function flushProgress(value: unknown): FlushProgress {
 
 function scopeCorrelation(scopeId: string): string {
   return createHash("sha256").update(scopeId).digest("hex").slice(0, 16);
+}
+
+// Fetch trims the Authorization header value, so the Server sees the trimmed token.
+function serverToken(config: PowerContextConfig): string | undefined {
+  return process.env[config.tokenEnv]?.trim() || undefined;
 }
 
 export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: LifecycleDependencies) {
@@ -337,6 +343,11 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     ) {
       return;
     }
+    // Check the whole latest user text, because truncation can shorten a credential below a recognizable shape.
+    const text = latestUserText(params.messages);
+    if (!text || containsSecret(text, serverToken(config))) {
+      return;
+    }
     const content = captureTranscript(params.messages, config.captureMaxChars);
     if (!content) {
       return;
@@ -453,7 +464,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
         scope_id: scopeId,
-        query: truncateUtf8(query, 8192),
+        query: truncateUtf8(scrubSecrets(query, serverToken(config)), 8192),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });

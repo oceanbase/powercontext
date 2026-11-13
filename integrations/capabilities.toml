@@ -1010,7 +1010,7 @@ tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.t
 [integrations.evidence]
 implementation = ["integrations/openclaw/plugins/memory-powercontext/src/tools.ts", "integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts"]
 documentation = ["docs/en/docs/integrations/openclaw.md", "docs/zh/docs/integrations/openclaw.md"]
-tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts"]
+tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts", "integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.test.ts"]
 
 [[integrations]]
 id = "opencode"
