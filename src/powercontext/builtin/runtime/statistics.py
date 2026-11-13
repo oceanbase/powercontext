@@ -187,8 +187,8 @@ class RelationalScopedStatistics:
     async def flush_model_usage(self) -> None:
         """Wait, within a bounded budget, for the usage accepted so far.
 
-        Reading statistics already flushes; this covers the writer side. The wait
-        covers only the prefix accepted at entry, and a record still retrying a
+        Statistics reads explicitly flush before opening their snapshot. The wait
+        covers only the prefix accepted at entry, and a batch still retrying a
         contended write may settle after this returns: accounting stays
         best-effort rather than becoming a durability barrier.
         """

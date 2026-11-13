@@ -391,6 +391,12 @@ def test_repository_batch_reads_deduplicate_refs_and_bound_the_journal_window() 
                 assert loaded == (second, first)
                 assert window == (second,)
                 assert third.journal_position > second.journal_position
+                other_scope = await repositories.sources.add(
+                    connection, "scope-b", first_source.model_copy(update={"body": "other Scope"})
+                )
+                assert await repositories.sources.get_many(connection, "scope-b", (first.ref,)) == (other_scope,)
+                assert await repositories.sources.get_many(connection, "scope-a", (first.ref,)) == (first,)
+                assert other_scope.journal_position == 1
                 with pytest.raises(RepositoryNotFoundError):
                     await repositories.sources.get_many(
                         connection,

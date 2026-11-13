@@ -65,7 +65,8 @@ middleware 本身支持同步 `invoke` 和 `stream`；异步应用应直接使�
 1. 读取最新的人类消息，不修改 state；
 2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`；
 3. 向当前 system message 追加一个独立文本块；
-4. 把整个文本块明确标为不可信历史证据。
+4. 文本块以 `PowerContext host-supplied context` 开头，后接 Server 准备的内容；
+   内容顶部的信任策略把其后的全部内容标为不可信的历史数据。
 
 因此，tool loop 的后续模型步骤可以拿到新鲜上下文，包括同一轮中通过工具显式写入的 Memory。这个 override 只属于当前
 模型请求，不会在 checkpointed message history 中累积。

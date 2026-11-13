@@ -508,10 +508,8 @@ export class StatusBridge {
 
   private async readPackageVersion(): Promise<void> {
     try {
-      const response = await this.options.client.request('get_server_info', {},
-        combineSignals([this.abort.signal, AbortSignal.timeout(1_000)]))
-      if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value)
-        ? packageVersion(response.value.package_version) : null
+      const version = await readServerPackageVersion(this.options.client, this.abort.signal)
+      if (!this.disposed) this.packageVersion = version
     } catch {
       this.packageVersion = null
     }
@@ -598,7 +596,14 @@ export class StatusBridge {
   }
 }
 
-function sendJson(response: ServerResponse, status: number, payload: unknown): void {
+/** Read the running Server package identity without treating metadata as readiness. */
+export async function readServerPackageVersion(client: Pick<PowerContextClient, 'request'>, signal?: AbortSignal): Promise<string | null> {
+  const response = await client.request('get_server_info', {},
+    combineSignals(signal ? [signal, AbortSignal.timeout(1_000)] : [AbortSignal.timeout(1_000)]))
+  return response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null
+}
+
+export function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   if (response.writableEnded) return
   response.statusCode = status
   response.setHeader('content-type', 'application/json; charset=utf-8')
@@ -613,13 +618,16 @@ function sendMethodNotAllowed(response: ServerResponse): void {
   response.end()
 }
 
-interface UiHostContext extends Context {
+export interface UiHostContext extends Context {
   webServer: { register(route: {
     kind: 'exact'
     path: string
     handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>
   }): () => void }
-  connection: { requestRejection(request: { headers: IncomingMessage['headers'] }): 401 | 403 | undefined }
+  connection: {
+    requestRejection(request: { headers: IncomingMessage['headers'] }): 401 | 403 | undefined
+    admit?(request: { headers: IncomingMessage['headers'] }): { peer?: { principal?: { kind?: string } } }
+  }
 }
 
 export function createStatusRouteHandler(
