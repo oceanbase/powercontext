@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
 import type { PreStepDecision, PromptMessage } from '../src/recall.ts'
+import { shippedConfig } from './shipped-config.ts'
 
 const peers = vi.hoisted(() => ({ createUserMessage: vi.fn((input: unknown) => input) }))
 vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
@@ -229,6 +230,25 @@ describe('registered automatic path', () => {
     expect(valid.requests[0].body.binding_keys).toEqual([])
     expect(valid.requests.map(({ path }) => path)).toContain(CAPTURE)
   })
+
+  it('injects context whose preparation takes longer than one second with the shipped config', async () => {
+    const h = await fixture(async (path, init) => {
+      if (path === PREPARE) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, 1500)
+          init.signal!.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(init.signal!.reason)
+          }, { once: true })
+        })
+      }
+      return successfulRequest(path)
+    }, shippedConfig())
+    const result = await h.run()
+    expect(JSON.stringify(result.messages)).toContain(TEXT)
+    expect(h.requests.map(({ path }) => path)).toContain(CAPTURE)
+    expect(h.diagnostics()).toEqual([])
+  }, 10_000)
 
   it('reports connection failure without leaking exception text', async () => {
     const h = await fixture(() => { throw new Error(PRIVATE) })

@@ -100,7 +100,7 @@ describe('read-only DSH Doctor', () => {
       }
     }
 
-    it.each([1600, 36_000])('accepts healthy cold readiness after %i ms with the shipped request timeout', async delayMs => {
+    it.each([3600, 36_000])('accepts healthy cold readiness after %i ms with the shipped request timeout', async delayMs => {
       const h = fixture(delayedReadiness(delayMs, 200, {
         status: 'ready', checks: { runtime: 'ready', database: 'ready', 'inference.generation': 'ready' },
       }))
@@ -108,7 +108,7 @@ describe('read-only DSH Doctor', () => {
       await vi.advanceTimersByTimeAsync(delayMs)
       expect(await pending).toMatchObject({
         ok: true,
-        configuration: { request_timeout_ms: 1000, readiness_request_timeout_ms: 40_000 },
+        configuration: { request_timeout_ms: 3000, readiness_request_timeout_ms: 40_000 },
         checks: { readiness: { state: 'ok', code: 'ready' } },
       })
       expect(h.calls.filter(call => call.path === '/health/ready')).toHaveLength(1)

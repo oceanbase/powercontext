@@ -51,7 +51,7 @@ Bash 使用 export POWERCONTEXT_KIMI_TOKEN='<原始 Server token>'。Hook 与 MC
 powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
 ```
 
-Hook 总预算 4 秒，通过 Kimi 的 message 字段注入。message 包含本轮请求的 binding metadata；有可用上下文时，其后原样附上 Server 准备的上下文，该上下文以 Server 的信任声明开头，插件不再另加声明。失败时普通对话继续，stderr 输出脱敏诊断。已发送采集请求但丢失响应时，结果为 unknown，不自动重试；独立提交即使文字相同，也分配独立 Source ID。
+Hook 总预算 4 秒，处于 Kimi 的 5 秒 hook 超时之内，单个请求最长 3 秒；上下文通过 Kimi 的 message 字段注入。message 包含本轮请求的 binding metadata；有可用上下文时，其后原样附上 Server 准备的上下文，该上下文以 Server 的信任声明开头，插件不再另加声明。失败时普通对话继续，stderr 输出脱敏诊断。已发送采集请求但丢失响应时，结果为 unknown，不自动重试；独立提交即使文字相同，也分配独立 Source ID。
 
 显式记忆读写不需要 Generation API。自动生成记忆需要 Server 配置 Generation 和定时处理；Source 接受不证明记忆已生成，插件不调用 flush。Kimi 登录凭据不等于 Server 的模型凭据。
 

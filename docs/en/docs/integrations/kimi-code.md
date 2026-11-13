@@ -51,7 +51,7 @@ Ordinary text prompts attempt context preparation and Source capture. Mixed prom
 powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
 ```
 
-The Hook has a 4-second total budget and returns context through Kimi's message field. The message holds this request's binding metadata, followed by the Server's prepared context unchanged when one is ready; that context starts with the Server's trust policy, and the plugin adds no notice of its own. Failures continue ordinary work and emit redacted stderr diagnostics. A capture response lost after sending is unknown and is not retried automatically. Separate submissions, including identical text, get separate Source IDs.
+The Hook has a 4-second total budget within Kimi's 5-second hook timeout, with a 3-second limit per request, and returns context through Kimi's message field. The message holds this request's binding metadata, followed by the Server's prepared context unchanged when one is ready; that context starts with the Server's trust policy, and the plugin adds no notice of its own. Failures continue ordinary work and emit redacted stderr diagnostics. A capture response lost after sending is unknown and is not retried automatically. Separate submissions, including identical text, get separate Source IDs.
 
 Explicit Memory operations need no Generation API. Automatic Memory requires the Server's Generation configuration and scheduled processing; Source acceptance alone does not prove Memory creation, and the plugin does not flush. Kimi credentials do not supply Server Generation credentials.
 
