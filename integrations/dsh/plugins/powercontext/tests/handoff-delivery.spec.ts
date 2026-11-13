@@ -156,6 +156,7 @@ describe('local DSH handoff deliveries', () => {
 
   it('persists the entire result, reopens without remote work, and keeps the ACK identity', async () => {
     open()
+    expect(() => open()).toThrowError(expect.objectContaining({ code: 'integration_unavailable' }))
     const owner = caller()
     const prepared = await service.prepare(owner, input())
     expect(prepared).toMatchObject({ preparationState: 'prepared', source,
@@ -265,54 +266,56 @@ describe('local DSH handoff deliveries', () => {
     expect(await service.get(owner, unknown.deliveryId)).toMatchObject({ preparationState: 'unknown' })
   })
 
-  it.skipIf(Number(process.versions.node.split('.')[0]) < 22)(
-    'recovers an interrupted process as unknown without repeating the remote operation', async () => {
-      const url = new URL('../src/handoff/delivery.ts', import.meta.url).href
-      const script = `
-        import { LocalDeliveryService } from ${JSON.stringify(url)}
-        const binding = ${JSON.stringify(bindingFor(source))}
-        const service = new LocalDeliveryService({
-          directory: process.argv[1],
-          preflightGate: { validateForPrepare: async () => binding },
-          resolveConnection: async () => ({ client: {
-            request() {
-              process.stdout.write('dispatched')
-              return new Promise(() => setInterval(() => {}, 1000))
-            },
-          } }),
-        })
-        await service.prepare(
-          { ownerId: 'owner-a', signal: new AbortController().signal },
-          ${JSON.stringify(input())},
-        )
-      `
-      const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-strip-types', '--input-type=module', '-e', script, directory],
-        { stdio: ['ignore', 'pipe', 'pipe'] })
-      const exited = once(child, 'exit')
-      try {
-        const event = await Promise.race([
-          once(child.stdout, 'data').then(([data]) => String(data)),
-          once(child.stderr, 'data').then(([data]) => String(data)),
-          exited.then(([code]) => 'exited: ' + code),
-        ])
-        expect(event).toBe('dispatched')
-        expect(() => open()).toThrowError(expect.objectContaining({ code: 'integration_unavailable' }))
-      } finally {
-        child.kill('SIGKILL')
-        await exited
-      }
-
-      open()
-      const owner = caller()
-      const [view] = await service.list(owner)
-      expect(view).toMatchObject({ preparationState: 'unknown', error: { code: 'outcome_unknown' } })
-      expect(await service.prepare(owner, input())).toMatchObject({
-        deliveryId: view.deliveryId, receiptAttempt: view.receiptAttempt, preparationState: 'unknown',
+  it.skipIf(Number(process.versions.node.split('.')[0]) < 22).each([
+    ['the new Host', process.pid], ['an unrelated live process', process.ppid],
+  ])('recovers after a crash when a legacy marker names %s', async (_process, reusedPid) => {
+    const url = new URL('../src/handoff/delivery.ts', import.meta.url).href
+    const script = `
+      import { LocalDeliveryService } from ${JSON.stringify(url)}
+      const binding = ${JSON.stringify(bindingFor(source))}
+      const service = new LocalDeliveryService({
+        directory: process.argv[1],
+        preflightGate: { validateForPrepare: async () => binding },
+        resolveConnection: async () => ({ client: {
+          request() {
+            process.stdout.write('dispatched')
+            return new Promise(() => setInterval(() => {}, 1000))
+          },
+        } }),
       })
-      await expect(service.getForLaunch(owner, view.deliveryId)).rejects.toMatchObject({ code: 'outcome_unknown' })
-      expect(fetch).not.toHaveBeenCalled()
-    },
-  )
+      await service.prepare(
+        { ownerId: 'owner-a', signal: new AbortController().signal },
+        ${JSON.stringify(input())},
+      )
+    `
+    const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-strip-types', '--input-type=module', '-e', script, directory],
+      { stdio: ['ignore', 'pipe', 'pipe'] })
+    const exited = once(child, 'exit')
+    try {
+      const event = await Promise.race([
+        once(child.stdout, 'data').then(([data]) => String(data)),
+        once(child.stderr, 'data').then(([data]) => String(data)),
+        exited.then(([code]) => 'exited: ' + code),
+      ])
+      expect(event).toBe('dispatched')
+      expect(() => open()).toThrowError(expect.objectContaining({ code: 'integration_unavailable' }))
+    } finally {
+      child.kill('SIGKILL')
+      await exited
+    }
+
+    // Simulate PID reuse without relying on the kernel to recycle the child PID.
+    writeFileSync(join(directory, '.host-' + reusedPid), '', { mode: 0o600 })
+    open()
+    const owner = caller()
+    const [view] = await service.list(owner)
+    expect(view).toMatchObject({ preparationState: 'unknown', error: { code: 'outcome_unknown' } })
+    expect(await service.prepare(owner, input())).toMatchObject({
+      deliveryId: view.deliveryId, receiptAttempt: view.receiptAttempt, preparationState: 'unknown',
+    })
+    await expect(service.getForLaunch(owner, view.deliveryId)).rejects.toMatchObject({ code: 'outcome_unknown' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
 
   it('distinguishes missing input and a definitive rejection from an unknown result', async () => {
     open()
@@ -479,6 +482,28 @@ describe('local DSH handoff deliveries', () => {
     ]) })
   })
 
+  it.each([16, 17])('discloses truncation of %i Host omissions in the captured source', async count => {
+    const omissions = Array.from({ length: count }, (_, i) => 'Host omission ' + (i + 1))
+    const readBoundary: BoundaryReader = async (_context, selected) => ({
+      source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: selected.throughSeq, text: 'Selected reply' },
+      events: [], workspace: { observedAt: selected.workspaceObservedAt, revision: 'abc', uncommittedChanges: '' },
+      omissions,
+    })
+    let captured: unknown
+    fetch.mockImplementationOnce(async (_url, init) => {
+      captured = JSON.parse(JSON.parse(init.body as string).content)
+      return response({}, 422)
+    })
+    open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 6000 } }) })
+    await service.prepare(caller(), input({ workInput: undefined }))
+    expect(captured).toMatchObject({ omissions: [
+      'No check evidence was available; whether checks ran is unknown.',
+      ...omissions.slice(0, 16),
+      ...(count > 16 ? ['Additional omissions reported by the Host could not be included.'] : []),
+    ] })
+  })
+
   it('protects unconfirmed and pinned packages, and serializes deletion with a path consumer', async () => {
     let now = Date.parse(source.workspaceObservedAt)
     open({ now: () => now, limits: { maxDeliveries: 1 } })
@@ -519,10 +544,13 @@ describe('local DSH handoff deliveries', () => {
     const result = await service.prepare(caller(), input())
     await service.close()
     const record = join(directory, result.deliveryId + '.record.json')
+    const original = readFileSync(record)
     const future = JSON.stringify({ schema: 'powercontext.dsh-delivery.v2' })
     writeFileSync(record, future)
     expect(() => open()).toThrowError(expect.objectContaining({ code: 'payload_invalid' }))
     expect(readFileSync(record, 'utf8')).toBe(future)
+    writeFileSync(record, original)
+    expect(await open().get(caller(), result.deliveryId)).toMatchObject({ preparationState: 'prepared' })
   })
 })
 

@@ -35,15 +35,21 @@ The Host's `BoundaryReader` supplies the selected reply and observations at that
 read must honor the requested limits; the collector also enforces 512 events including the selected reply,
 256 KiB overall and 32 KiB for workspace evidence, subject to the lower Source and configured model input
 limits. It preserves known test statuses, exact citations when supplied, revisions and working tree
-observations. No observed check means the result is unknown. An explicit check that did not run is
-different from a failure, interruption, or missing evidence. The reader must not run tests or replace an
+observations. It considers at most 16 Host omission entries and records a summary omission if any
+entries cannot be included. No observed check means the result is unknown. An explicit check that did
+not run is different from a failure, interruption, or missing evidence. The reader must not run tests or replace an
 unavailable workspace observation with the current directory state. For configured generation, use a
 client configured for the intended generation deadline; the service caps the model call at 90 seconds.
 There is no generation fallback or automatic milestone commit.
 
 ## Package integrity and recovery
 
-The Host uses a private POSIX directory below its user data, with one owning Host process per directory.
+The Host uses a private directory on a local filesystem below its user data. The store holds an exclusive
+kernel lock on the open directory until the service closes or the Host process exits. It uses macOS
+file locking or Linux util-linux `/usr/bin/flock`; an unavailable lock prevents the store from opening.
+Legacy PID marker files are ignored. Stop any Host running the PID marker implementation before opening
+the same directory with this implementation.
+
 Records and packages use `powercontext.dsh-delivery.v1` and are stored separately by delivery ID. The
 service writes identity, binding and the `content` ACK source ID before dispatch. It persists the expected
 size and file checksum before atomically publishing the complete package. Recovery verifies those bytes and
