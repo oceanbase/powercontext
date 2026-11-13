@@ -1,5 +1,55 @@
 # Desktop validation
 
+## Server 8d9d107a merged Work Ledger / task stop reason protocol qualification
+
+`sqlite-work-ledger-8d9d107a-v1` qualifies the thirteen bundled Desktop operations
+against SQLite Server source `8d9d107a498aff1bb5399fbea1ee75baf9385c73`, the merge of
+master `1cb0e75db` into the durable Work Ledger line. The merged contract carries both
+lineages: master's `TaskStopReason` / `TaskOutcome.stop_reason` schemas and the Work Ledger
+`list_operations` / `DurableOperationPage` endpoints. Neither side's digest describes it,
+so a new qualification record was generated instead of reusing either profile.
+
+- Normalized OpenAPI SHA-256 is `54c69ae3f8aaac6f8d8eea23419e007be3ddf7f9d7e81db1053b59c6ca30131c`.
+- The wheel is `powercontext-1.4.1.dev705+g8d9d107a4-py3-none-any.whl`.
+- Wheel SHA-256 is `2a2cd8ec4896944fe08b38c7b83da8ef101643b8c48414f18cbdc76706c875af`.
+- Native debug probe SHA-256 is `ee45fc0532aef01b02a75a716c5f881dc8159a527c2adbd16340ee635c113f9c`.
+
+On 2026-11-13, macOS 27.2.1 arm64 / Python 3.14.7 / debug probe passed all four modes of the
+unchanged `desktop/tests/real_server.py` through the ordinary product ConnectionManager
+(`qualificationSource: bundled product records`): anonymous loopback, static Bearer, HTTPS
+with explicit CA and base path, and enforced Provider. Exact-read / save / search p50-p95
+latencies are 9.06/9.90, 23.80/24.97 and 11.36/12.00 ms for anonymous loopback;
+17.04/18.07, 34.96/37.02 and 17.92/18.32 ms for static Bearer;
+17.52/18.52, 35.37/168.98 and 18.36/19.35 ms for HTTPS with a base path; and
+17.65/18.17, 35.37/37.27 and 18.45/18.90 ms for enforced Provider. Reads and searches use
+twenty samples, saves eleven. All four cases report independent Server survival after client
+exit and a committed write whose lost response stays unknown without replay. The Provider case
+additionally records identity-change invalidation, same-identity revocation denying exact
+reads, 51 same-title Scope pagination, and scoped native authorization retained while Server
+discovery returns 403. Statistics usage is controlled fixture input, not an external
+model-provider execution claim.
+
+The wheel was built from a clean tree at `8d9d107a`; the report still records
+`desktopWorkingTreeDirty=true` because this qualification record and section are written in
+the same checkout afterwards. The exact wheel, probe identity and real-Server report are
+retained under ignored `desktop/.artifacts/`. These are independent loopback HTTP/TLS fixture
+processes on one macOS host; they do not establish an external deployment, installed UI,
+native credential persistence, other operating systems, signing or release acceptance, and
+the upgrade policy remains `upgrade-required`. Historical qualification records retain their
+exact source, contract, artifact identities and operation sets. The new stop reason's
+recording and readback are covered by the separate Work/HTTP SQLite tests, not by a Desktop
+UI flow.
+
+Reproduce against the recorded Server source and artifact:
+
+```sh
+uv build --wheel --out-dir desktop/.artifacts/server-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-work-ledger-8d9d107a-v1
+```
+
+
 ## Server 7d716b64 Work Ledger v1.5.1 protocol qualification
 
 `sqlite-work-ledger-7d716b64-v1` qualifies the thirteen bundled Desktop operations
