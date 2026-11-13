@@ -154,7 +154,9 @@ capability.
 
   It loads only the Source plugins in the plugin directory and connects to the central Server with its credential. The
   runner is named after the credential's subject by default (for example the service account `robot-7`); `--name` sets
-  another name, and devices that share a credential must each set one.
+  another name, and devices that share a credential must each set one. The name `server` is reserved for the central
+  Server's own runner; a name is bound to the credential subject of its first sync, and no other subject can sync under
+  it afterwards.
 - **Sync**: a runner calls the central sync API on a schedule (every 30 seconds by default) to do three things:
   1. report the plugins it loaded, each plugin's version and load error, and when it was last seen;
   2. fetch every target assigned to it, across all Scopes;
@@ -187,10 +189,20 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 - **Status**: each target's latest attempt time, latest success time, consecutive failures, and latest error are reported
   by the runner together with its checkpoint. A `last_seen_at` later than the target's `updated_at` means the runner has
   fetched the latest configuration.
+- **Changing**: fields of `parameters` outside the identity expression can change, and targets can be enabled or
+  disabled; fields in the identity expression cannot change. To collect another object, add another target, so a
+  checkpoint always belongs to the same external object.
 - **Disabling and deleting**: a disabled target leaves the sync results while its checkpoint is kept, and resuming
   continues from where it stopped; deleting also deletes its checkpoint, while collected Sources are kept.
-- **Permissions**: adding, changing, and removing targets need Source write permission on the Scope; listing runners needs
-  only authentication; a runner can only sync and report its own targets; deleting a runner record needs `server.admin`.
+- **Permissions**:
+  - Adding, changing, and removing targets of a device runner needs Source write permission on the Scope; a device can
+    submit results only to Scopes where its credential has `scope.contribute`.
+  - Adding, changing, and removing targets of the `server` runner needs `server.admin`: the server runner reaches external
+    systems with credentials from the Server environment, so deciding what it collects is an operator decision that
+    cannot be left to a user with write permission on some Scope. The server runner submits results inside the Server and
+    needs no further permission.
+  - Listing runners needs only authentication; a runner can only sync and report its own targets; deleting a runner
+    record needs `server.admin`.
 
 ## 5. Submitting results and recovering from disconnects
 
@@ -217,9 +229,12 @@ approaches:
 
 In the third approach one plugin package has two roles: on the device it collects and uploads; on the central Server it
 receives files and runs `resolve` and Projections. The plugin on the device calls its own central routes through
-`ctx.center.call_plugin(...)`; the runner supplies the credential and address, which the plugin never sees. Central
-Projections can read the plugin's own storage and hand file contents to consumers; files are stored by content digest and
-never change once written, so Projection results stay deterministic.
+`ctx.center.call_plugin(...)`; the runner supplies the credential and address, which the plugin never sees. The device
+uploads the file first, then submits the Source that references it; the central Server runs the Projections when it
+writes the Source, so they can read the file from plugin storage, and their results are saved with the Source like any
+other Projection. Delivery to Artifact plugins reads only the saved results and never reruns Projections, so cleaning up
+a file later cannot fail a consumer's window. Files are stored by content digest and never change once written, so
+Projection results are deterministic.
 
 ## 7. Operations
 
@@ -242,7 +257,10 @@ compared with it; the plugin is responsible for data format compatibility.
   not loaded are rejected too.
 - **Upgrade the central Server first, then devices**: a device version newer than the central one is also rejected,
   because the central Server cannot judge whether newer code is compatible. After the central upgrade, older devices
-  within the range keep working and can upgrade one by one.
+  within the range keep working and can upgrade one by one. With several central instances, each checks against the
+  version it loaded, so during a rolling upgrade one device's requests may be accepted by one instance and rejected by
+  another; finish upgrading every central instance before upgrading devices. Runners treat
+  `plugin_version_incompatible` as retryable and retry at the next sync.
 - **What compatibility means**: by declaring `min_compatible_version`, a plugin promises that the new central version can
   process Sources submitted by devices within the range; a new version that still needs to read an old version's Sources
   keeps declaring the old definitions (RFC #2579). The only thing a device reads from the central Server is target
@@ -311,6 +329,7 @@ class CollectedItem(BaseModel):
 class CollectResult(BaseModel):
     def add(self, target: CollectTarget, items: Sequence[CollectedItem], *, checkpoint: JsonValue | None,
             has_more: bool = False) -> None: ...
+    def fail(self, target: CollectTarget, *, code: str, message: str) -> None: ...   # only this target failed
 
 class SourceCollector(Protocol):
     async def collect(self, request: CollectRequest, /) -> CollectResult: ...
@@ -322,8 +341,10 @@ class SourceCollector(Protocol):
   Targets absent from the result keep their checkpoint.
 - Source identity is determined by `resolve`. Repeated collection of the same external state with the same identity creates
   no duplicate Source; the same identity with different content is a conflict, and the invocation fails.
-- Collection failures enter the backoff of the Supervisor (on the Server) or the runner (on a device); a target that keeps
-  failing fails that Scope's invocation, and can be disabled first.
+- A plugin reports a single target's failure with `fail`: that target's checkpoint stays, its status columns record the
+  failure, and the other targets' results in the same invocation commit as usual. When `collect` raises, returns an
+  invalid result, or the submission fails, the whole invocation fails and enters the backoff of the Supervisor (on the
+  Server) or the runner (on a device).
 
 ## 3. Persistence
 
@@ -352,10 +373,10 @@ class SourceCollector(Protocol):
 | `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every runner, its capabilities, whether their versions are compatible with the central Server, and when it was last seen; capability descriptions and parameter formats come from the central plugin |
 | `POST /v1/source-runners/{runner}/sync` | The runner itself | The request carries the capability list (plugin versions and load errors); the response returns every enabled target of a compatible version assigned to the runner with its checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | Deletes a runner record; a conflict while it still has targets |
-| `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
+| `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope; `server.admin` when the runner is `server` | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
 | `GET /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_status`) | Scope read | Targets, their configuration, and status |
-| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | Source write on the Scope | Changes `parameters` or enables and disables |
-| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | Source write on the Scope | Deletes a target and its checkpoint |
+| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | As for creation | Changes fields of `parameters` outside the identity expression, or enables and disables |
+| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | As for creation | Deletes a target and its checkpoint |
 | `POST /v1/source-observations` | Existing | Requests from a runner gain the plugin name and version, checked against the compatible range |
 | `POST /v1/connector-checkpoints/commit` | Existing | The request gains an optional `status`: latest attempt, success, error category, and message; requests from a runner gain the plugin name and version, checked against the compatible range |
 
@@ -381,7 +402,10 @@ class PluginCenter(Protocol):
 
 It calls central plugin routes (`/v1/plugins/{plugin}/api{path}`) with the runner's credential and can reach only the
 plugin's own routes. A central Source plugin may declare RFC #2579 routes, and its Projections may read plugin storage
-through `ctx.storage`.
+through `ctx.storage` when the Source is written (section 6).
+
+On devices, core keeps no plugin data, so `ctx.storage` is unavailable and raises when accessed; the plugin manages its
+own local files. `ctx.center` exists only on devices, which lets a plugin tell which side it runs on.
 
 ## 6. Mapping from the old framework
 

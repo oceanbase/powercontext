@@ -134,7 +134,8 @@ plugin = SourcePlugin(
   ```
 
   它只加载插件目录中的 Source 插件，用凭据连接中心。runner 的名字默认取自凭据的主体（例如服务账号 `robot-7`），也可以用
-  `--name` 指定；多台设备共用一个凭据时必须分别指定。
+  `--name` 指定；多台设备共用一个凭据时必须分别指定。名字 `server` 保留给中心自带的 runner；一个名字第一次同步时与当时的
+  凭据主体绑定，其他主体不能再以这个名字同步。
 - **同步**：runner 定时（默认 30 秒）调用中心的同步接口，完成三件事：
   1. 上报自己加载的插件、每个插件的版本和加载错误，以及最近在线时间；
   2. 取回分配给自己的全部目标（跨所有 Scope）；
@@ -161,10 +162,16 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   目标已经存在时，返回已有目标；键相同但参数不同时返回冲突。
 - **状态**：每个目标的最近尝试时间、最近成功时间、连续失败次数和最近错误，由 runner 随 checkpoint 一起汇报。
   `last_seen_at` 晚于目标的 `updated_at`，说明 runner 已经拉到最新配置。
+- **修改**：可以修改 `parameters` 中不参与唯一性的字段和启停；唯一性表达式中的字段不能修改，要采集另一个对象就新增一个
+  目标，这样 checkpoint 总是对应同一个外部对象。
 - **停用与删除**：停用后目标不再出现在同步结果中，checkpoint 保留，恢复后从原位置继续；删除同时删除它的 checkpoint，已采集的
   Source 保留。
-- **权限**：增删改目标需要该 Scope 的 Source 写权限；查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；删除 runner
-  记录需要 `server.admin`。
+- **权限**：
+  - 给设备上的 runner 增删改目标，需要该 Scope 的 Source 写权限；设备只能把结果提交到它的凭据有 `scope.contribute` 的
+    Scope。
+  - 给 `server` runner 增删改目标需要 `server.admin`：服务端 runner 用 Server 环境中的凭据访问外部系统，决定它采集什么
+    等同于运维决定，不能交给只有某个 Scope 写权限的用户。服务端 runner 提交结果在 Server 内部完成，不需要额外权限。
+  - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；删除 runner 记录需要 `server.admin`。
 
 ## 5. 结果提交与断线恢复
 
@@ -187,8 +194,10 @@ runner 每次采集一个 Scope 中分配给它的已启用目标：
 | 经中心插件 | 同一个 Source 插件也在中心加载，通过 RFC #2579 的插件接口接收文件并存进自己的存储；Source 中记录引用 | 不希望设备直接连接对象存储 |
 
 第三种做法中，同一个插件包有两个角色：在设备上采集并上传，在中心接收文件、执行 `resolve` 和 Projection。设备上的插件通过
-`ctx.center.call_plugin(...)` 调用自己在中心的接口，凭据和地址由 runner 提供，插件接触不到。中心的 Projection 可以读取插件
-自己的存储，把文件内容交给消费方；文件按内容摘要保存、写入后不变，Projection 的结果仍是确定的。
+`ctx.center.call_plugin(...)` 调用自己在中心的接口，凭据和地址由 runner 提供，插件接触不到。设备先上传文件，再提交引用它的
+Source；中心在写入 Source 时执行 Projection，可以读取插件存储中的文件，结果与 Source 一起保存，与其他 Projection 相同。
+交付给 Artifact 插件时只读取保存的结果，不再执行 Projection，因此之后文件被清理也不会让消费方的窗口失败。文件按内容摘要
+保存、写入后不变，Projection 的结果是确定的。
 
 ## 7. 运维
 
@@ -205,7 +214,9 @@ runner 每次采集一个 Scope 中分配给它的已启用目标：
   同步时，不兼容插件的目标不下发，同一 runner 上其他插件照常同步；runner 列表显示哪些设备需要升级。中心没有加载该插件时，
   同样拒绝。
 - **先升级中心，再升级设备**：比中心新的设备版本也被拒绝，因为中心无法判断更新的代码是否兼容。中心升级后，兼容范围内的
-  旧设备继续工作，可以逐台升级。
+  旧设备继续工作，可以逐台升级。中心有多个实例时，各实例按自己加载的版本核对，滚动升级期间同一台设备的请求可能在一个
+  实例被接受、在另一个被拒绝；应先让所有中心实例完成升级，再升级设备。runner 把 `plugin_version_incompatible` 当作可以
+  重试的错误，在下一次同步时重试。
 - **兼容的含义**：插件声明 `min_compatible_version` 时，承诺中心的新版本能处理范围内设备提交的 Source；新版本仍需读取
   旧版本的 Source 时，继续声明旧版本的定义（RFC #2579）。设备从中心读取的只有目标参数：参数按中心版本的格式填写，可能
   带有旧设备不认识的字段，设备端的参数模型必须忽略未知字段（Pydantic 的默认行为，不能设置 `extra="forbid"`）。新参数
@@ -267,6 +278,7 @@ class CollectedItem(BaseModel):
 class CollectResult(BaseModel):
     def add(self, target: CollectTarget, items: Sequence[CollectedItem], *, checkpoint: JsonValue | None,
             has_more: bool = False) -> None: ...
+    def fail(self, target: CollectTarget, *, code: str, message: str) -> None: ...   # 只有这个目标失败
 
 class SourceCollector(Protocol):
     async def collect(self, request: CollectRequest, /) -> CollectResult: ...
@@ -276,7 +288,8 @@ class SourceCollector(Protocol):
 - 返回的条目总数超过 `max_items`、返回了请求中不存在的目标，都视为失败，不截断。结果中没有出现的目标，checkpoint 不变。
 - Source 身份由 `resolve` 决定。重复采集同一外部状态得到相同身份时不产生重复 Source；身份相同而内容不同时，中心返回冲突，
   本次调用失败。
-- 采集失败进入 Supervisor（服务端）或 runner（端侧）的退避；某个目标持续失败会让该 Scope 的这次调用失败，可以先停用该目标。
+- 单个目标失败时，插件用 `fail` 报告：该目标的 checkpoint 不变，状态列记录失败，同一次调用中其他目标的结果照常提交。
+  `collect` 抛出异常、返回值不合格或提交失败时，整次调用失败，进入 Supervisor（服务端）或 runner（端侧）的退避。
 
 ## 3. 持久化
 
@@ -302,10 +315,10 @@ class SourceCollector(Protocol):
 | `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有 runner、它们的能力、版本是否与中心兼容和最近在线时间；能力的说明和参数格式取自中心的插件 |
 | `POST /v1/source-runners/{runner}/sync` | runner 本身 | 请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标及其 checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
-| `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限 | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
+| `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限；runner 为 `server` 时需要 `server.admin` | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
 | `GET /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_status`） | Scope 读权限 | 目标、配置和状态 |
-| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | Scope 的 Source 写权限 | 修改 `parameters` 或启停 |
-| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | Scope 的 Source 写权限 | 删除目标及其 checkpoint |
+| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | 同新建 | 修改 `parameters` 中不参与唯一性的字段或启停 |
+| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | 同新建 | 删除目标及其 checkpoint |
 | `POST /v1/source-observations` | 现有 | 来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 | `POST /v1/connector-checkpoints/commit` | 现有 | 请求增加可选的 `status`：最近尝试、成功、错误分类和信息；来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 
@@ -327,7 +340,10 @@ class PluginCenter(Protocol):
 ```
 
 它以 runner 的凭据调用中心的插件接口（`/v1/plugins/{plugin}/api{path}`），只能调用插件自己的路由。中心的 Source 插件可以
-声明 RFC #2579 的路由；它的 Projection 可以通过 `ctx.storage` 读取插件存储。
+声明 RFC #2579 的路由；它的 Projection 在写入 Source 时可以通过 `ctx.storage` 读取插件存储（第 6 节）。
+
+设备上 core 不为插件保存数据，`ctx.storage` 不可用，访问时抛出异常；插件的本地文件由插件自己管理。`ctx.center` 只在设备
+上存在，插件据此判断自己运行在哪一端。
 
 ## 6. 与旧框架的对照
 
