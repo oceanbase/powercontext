@@ -1825,6 +1825,7 @@ def _validate_resource_list_query(
             AccessAction.SCOPE_REVIEW,
             AccessAction.SCOPE_DELEGATE,
             AccessAction.SCOPE_ADMIN,
+            AccessAction.GATEWAY_INVOKE,
         },
     }
     if resource_type is not AccessResourceType.ARTIFACT:

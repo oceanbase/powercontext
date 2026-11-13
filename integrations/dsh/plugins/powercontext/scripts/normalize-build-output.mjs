@@ -19,11 +19,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const OUTPUTS = ['index.js', 'index.d.ts', 'invariant.js', 'invariant.d.ts', 'client.js', 'client.d.ts']
+const OUTPUTS = [
+  ...['index.js', 'index.d.ts', 'invariant.js', 'invariant.d.ts', 'client.js', 'client.d.ts']
+    .map(name => join('lib', name)),
+  '../dsh-pet/lib/index.js',
+]
 
 export function normalizeBuildOutput() {
   for (const name of OUTPUTS) {
-    const path = join(root, 'lib', name)
+    const path = join(root, name)
     const contents = readFileSync(path, 'utf8')
     if (!contents.endsWith('\n')) writeFileSync(path, `${contents}\n`)
   }

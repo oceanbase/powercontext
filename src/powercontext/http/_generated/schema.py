@@ -1606,9 +1606,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "or release exactly the approved bytes "
                 "before their deadline.",
                 "operationId": "check_context",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "parameters": [
+                    {
+                        "name": "X-PowerContext-Resolve-Target",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "boolean", "default": False},
+                        "description": "Only for before_send by "
+                        "an authenticated service "
+                        "principal authorized for "
+                        "gateway.invoke on this "
+                        "Scope as well as "
+                        "scope.read. Neither "
+                        "scope.read nor "
+                        "server.admin implies "
+                        "invocation.",
+                    }
+                ],
                 "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckContextRequest"}}},
                     "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckContextRequest"}}},
                 },
                 "responses": {
                     "200": {
@@ -1632,11 +1654,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-                "x-powercontext-access": {
-                    "action": "scope.read",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/context/bootstrap": {
@@ -10687,6 +10704,51 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "exact "
                         "payload.",
                     },
+                    "target_endpoint": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "description": "Exact "
+                        "Core-configured "
+                        "endpoint, "
+                        "present "
+                        "only "
+                        "on "
+                        "an "
+                        "allow "
+                        "for "
+                        "before_send "
+                        "when "
+                        "X-PowerContext-Resolve-Target "
+                        "was "
+                        "authorized "
+                        "for "
+                        "a "
+                        "service "
+                        "principal.",
+                    },
+                    "target_protocol": {
+                        "type": "string",
+                        "enum": [
+                            "openai-chat",
+                            "openai-responses",
+                            "anthropic-messages",
+                            "openai-embeddings",
+                            "minimax-embeddings",
+                            "jev-rerank",
+                        ],
+                        "description": "Protocol "
+                        "of "
+                        "the "
+                        "Core-configured "
+                        "endpoint; "
+                        "present "
+                        "under "
+                        "the "
+                        "same "
+                        "condition "
+                        "as "
+                        "target_endpoint.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -14475,6 +14537,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope.review",
                     "scope.delegate",
                     "scope.admin",
+                    "gateway.invoke",
                     "artifact.read",
                     "artifact.write",
                     "artifact.share",
@@ -14649,6 +14712,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope.reviewer",
                     "scope.delegator",
                     "scope.admin",
+                    "gateway.user",
                     "server.observer",
                     "server.admin",
                 ],

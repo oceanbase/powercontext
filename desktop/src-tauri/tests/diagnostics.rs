@@ -48,6 +48,30 @@ fn integration_status_is_projected_without_details_or_checks_text() {
     assert!(!output.contains("secret"));
 }
 #[test]
+fn dsh_pet_memory_projects_only_its_status() {
+    let input = serde_json::json!({
+        "ok": true,
+        "hosts": {"dsh": {
+            "ok": true, "status": "ok",
+            "checks": {"dsh_pet_memory": {
+                "ok": false, "status": "degraded", "detail": "private-detail",
+                "checks": {"server_url": "https://private.test", "bindings": "private-scope"}
+            }}
+        }}
+    });
+    let result = project(
+        DiagnosticKind::Integrations,
+        &serde_json::to_vec(&input).unwrap(),
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&result.hosts[0]).unwrap(),
+        serde_json::json!({"host": "dsh", "status": "ok",
+            "checks": [{"field": "dsh_pet_memory", "status": "degraded"}]})
+    );
+}
+#[test]
 fn malformed_unknown_and_oversized_diagnostics_are_rejected() {
     for output in [
         b"not json".as_slice(),
