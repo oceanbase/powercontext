@@ -117,6 +117,15 @@ The exact test paths in `[exclusions].database` use SQLite or in-memory behavior
 
 These rules reduce unnecessary work for local changes. Shared-runtime and CI-policy changes retain broad coverage; runner minutes and queue latency require measurement after rollout.
 
+The isolated background-listener and concurrent-startup cases have separate initialization, execution and cleanup deadlines. Full schema preparation runs in a fresh database fixture before the startup assertions; database deletion gets a new 60-second window after the test body, including after assertion failures. The per-case collection/import window is 60 seconds. A hard process deadline also covers the sum of these windows, with ten seconds of termination grace; a timeout, missing JUnit report or failed cleanup still fails the case.
+
+| Isolated suite | Initialization | Startup and assertions | Cleanup |
+| --- | --- | --- | --- |
+| Background listener | 420 seconds | 120 seconds, including a 90-second CLI cold-start limit | 60 seconds |
+| Concurrent managed startup | 300 seconds | 120 seconds | 60 seconds |
+
+The native metrics CLI retains separate 180-second migration-plan, 360-second migration-apply and 90-second startup limits. Before an inner deadline, CI requests an opt-in Python stack dump and bounded container/session/lock/transaction snapshots while the process is still alive. Stack dumps use a signal rather than a background traceback watchdog. Snapshots omit SQL text, row keys and environment variables. CLI JSON stdout remains separate from diagnostic stderr. Timeout and cancellation terminate the owned CLI process group, including children; no test is retried. Phase reports and native CLI diagnostics are uploaded with the existing acceptance artifacts.
+
 ## Parallelism and cancellation budgets
 
 | Matrix | Maximum parallel jobs per run | Failure behavior |

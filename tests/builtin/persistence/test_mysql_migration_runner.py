@@ -1290,6 +1290,26 @@ def test_mysql_committed_partial_ddl_resumes_from_shared_original_evidence(backe
     assert replacement.verify().state == "ready"
 
 
+def test_mysql_revision_rejects_unrelated_schema_drift_before_advancing(backend: _BackendTarget) -> None:
+    _load_baseline(backend)
+
+    def drift(connection, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("ALTER TABLE pc_artifacts ADD COLUMN memory_citations"):
+            connection.exec_driver_sql("ALTER TABLE pc_artifact_tags DROP CHECK ck_pc_artifact_tags_family")
+
+    event.listen(Engine, "after_cursor_execute", drift)
+    try:
+        with pytest.raises(MigrationError, match="recorded revision"):
+            _apply(backend.runner(), policy="manual")
+    finally:
+        event.remove(Engine, "after_cursor_execute", drift)
+    state = _read_state(backend)
+    assert state["revision"] == "p0001"
+    assert "memory_citations" in state["columns"]["pc_artifacts"]
+    assert "memory_citations" in state["columns"]["pc_artifact_candidate_versions"]
+    assert state["content"] == [(b'{"content":"preserved"}',)]
+
+
 def test_mysql_missing_original_evidence_blocks_partial_ddl_recovery(backend: _BackendTarget) -> None:
     _interrupt_after_committed_citation_ddl(backend)
     before = _read_state(backend)

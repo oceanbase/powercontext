@@ -69,12 +69,21 @@ class MySQLRecovery:
         return self.revision if not self.pending_statements else None
 
 
-def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozenset()) -> dict[str, Any]:
+def mysql_inventory(
+    connection: Connection,
+    *,
+    exclude: frozenset[str] = frozenset(),
+    _retained_tables: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Reflect tables, views and triggers on the caller's existing connection.
 
     SHOW CREATE preserves constraints, index prefixes and enforcement that a
     partial column reflection can lose. Unknown syntax is rejected. Physical
     placement/compression options do not define the application's schema.
+
+    Only the locked revision executor may retain definitions, between known
+    single-table DDL steps. Admission, recovery and revision boundaries always
+    reflect every table.
     """
     if connection.dialect.name != "mysql":
         raise MigrationError("unsupported_backend", "MySQL schema reflection needs a MySQL-compatible connection.")
@@ -83,7 +92,7 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
         if not isinstance(database, str) or not database:
             raise MigrationError("incompatible_schema", "A current database must be selected for schema reflection.")
         inventory = _empty_inventory()
-        _reflect_tables(connection, database, exclude, inventory)
+        _reflect_tables(connection, database, exclude, inventory, retained=_retained_tables or {})
         # Do not hide a trigger merely because it writes an excluded version
         # table: it would still change the migration's authoritative state.
         inventory["triggers"] = sorted(
@@ -119,13 +128,23 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
         return inventory
 
 
-def _reflect_tables(connection: Connection, database: str, exclude: frozenset[str], inventory: dict[str, Any]) -> None:
+def _reflect_tables(
+    connection: Connection,
+    database: str,
+    exclude: frozenset[str],
+    inventory: dict[str, Any],
+    *,
+    retained: dict[str, Any],
+) -> None:
     for name, kind in connection.exec_driver_sql("SHOW FULL TABLES"):
         if kind == "VIEW":
             inventory["views"].append(name)
         elif kind != "BASE TABLE":
             raise MigrationError("incompatible_schema", "An unsupported database object was discovered.")
         elif name not in exclude:
+            if name in retained:
+                inventory["tables"][name] = retained[name]
+                continue
             row = connection.exec_driver_sql(f"SHOW CREATE TABLE {_quote(name)}").first()
             if row is None or not isinstance(row[1], str):
                 raise MigrationError("incompatible_schema", "A table definition could not be reflected.")
@@ -442,6 +461,33 @@ class MySQLSchema:
     def statements(self, revision: str) -> tuple[str, ...]:
         return self._statements[revision]
 
+    def reflect_after_statement(
+        self, connection: Connection, inventory: dict[str, Any], *, revision: str, position: int
+    ) -> dict[str, Any]:
+        """Check a known DDL transition without rereading every unchanged table.
+
+        The runner owns the maintenance lock and this revision-local snapshot.
+        Names, views, triggers and vector declarations are always read again;
+        full table reflection is still required at each revision boundary and
+        before recovery in a new invocation. Conditional operations and syntax
+        without a known single-table scope use complete reflection immediately.
+        """
+        statement = self._statements[revision][position]
+        before, after = self._prefixes[revision][position : position + 2]
+        changed = {
+            name
+            for name in before["tables"].keys() | after["tables"].keys()
+            if before["tables"].get(name) != after["tables"].get(name)
+        }
+        table = _statement_table(statement)
+        retained = None
+        if table is not None and changed <= {table}:
+            retained = {name: definition for name, definition in inventory["tables"].items() if name != table}
+        reflected = mysql_inventory(connection, _retained_tables=retained)
+        if not self._matches(_business_inventory(reflected), after):
+            raise MigrationError("incompatible_schema", "Actual MySQL schema does not match the completed DDL step.")
+        return reflected
+
     def identify(self, inventory: dict[str, Any]) -> str | None:
         """Only complete known shapes may be adopted as an unversioned source."""
         inventory = _business_inventory(inventory)
@@ -541,6 +587,34 @@ def _business_inventory(inventory: dict[str, Any]) -> dict[str, Any]:
 
 def _quote(identifier: str) -> str:
     return "`" + identifier.replace("`", "``") + "`"
+
+
+def _statement_table(statement: str) -> str | None:
+    """Recognize only DDL whose schema effects stay on its named table."""
+    if statement.startswith("@"):
+        return None
+    try:
+        tokens = _tokens(statement)
+    except MigrationError:
+        return None
+    if tokens[:2] == ["create", "table"] and tokens[3:4] == ["("]:
+        return tokens[2]
+    if tokens[:2] == ["create", "index"] and tokens[3:4] == ["on"] and tokens[5:6] == ["("]:
+        return tokens[4]
+    # Renames can rewrite foreign keys on other tables. Unknown ALTER forms
+    # similarly need complete reflection rather than an inferred write set.
+    if tokens[:2] == ["alter", "table"]:
+        try:
+            clauses = _parts(tokens[3:])
+        except MigrationError:
+            return None
+        if clauses and all(
+            clause[:2]
+            in (["add", "column"], ["modify", "column"], ["drop", "column"], ["add", "constraint"], ["drop", "check"])
+            for clause in clauses
+        ):
+            return tokens[2]
+    return None
 
 
 def _tokens(statement: str) -> list[str]:

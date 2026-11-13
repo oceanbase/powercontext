@@ -85,23 +85,40 @@ def assigned_nodes(nodes: list[str], index: int, count: int, durations: dict[str
     return [node for node in nodes if assignments[node] == index]
 
 
-def run_pytest(arguments: list[str], log: Path, *, timeout_seconds: int = 180, container: str | None = None) -> int:
+def run_pytest(
+    arguments: list[str],
+    log: Path,
+    *,
+    timeout_seconds: int = 180,
+    container: str | None = None,
+    phase_limits: dict[str, float] | None = None,
+) -> int:
     # GNU timeout also terminates native child processes; never retry a failed node.
     command = [sys.executable, "-m", "pytest", "--color=no", *arguments]
+    if phase_limits:
+        command.extend(["-p", "pytest_ci_phases"])
     with log.open("w") as output:
-        if container:
+        if container or phase_limits:
             return run_command(
                 command,
                 container=container,
                 output=log.with_suffix(".diagnostics"),
                 timeout=timeout_seconds,
                 stdout=output,
+                phase_limits=phase_limits,
             )
         command = ["timeout", "--signal=TERM", "--kill-after=10s", f"{timeout_seconds}s", *command]
         return subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False).returncode  # noqa: S603
 
 
-def run_node(node: str, directory: Path, *, timeout_seconds: int, container: str | None = None) -> bool:
+def run_node(
+    node: str,
+    directory: Path,
+    *,
+    timeout_seconds: int,
+    container: str | None = None,
+    phase_limits: dict[str, float] | None = None,
+) -> bool:
     directory.mkdir()
     (directory / "node.txt").write_text(node + "\n")
     report = directory / "junit.xml"
@@ -125,6 +142,7 @@ def run_node(node: str, directory: Path, *, timeout_seconds: int, container: str
         log,
         timeout_seconds=timeout_seconds,
         container=container,
+        phase_limits=phase_limits,
     )
     passed = False
     try:
@@ -154,8 +172,10 @@ def main() -> int:
         "--test-timeout",
         type=int,
         default=180,
-        help="Positive per-test process deadline in seconds, including setup and cleanup (default: 180)",
+        help="Per-case deadline, or execution-only deadline when --initialization-timeout is set (default: 180)",
     )
+    parser.add_argument("--initialization-timeout", type=int, help="Separate fixture/schema initialization budget")
+    parser.add_argument("--cleanup-timeout", type=int, default=60, help="Separate cleanup budget (default: 60)")
     parser.add_argument(
         "--shard", type=parse_shard, default=(0, 1), help="Run zero-based shard INDEX/COUNT (default: 0/1)"
     )
@@ -163,6 +183,18 @@ def main() -> int:
     args = parser.parse_args()
     if args.test_timeout <= 0:
         parser.error("--test-timeout must be a positive number of seconds")
+    if args.initialization_timeout is not None and (args.initialization_timeout <= 0 or args.cleanup_timeout <= 0):
+        parser.error("Initialization and cleanup timeouts must be positive")
+    phase_limits = None
+    case_timeout = args.test_timeout
+    if args.initialization_timeout is not None:
+        phase_limits = {
+            "collection": 60,
+            "initialization": args.initialization_timeout,
+            "execution": args.test_timeout,
+            "cleanup": args.cleanup_timeout,
+        }
+        case_timeout = sum(phase_limits.values())
     if args.durations and args.backend != "oceanbase":
         parser.error("Duration-based scheduling is only enabled for OceanBase")
     durations = read_durations(args.durations)
@@ -210,7 +242,13 @@ def main() -> int:
     try:
         for index, node in enumerate(selected, 1):
             started = time.monotonic()
-            passed = run_node(node, output / f"{index:03d}", timeout_seconds=args.test_timeout, container=container)
+            passed = run_node(
+                node,
+                output / f"{index:03d}",
+                timeout_seconds=case_timeout,
+                container=container,
+                phase_limits=phase_limits,
+            )
             elapsed_seconds[node] = round(time.monotonic() - started, 3)
             if not passed:
                 return 1
