@@ -174,6 +174,7 @@ from powercontext.builtin.records import (
     ArtifactRevisionPage,
     ArtifactWrite,
     BaseValueConflictError,
+    InvalidBaseAccessRequestError,
     LogicalArtifactRecord,
     RecordService,
     ScopeSummaryPage,
@@ -190,6 +191,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime._source_capture import SourceCaptureCoalescer
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeApplication
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.atomic_memory import (
@@ -582,7 +584,34 @@ class ScopedSourceApplication:
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
         if value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND:
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
-        return await self._capture(value)
+        if self._runtime._record_service is None:
+            return await self._capture(value)
+        try:
+            async with self._runtime._scope_operation(self.scope_id):
+                try:
+                    capture = ContentCapture.model_validate(
+                        {"source_id": value.source_id, "content": value.content, "metadata": dict(value.metadata)},
+                        strict=True,
+                    )
+                except ValidationError as error:
+                    raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
+                record = await self._runtime._source_captures.capture(
+                    self.scope_id, capture, self._runtime._records(), self._capturing()
+                )
+        except BaseValueConflictError as error:
+            raise SourceConflictError("identity", error.identity) from None
+        return SourceReceipt(
+            source_ref=SourceRef(source_type=record.source_type, source_id=record.source_id), sequence=record.position
+        )
+
+    @asynccontextmanager
+    async def _capturing(self) -> AsyncIterator[None]:
+        # Queue before acquiring the lock, but trace capture only after its wait.
+        async with self._runtime._locked(self.scope_id):
+            with self._runtime._stage(_MEMORY_CAPTURE_STAGE, attributes={}) as span:
+                yield
+                if span is not None:
+                    span.set_attributes({_MEMORY_CAPTURE_SOURCE_COUNT: 1})
 
     async def capture_many(self, values: Sequence[CaptureSource], /) -> tuple[SourceReceipt, ...]:
         """Capture one ordered integration batch with stable Source identities."""
@@ -4405,6 +4434,7 @@ class BuiltinRuntime:
         self._remote_skill_distribution = remote_skill_distribution
         self._statistics_service = statistics_service
         self._record_service = record_service
+        self._source_captures = SourceCaptureCoalescer()
         self._bootstrap_receipts = bootstrap_receipts
         self.atomic_memory = (
             None
@@ -4753,10 +4783,6 @@ class BuiltinRuntime:
                     yield registered
                 finally:
                     del self._scope_operations[key]
-                    # The outer scoped operation drains usage once, including nested work.
-                    # The recorder owns its budget without widening model deadlines.
-                    if self._statistics_service is not None:
-                        await self._statistics(scope).flush_model_usage()
 
     @asynccontextmanager
     async def _scoped_operation(

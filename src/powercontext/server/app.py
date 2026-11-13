@@ -42,7 +42,6 @@ from pydantic import JsonValue
 from pydantic import ValidationError as PydanticValidationError
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
-from starlette.middleware.base import RequestResponseEndpoint
 from starlette.routing import Match
 from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
@@ -910,17 +909,15 @@ from powercontext.server.authz.profiles import (
 )
 from powercontext.server.authz.service import _require_allowed
 from powercontext.server.context import (
-    bind_request_id,
     current_authentication,
     current_principal,
     current_request_id,
     is_internal_bridge,
-    reset_request_id,
 )
 from powercontext.server.dream_access import DreamAccess, principal_identity
 from powercontext.server.dream_compatibility import (
     LEGACY_DREAM_OPERATIONS,
-    negotiate_dream_contract,
+    DreamContractMiddleware,
     require_extended_dream,
 )
 from powercontext.server.metrics import HttpMetricsMiddleware, HttpResponseMetricsMiddleware, http_operations
@@ -930,7 +927,7 @@ from powercontext.server.ownership import (
     apply_ownership_migration,
     plan_ownership_migration,
 )
-from powercontext.server.request_id import REQUEST_ID_HEADER
+from powercontext.server.request_id import REQUEST_ID_HEADER, HttpRequestIdMiddleware
 from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
@@ -1495,20 +1492,8 @@ def create_app(
     )
     app.state.server_info = None
 
-    app.middleware("http")(negotiate_dream_contract)
-
-    @app.middleware("http")
-    async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = current_request_id() or request_id_from_span()
-        request.state.request_id = request_id
-        token = bind_request_id(request_id)
-        try:
-            response = await call_next(request)
-            request.state.request_id = getattr(request.state, "request_id", current_request_id() or request_id)
-            response.headers[REQUEST_ID_HEADER] = request.state.request_id
-        finally:
-            reset_request_id(token)
-        return response
+    app.add_middleware(DreamContractMiddleware)
+    app.add_middleware(HttpRequestIdMiddleware, reuse_bound_request_id=True)
 
     @app.exception_handler(RequestValidationError)
     @app.exception_handler(PydanticValidationError)

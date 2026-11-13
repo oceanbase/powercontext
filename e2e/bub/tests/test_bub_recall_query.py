@@ -75,3 +75,22 @@ def test_recall_query_keeps_the_end_of_the_prompt(monkeypatch, tmp_path: Path, c
 
     assert result is not None
     assert [prepared.query for prepared in RecordingClient.prepared] == [_expand(case["query"])]
+
+
+def test_context_message_carries_the_prepared_content_after_the_marker(monkeypatch, tmp_path: Path) -> None:
+    RecordingClient.prepared.clear()
+    settings = PowerContextSettings(base_url="http://127.0.0.1:8000")
+    monkeypatch.setattr(plugin_module, "ensure_config", lambda _: settings)
+    monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
+    plugin = PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
+    state = plugin.load_state(message=None, session_id="session-1")
+    request = LLMCallRequest(run_id="run-1", model="test-model", messages=[republic.user("What did we decide?")])
+
+    result = asyncio.run(plugin.before_llm_call(request, state))
+
+    # The Server's prepared content carries the trust policy; the plugin adds only its marker.
+    assert result is not None
+    assert result.messages[0].role == "system"
+    assert result.messages[0].text == "PowerContext host-supplied context\n\nremembered context"
+    assert asyncio.run(plugin.before_llm_call(result, state)) is None
+    assert len(RecordingClient.prepared) == 1
