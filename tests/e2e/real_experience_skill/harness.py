@@ -30,7 +30,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -295,6 +295,11 @@ class Recorder:
                 "cleanup": self.cleanup,
             },
         )
+
+
+_SERVER_STARTUP_SECONDS = 15
+_CONFIGURED_SERVER_STARTUP_SECONDS = 60
+_SERVER_SHUTDOWN_WAIT_SECONDS = 15
 
 
 @dataclass(slots=True)
@@ -2045,17 +2050,16 @@ def _start_server(database: Path) -> RunningServer:
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
-        deadline = time.monotonic() + 15
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        if not server.started:
-            _fail("PowerContext Server did not start")
+        owned = resources.pop_all()
+        _wait_for_server_start(
+            server, thread, timeout=_SERVER_STARTUP_SECONDS, description="PowerContext Server", release=owned.close
+        )
         return RunningServer(
             server=server,
             thread=thread,
             listener=listener,
             base_url=f"http://127.0.0.1:{port}",
-            resources=resources.pop_all(),
+            resources=owned,
         )
 
 
@@ -2069,13 +2073,51 @@ def _start_configured_server(settings: ServerSettings) -> RunningServer:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 60
+    _wait_for_server_start(
+        server,
+        thread,
+        timeout=_CONFIGURED_SERVER_STARTUP_SECONDS,
+        description="configured PowerContext Server",
+        release=listener.close,
+    )
+    return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
+
+
+def _wait_for_server_start(
+    server: uvicorn.Server,
+    thread: threading.Thread,
+    *,
+    timeout: float,
+    description: str,
+    release: Callable[[], object],
+) -> None:
+    """Fail an unstarted Server without releasing its listener or resources while its thread can still use them."""
+    started_at = time.monotonic()
+    deadline = started_at + timeout
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
-    if not server.started:
-        listener.close()
-        _fail("configured PowerContext Server did not start")
-    return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
+    if server.started:
+        return
+    if not thread.is_alive():
+        release()
+        _fail(f"{description} did not start; its thread exited after {time.monotonic() - started_at:.1f} s")
+    # Uvicorn finishes lifespan startup before it honors should_exit, then adopts the listener and shuts down.
+    # Releasing earlier makes a late startup raise EBADF in an unrelated later test.
+    server.should_exit = True
+    thread.join(timeout=_SERVER_SHUTDOWN_WAIT_SECONDS)
+    if not thread.is_alive():
+        release()
+        _fail(f"{description} did not start within {timeout:g} s; it stopped after shutdown was requested")
+    threading.Thread(target=_release_after_exit, args=(thread, release), daemon=True).start()
+    _fail(
+        f"{description} did not start within {timeout:g} s and was still starting "
+        f"{_SERVER_SHUTDOWN_WAIT_SECONDS:g} s after shutdown was requested; it is released once its thread exits"
+    )
+
+
+def _release_after_exit(thread: threading.Thread, release: Callable[[], object]) -> None:
+    thread.join()
+    release()
 
 
 def _validate_configured_settings(settings: ServerSettings) -> None:

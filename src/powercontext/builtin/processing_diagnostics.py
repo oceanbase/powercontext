@@ -220,6 +220,93 @@ def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
     return None
 
 
+def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
+    """Classify the bounded Dream and Evidence rejection vocabulary."""
+
+    value = code.lower()
+    if value == "capability_unavailable":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.CONFIGURATION,
+            failure_location=value,
+        )
+    if value == "budget_exceeded":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value == "capacity_exceeded":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value == "invalid_generation_output":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value in {
+        "unsupported_target",
+        "invalid_target",
+        "invalid_dream_operation",
+        "invalid_artifact_family",
+        "invalid_idempotency_key",
+        "evidence_unavailable",
+        "reference_not_found",
+        "invalid_memory_citation",
+        "policy_changed",
+        "evidence_limit_exceeded",
+        "memory_entry_inactive",
+        "source_not_eligible",
+        "scope_not_found",
+    }:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            failure_location=value,
+        )
+    if value in {"artifact_conflict", "attempt_conflict", "tag_precondition_failed"}:
+        return ProcessingDiagnostics(failure_location=value)
+    if value in {"access_revoked", "access_unavailable", "dream_request_unavailable", "generation_failed"}:
+        return ProcessingDiagnostics(failure_location=value)
+    if value in {"idempotency_conflict", "needs_evidence"}:
+        return ProcessingDiagnostics(failure_location=value)
+    return None
+
+
+def _handoff_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
+    """Classify the bounded Handoff generation rejection vocabulary."""
+
+    value = code.lower()
+    if value in {"output", "evidence"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value == "budget":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value == "objective":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value in {"rollover_next_action", "rollover_quality"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    return None
+
+
 def safe_classify_processing_error(error: BaseException) -> ProcessingDiagnostics | None:
     """Never let classification itself change a processing outcome."""
 
@@ -235,7 +322,10 @@ def classify_block_code(stage: str | None, code: str | None) -> ProcessingDiagno
     if not isinstance(code, str) or not code:
         return None
     try:
-        return _topic_memory_diagnostics(code) if stage == "topic_memory" else None
+        if stage == "topic_memory":
+            return _topic_memory_diagnostics(code)
+        else:
+            return None
     except Exception:
         return None
 
@@ -257,7 +347,7 @@ def stage_for_operation(operation: object) -> ProcessingStage | None:
     value = operation.lower()
     if "embed" in value or "index" in value:
         return ProcessingStage.EMBEDDING
-    if "extract" in value or "generate" in value or "reconcile" in value or "incubate" in value:
+    if value == "generation" or any(term in value for term in ("extract", "generate", "reconcile", "incubate")):
         return ProcessingStage.GENERATION
     return None
 
@@ -393,6 +483,18 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
             reason=ProcessingFailureReason.CONFIGURATION,
             failure_location=capability or None,
         )
+    if "DreamError" in names:
+        return _dream_error_diagnostics(str(getattr(error, "code", "") or ""))
+    if "InvalidHandoffGenerationError" in names:
+        return _handoff_error_diagnostics(str(getattr(error, "code", "") or ""))
+    if "HandoffGenerationUnavailableError" in names:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.CONFIGURATION,
+        )
+    if "EvidenceResolutionError" in names:
+        code = str(getattr(error, "code", "") or "").lower()
+        return _dream_error_diagnostics(code)
     return None
 
 

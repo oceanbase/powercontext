@@ -505,6 +505,37 @@ Core 在实际 select/render/fit 完成后生成完整、有界依赖：
 网关/宿主在工具轮次保留准确准备值及其元信息；检查不重新 prepare、搜索或 Embedding。
 依赖失效、过期或不能确认时停止旧复用，由宿主显式刷新并建立新上下文边界，不能原地改写旧注入。
 
+### 进程内解释被拒绝的复用
+
+重新验证对每种失败仍只作一个决定、给一个公开代码。依赖变化、失活或无法确认时仍拒绝旧 binding；
+不修复、不重新 prepare、不延长期限，也不跟随新 head。`ScopedContextApplication.validate_reuse` 的进程内调用方
+可另从 `ContextReuseError.invalidation` 读取不含内容的解释。检查操作仍返回 `context-refresh-required`，
+HTTP 仍返回通用 invalid-request 错误，远端宿主不会收到新原因。
+
+| 字段 | 含义 |
+| --- | --- |
+| `attribution` | `complete`：列出绑定证据与当前证据之间的全部差异。`partial`：所列变化都有证据，但验证在比较完之前停止，或变化被截断。`unavailable`：无法安全确立任何变化。 |
+| `changes` | 有序的 `subject` 与 `change`；只有 root 另带其准确的绑定 `ArtifactRef`。 |
+| `truncated` | 为满足上限，至少丢弃了一条有证据的变化。 |
+
+只有重新验证抛出的 `context-reuse-source-changed` 带解释；其他代码、binding 错误、访问拒绝和准备阶段失败都不带。
+解释来自作出决定的同一次授权读取：
+
+- 绑定的 root 不再是活跃 head 时，验证停在该 root。活跃 root 已有新 revision 时记为 `revised`，
+  包括 restore 写出的 revision，因此不表示内容被编辑；
+  否则记为生命周期状态 `forgotten`、`merged` 或 `retired`，状态优先于同一操作写出的 revision。
+  其后的 root 和该 root 的祖先未检查，因此解释为 `partial`，也不会提到未检查的 root。
+- 所有 root 都是当前值但有界快照不同时，按节点身份比较，记为 `changed`、`added` 或 `removed`。
+  本身是绑定 root 的节点会被点名；祖先或 Source 只报告 subject，因为 binding 不记录 root 到依赖的映射。
+  引用代码在其后才比较，所以只有未引用代码时该解释才是 `complete`。
+- 引用文件摘要不同时记为 `code` `changed`；仓库不再索引该文件时记为 `removed`。
+
+披露仅限调用方已作为引用收到的身份。解释不含祖先或 Source 身份、当前 revision、合并目标、内容、摘要或路径。
+缺失、不可读、不合格或未授权的证据保持原有代码且不带解释，因此解释无法区分不存在与被拒绝。
+一份解释最多 16 条变化，其规范 JSON 形式（键排序、UTF-8）最多 4096 字节。
+变化按 root、祖先、Source 排序，各自按绑定快照顺序，其后为新增项；超出上限时丢弃尾部变化。
+生成解释只使用已有快照和文件摘要，不做额外读取；生成失败时解释为 `unavailable`，原拒绝原样抛出。
+
 ### 一个检查操作，两个明确阶段
 
 | 提议的 POST 路径 | operationId | 阶段 |
@@ -805,6 +836,7 @@ UDS 与 HTTPS 使用同一组当前授权、过期/篡改、多历史块与 bloc
 - 覆盖 SDK 与外部适配器组合时唯一优化/发送所有者；客户端声称“已优化”不能跳过检查，也不能触发二次 prepare。
 - 验证远端检查与进程内相同策略的决策一致，并拒绝伪造计划/hash、失效约束或不透明目标带来的覆盖升级。
 - 验证默认四字段与 opt-in envelope 的严格分支、能力协商和不支持选项的明确拒绝。
+- 验证进程内重新验证只解释有证据的变化：多个 root 中只点名变化的那个、生命周期状态彼此区分、缺失或被拒绝的证据不作解释、上限按确定顺序截断、解释失败时保持原拒绝。
 - 验证错误 phase、缺失/过期/跨请求 request_binding、历史块缺失/错误位置与多块绑定，不能以 HTTP 200 绕过决策；检查不重复召回。
 
 - 验证 Rust UDS 与 Python 进程内/HTTPS 相同 DTO 的决策一致，Core 重启后旧 generation 不授予权限；不透明第三方转换不能提升覆盖声明。

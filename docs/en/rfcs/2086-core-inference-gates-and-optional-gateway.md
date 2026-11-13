@@ -553,6 +553,42 @@ Gateways/hosts retain exact prepared content and metadata across tool rounds; ch
 Embedding. Invalid, expired or unverifiable dependencies stop old reuse. The host explicitly refreshes into a new
 context boundary rather than rewriting a historical injection.
 
+### Explaining a rejected reuse in process
+
+Revalidation keeps one decision and one public code per failure. A changed, inactive or unverifiable dependency still
+rejects the old binding; nothing repairs it, re-prepares, extends its expiry or follows a new head. In-process callers of
+`ScopedContextApplication.validate_reuse` may additionally read a content-free explanation from
+`ContextReuseError.invalidation`. The check operation keeps returning `context-refresh-required` and HTTP keeps the
+generic invalid-request error, so remote hosts receive no new reason.
+
+| Field | Meaning |
+| --- | --- |
+| `attribution` | `complete`: every difference between the bound and current evidence is listed. `partial`: listed changes are evidenced, but validation stopped before comparing everything or changes were truncated. `unavailable`: nothing could be established safely. |
+| `changes` | Ordered `subject` and `change`; only a root also carries its exact bound `ArtifactRef`. |
+| `truncated` | At least one evidenced change was dropped to respect the bounds. |
+
+Only `context-reuse-source-changed` raised by revalidation carries an explanation; every other code, binding error,
+access denial and preparation failure carries none. The explanation comes from the same authorized read that decides:
+
+- A bound root that is no longer its active head stops validation at that root. The change is `revised` for an active
+  root at a newer revision, including one written by a restore, so it does not imply edited content; otherwise it is
+  the lifecycle state `forgotten`, `merged` or `retired`, which outranks a revision written by the same operation.
+  Later roots and the root's ancestry are not examined, so the explanation is `partial` and never mentions an
+  unexamined root.
+- When every root is current but the bounded snapshot differs, nodes are compared by identity as `changed`, `added` or
+  `removed`. A node that is itself a bound root is named; an ancestor or Source is reported only by subject, because
+  the binding records no root-to-dependency map. Cited code is compared afterwards, so this explanation is `complete`
+  only when no code was cited.
+- A cited file whose digest differs is `code` `changed`, or `removed` when the repository would no longer index it.
+
+Disclosure is limited to identities the caller already received as citations. Explanations contain no ancestor or
+Source identity, current revision, merge target, content, digest or path. Missing, unreadable, ineligible or
+unauthorized evidence keeps its existing code without an explanation, so an explanation cannot distinguish absent from
+denied. An explanation lists at most 16 changes, and its canonical JSON form (sorted keys, UTF-8) is at most 4096 bytes.
+Changes are ordered roots, ancestors, Sources, each in bound-snapshot order followed by additions; the bounds drop
+trailing changes. Building an explanation reads nothing beyond the existing snapshot and file digests. If it fails, the
+explanation is `unavailable` and the original rejection is raised unchanged.
+
 ### One check operation with two explicit phases
 
 | Proposed POST path | operationId | Phase |
@@ -878,6 +914,7 @@ Private Gateway state IPC is not another public context operation.
 - Verify one optimization/send owner when SDK and external adapters compose. A caller claiming prior optimization cannot skip checks or trigger a second prepare.
 - Verify matching remote/in-process decisions under the same policy; forged plan/hash claims, expired constraints and opaque targets cannot upgrade coverage.
 - Verify strict default four-field versus opt-in envelope branches, capability negotiation and explicit rejection of unsupported opt-in.
+- Verify in-process revalidation explains only evidenced changes: one changed root of several is named without blaming the others, lifecycle states stay distinct, missing or denied evidence explains nothing, bounds truncate deterministically and an explanation failure keeps the original rejection.
 - Reject wrong phases, missing/expired/cross-request request bindings and missing/mislocated historical blocks; verify multiple bindings, no HTTP-200 bypass and no repeated recall in checks.
 
 - Verify Rust UDS and Python in-process/HTTPS decisions for identical DTOs, obsolete generations after Core restart, and no coverage upgrade through opaque third-party mutations.

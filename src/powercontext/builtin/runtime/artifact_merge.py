@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -42,7 +43,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.records import BaseOperationNotSupportedError
 from powercontext.builtin.sources import validate_scope_id
 from powercontext.builtin.sources.content import ArtifactRestorationOutcome
-from powercontext.builtin.tags import normalize_tags
+from powercontext.builtin.tags import MAX_TARGET_TAGS, normalize_tags
 
 
 class ArtifactMergeAccess:
@@ -311,7 +312,11 @@ async def merge_artifact_tags(
     *,
     family: str,
 ) -> None:
-    """Copy the normalized union of tags within one Scope and Family."""
+    """Assign the result a bounded, deterministic selection from its inputs' tags.
+
+    Labels carried by more inputs come first; normalized key order breaks ties and fills the
+    per-target limit. The inputs keep their complete tag sets, so restoration loses nothing.
+    """
 
     rows = (
         await connection.execute(
@@ -327,9 +332,14 @@ async def merge_artifact_tags(
         )
     ).all()
     labels: dict[str, str] = {}
+    carriers: Counter[str] = Counter()
     for row in rows:
-        labels.setdefault(str(row.tag_key), str(row.tag))
-    for key, label in normalize_tags(tuple(labels.values())).items():
+        key = str(row.tag_key)
+        labels.setdefault(key, str(row.tag))
+        carriers[key] += 1
+    # Independent of input order, so retries and replays of the same merge assign the same tags.
+    retained = sorted(labels, key=lambda key: (-carriers[key], key.encode("utf-8")))[:MAX_TARGET_TAGS]
+    for key, label in normalize_tags(tuple(labels[key] for key in retained)).items():
         await connection.execute(
             insert(ARTIFACT_TAGS_TABLE).values(
                 scope_id=scope_id,

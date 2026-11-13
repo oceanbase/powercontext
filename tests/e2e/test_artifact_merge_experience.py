@@ -615,3 +615,54 @@ def test_experience_merge_rejects_unsupported_lineage_before_writing(database, t
             )
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ("atomic-memory", "experience"))
+def test_merge_tags_beyond_the_label_limit_are_bounded_deterministic_and_restorable(database, tmp_path, family) -> None:
+    labels = (
+        ("zz-all", "yy-pair", *(f"a{index:02}" for index in range(20))),
+        ("zz-all", "yy-pair", *(f"b{index:02}" for index in range(20))),
+        ("zz-all", *(f"c{index:02}" for index in range(20))),
+    )
+    # Labels carried by more inputs come first, then normalized key order fills the 32-label limit.
+    expected = {"zz-all", "yy-pair", *(f"a{index:02}" for index in range(20)), *(f"b{index:02}" for index in range(10))}
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
+            scope = await _scope(runtime)
+            assert runtime.artifact_merge is not None
+            records = runtime.records.for_scope(scope)
+            merge = runtime.artifact_merge.for_scope(scope, family)
+            inputs = []
+            for name, assigned in zip(("canary", "pause", "health"), labels, strict=True):
+                if family == "experience":
+                    created = await _create(runtime, scope, name)
+                else:
+                    write = ArtifactWrite(content={"kind": "rule", "text": f"Keep the rollout {name} check."})
+                    created = await merge.get((await records.create_artifact(family, write)).artifact_id)
+                target = ArtifactTagTarget(family=family, artifact_id=created.ref.artifact_id)
+                await records.replace_tags(target, assigned, expected_etag=(await records.get_tags(target)).etag)
+                inputs.append(created)
+            content = (
+                _content("combined")
+                if family == "experience"
+                else AtomicMemoryContent(kind="rule", text="Keep every rollout check.")
+            )
+
+            async def merged_tags(selected) -> tuple[str, set[str]]:
+                result = await merge.merge(tuple(item.as_read() for item in selected), content)
+                target = ArtifactTagTarget(family=family, artifact_id=result.primary.ref.artifact_id)
+                return target.artifact_id, set((await records.get_tags(target)).tags)
+
+            result_id, first = await merged_tags(inputs)
+            assert first == expected
+            undo = await merge.restore(result_id, operation="undo_merge")
+            assert len(undo.restored) == len(inputs)
+            for original, assigned in zip(inputs, labels, strict=True):
+                target = ArtifactTagTarget(family=family, artifact_id=original.ref.artifact_id)
+                assert set((await records.get_tags(target)).tags) == set(assigned)
+            restored = [await merge.get(item.ref.artifact_id) for item in reversed(inputs)]
+            assert all(item.state.lifecycle_state == "active" for item in restored)
+            assert (await merged_tags(restored))[1] == first
+
+    asyncio.run(scenario())

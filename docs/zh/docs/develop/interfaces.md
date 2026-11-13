@@ -60,6 +60,17 @@ create_work_contract
 Outcome 不会覆盖它。该 operation 保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准
 Experience。Integration 只应在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
 
+`blocked` 或 `cancelled` 可以用可选的 `stop_reason` 记录继续执行会有问题的原因。`kind` 只能是 `safety`、
+`authorization`、`capability`、`missing_evidence` 或 `scope`；`condition` 必须是非空且首尾无空白的文字。
+与 Claim 一样，`basis` 为 `declared` 时 `evidence` 必须为空，为 `verified` 时必须有同 scope 的精确 citation，
+最多 31 条。其他 outcome 状态不接受原因。省略此字段会保留现有存储表示和内容摘要哈希，也适用于旧的 `blocked`
+outcome；历史记录不会被推断或补写原因。通过 `get_source` 读取 outcome Source 的 `content` 即可取得结构化原因。
+Continuity 投影按原状态将其计为一条 outcome，不展示原因，也不将其分类为成功或失败。原因本身不进入 recurrence
+失败证据或 `avoided` 推导；已有 observation 和 check 规则继续适用。它只记录判断，不能证明停止是正确的，
+不能授予权限、批准或重试预算，也不保证后续 Agent 会遵循该原因。
+OpenClaw 的 `powercontext_task_outcome` 和 Pi 的 `pc_task_outcome` 均暴露同一可选字段并透传至 Server，
+状态和证据规则由 Server 统一校验。
+
 Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
 身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
 

@@ -174,6 +174,12 @@ from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
 from powercontext.builtin.portability import PortableBundleService
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -1950,9 +1956,17 @@ def _validate_experience_plans(
 ) -> None:
     available = {(row.ref.source_type, row.ref.source_id) for row in rows}
     if any((source.source_type, source.source_id) not in available for plan in plans for source in plan.sources):
-        raise InvalidInferenceOutputError(
-            "experience-incubate",
-            "pipeline cited a Source outside the current incubation window",
+        raise attach_diagnostics(
+            InvalidInferenceOutputError(
+                "experience-incubate",
+                "pipeline cited a Source outside the current incubation window",
+            ),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                input_item_count=len(rows),
+                failure_location="experience-incubate-evidence",
+            ),
         )
 
 
