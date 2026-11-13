@@ -22,6 +22,9 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import JsonValue
 
+# Checkpoints of collection targets are keyed by target; the plugin version is not part of their identity.
+TARGET_CHECKPOINT_VERSION = "target"
+
 
 class InvalidTargetParameters(ValueError):
     """Target parameters do not match the capability's schema or identity."""

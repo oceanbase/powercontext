@@ -40,11 +40,10 @@ from powercontext.builtin.persistence.tables import (
     SOURCE_COLLECT_TARGETS_TABLE,
     SOURCE_RUNNERS_TABLE,
 )
+from powercontext.sources.collection import TARGET_CHECKPOINT_VERSION as TARGET_CHECKPOINT_VERSION
 
 # The Server's own runner, which collects in Supervisor Workers.
 SERVER_RUNNER = "server"
-# Checkpoints of collection targets are keyed by target; the plugin version is not part of their identity.
-TARGET_CHECKPOINT_VERSION = "target"
 
 _TARGETS = SOURCE_COLLECT_TARGETS_TABLE
 _RUNNERS = SOURCE_RUNNERS_TABLE

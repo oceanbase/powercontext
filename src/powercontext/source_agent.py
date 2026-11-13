@@ -39,7 +39,6 @@ import httpx
 import typer
 from pydantic import JsonValue
 
-from powercontext.builtin.persistence.source_collection import TARGET_CHECKPOINT_VERSION
 from powercontext.plugins import (
     Collect,
     CollectRequest,
@@ -50,6 +49,7 @@ from powercontext.plugins import (
     PluginResponse,
     SourcePlugin,
 )
+from powercontext.sources.collection import TARGET_CHECKPOINT_VERSION
 
 logger = logging.getLogger("powercontext.source_agent")
 

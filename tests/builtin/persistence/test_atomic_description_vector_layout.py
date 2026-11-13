@@ -172,6 +172,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
         "atomic_memory_evidence",
         "atomic_memory_evidence_projection",
         "plugin_artifacts",
+        "source_collection",
     )
     assert upgraded.evidence_path.read_bytes() == original_evidence_bytes
     assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == "v1_5_0_006"
