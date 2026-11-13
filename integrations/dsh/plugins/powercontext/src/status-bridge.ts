@@ -24,6 +24,7 @@ import { PLUGIN_VERSION } from './errors.ts'
 import { PREPARED_CONTEXT_SCHEMA } from './prepared-context.ts'
 import type { PluginRuntime } from './invoke.ts'
 import { RuntimeStatus } from './status.ts'
+import { createDashboardRouteHandler, DASHBOARD_ROUTE } from './dashboard-bridge.ts'
 import {
   STATUS_SCHEMA, STATUS_STALE_AFTER_MS, packageVersion,
   type BridgeConnectionState, type ProbeState, type StatusCapabilitiesPayload, type StatusPayload,
@@ -694,6 +695,11 @@ export function registerStatusBridge(ctx: Context, runtime: PluginRuntime): void
       path: STATUS_ROUTE_PATH,
       handler: createStatusRouteHandler(bridge, ui.connection, deploymentFacts),
     }), 'powercontext: GET /powercontext/status')
+    host.effect(() => ui.webServer.register({
+      kind: 'exact',
+      path: DASHBOARD_ROUTE,
+      handler: createDashboardRouteHandler(bridge, runtime.config, ui.connection, deploymentFacts),
+    }), 'powercontext: GET /powercontext/dashboard')
     host.effect(() => () => bridge.dispose(), 'powercontext: status bridge disposal')
   })
 }

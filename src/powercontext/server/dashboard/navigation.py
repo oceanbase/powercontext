@@ -143,6 +143,10 @@ def reading_return(raw: str | None) -> str | None:
         return None
     try:
         path, params = _parameters(raw, 16384)
+        if path == "/dashboard/home":
+            if params.keys() - COMMON:
+                return None
+            return path + "?" + urlencode(params)
         if path not in {"/dashboard/profile", "/dashboard/handoff-detail"}:
             return None
         allowed = COMMON | {"revision", "return_to"}

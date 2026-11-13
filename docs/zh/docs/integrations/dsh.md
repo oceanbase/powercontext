@@ -23,12 +23,12 @@ status: community
 
 同一个包还导出独立的浏览器入口 `./client`。重启后，DSH Web 和 Desktop 会在账号区域上方显示 PowerContext
 状态控件。没有显示时说明宿主没有加载浏览器入口；已有工具和生命周期行为仍可用，因此这不是 Server 故障。
-这个控件不是 Dashboard 替代品：点击只打开连接诊断，Dashboard 内嵌属于后续工作。
+点击控件可查看连接诊断、检查版本更新，并选择“打开 Dashboard”；选中会话时，现有 Dashboard 会在 DSH 右侧栏打开。
 
 npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
 正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
-本次实现验收使用的官方最新版本是 `0.2.2-rc.1`（2026-11-04 发布的预发布版）；只在对应真实 Web 和
-Desktop 自带 runtime 上验证过，不能据此推断其他 DSH 版本兼容。
+P1/P2 在官方 `0.2.2-rc.1`（2026-11-04 发布的预发布版）的 Web 和 Desktop 自带 runtime 上验收；
+不能据此推断其他 DSH 版本兼容。
 
 ## 启动 PowerContext Server
 
@@ -166,15 +166,15 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 ```
 
-不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install、target 或 Dashboard 路由。
+不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install 或 target 路由。
 
 页面可见时每十秒刷新；隐藏时暂停，恢复可见后立即重新核对；失败后从 2 秒退避到 30 秒；成功观测超过 30 秒
 会标为过期而不是继续显示绿色。DSH 的 401/403、Server 离线、readiness 依赖失败或缺少 context schema 分别显示
 不同诊断。面板只展示允许字段，不打印启动 token、Authorization 值或 Bearer header。切换会话会更新观测会话并
 丢弃上一会话的迟到响应；没有会话时如实显示，不创建会话。
 
-更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
-订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
+更新并重启插件会保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status`、
+`/powercontext/dashboard` 和 `/powercontext/updates` 路由、订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
 
 ### 检查 PowerContext 更新
 
@@ -186,11 +186,34 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 如果正在运行的 Server 已与目标版本匹配，且 DSH 能在符合条件的 npm 源中确认该版本可用且兼容，图标会变为 **更新**。
 点击后，DSH 会在当前 profile 后台安装。请先等待正在运行的会话结束。安装期间可关闭面板，再打开查看进度。
 如 DSH 提示重新加载或重启，只有加载新插件后才会显示新的运行版本。如果 registry 尚未提供该版本，请稍后重试。
-本地源码链接、压缩包和自定义 registry 安装沿用各自的更新流程。
+本地源码链接、Git、压缩包和自定义 registry 安装沿用各自的更新流程。测试用模拟的插件管理器覆盖了
+DSH `0.2.2-rc.2` 报告的 npm 更新能力，尚未验证从公共 npm registry 安装，也未在真实 rc.2 宿主上验证完整流程。
 
 “技术详情”提供 [Server 升级指引](../get-started/install-and-run.md#更新或替换安装)。请按当前部署方式更新和重启
 Server，并在需要时按现有流程迁移数据库。
 
+## 在 DSH 中打开 Dashboard
+
+先明确开启 [PowerContext Server Dashboard](../operate/configuration.md)。在选中的 DSH 会话里，点击账号区域上方的
+**PowerContext**，再点击**打开 Dashboard**。现有 Dashboard 会进入右侧栏：DSH Web 使用自带 Browser iframe，
+0.2.2-rc.1 Desktop 发行版使用隔离的 Browser webview。同一 PowerContext 控件仍可打开连接诊断；Dashboard
+原有的权限和写操作确认继续生效。
+
+当前会话的工作区绑定决定 Scope。切换会话后再次打开 Dashboard，会选择新会话的 Scope。没有选中会话时，面板提供
+**在浏览器中打开**，进入 Server 的默认 Dashboard；插件不会创建空会话。Host 通过经 DSH 认证的
+`GET /powercontext/dashboard` 检查可用性，返回 URL 只包含 Dashboard 路径和所选 Scope，不包含 token。Server
+启用 token 认证时，用户直接在 Dashboard 浏览器容器内登录；DSH 的 Server 凭据不会注入页面。登录后返回
+所选 Scope；登录失败可在原登录页更正。
+
+在本地使用 DSH Web 时，DSH 与 Server Dashboard 应使用相同的协议和回环主机名，端口可以不同。例如，两者都用
+`http://127.0.0.1`。若一边用 `localhost`、另一边用 `127.0.0.1`，内嵌页面无法保持 Dashboard 登录。
+面板会提示地址不匹配，并提供**在浏览器中打开**，保留所选 Scope。
+
+Dashboard 未开启时，面板提示在 Server 配置中开启。Host 凭据被拒绝或 Server 不可用会分别提示；Dashboard
+可用性不会改变 API 连接状态。DSH Browser 容器不可用时，面板保留诊断入口、提示无法打开侧栏，并提供
+**在浏览器中打开**。Browser 导航失败由 DSH Browser 标签页显示，恢复 Server 后可刷新。PowerContext Server 不支持 Dashboard 与自定义认证
+Provider 同时启动；应将该 Server 启动错误与 Browser 加载失败分开排查。插件不会自行开启 Dashboard 或降低认证要求。
+此浏览器入口已在官方 DSH 0.2.2-rc.1 Web 和 Desktop 发行版中实测；其他宿主版本需要分别验收容器。
 
 ## 诊断运行中的配置
 

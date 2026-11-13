@@ -23,6 +23,8 @@ const NAME = 'powercontext-dsh'
 const NPM = 'https://registry.npmjs.org/'
 const SHA256 = 'a'.repeat(64)
 
+type BundleCapability = Pick<Awaited<ReturnType<NativePluginManager['listBundles']>>[number], 'updatable' | 'update'>
+
 function release(python = '1.5.1', npm = python, prerelease = false) {
   return {
     tag_name: 'powercontext-v' + python, published_at: '2026-11-09T12:23:48Z', draft: false, prerelease,
@@ -35,6 +37,7 @@ function release(python = '1.5.1', npm = python, prerelease = false) {
 
 function fixture(options: {
   version?: string; server?: string | null; channel?: 'stable' | 'preview'; held?: boolean; busy?: boolean
+  capability?: BundleCapability
   releases?: ReturnType<typeof release>[]; source?: string; incompatible?: boolean; absent?: boolean; badWheel?: boolean; clock?: () => number
 } = {}) {
   const ledger = updateLedger()
@@ -45,7 +48,10 @@ function fixture(options: {
   let now = 0
   const source = options.source ?? '1.5.0'
   const manager = {
-    listBundles: vi.fn(() => [{ name: NAME, version: installed, enabled: true, installed: true, updatable: !source.startsWith('link:'), source }]),
+    listBundles: vi.fn(() => [{
+      name: NAME, version: installed, enabled: true, installed: true, source,
+      ...(options.capability ?? { updatable: !source.startsWith('link:') }),
+    }]),
     registries: vi.fn(async () => ({ registry: null, resolved: NPM, fallbackRegistries: ['https://registry.npmmirror.com/'] })),
     listVersions: vi.fn(async () => ({
       status: 'listed' as const, installed, registry: null,
@@ -130,17 +136,37 @@ describe('DSH release checks and updates', () => {
     expect(f.manager.updateBundle).not.toHaveBeenCalled()
   })
 
-  it('normalizes preview versions and accepts exactly the checked target once across panel or plugin reloads', async () => {
-    const f = fixture({ channel: 'preview', server: '1.6.0rc2' })
+  it.each([{ updatable: true }, { update: 'registry' }] satisfies BundleCapability[])(
+    'accepts exactly the checked preview target once across reloads with %j',
+    async capability => {
+      const f = fixture({ channel: 'preview', server: '1.6.0rc2', capability })
+      const host = f.host()
+      const available = await check(host, 'available')
+      expect(available.plugin_target).toBe('1.6.0-rc.2')
+      expect(host.install('wrong plan')).toBeNull()
+      expect(host.install(available.plan!)).toMatchObject({ phase: 'installing', plan: null })
+      expect(f.host().install(available.plan!)).toBeNull()
+      await vi.waitFor(() => expect(f.host().read().phase).toBe('restart_required'))
+      expect(f.manager.updateBundle).toHaveBeenCalledExactlyOnceWith(NAME, '1.6.0-rc.2', { registry: NPM })
+      expect(f.host('1.6.0-rc.2').read()).toMatchObject({ phase: 'updated', plugin_version: '1.6.0-rc.2' })
+    },
+  )
+
+  it('keeps Git bundles manual even if the legacy update flag is also set', async () => {
+    const f = fixture({ capability: { update: 'git', updatable: true } })
+    expect(await check(f.host(), 'manual')).toMatchObject({ plan: null })
+    expect(f.manager.listVersions).not.toHaveBeenCalled()
+  })
+
+  it('revalidates the registry update capability before applying an existing plan', async () => {
+    const f = fixture({ capability: { update: 'registry' } })
     const host = f.host()
-    const available = await check(host, 'available')
-    expect(available.plugin_target).toBe('1.6.0-rc.2')
-    expect(host.install('wrong plan')).toBeNull()
-    expect(host.install(available.plan!)).toMatchObject({ phase: 'installing', plan: null })
-    expect(f.host().install(available.plan!)).toBeNull()
-    await vi.waitFor(() => expect(f.host().read().phase).toBe('restart_required'))
-    expect(f.manager.updateBundle).toHaveBeenCalledExactlyOnceWith(NAME, '1.6.0-rc.2', { registry: NPM })
-    expect(f.host('1.6.0-rc.2').read()).toMatchObject({ phase: 'updated', plugin_version: '1.6.0-rc.2' })
+    const result = await check(host, 'available')
+    const [bundle] = f.manager.listBundles()
+    f.manager.listBundles.mockReturnValue([{ ...bundle, update: 'git', updatable: true }])
+    expect(host.install(result.plan!)?.phase).toBe('installing')
+    await vi.waitFor(() => expect(host.read().phase).toBe('manual'))
+    expect(f.manager.updateBundle).not.toHaveBeenCalled()
   })
 
   it('still checks with the Server offline and offers matching Server guidance without an install plan', async () => {

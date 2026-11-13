@@ -31,6 +31,12 @@ interface Bundle {
   installed: boolean
   source?: string
   updatable?: boolean
+  update?: 'registry' | 'git'
+}
+
+function supportsRegistryUpdate(bundle: Bundle): boolean {
+  // DSH rc.2 names the update source; the boolean is the rc.1 contract.
+  return bundle.update === undefined ? bundle.updatable === true : bundle.update === 'registry'
 }
 
 interface Candidate {
@@ -196,7 +202,7 @@ export class DshUpdates {
     const running = releaseVersion(this.options.pluginVersion)
     const manager = this.options.manager()
     const bundle = (await manager?.listBundles())?.find(bundle => bundle.name === PLUGIN_NAME)
-    if (!running || !manager || !bundle?.installed || !bundle.enabled || !bundle.updatable
+    if (!running || !manager || !bundle?.installed || !bundle.enabled || !supportsRegistryUpdate(bundle)
       || !bundle.source || bundle.version !== running.npm) return this.phase('manual')
     if (compareVersions(release.version, running) <= 0) return this.phase('current')
     if (this.options.held) return this.phase('held')
@@ -231,7 +237,7 @@ export class DshUpdates {
     ])
     const current = bundles.find(bundle => bundle.name === PLUGIN_NAME)
     if (current?.version !== plan.from || current.source !== plan.source
-      || !current.enabled || !current.installed || !current.updatable
+      || !current.enabled || !current.installed || !supportsRegistryUpdate(current)
       || !publicRegistry(registries.registry ?? registries.resolved)
       || !publicRegistry(plan.registry)
       || registries.fallbackRegistries.some(registry => !publicRegistry(registry))) return this.phase('manual')

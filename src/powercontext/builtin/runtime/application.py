@@ -4936,6 +4936,8 @@ def _contract_evidence(contract: WorkContract) -> tuple[HandoffCitation, ...]:
 
 def _outcome_evidence(outcome: TaskOutcome) -> tuple[HandoffCitation, ...]:
     citations = [*_claims_evidence(outcome.observations)]
+    if outcome.stop_reason is not None:
+        citations.extend(outcome.stop_reason.evidence)
     citations.extend(citation for check in outcome.checks for citation in check.evidence)
     citations.extend(HandoffArtifactCitation(artifact_ref=reference) for reference in outcome.produced_artifacts)
     return _unique_citations(citations)
