@@ -343,15 +343,17 @@ why the agent could not be detected as soon as its check finishes.
 
 ### Availability and current status
 
-The reply entry, target checks, preparation, launch attempts, history, and receipt handling are implemented.
-All three receivers have completed real handoffs in isolated acceptance builds. Claude Desktop used a restricted test
-configuration: a working Code session does not establish the effective connection and package permissions of a future
-session. The default plugin does not yet enable native launch for these targets. Listing a target, detecting an
-application, or connecting to the Server does not establish
-that the target is ready. Targets whose exact versions have not passed acceptance are limited to read-only environment
-and version inspection. If the panel says a target is unavailable, it cannot proceed with integration installation,
-preparation, or one-click launch. The following steps apply only when that target, version, and complete receiving
-workflow have passed acceptance and have been enabled.
+On macOS, the plugin enables preflight by default for **Codex Desktop** build
+`26.1106.51428 (26605)` with embedded CLI `0.167.0-alpha.4.1` and **Claude Code CLI** `2.1.323`.
+Preflight checks the receiver configuration each time. A different version, mismatched Server or Scope, or
+unverified package access stops automatic launch. **Claude Desktop (Code)** is available for installation checks;
+one-click handoff requires a way to verify its actual new session.
+
+For Claude Code CLI, use the default local Claude profile and ordinary local permissions in Terminal.app or Ghostty.
+If the link is not registered or no supported terminal is recorded, open Claude Code interactively in a trusted
+folder from a supported terminal and run `/help`, then check again. If PowerContext is missing in the target,
+automatic setup requires the local `powercontext` command; otherwise install the receiving integration yourself.
+Use a receiving plugin and Server that expose the handoff receiver hook and connection identity tool.
 
 Native handoff currently requires macOS, whether using a verified **owner-local** DSH Desktop or an explicitly
 owner-local DSH Web Host bound to loopback. Shared or remote hosts, SSH, forwarded proxies, and hosts whose location cannot be

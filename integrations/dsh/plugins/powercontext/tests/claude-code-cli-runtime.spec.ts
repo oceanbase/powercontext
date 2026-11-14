@@ -87,6 +87,13 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     await writeFile(packagePath, 'handoff')
     const bundle = { packagePath, packageSha256: createHash('sha256').update('handoff').digest('hex') } as LaunchBundle
     expect(await receiver.canReadPackage(executable, bundle, signal)).toBe(true)
+    const defaultTerminal = createClaudeCodeCliReceiver({ configDir: defaultProfile, pythonExecutable: '/usr/bin/python3',
+      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'macOS', evidence: 'fixture' },
+      launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' },
+      qualifiedPackageRoots: [packages], observeDefaultTerminal: true })
+    await writeFile(join(root, '.claude.json'), JSON.stringify({ deepLinkTerminal: 'unverified' }))
+    expect(await defaultTerminal.environment(executable, workspace, signal)).toBeUndefined()
+    expect(await defaultTerminal.canReadPackage(executable, bundle, signal)).toBe(false)
     await writeFile(packagePath, 'changed')
     expect(await receiver.canReadPackage(executable, bundle, signal)).toBe(false)
     await writeFile(join(workspace, '.mcp.json'), JSON.stringify({ mcpServers: { powercontext: { url: 'http://wrong' } } }))

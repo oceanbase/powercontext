@@ -3566,8 +3566,8 @@ function statusResult(runtime, scopeId, failure, sessionId, cwd) {
 }
 async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToolCatalog, toolScope) {
 	const tokens = rawInput.trim().split(/\s+/).filter(Boolean);
-	const command$1 = tokens[0];
-	if (!command$1) try {
+	const command$2 = tokens[0];
+	if (!command$2) try {
 		const scopeId = await runtime.resolveScope(cwd, signal);
 		return statusResult(runtime, scopeId, scopeId ? void 0 : {
 			ok: false,
@@ -3577,7 +3577,7 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 	} catch (error) {
 		return statusResult(runtime, void 0, await reportDirectFailure(runtime, "command", error), sessionId, cwd);
 	}
-	if (command$1 === "doctor") {
+	if (command$2 === "doctor") {
 		let toolCatalog;
 		try {
 			toolCatalog = getToolCatalog?.();
@@ -3588,7 +3588,7 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 			text: JSON.stringify(report, null, 2)
 		};
 	}
-	if (command$1 === "search") {
+	if (command$2 === "search") {
 		const query = tokens.slice(1).join(" ");
 		if (!query) return {
 			kind: "error",
@@ -3600,7 +3600,7 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 			mode: "auto"
 		}, signal);
 	}
-	if (command$1 === "remember") {
+	if (command$2 === "remember") {
 		const text$1 = tokens.slice(1).join(" ");
 		if (!text$1) return {
 			kind: "error",
@@ -3611,17 +3611,17 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 			text: text$1
 		}, signal);
 	}
-	if (command$1 === "flush") return call(runtime, cwd, "flush_memory", {}, signal);
-	if (command$1 === "review") return handleReview(tokens, runtime, cwd, signal);
-	if (command$1 === "skills") {
+	if (command$2 === "flush") return call(runtime, cwd, "flush_memory", {}, signal);
+	if (command$2 === "review") return handleReview(tokens, runtime, cwd, signal);
+	if (command$2 === "skills") {
 		if (tokens[1] === "scan") return call(runtime, cwd, "scan_external_skills", {}, signal);
 		return {
 			kind: "error",
 			text: "Usage: /pc skills scan"
 		};
 	}
-	if (command$1 === "stats") return call(runtime, cwd, "get_stats", {}, signal);
-	if (command$1 === "capabilities") return asResult(await invokeOperation(runtime.client, "get_capabilities", {}, "", signal, (error) => reportDirectFailure(runtime, "command", error)));
+	if (command$2 === "stats") return call(runtime, cwd, "get_stats", {}, signal);
+	if (command$2 === "capabilities") return asResult(await invokeOperation(runtime.client, "get_capabilities", {}, "", signal, (error) => reportDirectFailure(runtime, "command", error)));
 	return {
 		kind: "error",
 		text: "Unknown /pc subcommand. Try doctor, search, remember, flush, review, stats, capabilities, skills scan."
@@ -5625,7 +5625,7 @@ const HANDOFF_HTTP_SCHEMAS = {
 
 //#endregion
 //#region src/handoff/wire.ts
-function object$4(value) {
+function object$5(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function invalid() {
@@ -5648,7 +5648,7 @@ function project(schema$1, value, core = false, name$1) {
 	if (schema$1.type === "object") {
 		const properties = schema$1.properties;
 		const required = schema$1.required;
-		if (!object$4(value) || Object.keys(value).some((key$2) => !Object.hasOwn(properties, key$2)) || required.some((key$2) => !Object.hasOwn(value, key$2))) invalid();
+		if (!object$5(value) || Object.keys(value).some((key$2) => !Object.hasOwn(properties, key$2)) || required.some((key$2) => !Object.hasOwn(value, key$2))) invalid();
 		const entries = [];
 		for (const [key$2, field] of Object.entries(properties)) {
 			if (!Object.hasOwn(value, key$2)) continue;
@@ -5793,7 +5793,7 @@ async function collectMaterials(context, source$1, read, limit, locale) {
 		let item;
 		if (kind === "check") {
 			checksObserved = true;
-			const { command: command$1, status, details, exitCode, revision, workspaceObservedAt } = event;
+			const { command: command$2, status, details, exitCode, revision, workspaceObservedAt } = event;
 			if (![
 				"passed",
 				"failed",
@@ -5801,14 +5801,14 @@ async function collectMaterials(context, source$1, read, limit, locale) {
 				"not_run",
 				"unknown"
 			].includes(status)) invalid();
-			if (!available(command$1, 8192)) {
+			if (!available(command$2, 8192)) {
 				note(status === "failed" ? "At least one observed check failed but its command could not be included." : "A check was observed but its command could not be included.", status === "failed" ? "至少有一项检查失败，其命令无法纳入。" : "已观测到检查，但其命令无法纳入。");
 				continue;
 			}
 			item = {
 				...base,
 				kind,
-				command: command$1,
+				command: command$2,
 				status,
 				details: details && available(details, 8192) ? details : void 0,
 				revision: revision && available(revision, 256) ? revision : void 0,
@@ -5906,9 +5906,9 @@ function deterministicWork(materials, locale) {
 const deliveryIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const checksumPattern = /^[0-9a-f]{64}$/;
 function verifiedBinding(value) {
-	if (!object$4(value)) invalid();
+	if (!object$5(value)) invalid();
 	const { preflightId, revision, source: source$1, targetId, targetVersion, adapterVersion, effectiveCwd, serverIdentity, connectionRef, connectionGeneration, scopeId } = value;
-	if (!trimmed(preflightId, 256) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || !object$4(source$1) || !trimmed(targetId, 256) || !trimmed(targetVersion, 256) || !trimmed(adapterVersion, 256) || !trimmed(effectiveCwd, 4096) || effectiveCwd.includes("\0") || !trimmed(serverIdentity, 256) || !trimmed(connectionRef, 256) || typeof connectionGeneration !== "number" || !Number.isSafeInteger(connectionGeneration) || connectionGeneration < 0 || !trimmed(scopeId, 256)) invalid();
+	if (!trimmed(preflightId, 256) || typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1 || !object$5(source$1) || !trimmed(targetId, 256) || !trimmed(targetVersion, 256) || !trimmed(adapterVersion, 256) || !trimmed(effectiveCwd, 4096) || effectiveCwd.includes("\0") || !trimmed(serverIdentity, 256) || !trimmed(connectionRef, 256) || typeof connectionGeneration !== "number" || !Number.isSafeInteger(connectionGeneration) || connectionGeneration < 0 || !trimmed(scopeId, 256)) invalid();
 	return Object.freeze({
 		preflightId,
 		revision,
@@ -5924,7 +5924,7 @@ function verifiedBinding(value) {
 	});
 }
 function receiptIdentity(value) {
-	if (!object$4(value) || typeof value.receiptAttemptId !== "string" || !deliveryIdPattern.test(value.receiptAttemptId) || value.sourceType !== "content" || value.sourceId !== "dsh-ack:" + value.receiptAttemptId) invalid();
+	if (!object$5(value) || typeof value.receiptAttemptId !== "string" || !deliveryIdPattern.test(value.receiptAttemptId) || value.sourceType !== "content" || value.sourceId !== "dsh-ack:" + value.receiptAttemptId) invalid();
 	return {
 		receiptAttemptId: value.receiptAttemptId,
 		sourceType: value.sourceType,
@@ -5958,8 +5958,8 @@ async function prepareCarrier(context, binding, input, deliveryId, resolve$1, re
 	if (input.revision) {
 		const ref = input.revision;
 		const result$1 = await call$1("get_artifact_revision", ref);
-		if (!object$4(result$1) || result$1.scope_id !== scope || result$1.family !== ref.family || result$1.artifact_id !== ref.artifact_id || result$1.revision !== ref.revision) invalid();
-		if (!object$4(result$1.content) || result$1.content.schema !== "powercontext.handoff.v1") invalid();
+		if (!object$5(result$1) || result$1.scope_id !== scope || result$1.family !== ref.family || result$1.artifact_id !== ref.artifact_id || result$1.revision !== ref.revision) invalid();
+		if (!object$5(result$1.content) || result$1.content.schema !== "powercontext.handoff.v1") invalid();
 		return {
 			kind: "revision",
 			revision: ref
@@ -6013,7 +6013,7 @@ async function prepareCarrier(context, binding, input, deliveryId, resolve$1, re
 	}, binding, deliveryId);
 }
 function validateCarrier(value, binding, deliveryId) {
-	if (!object$4(value)) invalid();
+	if (!object$5(value)) invalid();
 	if (value.kind === "revision") {
 		const revision = wire("ArtifactReference", value.revision);
 		if (revision.family !== "handoff") invalid();
@@ -6028,7 +6028,7 @@ function validateCarrier(value, binding, deliveryId) {
 	const digest = preparedDigest(prepared);
 	if (value.digest !== digest || hasSecretContent("commit_handoff", { handoff: prepared })) invalid();
 	const receipt = value.sourceReceipts[0];
-	if (!object$4(receipt)) invalid();
+	if (!object$5(receipt)) invalid();
 	const actual = "kind" in receipt ? wire("WorkSourceReceipt", receipt) : wire("CaptureContentSourceResponse", receipt);
 	if ("kind" in actual && actual.kind !== "handoff-boundary" || actual.source.name !== "content" || actual.source.source_id !== "dsh-delivery:" + deliveryId || actual.source.locator?.kind === "sequence" && actual.source.locator.sequence !== actual.position) invalid();
 	return {
@@ -6069,8 +6069,8 @@ function date(value) {
 	return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 function decodeRecord(value, id) {
-	if (!object$4(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== id || !trimmed(value.ownerId, 256) || typeof value.preparationState !== "string" || !states.has(value.preparationState) || !date(value.createdAt) || !date(value.updatedAt) || typeof value.pinned !== "boolean" || typeof value.dispatched !== "boolean" || !Array.isArray(value.requests) || value.requests.length < 1 || value.requests.length > MAX_REQUEST_KEYS || value.requests.some((key$2) => !object$4(key$2) || !trimmed(key$2.id, 128) || typeof key$2.fingerprint !== "string" || !checksumPattern.test(key$2.fingerprint)) || value.error !== void 0 && !isDeliveryErrorCode(value.error) || value.expiredAt !== void 0 && !date(value.expiredAt) || value.deletedAt !== void 0 && !date(value.deletedAt) || value.supersedesDeliveryId !== void 0 && (typeof value.supersedesDeliveryId !== "string" || !deliveryIdPattern.test(value.supersedesDeliveryId))) invalid();
-	if (value.package !== void 0 && (!object$4(value.package) || typeof value.package.sha256 !== "string" || !checksumPattern.test(value.package.sha256) || typeof value.package.bytes !== "number" || !Number.isSafeInteger(value.package.bytes) || value.package.bytes < 1 || value.package.bytes > MAX_PACKAGE_BYTES)) invalid();
+	if (!object$5(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== id || !trimmed(value.ownerId, 256) || typeof value.preparationState !== "string" || !states.has(value.preparationState) || !date(value.createdAt) || !date(value.updatedAt) || typeof value.pinned !== "boolean" || typeof value.dispatched !== "boolean" || !Array.isArray(value.requests) || value.requests.length < 1 || value.requests.length > MAX_REQUEST_KEYS || value.requests.some((key$2) => !object$5(key$2) || !trimmed(key$2.id, 128) || typeof key$2.fingerprint !== "string" || !checksumPattern.test(key$2.fingerprint)) || value.error !== void 0 && !isDeliveryErrorCode(value.error) || value.expiredAt !== void 0 && !date(value.expiredAt) || value.deletedAt !== void 0 && !date(value.deletedAt) || value.supersedesDeliveryId !== void 0 && (typeof value.supersedesDeliveryId !== "string" || !deliveryIdPattern.test(value.supersedesDeliveryId))) invalid();
+	if (value.package !== void 0 && (!object$5(value.package) || typeof value.package.sha256 !== "string" || !checksumPattern.test(value.package.sha256) || typeof value.package.bytes !== "number" || !Number.isSafeInteger(value.package.bytes) || value.package.bytes < 1 || value.package.bytes > MAX_PACKAGE_BYTES)) invalid();
 	return {
 		...value,
 		binding: verifiedBinding(value.binding),
@@ -6078,7 +6078,7 @@ function decodeRecord(value, id) {
 	};
 }
 function errno(error, code) {
-	return object$4(error) && error.code === code;
+	return object$5(error) && error.code === code;
 }
 function privateEntry(stat$1, directory$1) {
 	if ((directory$1 ? !stat$1.isDirectory() : !stat$1.isFile() || stat$1.nlink !== 1) || stat$1.uid !== process.getuid?.() || (stat$1.mode & 63) !== 0) invalid();
@@ -6255,7 +6255,7 @@ function normalize(input) {
 		"supersedesDeliveryId",
 		"locale"
 	];
-	if (!object$4(input) || Object.keys(input).some((field) => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256) || input.locale !== void 0 && !isHandoffLocale(input.locale) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.supersedesDeliveryId !== void 0 && !deliveryIdPattern.test(input.supersedesDeliveryId)) invalid();
+	if (!object$5(input) || Object.keys(input).some((field) => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256) || input.locale !== void 0 && !isHandoffLocale(input.locale) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.supersedesDeliveryId !== void 0 && !deliveryIdPattern.test(input.supersedesDeliveryId)) invalid();
 	const revision = input.revision === void 0 ? void 0 : wire("ArtifactReference", input.revision);
 	if (revision && (revision.family !== "handoff" || input.workInput !== void 0)) invalid();
 	return {
@@ -6286,7 +6286,7 @@ function packageData(record$3, carrier) {
 	};
 }
 function safeError(error) {
-	const code = object$4(error) ? error.code : void 0;
+	const code = object$5(error) ? error.code : void 0;
 	if (isDeliveryErrorCode(code)) return new DeliveryError(code);
 	if (code === "ENOSPC" || code === "EDQUOT") return new DeliveryError("capacity_exceeded");
 	return new DeliveryError("integration_unavailable");
@@ -6369,7 +6369,7 @@ var LocalDeliveryService = class {
 		const bytes = this.store.readPackage(record$3.deliveryId);
 		if (bytes.length !== record$3.package.bytes || sha256(bytes) !== record$3.package.sha256) invalid();
 		const value = JSON.parse(bytes.toString("utf8"));
-		if (!object$4(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== record$3.deliveryId || !object$4(value.source) || !sameBoundary(boundary(value.source), record$3.binding.source) || !sameBinding$1(verifiedBinding(value.binding), record$3.binding) || JSON.stringify(receiptIdentity(value.receiptAttempt)) !== JSON.stringify(record$3.receiptAttempt)) invalid();
+		if (!object$5(value) || value.schema !== DELIVERY_SCHEMA || value.deliveryId !== record$3.deliveryId || !object$5(value.source) || !sameBoundary(boundary(value.source), record$3.binding.source) || !sameBinding$1(verifiedBinding(value.binding), record$3.binding) || JSON.stringify(receiptIdentity(value.receiptAttempt)) !== JSON.stringify(record$3.receiptAttempt)) invalid();
 		return {
 			bytes,
 			carrier: validateCarrier(value.carrier, record$3.binding, record$3.deliveryId),
@@ -7857,9 +7857,9 @@ function fingerprint(owner, bundle) {
 	return keyFor(owner, bundle.deliveryId, JSON.stringify(bundle.binding), bundle.packageSha256, JSON.stringify(bundle.handoffSelection), JSON.stringify(bundle.receiptAttempt));
 }
 function checkReceipt(source$1, bundle, connection) {
-	if (!object$4(source$1) || source$1.handoff_receipt !== true || source$1.scope_id !== bundle.binding.scopeId || source$1.source_type !== "content" || source$1.source_id !== bundle.receiptAttempt.sourceId || !Number.isSafeInteger(source$1.position) || source$1.position < 1 || typeof source$1.content !== "string" || source$1.content_digest !== "sha256:" + sha256(JSON.stringify(source$1.content))) throw new Error("invalid receipt");
+	if (!object$5(source$1) || source$1.handoff_receipt !== true || source$1.scope_id !== bundle.binding.scopeId || source$1.source_type !== "content" || source$1.source_id !== bundle.receiptAttempt.sourceId || !Number.isSafeInteger(source$1.position) || source$1.position < 1 || typeof source$1.content !== "string" || source$1.content_digest !== "sha256:" + sha256(JSON.stringify(source$1.content))) throw new Error("invalid receipt");
 	const value = JSON.parse(source$1.content);
-	if (!object$4(value) || value.schema !== "powercontext.handoff-receipt.v1" || value.trust !== "untrusted_observation" || !trimmed(value.receiver, 256) || ![
+	if (!object$5(value) || value.schema !== "powercontext.handoff-receipt.v1" || value.trust !== "untrusted_observation" || !trimmed(value.receiver, 256) || ![
 		"accepted",
 		"needs_clarification",
 		"declined"
@@ -7878,7 +7878,7 @@ function checkReceipt(source$1, bundle, connection) {
 		"message"
 	];
 	if (Object.keys(value).some((key$2) => !fields.includes(key$2)) || fields.some((key$2) => !Object.hasOwn(value, key$2))) throw new Error("invalid receipt");
-	for (const citation of value.unavailable_evidence) if (object$4(citation) && citation.kind === "source" && object$4(citation.source_ref)) {
+	for (const citation of value.unavailable_evidence) if (object$5(citation) && citation.kind === "source" && object$5(citation.source_ref)) {
 		const { source_type, ...rest } = citation.source_ref;
 		wire("HandoffCitation", {
 			...citation,
@@ -7896,7 +7896,7 @@ function checkReceipt(source$1, bundle, connection) {
 		if (value.selection !== "exact" || value.prepared_digest !== null || revision.family !== expected.family || revision.artifact_id !== expected.artifact_id || revision.revision !== expected.revision) throw new Error("invalid receipt");
 	}
 	const checks = value.receiver_checks;
-	if (checks !== null && (!object$4(checks) || Object.keys(checks).sort().join(",") !== "authorization,capability,live_state" || ![
+	if (checks !== null && (!object$5(checks) || Object.keys(checks).sort().join(",") !== "authorization,capability,live_state" || ![
 		"confirmed",
 		"mismatch",
 		"not_checked"
@@ -7909,13 +7909,13 @@ function checkReceipt(source$1, bundle, connection) {
 		"insufficient",
 		"not_checked"
 	].includes(checks.authorization))) throw new Error("invalid receipt");
-	if (value.status === "accepted" && (value.evidence_status !== "available" || !object$4(checks) || checks.live_state !== "confirmed" || checks.capability !== "confirmed" || checks.authorization !== "confirmed")) throw new Error("invalid receipt");
+	if (value.status === "accepted" && (value.evidence_status !== "available" || !object$5(checks) || checks.live_state !== "confirmed" || checks.capability !== "confirmed" || checks.authorization !== "confirmed")) throw new Error("invalid receipt");
 	if (value.status !== "accepted" && (typeof value.message !== "string" || !value.message.trim() || Array.from(value.message).length > 8192)) throw new Error("invalid receipt");
 	if (value.message !== null && typeof value.message !== "string") throw new Error("invalid receipt");
 	let attribution;
 	if (connection.accessMode === "enforced") {
 		const identity = source$1.receipt_identity;
-		if (!object$4(identity) || identity.receiver_identity_matches !== true || !object$4(identity.principal) || !trimmed(identity.principal.id, 256) || !trimmed(identity.principal.type, 128) || identity.principal.id !== value.receiver || connection.expectedPrincipal && (identity.principal.id !== connection.expectedPrincipal.id || identity.principal.type !== connection.expectedPrincipal.type)) throw new Error("invalid identity");
+		if (!object$5(identity) || identity.receiver_identity_matches !== true || !object$5(identity.principal) || !trimmed(identity.principal.id, 256) || !trimmed(identity.principal.type, 128) || identity.principal.id !== value.receiver || connection.expectedPrincipal && (identity.principal.id !== connection.expectedPrincipal.id || identity.principal.type !== connection.expectedPrincipal.type)) throw new Error("invalid identity");
 		attribution = {
 			kind: "authenticated",
 			receiver: value.receiver,
@@ -7955,7 +7955,7 @@ var LocalReceiptReader = class {
 			"accepted",
 			"needs_clarification",
 			"declined"
-		].includes(record$3.state) || !object$4(record$3.attribution) || !["authenticated", "self_reported"].includes(record$3.attribution.kind) || !trimmed(record$3.attribution.receiver, 256) || record$3.attribution.kind === "authenticated" && (!object$4(record$3.attribution.principal) || !trimmed(record$3.attribution.principal.type, 128) || !trimmed(record$3.attribution.principal.id, 256) || record$3.attribution.principal.id !== record$3.attribution.receiver) || !Number.isFinite(Date.parse(record$3.confirmedAt))) throw new Error("invalid observation");
+		].includes(record$3.state) || !object$5(record$3.attribution) || !["authenticated", "self_reported"].includes(record$3.attribution.kind) || !trimmed(record$3.attribution.receiver, 256) || record$3.attribution.kind === "authenticated" && (!object$5(record$3.attribution.principal) || !trimmed(record$3.attribution.principal.type, 128) || !trimmed(record$3.attribution.principal.id, 256) || record$3.attribution.principal.id !== record$3.attribution.receiver) || !Number.isFinite(Date.parse(record$3.confirmedAt))) throw new Error("invalid observation");
 		return record$3;
 	}
 	index(context, bundle, record$3) {
@@ -7983,7 +7983,7 @@ var LocalReceiptReader = class {
 			"accepted",
 			"needs_clarification",
 			"declined"
-		].includes(record$3.state) || !object$4(record$3.attribution) || !["authenticated", "self_reported"].includes(record$3.attribution.kind) || !trimmed(record$3.attribution.receiver, 256) || record$3.attribution.kind === "authenticated" && (!object$4(record$3.attribution.principal) || !trimmed(record$3.attribution.principal.type, 128) || !trimmed(record$3.attribution.principal.id, 256) || record$3.attribution.principal.id !== record$3.attribution.receiver) || !Number.isFinite(Date.parse(record$3.confirmedAt))) throw new Error("invalid receipt observation");
+		].includes(record$3.state) || !object$5(record$3.attribution) || !["authenticated", "self_reported"].includes(record$3.attribution.kind) || !trimmed(record$3.attribution.receiver, 256) || record$3.attribution.kind === "authenticated" && (!object$5(record$3.attribution.principal) || !trimmed(record$3.attribution.principal.type, 128) || !trimmed(record$3.attribution.principal.id, 256) || record$3.attribution.principal.id !== record$3.attribution.receiver) || !Number.isFinite(Date.parse(record$3.confirmedAt))) throw new Error("invalid receipt observation");
 		return {
 			deliveryId: delivery.deliveryId,
 			state: record$3.state,
@@ -8185,6 +8185,17 @@ function createHandoffServices({ root, authority, catalog, client, signal, autho
 }
 
 //#endregion
+//#region src/handoff/receiver-prompt.ts
+/** The receiver's PowerContext plugin verifies the package and supplies its protocol instructions. */
+function buildReceiverPrompt(bundle, locale = "en") {
+	const fromHome = relative(homedir(), bundle.packagePath);
+	const path = fromHome.startsWith(".powercontext-dsh-handoff/") && isAbsolute(bundle.packagePath) ? "~/" + fromHome : bundle.packagePath;
+	const prompt = (locale === "zh-CN" ? "请用 PowerContext 读取这份交接包，继续剩下的工作，并用简体中文回复：" : "Please use PowerContext to read this handoff package and continue the remaining work. Reply in English:") + "\n" + JSON.stringify(path);
+	if (Buffer.byteLength(prompt, "utf8") > 2048) throw new DeliveryError("payload_invalid");
+	return prompt;
+}
+
+//#endregion
 //#region src/handoff/adapters/codex-desktop.ts
 const execFileAsync$1 = promisify(execFile);
 const DEFAULT_APP = "/Applications/ChatGPT.app";
@@ -8249,7 +8260,7 @@ function createCodexDesktopAdapter(options) {
 	const app = options.appPath ?? DEFAULT_APP;
 	const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
 	const qualification = options.qualification && { ...options.qualification };
-	const buildReceiverPrompt = options.buildReceiverPrompt;
+	const buildReceiverPrompt$1 = options.buildReceiverPrompt;
 	if (!isAbsolute(app) || options.qualification && (!options.qualification.evidence.trim() || !options.qualification.targetVersion.trim() || typeof options.buildReceiverPrompt !== "function") || !options.runtime && !isAbsolute(codexHome) || options.runtime && !options.runtime.configurationKey.trim() || options.buildReceiverPrompt !== void 0 && typeof options.buildReceiverPrompt !== "function" || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl$1(options.setup.serverUrl))) throw new Error("Codex Desktop requires valid application, qualification, configuration and receiver prompt");
 	const cli = join(app, CLI_PATH);
 	const configurationKey = options.runtime?.configurationKey ?? `codex:${codexHome}`;
@@ -8415,9 +8426,9 @@ function createCodexDesktopAdapter(options) {
 		},
 		launchIntent(target, bundle, locale) {
 			requireTarget(target);
-			if (!qualification || target.version !== qualification.targetVersion || !buildReceiverPrompt) throw new HandoffError("integration_unavailable");
+			if (!qualification || target.version !== qualification.targetVersion || !buildReceiverPrompt$1) throw new HandoffError("integration_unavailable");
 			if (bundle.binding.targetId !== "codex-desktop" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
-			const draft = buildReceiverPrompt(bundle, locale);
+			const draft = buildReceiverPrompt$1(bundle, locale);
 			if (typeof draft !== "string" || !draft.trim()) throw new HandoffError("payload_invalid");
 			return { draft };
 		}
@@ -8434,7 +8445,7 @@ const REQUIRED_TOOLS = [
 ];
 const SAFE_PART = /^[A-Za-z0-9._-]+$/u;
 const MAX_OUTPUT = 2 * 1024 * 1024;
-function object$3(value) {
+function object$4(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Codex observation");
 	return value;
 }
@@ -8465,7 +8476,7 @@ function envFor(options) {
 		PATH: `${dirname(options.cliPath)}:${process.env.PATH ?? "/usr/bin:/bin"}`
 	};
 }
-async function command(file, args, cwd, env, signal) {
+async function command$1(file, args, cwd, env, signal) {
 	const { stdout } = await execFileAsync(file, args, {
 		cwd,
 		env,
@@ -8517,7 +8528,7 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			return;
 		}
 		try {
-			const message = object$3(JSON.parse(line));
+			const message = object$4(JSON.parse(line));
 			if (typeof message.id !== "number") return;
 			const request$2 = pending.get(message.id);
 			if (!request$2) return;
@@ -8546,7 +8557,7 @@ async function inspectAppServer(options, cwd, signal, mode) {
 		});
 	};
 	try {
-		const initialized = object$3(await call$1("initialize", {
+		const initialized = object$4(await call$1("initialize", {
 			clientInfo: {
 				name: "powercontext_handoff",
 				version: "1"
@@ -8558,7 +8569,7 @@ async function inspectAppServer(options, cwd, signal, mode) {
 		}));
 		if (await realpath(text(initialized.codexHome)) !== await realpath(options.codexHome) || initialized.platformOs !== "macos") throw new Error("Codex runtime profile mismatch");
 		child.stdin.write("{\"method\":\"initialized\",\"params\":{}}\n");
-		if (mode === "requirements") return { requirements: object$3(await call$1("configRequirements/read", {})) };
+		if (mode === "requirements") return { requirements: object$4(await call$1("configRequirements/read", {})) };
 		const [hooks, config, mcp, requirements, plugins] = await Promise.all([
 			call$1("hooks/list", { cwds: [cwd] }),
 			call$1("config/read", {
@@ -8574,11 +8585,11 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			call$1("plugin/installed", { cwds: [cwd] })
 		]);
 		return {
-			hooks: object$3(hooks),
-			config: object$3(config),
-			mcp: object$3(mcp),
-			requirements: object$3(requirements),
-			plugins: object$3(plugins)
+			hooks: object$4(hooks),
+			config: object$4(config),
+			mcp: object$4(mcp),
+			requirements: object$4(requirements),
+			plugins: object$4(plugins)
 		};
 	} finally {
 		clearTimeout(timer);
@@ -8590,10 +8601,10 @@ async function inspectAppServer(options, cwd, signal, mode) {
 }
 /** Version-qualified Desktop stores its local composer selection separately from config.toml. */
 async function desktopPermission(options, requirements) {
-	const state = object$3(JSON.parse(await readFile(join(options.codexHome, ".codex-global-state.json"), "utf8")));
-	const selections = Object.entries(state).filter(([key$2]) => key$2.startsWith("electron-owner-atoms:")).map(([, value]) => object$3(value)["permission-selection-by-host-id:local"]).filter((value) => value != null);
+	const state = object$4(JSON.parse(await readFile(join(options.codexHome, ".codex-global-state.json"), "utf8")));
+	const selections = Object.entries(state).filter(([key$2]) => key$2.startsWith("electron-owner-atoms:")).map(([, value]) => object$4(value)["permission-selection-by-host-id:local"]).filter((value) => value != null);
 	if (selections.length !== 1) throw new Error("Desktop permission selection unavailable");
-	const selection = object$3(selections[0]);
+	const selection = object$4(selections[0]);
 	if (selection.kind !== "agent-mode") throw new Error("Unqualified Desktop permission selection");
 	const mode = {
 		"read-only": {
@@ -8622,9 +8633,9 @@ async function desktopPermission(options, requirements) {
 		}
 	}[text(selection.agentMode)];
 	if (!mode) throw new Error("Desktop permission selection unavailable");
-	const configured = requirements.requirements === null ? null : object$3(requirements.requirements);
+	const configured = requirements.requirements === null ? null : object$4(requirements.requirements);
 	if (configured) {
-		if (configured.allowedPermissionProfiles != null && object$3(configured.allowedPermissionProfiles)[mode.profile] !== true) throw new Error("Desktop profile restricted");
+		if (configured.allowedPermissionProfiles != null && object$4(configured.allowedPermissionProfiles)[mode.profile] !== true) throw new Error("Desktop profile restricted");
 		for (const [name$1, value] of [
 			["allowedSandboxModes", mode.sandbox],
 			["allowedApprovalPolicies", mode.approval],
@@ -8638,9 +8649,9 @@ async function desktopPermission(options, requirements) {
 }
 function installedPlugin(result$1) {
 	if (!Array.isArray(result$1.marketplaces) || !Array.isArray(result$1.marketplaceLoadErrors) || result$1.marketplaceLoadErrors.length) throw new Error("Invalid Codex plugin inventory");
-	const found = result$1.marketplaces.map(object$3).flatMap((marketplace$1) => {
+	const found = result$1.marketplaces.map(object$4).flatMap((marketplace$1) => {
 		if (!Array.isArray(marketplace$1.plugins)) throw new Error("Invalid marketplace inventory");
-		return marketplace$1.plugins.map(object$3).filter((item$1) => item$1.name === "powercontext" && item$1.installed === true).map((item$1) => ({
+		return marketplace$1.plugins.map(object$4).filter((item$1) => item$1.name === "powercontext" && item$1.installed === true).map((item$1) => ({
 			...item$1,
 			marketplaceName: marketplace$1.name
 		}));
@@ -8659,16 +8670,16 @@ function installedPlugin(result$1) {
 }
 function mcpReady(result$1, plugin) {
 	if (!Array.isArray(result$1.data) || result$1.nextCursor) return false;
-	const servers = result$1.data.map(object$3).filter((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
+	const servers = result$1.data.map(object$4).filter((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
 	if (servers.length !== 1 || servers[0].toolsError) return false;
-	const tools = object$3(servers[0].tools);
+	const tools = object$4(servers[0].tools);
 	return REQUIRED_TOOLS.every((name$1) => Object.hasOwn(tools, name$1));
 }
 async function hookEvidence(result$1, cwd, plugin, root) {
 	if (!Array.isArray(result$1.data) || result$1.data.length !== 1) throw new Error("Invalid hook inventory");
-	const entry = object$3(result$1.data[0]);
+	const entry = object$4(result$1.data[0]);
 	if (await realpath(text(entry.cwd)) !== await realpath(cwd) || !Array.isArray(entry.hooks) || !Array.isArray(entry.errors) || entry.errors.length) throw new Error("Hook inventory unavailable");
-	const hooks = entry.hooks.map(object$3);
+	const hooks = entry.hooks.map(object$4);
 	const expected = [
 		{
 			event: "sessionStart",
@@ -8729,17 +8740,17 @@ async function scopeObservation(options, cwd, root, key$2, signal) {
 		...envFor(options),
 		PC_HANDOFF_OBSERVATION_KEY: key$2
 	};
-	const result$1 = object$3(JSON.parse(await command(python, [
+	const result$1 = object$4(JSON.parse(await command$1(python, [
 		"-c",
 		SCOPE_PROBE,
 		root,
 		cwd
 	], cwd, env, signal)));
-	const identity = object$3(result$1.identity);
+	const identity = object$4(result$1.identity);
 	const serverIdentity = text(identity.server_id);
 	const scopeId = text(result$1.scope);
 	const auth = identity.authentication, access$1 = identity.access_mode;
-	const principal = identity.principal === null ? null : object$3(identity.principal);
+	const principal = identity.principal === null ? null : object$4(identity.principal);
 	if (auth !== "disabled" && auth !== "authenticated" || access$1 !== "disabled" && access$1 !== "enforced" || auth === "disabled" && principal !== null || access$1 === "enforced" && auth !== "authenticated" || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || !text(principal.id))) throw new Error("Invalid target identity");
 	if (typeof result$1.hasHelper !== "boolean") throw new Error("Invalid helper state");
 	return {
@@ -8752,7 +8763,7 @@ async function scopeObservation(options, cwd, root, key$2, signal) {
 	};
 }
 async function sandboxHash(options, profile, cwd, path, signal) {
-	const hash = (await command(options.cliPath, [
+	const hash = (await command$1(options.cliPath, [
 		"sandbox",
 		"-P",
 		profile,
@@ -8815,8 +8826,10 @@ function createCodexDesktopRuntime(options) {
 					setup.serverUrl,
 					"--json"
 				];
+				const env = envFor(options);
+				if (setup.path) env.PATH = `${dirname(options.cliPath)}:${setup.path}`;
 				const child = spawn(setup.executable, args, {
-					env: envFor(options),
+					env,
 					cwd: options.codexHome,
 					stdio: "ignore",
 					shell: false,
@@ -8858,13 +8871,13 @@ function createCodexDesktopRuntime(options) {
 				const root = join(options.codexHome, "plugins/cache", plugin.marketplace, "powercontext", plugin.version);
 				const [scope, rootPath] = await Promise.all([scopeObservation(options, cwd, root, key$2, signal), realpath(root)]);
 				if (!mcpReady(observed$1.mcp, plugin)) throw new Error("MCP unavailable");
-				const configuration$1 = object$3(observed$1.config.config);
-				if (configuration$1.mcp_servers != null && Object.hasOwn(object$3(configuration$1.mcp_servers), "powercontext")) throw new Error("PowerContext MCP override not qualified");
+				const configuration$1 = object$4(observed$1.config.config);
+				if (configuration$1.mcp_servers != null && Object.hasOwn(object$4(configuration$1.mcp_servers), "powercontext")) throw new Error("PowerContext MCP override not qualified");
 				if (configuration$1.plugins != null) {
-					const settings = object$3(configuration$1.plugins)[plugin.pluginId];
-					if (settings != null && object$3(settings).mcp_servers != null) throw new Error("Plugin MCP override not qualified");
+					const settings = object$4(configuration$1.plugins)[plugin.pluginId];
+					if (settings != null && object$4(settings).mcp_servers != null) throw new Error("Plugin MCP override not qualified");
 				}
-				const mcpServer = observed$1.mcp.data.map(object$3).find((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
+				const mcpServer = observed$1.mcp.data.map(object$4).find((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
 				if (!mcpServer || mcpServer.httpOrigin !== new URL(scope.endpoint).origin) throw new Error("MCP origin differs");
 				const hooks = await hookEvidence(observed$1.hooks, cwd, plugin, rootPath);
 				const receiveHandler = join(rootPath, "hooks/dsh_handoff.py");
@@ -8872,17 +8885,17 @@ function createCodexDesktopRuntime(options) {
 				if (!receiverInfo.isFile() || receiverInfo.size < 1 || receiverInfo.size > 64 * 1024) throw new Error("Handoff receiver unavailable");
 				const receiverHash = createHash("sha256").update(await readFile(receiveHandler, { signal })).digest("hex");
 				const permission = await desktopPermission(options, observed$1.requirements);
-				const inventory = JSON.parse(await command(options.cliPath, [
+				const inventory = JSON.parse(await command$1(options.cliPath, [
 					"mcp",
 					"list",
 					"--json"
 				], cwd, envFor(options), signal));
 				if (!Array.isArray(inventory)) throw new Error("Invalid MCP inventory");
-				const servers = inventory.map(object$3).filter((item) => item.name === "powercontext" && item.enabled === true);
+				const servers = inventory.map(object$4).filter((item) => item.name === "powercontext" && item.enabled === true);
 				if (servers.length !== 1) throw new Error("MCP configuration unavailable");
-				const transport = object$3(servers[0].transport);
-				const headers = object$3(transport.env_http_headers);
-				if (headers.Authorization !== "POWERCONTEXT_CODEX_AUTHORIZATION" || Object.keys(headers).length !== 1 || !!transport.http_headers_helper !== scope.hasHelper || transport.bearer_token_env_var || transport.http_headers && Object.keys(object$3(transport.http_headers)).length) throw new Error("MCP authorization configuration differs");
+				const transport = object$4(servers[0].transport);
+				const headers = object$4(transport.env_http_headers);
+				if (headers.Authorization !== "POWERCONTEXT_CODEX_AUTHORIZATION" || Object.keys(headers).length !== 1 || !!transport.http_headers_helper !== scope.hasHelper || transport.bearer_token_env_var || transport.http_headers && Object.keys(object$4(transport.http_headers)).length) throw new Error("MCP authorization configuration differs");
 				const url = new URL(text(transport.url));
 				const expected = new URL(`${scope.endpoint.replace(/\/$/u, "")}/mcp/`);
 				if (url.username || url.password || url.search || url.hash || url.href.replace(/\/$/u, "") !== expected.href.replace(/\/$/u, "")) throw new Error("MCP and hook endpoints differ");
@@ -9049,7 +9062,7 @@ async function createClaudeIntegration(options) {
 	if (env.CLAUDE_CONFIG_DIR !== void 0) {
 		if (await canonicalDirectory(env.CLAUDE_CONFIG_DIR) !== configDir) throw new Error("Claude configuration directory does not match the target environment");
 	} else if (await canonicalDirectory(join(env.HOME ?? homedir(), ".claude")) !== configDir) env.CLAUDE_CONFIG_DIR = configDir;
-	const execute$1 = async (args, signal) => {
+	const execute$2 = async (args, signal) => {
 		if (await canonicalDirectory(options.configDir) !== configDir) throw new Error("Claude configuration directory changed");
 		return runCommand(options.powercontextExecutable, args, env, signal);
 	};
@@ -9057,7 +9070,7 @@ async function createClaudeIntegration(options) {
 		configurationKey,
 		async check(signal) {
 			try {
-				const result$1 = await execute$1([
+				const result$1 = await execute$2([
 					"doctor",
 					"claude-code",
 					"--json"
@@ -9109,7 +9122,7 @@ async function createClaudeIntegration(options) {
 			];
 			if (options.serverUrl) args.push("--server-url", options.serverUrl);
 			try {
-				const result$1 = await execute$1(args, signal);
+				const result$1 = await execute$2(args, signal);
 				if (result$1.interrupted || signal.aborted) return { state: "unknown" };
 				return hostResult(result$1.stdout)?.setup === "complete" ? { state: "completed" } : { state: "unknown" };
 			} catch {
@@ -9201,10 +9214,10 @@ async function inspectClaudeDesktopHandler(appPath, signal) {
 }
 /** A qualified runtime must also provide the receiving PowerContext prompt hook and MCP tools. */
 function createClaudeDesktopAdapter(options = {}) {
-	const { qualification, runtime, integration, buildReceiverPrompt } = options;
+	const { qualification, runtime, integration, buildReceiverPrompt: buildReceiverPrompt$1 } = options;
 	const appPath = options.appPath ?? "/Applications/Claude.app";
 	const configurationKey = runtime?.configurationKey ?? integration?.configurationKey ?? "claude-desktop:manual-configuration";
-	const qualified = Boolean(qualification?.appVersion.trim() && qualification.evidence.trim() && runtime?.configurationKey.trim() && typeof buildReceiverPrompt === "function" && (!integration || integration.configurationKey.trim() && runtime.configurationKey === integration.configurationKey));
+	const qualified = Boolean(qualification?.appVersion.trim() && qualification.evidence.trim() && runtime?.configurationKey.trim() && typeof buildReceiverPrompt$1 === "function" && (!integration || integration.configurationKey.trim() && runtime.configurationKey === integration.configurationKey));
 	const detect = async (signal) => {
 		const bundle = await inspectClaudeDesktopBundle(appPath, signal);
 		if (bundle.state === "present") return !qualified || bundle.version === qualification.appVersion ? {
@@ -9274,16 +9287,16 @@ function createClaudeDesktopAdapter(options = {}) {
 		},
 		launchIntent(target, bundle, locale) {
 			requireTarget(target);
-			if (!qualified || !buildReceiverPrompt) throw new HandoffError("integration_unavailable");
+			if (!qualified || !buildReceiverPrompt$1) throw new HandoffError("integration_unavailable");
 			if (bundle.binding.targetId !== "claude-desktop" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
-			return { draft: buildReceiverPrompt(bundle, locale) };
+			return { draft: buildReceiverPrompt$1(bundle, locale) };
 		}
 	};
 }
 
 //#endregion
 //#region src/handoff/adapters/claude-code-cli-probe.ts
-const execute = promisify(execFile);
+const execute$1 = promisify(execFile);
 /**
 * Probe the same PATH that ClaudeInstaller uses, without starting an interactive
 * session or modifying Claude configuration. Presence is not qualification: a
@@ -9304,7 +9317,7 @@ async function probeClaudeCodeCli(signal, path = process.env.PATH ?? "") {
 			return { state: "unknown" };
 		}
 		try {
-			const { stdout } = await execute(executable, ["--version"], {
+			const { stdout } = await execute$1(executable, ["--version"], {
 				signal,
 				timeout: 5e3,
 				maxBuffer: 4096,
@@ -9327,15 +9340,328 @@ async function probeClaudeCodeCli(signal, path = process.env.PATH ?? "") {
 }
 
 //#endregion
+//#region src/handoff/adapters/claude-code-cli-runtime.ts
+const execute = promisify(execFile);
+const PROBE = String.raw`
+import json, os, sys, time
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+sys.path.insert(0, sys.argv[1])
+from claude_code_settings import ClaudeCodePluginSettings
+from scripts.workspace_scope import resolve_scope_id
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl): return None
+settings = ClaudeCodePluginSettings.from_environment()
+endpoint = sys.argv[3].rstrip('/')
+if endpoint != settings.server_url.rstrip('/'):
+    raise ValueError('MCP and hook endpoints differ')
+def identity(authorization):
+    headers = {'Accept': 'application/json'}
+    if authorization: headers['Authorization'] = authorization
+    req = Request(endpoint + '/v1/connection/identity', headers=headers)
+    with build_opener(NoRedirect()).open(req, timeout=3) as response:
+        return json.loads(response.read(1048577))
+a = identity(settings.authorization)
+b = identity(os.environ.get('POWERCONTEXT_CLAUDE_AUTHORIZATION'))
+fields = ('server_id', 'authentication', 'access_mode', 'principal')
+if any(a.get(k) != b.get(k) for k in fields): raise ValueError('MCP and hook identities differ')
+if a.get('authentication') not in ('disabled', 'authenticated'): raise ValueError('unknown authentication')
+if a.get('access_mode') not in ('disabled', 'enforced'): raise ValueError('unknown access mode')
+if a.get('access_mode') == 'enforced' and a.get('authentication') != 'authenticated': raise ValueError('unauthorized')
+if a.get('authentication') == 'disabled' and a.get('principal') is not None: raise ValueError('invalid anonymous identity')
+if a.get('authentication') == 'authenticated':
+    principal = a.get('principal')
+    if not isinstance(principal, dict) or principal.get('type') not in ('user', 'service') or not principal.get('id'): raise ValueError('invalid principal')
+if not isinstance(a.get('server_id'), str) or not a['server_id']: raise ValueError('missing server identity')
+# Verify the actual MCP authentication and the operations the receiver needs.
+headers = {'Accept': 'application/json, text/event-stream', 'Content-Type': 'application/json'}
+if os.environ.get('POWERCONTEXT_CLAUDE_AUTHORIZATION'):
+    headers['Authorization'] = os.environ['POWERCONTEXT_CLAUDE_AUTHORIZATION']
+def rpc(message):
+    req = Request(endpoint + '/mcp/', data=json.dumps(message).encode(), headers=headers, method='POST')
+    with build_opener(NoRedirect()).open(req, timeout=3) as response:
+        session = response.headers.get('mcp-session-id')
+        if session: headers['mcp-session-id'] = session
+        data = response.read(1048577)
+        if len(data) > 1048576: raise ValueError('MCP response too large')
+        if not data: return None
+        if 'text/event-stream' in response.headers.get('Content-Type', ''):
+            events = [line[5:].strip() for line in data.decode().splitlines() if line.startswith('data:')]
+            data = events[-1].encode() if events else b'{}'
+        return json.loads(data)
+try:
+    initialized = rpc({'jsonrpc':'2.0', 'id':1, 'method':'initialize', 'params':{'protocolVersion':'2025-03-26', 'capabilities':{}, 'clientInfo':{'name':'powercontext-handoff-preflight','version':'1'}}})
+    protocol = initialized['result']['protocolVersion']
+    if not isinstance(protocol, str): raise ValueError('invalid MCP protocol')
+    headers['MCP-Protocol-Version'] = protocol
+    rpc({'jsonrpc':'2.0', 'method':'notifications/initialized'})
+    names = set()
+    cursor = None
+    for page in range(8):
+        result = rpc({'jsonrpc':'2.0', 'id':2+page, 'method':'tools/list', 'params':{'cursor':cursor} if cursor else {}})['result']
+        names.update(item['name'] for item in result['tools'] if isinstance(item, dict) and isinstance(item.get('name'), str))
+        cursor = result.get('nextCursor')
+        if not cursor: break
+    else: raise ValueError('MCP tool pages exceeded')
+    if not {'get_connection_identity', 'continue_handoff', 'acknowledge_handoff'} <= names: raise ValueError('MCP handoff tools unavailable')
+finally:
+    if headers.get('mcp-session-id'):
+        try:
+            req = Request(endpoint + '/mcp/', headers=headers, method='DELETE')
+            with build_opener(NoRedirect()).open(req, timeout=3): pass
+        except Exception: pass
+scope = resolve_scope_id(sys.argv[2], session_id=None, settings=settings, deadline=time.monotonic()+settings.http_budget_seconds)
+print(json.dumps({'serverIdentity': a['server_id'], 'scopeId': scope}, separators=(',', ':')))
+`;
+function object$3(value) {
+	return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+async function readObject(path) {
+	try {
+		const info = await lstat(path);
+		if (!info.isFile() || info.size > 1048576) throw new Error("Invalid settings file");
+		const result$1 = object$3(JSON.parse(await readFile(path, "utf8")));
+		if (!result$1) throw new Error("Invalid settings");
+		return result$1;
+	} catch (error) {
+		if (error.code === "ENOENT") return {};
+		throw error;
+	}
+}
+async function command(file, args, env, signal, cwd) {
+	signal.throwIfAborted();
+	return (await execute(file, args, {
+		env,
+		cwd,
+		signal,
+		timeout: 15e3,
+		maxBuffer: 1048576,
+		encoding: "utf8"
+	})).stdout;
+}
+async function installedClaudePowerContext(executable, env, signal, cwd) {
+	const list = JSON.parse(await command(executable, [
+		"plugin",
+		"list",
+		"--json"
+	], env, signal, cwd));
+	if (!Array.isArray(list)) throw new Error("Invalid Claude plugin inventory");
+	const plugins = list.filter((value) => value?.id === "powercontext@powercontext");
+	if (plugins.length > 1) throw new Error("Ambiguous Claude plugin inventory");
+	return plugins[0];
+}
+/**
+* The qualified CLI build uses the stored macOS terminal preference when present.
+* If it is missing or unsupported, don't assume which terminal Launch Services will open.
+*/
+async function observeClaudeTerminal(home) {
+	const terminal = (await readObject(join(home, ".claude.json"))).deepLinkTerminal;
+	if (terminal === "Terminal") {
+		await access("/System/Applications/Utilities/Terminal.app", constants.F_OK);
+		return terminal;
+	}
+	if (terminal === "Ghostty") {
+		await access("/Applications/Ghostty.app/Contents/MacOS/ghostty", constants.X_OK);
+		return terminal;
+	}
+}
+/** Check Launch Services' selected app and its actual executable, without opening the URL. */
+async function registeredHandler(executable, env, signal) {
+	if (process.platform !== "darwin") return "unknown";
+	try {
+		const app = (await command("/usr/bin/osascript", [
+			"-l",
+			"JavaScript",
+			"-e",
+			"ObjC.import('AppKit'); let u=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString('claude-cli://open')); u.isNil() ? '' : ObjC.unwrap(u.path)"
+		], env, signal)).trim();
+		if (!app) return "needs_user_action";
+		const expected = join(env.HOME || "", "Applications", "Claude Code URL Handler.app");
+		if (!isAbsolute(expected) || await realpath(app) !== await realpath(expected)) return "needs_user_action";
+		const name$1 = (await command("/usr/libexec/PlistBuddy", [
+			"-c",
+			"Print :CFBundleExecutable",
+			join(app, "Contents", "Info.plist")
+		], env, signal)).trim();
+		if (!name$1 || name$1.includes("/") || name$1 === "." || name$1 === "..") return "unknown";
+		return await realpath(join(app, "Contents", "MacOS", name$1)) === await realpath(executable) ? "ready" : "needs_user_action";
+	} catch (error) {
+		if (signal.aborted) signal.throwIfAborted();
+		return error.code === "ENOENT" ? "needs_user_action" : "unknown";
+	}
+}
+/**
+* The environment and readable roots are taken from real version-specific
+* qualification; do not populate them from the DSH process or a fixture.
+* Claude's plugin-list command may initialize its configuration and write files,
+* so callers must account for that effect before invoking this probe.
+*/
+function createClaudeCodeCliReceiver(options) {
+	if (!isAbsolute(options.configDir) || !isAbsolute(options.pythonExecutable)) throw new Error("Absolute paths required");
+	if (options.generationKey.length < 32 || !options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) throw new Error("Verified terminal evidence and a persistent generation key are required");
+	const key$2 = Buffer.from(options.generationKey);
+	const env = { ...options.launchEnvironment };
+	const terminal = () => options.observeDefaultTerminal ? observeClaudeTerminal(env.HOME ?? homedir()) : Promise.resolve(options.environmentEvidence.terminal);
+	const inspect = async (executable, cwd, signal) => {
+		try {
+			const terminalPreference = await terminal();
+			if (!terminalPreference) return void 0;
+			if (await realpath(cwd) !== cwd) return void 0;
+			if (await realpath(options.configDir) !== options.configDir) return void 0;
+			const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), ".claude");
+			if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return void 0;
+			const settings = await readObject(join(options.configDir, "settings.json"));
+			let gitRoot = cwd;
+			try {
+				const observedRoot = (await command("git", ["rev-parse", "--show-toplevel"], env, signal, cwd)).trim();
+				if (isAbsolute(observedRoot)) gitRoot = await realpath(observedRoot);
+			} catch {
+				if (signal.aborted) signal.throwIfAborted();
+			}
+			for (const path of [
+				join(cwd, ".claude", "settings.json"),
+				join(cwd, ".claude", "settings.local.json"),
+				join(gitRoot, ".claude", "settings.json"),
+				join(gitRoot, ".claude", "settings.local.json"),
+				"/Library/Application Support/ClaudeCode/managed-settings.json"
+			]) {
+				const value = await readObject(path);
+				if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || value.permissions || value.sandbox || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return void 0;
+			}
+			for (const path of [
+				join(cwd, ".mcp.json"),
+				join(gitRoot, ".mcp.json"),
+				"/Library/Application Support/ClaudeCode/managed-mcp.json"
+			]) {
+				const mcpConfig$1 = await readObject(path);
+				if (mcpConfig$1.mcpServers !== void 0 && !object$3(mcpConfig$1.mcpServers)) return void 0;
+				if (mcpConfig$1.mcpServers?.powercontext || path.endsWith("/managed-mcp.json") && Object.keys(mcpConfig$1).length) return void 0;
+			}
+			if (settings.env !== void 0 && !object$3(settings.env) || settings.pluginConfigs !== void 0 && !object$3(settings.pluginConfigs) || settings.enabledPlugins !== void 0 && !object$3(settings.enabledPlugins) || settings.enabledPlugins?.["powercontext@powercontext"] === false || settings.mcpServers !== void 0 && !object$3(settings.mcpServers)) return void 0;
+			if (settings.mcpServers?.powercontext || settings.deniedMcpServers || settings.allowedMcpServers || settings.enabledMcpjsonServers || settings.disabledMcpjsonServers) return void 0;
+			if (options.observeDefaultTerminal && (settings.permissions || settings.sandbox)) return void 0;
+			const settingsEnv = object$3(settings.env) ?? {};
+			if (Object.hasOwn(settingsEnv, "CLAUDE_CONFIG_DIR")) return void 0;
+			const targetEnv = { ...env };
+			for (const [name$1, value] of Object.entries(settingsEnv)) {
+				if (typeof value !== "string") return void 0;
+				targetEnv[name$1] = value;
+			}
+			if (settings.disableAllHooks === true) return void 0;
+			const plugin = await installedClaudePowerContext(executable, targetEnv, signal, cwd);
+			if (plugin?.enabled !== true || plugin.errors?.length || !plugin.installPath || !isAbsolute(plugin.installPath)) return void 0;
+			const pluginRoot = await realpath(plugin.installPath);
+			const manifest = await readObject(join(pluginRoot, ".claude-plugin", "plugin.json"));
+			const mcp = await readObject(join(pluginRoot, ".mcp.json"));
+			const promptHooks = (await readObject(join(pluginRoot, "hooks/hooks.json"))).hooks?.UserPromptSubmit;
+			if (!Array.isArray(promptHooks) || !promptHooks.some((entry) => !entry?.matcher && Array.isArray(entry?.hooks) && entry.hooks.some((hook) => hook?.type === "command" && hook.command === "python3" && Array.isArray(hook.args) && hook.args.length === 1 && hook.args[0] === "${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"))) return void 0;
+			const receive = join(pluginRoot, "hooks/dsh_handoff.py");
+			const receiveInfo = await lstat(receive);
+			if (!receiveInfo.isFile() || receiveInfo.size < 1 || receiveInfo.size > 64 * 1024) return void 0;
+			const receiverHash = createHash("sha256").update(await readFile(receive, { signal })).digest("hex");
+			if (mcp.powercontext?.url !== "${user_config.server_url}/mcp" || mcp.powercontext?.headers?.Authorization !== "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}") return void 0;
+			const pluginConfig = settings.pluginConfigs?.["powercontext@powercontext"];
+			if (pluginConfig !== void 0 && !object$3(pluginConfig) || pluginConfig?.options !== void 0 && !object$3(pluginConfig.options)) return void 0;
+			const opts = pluginConfig?.options ?? {};
+			const endpoint = opts.server_url ?? manifest.userConfig?.server_url?.default;
+			if (typeof endpoint !== "string" || !endpoint.trim()) return void 0;
+			targetEnv.CLAUDE_PLUGIN_OPTION_SERVER_URL = endpoint;
+			if (typeof opts.allow_insecure_http === "boolean") targetEnv.CLAUDE_PLUGIN_OPTION_ALLOW_INSECURE_HTTP = String(opts.allow_insecure_http);
+			const parsed = object$3(JSON.parse(await command(options.pythonExecutable, [
+				"-c",
+				PROBE,
+				pluginRoot,
+				cwd,
+				endpoint
+			], targetEnv, signal, cwd)));
+			if (!parsed || typeof parsed.serverIdentity !== "string" || !parsed.serverIdentity || typeof parsed.scopeId !== "string" || !parsed.scopeId) return void 0;
+			const roots = await Promise.all(options.qualifiedPackageRoots.map((root) => realpath(root)));
+			const credentialFile = join(options.configDir, "powercontext", "credentials.json");
+			const clientsFile = targetEnv.POWERCONTEXT_CLIENT_CONFIG_FILE ?? join(targetEnv.HOME ?? "", ".config", "powercontext", "clients.json");
+			const credentials = await readObject(credentialFile);
+			const clients = await readObject(clientsFile);
+			const generation = createHmac("sha256", key$2).update(JSON.stringify([
+				await realpath(executable),
+				pluginRoot,
+				manifest,
+				mcp,
+				settings,
+				Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
+				credentials,
+				clients,
+				roots,
+				parsed,
+				promptHooks,
+				receiverHash,
+				options.environmentEvidence,
+				terminalPreference
+			])).digest("hex");
+			return {
+				effectiveCwd: cwd,
+				serverIdentity: parsed.serverIdentity,
+				scopeId: parsed.scopeId,
+				configurationGeneration: generation,
+				newSession: true,
+				unsentPrefill: true,
+				packageAccess: roots.length > 0
+			};
+		} catch {
+			if (signal.aborted) signal.throwIfAborted();
+			return;
+		}
+	};
+	return {
+		async handler(executable, _version, signal) {
+			const handler = await registeredHandler(executable, env, signal);
+			if (handler !== "ready") return handler;
+			try {
+				const observed$1 = await terminal();
+				signal.throwIfAborted();
+				return observed$1 ? "ready" : "needs_user_action";
+			} catch {
+				signal.throwIfAborted();
+				return "needs_user_action";
+			}
+		},
+		environment: inspect,
+		async canReadPackage(_executable, bundle, signal) {
+			try {
+				signal.throwIfAborted();
+				if (!await terminal()) return false;
+				const path = await realpath(bundle.packagePath);
+				if (!(await Promise.all(options.qualifiedPackageRoots.map((root) => realpath(root)))).some((root) => {
+					const rel = relative(root, path);
+					return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+				})) return false;
+				if (!(await lstat(bundle.packagePath)).isFile()) return false;
+				await access(path, constants.R_OK);
+				const content = await readFile(path, { signal });
+				return createHash("sha256").update(content).digest("hex") === bundle.packageSha256;
+			} catch {
+				if (signal.aborted) signal.throwIfAborted();
+				return false;
+			}
+		}
+	};
+}
+
+//#endregion
 //#region src/handoff/adapters/claude-code-cli.ts
+function launchIntent(options, target, bundle, locale) {
+	const { qualification, buildReceiverPrompt: buildReceiverPrompt$1, receiver } = options;
+	if (!qualification?.evidence.trim() || !buildReceiverPrompt$1 || !receiver) throw new HandoffError("integration_unavailable");
+	if (target.version !== qualification.targetVersion || bundle.binding.targetId !== "claude-code-cli" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
+	const draft = buildReceiverPrompt$1(bundle, locale);
+	if (typeof draft !== "string" || !draft.trim()) throw new HandoffError("payload_invalid");
+	return { draft };
+}
 /** Unqualified targets remain detectable and never expose native launch as ready. */
 function createClaudeCodeCliAdapter(options = {}) {
 	if (!options.integration) return createDefaultClaudeCodeCliAdapter({
 		path: options.path,
 		buildReceiverPrompt: options.buildReceiverPrompt
 	});
-	const { integration, receiver, qualification, buildReceiverPrompt } = options;
-	const qualified = Boolean(qualification?.targetVersion?.trim() && qualification.evidence?.trim() && receiver && buildReceiverPrompt);
+	const { integration, receiver, qualification, buildReceiverPrompt: buildReceiverPrompt$1 } = options;
+	const qualified = Boolean(qualification?.targetVersion?.trim() && qualification.evidence?.trim() && receiver && buildReceiverPrompt$1);
 	const path = options.path ?? process.env.PATH ?? "";
 	const detect = async (signal) => {
 		const result$1 = await probeClaudeCodeCli(signal, path);
@@ -9417,11 +9743,9 @@ function createClaudeCodeCliAdapter(options = {}) {
 			}
 		},
 		launchIntent(target, bundle, locale) {
-			if (!qualified || !qualification || !buildReceiverPrompt) throw new HandoffError("integration_unavailable");
-			if (target.version !== qualification.targetVersion || target.configurationKey !== integration.configurationKey || bundle.binding.targetId !== "claude-code-cli" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
-			const draft = buildReceiverPrompt(bundle, locale);
-			if (typeof draft !== "string" || !draft.trim()) throw new HandoffError("payload_invalid");
-			return { draft };
+			if (!qualified) throw new HandoffError("integration_unavailable");
+			if (target.configurationKey !== integration.configurationKey) throw new HandoffError("binding_mismatch");
+			return launchIntent(options, target, bundle, locale);
 		}
 	};
 }
@@ -9479,11 +9803,26 @@ async function createClaudeCodeCliTarget(options = {}) {
 		} catch {}
 		if (!executable || !executableAvailable) return createClaudeCodeCliAdapter({
 			...adapterOptions,
-			qualification: void 0,
 			path,
 			integration: {
 				...unavailable,
-				configurationKey
+				configurationKey,
+				async check(signal) {
+					if (!adapterOptions.receiver || !adapterOptions.qualification) return unavailable.check(signal);
+					try {
+						const cli = await probeClaudeCodeCli(signal, path);
+						if (cli.state !== "present") return { state: "unknown" };
+						const plugin = await installedClaudePowerContext(cli.executable, environment, signal);
+						if (plugin?.enabled !== true || plugin.errors?.length) return {
+							state: "needs_user_action",
+							action: "configure_target"
+						};
+						return { state: "ready" };
+					} catch {
+						signal.throwIfAborted();
+						return { state: "unknown" };
+					}
+				}
 			}
 		});
 		const integration = await createClaudeIntegration({
@@ -9508,10 +9847,20 @@ async function createClaudeCodeCliTarget(options = {}) {
 }
 /** A synchronous, unqualified registry entry; no installer work occurs during registration. */
 function createDefaultClaudeCodeCliAdapter(options = {}) {
+	return createDeferredClaudeCodeCliTarget(options);
+}
+/** Keep Host composition synchronous; resolve the actual installer/profile when an operation runs. */
+function createDeferredClaudeCodeCliTarget(options) {
+	const { qualification, receiver, buildReceiverPrompt: buildReceiverPrompt$1 } = options;
+	const qualified = Boolean(qualification?.targetVersion.trim() && qualification.evidence.trim() && receiver && buildReceiverPrompt$1);
 	const getTarget = () => createClaudeCodeCliTarget(options);
 	return {
 		id: "claude-code-cli",
 		version: "1",
+		...qualified && qualification ? { qualification: {
+			platform: "darwin",
+			evidence: qualification.evidence
+		} } : {},
 		async detect(signal) {
 			signal.throwIfAborted();
 			return (await getTarget()).detect(signal);
@@ -9520,57 +9869,113 @@ function createDefaultClaudeCodeCliAdapter(options = {}) {
 			signal.throwIfAborted();
 			return (await getTarget()).checkIntegration(present, signal);
 		},
-		async installIntegration(_present, signal) {
+		async installIntegration(present, signal) {
 			signal.throwIfAborted();
-			return {
-				state: "needs_user_action",
-				action: "configure_target"
-			};
+			return (await getTarget()).installIntegration(present, signal);
 		},
-		async resolveEnvironment(_present, _cwd, signal) {
+		async resolveEnvironment(present, cwd, signal) {
 			signal.throwIfAborted();
-			throw new HandoffError("integration_unavailable");
+			return (await getTarget()).resolveEnvironment(present, cwd, signal);
 		},
-		async canReadPackage(_present, _bundle, signal) {
+		async canReadPackage(present, bundle, signal) {
 			signal.throwIfAborted();
-			return false;
+			return (await getTarget()).canReadPackage(present, bundle, signal);
 		},
-		launchIntent() {
-			throw new HandoffError("integration_unavailable");
+		launchIntent(present, bundle, locale) {
+			return launchIntent(options, present, bundle, locale);
 		}
 	};
 }
 
 //#endregion
 //#region src/handoff/adapters/defaults.ts
+const CODEX = {
+	targetVersion: "26.1106.51428 (26605); codex-cli 0.167.0-alpha.4.1",
+	evidence: "HANDOFF_VALIDATION.md (5cd2)"
+};
+const CLAUDE_CLI = {
+	targetVersion: "2.1.323",
+	evidence: "HANDOFF_VALIDATION.md (d093)"
+};
+function installedExecutable(name$1, path) {
+	for (const directory$1 of path.split(delimiter)) {
+		if (!isAbsolute(directory$1)) continue;
+		const candidate = join(directory$1, name$1);
+		try {
+			accessSync(candidate, constants.X_OK);
+			if (statSync(candidate).isFile()) return candidate;
+		} catch {}
+	}
+}
 /**
 * The Host constructs this inside its profile lock. New native targets can be added
 * here once their own adapters exist; absence of qualification is not absence of detection.
 */
 function createDefaultTargetAdapters(options) {
 	if (!isAbsolute(options.root) || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32) throw new Error("Default target adapters require an absolute Host root and persistent 32-byte key");
+	const home = homedir();
+	const path = [
+		...(process.env.PATH ?? "").split(delimiter),
+		join(home, ".local/bin"),
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+		"/usr/bin",
+		"/bin"
+	].filter(isAbsolute).join(delimiter);
+	const executable = options.powercontextExecutable ?? installedExecutable("powercontext", path);
 	const appPath = options.codexAppPath ?? "/Applications/ChatGPT.app";
-	const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
-	const setup = options.powercontextExecutable && options.sourceServerUrl ? {
-		executable: options.powercontextExecutable,
+	const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex");
+	const setup = executable && options.sourceServerUrl ? {
+		executable,
 		serverUrl: options.sourceServerUrl,
-		source: options.codexSource
+		source: options.codexSource,
+		path
 	} : void 0;
+	const deliveryRoot = join(options.root, "deliveries");
+	const runtime = createCodexDesktopRuntime({
+		cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+		codexHome,
+		deliveryRoot,
+		generationKey: options.generationKey,
+		setup
+	});
+	const configDir = join(home, ".claude");
+	const environment = {
+		HOME: home,
+		PATH: path
+	};
+	const receiver = createClaudeCodeCliReceiver({
+		configDir,
+		launchEnvironment: environment,
+		pythonExecutable: "/usr/bin/python3",
+		generationKey: options.generationKey,
+		environmentEvidence: {
+			terminal: "macOS",
+			evidence: CLAUDE_CLI.evidence
+		},
+		qualifiedPackageRoots: [deliveryRoot],
+		observeDefaultTerminal: true
+	});
 	return [
 		createCodexDesktopAdapter({
 			appPath,
-			runtime: createCodexDesktopRuntime({
-				cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
-				codexHome,
-				deliveryRoot: join(options.root, "deliveries"),
-				generationKey: options.generationKey,
-				setup
-			}),
-			...options.buildReceiverPrompt ? { buildReceiverPrompt: options.buildReceiverPrompt } : {},
-			...options.codexQualification ? { qualification: options.codexQualification } : {}
+			runtime,
+			buildReceiverPrompt,
+			qualification: CODEX
 		}),
 		createClaudeDesktopAdapter(),
-		createClaudeCodeCliAdapter()
+		createDeferredClaudeCodeCliTarget({
+			receiver,
+			buildReceiverPrompt,
+			path,
+			qualification: CLAUDE_CLI,
+			integrationOptions: {
+				configDir,
+				environment,
+				powercontextExecutable: executable,
+				serverUrl: options.sourceServerUrl
+			}
+		})
 	];
 }
 
@@ -9661,32 +10066,32 @@ function createBoundaryReader(host) {
 					omissions.add(label("Some tool results could not be classified as checks.", "无法将部分工具结果归类为检查。"));
 					continue;
 				}
-				let command$1;
+				let command$2;
 				try {
-					command$1 = JSON.parse(event.data.arguments).command;
+					command$2 = JSON.parse(event.data.arguments).command;
 				} catch {}
-				if (typeof command$1 !== "string" || !command$1.trim() || Buffer.byteLength(command$1) > 8192) {
+				if (typeof command$2 !== "string" || !command$2.trim() || Buffer.byteLength(command$2) > 8192) {
 					omissions.add(label("A shell command could not be recovered within the evidence limits.", "在取证范围内无法找回一条 Shell 命令。"));
 					continue;
 				}
-				const commandBytes = Buffer.byteLength(command$1);
+				const commandBytes = Buffer.byteLength(command$2);
 				if (commandBytes > remaining) {
 					omissions.add(label("Some shell commands exceeded the bounded evidence limits.", "部分 Shell 命令超出取证上限。"));
 					continue;
 				}
 				remaining -= commandBytes;
 				const output = text$1(result$1.data?.message, 8e3);
-				if (/\b(?:pytest|vitest|tox|test|check|lint|typecheck|tsc|cargo\s+test)\b/i.test(command$1)) {
+				if (/\b(?:pytest|vitest|tox|test|check|lint|typecheck|tsc|cargo\s+test)\b/i.test(command$2)) {
 					events.push({
 						sessionId: source$1.sessionId,
 						seq: result$1.seq,
 						kind: "check",
-						command: command$1,
+						command: command$2,
 						status: "unknown",
 						...output ? { details: output } : {}
 					});
 					omissions.add(label("Shell check outcomes require review; model-visible output alone does not prove an exit status.", "Shell 检查结果需核对；模型可见的输出不能证明退出状态。"));
-				} else if (output) observe(result$1, label(`Shell command: ${command$1}\nResult (unverified): ${output}`, `Shell 命令：${command$1}\n结果（未经核实）：${output}`));
+				} else if (output) observe(result$1, label(`Shell command: ${command$2}\nResult (unverified): ${output}`, `Shell 命令：${command$2}\n结果（未经核实）：${output}`));
 			}
 		}
 		if (!selected) throw new DeliveryError("binding_mismatch");

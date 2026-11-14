@@ -58,35 +58,32 @@ async function fixture() {
 
 afterEach(async () => { if (temporary) await rm(temporary, { recursive: true, force: true }); temporary = '' })
 
-it.skipIf(process.platform !== 'darwin')('detects an unqualified default target without allowing native launch', async () => {
+it.skipIf(process.platform !== 'darwin')('offers Codex and CLI preflight by default, with Desktop Code still detection-only', async () => {
   const options = await fixture()
   const adapters = createDefaultTargetAdapters(options)
   expect(adapters.map(adapter => adapter.id)).toEqual(['codex-desktop', 'claude-desktop', 'claude-code-cli'])
   const catalog = new TargetCatalog(adapters, 'darwin')
-  const row = catalog.list().find(item => item.targetId === 'codex-desktop')
-  expect(row).toMatchObject({ qualification: null, diagnostics: 'available', availability: 'unavailable', action: 'manual_setup_or_export' })
+  expect(catalog.list().filter(row => row.availability === 'requires_preflight').map(row => row.targetId))
+    .toEqual(['codex-desktop', 'claude-code-cli'])
+  expect(catalog.list().find(row => row.targetId === 'claude-desktop')).toMatchObject({
+    qualification: null, diagnostics: 'available', availability: 'unavailable', action: 'manual_setup_or_export',
+  })
   expect(await catalog.diagnose('codex-desktop', signal)).toEqual({ state: 'present', version })
-  expect(await adapters[0].installIntegration({ state: 'present', version, configurationKey: 'test' }, signal))
-    .toEqual({ state: 'needs_user_action', action: 'configure_target' })
-  expect(() => catalog.require('codex-desktop')).toThrow(/integration unavailable|integration is unavailable/i)
-  expect(() => adapters[0].launchIntent({ state: 'present', version, configurationKey: 'test' }, bundle)).toThrow()
+  expect(() => catalog.require('claude-desktop')).toThrow()
   await rm(options.codexAppPath, { recursive: true })
   expect(await catalog.diagnose('codex-desktop', signal)).toEqual({ state: 'missing' })
 }, 30_000)
 
-it.skipIf(process.platform !== 'darwin')('requires explicit evidence and a prompt builder for the qualified version', async () => {
+it.skipIf(process.platform !== 'darwin')('uses the shared unsent draft for the supported Codex build only', async () => {
   const options = await fixture()
-  expect(() => createDefaultTargetAdapters({ ...options, codexQualification: { evidence: 'fixture', targetVersion: version } })).toThrow()
-  const [adapter] = createDefaultTargetAdapters({ ...options, buildReceiverPrompt: () => 'fixture draft',
-    codexQualification: { evidence: 'fixture only', targetVersion: version } })
+  const [adapter] = createDefaultTargetAdapters(options)
   const catalog = new TargetCatalog([adapter], 'darwin')
-  expect(catalog.list().find(item => item.targetId === 'codex-desktop')).toMatchObject({
-    availability: 'requires_preflight', action: 'preflight', qualification: { evidence: 'fixture only' },
-  })
   const result = await adapter.detect(signal)
   expect(result.state).toBe('present')
   if (result.state !== 'present') throw new Error('fixture not detected')
-  expect(catalog.require('codex-desktop').launchIntent(result, bundle)).toEqual({ draft: 'fixture draft' })
+  const packagePath = join(options.root, 'handoff.json')
+  expect(catalog.require('codex-desktop').launchIntent(result, { ...bundle, packagePath }, 'zh-CN').draft)
+    .toEqual(`请用 PowerContext 读取这份交接包，继续剩下的工作，并用简体中文回复：\n${JSON.stringify(packagePath)}`)
   expect(() => adapter.launchIntent({ ...result, version: 'other version' }, bundle)).toThrow()
   const otherPlatform = new TargetCatalog([adapter], 'linux')
   expect(() => otherPlatform.require('codex-desktop')).toThrow()
