@@ -273,9 +273,15 @@ def test_dream_worker_usage_persists_once_in_scope_stats(tmp_path, monkeypatch, 
 def test_memory_dream_approval_embedding_usage_survives_replay_and_restart(tmp_path):
     config = BuiltinConfig(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'approval-usage.db'}"),
-        # Verify persistence and replay without exhausting the usage budget on a
-        # loaded runner; wait for accepted records before comparing exact totals.
-        runtime=RuntimeConfig(model_usage_write_timeout_seconds=5.0, model_usage_flush_timeout_seconds=10.0),
+        # The first embedding record competes with startup, Source capture and
+        # Dream processing for SQLite's single writer slot. On a saturated runner
+        # those writers can keep the recorder from writing for more than five
+        # seconds, and it then drops the record, as its best-effort contract
+        # allows. This test checks exact totals across approval, replay and
+        # restart, not that budget, so allow several times the slowest write seen
+        # under load and keep each flush longer than one write. The recorder tests
+        # cover drops under short budgets.
+        runtime=RuntimeConfig(model_usage_write_timeout_seconds=20.0, model_usage_flush_timeout_seconds=30.0),
     )
 
     class Embedding:
