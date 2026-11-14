@@ -15,8 +15,10 @@
 """Standard-library helpers that the PowerContext host integrations share.
 
 Claude Code, Codex, WorkBuddy, and Hermes install their plugin directories without the PowerContext package, so each
-plugin ships a generated copy of these modules where it already imports them. Edit them here and run
-``make integration-lifecycle``; ``make check`` rejects a copy that is missing or has drifted.
+plugin ships a generated copy of these modules where it already imports them. The LangChain, LangGraph, and Pydantic
+AI adapters install with the package but also support released cores that predate this one, so each ships private
+copies as well. Edit them here and run ``make integration-lifecycle``; ``make check`` rejects a copy that is missing
+or has drifted.
 
 Claude Code runs its hooks with the ``python3`` on ``PATH``, often the macOS system Python 3.9, and Hermes installs no
 dependency for its plugin. A module may therefore import only the standard library and must run on Python 3.9. The

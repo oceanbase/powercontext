@@ -27,6 +27,7 @@ from pydantic import ValidationError
 from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import PrepareContextRequest, PreparedContextStatus
 
+from ._prepared_context import bounded_recall_query
 from .client import ResolvedConfig, open_client, resolve_config, resolve_server_scope
 from .runtime import current_scope
 
@@ -35,10 +36,6 @@ _LOGGER = logging.getLogger("powercontext.langgraph")
 CONTEXT_MARKER = "PowerContext host-supplied context"
 _CONFIGURATION_STATUS = frozenset({401, 403})
 _TURN_CACHE_LIMIT = 64
-# ``PrepareContextRequest.query`` accepts at most this many characters (a public Server contract). A human turn can
-# exceed it, so the query is clamped before the request is built: recall stays best-effort on a long prompt rather
-# than raising and interrupting graph execution.
-_MAX_QUERY_CHARS = 8192
 
 
 class PowerContextRecall:
@@ -123,7 +120,9 @@ class PowerContextRecall:
                     return self._turn_cache[key]
                 request = PrepareContextRequest(
                     scope_id=scope_id,
-                    query=query[:_MAX_QUERY_CHARS],
+                    # ``PrepareContextRequest.query`` has a public length limit that a human turn can exceed. The
+                    # query keeps the end of a long turn so recall stays best-effort instead of failing validation.
+                    query=bounded_recall_query(query),
                     max_bytes=config.max_bytes,
                     **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                 )

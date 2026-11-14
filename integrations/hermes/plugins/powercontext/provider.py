@@ -97,6 +97,7 @@ from .powercontext_client_config import (
     parse_boolean,
     resolve_allow_insecure_http,
 )
+from .prepared_context import bounded_recall_query as _bounded_recall_query
 
 try:
     from agent.memory_provider import MemoryProvider, RecallStatus  # ty: ignore[unresolved-import]
@@ -825,7 +826,8 @@ class PowerContextMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         scope_id = self._scope_id
         client = self._client
-        if not client or not query.strip() or not scope_id:
+        recall_query = _bounded_recall_query(query)
+        if not client or not recall_query or not scope_id:
             self._last_recall = None
             self._last_recall_scope_id = ""
             return ""
@@ -844,7 +846,7 @@ class PowerContextMemoryProvider(MemoryProvider):
             try:
                 response = client.prepare_context(
                     scope_id,
-                    query[:8192],
+                    recall_query,
                     **options,
                 )
                 content = self._prepared_content(response, options)
@@ -861,7 +863,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._record_trace_event(
             "powercontext_injection",
             session_id=session_key,
-            query=_redact_secrets(query[:8192]),
+            query=_redact_secrets(recall_query),
             injected_text=_redact_secrets(content.strip()),
             status=trace_status,
             content_bytes=len(content.encode("utf-8")),
@@ -879,7 +881,8 @@ class PowerContextMemoryProvider(MemoryProvider):
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         scope_id = self._scope_id
         client = self._client
-        if not client or not scope_id or not query.strip():
+        recall_query = _bounded_recall_query(query)
+        if not client or not scope_id or not recall_query:
             return
         session_key = session_id or self._session_id
         try:
@@ -893,7 +896,7 @@ class PowerContextMemoryProvider(MemoryProvider):
             try:
                 response = client.prepare_context(
                     scope_id,
-                    query[:8192],
+                    recall_query,
                     **options,
                 )
                 content = self._prepared_content(response, options)

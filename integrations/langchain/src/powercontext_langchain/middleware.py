@@ -30,6 +30,7 @@ from typing_extensions import override
 from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
+from ._prepared_context import bounded_recall_query
 from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
 from .tracing import genai_client_context, recall_content_observation
@@ -38,7 +39,6 @@ _LOGGER = logging.getLogger("powercontext.langchain")
 
 _CONTEXT_MARKER = "PowerContext host-supplied context"
 _CONFIGURATION_STATUS = frozenset({401, 403})
-_MAX_QUERY_CHARS = 8192
 _MAX_SOURCE_CHARS = 200_000
 _SOURCE_USER_HEADER = "User:\n"
 _SOURCE_ASSISTANT_HEADER = "\n\nAssistant:\n"
@@ -128,18 +128,19 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
         await self._capture(user_text, assistant_text, _runtime_scope(runtime))
         return None
 
-    async def _prepare(self, query: str, scope: PowerContextScope | None) -> str | None:
+    async def _prepare(self, prompt: str, scope: PowerContextScope | None) -> str | None:
+        query = bounded_recall_query(prompt)
         try:
             config = resolve_config(scope)
             with (
-                recall_content_observation(query[:_MAX_QUERY_CHARS], enabled=self.trace_content) as record_output,
+                recall_content_observation(query, enabled=self.trace_content) as record_output,
                 genai_client_context(),
             ):
                 async with open_client(config) as client:
                     scope_id = await resolve_server_scope(client, config)
                     request = PrepareContextRequest(
                         scope_id=scope_id,
-                        query=query[:_MAX_QUERY_CHARS],
+                        query=query,
                         max_bytes=config.max_bytes,
                         **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                     )
