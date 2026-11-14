@@ -119,6 +119,11 @@ host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会�
 binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
+Hook 会为每个指定了 Scope 的 PowerContext 工具调用绑定 Scope。无法绑定时会拒绝该调用，包括：无法解析 binding、
+调用载荷不完整、Hook 意外失败，或插件模块无法加载。只有 Hook 完全没有给出决定时，Codex 才会按 Agent 自己的参数执行
+这类调用：Hook 进程无法启动、在 Hook 代码运行前出错退出，或超过 Hook 的 10 秒超时。此时调用仍只能访问已保存凭据
+有权访问的 Scope。
+
 已有 `scope_id` 时，把当前 Git 根登记到这个 Scope，供之后的新会话使用：
 
 ```bash
@@ -408,7 +413,7 @@ MCP 显示 connected 也不等于 Source 已采集。
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Hook 共享 HTTP 时间预算 |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Hook 共享 HTTP 时间预算；`PreToolUse` 和 `Stop` Hook 最多使用 8 秒，以便在 10 秒超时内结束 |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
 
 Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校验仍然启用。setup 会保存同意并更新已安装插件的

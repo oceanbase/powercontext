@@ -48,7 +48,7 @@ from scope_binding import (  # noqa: E402
     open_bounded,
     resolve_scope_id,
 )
-from settings import CodexPluginSettings  # noqa: E402
+from settings import CodexPluginSettings, host_bounded_http_budget  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
 _USER_AGENT = f"powercontext-codex-token-savings/{PLUGIN_VERSION}"
@@ -57,17 +57,6 @@ _REQUEST_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": _USER_AGENT,
 }
-# The Stop entry has a 10-second host deadline (hooks.json). Keep
-# the internal HTTP budget below it so uv/Python start-up and the bounded output
-# fit inside the host limit instead of being killed mid-request.
-_HOST_TIMEOUT_SECONDS = 10.0
-_STARTUP_AND_OUTPUT_MARGIN_SECONDS = 2.0
-
-
-def stop_http_budget(configured_seconds: float) -> float:
-    """Bound the Stop hook's HTTP budget below the host process deadline."""
-
-    return min(configured_seconds, _HOST_TIMEOUT_SECONDS - _STARTUP_AND_OUTPUT_MARGIN_SECONDS)
 
 
 def compact_tokens(value: int) -> str:
@@ -287,7 +276,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(cwd, str) or not cwd.strip():
             return 0
         settings = CodexPluginSettings() if settings is None else settings
-        http_deadline = monotonic() + stop_http_budget(settings.http_budget_seconds)
+        http_deadline = monotonic() + host_bounded_http_budget(settings.http_budget_seconds)
         session_id = next(
             (
                 value
