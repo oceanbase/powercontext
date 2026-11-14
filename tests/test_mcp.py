@@ -115,6 +115,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "get_candidate_history",
         "get_artifact",
         "get_artifact_revision",
+        "get_connection_identity",
         "replace_artifact",
         "get_atomic_memory_state",
         "list_atomic_memories",
@@ -186,7 +187,14 @@ def test_mcp_full_profile_tools_describe_read_and_write_effects() -> None:
             return {tool.name: tool.annotations for tool in await client.list_tools()}
 
     annotations = run_async(inspect_annotations)
-    reads = {"get_experience", "get_skill", "list_managed_skills", "list_external_skills", "resolve_external_skill"}
+    reads = {
+        "get_connection_identity",
+        "get_experience",
+        "get_skill",
+        "list_managed_skills",
+        "list_external_skills",
+        "resolve_external_skill",
+    }
     writes = {
         "generate_experience",
         "propose_experience",

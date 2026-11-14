@@ -59,6 +59,10 @@ COPIES = {
         f"{_CLAUDE_CODE}/hooks/bootstrap_context.py",
         f"{_CODEX}/hooks/bootstrap_context.py",
     ),
+    "dsh_handoff.py": (
+        f"{_CLAUDE_CODE}/hooks/dsh_handoff.py",
+        f"{_CODEX}/hooks/dsh_handoff.py",
+    ),
 }
 # A copy keeps the path its plugin imports, so bundled output still names the same module.
 TYPESCRIPT_COPIES = {

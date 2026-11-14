@@ -166,6 +166,11 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             deadline=monotonic() + settings.http_budget_seconds,
         )
         updated = dict(tool_input)
+        if operation in {"continue_handoff", "acknowledge_handoff"} and (
+            updated.get("scope_id") is not None and updated["scope_id"] != scope_id
+        ):
+            _deny("PowerContext Handoff requires the current Scope. The requested Scope does not match.")
+            return 0
         if operation in _SELECTION_OPERATIONS:
             updated["selection"] = {"mode": "exact", "scope_ids": [scope_id]}
         else:
