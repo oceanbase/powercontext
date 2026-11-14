@@ -21,7 +21,7 @@ import os
 from collections.abc import Mapping
 from importlib.util import find_spec
 
-from powercontext.cli.env_file import read_environment_file
+from powercontext.env_file import read_environment_file
 from powercontext.observability.deployment import ObservabilityError, load_state, state_directory
 
 

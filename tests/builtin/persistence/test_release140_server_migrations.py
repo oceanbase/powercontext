@@ -177,7 +177,6 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     app = create_server_app(
         settings=settings,
         embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
-        scheduler_path=tmp_path / "scheduler",
     )
     with TestClient(app) as client:
         assert client.get("/health/ready").status_code == 200
@@ -378,7 +377,6 @@ def test_populated_release_atomic_memory_survives_upgrade_before_locator_table_e
     app = create_server_app(
         settings=settings,
         embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
-        scheduler_path=tmp_path / "scheduler",
     )
     with TestClient(app) as client:
         response = client.get("/v1/scopes/scope/artifacts/atomic-memory/historical-memory/revisions/1")

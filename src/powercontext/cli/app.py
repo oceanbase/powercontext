@@ -33,7 +33,7 @@ ISSUES_URL = "https://github.com/oceanbase/powercontext/issues"
 # Extras are not recorded as installed. Check their declared requirements before
 # loading these providers; unrelated packages must not enable an incomplete role.
 _OPTIONAL_COMMAND_ROLES = {
-    "powercontext.builtin.code.cli:app": "builtin",
+    "powercontext.cli.code:app": "builtin",
     "powercontext.server.cli:app": "server",
     "powercontext.service.cli:app": "server",
 }

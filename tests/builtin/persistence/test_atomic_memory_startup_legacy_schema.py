@@ -27,14 +27,14 @@ import pytest
 import rfc8785
 from sqlalchemy import text
 
+from powercontext.builtin.authz import ArtifactOwnerRelation, MemoryEntrySelector, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
 from powercontext.builtin.persistence.migrations.atomic_memory_v1 import AtomicMemoryMigrationError
 from powercontext.builtin.persistence.processing_migration import bootstrap_processing_schema
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
-from powercontext.server.authz import ArtifactOwnerRelation, MemoryEntrySelector, PrincipalRef, ResourceRef
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
 from tests.legacy_memory import add_legacy_citation_columns
 
 

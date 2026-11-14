@@ -37,6 +37,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 from prometheus_client import CollectorRegistry
 
+from powercontext.builtin.authz.errors import AccessDeniedError
 from powercontext.builtin.code.telemetry import stage
 from powercontext.builtin.inference import (
     InferenceConfigurationError,
@@ -68,7 +69,6 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerFailure,
     WorkerInitializerPreparation,
 )
-from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging

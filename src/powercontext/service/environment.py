@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+from powercontext.env_file import EnvironmentFileError, parse_environment
 from powercontext.service._windows_command import run_windows_command
 from powercontext.service.model import EnvironmentFileIdentity
 

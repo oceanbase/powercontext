@@ -231,7 +231,6 @@ def test_tag_review_records_tags_without_creating_content_revision(tmp_path, pro
             dashboard=DashboardConfig(enabled=True),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         scope = create_scope(client, "Tag review")["scope_id"]

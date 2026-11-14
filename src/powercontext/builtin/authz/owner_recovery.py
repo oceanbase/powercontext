@@ -33,14 +33,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateTable
 
-from powercontext.builtin.persistence.database import AsyncDatabase
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, CANDIDATE_HEADS_TABLE, identity_string
-from powercontext.server.authz.errors import (
+from powercontext.builtin.authz.errors import (
     AccessConflictError,
     AccessInvalidRequestError,
     AccessUnavailableError,
 )
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.models import (
     AccessAction,
     AccessAuditEvent,
     AccessResourceType,
@@ -50,14 +48,16 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.profiles import ARTIFACT_FAMILY_PROFILES
+from powercontext.builtin.authz.service import (
     AccessAuditContext,
     AccessControlService,
     IdempotentAccessAuditStore,
     _access_call,
     _validate_idempotency_key,
 )
+from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, CANDIDATE_HEADS_TABLE, identity_string
 
 _METADATA = MetaData()
 OWNER_RECOVERY_TABLE = Table(

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from powercontext.cli.observability_notice import write_observability_notice
+from powercontext.server.observability_notice import write_observability_notice
 
 
 def test_notice_lists_the_opt_in_commands(capsys: pytest.CaptureFixture[str]) -> None:

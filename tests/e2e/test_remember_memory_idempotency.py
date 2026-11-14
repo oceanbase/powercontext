@@ -28,6 +28,8 @@ import httpx
 import pytest
 
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.family_management import AtomicMemoryManagementWriter
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import BaseValueConflictError, InvalidBaseAccessRequestError
@@ -36,8 +38,6 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.client import PowerContextClient
 from powercontext.http import RememberMemoryRequest
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -497,7 +497,7 @@ def test_access_controlled_keys_are_per_principal_and_replays_reauthorize(tmp_pa
 def test_in_process_keyed_create_requires_current_scope_contribution(tmp_path: Path) -> None:
     """A revoked contributor learns neither a replay nor a conflict from an old key."""
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
-    from powercontext.server.authz import AccessAuditContext, AccessDeniedError
+    from powercontext.builtin.authz import AccessAuditContext, AccessDeniedError
 
     database = tmp_path / "in-process-access.db"
 
@@ -562,7 +562,7 @@ def test_in_process_keyed_create_requires_current_scope_contribution(tmp_path: P
 def test_untrusted_in_process_context_cannot_probe_an_occupied_key() -> None:
     """An explicit context that is neither access-controlled nor trusted local is denied before any lookup."""
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
-    from powercontext.server.authz import AccessDeniedError
+    from powercontext.builtin.authz import AccessDeniedError
 
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:

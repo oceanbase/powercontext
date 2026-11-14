@@ -154,7 +154,6 @@ def host(tmp_path, monkeypatch, request, mcp_trace):
                 enabled=authenticated, token=SecretStr("acceptance-only-token") if authenticated else None
             ),
         ),
-        scheduler_path=tmp_path / "scheduler",
     )
     app.add_middleware(MCPTrace, events=mcp_trace)
     with socket.socket() as listener:

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from secrets import compare_digest
 from typing import Any, Protocol
 
-from powercontext.server.authz import GroupRef, PrincipalRef
+from powercontext.builtin.authz import GroupRef, PrincipalRef
 
 _MAX_AUTHENTICATED_GROUPS = 100
 

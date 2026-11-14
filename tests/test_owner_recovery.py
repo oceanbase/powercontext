@@ -23,8 +23,7 @@ from dataclasses import replace
 import pytest
 from sqlalchemy import Column, MetaData, String, Table, event, insert, select, update
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAuditContext,
     AccessConflictError,
     AccessUnavailableError,
@@ -32,8 +31,9 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.owner_recovery import OWNER_RECOVERY_TABLE, OwnerRecovery
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.owner_recovery import OWNER_RECOVERY_TABLE, OwnerRecovery
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 
 ALICE = PrincipalRef(type="user", id="alice")
 BOB = PrincipalRef(type="user", id="bob")

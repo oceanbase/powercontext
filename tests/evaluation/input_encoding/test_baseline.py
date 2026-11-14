@@ -205,7 +205,7 @@ def test_run_cli_uses_existing_sqlite_override_with_optional_kind(tmp_path, monk
     })
 
     async def seed():
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "seed-scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None
             return await runtime.scopes.create(
                 ScopeDraft(title="Existing database", summary="Keep this Scope", idempotency_key="existing")

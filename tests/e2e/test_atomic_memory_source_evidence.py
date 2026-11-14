@@ -496,7 +496,6 @@ def test_shared_merge_and_restore_preserve_source_evidence(migration_backend: Mi
         async with open_builtin_runtime(
             BuiltinConfig(database=migration_backend.config),
             source_registry=registry,
-            scheduler_path=tmp_path / "scheduler.db",
         ) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
