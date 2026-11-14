@@ -413,7 +413,7 @@ def test_archive_exported_by_a_released_version_restores_and_restores_again(
             page = await target.records.list_artifact_revisions(
                 RELEASED_SCOPE, "profile", profile.artifact_id, limit=10, cursor=None
             )
-            assert [item.content["content"] for item in page.items] == [
+            assert [item.content and item.content["content"] for item in page.items] == [
                 "# Profile\n\nUse a different choice.\n",
                 "# Profile\n\nKeep the original choice.\n",
             ]

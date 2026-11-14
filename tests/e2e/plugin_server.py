@@ -21,7 +21,7 @@ import json
 import os
 import socket
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -34,7 +34,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 
 @asynccontextmanager
 async def running_server(
-    directory: Path, plugins: Path | None = None, *, extra_env: dict[str, str | None] | None = None
+    directory: Path, plugins: Path | None = None, *, extra_env: Mapping[str, str | None] | None = None
 ):
     """Start the Server; an ``extra_env`` value of ``None`` removes that default variable."""
     with socket.socket() as sock:
