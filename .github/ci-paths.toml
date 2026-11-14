@@ -76,6 +76,11 @@ opencode = [
   "tests/e2e/zcode_acceptance/runner.py",
 ]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
+# The Codex service chain reuses the ZCode acceptance wire fixtures.
+codex = [
+  "integrations/codex/**", "tests/e2e/test_codex_host_service_chain.py", "tests/e2e/host_models/**",
+  "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+]
 opendal = ["integrations/opendal/**"]
 website = [
   "docs/**", "website/**", "assets/**", "README*.md", "scripts/generate_integration_manifest_docs.py",
@@ -196,7 +201,7 @@ suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 [shared.runtime]
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
-  "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "opendal",
+  "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "codex", "opendal",
   "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
   "managed_resources",
 ]
@@ -239,6 +244,7 @@ cindy = ["cindy-package"]
 pi = ["pi-package"]
 opencode = ["opencode-package"]
 openclaw = ["openclaw-package"]
+codex = ["codex-host"]
 opendal = ["opendal-package"]
 website = ["check-website", "website-link-validation-windows"]
 docs_tests = ["docs-tests"]
