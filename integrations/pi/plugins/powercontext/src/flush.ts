@@ -14,48 +14,22 @@
  * limitations under the License.
  */
 
-import { createHash } from 'node:crypto'
 import { combineSignals, createTimeoutSignal, type PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { InvalidResponseError } from './errors.ts'
+import { type FlushProgress, readFlushProgress, scopeCorrelation } from './flush-progress.ts'
 
 const CLOSING_BUDGET_MS = 1000
-
-export interface FlushProgress {
-  currentCursor: number
-  remainingWork: boolean
-}
 
 export interface PendingFlushResult {
   acknowledged: boolean
   pendingScopes: number
 }
 
-function nonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-}
-
 export function flushProgress(value: unknown): FlushProgress {
-  if (!value || typeof value !== 'object') throw new InvalidResponseError('/v1/memory/flush')
-  const result = value as Record<string, unknown>
-  if (
-    !['idle', 'processed'].includes(String(result.status))
-    || !nonNegativeInteger(result.previous_cursor)
-    || !nonNegativeInteger(result.current_cursor)
-    || !nonNegativeInteger(result.high_watermark)
-    || !nonNegativeInteger(result.processed_source_count)
-    || (result.remaining_work !== undefined && typeof result.remaining_work !== 'boolean')
-  ) {
-    throw new InvalidResponseError('/v1/memory/flush')
-  }
-  return {
-    currentCursor: result.current_cursor,
-    remainingWork: result.remaining_work === true,
-  }
-}
-
-function scopeCorrelation(scopeId: string): string {
-  return createHash('sha256').update(scopeId).digest('hex').slice(0, 16)
+  const progress = readFlushProgress(value)
+  if (!progress) throw new InvalidResponseError('/v1/memory/flush')
+  return progress
 }
 
 export interface PendingSourceFlusher {
