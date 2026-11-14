@@ -25,6 +25,8 @@ use std::{
 
 const DRAIN: Duration = Duration::from_secs(25);
 const EXIT: Duration = Duration::from_secs(30);
+// Bound observation of earlier signal timestamps without millisecond wakeups.
+const SIGNAL_POLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone)]
 pub(crate) struct Deadlines {
@@ -72,7 +74,7 @@ impl Deadlines {
             // Polling avoids locks/notification in signal handlers and leaves
             // the independent process watchdog free of runtime-owned locks.
             let wake = if self.source.is_some() {
-                deadline.min(now + Duration::from_millis(1))
+                deadline.min(now + SIGNAL_POLL)
             } else {
                 deadline
             };
@@ -152,17 +154,22 @@ impl Shutdown {
             .spawn(move || {
                 let _ = ready.send(());
                 loop {
-                    if watchdog
-                        .started()
-                        .is_some_and(|start| Instant::now() >= start + EXIT)
-                    {
-                        // No Rust drops, atexit hooks, task joins, runtime shutdown,
-                        // or logging may delay this final abnormal exit.
-                        unsafe {
-                            libc::_exit(1);
+                    let delay = match watchdog.started() {
+                        Some(start) => {
+                            let remaining =
+                                (start + EXIT).saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                // No Rust drops, atexit hooks, task joins, runtime shutdown,
+                                // or logging may delay this final abnormal exit.
+                                unsafe {
+                                    libc::_exit(1);
+                                }
+                            }
+                            remaining.min(SIGNAL_POLL)
                         }
-                    }
-                    std::thread::sleep(Duration::from_millis(1));
+                        None => SIGNAL_POLL,
+                    };
+                    std::thread::sleep(delay);
                 }
             })?;
         started.recv().map_err(std::io::Error::other)?;
@@ -176,7 +183,7 @@ impl Shutdown {
             if let Some(deadlines) = self.deadlines() {
                 return deadlines;
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            tokio::time::sleep(SIGNAL_POLL).await;
         }
     }
 }
