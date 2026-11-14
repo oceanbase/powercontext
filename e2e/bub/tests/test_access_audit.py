@@ -273,8 +273,9 @@ _SERVER_WIDE_WITHOUT_CONTENT = frozenset({
 })
 
 
-# Authorized for any authenticated caller like the Access API, but returning only a plugin's route descriptions.
-_AUTHENTICATED_WITHOUT_CONTENT = frozenset({"get_plugin_openapi"})
+# Authorized for any authenticated caller like the Access API, but returning no Scope content: a plugin's route
+# descriptions, the collection runners and their plugin versions, and a runner's own targets and checkpoints.
+_AUTHENTICATED_WITHOUT_CONTENT = frozenset({"get_plugin_openapi", "pc_source_runners", "sync_source_runner"})
 
 
 def test_every_server_wide_operation_is_classified_by_whether_it_returns_scope_content() -> None:
