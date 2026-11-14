@@ -315,6 +315,16 @@ class RecordService(Protocol):
         self, scope_id: str, contents: tuple[dict[str, JsonValue], ...], *, execution_context: Any = None
     ) -> tuple[ArtifactCreated, ...]: ...
 
+    async def create_keyed_atomic_memory(
+        self,
+        scope_id: str,
+        content: dict[str, JsonValue],
+        *,
+        idempotency_key: str,
+        principal: tuple[str, str] | None,
+        execution_context: Any = None,
+    ) -> Any: ...
+
     async def bind_artifact_handle(
         self,
         scope_id: str,

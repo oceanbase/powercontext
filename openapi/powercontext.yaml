@@ -2333,7 +2333,7 @@ paths:
       tags: [memory]
       summary: Create Atomic Memory through the legacy remember input
       description: >-
-        Create a standalone Atomic Memory and formal Owner. Omit expected_revision or pass null. Non-null legacy collection revision preconditions are unsupported before any write. Response records use true Atomic ArtifactRefs.
+        Create a standalone Atomic Memory and formal Owner. Omit expected_revision or pass null. Non-null legacy collection revision preconditions are unsupported before any write. Response records use true Atomic ArtifactRefs. With idempotency_key, a retry of the same creation within 24 hours replays the original response, and reuse of the key for different content returns 409 idempotency_conflict with details.kind memory_idempotency_key.
       operationId: remember_memory
       x-powercontext-feature-contracts: [memory.explicit]
       x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
@@ -12545,6 +12545,15 @@ components:
           description: Optional supplied single-line summary. When omitted, the Server stores
             a whitespace-collapsed text prefix of at most 200 Unicode characters, including
             a trailing ellipsis when truncated. Explicit writes do not invoke a generation model.
+          nullable: true
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: ^[!-~]{1,256}$
+          description: Optional retry key, unique per operation, Scope and authenticated principal. Generate
+            a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are
+            compared byte for byte and retained for 24 hours. Omit it or pass null for no key.
           nullable: true
     RetireMemoryEntryRequest:
       type: object

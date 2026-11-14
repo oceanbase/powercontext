@@ -76,7 +76,7 @@ def test_pre_locator_ticket_definition_keeps_write_and_collect_usable_after_rest
         plan = runner.plan()
         if baseline:
             assert plan.source_revision == "v1_5_0_003"
-            assert plan.revisions == ("v1_5_0_004",)
+            assert plan.revisions == ("v1_5_0_004", "v1_5_2_001")
         runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
         async with running_server(tmp_path) as (admin, url, _process):
             assert await load_write_cli(deployment / "write.yml", url) == loaded

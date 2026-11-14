@@ -1397,7 +1397,9 @@ def test_runtime_server_keeps_unstructured_memory_errors_private(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    async def invalid_create(_self: ScopedAtomicMemoryApplication, _contents: object, /, *, context=None) -> None:
+    async def invalid_create(
+        _self: ScopedAtomicMemoryApplication, _contents: object, /, *, context=None, idempotency_key=None
+    ) -> None:
         raise InvalidMemoryCandidateError("canonical", "private implementation detail")
 
     monkeypatch.setattr(ScopedAtomicMemoryApplication, "create", invalid_create)

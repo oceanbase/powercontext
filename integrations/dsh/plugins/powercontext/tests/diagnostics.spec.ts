@@ -107,6 +107,8 @@ describe('published error code filter', () => {
     expect(publicErrorCode('cursor_expired')).toBe('cursor_expired')
     expect(publicErrorCode('precondition_required')).toBe('precondition_required')
     expect(publicErrorCode('capacity_exceeded')).toBe('capacity_exceeded')
+    // A reused remember_memory idempotency_key with different content needs a new key.
+    expect(publicErrorCode('idempotency_conflict')).toBe('idempotency_conflict')
   })
 
   it('drops a code that is not published, so internal codes cannot cross the boundary', () => {

@@ -132,7 +132,10 @@ Use get_atomic_memory_state for lifecycle preconditions; its state_version is se
 Never treat an Atomic revision as an
 old collection revision. Legacy citation revise/retire, collection capacity, and collection changes are unsupported.
 For an explicit future save (remember this / 记住这个供以后使用), call remember_memory with expected_revision omitted or
-null and verify its Atomic records. A non-null legacy collection revision precondition is unsupported. Use merge_atomic_memories,
+null and verify its Atomic records. A non-null legacy collection revision precondition is unsupported.
+To retry a save whose outcome is unknown, resend the same content with the same idempotency_key. Generate a fresh
+unguessable key, such as a UUID, for each new save and reuse it only for that save's retries; after
+idempotency_conflict, use a new key. Use merge_atomic_memories,
 change_atomic_memory_lifecycle and restoration previews/restorations only for explicitly requested state changes; current
 revision and state_version inputs must come from reads. Automatic
 Source capture is not an explicit Memory write, and enabled hooks do not establish successful recall or persistence.

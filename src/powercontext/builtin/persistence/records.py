@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import aclosing
 from datetime import UTC, datetime
@@ -24,14 +25,28 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 import rfc8785
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, StableHandle
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.persistence.artifact_handles import ArtifactHandleRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, with_artifact_content
+from powercontext.builtin.persistence.atomic_memory_idempotency import (
+    MemoryIdempotencyConflict,
+    MemoryIdempotencyKey,
+    MemoryIdempotencyReceipt,
+    bind_receipt,
+    find_receipt,
+    namespace_digest,
+    remove_expired_receipts,
+    replay,
+    request_digest,
+)
 from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
 from powercontext.builtin.persistence.custom_artifacts import StoredArtifactContent, custom_artifact_repository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -100,6 +115,8 @@ from powercontext.builtin.sources import (
 from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization, SourceObservation, SourceRef
+
+logger = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 IdFactory = Callable[[str], str]
@@ -419,18 +436,97 @@ class RelationalRecordService:
         """Prepare all standalone additions, then commit their Sources and Owners together."""
         if not contents:
             raise InvalidBaseAccessRequestError("entries", "must contain at least one memory")
-        writer = self._family_writers.get("atomic-memory")
-        if not isinstance(writer, AtomicMemoryManagementWriter):
-            raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "batch creation")
+        writer = self._atomic_creation_writer()
         commands = []
         for content in contents:
             command = writer.validate_create(content)
             artifact_id = self._id_factory("atomic-memory")
             commands.append((artifact_id, command))
+        prepared = await self._prepare_atomic_creations(writer, scope_id, commands, execution_context)
+        async with self._database.transaction() as connection:
+            return await self._commit_atomic_creations(connection, writer, scope_id, prepared)
+
+    async def create_keyed_atomic_memory(
+        self,
+        scope_id: str,
+        content: dict[str, JsonValue],
+        *,
+        idempotency_key: str,
+        principal: tuple[str, str] | None,
+        execution_context=None,
+    ) -> MemoryIdempotencyReceipt:
+        """Create one memory bound to a retry key, or return the creation the key already names.
+
+        Validation and the request digest finish before the key lookup. The caller's current
+        creation authority is required before the lookup, so a replay or a conflict is never
+        reported to a caller who may no longer create in the Scope. Only a miss prepares
+        projections; the key record commits in the same transaction as the creation.
+        """
+        writer = self._atomic_creation_writer()
+        command = cast(AtomicMemoryContent, writer.validate_create(content))
+        key = MemoryIdempotencyKey(namespace_digest(scope_id, principal, idempotency_key), command)
+        request_digest(command)
+        artifact_id = self._id_factory("atomic-memory")
+        await writer.authorize_creates(scope_id, (artifact_id,), execution_context=execution_context)
+        stored = await find_receipt(self._database, key)
+        if stored is not None and stored.live:
+            return _replay_receipt(stored, key, scope_id)
+        prepared = await self._prepare_atomic_creations(writer, scope_id, ((artifact_id, command),), execution_context)
+        receipt = MemoryIdempotencyReceipt(artifact_id=artifact_id, revision=1, state_version=0)
+        try:
+            async with self._database.transaction() as connection:
+                await bind_receipt(connection, key, scope_id, receipt, replace_expired=stored is not None)
+                (created,) = await self._commit_atomic_creations(connection, writer, scope_id, prepared)
+                if (created.artifact_id, created.revision) != (receipt.artifact_id, receipt.revision):
+                    raise RuntimeError("an Atomic Memory creation did not produce revision 1")  # noqa: TRY003
+        except IntegrityError:
+            # A concurrent request committed the key first; its creation wins.
+            concurrent = await find_receipt(self._database, key)
+            if concurrent is None or not concurrent.live:
+                raise
+            return _replay_receipt(concurrent, key, scope_id)
+        try:
+            await remove_expired_receipts(self._database)
+        except Exception as error:
+            log_safely(
+                logger,
+                logging.WARNING,
+                "Expired memory idempotency keys were not removed",
+                extra={
+                    "event": "atomic_memory.idempotency.cleanup_failed",
+                    "operation": "remember_memory",
+                    "unit": "atomic-memory",
+                    "outcome": "failure",
+                    "exception_type": type(error).__name__,
+                },
+            )
+        return receipt
+
+    def _atomic_creation_writer(self) -> AtomicMemoryManagementWriter:
+        writer = self._family_writers.get("atomic-memory")
+        if not isinstance(writer, AtomicMemoryManagementWriter):
+            raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "batch creation")
+        return writer
+
+    async def _prepare_atomic_creations(
+        self,
+        writer: AtomicMemoryManagementWriter,
+        scope_id: str,
+        commands: Sequence[tuple[str, BaseModel]],
+        execution_context,
+    ) -> tuple[tuple[str, BaseModel, AtomicMemoryManagementPrepared], ...]:
         values = await writer.prepare_creates(scope_id, commands, execution_context=execution_context)
-        prepared = tuple(
+        return tuple(
             (artifact_id, command, value) for (artifact_id, command), value in zip(commands, values, strict=True)
         )
+
+    async def _commit_atomic_creations(
+        self,
+        connection: AsyncConnection,
+        writer: AtomicMemoryManagementWriter,
+        scope_id: str,
+        prepared: tuple[tuple[str, BaseModel, AtomicMemoryManagementPrepared], ...],
+    ) -> tuple[ArtifactCreated, ...]:
         source_values = []
         for artifact_id, command, _ in prepared:
             payload = cast(dict[str, JsonValue], command.model_dump(mode="json", by_alias=True, exclude_none=True))
@@ -453,27 +549,24 @@ class RelationalRecordService:
                     ),
                 )
             )
-        created = []
-        async with self._database.transaction() as connection:
-            stored_sources = await self._sources.add_many_with_status(connection, scope_id, source_values)
-            stored_values = tuple(stored for stored, _ in stored_sources)
-            source_read_set = await self._sources.preload(
-                connection,
-                scope_id,
-                tuple(stored.ref for stored in stored_values),
-                known=stored_values,
-            )
-            artifacts = await writer.create_many(
-                connection,
-                scope_id,
-                tuple(
-                    (artifact_id, value, stored.ref)
-                    for (artifact_id, _, value), stored in zip(prepared, stored_values, strict=True)
-                ),
-                source_read_set=source_read_set,
-            )
-            created.extend(_artifact_created(scope_id, artifact) for artifact in artifacts)
-        return tuple(created)
+        stored_sources = await self._sources.add_many_with_status(connection, scope_id, source_values)
+        stored_values = tuple(stored for stored, _ in stored_sources)
+        source_read_set = await self._sources.preload(
+            connection,
+            scope_id,
+            tuple(stored.ref for stored in stored_values),
+            known=stored_values,
+        )
+        artifacts = await writer.create_many(
+            connection,
+            scope_id,
+            tuple(
+                (artifact_id, value, stored.ref)
+                for (artifact_id, _, value), stored in zip(prepared, stored_values, strict=True)
+            ),
+            source_read_set=source_read_set,
+        )
+        return tuple(_artifact_created(scope_id, artifact) for artifact in artifacts)
 
     async def get_artifact(
         self, scope_id: str, family: str, artifact_id: str, /, *, execution_context=None
@@ -947,6 +1040,13 @@ def _artifact_record(
         content_digest=_content_digest(content),
         **_revision_fields(artifact),
     )
+
+
+def _replay_receipt(stored, key: MemoryIdempotencyKey, scope_id: str) -> MemoryIdempotencyReceipt:
+    try:
+        return replay(stored, key)
+    except MemoryIdempotencyConflict:
+        raise BaseValueConflictError("memory_idempotency_key", scope_id) from None
 
 
 def _artifact_created(scope_id: str, artifact: Artifact[Any]) -> ArtifactCreated:

@@ -451,6 +451,11 @@ Path 中已经确定的身份字段不在 body 中重复接收。Create Source �
 `content_digest` 只覆盖 canonical `content`，不覆盖身份或 lineage。Source 和 Artifact Create 每次成功都创建新
 资源；客户端超时后应先根据业务上下文确认结果，不能假定重试幂等。
 
+通过 `remember_memory` 显式创建 Atomic Memory 不属于上述操作，是唯一带幂等键的 Atomic Memory 创建路径。
+[RFC 1809](1809-atomic-memory.md) 的“幂等的显式创建”一节定义其可选 request body 字段 `idempotency_key`、
+命名空间、请求摘要、重放和保留期。该字段不适用于 Source Create 或 Artifact Create，任何操作都不接受
+`Idempotency-Key` header；通过 Artifact Create 创建 Atomic Memory 仍然不幂等。
+
 ## 状态和错误模型
 
 | 状态码 | 场景 |
@@ -484,6 +489,9 @@ Path 中已经确定的身份字段不在 body 中重复接收。Create Source �
 ```
 
 错误不得泄漏其他 Scope 的资源是否存在；权限不足与资源不可见按统一安全策略返回 `403` 或 `404`。
+
+对 `remember_memory`，幂等键已绑定到不同请求时，返回 `409` 和现有错误码 `idempotency_conflict`，并将
+`details.kind` 设为 `memory_idempotency_key`；不为此新增错误码。
 
 ## OpenAPI contract
 

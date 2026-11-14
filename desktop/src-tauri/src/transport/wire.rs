@@ -2355,6 +2355,16 @@ pub struct RememberMemoryRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub description: Option<Option<String>>,
+    /// Optional retry key, unique per operation, Scope and authenticated principal. Generate a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are compared byte for byte and retained for 24 hours. Omit it or pass null for no key.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "idempotency_key",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub idempotency_key: Option<Option<String>>,
 }
 
 impl RememberMemoryRequest {
@@ -2367,6 +2377,7 @@ impl RememberMemoryRequest {
             reason: None,
             expected_revision: None,
             description: None,
+            idempotency_key: None,
         }
     }
 }

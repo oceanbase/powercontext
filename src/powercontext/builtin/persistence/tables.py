@@ -1104,6 +1104,26 @@ RECALL_EFFORT_DAILY_TABLE = Table(
 )
 
 
+# Keyed remember_memory receipts. Only digests of the namespace and request are
+# stored; expired rows are disposable and cleaned through the expiry index.
+ATOMIC_MEMORY_IDEMPOTENCY_TABLE = Table(
+    "pc_atomic_memory_idempotency",
+    SHARED_METADATA,
+    Column("namespace_digest", identity_string(64), primary_key=True),
+    Column("digest_version", Integer, nullable=False),
+    Column("request_digest", identity_string(64), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+    Column("revision", Integer, nullable=False),
+    Column("state_version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("expires_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    CheckConstraint("digest_version > 0", name="ck_pc_atomic_memory_idempotency_digest_version"),
+    CheckConstraint("revision > 0", name="ck_pc_atomic_memory_idempotency_revision"),
+    CheckConstraint("state_version >= 0", name="ck_pc_atomic_memory_idempotency_state_version"),
+    Index("ix_pc_atomic_memory_idempotency_expires_at", "expires_at"),
+)
+
 SHARED_TABLES = (
     ARTIFACT_FAMILY_SCHEMAS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
@@ -1139,6 +1159,7 @@ SHARED_TABLES = (
     SKILL_PACKAGES_TABLE,
     AGENT_SKILL_TARGETS_TABLE,
     SKILL_PUBLICATIONS_TABLE,
+    ATOMIC_MEMORY_IDEMPOTENCY_TABLE,
 )
 
 
