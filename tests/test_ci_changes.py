@@ -92,7 +92,11 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
             {"tests", "database", "harness", "oceanbase_acceptance", "upgrade", "candidate_replay", "release_schema"},
         ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
-        (["scripts/generate_integration_lifecycle.py"], {"tests", "hermes"}),
+        (
+            ["scripts/generate_integration_lifecycle.py"],
+            {"tests", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"},
+        ),
+        (["integrations/lifecycle/transport.ts"], {"tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
