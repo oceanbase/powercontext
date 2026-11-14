@@ -21,8 +21,21 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data
-directory. It is safe to run again. Pass the same `--ref` used to install the PowerContext tool.
+The command adds the repository as a Codex marketplace, installs the PowerContext plugin, builds the plugin's Python
+environment, and creates the user data directory. It is safe to run again. Pass the same `--ref` used to install the
+PowerContext tool.
+
+The plugin's hooks and its MCP credential helper run through `uv` from `PATH`, so setup needs `uv` and, on a first
+install, access to the package index. Building the environment at setup keeps the first session from building it
+while Codex starts the hooks and MCP together. If the plugin is installed or updated by other means, `powercontext
+doctor codex` reports `plugin_runtime` as degraded until you rerun setup.
+
+PowerContext's MCP server is optional to Codex, so an unavailable Server never blocks a session. Codex waits for
+optional servers for one second by default (`mcp_optional_startup_grace_ms`) before it lists a session's first tools;
+on a slow or busy machine that first turn can run without PowerContext's MCP tools. For non-interactive runs such as
+`codex exec`, where the first turn may be the only one, set `mcp_optional_startup_grace_ms = 0` at the top level of
+Codex's `config.toml`, not under a server table, to wait up to the server's `startup_timeout_sec` (10 seconds by
+default) instead.
 
 When refreshing setup, client endpoint declarations in the setup `.env` file or process environment supersede saved
 client settings and the previously installed MCP URL. Without a new declaration, setup reuses saved endpoints.

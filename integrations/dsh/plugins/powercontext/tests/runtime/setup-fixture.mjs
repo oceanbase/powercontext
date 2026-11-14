@@ -42,8 +42,17 @@ export function setupFixture(home, { dshHome = join(home, 'installed-dsh') } = {
     PATH: bin + delimiter + process.env.PATH, DSH_TELEMETRY_DISABLED: '1',
   }
   const options = { cwd: home, env, windowsHide: true, timeout: 150000, maxBuffer: 4 * 1024 * 1024 }
-  const cli = async args => (await promisify(execFile)(windows ? 'uv.exe' : 'uv',
-    ['run', '--project', root, '--no-sync', 'powercontext', ...args], options)).stdout
+  const cli = async args => {
+    try {
+      return (await promisify(execFile)(windows ? 'uv.exe' : 'uv',
+        ['run', '--project', root, '--no-sync', 'powercontext', ...args], options)).stdout
+    } catch (error) {
+      console.error('DIAG_ARGS', JSON.stringify(args))
+      console.error('DIAG_STDOUT', error.stdout)
+      console.error('DIAG_STDERR', error.stderr)
+      throw error
+    }
+  }
   const native = async args => (await promisify(execFile)(process.execPath, [dshBin, ...args], options)).stdout
   const profile = join(env.DSH_HOME, 'profiles/web')
   return { root, cli, native, env, profile, patch: join(profile, 'cordis.patch.yml'),

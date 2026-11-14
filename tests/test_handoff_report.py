@@ -14,8 +14,10 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -166,9 +168,19 @@ def test_handoff_report_statement_count_does_not_grow_with_scope_count(tmp_path)
             )
         )
         statements: list[str] = []
+        counting = ContextVar("counting_handoff_report_sql", default=False)
+
+        @app.middleware("http")
+        async def count_report_request(request, call_next):
+            token = counting.set(request.url.path == "/v1/handoff-reports/get")
+            try:
+                return await call_next(request)
+            finally:
+                counting.reset(token)
 
         def record(_conn, _cursor, statement, *_args) -> None:
-            statements.append(statement)
+            if counting.get():
+                statements.append(statement)
 
         with TestClient(app) as client:
             for index in range(scope_count):
@@ -176,6 +188,14 @@ def test_handoff_report_statement_count_does_not_grow_with_scope_count(tmp_path)
                 _commit_handoff(client, scope_id, disposition="continuable")
             event.listen(Engine, "before_cursor_execute", record)
             try:
+                # Other Server instances can still execute SQL in this process.
+                unrelated = create_engine("sqlite://")
+                try:
+                    with unrelated.connect() as connection:
+                        for _ in range(3):
+                            connection.execute(text("SELECT 1"))
+                finally:
+                    unrelated.dispose()
                 response = client.post(
                     "/v1/handoff-reports/get",
                     json={"selection": {"mode": "all"}, "format": "json"},

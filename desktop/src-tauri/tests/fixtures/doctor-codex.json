@@ -1,0 +1,76 @@
+{
+  "ok": false,
+  "hosts": {
+    "codex": {
+      "status": "failed",
+      "checks": {
+        "codex": {
+          "ok": true,
+          "status": "ok",
+          "detail": "/usr/bin/codex"
+        },
+        "mcp_full_profile": {
+          "ok": false,
+          "status": "degraded",
+          "detail": "Full-profile tools unavailable: generate_experience; upgrade the Server and refresh the plugin, then open a new Codex session"
+        },
+        "plugin": {
+          "ok": true,
+          "status": "ok",
+          "detail": "powercontext@powercontext enabled=True"
+        },
+        "plugin_runtime": {
+          "ok": true,
+          "status": "ok",
+          "detail": "plugin environment is ready"
+        },
+        "mcp_configuration": {
+          "ok": true,
+          "status": "ok",
+          "detail": "native HTTP MCP enabled with environment overrides; auth_status=unsupported"
+        },
+        "authorization": {
+          "ok": true,
+          "status": "ok",
+          "detail": "no host authorization is configured; the native probe will verify an unauthenticated connection",
+          "checks": {
+            "current_process": "not_configured",
+            "setup_managed": "not_configured",
+            "desktop_restart": "not_applicable"
+          }
+        },
+        "mcp_tools": {
+          "ok": true,
+          "status": "ok",
+          "detail": "Codex native MCP initialized and discovered 2 tools"
+        },
+        "service_support": {
+          "ok": true,
+          "status": "ok",
+          "detail": "native personal service adapter is supported"
+        },
+        "service_registration": {
+          "ok": true,
+          "status": "ok",
+          "detail": "not_installed (optional)"
+        },
+        "server_liveness": {
+          "ok": false,
+          "status": "failed",
+          "detail": "cannot reach http://127.0.0.1:18765"
+        },
+        "server_readiness": {
+          "ok": false,
+          "status": "skipped",
+          "detail": "not checked because Server liveness failed"
+        },
+        "server_memory_protocol": {
+          "ok": false,
+          "status": "skipped",
+          "detail": "not checked because Server liveness failed"
+        }
+      },
+      "ok": false
+    }
+  }
+}
