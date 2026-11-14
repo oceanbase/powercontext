@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Execution-owned evidence, including destruction of a pending future.
-use crate::{ExecutionObservation, ManagedOutcome, RequestCancellation};
+use crate::{ExecutionObservation, ExecutionState, ManagedOutcome, RequestCancellation};
 use pc_gateway_evidence::{
     fingerprint, AttemptEvidence, AttemptOutcome, CallEvidence, EvidenceSink, Interruption,
     Sending, Terminal, UsageEvidence, UsageMapping,
@@ -156,6 +156,13 @@ impl Drop for CallRecorder<'_> {
     fn drop(&mut self) {
         self.finish_attempt();
         if self.call.terminal == Terminal::Abandoned {
+            // Execution drops before its recorder and owns the actual stop cause.
+            // Keep exported facts identical to the retained lifecycle snapshot.
+            let snapshot = self.observation.snapshot();
+            if let ExecutionState::Finished(terminal) = snapshot.execution {
+                self.call.terminal = terminal;
+            }
+            self.call.sending = snapshot.model_send;
             self.call.interruption = Some(if self.cancellation.is_cancelled() {
                 Interruption::CancellationRequested
             } else if tokio::time::Instant::now() >= self.observation.deadline() {

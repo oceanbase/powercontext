@@ -27,9 +27,9 @@ import httpx
 import pytest
 import uvicorn
 
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
 from powercontext.builtin.runtime import InferenceConfig
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_context_protection_transports import _ADMIN, _Authentication, _create_scope, _settings
@@ -133,9 +133,7 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
         settings.database, bootstrap_administrators=(_ADMIN,), deployment_id="context-transports"
     ):
         pass
-    app = create_server_app(
-        settings=settings, authentication_provider=_Authentication(), scheduler_path=tmp_path / "scheduler.db"
-    )
+    app = create_server_app(settings=settings, authentication_provider=_Authentication())
     core_port, gateway_port = _free_port(), _free_port()
     core = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=core_port, log_level="error"))
     core_task = asyncio.create_task(core.serve())

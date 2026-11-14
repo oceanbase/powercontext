@@ -38,7 +38,10 @@ fn operational_outcome(event: &EvidenceEvent) -> Option<OperationalOutcome> {
                 .upstream_status
                 .map(|status| if status >= 400 { Failure } else { Success }),
             Terminal::Blocked | Terminal::Withheld | Terminal::AdmissionExpired => Some(Blocked),
-            Terminal::SendIndeterminate | Terminal::NotSent | Terminal::GatePaused => Some(Failure),
+            Terminal::SendIndeterminate
+            | Terminal::NotSent
+            | Terminal::GatePaused
+            | Terminal::Stopped(_) => Some(Failure),
             // Drop-time intent/deadline facts do not establish why the owner stopped execution.
             Terminal::Abandoned => None,
         },

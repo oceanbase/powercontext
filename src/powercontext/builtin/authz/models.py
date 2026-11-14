@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TypeAlias
 
-from powercontext.server.authz.errors import AccessInvalidRequestError
+from powercontext.builtin.authz.errors import AccessInvalidRequestError
 
 DEFAULT_DEPLOYMENT_ID = "powercontext"
 

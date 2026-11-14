@@ -72,7 +72,7 @@ Current Gateway model routes cannot degrade: Core must authorize a target before
 | Same terminals with observed upstream status >= 400 | `failure` |
 | Same terminals with missing upstream status | null |
 | Call `blocked`, `withheld`, `admission_expired` | `blocked` |
-| Call `send_indeterminate`, `not_sent`, `gate_paused` | `failure` |
+| Call `send_indeterminate`, `not_sent`, `gate_paused`, or a confirmed `stopped` cause | `failure` |
 | Call `abandoned`, regardless of observed interruption intent/deadline | null |
 | Attempt `delivered` | `success` |
 | Attempt `possibly_sent` on future destruction | null |
@@ -115,17 +115,20 @@ exported and are not model-send facts.
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
 `interruption`, and timing fields. Terminal values are `release_authorized`, `blocked`, `withheld`,
 `send_indeterminate`, `not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
+A known lifecycle stop is encoded as `{"stopped":"deadline_exceeded"}`, `{"stopped":"gateway_shutdown"}`,
+or `{"stopped":"request_cancelled"}`.
 Lifecycle snapshots and evidence share `ExecutionTerminal` and `ModelSendState` from `pc-gateway-types`;
 `ManagedOutcome` has one terminal mapping. Existing Rust import names in core and evidence remain re-exports.
 `sending` independently reports `no_send`, `definitely_not_sent`, `possibly_sent`, or `response_received`.
 A release refusal or expiry after a response preserves `response_received` and any reported usage.
 
-Pending execution future destruction emits `abandoned` and preserves sending facts. `interruption` reports
-`cancellation_requested` if the shared cancellation signal was set, otherwise `deadline_elapsed` if the host deadline
-has elapsed, otherwise `future_dropped`. These are observations at destruction, **not a claim about its cause**.
-As in the shared G3-0 lifecycle, signaling cancellation or passing a deadline does not by itself interrupt execution;
-the owner must stop/drop the future. Evidence adds no new cancellation authority or timer.
-Cancellation during transport remains `possibly_sent`, with unknown usage, never `not_sent`.
+The execution owner records confirmed deadline, shutdown, or cancellation stops. On pending-future destruction,
+evidence preserves the owner's terminal and sending facts; destruction without a known stop remains `abandoned`.
+The drop-time `interruption` field reports `cancellation_requested` if the shared cancellation signal was set,
+otherwise `deadline_elapsed` if the host deadline has elapsed, otherwise `future_dropped`. This field describes
+observations at destruction; the shared execution terminal identifies a confirmed stop cause. Evidence adds no
+cancellation authority or timer. Cancellation during transport remains `possibly_sent`, with unknown usage,
+never `not_sent`.
 
 Each `attempt` contains `attempt`, `outcome`, `started_ms`, `duration_ms`, `upstream_status`, normalized `usage`,
 `response_first_byte_ms`, and `response_complete_ms`. Outcomes are `possibly_sent` (interrupted pending send),

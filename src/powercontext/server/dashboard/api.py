@@ -29,11 +29,11 @@ from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryBrowseCursor
+from powercontext.builtin.authz import AccessAction, ResourceRef
+from powercontext.builtin.authz.service import _require_allowed, access_control_for_mode
 from powercontext.builtin.runtime.models import GetTopicMemoryRequest
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.server import mapping
-from powercontext.server.authz import AccessAction, ResourceRef
-from powercontext.server.authz.service import _require_allowed, access_control_for_mode
 from powercontext.server.context import current_principal
 from powercontext.server.dashboard.errors import ReadError as ReadError
 from powercontext.server.dashboard.session import authentication_headers

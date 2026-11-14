@@ -49,6 +49,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
 )
+from powercontext.builtin.authz.worker import open_worker_security
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.atomic_memory_evidence import AtomicMemoryEvidenceRepository
@@ -77,7 +78,6 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import SourceConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
-from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 from tests.e2e.dream_support import atomic_memory_pipeline
@@ -277,6 +277,9 @@ class _VectorMemoryIndex:
 
     async def probe_recoverable(self, connection, scope_id, request, floor, /):
         return False
+
+    async def related_page(self, connection: AsyncConnection, scope_id: str, request, cursor=None, /):
+        return None
 
     async def enumerate_related_with_heads(self, connection: AsyncConnection, scope_id: str, request, /):
         return (), {}

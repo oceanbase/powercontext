@@ -163,6 +163,23 @@ impl Drop for Gateway {
     }
 }
 impl Gateway {
+    fn take_stderr(&mut self) -> String {
+        let mut output = String::new();
+        if let Some(mut stderr) = self.process.stderr.take() {
+            let _ = std::io::Read::read_to_string(&mut stderr, &mut output);
+        }
+        output
+    }
+
+    fn assert_running(&mut self) {
+        if let Some(status) = self.process.try_wait().unwrap() {
+            panic!(
+                "gateway exited during startup: {status}; {}",
+                self.take_stderr()
+            );
+        }
+    }
+
     async fn start(
         caps: Value,
         deployment_limit: usize,
@@ -208,7 +225,7 @@ impl Gateway {
         command
             .env_clear()
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .env("PC_GATEWAY_LISTEN", address.to_string())
             .env(
                 "PC_GATEWAY_UPSTREAM_API_KEY",
@@ -283,17 +300,17 @@ impl Gateway {
         let client = reqwest::Client::new();
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                assert!(
-                    gateway.process.try_wait().unwrap().is_none(),
-                    "gateway exited during startup"
-                );
-                if client
-                    .get(format!("{}/healthz", gateway.base))
-                    .send()
-                    .await
-                    .is_ok()
-                {
-                    break;
+                gateway.assert_running();
+                if let Ok(response) = client.get(format!("{}/healthz", gateway.base)).send().await {
+                    if response.status() == StatusCode::OK
+                        && response.json::<Value>().await.unwrap_or(Value::Null)["service"]
+                            == "pc-gateway"
+                    {
+                        // The reserved port is released before spawn. A different
+                        // receiver's HTTP response is not this child's readiness.
+                        gateway.assert_running();
+                        break;
+                    }
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -734,4 +751,60 @@ async fn fallback_unknown_length_overflow_is_an_error_and_next_request_works() {
         gateway.state.fallback_seen.lock().unwrap().last(),
         Some(&(2, true))
     );
+}
+
+#[tokio::test]
+async fn shutdown_bounds_an_indefinite_fallback_sse_in_the_real_gateway_process() {
+    let mut gateway =
+        Gateway::start(capabilities(json!(4096)), 8192, false, false, false, true).await;
+    let mut response = reqwest::Client::new()
+        .get(format!("{}/sse", gateway.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert!(
+        response.chunk().await.unwrap().is_some(),
+        "confirm active streaming before signalling"
+    );
+    let started = std::time::Instant::now();
+    assert_eq!(
+        unsafe { libc::kill(gateway.process.id() as i32, libc::SIGTERM) },
+        0
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        unsafe { libc::kill(gateway.process.id() as i32, libc::SIGINT) },
+        0
+    );
+    let status = loop {
+        if let Some(status) = gateway.process.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(32),
+            "fixture kill cannot supply product exit evidence"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    let elapsed = started.elapsed();
+    assert!(
+        status.success(),
+        "ordinary connection owners must join successfully: {status}; {}",
+        gateway.take_stderr()
+    );
+    assert!(
+        (Duration::from_millis(24_900)..Duration::from_secs(27)).contains(&elapsed),
+        "{elapsed:?}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), response.chunk())
+            .await
+            .unwrap()
+            .is_err(),
+        "an unfinished stream must not be reported as complete"
+    );
+    assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 0);
+    eprintln!("linux HTTP/1 controlled UDS SSE budget=25/30s elapsed={elapsed:?} exit={status}");
 }

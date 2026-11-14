@@ -21,8 +21,17 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
-`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
+该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，构建插件的 Python 环境，并创建用户数据目录。
+重复执行是安全的。`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
+
+插件的 Hook 和 MCP 凭据助手都通过 `PATH` 中的 `uv` 运行，因此 setup 需要 `uv`，首次安装时还需要能访问包索引。
+在 setup 时构建环境，可避免首次会话在 Codex 同时启动 Hook 和 MCP 时才去构建。如果插件通过其他方式安装或更新，
+在重新执行 setup 之前，`powercontext doctor codex` 会把 `plugin_runtime` 报告为 degraded。
+
+PowerContext 的 MCP server 对 Codex 是可选的，因此 Server 不可用时不会阻塞会话。Codex 默认只等待可选 server 一秒
+（`mcp_optional_startup_grace_ms`），然后列出会话首轮可用的工具；在较慢或负载较高的机器上，首轮可能没有 PowerContext
+的 MCP 工具。对 `codex exec` 等非交互运行，首轮可能就是唯一一轮，可在 Codex 的 `config.toml` 顶层（而非某个
+server 表下）设置 `mcp_optional_startup_grace_ms = 0`，改为最多等待该 server 的 `startup_timeout_sec`（默认 10 秒）。
 
 刷新安装时，setup `.env` 文件或进程环境中新声明的客户端地址会覆盖保存的客户端设置和之前安装的 MCP 地址。
 未提供新地址时，setup 复用保存的地址。文件与进程中声明的地址冲突时，仍需显式选择：使用 `--server-url`，

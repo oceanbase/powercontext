@@ -24,6 +24,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING as BINDING
+from powercontext.builtin.authz import AccessDeniedError
+from powercontext.builtin.authz.repository import ACCESS_TABLES
+from powercontext.builtin.authz.worker import open_worker_security
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
@@ -36,9 +39,6 @@ from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, 
 from powercontext.builtin.runtime.family_processing import process_family_invocation
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.server.authz import AccessDeniedError
-from powercontext.server.authz.repository import ACCESS_TABLES
-from powercontext.server.processing_security import open_worker_security
 from tests.builtin.runtime.test_family_processing import security_spec
 from tests.builtin.runtime.test_processing_scheduler import _intent, _Launcher
 

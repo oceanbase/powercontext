@@ -64,7 +64,7 @@ application operation，也不是 worker 的 inference generation。
 | 同上，已观察上游状态码 >= 400 | `failure` |
 | 同上，上游状态码缺失 | null |
 | 调用 `blocked`、`withheld`、`admission_expired` | `blocked` |
-| 调用 `send_indeterminate`、`not_sent`、`gate_paused` | `failure` |
+| 调用 `send_indeterminate`、`not_sent`、`gate_paused` 或已确认原因的 `stopped` | `failure` |
 | 调用 `abandoned`，不论销毁时的取消意图/期限事实 | null |
 | 尝试 `delivered` | `success` |
 | future 销毁时的尝试 `possibly_sent` | null |
@@ -104,16 +104,18 @@ null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消
 `call` 记录包含 `terminal`、`sending`、`attempts`、`upstream_status`、归一化 `usage`、
 可选 `interruption` 和计时字段。终态取值为 `release_authorized`、`blocked`、`withheld`、
 `send_indeterminate`、`not_sent`、`gate_paused`、`degraded`、`admission_expired`、`abandoned`。
+已知生命周期停止编码为 `{"stopped":"deadline_exceeded"}`、`{"stopped":"gateway_shutdown"}`
+或 `{"stopped":"request_cancelled"}`。
 生命周期快照与证据共享 `pc-gateway-types` 的 `ExecutionTerminal`、`ModelSendState`；
 `ManagedOutcome` 只保留一处终态映射。core 与 evidence 现有 Rust 导入名称继续通过重导出提供。
 `sending` 独立表示 `no_send`、`definitely_not_sent`、`possibly_sent`、`response_received`。
 取得响应后发生释放拒绝或期限过期，仍保留 `response_received` 与已上报的 usage。
 
-pending 执行 future 销毁时输出 `abandoned` 并保留发送事实。
-共享取消信号已设置时，`interruption` 为 `cancellation_requested`；否则宿主期限已过时为
-`deadline_elapsed`，其余情况为 `future_dropped`。这些是销毁时的观测，**不证明销毁原因**。
-沿用 G3-0 的共享生命周期语义：发出取消信号或超过期限本身不会中断执行，所有者必须停止/丢弃 future。
-证据层不新增取消权或定时器。传输中取消保持 `possibly_sent` 和未知 usage，不能记成 `not_sent`。
+执行所有者记录已确认的期限、停机或取消停止。pending 执行 future 销毁时，证据保留所有者的终态和发送事实；
+没有已知停止原因的销毁仍记为 `abandoned`。共享取消信号已设置时，销毁观测字段 `interruption` 为
+`cancellation_requested`；否则宿主期限已过时为 `deadline_elapsed`，其余情况为 `future_dropped`。
+该字段描述销毁时的观测，共享执行终态标识已确认的停止原因。证据层不新增取消权或定时器。
+传输中取消保持 `possibly_sent` 和未知 usage，不能记成 `not_sent`。
 
 每个 `attempt` 包含 `attempt`、`outcome`、`started_ms`、`duration_ms`、`upstream_status`、归一化
 `usage`、`response_first_byte_ms`、`response_complete_ms`。

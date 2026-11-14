@@ -104,7 +104,7 @@ def test_private_profile_preserves_business_configuration(deployment, monkeypatc
 
 
 def test_split_profile_matches_api_and_background_scrape_targets(deployment):
-    from powercontext.cli.env_file import read_environment_file
+    from powercontext.env_file import read_environment_file
 
     initialize(
         deployment,
@@ -159,7 +159,7 @@ def test_repeat_up_preserves_credentials_targets_and_template_edits(deployment, 
     assert "powercontext server run --observability" in result.output
     assert "observability check --exercise" in result.output
     assert "phoenix:" in (deployment / "compose.yaml").read_text()
-    from powercontext.cli.env_file import read_environment_file
+    from powercontext.env_file import read_environment_file
 
     headers = read_environment_file(deployment / "server.env")["OTEL_EXPORTER_OTLP_HEADERS"]
     assert headers not in result.output

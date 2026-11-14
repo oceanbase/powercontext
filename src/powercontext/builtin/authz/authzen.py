@@ -22,14 +22,14 @@ from typing import Any, TypeGuard
 import httpx
 from pydantic import SecretStr
 
-from powercontext.limits import MAX_POLICY_REVISION_LENGTH
-from powercontext.server.authz.errors import AccessUnavailableError
-from powercontext.server.authz.models import AccessDecision, AccessSubjectRef, MemoryEntrySelector, ResourceRef
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.errors import AccessUnavailableError
+from powercontext.builtin.authz.models import AccessDecision, AccessSubjectRef, MemoryEntrySelector, ResourceRef
+from powercontext.builtin.authz.service import (
     AccessRequest,
     AuthorizedResourceFilter,
     ResourceSearchRequest,
 )
+from powercontext.limits import MAX_POLICY_REVISION_LENGTH
 from powercontext.transport import is_plaintext_non_loopback
 
 _EVALUATION_PATH = "/access/v1/evaluation"

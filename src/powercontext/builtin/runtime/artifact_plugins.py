@@ -103,7 +103,7 @@ def run_artifact_plugin_worker(
 
 
 async def _restore_access_families(database) -> None:
-    from powercontext.server.authz.profiles import register_custom_artifact_access_family
+    from powercontext.builtin.authz.profiles import register_custom_artifact_access_family
 
     async with database.transaction() as connection:
         families = (await connection.execute(select(ARTIFACT_FAMILY_SCHEMAS_TABLE.c.family).distinct())).scalars().all()
@@ -113,7 +113,7 @@ async def _restore_access_families(database) -> None:
 
 async def _process_window(spec: ArtifactPluginWorkerSpec, assignment: ArtifactProcessingWorkAssignment):  # noqa: C901 - One authorized window with preparation outside its commit.
     # Server authorization is reconstructed in this child using deployment identity.
-    from powercontext.server.processing_security import open_worker_security
+    from powercontext.builtin.authz.worker import open_worker_security
 
     definition = spec.definition
     declaration = definition["declaration"]
@@ -296,7 +296,7 @@ async def _commit_window(
     security,
     prepared_indexes=None,
 ):
-    from powercontext.server.authz import AccessAction, ResourceRef, bounded_idempotency_key
+    from powercontext.builtin.authz import AccessAction, ResourceRef, bounded_idempotency_key
 
     validated = _validate_drafts(declaration, source_evidence, artifact_evidence, drafts)
     repository = custom_artifact_repository(declaration["family"], sources, prepared=prepared_indexes)

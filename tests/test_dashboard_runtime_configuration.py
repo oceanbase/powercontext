@@ -50,7 +50,6 @@ def test_runtime_page_reports_loaded_settings_and_ignores_later_environment_chan
                 artifact_processing_worker_timeout_seconds=150,
             ),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_PROFILE_CRON", "0 9 * * *")

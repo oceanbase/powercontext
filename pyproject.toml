@@ -121,7 +121,7 @@ powercontext = "powercontext.cli.app:main"
 powercontext-ops = "powercontext.ops.__main__:main"
 
 [project.entry-points."powercontext.cli"]
-code = "powercontext.builtin.code.cli:app"
+code = "powercontext.cli.code:app"
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
 observability = "powercontext.observability.cli:app"

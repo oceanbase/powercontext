@@ -21,8 +21,8 @@ from datetime import UTC, datetime
 
 import casbin
 
-from powercontext.server.authz.errors import AccessInvalidRequestError
-from powercontext.server.authz.models import (
+from powercontext.builtin.authz.errors import AccessInvalidRequestError
+from powercontext.builtin.authz.models import (
     DEFAULT_DEPLOYMENT_ID,
     ROLE_ACTIONS,
     ROLE_CHILD_ACTIONS,
@@ -35,7 +35,7 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.service import (
+from powercontext.builtin.authz.service import (
     AccessRepository,
     AccessRequest,
     AuthorizedResourceFilter,

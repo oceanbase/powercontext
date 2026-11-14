@@ -52,8 +52,8 @@ from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import RevisionConflictError
 
 if TYPE_CHECKING:
+    from powercontext.builtin.authz.worker import WorkerSecurity
     from powercontext.builtin.runtime.relational import RelationalContexts
-    from powercontext.server.processing_security import WorkerSecurity
 
 
 FAMILY_BINDINGS = {
@@ -147,7 +147,7 @@ async def _run_family_worker(
         security = None
         if spec.worker_security is not None:
             # The optional Server adapter stays outside Runtime-only SDK composition.
-            from powercontext.server.processing_security import open_worker_security
+            from powercontext.builtin.authz.worker import open_worker_security
 
             security = await resources.enter_async_context(
                 open_worker_security(spec.worker_security, contexts.database)

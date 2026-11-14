@@ -18,7 +18,7 @@ use pc_gateway_types::{
     PrepareContextResult,
 };
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use std::time::Duration;
 
 /// 独立部署形态：HTTPS/TCP 直连 PowerContext Server 的公开契约。
 /// 同机组合部署用 `UdsGateClient`（HTTP over Unix Domain Socket）。
@@ -40,6 +40,10 @@ impl HttpGateClient {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
+                // Avoid hyper's implicit stale pooled-connection resend as well.
+                .http1_only()
+                .pool_max_idle_per_host(0)
                 .timeout(std::time::Duration::from_secs(10))
                 .connect_timeout(std::time::Duration::from_secs(3))
                 .build()
@@ -48,44 +52,83 @@ impl HttpGateClient {
         }
     }
 
-    async fn post<R>(
+    /// Serialize once before entering recovery. The operation budget includes both
+    /// attempts and full response consumption; the managed-call deadline may stop it earlier.
+    async fn request<R: DeserializeOwned>(
         &self,
+        method: reqwest::Method,
         path: &str,
-        body: &impl Serialize,
+        body: Option<Vec<u8>>,
+        replay_safe: bool,
         resolve_target: bool,
-    ) -> Result<R, GateError>
-    where
-        R: DeserializeOwned,
-    {
+    ) -> Result<R, GateError> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self
-            .client
-            .post(&url)
-            // RFC：DTO 复用 scope-mode/access 声明头。
-            .header("x-powercontext-scope-mode", "current")
-            .bearer_auth(self.token.clone().unwrap_or_default())
-            .header("content-type", "application/json")
-            .header("x-powercontext-resolve-target", resolve_target.to_string())
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| GateError::GateUnavailable(e.to_string()))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(GateError::GateRejected(status.as_u16()));
-        }
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| GateError::GateUnavailable(e.to_string()))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| GateError::Malformed(format!("decode {path}: {e}")))
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for attempt in 0..2 {
+                if attempt != 0 {
+                    // Return to the enclosing lifecycle before starting recovery, even
+                    // when the failed socket completed synchronously in this poll.
+                    tokio::task::yield_now().await;
+                }
+                let mut request = self
+                    .client
+                    .request(method.clone(), &url)
+                    .header("x-powercontext-scope-mode", "current")
+                    .bearer_auth(self.token.clone().unwrap_or_default());
+                if resolve_target {
+                    request = request.header("x-powercontext-resolve-target", "true");
+                }
+                if let Some(body) = &body {
+                    request = request
+                        .header("content-type", "application/json")
+                        .body(body.clone());
+                }
+                let response = match request.send().await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        if malformed_http(&error) {
+                            return Err(GateError::Malformed("invalid http response".into()));
+                        }
+                        // Connect failure is the only reqwest transport proof of zero
+                        // application-request handoff. EOF and timeout provide no such proof.
+                        if attempt == 0
+                            && !error.is_builder()
+                            && (replay_safe || error.is_connect())
+                        {
+                            continue;
+                        }
+                        return Err(GateError::GateUnavailable("http request failed".into()));
+                    }
+                };
+                if !response.status().is_success() {
+                    return Err(GateError::GateRejected(response.status().as_u16()));
+                }
+                let bytes = match response.bytes().await {
+                    Ok(bytes) => bytes,
+                    Err(error) if malformed_http(&error) => {
+                        return Err(GateError::Malformed("invalid http response body".into()));
+                    }
+                    Err(_) if attempt == 0 && replay_safe => continue,
+                    Err(_) => {
+                        return Err(GateError::GateUnavailable(
+                            "http response interrupted".into(),
+                        ))
+                    }
+                };
+                return serde_json::from_slice(&bytes)
+                    .map_err(|_| GateError::Malformed(format!("decode {path}")));
+            }
+            unreachable!("the last attempt always returns")
+        })
+        .await
+        .map_err(|_| GateError::GateUnavailable("http operation timeout".into()))?
     }
 }
 
 impl GateClient for HttpGateClient {
     async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
-        if matches!(request, ContextCheckRequest::BeforeSend { .. }) {
+        let resolve_target = matches!(request, ContextCheckRequest::BeforeSend { .. });
+        if resolve_target {
             let url = reqwest::Url::parse(&self.base_url)
                 .map_err(|_| GateError::Malformed("invalid Core URL".into()))?;
             let local_http = url.scheme() == "http"
@@ -99,46 +142,71 @@ impl GateClient for HttpGateClient {
                 ));
             }
         }
-        self.post(
+        self.request(
+            reqwest::Method::POST,
             "/v1/context/check",
-            &request,
-            matches!(request, ContextCheckRequest::BeforeSend { .. }),
+            Some(serde_json::to_vec(&request).expect("serialize check")),
+            true,
+            resolve_target,
         )
         .await
     }
 
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
-        let url = format!("{}/v1/capabilities", self.base_url);
-        let resp = self
-            .client
-            .get(&url)
-            .header("x-powercontext-scope-mode", "current")
-            .bearer_auth(self.token.clone().unwrap_or_default())
-            .send()
+        self.request(reqwest::Method::GET, "/v1/capabilities", None, true, false)
             .await
-            .map_err(|e| GateError::GateUnavailable(e.to_string()))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(GateError::GateRejected(status.as_u16()));
-        }
-        resp.json()
-            .await
-            .map_err(|e| GateError::Malformed(e.to_string()))
     }
 
     async fn prepare(
         &self,
         request: PrepareContextRequest,
     ) -> Result<PrepareContextResult, GateError> {
-        self.post("/v1/context/prepare", &request, false).await
+        self.request(
+            reqwest::Method::POST,
+            "/v1/context/prepare",
+            Some(serde_json::to_vec(&request).expect("serialize prepare")),
+            false,
+            false,
+        )
+        .await
     }
 
     async fn capture(
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
-        self.post("/v1/sources/content", &request, false).await
+        self.request(
+            reqwest::Method::POST,
+            "/v1/sources/content",
+            Some(serde_json::to_vec(&request).expect("serialize capture")),
+            true,
+            false,
+        )
+        .await
     }
+}
+
+// Use typed protocol evidence, never an error-string heuristic for replay decisions.
+fn malformed_http(error: &reqwest::Error) -> bool {
+    use std::error::Error;
+    let mut cause: Option<&(dyn Error + 'static)> = Some(error);
+    while let Some(error) = cause {
+        if error
+            .downcast_ref::<hyper::Error>()
+            .is_some_and(hyper::Error::is_parse)
+            || error.downcast_ref::<std::io::Error>().is_some_and(|e| {
+                // Hyper's HTTP/1 chunk decoder uses both kinds for invalid framing.
+                matches!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput
+                )
+            })
+        {
+            return true;
+        }
+        cause = error.source();
+    }
+    false
 }
 
 #[cfg(test)]

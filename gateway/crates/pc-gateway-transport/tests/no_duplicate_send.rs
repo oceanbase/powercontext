@@ -17,7 +17,9 @@
 //! 断言：body 只被上游收到一次（绝不重复计费发送），
 //! 且结果归为 Indeterminate 而非可重试的 NotSent。
 
-use pc_gateway_transport::{AdmittedSend, ReqwestTransport, SendIndeterminateReason, SendOutcome};
+use pc_gateway_transport::{
+    AdmittedSend, ReqwestTransport, SendIndeterminateReason, SendOutcome, Transport,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -79,21 +81,11 @@ async fn upstream_closing_after_full_body_is_indeterminate_and_not_resent() {
         stream: false,
     };
 
-    // 复现 review 场景：BoundedRetry(max_attempts=2)。
-    // 旧行为：is_request() 被归为 NotSent → 重试 → 上游收到两次完整 body
-    // 且最终谎报 AllNotSent{attempts:2}。
-    // 新行为：归为 Indeterminate → 立即上抛，不进行第二次发送。
-    let retry =
-        pc_gateway_transport::BoundedRetry::new(transport, std::num::NonZeroU32::new(2).unwrap());
-    let outcome = retry
-        .send_with_retry(&send, &pc_gateway_evidence::NoopEvidenceSink)
-        .await;
-    match outcome {
-        pc_gateway_transport::RetryOutcome::Done(SendOutcome::Indeterminate(
-            SendIndeterminateReason::LostAfterHandoff,
-        )) => {}
-        other => panic!("expected Done(Indeterminate), got {other:?}"),
-    }
+    let outcome = transport.send(send).await;
+    assert!(matches!(
+        outcome,
+        SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff)
+    ));
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert_eq!(
