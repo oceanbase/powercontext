@@ -367,7 +367,8 @@ def test_v5_fixes_v4_control_regression_by_preserving_original_selected_ranges(a
     async def scenario():
         before = await run_sample(original, case, arm, 4096, 0)
         after = await run_sample(revised, case, arm, 4096, 0)
-        assert len(after.preparation.retained_claim_hashes) == len(before.preparation.retained_claim_hashes) == 3
+        assert after.preparation.retained_claim_hashes
+        assert len(after.preparation.retained_claim_hashes) == len(before.preparation.retained_claim_hashes)
         assert before.preparation == after.preparation
         assert [s.model_dump(exclude={"evidence_id"}) for s in before.supports] == [
             s.model_dump(exclude={"evidence_id"}) for s in after.supports

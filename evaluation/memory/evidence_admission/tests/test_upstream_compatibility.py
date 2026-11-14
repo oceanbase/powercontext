@@ -62,15 +62,15 @@ def test_exact_text_does_not_auto_approve_an_unreviewed_description():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("case_id", ["positional-facts", "observation-overflow"])
-def test_current_native_instruction_cost_keeps_new_v2_losses_visible(case_id):
+@pytest.mark.parametrize("case_id,missing", [("positional-facts", 2), ("observation-overflow", 1)])
+def test_current_native_instruction_cost_keeps_new_v2_losses_visible(case_id, missing):
     suite = load_suite(experiment_version="v2")
     case = next(c for c in suite.cases if c.case_id == case_id)
     result = asyncio.run(run_sample(suite, case, "bounded-fragments-v2", 2048, 0))
     assert result.status == "prepared"
     assert result.completeness == "bounded"
     assert result.preparation.required_content_fits
-    assert len(result.preparation.missing_claim_hashes) == 1
+    assert len(result.preparation.missing_claim_hashes) == missing
     assert result.omissions
     assert result.metrics.prepared_tokens <= 2048
     assert result.requests == result.memory_mutations == result.published_cursor == 0

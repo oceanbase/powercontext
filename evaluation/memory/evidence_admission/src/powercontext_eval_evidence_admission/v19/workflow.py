@@ -101,9 +101,7 @@ def prepare(source, directory, *, approved_total="5.00", authorization="existing
         if original["identity"][key] != current[key]:
             raise EvaluationError("v19_inherited_environment_changed")
     unscored_returned = [
-        r["call_id"]
-        for r in old_state["records"]
-        if r.get("outcome") == "returned" and r.get("score") is None and not r.get("scoring_failed")
+        r["call_id"] for r in old_state["records"] if r.get("outcome") == "returned" and r.get("score") is None
     ]
     if unscored_returned:
         raise EvaluationError("v19_prior_scoring_incomplete")
@@ -224,13 +222,87 @@ def initialize(directory):
         return {"state": "ready", "remaining_calls": len(continuation["remaining_calls"]), "freeze": state["freeze"]}
 
 
+async def _scoring_context(manifest, record):
+    row = next(r for r in manifest["rows"] if r["row_id"] == record["row_id"])
+    case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+    rebuilt, values = await core.prepare_one(row["dataset"], case, row["arm"], row["budget"], row["repetition"])
+    if (
+        core.comparable(row) != core.comparable(rebuilt)
+        or row["admitted_atom_hashes"] != rebuilt["admitted_atom_hashes"]
+    ):
+        raise EvaluationError("v19_real_Source_rebuild_changed")
+    value = values[record["input_index"]]
+    if digest(value.model_dump(mode="json")) != record["input_hash"]:
+        raise EvaluationError("v19_rebuilt_input_changed")
+    return row, case, value
+
+
+def _advance_after_scoring(state, record):
+    if record.get("score_required") and record.get("score") is None:
+        state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
+    elif record.get("known_charge_cny") is None:
+        state.update(state="unknown_usage_stopped", stop_reason="new_unknown_usage_not_zero")
+    elif record.get("response_model") not in core.contract()["allowed_response_models"]:
+        state.update(state="provider_changed", stop_reason="unrecognized_response_model")
+    else:
+        state.update(state="ready", next_call=state["next_call"] + 1, in_flight=None)
+
+
+async def _complete_pending_score(directory, manifest, state):
+    call_id = state.get("in_flight")
+    records = [record for record in state["records"] if record["call_id"] == call_id]
+    if len(records) != 1 or records[0].get("scoring_state") not in {"pending", "complete"}:
+        raise EvaluationError("v19_scoring_continuation_changed_no_resend")
+    record = records[0]
+    save = recorder(directory, call_id)
+    if record.get("scoring_state") == "complete":
+        _advance_after_scoring(state, record)
+        core.dump(directory / "state.json", state)
+        return
+    parsed = directory / "audit" / f"{call_id}.parsed.json"
+    if not parsed.exists():
+        record.update(scoring_state="failed", scoring_failed=True, failure_category="scoring_input_unavailable")
+        state.update(state="audit_failed", stop_reason="scoring_input_unavailable_no_resend")
+        save("attempt", record)
+        core.dump(directory / "state.json", state)
+        return
+    try:
+        row, case, value = await _scoring_context(manifest, record)
+        output = AtomicMemoryExtractionOutput.model_validate(read_json(parsed))
+        score, review = score_output(
+            case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output
+        )
+        review_path = directory / "audit" / f"{call_id}.review.json"
+        if review_path.exists():
+            if read_json(review_path) != review:
+                raise EvaluationError("v19_scoring_review_changed")
+        else:
+            save("review", review)
+        record.update(score=score, scoring_state="complete", scoring_failed=False)
+        save("attempt", record)
+        core.dump(directory / "state.json", state)
+    except Exception:  # noqa: BLE001 -- never retain evaluator or private response values
+        record.update(scoring_state="failed", scoring_failed=True, failure_category="scoring_failure")
+        save("attempt", record)
+        state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
+        core.dump(directory / "state.json", state)
+        return
+    _advance_after_scoring(state, record)
+    core.dump(directory / "state.json", state)
+
+
 async def run_next(directory, *, execute_live=False, transport=None):
     with locked(directory):
         manifest, state, continuation = session_data(directory, committed=execute_live)
-        if state["state"] != "ready" or (state["mode"] == "live") != execute_live:
+        if (state["mode"] == "live") != execute_live:
             raise EvaluationError("v19_session_not_ready_or_mode_mismatch_no_resend")
         if execute_live and transport is not None:
             raise EvaluationError("v19_live_transport_injection_forbidden")
+        if state["state"] == "scoring_pending":
+            await _complete_pending_score(directory, manifest, state)
+            return status(directory)
+        if state["state"] != "ready":
+            raise EvaluationError("v19_session_not_ready_or_mode_mismatch_no_resend")
         preflight_receipt = read_json(directory / "preflight.json")
         if state["preflight_hash"] != digest(preflight_receipt):
             raise EvaluationError("v19_preflight_changed")
@@ -249,17 +321,7 @@ async def run_next(directory, *, execute_live=False, transport=None):
         call_id = digest(call)
         if call_id not in preflight_receipt["request_hashes"] or any(r["call_id"] == call_id for r in state["records"]):
             raise EvaluationError("v19_unplanned_or_already_attempted_call")
-        row = next(r for r in manifest["rows"] if r["row_id"] == call["row_id"])
-        case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
-        rebuilt, values = await core.prepare_one(row["dataset"], case, row["arm"], row["budget"], row["repetition"])
-        if (
-            core.comparable(row) != core.comparable(rebuilt)
-            or row["admitted_atom_hashes"] != rebuilt["admitted_atom_hashes"]
-        ):
-            raise EvaluationError("v19_real_Source_rebuild_changed")
-        value = values[call["input_index"]]
-        if digest(value.model_dump(mode="json")) != call["input_hash"]:
-            raise EvaluationError("v19_rebuilt_input_changed")
+        _, _, value = await _scoring_context(manifest, call)
         key = credentials() if execute_live else "offline-not-a-credential"
         state.update(state="in_flight", in_flight=call_id)
         core.dump(directory / "state.json", state)
@@ -296,33 +358,20 @@ async def run_next(directory, *, execute_live=False, transport=None):
         except Exception:  # noqa: BLE001 -- terminal audit boundary never prints provider values
             record["outcome"] = "audit_failed"
             terminal = "audit_failed"
-        known = account_record(state, record)
-        # Score before recording the attempt: an unscored returned response must never
-        # reach a finished continuation, so scoring failure is an explicit, resumable stop.
-        scoring_failed = False
-        if output is not None and terminal is None:
-            try:
-                record["score"], review = score_output(
-                    case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output
-                )
-                save("review", review)
-            except Exception:  # noqa: BLE001 -- usage is already durably recorded
-                scoring_failed = True
-                record["scoring_failed"] = True
-                record["failure_category"] = "scoring_failure"
+        account_record(state, record)
+        record["score_required"] = output is not None and terminal is None
+        record["scoring_state"] = "pending" if record["score_required"] else "not_applicable"
         state["records"].append(record)
         if terminal:
             state.update(state=terminal, stop_reason=terminal + "_no_resend")
-        elif scoring_failed:
-            state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
-        elif known is None:
-            state.update(state="unknown_usage_stopped", stop_reason="new_unknown_usage_not_zero")
-        elif record.get("response_model") not in core.contract()["allowed_response_models"]:
-            state.update(state="provider_changed", stop_reason="unrecognized_response_model")
+        elif record["score_required"]:
+            state.update(state="scoring_pending", stop_reason=None)
         else:
-            state.update(state="ready", next_call=state["next_call"] + 1, in_flight=None)
-        save("attempt", record)
+            _advance_after_scoring(state, record)
         core.dump(directory / "state.json", state)
+        save("attempt", record)
+        if record["score_required"]:
+            await _complete_pending_score(directory, manifest, state)
         if terminal == "cancelled":
             raise asyncio.CancelledError
         return status(directory)

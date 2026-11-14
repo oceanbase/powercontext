@@ -43,7 +43,7 @@ def v3_suite():
         ("validation-metadata-pressure", 2048),
     ],
 )
-def test_v3_repairs_v2_known_losses_under_the_same_budget(case_id, budget):
+def test_v3_repairs_v2_known_losses_under_the_same_budget(case_id, budget, historical_budget_context):
     suite = load_suite(experiment_version="v3", dataset="validation-v2")
     case = next(c for c in suite.cases if c.case_id == case_id)
 

@@ -369,6 +369,33 @@ def test_public_report_distinguishes_unrun_calls_from_measured_quality_failure(t
     asyncio.run(scenario())
 
 
+def test_public_report_blocks_decision_when_a_returned_response_has_no_score(tmp_path, monkeypatch):
+    async def scenario():
+        await controlled_session(tmp_path, monkeypatch)
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+        for _ in range(3):
+            await workflow.run_next(
+                tmp_path, transport=httpx.MockTransport(lambda req: httpx.Response(200, json=response))
+            )
+
+        state = read_json(tmp_path / "state.json")
+        state["records"][0]["score"] = None
+        state["records"][0]["score_required"] = True
+        state["records"][0]["scoring_failed"] = True
+        core.dump(tmp_path / "state.json", state)
+
+        result = report.summarize(tmp_path)
+        assert result["decision"] == "insufficient_evidence"
+        assert result["execution_complete"] is False
+        assert result["scoring_incomplete_calls"] == 1
+        assert "scoring_incomplete" in result["formal_blockers"]
+        assert result["rows"][-1]["measurement_complete"] is False
+
+    asyncio.run(scenario())
+
+
 def test_unresolved_semantics_does_not_hide_proven_literal_absence(tmp_path, monkeypatch):
     async def scenario():
         await controlled_session(tmp_path, monkeypatch, "exact-literals")

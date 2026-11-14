@@ -106,16 +106,18 @@ def test_single_source_fallback_continues_to_later_normal_sources(v2_suite, smal
     assert any(s.evidence_id.startswith("source:") for s in result.supports)
 
 
-def test_bundle_citations_cover_only_admitted_ranges_and_replay_deterministically(v2_suite):
+def test_bundle_citations_cover_only_admitted_ranges_and_replay_deterministically(v2_suite, historical_budget_context):
     case = next(c for c in v2_suite.cases if c.case_id == "mixed-scaffolding")
 
     async def scenario():
         hashes = []
         for _ in range(2):
             async with replay_case(case) as replay:
-                admission, _ = await hybrid_admission(replay, 2048, 512, INSTRUCTIONS, v2_suite.experiment.v2)
+                admission, _ = await hybrid_admission(
+                    replay, 2048, 512, historical_budget_context, v2_suite.experiment.v2
+                )
                 value = admission.inputs[0]
-                assert token_count(value, INSTRUCTIONS) <= 2048
+                assert token_count(value, historical_budget_context) <= 2048
                 hashes.append(digest(value.model_dump(mode="json")))
                 evidence = value.evidence[0]
                 assert evidence.evidence_id.startswith("fragment-bundle:")
@@ -176,7 +178,7 @@ def test_v2_preserves_real_cancellation_and_no_publication(v2_suite, phase):
     assert result.preparation is result.generation is None
 
 
-def test_v2_pipeline_scores_real_bundle_ids(v2_suite):
+def test_v2_pipeline_scores_real_bundle_ids(v2_suite, historical_budget_context):
     case = next(c for c in v2_suite.cases if c.case_id == "mixed-scaffolding")
 
     class Extractor:

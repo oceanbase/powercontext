@@ -36,7 +36,7 @@ def summarize(directory):
     counters = defaultdict(Counter)
     public_records = []
     audit_unavailable = 0
-    unscored_returned = 0
+    unscored_required = 0
     for record in records:
         if {k: record[k] for k in ("row_id", "input_index", "input_hash")} != expected[record["call_id"]]:
             raise EvaluationError("v18_call_result_binding_changed")
@@ -60,8 +60,9 @@ def summarize(directory):
                 Decimal(record["known_charge_cny"]) if record.get("known_charge_cny") is not None else None
             ):
                 raise EvaluationError("v18_usage_receipt_changed")
-        if record["outcome"] == "returned" and score is None and not record.get("scoring_failed"):
-            unscored_returned += 1
+        score_required = record.get("score_required", record["outcome"] == "returned")
+        if score_required and score is None:
+            unscored_required += 1
         effective = {**record, "score": score}
         by_row[record["row_id"]].append(effective)
         usage = record.get("provider_usage") or {}
@@ -83,6 +84,10 @@ def summarize(directory):
         c["executed_calls"] += len(actual)
         missing = row["planned_calls"] - len(actual)
         c["unrun_calls"] += missing
+        scoring_incomplete = sum(
+            r.get("score_required", r["outcome"] == "returned") and r.get("score") is None for r in actual
+        )
+        c["scoring_incomplete_calls"] += scoring_incomplete
         retained = {
             h
             for r in actual
@@ -135,7 +140,7 @@ def summarize(directory):
             if r["outcome"] == "returned"
             for h in (r.get("score") or {}).get("raw_present_literal_hashes", [])
         }
-        literal_measured = row["planned_calls"] > 0 and missing == 0
+        literal_measured = row["planned_calls"] > 0 and missing == 0 and scoring_incomplete == 0
         known_literal_absence = eligible and literal_measured and bool(required_literals - raw_literals)
         failed_output = any(r["outcome"] != "returned" for r in actual)
         failure = (
@@ -161,6 +166,7 @@ def summarize(directory):
             "planned_calls": row["planned_calls"],
             "executed_calls": len(actual),
             "unrun_calls": missing,
+            "scoring_incomplete_calls": scoring_incomplete,
             "zero_call_reason": row["sample"]["reason"] if row["planned_calls"] == 0 else None,
             "eligible": eligible,
             "required_atom_hashes": sorted(required),
@@ -173,7 +179,7 @@ def summarize(directory):
             "literal_presence_basis": "Pipeline_accepted_candidates; rejected_output_occurrences_are_separate_diagnostics",
             "required_literal_hashes": sorted(required_literals),
             "raw_present_literal_hashes": sorted(raw_literals),
-            "measurement_complete": missing == 0,
+            "measurement_complete": missing == 0 and scoring_incomplete == 0,
             "preparation": {
                 k: row["sample"][k]
                 for k in (
@@ -224,12 +230,12 @@ def summarize(directory):
         and len(records) == len(expected)
         and unknown_usage == 0
         and audit_unavailable == 0
-        and unscored_returned == 0
+        and unscored_required == 0
     )
     blockers = []
     if not complete:
         blockers.append("live_coverage_or_execution_incomplete")
-    if unscored_returned:
+    if unscored_required:
         blockers.append("scoring_incomplete")
     if unresolved:
         blockers.append("critical_semantics_unresolved")
@@ -296,6 +302,7 @@ def summarize(directory):
         "pairs": pairs,
         "records": public_records,
         "unknown_usage_calls": unknown_usage,
+        "scoring_incomplete_calls": unscored_required,
         "raw_audit_unavailable_calls": audit_unavailable,
         "formal_blockers": blockers,
         "budget": {

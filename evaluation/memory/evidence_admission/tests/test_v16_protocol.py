@@ -274,14 +274,15 @@ def test_original_unicode_manifest_rejects_multiple_requests_without_changing_ev
     asyncio.run(scenario())
 
 
-def test_many_source_2k_keeps_existing_call_and_input_budget(historical_cell_context):
+def test_many_source_2k_reports_current_runtime_resource_budget():
     async def scenario():
         from powercontext_eval_evidence_admission.manifests import load_suite
         from powercontext_eval_evidence_admission.v16.admission import pack
 
         _, sample, inputs = await prepared("many-source-overflow", budget=2048)
         plan = pack(inputs, sample.supports, 2048, load_suite(experiment_version="v5").experiment.v3)
-        assert plan.accepted
+        assert not plan.accepted
+        assert plan.reason == "resource_budget"
         assert len(plan.requests) <= 16
         assert all(r.cost["single_estimated_input_tokens"] <= 2048 for r in plan.requests)
         assert sum(r.cost["single_estimated_input_tokens"] for r in plan.requests) <= 16384

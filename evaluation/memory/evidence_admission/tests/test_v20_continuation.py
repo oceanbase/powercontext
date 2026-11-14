@@ -227,3 +227,49 @@ def test_scoring_failure_preserves_received_usage_and_stops(continuation, monkey
     assert result["state"] == "audit_failed" and result["new_attempted_calls"] == 1
     last = read_json(directory / "state.json")["records"][-1]
     assert last["known_charge_cny"] is not None and last["provider_usage"] is not None
+
+
+def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation, monkeypatch):
+    directory, _ = continuation
+    original_score_output = workflow.score_output
+    sent_requests = 0
+
+    def respond(_request):
+        nonlocal sent_requests
+        sent_requests += 1
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+        return httpx.Response(200, json=response)
+
+    def terminate_before_scoring(*_args, **_kwargs):
+        raise SystemExit("simulated termination before scoring")
+
+    monkeypatch.setattr(workflow, "score_output", terminate_before_scoring)
+    with pytest.raises(SystemExit, match="simulated termination before scoring"):
+        asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(respond)))
+
+    pending = read_json(directory / "state.json")
+    assert pending["state"] == "scoring_pending"
+    assert pending["next_call"] == 1
+    assert len(pending["records"]) == 2
+    assert pending["records"][-1]["score_required"] is True
+    assert pending["records"][-1]["scoring_state"] == "pending"
+    assert pending["records"][-1]["score"] is None
+    recorded_charge = pending["known_charge_cny"]
+    assert sent_requests == 1
+
+    monkeypatch.setattr(workflow, "score_output", original_score_output)
+
+    def reject_resend(_request):
+        pytest.fail("scoring recovery must not resend the provider request")
+
+    resumed = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert resumed["state"] == recovered["state"] == "ready"
+    assert recovered["next_call"] == 2
+    assert recovered["known_charge_cny"] == recorded_charge
+    assert len(recovered["records"]) == 2
+    assert recovered["records"][-1]["scoring_state"] == "complete"
+    assert recovered["records"][-1]["score"] is not None
+    assert sent_requests == 1
