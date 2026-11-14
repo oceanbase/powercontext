@@ -211,6 +211,75 @@ async fn lifecycle_bounds_dripping_headers_body_and_trailers_and_recovers() {
 }
 
 #[tokio::test]
+async fn prepare_recovers_after_core_closes_a_pooled_idle_connection() {
+    use pc_gateway_types::PrepareContextRequest;
+    use std::{sync::Arc, time::Duration};
+
+    let dir = std::env::temp_dir().join(format!("pc-prepare-idle-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let accepted = accepts.clone();
+    let (close, pooled) = tokio::sync::oneshot::channel();
+    let (closed, disconnected) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.unwrap();
+        accepted.fetch_add(1, Ordering::SeqCst);
+        read_request(&mut connection).await;
+        connection
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+            .await
+            .unwrap();
+        // Close only after the complete response has returned this lease to the pool.
+        pooled.await.unwrap();
+        drop(connection);
+        closed.send(()).unwrap();
+
+        let (mut connection, _) = listener.accept().await.unwrap();
+        accepted.fetch_add(1, Ordering::SeqCst);
+        read_request(&mut connection).await;
+        let body = r#"{"schema":"powercontext.prepared-context.v1","status":"empty","content":null,"content_bytes":0}"#;
+        connection
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+
+    let client = UdsGateClient::with_token(&socket, None);
+    client.capabilities().await.unwrap();
+    close.send(()).unwrap();
+    disconnected.await.unwrap();
+    let prepared = tokio::time::timeout(
+        Duration::from_secs(2),
+        client.prepare(PrepareContextRequest {
+            scope_id: "test".into(),
+            query: "hello".into(),
+            max_bytes: 1024,
+            include_reuse: false,
+            include_code: false,
+            assembly: None,
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(prepared.content().is_none());
+    tokio::time::timeout(Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepts.load(Ordering::SeqCst), 2);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn prepare_response_loss_is_not_replayed_after_handoff() {
     use pc_gateway_types::PrepareContextRequest;
     let dir = std::env::temp_dir().join(format!("pc-prepare-loss-{}", std::process::id()));

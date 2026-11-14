@@ -190,8 +190,9 @@ impl LeasedConnection {
     }
 
     async fn acquire(&mut self, prefer_pool: bool) -> std::io::Result<UnixStream> {
-        // 先试空闲连接；真正的失效（对端已关闭）会在读写时报错，
-        // 由上层的单次重试兜底。
+        // 先试空闲连接；对端已关闭时，读写仍可能报错。
+        // 上层仅在操作可安全重放或尚未写入任何请求字节时重试一次；
+        // prepare 一旦有字节交接就不再重放，响应头前 EOF 也不例外。
         if prefer_pool {
             if let Some(idle) = self.client.take_idle() {
                 if idle.writable().await.is_ok() {
