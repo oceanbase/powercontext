@@ -3495,3 +3495,34 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-reload-8effcedd-v1 \
   --wheel desktop/.artifacts/plugin-reload/powercontext-1.5.2.dev173+g8effcedde-py3-none-any.whl
 ```
+
+
+## Server c90fd018 Source plugins protocol qualification
+
+`sqlite-source-plugins-c90fd018-v1` qualifies all thirteen Desktop protocol operations against
+Server source `c90fd0182dbf726ea6e0d0b9ccb5c4dc3a3d288b`, which adds Source plugin collection runners and
+targets and removes the Source management operations.
+
+- Normalized OpenAPI SHA-256: `6ac08e129deb33a55e59c618005dfc14ac5a1df4d1df31b94e669e89dd314e40`.
+- Wheel: `powercontext-1.5.2.dev181+gc90fd0182-py3-none-any.whl`.
+- Wheel SHA-256: `3593d8fcda89d620414ad65dc628c70edb38c0a9d8450b3aa5e6d7865f3134d0`.
+- Native debug probe SHA-256 (built without debug info): `edb3cf2828f9f91bf5962eefe5ac123bb95d401a1553003840aadc4d0e5fe521`.
+
+On 2026-11-14, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/source-plugins/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-source-plugins-c90fd018-v1 \
+  --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev181+gc90fd0182-py3-none-any.whl
+```
