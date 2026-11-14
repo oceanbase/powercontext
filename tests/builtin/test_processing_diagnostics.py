@@ -228,6 +228,7 @@ def test_budget_failure_reports_safe_accounting_fields() -> None:
         estimator=character_token_estimator(),
         extraction_instructions="extract",
         input_renderer=None,
+        request_budgets={},
     )
     value = SimpleNamespace(
         evidence=(object(), object(), object()),
