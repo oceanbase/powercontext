@@ -3464,3 +3464,34 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-interfaces-3427cee7-v1 \
   --wheel desktop/.artifacts/plugin-interfaces/powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl
 ```
+
+
+## Server 8effcedd plugin reload protocol qualification
+
+`sqlite-plugin-reload-8effcedd-v1` qualifies all thirteen Desktop protocol operations against
+Server source `8effceddefa0c431554288d1b7f439868686c3fb`, which reloads plugin directories, describes
+plugin routes, and adds version fields to the plugin listing.
+
+- Normalized OpenAPI SHA-256: `ad0fa0e1209f2dc60935416ae8d54826335b82b35b81c999e3ae77a21325f0ef`.
+- Wheel: `powercontext-1.5.2.dev173+g8effcedde-py3-none-any.whl`.
+- Wheel SHA-256: `605e1d795c7ec2779ccf83070f9478a1e8c2f45bedffb078b974ed03b1d835d7`.
+- Native debug probe SHA-256 (built without debug info): `1e0302e3e55c68059eb3fdbe60ad4638b61319bc8ef0e825d4f94302e89ca566`.
+
+On 2026-11-14, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-reload/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-reload-8effcedd-v1 \
+  --wheel desktop/.artifacts/plugin-reload/powercontext-1.5.2.dev173+g8effcedde-py3-none-any.whl
+```
