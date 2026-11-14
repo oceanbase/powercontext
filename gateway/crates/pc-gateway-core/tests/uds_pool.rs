@@ -136,3 +136,179 @@ async fn pooled_connection_parses_sequential_responses_correctly() {
         "keep-alive 应复用同一连接"
     );
 }
+
+/// Cancellation/expiration owns the complete RPC, not individual read idle periods.
+/// An interrupted lease must be dropped so a fresh successful RPC cannot consume old bytes.
+#[tokio::test]
+async fn lifecycle_bounds_dripping_headers_body_and_trailers_and_recovers() {
+    use pc_gateway_core::{LifecycleStopReason, RequestControl};
+    use std::time::Duration;
+    for (index, prefix) in [
+        &b"HTTP/1.1 200 OK\r\nX-Drip: "[..],
+        &b"HTTP/1.1 200 OK\r\nContent-Length: 99999\r\n\r\n"[..],
+        &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\nX-Drip: "[..],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for cancel in [false, true] {
+            let path = std::env::temp_dir().join(format!(
+                "pc-deadline-{}-{index}-{cancel}.sock",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            let listener = UnixListener::bind(&path).unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                read_request(&mut stream).await;
+                stream.write_all(prefix).await.unwrap();
+                // Drip until the client drops this lease, then serve a clean new connection.
+                while stream.write_all(b"x").await.is_ok() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                let (mut stream, _) = listener.accept().await.unwrap();
+                read_request(&mut stream).await;
+                let body = result_json("allow");
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            });
+            let client = UdsGateClient::with_token(&path, None);
+            let control = RequestControl::new(
+                tokio::time::Instant::now() + Duration::from_millis(100),
+                None,
+            );
+            let lifecycle = control.lifecycle();
+            let cancellation = control.cancellation();
+            let signal = tokio::spawn(async move {
+                if cancel {
+                    tokio::time::sleep(Duration::from_millis(35)).await;
+                    cancellation.cancel();
+                }
+            });
+            let began = tokio::time::Instant::now();
+            assert!(matches!(lifecycle.run(client.check(check_request())).await,
+                Err(reason) if reason == if cancel { LifecycleStopReason::RequestCancelled } else { LifecycleStopReason::DeadlineExceeded }));
+            assert!(began.elapsed() < Duration::from_secs(2));
+            signal.await.unwrap();
+            let recovered =
+                tokio::time::timeout(Duration::from_secs(2), client.check(check_request()))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(recovered.decision, CheckDecision::Allow);
+            server.await.unwrap();
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn prepare_recovers_after_core_closes_a_pooled_idle_connection() {
+    use pc_gateway_types::PrepareContextRequest;
+    use std::{sync::Arc, time::Duration};
+
+    let dir = std::env::temp_dir().join(format!("pc-prepare-idle-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let accepted = accepts.clone();
+    let (close, pooled) = tokio::sync::oneshot::channel();
+    let (closed, disconnected) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.unwrap();
+        accepted.fetch_add(1, Ordering::SeqCst);
+        read_request(&mut connection).await;
+        connection
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+            .await
+            .unwrap();
+        // Close only after the complete response has returned this lease to the pool.
+        pooled.await.unwrap();
+        drop(connection);
+        closed.send(()).unwrap();
+
+        let (mut connection, _) = listener.accept().await.unwrap();
+        accepted.fetch_add(1, Ordering::SeqCst);
+        read_request(&mut connection).await;
+        let body = r#"{"schema":"powercontext.prepared-context.v1","status":"empty","content":null,"content_bytes":0}"#;
+        connection
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+
+    let client = UdsGateClient::with_token(&socket, None);
+    client.capabilities().await.unwrap();
+    close.send(()).unwrap();
+    disconnected.await.unwrap();
+    let prepared = tokio::time::timeout(
+        Duration::from_secs(2),
+        client.prepare(PrepareContextRequest {
+            scope_id: "test".into(),
+            query: "hello".into(),
+            max_bytes: 1024,
+            include_reuse: false,
+            include_code: false,
+            assembly: None,
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(prepared.content().is_none());
+    tokio::time::timeout(Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepts.load(Ordering::SeqCst), 2);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn prepare_response_loss_is_not_replayed_after_handoff() {
+    use pc_gateway_types::PrepareContextRequest;
+    let dir = std::env::temp_dir().join(format!("pc-prepare-loss-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let _ = std::fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.unwrap();
+        read_request(&mut connection).await;
+        drop(connection);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), listener.accept())
+                .await
+                .is_err(),
+            "prepare must not reconnect after Core received its request"
+        );
+    });
+    let result = UdsGateClient::with_token(&socket, None)
+        .prepare(PrepareContextRequest {
+            scope_id: "test".into(),
+            query: "hello".into(),
+            max_bytes: 1024,
+            include_reuse: false,
+            include_code: false,
+            assembly: None,
+        })
+        .await;
+    assert!(result.is_err());
+    server.await.unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}

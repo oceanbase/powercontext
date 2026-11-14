@@ -63,10 +63,7 @@ impl GatewayMiddleware for ResourceLimits {
         next: Next,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
         Box::pin(async move {
-            let model_route = matches!(
-                req.uri().path(),
-                "/gateway/v1/chat/completions" | "/gateway/v1/responses"
-            );
+            let model_route = crate::connection::is_model_route(req.uri().path());
             let body_limit = if model_route {
                 self.model_body_bytes
             } else {
@@ -103,7 +100,7 @@ impl GatewayMiddleware for ResourceLimits {
 
             // 2) 并发上限：非阻塞获取；占满即拒（不排队——排队会把内存压力换成延迟压力）。
             let is_health = req.uri().path() == "/healthz";
-            let permit = if is_health {
+            let mut permit = if is_health {
                 None
             } else {
                 let semaphore = if model_route {
@@ -125,6 +122,15 @@ impl GatewayMiddleware for ResourceLimits {
                 }
             };
 
+            // Transfer before polling ingress; Hyper may consume/drop the body
+            // while it still owns pending writes. The connection is the owner.
+            if model_route {
+                if let Some(owner) = req.extensions().get::<crate::connection::ModelConnection>() {
+                    if let Some(permit) = permit.take() {
+                        owner.hold(permit);
+                    }
+                }
+            }
             let resp = next.run(req).await;
             // P2 review：许可必须绑定到响应 body 的生命周期，不能在头返回时释放。
             // 流式代理（MCP/SSE）的 body 在头之后仍在传输；在头返回时 drop 许可
