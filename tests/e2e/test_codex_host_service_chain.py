@@ -268,7 +268,7 @@ stream_max_retries = 0
 
 
 def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[str, str]:
-    # The plugin hooks build their environment with uv; keep the runner's uv cache so they can do so offline.
+    # Setup builds the plugin's environment with uv; keep the runner's uv cache so it can do so offline.
     uv_cache = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
     # Proxies would route the loopback Server and model traffic away from this host.
     prefixes = ("POWERCONTEXT_", "CODEX_", "OPENAI_", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")
@@ -286,7 +286,8 @@ def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[
         XDG_CACHE_HOME=str(home / "cache"),
         XDG_STATE_HOME=str(home / "state"),
         UV_CACHE_DIR=uv_cache,
-        # Without managed interpreters in the isolated home, the hooks use the interpreter running these tests.
+        # Setup and the hooks both read this, so the hooks reuse the environment setup built; uv rebuilds it for a
+        # different interpreter. Without managed interpreters in the isolated home, both use the one running the tests.
         UV_PYTHON=sys.executable,
         POWERCONTEXT_CLIENT_CONFIG_FILE=str(tmp_path / "clients.json"),
         CODEX_FIXTURE_MODEL_KEY="synthetic-only",
@@ -319,19 +320,6 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
     )
     log.write_text(f"$ powercontext setup codex\n{completed.stdout}\n{completed.stderr}\n", encoding="utf-8")
     assert completed.returncode == 0, f"powercontext_setup_codex_failed; see {log}"
-    # On first use the MCP header helper and the SessionStart hook would both build the plugin's environment while
-    # Codex starts, under different interpreters, and the helper can fail on the half-replaced environment. Build it
-    # once beforehand.
-    (installed,) = Path(environment["CODEX_HOME"]).glob("plugins/cache/*/powercontext/*/.codex-plugin")
-    synced = subprocess.run(
-        ["uv", "sync", "--frozen", "--quiet", "--project", str(installed.parent)],  # noqa: S607 - uv from PATH.
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    assert synced.returncode == 0, f"codex_plugin_environment_failed: {synced.stderr[-2000:]}"
 
 
 @contextmanager
