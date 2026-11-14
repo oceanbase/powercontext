@@ -240,8 +240,11 @@ class Notes:
             await tx.set_lifecycle(request.artifact_id, "deprecated")
 ```
 
-- Core checks the caller's permissions and the revision before calling the method; the method only validates content and
-  makes its one agreed write.
+- Core checks the caller's permissions and the revision before calling the method, and checks the caller's revision
+  again when the write commits: if another write changed the Artifact in between, the request returns 409 (412 for
+  content updates), so the plugin need not repeat the check. The method only validates content and makes its one agreed
+  write.
+- The response reports the revision this write committed, even if later writes have followed.
 - Raising `InvalidContent` returns 422 with the message shown to the caller.
 - User changes record provenance as the person who made them, as edits of built-in Artifacts do.
 
@@ -361,7 +364,8 @@ plugin = ArtifactPlugin(
   lacks them; `ctx.allowed(...)` only answers true or false.
 - Reading and writing core data: `ctx.reads(scope_id)` reads with the caller's permissions; `ctx.writer(scope_id)` and
   `ctx.sources.submit(...)` work only for Scopes whose `scope.contribute` was confirmed earlier in the request (by the
-  route's `access` or a prior `ctx.require`).
+  route's `access` or a prior `ctx.require`). Changing an existing Artifact, including its tags, handles, and lifecycle,
+  also needs the caller's `artifact.write` on that Artifact, as through the generic API; otherwise the API returns 403.
 - Writes in APIs do not record who did what. When you need that provenance, submit the operation as a Source, as in the
   example above, and let `generate` write the new revision referencing it.
 - To create a Scope, call `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`; the caller needs

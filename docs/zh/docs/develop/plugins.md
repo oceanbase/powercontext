@@ -222,7 +222,9 @@ class Notes:
             await tx.set_lifecycle(request.artifact_id, "deprecated")
 ```
 
-- core 先检查调用者的权限和版本，再调用方法；方法只负责校验内容并完成约定的那一次写入。
+- core 先检查调用者的权限和版本，再调用方法；提交写入时按调用者给出的版本再校验一次，期间被其他写入改变则返回 409
+  （修改内容时为 412），插件不必自己重复检查。方法只负责校验内容并完成约定的那一次写入。
+- 接口返回本次写入提交的版本，即使之后已有其他写入。
 - 抛出 `InvalidContent` 时接口返回 422，错误信息展示给调用者。
 - 用户修改会以修改人的身份记录出处，与内置 Artifact 的修改相同。
 
@@ -337,7 +339,8 @@ plugin = ArtifactPlugin(
   - `scope.read` / `scope.contribute`：要求调用者对 `scope_param` 指定的路径参数中的 Scope 具备该权限。
 - 处理函数里用 `ctx.require(action, scope_id)` 检查其他权限，不具备时接口返回 403；`ctx.allowed(...)` 只返回真假。
 - 读写核心数据：`ctx.reads(scope_id)` 按调用者权限读取；`ctx.writer(scope_id)` 和 `ctx.sources.submit(...)` 只能用于本次
-  请求中已经确认 `scope.contribute` 的 Scope（路由声明了该权限，或处理函数先调用了 `ctx.require`）。
+  请求中已经确认 `scope.contribute` 的 Scope（路由声明了该权限，或处理函数先调用了 `ctx.require`）。修改已有 Artifact
+  （包括标签、handle 和生命周期）还需要调用者对该 Artifact 有 `artifact.write` 权限，与通用接口相同；没有权限时接口返回 403。
 - 接口中的写入不会自动记录"谁做了什么"。需要这类出处时，像上面的例子一样把操作作为 Source 提交，由 `generate` 写入新版本并
   引用它。
 - 需要创建 Scope 时用 `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`，要求调用者具备 `server.admin`。
