@@ -648,6 +648,7 @@
   "processing_dream_more_inputs": "{count} additional inputs are listed under references.",
   "processing_dream_source_inputs": "This run recorded {count} source references. Expand references to inspect them.",
   "observability": "Cloud-native monitoring",
+  "nav_plugins": "Plugins",
   "plugin": "Plugin",
   "plugin_page_stopped": "The plugin page navigated away from its start page, so requests are no longer forwarded for it. Reopen the page to continue."
 }
