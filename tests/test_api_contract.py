@@ -999,7 +999,7 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert schemas["SourceType"]["enum"] == ["content"]
     assert source["properties"]["source_type"]["default"] == "content"
 
-    assert schemas["CreateArtifactRequest"]["oneOf"] == [
+    assert schemas["CreateArtifactRequest"]["anyOf"] == [
         {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
         {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
     ]
