@@ -206,7 +206,8 @@ function isRedirect(status: number): boolean {
 export class PowerContextClient {
   private readonly baseUrl: string
   private readonly userAgent: string
-  private readonly authorization: string | undefined
+  // Explicit writes reject content that repeats this credential.
+  readonly authorization: string | undefined
   private readonly requestTimeoutMs: number
   private readonly fetchImpl: FetchFn
 
