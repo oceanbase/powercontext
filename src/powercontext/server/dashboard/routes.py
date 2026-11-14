@@ -111,7 +111,8 @@ def render(
         }.get(ctx["processing_kind"], "processing")
     elif title_key == "usage":
         title_key = "usage_resources"
-    ctx["document_title"] = f"{ctx['t'][title_key]} · PowerContext"
+    # A plugin page is titled by its plugin's declared title.
+    ctx["document_title"] = f"{ctx.get('page_title') or ctx['t'][title_key]} · PowerContext"
     response = HTMLResponse(
         ENV.get_template(fragment if partial else full).render(plural=plural, **ctx),
         status_code=ctx["status"],

@@ -51,7 +51,6 @@ from powercontext.builtin.authz.owner_recovery import (
     owner_recovery_session,
     owner_write_access,
 )
-from powercontext.builtin.authz.profiles import register_custom_artifact_access_family
 from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference import EmbeddingModel

@@ -198,7 +198,6 @@ from powercontext.builtin.authz.owner_recovery import (
 from powercontext.builtin.authz.profiles import (
     ARTIFACT_FAMILY_PROFILES,
     artifact_family_profile,
-    register_custom_artifact_access_family,
 )
 from powercontext.builtin.authz.service import _require_allowed
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate as RuntimeTagCandidate

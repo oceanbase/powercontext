@@ -52,7 +52,7 @@ class PluginContentView(RootModel[dict[str, JsonValue]]):
 
 
 def register_plugin_family(family: str) -> None:
-    from powercontext.server.authz.profiles import register_plugin_artifact_family
+    from powercontext.builtin.authz.profiles import register_plugin_artifact_family
 
     _PLUGIN_FAMILIES.add(family)
     register_plugin_artifact_family(family)

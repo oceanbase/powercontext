@@ -178,7 +178,7 @@ class _Host:
         for binding, scopes, source_types in spec.source_bindings:
             register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
         self.database = await resources.enter_async_context(open_plugin_database(spec.database))
-        from powercontext.server.processing_security import open_worker_security
+        from powercontext.builtin.authz.worker import open_worker_security
 
         security = await resources.enter_async_context(open_worker_security(spec.security, self.database))
         if security is not None:
@@ -488,7 +488,7 @@ class _Host:
             if action == "scope.contribute" and scope_id is not None:
                 call.contribute_scopes.add(scope_id)
             return
-        from powercontext.server.authz import AccessAction, AccessDeniedError, ResourceRef
+        from powercontext.builtin.authz import AccessAction, AccessDeniedError, ResourceRef
 
         if action == "server.admin":
             resource = ResourceRef.server() if self.deployment_id is None else ResourceRef.server(self.deployment_id)

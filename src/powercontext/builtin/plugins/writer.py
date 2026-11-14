@@ -158,7 +158,7 @@ class _Security:
     async def establish_owners(self, connection, scope_id, artifact_ids, context):
         if self.security is None:
             return
-        from powercontext.server.authz import ResourceRef
+        from powercontext.builtin.authz import ResourceRef
 
         bound = self.security.access.with_connection(connection)
         for artifact_id in artifact_ids:
