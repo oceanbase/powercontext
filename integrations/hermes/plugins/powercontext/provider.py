@@ -98,6 +98,7 @@ from .powercontext_client_config import (
     resolve_allow_insecure_http,
 )
 from .prepared_context import bounded_recall_query as _bounded_recall_query
+from .prompt_privacy import scrub_secrets as _scrub_secrets
 
 try:
     from agent.memory_provider import MemoryProvider, RecallStatus  # ty: ignore[unresolved-import]
@@ -129,14 +130,15 @@ _AUTOMATIC_OPERATION_PATHS = {
 }
 
 
-def _automatic_recall_query(prompt: str) -> str:
+def _automatic_recall_query(prompt: str, authorization: str | None) -> str:
     """Return the query an automatic recall sends, or an empty query that skips the recall.
 
-    A prompt holding unpaired surrogates, such as a file name decoded with ``surrogateescape``, has no UTF-8 form, so
-    no request can carry it. Skipping the recall keeps that failure out of the Hermes turn.
+    Recognized credentials are scrubbed before the query is bounded. A prompt holding unpaired surrogates, such as a
+    file name decoded with ``surrogateescape``, has no UTF-8 form, so no request can carry it. Skipping the recall
+    keeps that failure out of the Hermes turn.
     """
     try:
-        return _bounded_recall_query(prompt)
+        return _bounded_recall_query(_scrub_secrets(prompt, authorization))
     except UnicodeEncodeError:
         logger.debug("Skipping PowerContext automatic recall: the query is not valid UTF-8 text")
         return ""
@@ -839,7 +841,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         scope_id = self._scope_id
         client = self._client
-        recall_query = _automatic_recall_query(query)
+        recall_query = _automatic_recall_query(query, getattr(client, "authorization", None))
         if not client or not recall_query or not scope_id:
             self._last_recall = None
             self._last_recall_scope_id = ""
@@ -874,14 +876,15 @@ class PowerContextMemoryProvider(MemoryProvider):
                 self._last_recall_scope_id = ""
             return ""
         if self._trace_enabled:
-            # Redacting the whole prompt costs time in proportion to its length, so it runs only for a recorded trace.
+            authorization = getattr(client, "authorization", None)
+            # The trace keeps the plugin's own redaction on top of the shared rule, so it redacts at least what it did
+            # before the shared rule applied. The whole prompt is redacted before it is bounded, so a cut cannot leave
+            # a bare credential behind.
             self._record_trace_event(
                 "powercontext_injection",
                 session_id=session_key,
-                # Redact the whole prompt before bounding it: a cut inside ``api_key=<value>`` would leave a bare value
-                # that redaction no longer recognizes.
-                query=_automatic_recall_query(_redact_secrets(query)),
-                injected_text=_redact_secrets(content.strip()),
+                query=_automatic_recall_query(_redact_secrets(query), authorization),
+                injected_text=_scrub_secrets(_redact_secrets(content.strip()), authorization),
                 status=trace_status,
                 content_bytes=len(content.encode("utf-8")),
             )
@@ -898,7 +901,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         scope_id = self._scope_id
         client = self._client
-        recall_query = _automatic_recall_query(query)
+        recall_query = _automatic_recall_query(query, getattr(client, "authorization", None))
         if not client or not scope_id or not recall_query:
             return
         session_key = session_id or self._session_id
@@ -956,6 +959,10 @@ class PowerContextMemoryProvider(MemoryProvider):
         user_content = _message_text(user_content)
         assistant_content = _message_text(assistant_content)
         if not user_content and not assistant_content:
+            return
+        if _scrub_secrets(user_content, getattr(self._client, "authorization", None)) != user_content:
+            # A recognized credential skips the whole turn; a redacted copy would be stored under the turn's identity.
+            logger.debug("Skipping PowerContext turn capture: sensitive_content")
             return
         effective_session = session_id or self._session_id
         scope_id = self._scope_id

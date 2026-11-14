@@ -303,11 +303,11 @@ fix = true
 # fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
-"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context}.py" = "py39"
+"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
-"integrations/langchain/src/powercontext_langchain/_prepared_context.py" = "py39"
-"integrations/langgraph/src/powercontext_langgraph/_prepared_context.py" = "py39"
-"integrations/pydantic-ai/src/powercontext_pydantic_ai/_prepared_context.py" = "py39"
+"integrations/langchain/src/powercontext_langchain/{_prepared_context,_prompt_privacy}.py" = "py39"
+"integrations/langgraph/src/powercontext_langgraph/{_prepared_context,_prompt_privacy}.py" = "py39"
+"integrations/pydantic-ai/src/powercontext_pydantic_ai/{_prepared_context,_prompt_privacy}.py" = "py39"
 
 [tool.ruff.lint]
 select = [

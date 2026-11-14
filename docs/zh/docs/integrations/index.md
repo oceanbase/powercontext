@@ -63,6 +63,20 @@ powercontext setup
 | ZCode | `UserPromptSubmit` 文本 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code（实验性） | `UserPromptSubmit` 中的文本部分 | setup `--no-capture-prompts` |
 
+进程内 Python 适配器在自动路径上使用同样的识别和处理方式，不改变各自的捕获默认值：
+
+| 适配器 | 自动输入边界 | 受检查的自动捕获 | 捕获默认值 |
+| --- | --- | --- | --- |
+| Hermes | `prefetch` 和 `queue_prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
+| LangChain | 最新的人类消息 | 完成轮次的 Source | 关闭；`PowerContextMiddleware(auto_capture=True)` 开启 |
+| LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
+| Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
+
+这些适配器只检查用户文本。识别到凭据时整轮跳过完成轮次捕获（Hermes、LangChain），或跳过 `user_prompt` 事件
+（Pydantic AI）；助手文本不做检查。Pydantic AI 的模型响应和工具事件继续按键名和已知凭据值脱敏，Hermes 的压缩前
+捕获继续使用自身的脱敏规则。当前 Server 凭据指适配器配置的 token，或 Hermes 的 Authorization 值。跳过时在 debug
+日志中记录原因 `sensitive_content`，不包含被拒绝的文本。
+
 自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、client/private key、secret、password、
 passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/GitHub/Slack token
 形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：未知格式、混淆或

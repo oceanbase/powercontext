@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Automatic hooks must not capture recognized credentials or forward them as queries."""
+"""Automatic hooks and in-process adapters must not capture recognized credentials or forward them as queries."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -26,6 +27,8 @@ from pathlib import Path
 from threading import Thread
 
 import pytest
+
+from tests.inprocess_adapter_turns import ADAPTERS, run_turn
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = json.loads((ROOT / "tests/fixtures/automatic_prompt_privacy.json").read_text(encoding="utf-8"))["cases"]
@@ -145,3 +148,37 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
         assert len(captures) == 1
         assert captures[0]["content"] == case["prompt"]
         assert prepares[0]["query"] == case["prompt"]
+
+
+@pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
+@pytest.mark.parametrize("adapter", ADAPTERS)
+def test_inprocess_adapter_skips_credentials_without_disabling_recall(
+    adapter: str,
+    case: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    prompt = str(case["prompt"])
+    token = str(case["authorization"]).removeprefix("Bearer ") if "authorization" in case else None
+    with caplog.at_level(logging.DEBUG):
+        turn = run_turn(adapter, prompt, monkeypatch=monkeypatch, home=tmp_path, token=token, capture=True)
+
+    # Recall runs either way; the adapter reports the recalled context to its model (checked by run_turn).
+    assert len(turn.queries) == 1
+    sent = json.dumps(turn.requests)
+    if case["sensitive"]:
+        assert "synthetic-value-2084" not in sent
+        assert "synthetic_value_2084" not in sent
+        assert "synthetic-value-2084" not in caplog.text
+        assert "synthetic_value_2084" not in caplog.text
+        if adapter in {"hermes", "langchain"}:  # The completed turn is skipped as a whole.
+            assert turn.captures == []
+        if adapter == "pydantic-ai":  # Only the user_prompt event is skipped.
+            assert not any('"event": "user_prompt"' in content for content in turn.captures)
+        if adapter != "langgraph":  # LangGraph has no automatic capture to skip.
+            assert "sensitive_content" in caplog.text
+    else:
+        assert turn.queries == [prompt]
+        if adapter != "langgraph":
+            assert any(prompt in content or json.dumps(prompt)[1:-1] in content for content in turn.captures)

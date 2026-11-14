@@ -31,6 +31,7 @@ from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
 from ._prepared_context import bounded_recall_query
+from ._prompt_privacy import scrub_secrets
 from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
 from .tracing import genai_client_context, recall_content_observation
@@ -130,8 +131,8 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
 
     async def _prepare(self, prompt: str, scope: PowerContextScope | None) -> str | None:
         try:
-            query = bounded_recall_query(prompt)
             config = resolve_config(scope)
+            query = bounded_recall_query(scrub_secrets(prompt, _authorization(config.token)))
             with (
                 recall_content_observation(query, enabled=self.trace_content) as record_output,
                 genai_client_context(),
@@ -176,6 +177,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     ) -> None:
         try:
             config = resolve_config(scope)
+            if scrub_secrets(user_text, _authorization(config.token)) != user_text:
+                # A recognized credential skips the whole turn rather than storing a redacted copy of it.
+                _LOGGER.debug("PowerContext LangChain capture skipped: sensitive_content.")
+                return
             content, metadata = _source_content(user_text, assistant_text)
             with genai_client_context():
                 async with open_client(config) as client:
@@ -224,6 +229,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
             )
             return
         _LOGGER.debug("PowerContext LangChain %s skipped after %s.", operation, type(exc).__name__)
+
+
+def _authorization(token: str | None) -> str | None:
+    return f"Bearer {token}" if token else None
 
 
 def _runtime_scope(runtime: Any | None) -> PowerContextScope | None:
