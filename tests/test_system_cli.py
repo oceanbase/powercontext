@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tomllib
 from email.message import Message
@@ -49,6 +51,9 @@ from powercontext.service.model import (
 
 _probe_codex_mcp_status = system_cli._probe_codex_mcp_status
 _run_codex_mcp_list = system_cli._run_codex_mcp_list
+_prepare_codex_plugin_runtime = system_cli._prepare_codex_plugin_runtime
+_codex_plugin_runtime_diagnostic = system_cli._codex_plugin_runtime_diagnostic
+CODEX_PLUGIN = Path(__file__).resolve().parents[1] / "integrations/codex/plugins/powercontext"
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +66,13 @@ def isolated_codex_plugin_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
     monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", lambda _value: False)
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: None)
+    # These caches hold only the MCP declaration; the runtime tests below install the real plugin.
+    monkeypatch.setattr(system_cli, "_prepare_codex_plugin_runtime", lambda _root: None)
+    monkeypatch.setattr(
+        system_cli,
+        "_codex_plugin_runtime_diagnostic",
+        lambda _plugin: Diagnostic(status=DiagnosticStatus.OK, detail="plugin environment is ready"),
+    )
     for marketplace in ("powercontext", "powercontext-local"):
         cache = tmp_path / "codex" / "plugins" / "cache" / marketplace / "powercontext" / "0.1.0"
         cache.mkdir(parents=True)
@@ -274,6 +286,26 @@ def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missi
     assert full["status"] == ("ok" if missing is None else "degraded")
     if missing is not None:
         assert missing in full["detail"]
+
+
+def test_desktop_fixture_holds_every_codex_doctor_check(monkeypatch) -> None:
+    """Desktop rejects a doctor report with an unknown check, so its fixture must hold every Codex verification check.
+
+    Doctor adds the shared Server checks for every host; the fixture carries them, but this covers Codex's own checks.
+    """
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    record = {"name": "powercontext", "installed": True, "enabled": True, "marketplaceName": "powercontext"}
+    monkeypatch.setattr(system_cli, "_run_codex_json", lambda *_args: {"installed": [{**record, "version": "0.1.0"}]})
+
+    emitted = system_cli.CodexInstaller().verify()
+
+    fixture = Path(__file__).resolve().parents[1] / "desktop/src-tauri/tests/fixtures/doctor-codex.json"
+    projected = json.loads(fixture.read_text(encoding="utf-8"))["hosts"]["codex"]["checks"]
+    assert set(emitted) <= set(projected), (
+        "Add the new Codex doctor checks to desktop/src-tauri/tests/fixtures/doctor-codex.json and to the check "
+        "allowlist in desktop/src-tauri/src/diagnostics.rs."
+    )
 
 
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
@@ -532,6 +564,91 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
     assert "mcp_headers.py" in helper
     assert str(tmp_path / "codex/powercontext/credentials.json") in helper
     assert "setup-token" not in json.dumps(mcp)
+
+
+@pytest.fixture
+def real_codex_plugin(tmp_path: Path, monkeypatch) -> dict[str, Any]:
+    """Let setup and doctor work on a copy of the real plugin that the fake `codex plugin add` installs."""
+
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
+    monkeypatch.setenv("UV_PYTHON", sys.executable)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr(system_cli, "_prepare_codex_plugin_runtime", _prepare_codex_plugin_runtime)
+    monkeypatch.setattr(system_cli, "_codex_plugin_runtime_diagnostic", _codex_plugin_runtime_diagnostic)
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    plugin_version = tomllib.loads((CODEX_PLUGIN / "pyproject.toml").read_text())["project"]["version"]
+    record: dict[str, Any] = {
+        "name": "powercontext",
+        "installed": True,
+        "enabled": True,
+        "marketplaceName": "powercontext",
+        "version": plugin_version,
+        "root": tmp_path / "codex/plugins/cache/powercontext/powercontext" / plugin_version,
+    }
+    installed: list[dict[str, Any]] = []
+
+    def native(*arguments):
+        if arguments[:2] == ("plugin", "marketplace"):
+            return {"marketplaceName": "powercontext"}
+        if arguments[:2] == ("plugin", "add"):
+            shutil.copytree(CODEX_PLUGIN, record["root"], ignore=shutil.ignore_patterns(".venv", "__pycache__"))
+            installed[:] = [record]
+            return record
+        return {"installed": installed}
+
+    monkeypatch.setattr(system_cli, "_run_codex_json", native)
+    return record
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the helper command is parsed with POSIX shell rules")
+def test_setup_codex_prepares_the_plugin_runtime_before_codex_starts_it(
+    tmp_path: Path, real_codex_plugin, installed_agent_checks
+) -> None:
+    """The first session must not build the plugin's environment while Codex starts the helper and the hooks."""
+
+    install_plugin("codex", source="oceanbase/powercontext", ref="master")
+
+    mcp = real_codex_plugin["root"] / ".mcp.json"
+    helper = json.loads(mcp.read_text())["mcpServers"]["powercontext"]["http_headers_helper"]
+    # Codex passes the helper only a few variables. UV_NO_SYNC stands for the first session: uv must find the
+    # environment ready rather than build it.
+    environment = {"HOME": str(tmp_path / "home"), "PATH": os.environ["PATH"], "UV_NO_SYNC": "1"}
+    completed = subprocess.run(
+        shlex.split(helper), env=environment, capture_output=True, text=True, check=False, timeout=60
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"Authorization": "Bearer setup-token"}
+    assert system_cli.CodexInstaller().verify()["plugin_runtime"].status is DiagnosticStatus.OK
+
+
+def test_doctor_codex_reports_a_plugin_environment_that_setup_did_not_build(real_codex_plugin) -> None:
+    """A plugin installed or updated outside setup is found before its first session builds the environment."""
+
+    system_cli._run_codex_json("plugin", "add", "powercontext@powercontext")
+
+    runtime = system_cli.CodexInstaller().verify()["plugin_runtime"]
+
+    assert runtime.status is DiagnosticStatus.DEGRADED
+    assert "powercontext setup codex" in runtime.detail
+    assert not (real_codex_plugin["root"] / ".venv").exists()
+
+
+def test_setup_codex_requires_uv_before_changing_codex(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "which", lambda name: None if name == "uv" else f"/usr/bin/{name}")
+    commands = []
+
+    def native(*arguments):
+        commands.append(arguments)
+        return {"installed": []}
+
+    monkeypatch.setattr(system_cli, "_run_codex_json", native)
+
+    with pytest.raises(SetupError, match="uv is not installed"):
+        install_plugin("codex", source="oceanbase/powercontext", ref="master")
+
+    assert [command for command in commands if command[:2] != ("plugin", "list")] == []
 
 
 def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
@@ -1033,6 +1150,9 @@ def recording_codex_cmd(codex_cmd_shim: Path, monkeypatch) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     codex_cmd_shim.write_text('@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\record.py" %*\n', encoding="ascii")
+    # Setup requires uv on PATH, which here holds only this directory. The autouse fixture stubs the environment
+    # build, so this placeholder is found but never run; `.exe` matches every PATHEXT these tests set.
+    (codex_cmd_shim.parent / "uv.exe").touch()
     monkeypatch.setenv("CODEX_TEST_VALUE", "expanded")
     monkeypatch.delenv("CODEX_TEST_MARKETPLACE", raising=False)
     return codex_cmd_shim, received
