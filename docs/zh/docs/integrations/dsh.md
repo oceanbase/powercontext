@@ -265,6 +265,34 @@ Dashboard 未开启时，面板提示在 Server 配置中开启。Host 凭据被
 Provider 同时启动；应将该 Server 启动错误与 Browser 加载失败分开排查。插件不会自行开启 Dashboard 或降低认证要求。
 此浏览器入口已在官方 DSH 0.2.2-rc.1 Web 和 Desktop 发行版中实测；其他宿主版本需要分别验收容器。
 
+## 跨 Agent 交接的 Host 基础能力
+
+插件提供 [RFC 2528](../../rfcs/2528-dsh-plugin-ui-and-agent-handoff.md) 定义的
+`/powercontext/targets`、`/powercontext/preflights` 和 `/powercontext/deliveries` 路由。
+这些路由要求通过 DSH 所有者认证，并使用仅监听回环地址的本机 Desktop 或明确配置为本人使用的本机 Web Host。
+共享、代理转发、远程、SSH 和无法确认的部署不能使用这些路由。侧栏仍独立显示 Server 的连接状态。
+
+预检核对用户选定的回复、实际工作目录、目标运行时及其 PowerContext 集成，并核对 Server 身份、
+连接配置和 Scope。缺少目标应用时需要手动安装。安装或修复该目标的 PowerContext 集成须对检测到的
+配置明确同意，完成后还要在该目标中再次验证。如果安装期间源回复发生变化，应明确选择原回复或重新预检。
+取消会停止后续操作，并保留已经生效的安装变更。
+预检会等待同一配置正在进行的安装；准备和启动须在安装结束后重新检查。
+
+预检存储达到上限时，创建新预检可回收没有交付引用的失败或已取消记录，以及至少 30 天未使用的就绪记录。
+待处理、结果未知或仍被交付引用的预检会保留。记录被回收后，需要重新预检；重发请求不会返回旧预检。
+
+启动前，Host 要求存在完整的已保存交付，并再次核对保存的绑定和交接包。Host 在生成启动链接前检查草稿和目录是否含有疑似凭据；
+返回 `secret_rejected` 表示尚未尝试打开目标。Host 在调用固定的 macOS 启动器之前先保存尝试记录。`opened` 表示操作系统已接受打开请求。显示草稿、用户发送及 PowerContext
+接收确认是独立事件。中断或结果不确定的尝试显示为 `unknown`。请先检查目标，再用新的请求 ID
+显式重试并指定上次尝试。重试沿用同一个交接包和回执身份；Host 重启后不会自动重新打开。
+
+Host 复用 PowerContext 的 Handoff 服务。经用户核对的当前工作输入或精确 Handoff Revision 通过
+已验证的连接处理；只有归属会话可以读取或导出完整的已保存包。没有核对过的输入或精确 Revision 时，
+Host 返回 `needs_input`。自动起草还需要可信的会话证据读取器和已配置的生成流程。
+
+能力目录只会为已注册且完成资格验证的适配器提供原生预检。Codex Desktop、Claude Desktop 的 Code
+会话和 Claude Code CLI 需要分别实现适配器并在真实宿主上验收。
+
 ## 诊断运行中的配置
 
 在出现问题的 DSH 会话内运行 `/pc doctor`。报告显示配置来源，分别检查 liveness、readiness、运行能力、

@@ -130,6 +130,43 @@ describe('local DSH handoff deliveries', () => {
     },
   )
 
+  it('protects preflight references while admitting a delivery and after recovering it', async () => {
+    open()
+    const admission = deferred<VerifiedPreflight>()
+    gate.validateForPrepare.mockImplementationOnce(() => admission.promise)
+    const preparing = service.prepare(caller(), input())
+    expect(service.referencedPreflightIds()).toEqual(new Set(['preflight-a']))
+    admission.resolve(bindingFor(source))
+    const delivery = await preparing
+    expect(delivery.preparationState).toBe('prepared')
+
+    await service.close()
+    open()
+    expect(service.referencedPreflightIds()).toEqual(new Set(['preflight-a']))
+    await service.delete(caller(), delivery.deliveryId)
+    expect(service.referencedPreflightIds().size).toBe(0)
+
+    gate.validateForPrepare.mockRejectedValueOnce({ code: 'stale_preflight' })
+    await expect(service.prepare(caller(), input({ requestId: 'rejected', preflightId: 'preflight-b' })))
+      .rejects.toMatchObject({ code: 'stale_preflight' })
+    expect(service.referencedPreflightIds().size).toBe(0)
+  })
+
+  it('does not dispatch or mark a work write as sent if the connection guard closes after resolution', async () => {
+    let installerPending = false
+    open({
+      resolveConnection: async () => {
+        queueMicrotask(() => { installerPending = true })
+        return { client, assertDispatch() {
+          if (installerPending) throw Object.assign(new Error('installer pending'), { code: 'not_ready' })
+        } }
+      },
+    })
+    const result = await service.prepare(caller(), input())
+    expect(result).toMatchObject({ preparationState: 'failed', error: { code: 'not_ready' } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('fails closed without a gate and rejects a substituted reply or revision', async () => {
     open({ preflightGate: undefined })
     await expect(service.prepare(caller(), input())).rejects.toMatchObject({ code: 'integration_unavailable' })
@@ -503,6 +540,28 @@ describe('local DSH handoff deliveries', () => {
       expect.stringContaining('workspace observation'),
     ]) })
   })
+
+  it.each(['check --api_key fixture-value', 'check ' + 'x'.repeat(8192)])(
+    'discloses a failed check when its command cannot be captured (%#)', async command => {
+      const readBoundary: BoundaryReader = async (_context, selected) => ({
+        source: selected, objective: work.objective,
+        selectedReply: { messageId: selected.messageId, seq: selected.throughSeq, text: 'Selected reply' },
+        events: [{ kind: 'check', sessionId: selected.sessionId, seq: 1, command, status: 'failed', exitCode: 1 }],
+        workspace: null,
+      })
+      open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 12000 } }) })
+      let captured = ''
+      fetch.mockImplementationOnce(async (_url, init) => {
+        captured = JSON.parse(init.body as string).content
+        return response({}, 422)
+      })
+      await service.prepare(caller(), input({ workInput: undefined }))
+      expect(captured).not.toContain(command)
+      expect(JSON.parse(captured)).toMatchObject({ omissions: expect.arrayContaining([
+        expect.stringContaining('observed check failed'),
+      ]) })
+    },
+  )
 
   it('protects unconfirmed and pinned packages, and serializes deletion with a path consumer', async () => {
     let now = Date.parse(source.workspaceObservedAt)

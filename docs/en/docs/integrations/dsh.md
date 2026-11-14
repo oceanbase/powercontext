@@ -330,6 +330,45 @@ error separately from Browser loading. This plugin neither enables Dashboard nor
 The browser entry has been exercised on the official DSH 0.2.2-rc.1 Web and Desktop release; other host releases
 need their own container acceptance.
 
+## Cross-agent handoff Host foundation
+
+The plugin owns the authenticated `/powercontext/targets`, `/powercontext/preflights` and
+`/powercontext/deliveries` routes described in [RFC 2528](../../rfcs/2528-dsh-plugin-ui-and-agent-handoff.md).
+They require the owner's DSH authentication and a local Desktop or explicitly owner-local Web Host
+bound to loopback. Shared, proxied, remote, SSH and unverified deployments cannot use these routes.
+Handoff availability is separate from the sidebar's Server connection status.
+
+A preflight checks the exact selected reply, effective directory, target runtime and PowerContext
+integration, Server identity, connection configuration and Scope. A missing application requires
+manual setup. Installing or repairing its PowerContext integration requires explicit consent for
+the observed configuration, followed by verification in that destination. If the source reply
+changes during installation, choose the original reply explicitly or start a new preflight.
+Cancelling stops continuation and preserves installation changes that already took effect.
+Preflight checks wait for any shared installation in progress. Preparation and launch must retry
+their checks after it settles.
+
+When the preflight store reaches capacity, a new preflight can reclaim failed or cancelled records
+that have no delivery reference, and unused ready records at least 30 days old. Pending and
+unknown work, and preflights still referenced by a delivery, are kept. Once a preflight is
+reclaimed, start a new check; a replay no longer returns the old preflight.
+
+Launch requires an existing complete delivery and checks its saved binding and package again. The Host checks the draft and directory for likely credentials before building the native link.
+A `secret_rejected` response means it did not attempt to open the target. The Host persists the
+attempt before calling the fixed macOS opener. `opened` means the OS accepted
+the request. The receiving draft, user send and PowerContext acknowledgement are separate events.
+An interrupted or ambiguous attempt appears as `unknown`. Check the destination before explicitly
+retrying with a new request ID that names the previous attempt. A retry reuses the same saved package
+and receipt identity. The Host never reopens automatically after a restart.
+
+The Host uses PowerContext's existing Handoff service. An inspected current-work input or exact
+Handoff Revision goes through the verified connection; the complete saved package can then be
+read or exported by the owning session. Without inspected input or an exact Revision, this Host
+returns `needs_input`. Automatic drafting needs a trusted session evidence reader and a configured
+generation path.
+
+The capability catalog only offers native preflight for registered, qualified adapters. Codex Desktop,
+Claude Desktop Code, and Claude Code CLI require individual adapters and actual host acceptance.
+
 ## Diagnose the running configuration
 
 Run `/pc doctor` inside the affected DSH session. Its report identifies configuration provenance and checks

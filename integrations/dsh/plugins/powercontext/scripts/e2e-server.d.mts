@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+export const SERVER_E2E_TIMEOUT_MS: number
 export function defaultPowerContextRoot(): string | undefined
 export function unusedPort(): Promise<number>
 export function waitForUrl(url: string, timeoutMs?: number, checkProcess?: () => void): Promise<void>
