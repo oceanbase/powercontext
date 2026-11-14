@@ -27,8 +27,12 @@ PowerContext tool.
 
 The plugin's hooks and its MCP credential helper run through `uv` from `PATH`, so setup needs `uv` and, on a first
 install, access to the package index. Building the environment at setup keeps the first session from building it
-while Codex starts the hooks and MCP together. If the plugin is installed or updated by other means, `powercontext
-doctor codex` reports `plugin_runtime` as degraded until you rerun setup.
+while Codex starts the hooks and MCP together. uv rebuilds the environment when `UV_PYTHON` names a different
+interpreter from the one setup built it with: if Codex starts with such a `UV_PYTHON`, the first session's
+`SessionStart` hook rebuilds it, and that session can start without PowerContext's MCP tools. Later sessions reuse the
+rebuilt environment. To avoid this, run setup with the same `UV_PYTHON` as Codex, or leave it unset when starting
+Codex. If the plugin is installed or updated by other means, `powercontext doctor codex` reports `plugin_runtime` as
+degraded until you rerun setup.
 
 PowerContext's MCP server is optional to Codex, so an unavailable Server never blocks a session. Codex waits for
 optional servers for one second by default (`mcp_optional_startup_grace_ms`) before it lists a session's first tools;
