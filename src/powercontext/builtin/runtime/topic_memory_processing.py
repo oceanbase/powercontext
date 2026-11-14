@@ -1194,17 +1194,12 @@ class TopicMemoryProcessor:
             searches.append(hits)
             vectors.append(vector)
         known = {_artifact_key(publication.topic.as_ref()): key for key, publication in candidates.items()}
-        already_known = set(known)
-        remaining = MAX_TOPIC_MEMORY_STAGE_ITEMS - len(candidates)
-        added = (
-            tuple(
-                sorted(
-                    (key for key in discovered if key not in already_known),
-                    key=lambda key: (-discovered[key][0], key[0].encode(), -key[1]),
-                )[:remaining]
-            )
-            if remaining > 0
-            else ()
+        # Every newly discovered related Topic stays reachable: unrelated unbound initial
+        # candidates must not consume the capacity a distinct second-pass match needs.
+        # The per-component ranking below keeps each reconcile stage input within its limit.
+        added = sorted(
+            (key for key in discovered if key not in known),
+            key=lambda key: (-discovered[key][0], key[0].encode(), -key[1]),
         )
         reserved = set(candidates)
         next_index = 1

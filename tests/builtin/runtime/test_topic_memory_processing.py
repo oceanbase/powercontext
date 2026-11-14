@@ -1626,7 +1626,9 @@ def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
             candidates: dict[str, PublishedTopicMemory] = {}
             await processor._coordinate("scope-a", proposals, candidates, evidence)
 
-            assert len(candidates) == 20
+            # Every discovered related Topic stays reachable; the per-component
+            # ranking keeps each reconcile input at the stage limit of 20.
+            assert len(candidates) == 21
             assert len(stages.reconciler.inputs) == 1
             history = stages.reconciler.inputs[0].historical
             assert len(history) == 20
@@ -1836,6 +1838,135 @@ async def _budget_row(profile):
     async with profile.database.transaction() as connection:
         row = (await connection.execute(select(TOPIC_MEMORY_WORK_BUDGETS_TABLE))).mappings().one_or_none()
         return None if row is None else dict(row)
+
+
+def test_full_initial_history_does_not_block_a_distinct_second_pass_match() -> None:
+    """A full initial history leaves the second-retrieval safeguard intact.
+
+    Every initial candidate is unrelated to the generated CREATE, so the probe's
+    first search fills all 20 candidate slots; the CREATE's secondary search then
+    finds the one existing Topic the proposal actually targets. That match must
+    reach the reconcile stage and be updated in place, not skipped in favor of
+    unrelated unbound candidates and re-published as a duplicate.
+    """
+
+    async def scenario() -> None:
+        manager, profile, sources, repository = await _repositories()
+        published: dict[str, PublishedTopicMemory] = {}
+        try:
+            async with profile.database.transaction() as connection:
+                seed = await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(name="history-seed", materialization=SourceMaterialization.CAPTURED, body="seed"),
+                )
+                for artifact_id in (f"history-{index:04d}" for index in range(1, 21)):
+                    published[artifact_id] = await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        artifact_id,
+                        TopicMemoryDraft(content=_content(artifact_id), sources=(seed.ref,)),
+                        prepare_topic_memory_projection(_content(artifact_id)),
+                    )
+                published["retention-policy"] = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "retention-policy",
+                    TopicMemoryDraft(content=_content("retention-policy", term="retention"), sources=(seed.ref,)),
+                    prepare_topic_memory_projection(_content("retention-policy", term="retention")),
+                )
+
+            class FakeTopics:
+                def __init__(self) -> None:
+                    self.calls = 0
+
+                async def search(self, _connection, _scope_id, _query, **_kwargs):
+                    self.calls += 1
+                    if self.calls == 1:
+                        selected = tuple(f"history-{index:04d}" for index in range(1, 21))
+                    else:
+                        selected = ("retention-policy",)
+                    return TopicMemorySearchResult(
+                        mode="fts",
+                        hits=tuple(
+                            TopicMemorySearchHit(
+                                artifact_ref=published[artifact].topic.as_ref(),
+                                title=artifact,
+                                summary=f"{artifact} state is durable",
+                                score=100,
+                                matched_by=("topic_fts",),
+                            )
+                            for artifact in selected
+                        ),
+                    )
+
+                async def get_exact(self, connection, scope_id, ref):
+                    return await repository.get_exact(connection, scope_id, ref)
+
+                async def get_exact_many(self, connection, scope_id, refs):
+                    return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
+
+            topics = FakeTopics()
+            proposal = TopicMemoryProposal(content=_content("shared"), evidence_ids=("evidence-0001",))
+
+            class EchoingReconciler:
+                """Bind the CREATE to the single historical slot the component receives."""
+
+                def __init__(self) -> None:
+                    self.inputs: list[object] = []
+
+                async def generate(self, value, /) -> GenerationResult[TopicMemoryReconcileOutput]:
+                    self.inputs.append(value)
+                    member = value.proposals[0]
+                    output = member.model_copy(update={"candidate_id": value.historical[0].candidate_id})
+                    return GenerationResult(output=TopicMemoryReconcileOutput(proposals=(output,)))
+
+            reconciler = EchoingReconciler()
+            stages = TopicMemoryStageSet(
+                probe=_QueueGenerator(
+                    TopicMemoryProbeOutput(
+                        probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
+                    )
+                ),
+                global_evolver=_QueueGenerator(TopicMemoryGlobalOutput(proposals=(proposal,))),
+                planner=_QueueGenerator(),
+                evolver=_QueueGenerator(),
+                temporary=_QueueGenerator(),
+                reconciler=cast(Any, reconciler),
+                estimator=character_token_estimator(),
+                input_tokens_limit=100_000,
+            )
+            leases = ArtifactProcessingLeaseRepository()
+            async with profile.database.transaction() as connection:
+                await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(
+                        name="new-state",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="new shared state",
+                    ),
+                )
+                term = await leases.start_single_process_term(connection, "holder")
+            processor = TopicMemoryProcessor(
+                database=profile.database,
+                sources=sources,
+                topics=cast(Any, topics),
+                stages=stages,
+                publisher=cast(Any, TopicMemoryAtomicPublisher(profile.database, sources, repository, leases=leases)),
+                id_factory=lambda: "created",
+            )
+            assert (await processor.process(_assignment(term.fence("single-process")))).outcome.value == "succeeded"
+            assert topics.calls >= 2
+            async with profile.database.transaction() as connection:
+                current = await repository.browse_current(connection, "scope-a", limit=100)
+            titles = {item.artifact_ref.artifact_id for item in current}
+            assert titles == {f"history-{index:04d}" for index in range(1, 21)} | {"retention-policy"}
+            assert "created" not in titles
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
 
 
 def test_oversized_related_history_candidate_union_publishes_the_window() -> None:
