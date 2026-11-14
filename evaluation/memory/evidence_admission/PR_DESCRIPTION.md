@@ -36,7 +36,7 @@ The separately prepared archive preserves the former `results/` layout.
 - Code snapshot used to assemble it: `8bf9c58d428995c97858b6764d4563c3cfe9ea44`
 - File: `powercontext-2074-evidence-8bf9c58d.tar.gz`
 - SHA-256: `ff529bf0875c2441835bc5f35af3fe60df0c62c8722370f410aec73e499c0d65`
-- Download: `TO_BE_ADDED_AFTER_ARTIFACT_UPLOAD`
+- Download: https://github.com/user-attachments/files/34846203/powercontext-2074-evidence-8bf9c58d.tar.gz
 
 Per-run execution revisions and content hashes remain inside the archive manifests. The archive contains the previously
 committed public, sanitized evidence only; it does not contain credentials, raw private Source text, prompts, private

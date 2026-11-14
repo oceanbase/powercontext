@@ -7,7 +7,7 @@ without rewriting any receipt.
 - Code PR snapshot used to assemble the archive: `8bf9c58d428995c97858b6764d4563c3cfe9ea44`
 - Archive: `powercontext-2074-evidence-8bf9c58d.tar.gz`
 - SHA-256: `ff529bf0875c2441835bc5f35af3fe60df0c62c8722370f410aec73e499c0d65`
-- Download URL: `TO_BE_ADDED_AFTER_ARTIFACT_UPLOAD`
+- Download URL: https://github.com/user-attachments/files/34846203/powercontext-2074-evidence-8bf9c58d.tar.gz
 
 After verifying and extracting the archive, point historical replay commands at its `results` directory:
 
