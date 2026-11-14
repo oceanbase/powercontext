@@ -276,6 +276,8 @@ class _Record:
     identity: Mapping[str, str | int]
     payload: Mapping[str, Any]
     digest: str
+    # The digest an earlier-schema archive wrote, which its total digest covers; ``digest`` is the current schema's.
+    archived_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1224,7 +1226,7 @@ def _parse_bundle(
             scope_ids.append(str(record.identity["scope_id"]))
         count += 1
         counts[record.record_type] += 1
-        digest.add(record.digest)
+        digest.add(record.archived_digest or record.digest)
         _report_progress(progress, phase, count, manifest["record_count"])
     expected_count = manifest["record_count"]
     if count != expected_count:
@@ -1456,8 +1458,15 @@ def _parse_record(value: object) -> _Record:
     }
     if _digest(canonical) != digest:
         raise BundleFormatError("record digest does not match content")
-    payload = {name: payload.get(name) for name in spec.payload}
-    record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    if version == spec.schema_version:
+        record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    else:
+        # Staging and target comparisons use the current schema, so the verified record is re-identified in it.
+        payload = {name: payload.get(name) for name in spec.payload}
+        current = {**canonical, "schema_version": spec.schema_version, "payload": payload}
+        record = _Record(
+            record_type=typed, identity=identity, payload=payload, digest=_digest(current), archived_digest=digest
+        )
     _validate_record_values(record)
     _validate_record_safe(record)
     return record
