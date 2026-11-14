@@ -277,6 +277,30 @@ test('timeouts fail open within the automatic budget', async t => {
   assert.ok(Date.now() - started < 5000)
 })
 
+test('context preparation taking longer than one second is still injected', { timeout: 10000 }, async t => {
+  const content = 'Historical context: deploy blue.'
+  const f = await fixture(t, { '/v1/context/prepare': (_req, res) => setTimeout(() => {
+    res.writeHead(200)
+    res.end(JSON.stringify({ schema: 'powercontext.prepared-context.v1', status: 'ready',
+      content, content_bytes: Buffer.byteLength(content) }))
+  }, 1500) })
+  const { output, stderr } = await f.invoke()
+  assert.equal(stderr, '')
+  assert.ok(output.message.endsWith(content), output.message)
+  assert.equal(f.captures.length, 1)
+})
+
+test('a prepare request stops at its own limit and leaves budget for capture', { timeout: 10000 }, async t => {
+  const f = await fixture(t, { '/v1/context/prepare': () => {} })
+  const started = Date.now()
+  const { output, stderr } = await f.invoke()
+  const elapsed = Date.now() - started
+  assert.doesNotMatch(output.message ?? '', /Historical context/)
+  assert.match(stderr, /server_unavailable/)
+  assert.equal(f.captures.length, 1)
+  assert.ok(elapsed >= 2900 && elapsed < 5000, `elapsed ${elapsed} ms`)
+})
+
 test('loopback aliases support automatic context and Source capture', async t => {
   const f = await fixture(t, {}, {}, '127.0.0.2')
   const { output, stderr } = await f.invoke()

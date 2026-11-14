@@ -65,7 +65,7 @@ const DEFAULTS: ResolvedConfig = {
   authorization: undefined,
   scopeId: undefined,
   timeoutMs: 4000,
-  requestTimeoutMs: 1000,
+  requestTimeoutMs: 3000,
   maxBytes: 8000,
   capturePrompts: true,
   flushOnCapture: false,

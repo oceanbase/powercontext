@@ -534,10 +534,14 @@ powercontext doctor dsh
 
 `timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置。Server 不可用时，召回和采集会降级；修改这些变量后需要重启 `dsh web`。
 
+每次模型调用前，自动 Scope 解析、上下文准备和采集共用 `timeoutMs`（默认 4000 毫秒），单个请求受
+`requestTimeoutMs`（默认 3000 毫秒）限制。模型调用会等待这段预算，所以 Server 响应慢时，每次调用最多延迟
+`timeoutMs`。上下文准备超时后，剩余预算仍可用于采集。
+
 `get_readiness`（包括 `/pc doctor` 中的检查）使用 `max(requestTimeoutMs, 40000)` 毫秒的请求预算，
 以容纳冷缓存下默认 30 秒的推理探测、后续最多 5 秒的访问控制检查，并留出网络传输余量。
 Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同时保留普通请求的
-`request_timeout_ms`（默认 1000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
+`request_timeout_ms`（默认 3000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
 `requestTimeoutMs`。其他请求沿用配置的期限，调用方取消仍会立即终止 readiness 请求。
 
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，

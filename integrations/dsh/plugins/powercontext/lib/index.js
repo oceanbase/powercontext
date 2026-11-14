@@ -3644,7 +3644,7 @@ const DEFAULTS = {
 	authorization: void 0,
 	scopeId: void 0,
 	timeoutMs: 4e3,
-	requestTimeoutMs: 1e3,
+	requestTimeoutMs: 3e3,
 	maxBytes: 8e3,
 	capturePrompts: true,
 	flushOnCapture: false,

@@ -95,8 +95,12 @@ Explicit writes, Handoffs, and review use the native MCP tools.
 A ready snapshot is appended as untrusted historical evidence. Cindy's rewrite updates the message displayed,
 stored, and sent to the Agent. Failed or empty recall leaves the original message
 available; late replies cannot rewrite it. Context obeys its UTF-8 budget and the complete message must fit Cindy's
-16,000-character rewrite limit. The adapter sends an allow verdict after a local timeout; Cindy independently
-enforces its three-second deadline for the complete hook dispatch.
+16,000-character rewrite limit. The adapter's worker has 1.8 seconds from the start of the hook for Scope resolution,
+recall, and capture. Recall stops 0.5 seconds before that deadline, so it gets at most 1.3 seconds, less the time
+spent before it starts: reading settings, reaching the worker, and resolving the Scope. When resolution leaves no more
+than those 0.5 seconds, recall is not requested. Capture uses the last 0.5 seconds and any time recall leaves unused.
+The adapter sends an allow verdict after a local timeout; Cindy independently enforces its three-second deadline for
+the complete hook dispatch.
 
 The same delivery reuses its Source ID; a newly submitted message has a new Host hook ID. Edited messages carrying
 the adapter's historical markers are allowed without recapture or reinjection. Flagged credentials are skipped.

@@ -623,10 +623,15 @@ powercontext doctor dsh
 
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.
 
+Before each model step, automatic Scope resolution, preparation, and capture share `timeoutMs` (4000 ms by
+default), and each request is limited to `requestTimeoutMs` (3000 ms by default). The step waits for this budget, so
+a slow Server delays each step by at most `timeoutMs`. A preparation that times out still leaves the remaining
+budget for capture.
+
 `get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds so cold readiness
 can finish the default 30-second inference probe and subsequent access checks (up to 5 seconds), with
 transport headroom. Doctor reports this as `configuration.readiness_request_timeout_ms`, alongside the
-ordinary `request_timeout_ms` (1000 ms by default). For larger custom Server probe budgets, increase
+ordinary `request_timeout_ms` (3000 ms by default). For larger custom Server probe budgets, increase
 `requestTimeoutMs` accordingly. Other requests retain their configured deadline; caller cancellation
 still stops readiness immediately.
 
