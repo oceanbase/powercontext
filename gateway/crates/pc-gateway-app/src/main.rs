@@ -67,6 +67,8 @@ pub struct AppState {
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
     pub steering: Option<String>,
+    /// 为 Core 保留会话前缀以复用缓存抽取记忆：`PC_GATEWAY_PREFIX_EXTRACTION=on`（默认关，#2413）。
+    pub prefix_extraction: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
     /// Confirmed model input intersection in bytes; zero pauses model routes.
@@ -207,6 +209,10 @@ async fn main() {
         ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
         steering,
+        prefix_extraction: matches!(
+            std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
+            Ok("on")
+        ),
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
@@ -241,6 +247,7 @@ fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
             post(ingress::chat_completions),
         )
         .route("/gateway/v1/responses", post(ingress::responses))
+        .route("/gateway/v1/extract", post(ingress::extract))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state))
 }

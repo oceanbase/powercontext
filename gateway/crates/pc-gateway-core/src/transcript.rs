@@ -12,28 +12,66 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 一个用户回合的规范化记录，供网关在回合结束时沉淀一次。
+//! 一个用户回合的规范化记录，供网关在回合结束时沉淀。
 //!
-//! 回合从最后一条用户消息开始，到不再调用工具的响应（终止响应）结束。记录只保留模型可见的对话：
-//! 用户文本、工具调用（名称与参数）、工具输出和助手文本；推理密文、各类 ID、用量和其他传输元数据都不进入记录。
-//! 用户文本取自注入前的请求，不含准备结果。
+//! 回合从最后一条用户消息开始，到不再调用工具的响应（终止响应）结束。记录完整保留这一回合里模型读到的内容：
+//! 用户文本、其后的其他消息、工具调用的全部参数字段、工具输出与错误、推理的可见摘要、无法识别的条目，以及助手
+//! 文本；字段不截断，步骤不省略。只有推理密文、各类 ID、状态、用量等传输元数据不进入记录，二进制数据（截图、
+//! 图片、文件）记为带字节数的占位文本。用户文本取自注入前的请求，不含准备结果。
+//!
+//! 每个 Source 都要能被 Core 的普通抽取单独处理：估算规模超过 [`MAX_SOURCE_TOKENS`] 时，记录按顺序拆成几段，
+//! 每段都是独立的 Source。
 
-use crate::capture_coverage::CaptureLosses;
+use crate::capture_coverage::declaration;
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-/// 单个字段（用户文本、工具参数、工具输出、助手文本）的字节上限，超出部分截断。
-pub(crate) const MAX_FIELD_BYTES: usize = 8 * 1024;
-/// 整条记录的字节上限：超出时从最早的步骤开始省略。
-pub(crate) const MAX_TRANSCRIPT_BYTES: usize = 64 * 1024;
+/// 投影名称，见捕获覆盖声明契约。
+pub(crate) const PROJECTION: &str = "gateway-turn-text.v2";
+/// 一段 Source 的估算 token 上限。Core 的 Atomic Memory 抽取默认只接受 24,000 个估算 token 的输入，其中还有
+/// 指令和输出格式；Source 正文在输入里是转义后的 JSON 字符串，这里按转义后的文本估算，留出余量。
+pub(crate) const MAX_SOURCE_TOKENS: usize = 12_000;
+/// Core 的字符估算：ASCII 字符 4 个单位，其他字符 16 个单位，每 16 个单位一个 token（与
+/// `character_token_estimator` 一致：ASCII 4 字符一个 token，非 ASCII 1 字符一个 token）。
+const UNITS_PER_TOKEN: usize = 16;
+
+/// 文本作为 JSON 字符串转义后在 Core 估算中的单位数。
+fn units(text: &str) -> usize {
+    serde_json::to_string(text)
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii() { 4 } else { 16 })
+        .sum()
+}
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum Step {
-    ToolCall { name: String, arguments: String },
-    ToolOutput { output: String },
-    Assistant { text: String },
+    ToolCall {
+        name: String,
+        arguments: String,
+    },
+    ToolOutput {
+        output: String,
+    },
+    Assistant {
+        text: String,
+    },
+    /// 用户消息之后、非助手角色的消息（如 developer、system）。
+    Message {
+        role: String,
+        text: String,
+    },
+    /// 推理的可见摘要；推理密文不进入记录。
+    ReasoningSummary {
+        text: String,
+    },
+    /// 无法识别类型的条目，去掉 ID、状态和二进制数据后原样记录。
+    Item {
+        item_type: String,
+        content: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -41,13 +79,7 @@ struct Transcript {
     kind: &'static str,
     user: String,
     steps: Vec<Step>,
-    #[serde(skip_serializing_if = "is_zero")]
-    omitted_steps: usize,
     assistant: String,
-}
-
-fn is_zero(n: &usize) -> bool {
-    *n == 0
 }
 
 /// 渲染后消息列表所在的顶层键决定线格式：`input` 为 Responses，其余为 Chat。
@@ -55,10 +87,10 @@ fn is_responses(list_key: &str) -> bool {
     list_key == "input"
 }
 
-/// 正文与同一次投影计算观察到的覆盖事实。
+/// 回合的记录：放得下时是一段，否则按顺序拆成几段；以及投影的覆盖声明。
 #[derive(Debug, PartialEq)]
 pub(crate) struct TurnProjection {
-    pub text: String,
+    pub parts: Vec<String>,
     pub coverage: Value,
 }
 
@@ -69,10 +101,9 @@ pub(crate) fn turn_transcript(
     response: &str,
     list_key: &str,
 ) -> Option<TurnProjection> {
-    let mut losses = CaptureLosses::default();
     let response: Value = serde_json::from_str(response).ok()?;
     let (final_steps, assistant) = if is_responses(list_key) {
-        responses_final(&response, &mut losses)?
+        responses_final(&response)?
     } else {
         (Vec::new(), chat_final_text(&response)?)
     };
@@ -85,41 +116,121 @@ pub(crate) fn turn_transcript(
         .iter()
         .flat_map(|m| {
             if is_responses(list_key) {
-                if m.content.len() != 1 {
-                    losses.unmeasured_projection = true;
-                }
-                m.content
-                    .first()
-                    .map(|item| item_steps(item, &mut losses))
-                    .unwrap_or_default()
+                m.content.iter().flat_map(item_steps).collect()
             } else {
-                chat_steps(m, &mut losses)
+                chat_steps(m)
             }
         })
         .collect();
     steps.extend(final_steps);
-    let mut transcript = Transcript {
+    let transcript = Transcript {
         kind: "gateway_turn",
-        user: bounded(user, &mut losses),
-        steps: Vec::new(),
-        omitted_steps: 0,
-        assistant: bounded(assistant, &mut losses),
+        user,
+        steps,
+        assistant,
     };
-    loop {
-        transcript.steps = std::mem::take(&mut steps);
-        let text = serde_json::to_string(&transcript).ok()?;
-        if text.len() <= MAX_TRANSCRIPT_BYTES || transcript.steps.is_empty() {
-            return Some(TurnProjection {
-                text,
-                coverage: losses.declaration(),
-            });
-        }
-        steps = std::mem::take(&mut transcript.steps);
-        let drop = (steps.len() / 4).max(1);
-        steps.drain(..drop);
-        transcript.omitted_steps += drop;
-        losses.transcript_byte_limit = true;
+    Some(TurnProjection {
+        parts: split(&transcript)?,
+        coverage: declaration(PROJECTION, &[]),
+    })
+}
+
+/// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段，每段的估算规模都不超过 [`MAX_SOURCE_TOKENS`]：每段是
+/// `{"kind": "gateway_turn", "part": i, "parts": n, "steps": [...]}`，用户文本作为第一段的第一个步骤（`user`），
+/// 助手文本作为最后一段的最后一个步骤；单个步骤放不下时，它最长的文本字段按字符拆成连续的几个同类步骤，
+/// 后续部分带 `"continued": true`。
+fn split(transcript: &Transcript) -> Option<Vec<String>> {
+    let budget = MAX_SOURCE_TOKENS * UNITS_PER_TOKEN;
+    let whole = serde_json::to_string(transcript).ok()?;
+    if units(&whole) <= budget {
+        return Some(vec![whole]);
     }
+    let mut entries = vec![serde_json::json!({"type": "user", "text": transcript.user})];
+    for step in &transcript.steps {
+        entries.push(serde_json::to_value(step).ok()?);
+    }
+    entries.push(serde_json::json!({"type": "assistant", "text": transcript.assistant}));
+    // 段的外层（kind、part、parts、括号与分隔符）留出余量。
+    let budget = budget - 200 * 16;
+    let pieces: Vec<Value> = entries
+        .into_iter()
+        .flat_map(|entry| fit(entry, budget))
+        .collect();
+    let mut groups: Vec<Vec<Value>> = vec![Vec::new()];
+    let mut used = 0;
+    for piece in pieces {
+        let size = units(&piece.to_string()) + 4;
+        if used + size > budget && !groups.last().is_some_and(Vec::is_empty) {
+            groups.push(Vec::new());
+            used = 0;
+        }
+        used += size;
+        groups.last_mut()?.push(piece);
+    }
+    let count = groups.len();
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(index, steps)| {
+            serde_json::to_string(&serde_json::json!({
+                "kind": "gateway_turn",
+                "part": index + 1,
+                "parts": count,
+                "steps": steps,
+            }))
+            .ok()
+        })
+        .collect()
+}
+
+/// 把一个放不下的步骤按其最长的字符串字段拆成连续的几个步骤，每个的估算单位数都不超过 `budget`。
+fn fit(entry: Value, budget: usize) -> Vec<Value> {
+    if units(&entry.to_string()) < budget {
+        return vec![entry];
+    }
+    let Some(fields) = entry.as_object() else {
+        return vec![entry];
+    };
+    let Some((key, text)) = fields
+        .iter()
+        .filter_map(|(key, value)| value.as_str().map(|text| (key.clone(), text.to_owned())))
+        .max_by_key(|(_, text)| text.len())
+    else {
+        return vec![entry];
+    };
+    let mut shell = fields.clone();
+    shell.insert(key.clone(), Value::from(""));
+    shell.insert("continued".into(), Value::from(true));
+    let room = budget
+        .saturating_sub(units(&Value::Object(shell).to_string()))
+        .max(1);
+    // 每个字符在步骤 JSON 里转义一次、在 Source 字符串里再转义一次后的单位数。
+    let cost = |c: char| units(&Value::from(c.to_string()).to_string()) - units("\"\"");
+    let mut chunks = vec![String::new()];
+    let mut used = 0;
+    for c in text.chars() {
+        let size = cost(c);
+        if used + size > room && !chunks.last().is_some_and(String::is_empty) {
+            chunks.push(String::new());
+            used = 0;
+        }
+        used += size;
+        if let Some(chunk) = chunks.last_mut() {
+            chunk.push(c);
+        }
+    }
+    chunks
+        .into_iter()
+        .enumerate()
+        .map(|(index, chunk)| {
+            let mut piece = fields.clone();
+            piece.insert(key.clone(), Value::from(chunk));
+            if index > 0 {
+                piece.insert("continued".into(), Value::from(true));
+            }
+            Value::Object(piece)
+        })
+        .collect()
 }
 
 /// Chat 终止响应：第一个 choice 的消息既没有 `tool_calls`，也没有旧式的 `function_call`。
@@ -140,7 +251,9 @@ fn chat_final_text(response: &Value) -> Option<String> {
 #[derive(Debug, PartialEq)]
 enum ItemKind {
     Message,
-    /// 不进入记录、也不影响回合是否结束的条目：推理与 MCP 工具清单。
+    /// 推理条目：密文不进入记录，可见摘要记为步骤；不影响回合是否结束。
+    Reasoning,
+    /// MCP 工具清单：不进入记录，也不影响回合是否结束。
     Ignored,
     /// 服务商在同一响应内执行完毕的内置工具，结果随条目返回，客户端不需要再发请求。
     HostedCall,
@@ -166,7 +279,8 @@ fn classify(item: &Value) -> ItemKind {
         .unwrap_or("message")
     {
         "message" => ItemKind::Message,
-        "reasoning" | "mcp_list_tools" => ItemKind::Ignored,
+        "reasoning" => ItemKind::Reasoning,
+        "mcp_list_tools" => ItemKind::Ignored,
         kind if HOSTED_CALLS.contains(&kind) => ItemKind::HostedCall,
         kind if kind.ends_with("_call_output") || kind == "mcp_approval_response" => {
             ItemKind::CallOutput
@@ -176,17 +290,18 @@ fn classify(item: &Value) -> ItemKind {
     }
 }
 
-/// Responses 终止响应：output 只含助手消息、可忽略的条目和已在响应内完成的内置工具。
+/// Responses 终止响应：output 只含助手消息、推理、可忽略的条目和已在响应内完成的内置工具。
 /// 需要客户端执行的调用或无法识别的条目都表示回合尚未结束。
-fn responses_final(response: &Value, losses: &mut CaptureLosses) -> Option<(Vec<Step>, String)> {
+fn responses_final(response: &Value) -> Option<(Vec<Step>, String)> {
     let output = response.get("output")?.as_array()?;
     let mut steps = Vec::new();
     let mut texts = Vec::new();
     for item in output {
         match classify(item) {
             ItemKind::Message => texts.extend(assistant_text(item)),
-            ItemKind::Ignored => {}
-            ItemKind::HostedCall => steps.extend(item_steps(item, losses)),
+            ItemKind::Reasoning | ItemKind::Ignored | ItemKind::HostedCall => {
+                steps.extend(item_steps(item))
+            }
             ItemKind::ClientCall | ItemKind::CallOutput | ItemKind::Unknown => return None,
         }
     }
@@ -198,58 +313,97 @@ fn assistant_text(item: &Value) -> Option<String> {
         .then(|| content_text(item.get("content")))
 }
 
-fn chat_steps(message: &CanonicalMessage, losses: &mut CaptureLosses) -> Vec<Step> {
+fn chat_steps(message: &CanonicalMessage) -> Vec<Step> {
     match message.role {
         Role::Assistant => {
             let mut steps = Vec::new();
             let text = parts_text(&message.content);
             if !text.is_empty() {
-                steps.push(Step::Assistant {
-                    text: bounded(text, losses),
-                });
+                steps.push(Step::Assistant { text });
             }
             for call in message.tool_calls.iter().flatten() {
                 let function = call.get("function");
-                if call
-                    .get("type")
-                    .is_some_and(|kind| kind.as_str() != Some("function"))
-                    || function
-                        .and_then(|value| value.get("name"))
-                        .and_then(Value::as_str)
-                        .is_none()
-                    || function
-                        .and_then(|value| value.get("arguments"))
-                        .and_then(Value::as_str)
-                        .is_none()
-                {
-                    losses.unmeasured_projection = true;
-                }
-                steps.push(Step::ToolCall {
-                    name: string_field(function, "name"),
-                    arguments: bounded(string_field(function, "arguments"), losses),
-                });
+                let named = function
+                    .and_then(|value| value.get("name"))
+                    .and_then(Value::as_str);
+                let arguments = function.and_then(|value| value.get("arguments"));
+                // 标准函数调用记名称与参数字符串；其他形态的调用整体记录。
+                let (name, arguments) = match (named, arguments.and_then(Value::as_str)) {
+                    (Some(name), Some(arguments)) => (name.to_owned(), arguments.to_owned()),
+                    _ => (
+                        named
+                            .or_else(|| call.get("type").and_then(Value::as_str))
+                            .unwrap_or_default()
+                            .to_owned(),
+                        without_binary(&drop_keys(call, &["id"])).to_string(),
+                    ),
+                };
+                steps.push(Step::ToolCall { name, arguments });
             }
             steps
         }
         Role::Tool => vec![Step::ToolOutput {
-            output: bounded(parts_text(&message.content), losses),
+            output: parts_text(&message.content),
         }],
-        _ => Vec::new(),
+        Role::User => Vec::new(),
+        _ => {
+            let text = parts_text(&message.content);
+            (!text.is_empty())
+                .then(|| Step::Message {
+                    role: role_name(&message.role),
+                    text,
+                })
+                .into_iter()
+                .collect()
+        }
     }
 }
 
-/// 一个 Responses 条目在记录中的步骤。工具调用取名称（没有名称时用条目类型）与参数；内置工具随条目返回的结果
-/// 作为工具输出。条目 ID、`call_id`、状态等字段不进入记录。
-fn item_steps(item: &Value, losses: &mut CaptureLosses) -> Vec<Step> {
+fn role_name(role: &Role) -> String {
+    serde_json::to_value(role)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// 调用条目里不属于参数的字段：标识、状态、名称和随条目返回的结果。
+const CALL_METADATA: &[&str] = &["id", "call_id", "status", "type", "name"];
+/// 内置工具随条目返回的结果字段。
+const CALL_RESULTS: &[&str] = &["output", "outputs", "results", "error"];
+
+/// 一个 Responses 条目在记录中的步骤。工具调用取名称（没有名称时用条目类型）和全部参数字段：只有一个参数字段时
+/// 记它的文本，否则记这些字段组成的 JSON 对象；内置工具随条目返回的结果与错误作为工具输出。条目 ID、`call_id`、
+/// 状态等字段不进入记录。
+fn item_steps(item: &Value) -> Vec<Step> {
     match classify(item) {
-        ItemKind::Message => assistant_text(item)
-            .filter(|text| !text.is_empty())
-            .map(|text| {
-                vec![Step::Assistant {
-                    text: bounded(text, losses),
+        ItemKind::Message => {
+            let role = item
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("assistant");
+            let text = content_text(item.get("content"));
+            if text.is_empty() {
+                Vec::new()
+            } else if role == "assistant" {
+                vec![Step::Assistant { text }]
+            } else {
+                vec![Step::Message {
+                    role: role.to_owned(),
+                    text,
                 }]
-            })
-            .unwrap_or_default(),
+            }
+        }
+        ItemKind::Reasoning => {
+            let text = item
+                .get("summary")
+                .and_then(Value::as_array)
+                .map(|parts| parts_text(parts))
+                .unwrap_or_default();
+            (!text.is_empty())
+                .then_some(Step::ReasoningSummary { text })
+                .into_iter()
+                .collect()
+        }
         ItemKind::ClientCall | ItemKind::HostedCall => {
             let name = item
                 .get("name")
@@ -257,79 +411,78 @@ fn item_steps(item: &Value, losses: &mut CaptureLosses) -> Vec<Step> {
                 .or_else(|| item.get("type").and_then(Value::as_str))
                 .unwrap_or_default()
                 .to_owned();
-            let arguments = first_field(
-                item,
-                &["arguments", "input", "action", "code", "query", "queries"],
-            );
-            // 后缀分类只决定工具循环是否结束，不证明 v1 能测量该调用的载荷。
-            let known_call = item
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| {
-                    HOSTED_CALLS.contains(&kind)
-                        || matches!(
-                            kind,
-                            "function_call"
-                                | "custom_tool_call"
-                                | "computer_call"
-                                | "local_shell_call"
-                                | "shell_call"
-                                | "mcp_approval_request"
-                        )
-                });
-            if !known_call || arguments.is_none() {
-                losses.unmeasured_projection = true;
-            }
-            let arguments = arguments.map(value_text).unwrap_or_default();
+            let excluded: Vec<&str> = CALL_METADATA.iter().chain(CALL_RESULTS).copied().collect();
             let mut steps = vec![Step::ToolCall {
                 name,
-                arguments: bounded(arguments, losses),
+                arguments: fields_text(&drop_keys(item, &excluded)),
             }];
-            if let Some(output) = first_field(item, &["output", "outputs", "results"]) {
+            let results = keep_keys(item, CALL_RESULTS);
+            if results.as_object().is_some_and(|fields| !fields.is_empty()) {
                 steps.push(Step::ToolOutput {
-                    output: bounded(value_text(output), losses),
+                    output: fields_text(&results),
                 });
             }
             steps
         }
-        ItemKind::CallOutput => {
-            let output = item.get("output");
-            let known_output = matches!(
-                item.get("type").and_then(Value::as_str),
-                Some(
-                    "function_call_output"
-                        | "custom_tool_call_output"
-                        | "computer_call_output"
-                        | "local_shell_call_output"
-                        | "shell_call_output"
-                )
-            );
-            // MCP 审批的 approve/reason 和未知输出载荷不在现有 output 投影中。
-            if !known_output || output.is_none_or(Value::is_null) {
-                losses.unmeasured_projection = true;
-            }
-            vec![Step::ToolOutput {
-                output: bounded(output.map(value_text).unwrap_or_default(), losses),
-            }]
-        }
+        ItemKind::CallOutput => vec![Step::ToolOutput {
+            output: fields_text(&drop_keys(item, &["id", "call_id", "status", "type"])),
+        }],
         ItemKind::Ignored => Vec::new(),
-        ItemKind::Unknown => {
-            losses.unmeasured_projection = true;
-            Vec::new()
-        }
+        ItemKind::Unknown => vec![Step::Item {
+            item_type: item
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            content: without_binary(&drop_keys(item, &["id", "status", "type"])).to_string(),
+        }],
     }
 }
 
-fn first_field<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a Value> {
-    keys.iter()
-        .filter_map(|key| item.get(*key))
-        .find(|value| !value.is_null())
+/// 一组字段的文本：只有一个非空字段时记它的文本，否则记整个对象（二进制数据换成占位文本）。
+fn fields_text(fields: &Value) -> String {
+    let present: Vec<&Value> = fields
+        .as_object()
+        .map(|map| map.values().filter(|value| !value.is_null()).collect())
+        .unwrap_or_default();
+    match present.as_slice() {
+        [] => String::new(),
+        [value] => value_text(value),
+        _ => without_binary(fields).to_string(),
+    }
+}
+
+fn drop_keys(item: &Value, keys: &[&str]) -> Value {
+    let fields: Map<String, Value> = item
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .filter(|(key, _)| !keys.contains(&key.as_str()))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Value::Object(fields)
+}
+
+fn keep_keys(item: &Value, keys: &[&str]) -> Value {
+    let fields: Map<String, Value> = item
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .filter(|(key, value)| keys.contains(&key.as_str()) && !value.is_null())
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Value::Object(fields)
 }
 
 /// 字段的可读文本：字符串原样，内容块数组取其文本；其余结构序列化为 JSON，其中的 `data:` URL
 /// （截图、图片等二进制内容）替换为占位文本。
 fn value_text(value: &Value) -> String {
     match value {
+        Value::String(text) if text.starts_with("data:") => binary_placeholder(text),
         Value::String(text) => text.clone(),
         Value::Array(parts) if !parts_text(parts).is_empty() => parts_text(parts),
         other => without_binary(other).to_string(),
@@ -338,7 +491,7 @@ fn value_text(value: &Value) -> String {
 
 fn without_binary(value: &Value) -> Value {
     match value {
-        Value::String(text) if text.starts_with("data:") => Value::from("[binary data omitted]"),
+        Value::String(text) if text.starts_with("data:") => Value::from(binary_placeholder(text)),
         Value::Array(items) => Value::Array(items.iter().map(without_binary).collect()),
         Value::Object(map) => Value::Object(
             map.iter()
@@ -349,12 +502,13 @@ fn without_binary(value: &Value) -> Value {
     }
 }
 
-fn string_field(value: Option<&Value>, key: &str) -> String {
-    value
-        .and_then(|v| v.get(key))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
+fn binary_placeholder(data_url: &str) -> String {
+    let media = data_url
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split([';', ',']).next())
+        .filter(|media| !media.is_empty())
+        .unwrap_or("binary");
+    format!("[{media} data omitted: {} bytes]", data_url.len())
 }
 
 /// 字符串或内容块数组中的文本。
@@ -366,53 +520,42 @@ fn content_text(content: Option<&Value>) -> String {
     }
 }
 
+/// 内容块的文本。图片、文件等非文本块记为占位文本：有 URL 或文件名时带上，内联数据只记字节数。
 fn parts_text(parts: &[Value]) -> String {
-    let texts: Vec<&str> = parts
+    let texts: Vec<String> = parts
         .iter()
         .filter_map(|part| match part {
-            Value::String(text) => Some(text.as_str()),
-            _ if matches!(
-                part.get("type").and_then(Value::as_str),
-                Some("text" | "input_text" | "output_text")
-            ) =>
-            {
-                part.get("text").and_then(Value::as_str)
-            }
-            _ => None,
+            Value::String(text) => Some(text.clone()),
+            _ => match part.get("type").and_then(Value::as_str) {
+                Some("text" | "input_text" | "output_text" | "summary_text") => {
+                    part.get("text").and_then(Value::as_str).map(str::to_owned)
+                }
+                Some(kind) => Some(match first_text(part, &["image_url", "file_url", "url"]) {
+                    Some(url) if url.starts_with("data:") => binary_placeholder(&url),
+                    Some(url) => format!("[{kind}: {url}]"),
+                    None => match first_text(part, &["filename", "file_id"]) {
+                        Some(name) => format!("[{kind}: {name}]"),
+                        None => format!("[{kind}]"),
+                    },
+                }),
+                None => None,
+            },
         })
         .collect();
     texts.join("\n")
 }
 
-/// 截断到 [`MAX_FIELD_BYTES`]（按字符边界），并注明省略的字节数。
-fn bounded(text: String, losses: &mut CaptureLosses) -> String {
-    if text.len() <= MAX_FIELD_BYTES {
-        return text;
-    }
-    losses.field_byte_limit = true;
-    let mut end = MAX_FIELD_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}\n[truncated {} bytes]", &text[..end], text.len() - end)
+fn first_text(part: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| match part.get(*key) {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Object(inner)) => inner.get("url").and_then(Value::as_str).map(str::to_owned),
+        _ => None,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn long_fields_are_truncated_on_a_character_boundary() {
-        let text = "é".repeat(MAX_FIELD_BYTES);
-        let mut losses = CaptureLosses::default();
-        let out = bounded(text.clone(), &mut losses);
-        assert!(out.len() < text.len());
-        assert!(out.ends_with(&format!(
-            "[truncated {} bytes]",
-            text.len() - MAX_FIELD_BYTES
-        )));
-        assert_eq!(bounded("short".into(), &mut losses), "short");
-    }
 
     fn chat_turn(outputs: &[String]) -> CanonicalRequest {
         let message = |role, content: Vec<Value>, tool_calls| CanonicalMessage {
@@ -446,256 +589,182 @@ mod tests {
         .unwrap()
     }
 
-    const FINAL: &str = r#"{"choices":[{"message":{"role":"assistant","content":"done"}}]}"#;
-
-    #[test]
-    fn coverage_tracks_real_losses_including_fields_in_omitted_steps() {
-        for (outputs, reasons) in [
-            (vec!["[truncated 999 bytes]".to_owned()], vec![]),
-            (vec!["文".repeat(MAX_FIELD_BYTES)], vec!["field_byte_limit"]),
-            (
-                vec!["x".repeat(MAX_FIELD_BYTES); 40],
-                vec!["transcript_byte_limit"],
-            ),
-            (
-                vec!["x".repeat(MAX_FIELD_BYTES + 1); 40],
-                vec!["field_byte_limit", "transcript_byte_limit"],
-            ),
-        ] {
-            let projection = turn_transcript(&chat_turn(&outputs), FINAL, "messages").unwrap();
-            assert_eq!(projection.coverage["reasons"], serde_json::json!(reasons));
-            assert_eq!(
-                projection.coverage["status"],
-                if reasons.is_empty() {
-                    "complete"
-                } else {
-                    "partial"
-                }
-            );
-            let body: Value = serde_json::from_str(&projection.text).unwrap();
-            assert_eq!(body["user"], "task");
-            assert_eq!(body["assistant"], "done");
-            assert_eq!(projection.coverage["unit"], "gateway_turn_projection");
-        }
-
-        let mut outputs = vec!["x".repeat(MAX_FIELD_BYTES + 1)];
-        outputs.extend(vec!["y".repeat(MAX_FIELD_BYTES); 40]);
-        let projection = turn_transcript(&chat_turn(&outputs), FINAL, "messages").unwrap();
-        assert!(!projection.text.contains("[truncated"));
-        assert_eq!(
-            projection.coverage["reasons"],
-            serde_json::json!(["field_byte_limit", "transcript_byte_limit"])
-        );
-    }
-
-    #[test]
-    fn user_and_terminal_assistant_field_limits_are_measured() {
-        for (user, assistant) in [
-            ("文".repeat(MAX_FIELD_BYTES), "done".into()),
-            ("task".into(), "x".repeat(MAX_FIELD_BYTES + 1)),
-        ] {
-            let mut request = chat_turn(&[]);
-            request.messages[0].content = vec![Value::from(user)];
-            let response = serde_json::json!({"choices":[{"message":{"role":"assistant","content":assistant}}]}).to_string();
-            let projection = turn_transcript(&request, &response, "messages").unwrap();
-            assert_eq!(
-                projection.coverage["reasons"],
-                serde_json::json!(["field_byte_limit"])
-            );
-        }
-    }
-
-    #[test]
-    fn unprojectable_chat_calls_are_unmeasured_without_changing_the_body() {
-        for call in [
-            serde_json::json!({"type":"custom", "custom":{"name":"exec", "input":"list files"}}),
-            serde_json::json!({"type":"future", "function":{"name":"exec", "arguments":"{}"}}),
-            serde_json::json!({"type":"function", "function":{"name":"exec", "arguments":{}}}),
-            serde_json::json!({"type":"function", "function":{"arguments":"{}"}}),
-        ] {
-            let mut request = chat_turn(&["done".into()]);
-            request.messages[1].tool_calls = Some(vec![call.clone()]);
-            let projection = turn_transcript(&request, FINAL, "messages").unwrap();
-            assert_eq!(projection.coverage["status"], "unknown");
-            assert_eq!(
-                projection.coverage["reasons"],
-                serde_json::json!(["unmeasured_projection"])
-            );
-            let body: Value = serde_json::from_str(&projection.text).unwrap();
-            assert_eq!(
-                body["steps"][0]["name"],
-                string_field(call.get("function"), "name")
-            );
-            assert_eq!(
-                body["steps"][0]["arguments"],
-                string_field(call.get("function"), "arguments")
-            );
-
-            request.messages[0].content = vec![Value::from("x".repeat(MAX_FIELD_BYTES + 1))];
-            let partial = turn_transcript(&request, FINAL, "messages").unwrap();
-            assert_eq!(partial.coverage["status"], "partial");
-            assert_eq!(
-                partial.coverage["reasons"],
-                serde_json::json!(["field_byte_limit", "unmeasured_projection"])
-            );
-        }
-    }
-
-    #[test]
-    fn accepted_unknown_history_is_unmeasured_but_unknown_final_stays_uncaptured() {
-        let mut request = chat_turn(&[]);
-        let mut item = request.messages[0].clone();
-        item.role = Role::Tool;
-        item.content = vec![serde_json::json!({"type":"future_history_item"})];
-        request.messages.push(item);
-        let projection = turn_transcript(
-            &request,
-            r#"{"output":[{"role":"assistant","type":"message","content":"done"}]}"#,
-            "input",
-        )
-        .unwrap();
-        assert_eq!(projection.coverage["status"], "unknown");
-        assert_eq!(
-            projection.coverage["reasons"],
-            serde_json::json!(["unmeasured_projection"])
-        );
-        assert_eq!(
-            projection.text,
-            r#"{"kind":"gateway_turn","user":"task","steps":[],"assistant":"done"}"#
-        );
-        request.messages[0].content = vec![Value::from("x".repeat(MAX_FIELD_BYTES + 1))];
-        let partial = turn_transcript(
-            &request,
-            r#"{"output":[{"role":"assistant","type":"message","content":"done"}]}"#,
-            "input",
-        )
-        .unwrap();
-        assert_eq!(partial.coverage["status"], "partial");
-        assert_eq!(
-            partial.coverage["reasons"],
-            serde_json::json!(["field_byte_limit", "unmeasured_projection"])
-        );
-        assert_eq!(
-            turn_transcript(
-                &request,
-                r#"{"output":[{"type":"future_history_item"}]}"#,
-                "input"
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn responses_tool_fields_share_the_same_loss_facts() {
-        let response = serde_json::json!({"output":[
-            {"type":"reasoning", "encrypted_content":"opaque"},
-            {"type":"web_search_call", "query":"x".repeat(MAX_FIELD_BYTES + 1), "results":"文".repeat(MAX_FIELD_BYTES)},
-            {"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"done"}]}
-        ]}).to_string();
-        let projection = turn_transcript(&chat_turn(&[]), &response, "input").unwrap();
-        assert_eq!(projection.coverage["status"], "partial");
-        assert_eq!(
-            projection.coverage["reasons"],
-            serde_json::json!(["field_byte_limit"])
-        );
-        assert!(!projection.text.contains("opaque"));
-    }
-
-    #[test]
-    fn responses_history_with_multiple_items_keeps_its_body_but_cannot_claim_complete() {
-        let mut request = chat_turn(&[]);
-        let mut message = request.messages[0].clone();
-        message.role = Role::Assistant;
-        message.content = vec![
-            serde_json::json!({"type":"message", "role":"assistant", "content":"first"}),
-            serde_json::json!({"type":"message", "role":"assistant", "content":"second"}),
-        ];
-        request.messages.push(message);
-        let projection = turn_transcript(
-            &request,
-            r#"{"output":[{"type":"message","role":"assistant","content":"done"}]}"#,
-            "input",
-        )
-        .unwrap();
-        assert_eq!(projection.coverage["status"], "unknown");
-        assert_eq!(
-            projection.coverage["reasons"],
-            serde_json::json!(["unmeasured_projection"])
-        );
-        assert_eq!(
-            projection.text,
-            r#"{"kind":"gateway_turn","user":"task","steps":[{"type":"assistant","text":"first"}],"assistant":"done"}"#
-        );
-    }
-
-    #[test]
-    fn a_long_tool_output_is_truncated() {
-        let request = chat_turn(&["x".repeat(MAX_FIELD_BYTES * 2)]);
-        let text = turn_transcript(&request, FINAL, "messages").unwrap().text;
-        let transcript: Value = serde_json::from_str(&text).unwrap();
-        let output = transcript["steps"][1]["output"].as_str().unwrap();
-        assert!(output.ends_with(&format!("[truncated {MAX_FIELD_BYTES} bytes]")));
-        assert_eq!(transcript["assistant"], "done");
-    }
-
-    #[test]
-    fn an_oversized_turn_omits_its_oldest_steps() {
-        let outputs: Vec<String> = (0..40)
-            .map(|i| format!("{i:02}{}", "x".repeat(MAX_FIELD_BYTES - 2)))
-            .collect();
-        let request = chat_turn(&outputs);
-        let text = turn_transcript(&request, FINAL, "messages").unwrap().text;
-        assert!(text.len() <= MAX_TRANSCRIPT_BYTES);
-        let transcript: Value = serde_json::from_str(&text).unwrap();
-        let omitted = transcript["omitted_steps"].as_u64().unwrap();
-        assert!(omitted > 0);
-        let steps = transcript["steps"].as_array().unwrap();
-        // 保留的是最近的步骤，最后一步是最后一次工具输出。
-        assert!(steps.last().unwrap()["output"]
-            .as_str()
-            .unwrap()
-            .starts_with("39"));
-        assert_eq!(steps.len() as u64 + omitted, 80);
-        assert_eq!(transcript["user"], "task");
-        assert_eq!(transcript["assistant"], "done");
-    }
-
-    #[test]
-    fn built_in_calls_and_outputs_in_the_history_are_kept_without_binary_data() {
-        let item = |value: Value| CanonicalMessage {
+    fn item(value: Value) -> CanonicalMessage {
+        CanonicalMessage {
             role: Role::Tool,
             content: vec![value],
             content_null: false,
             tool_calls: None,
             extra_fields: Default::default(),
             tool_call_id: None,
-        };
+        }
+    }
+
+    const FINAL: &str = r#"{"choices":[{"message":{"role":"assistant","content":"done"}}]}"#;
+    const RESPONSES_FINAL: &str = r#"{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}"#;
+
+    fn single(projection: &TurnProjection) -> Value {
+        assert_eq!(projection.parts.len(), 1);
+        serde_json::from_str(&projection.parts[0]).unwrap()
+    }
+
+    #[test]
+    fn a_turn_is_recorded_in_full_and_declares_the_complete_projection() {
+        let long = "文".repeat(10_000);
+        let projection =
+            turn_transcript(&chat_turn(std::slice::from_ref(&long)), FINAL, "messages").unwrap();
+        let transcript = single(&projection);
+        assert_eq!(transcript["user"], "task");
+        assert_eq!(
+            transcript["steps"][1]["output"], long,
+            "no field is truncated"
+        );
+        assert_eq!(transcript["assistant"], "done");
+        assert_eq!(
+            projection.coverage,
+            serde_json::json!({
+                "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v2",
+                "unit": "gateway_turn_projection", "status": "complete", "reasons": []
+            })
+        );
+    }
+
+    #[test]
+    fn an_oversized_turn_is_split_in_order_without_losing_anything() {
+        let outputs: Vec<String> = (0..12)
+            .map(|i| format!("{i:02}{}", "x".repeat(30_000)))
+            .collect();
+        let mut request = chat_turn(&outputs);
+        // 一个单独就放不下的工具输出，拆成连续的几个步骤。
+        request.messages.push(request.messages[1].clone());
+        request.messages.push(request.messages[2].clone());
+        let huge = "y\n".repeat(MAX_SOURCE_TOKENS * 3);
+        request.messages.last_mut().unwrap().content = vec![Value::from(huge.as_str())];
+        let projection = turn_transcript(&request, FINAL, "messages").unwrap();
+        let count = projection.parts.len();
+        assert!(count > 2);
+        let mut entries = Vec::new();
+        for (index, part) in projection.parts.iter().enumerate() {
+            assert!(
+                units(part) <= MAX_SOURCE_TOKENS * UNITS_PER_TOKEN,
+                "each part fits Core's default extraction budget"
+            );
+            let part: Value = serde_json::from_str(part).unwrap();
+            assert_eq!(part["kind"], "gateway_turn");
+            assert_eq!(part["part"], index + 1);
+            assert_eq!(part["parts"], count);
+            entries.extend(part["steps"].as_array().unwrap().clone());
+        }
+        assert_eq!(
+            entries.first().unwrap(),
+            &serde_json::json!({"type": "user", "text": "task"})
+        );
+        assert_eq!(
+            entries.last().unwrap(),
+            &serde_json::json!({"type": "assistant", "text": "done"})
+        );
+        let outputs: Vec<&str> = entries
+            .iter()
+            .filter(|entry| entry["type"] == "tool_output")
+            .map(|entry| entry["output"].as_str().unwrap())
+            .collect();
+        for (i, output) in outputs.iter().take(12).enumerate() {
+            assert!(output.starts_with(&format!("{i:02}")));
+        }
+        assert_eq!(
+            outputs[12..].concat(),
+            huge,
+            "the oversized output is kept whole, in order"
+        );
+        assert!(entries
+            .iter()
+            .filter(|entry| entry["type"] == "tool_output")
+            .skip(13)
+            .all(|entry| entry["continued"] == true));
+    }
+
+    #[test]
+    fn responses_items_keep_every_field_the_model_read() {
         let mut request = chat_turn(&[]);
         request.messages.extend([
-            item(serde_json::json!({"type": "computer_call", "id": "cu_1", "call_id": "call_1",
-                "status": "completed", "action": {"type": "click", "x": 1, "y": 2}})),
-            item(serde_json::json!({"type": "computer_call_output", "call_id": "call_1",
+            item(serde_json::json!({"type": "message", "role": "developer",
+                "content": [{"type": "input_text", "text": "Run tests before finishing."}]})),
+            item(serde_json::json!({"type": "reasoning", "encrypted_content": "gAAAA",
+                "summary": [{"type": "summary_text", "text": "Checking the loader."}]})),
+            item(serde_json::json!({"type": "apply_patch_call", "id": "ap_1", "call_id": "call_1", "status": "completed",
+                "operation": {"type": "update_file", "path": "a.py", "diff": "@@\n-old\n+new"}})),
+            item(serde_json::json!({"type": "apply_patch_call_output", "call_id": "call_1", "output": "patched"})),
+            item(serde_json::json!({"type": "computer_call_output", "call_id": "call_2",
                 "output": {"type": "computer_screenshot", "image_url": "data:image/png;base64,AAAA"}})),
-            item(serde_json::json!({"type": "mcp_call", "id": "mcp_1", "name": "search_docs",
-                "server_label": "docs", "arguments": "{\"q\":\"loader\"}", "output": "3 results"})),
-            item(serde_json::json!({"type": "reasoning", "encrypted_content": "gAAAA"})),
-            item(serde_json::json!({"type": "frobnicate", "data": "opaque"})),
+            item(serde_json::json!({"type": "function_call_output", "call_id": "call_3",
+                "output": [{"type": "input_image", "image_url": "https://example.com/a.png"}]})),
+            item(serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "r1",
+                "approve": false, "reason": "too risky"})),
+            item(serde_json::json!({"type": "frobnicate", "id": "f_1", "data": "visible payload"})),
         ]);
-        let response = r#"{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}"#;
-        let text = turn_transcript(&request, response, "input").unwrap().text;
-        let transcript: Value = serde_json::from_str(&text).unwrap();
+        let response = serde_json::json!({"output": [
+            {"type": "mcp_call", "id": "mcp_1", "name": "search_docs", "server_label": "docs",
+             "arguments": "{\"q\":\"loader\"}", "error": "server timed out"},
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}
+        ]})
+        .to_string();
+        let projection = turn_transcript(&request, &response, "input").unwrap();
+        let transcript = single(&projection);
         assert_eq!(
             transcript["steps"],
             serde_json::json!([
-                {"type": "tool_call", "name": "computer_call", "arguments": "{\"type\":\"click\",\"x\":1,\"y\":2}"},
-                {"type": "tool_output", "output": "{\"image_url\":\"[binary data omitted]\",\"type\":\"computer_screenshot\"}"},
-                {"type": "tool_call", "name": "search_docs", "arguments": "{\"q\":\"loader\"}"},
-                {"type": "tool_output", "output": "3 results"}
+                {"type": "message", "role": "developer", "text": "Run tests before finishing."},
+                {"type": "reasoning_summary", "text": "Checking the loader."},
+                {"type": "tool_call", "name": "apply_patch_call",
+                 "arguments": "{\"diff\":\"@@\\n-old\\n+new\",\"path\":\"a.py\",\"type\":\"update_file\"}"},
+                {"type": "tool_output", "output": "patched"},
+                {"type": "tool_output",
+                 "output": "{\"image_url\":\"[image/png data omitted: 26 bytes]\",\"type\":\"computer_screenshot\"}"},
+                {"type": "tool_output", "output": "[input_image: https://example.com/a.png]"},
+                {"type": "tool_output", "output": "{\"approval_request_id\":\"r1\",\"approve\":false,\"reason\":\"too risky\"}"},
+                {"type": "item", "item_type": "frobnicate", "content": "{\"data\":\"visible payload\"}"},
+                {"type": "tool_call", "name": "search_docs",
+                 "arguments": "{\"arguments\":\"{\\\"q\\\":\\\"loader\\\"}\",\"server_label\":\"docs\"}"},
+                {"type": "tool_output", "output": "server timed out"}
             ])
         );
-        for absent in ["call_1", "cu_1", "mcp_1", "base64", "gAAAA", "opaque"] {
-            assert!(!text.contains(absent), "{absent} in {text}");
+        assert_eq!(projection.coverage["status"], "complete");
+        for absent in ["call_1", "ap_1", "mcp_1", "f_1", "base64", "gAAAA"] {
+            assert!(!projection.parts[0].contains(absent), "{absent}");
         }
+    }
+
+    #[test]
+    fn a_single_argument_field_is_recorded_as_its_text() {
+        let mut request = chat_turn(&[]);
+        request.messages.extend([
+            item(serde_json::json!({"type": "function_call", "call_id": "c", "name": "run", "arguments": "{\"cmd\":\"ls\"}"})),
+            item(serde_json::json!({"type": "custom_tool_call", "call_id": "d", "name": "exec", "input": "ls -la"})),
+            item(serde_json::json!({"type": "computer_call", "call_id": "e", "action": {"type": "screenshot"}})),
+        ]);
+        let transcript = single(&turn_transcript(&request, RESPONSES_FINAL, "input").unwrap());
+        assert_eq!(
+            transcript["steps"],
+            serde_json::json!([
+                {"type": "tool_call", "name": "run", "arguments": "{\"cmd\":\"ls\"}"},
+                {"type": "tool_call", "name": "exec", "arguments": "ls -la"},
+                {"type": "tool_call", "name": "computer_call", "arguments": "{\"type\":\"screenshot\"}"}
+            ])
+        );
+    }
+
+    #[test]
+    fn chat_calls_of_other_shapes_are_recorded_whole() {
+        let mut request = chat_turn(&["done".into()]);
+        request.messages[1].tool_calls = Some(vec![
+            serde_json::json!({"type": "custom", "id": "x1", "custom": {"name": "exec", "input": "list files"}}),
+        ]);
+        let transcript = single(&turn_transcript(&request, FINAL, "messages").unwrap());
+        assert_eq!(
+            transcript["steps"][0],
+            serde_json::json!({"type": "tool_call", "name": "custom",
+                "arguments": "{\"custom\":{\"input\":\"list files\",\"name\":\"exec\"},\"type\":\"custom\"}"})
+        );
     }
 
     #[test]

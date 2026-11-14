@@ -40,6 +40,7 @@ _CAPTURE_PROFILES = {
     "hermes-turn-text.v1": "user_assistant_text_pair",
     "hermes-precompress-text.v1": "new_user_assistant_window",
     "gateway-turn-text.v1": "gateway_turn_projection",
+    "gateway-turn-text.v2": "gateway_turn_projection",
 }
 _CAPTURE_REASONS = frozenset({"character_limit", "field_byte_limit", "transcript_byte_limit", "unmeasured_projection"})
 SCOPE_SAFE_RE = re.compile(r"[^\w:./@+-]+", re.UNICODE)
