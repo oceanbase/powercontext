@@ -68,17 +68,18 @@ class ResponsesModelFixture:
             # A missing tool is terminal for the turn; a 400 is not retried as a provider outage.
             return JSONResponse({"error": {"message": str(error), "type": "invalid_request_error"}}, status_code=400)
         number = len(self.requests)
-        item = (
-            _function_call(call, self._addresses.setdefault(call.call_id, offered[call.name]))
-            if call is not None
-            else {
+        if call is None:
+            item = {
                 "type": "message",
                 "id": f"msg-{number}",
                 "role": "assistant",
                 "status": "completed",
                 "content": [{"type": "output_text", "text": FINAL_ANSWER, "annotations": []}],
             }
-        )
+        else:
+            if call.call_id not in self._addresses:
+                self._addresses[call.call_id] = offered[call.name]
+            item = _function_call(call, self._addresses[call.call_id])
         return StreamingResponse(_events(f"resp-{number}", item), media_type="text/event-stream")
 
 
