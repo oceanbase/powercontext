@@ -288,6 +288,26 @@ def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missi
         assert missing in full["detail"]
 
 
+def test_desktop_fixture_holds_every_codex_doctor_check(monkeypatch) -> None:
+    """Desktop rejects a doctor report with an unknown check, so its fixture must hold every Codex verification check.
+
+    Doctor adds the shared Server checks for every host; the fixture carries them, but this covers Codex's own checks.
+    """
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    record = {"name": "powercontext", "installed": True, "enabled": True, "marketplaceName": "powercontext"}
+    monkeypatch.setattr(system_cli, "_run_codex_json", lambda *_args: {"installed": [{**record, "version": "0.1.0"}]})
+
+    emitted = system_cli.CodexInstaller().verify()
+
+    fixture = Path(__file__).resolve().parents[1] / "desktop/src-tauri/tests/fixtures/doctor-codex.json"
+    projected = json.loads(fixture.read_text(encoding="utf-8"))["hosts"]["codex"]["checks"]
+    assert set(emitted) <= set(projected), (
+        "Add the new Codex doctor checks to desktop/src-tauri/tests/fixtures/doctor-codex.json and to the check "
+        "allowlist in desktop/src-tauri/src/diagnostics.rs."
+    )
+
+
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
