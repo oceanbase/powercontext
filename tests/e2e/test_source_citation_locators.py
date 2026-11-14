@@ -16,9 +16,11 @@
 
 import json
 import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from powercontext.builtin.persistence import migrations
 from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
@@ -67,13 +69,23 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         legacy_id = legacy.json()["artifact_id"]
 
     # Reconstruct the previous registered layout, preserving its real historical evidence.
+    # v1_5_0_006 and v1_5_0_005 are undone first: retired plugin storage returns from frozen resources.
+    resources = Path(migrations.__file__).parent / "server_resources/schemas"
+    retired = json.loads((resources / "sqlite-v1_5_0_001.json").read_text())
+    write_plugins = json.loads((resources / "sqlite-v1_4_1_006.json").read_text())
     with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE pc_source_collect_targets")
+        connection.execute("DROP TABLE pc_source_runners")
+        connection.execute(write_plugins["create"])
+        connection.execute("ALTER TABLE pc_artifacts DROP COLUMN metadata")
+        for statement in retired["statements"]:
+            connection.execute(statement)
         connection.execute("DROP TABLE pc_artifact_source_locators")
         connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_5_0_003'")
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004",)
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

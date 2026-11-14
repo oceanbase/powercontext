@@ -68,7 +68,6 @@ from powercontext.server.settings import (
     McpConfig,
     MetricsConfig,
     ServerSettings,
-    SourceManagementConfig,
 )
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 from tests.e2e.server_storage import prepare_server_database
@@ -534,10 +533,7 @@ def _scheduled_content_memory_worker(spec, assignment):
 
 
 @pytest.mark.parametrize("authentication", ["legacy", "identity-one", "identity-two"])
-@pytest.mark.parametrize("source_plugins", [False, True])
-def test_scope_access_does_not_depend_on_server_administrator_count(
-    tmp_path: Path, authentication: str, source_plugins: bool
-) -> None:
+def test_scope_access_does_not_depend_on_server_administrator_count(tmp_path: Path, authentication: str) -> None:
     async def scenario() -> None:
         seed_settings = ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-access.db'}"),
@@ -578,9 +574,6 @@ def test_scope_access_does_not_depend_on_server_administrator_count(
                 if authentication == "identity-two"
                 else ("service:admin",),
             )
-        directory = tmp_path / "plugins" if source_plugins else None
-        if directory is not None:
-            directory.mkdir()
         app = create_server_app(
             settings=ServerSettings(
                 database=seed_settings.database,
@@ -589,8 +582,6 @@ def test_scope_access_does_not_depend_on_server_administrator_count(
                 mcp=seed_settings.mcp,
                 access=AccessControlConfig(mode="enforced", deployment_id=DEPLOYMENT_ID),
                 auth=auth,
-                source_plugins_dir=directory,
-                source_management=SourceManagementConfig(state_dir=tmp_path / "deployment"),
             )
         )
         query = ListAccessBindingsRequest.model_validate({

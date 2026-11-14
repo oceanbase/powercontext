@@ -1,0 +1,563 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_5_0_006": {
+      "statements": [
+        "DROP TABLE pc_source_write_plugins",
+        "CREATE TABLE pc_source_runners (\n\trunner VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsubject VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcapabilities MEDIUMBLOB NOT NULL, \n\tcapabilities_digest VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tlast_seen_at DATETIME(6), \n\tPRIMARY KEY (runner)\n)",
+        "CREATE TABLE pc_source_collect_targets (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trunner VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcapability VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_key VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tparameters MEDIUMBLOB NOT NULL, \n\tenabled BOOL NOT NULL, \n\tupdated_at DATETIME(6) NOT NULL, \n\tupdated_by VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tlast_attempt_at DATETIME(6), \n\tlast_success_at DATETIME(6), \n\tconsecutive_failures BIGINT NOT NULL DEFAULT '0', \n\tlast_error_code VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tlast_error_message VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, target_id), \n\tCONSTRAINT uq_pc_source_collect_target_key UNIQUE (scope_id, runner, capability, target_key)\n)",
+        "CREATE INDEX ix_pc_source_collect_targets_runner ON pc_source_collect_targets (runner)"
+      ],
+      "changes": [
+        {
+          "pc_source_write_plugins": null
+        },
+        {
+          "pc_source_runners": {
+            "columns": {
+              "runner": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "subject": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "capabilities": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "capabilities_digest": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_seen_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "runner",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {}
+          }
+        },
+        {
+          "pc_source_collect_targets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "runner": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "capability": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_key": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "parameters": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "enabled": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_by": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_attempt_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_success_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "consecutive_failures": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": [
+                  "number",
+                  0
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_error_message": {
+                "type": [
+                  "varchar",
+                  [
+                    "1024"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "target_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {
+              "uq_pc_source_collect_target_key": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "runner",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "capability",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_key",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              }
+            }
+          }
+        },
+        {
+          "pc_source_collect_targets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "runner": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "capability": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_key": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "parameters": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "enabled": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_by": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_attempt_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_success_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "consecutive_failures": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": [
+                  "number",
+                  0
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_error_message": {
+                "type": [
+                  "varchar",
+                  [
+                    "1024"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "target_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {
+              "ix_pc_source_collect_targets_runner": {
+                "columns": [
+                  [
+                    "runner",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              },
+              "uq_pc_source_collect_target_key": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "runner",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "capability",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_key",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

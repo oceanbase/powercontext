@@ -12,6 +12,7 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     RootModel,
     StrictBool,
@@ -20,6 +21,9 @@ from pydantic import (
     StrictStr,
     field_validator,
     model_validator,
+)
+from pydantic import (
+    Tag as UnionTag,
 )
 
 
@@ -677,107 +681,374 @@ class ArtifactDreamingOperationCapability(BaseModel):
     effect: Effect
 
 
-class CustomArtifactFamilySchema(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    family: StrictStr
-    schema_version: StrictStr
-    content_schema: dict[str, Any]
-    search_fields: Annotated[
-        list[StrictStr], Field(description="Legacy persisted text fields; new plugins use search.")
-    ]
-    search: Annotated[
-        dict[str, Any] | None, Field(description="Persistent declarative indexes and supported search modes.")
-    ] = None
+class PluginKind(StrEnum):
+    ARTIFACT = "artifact"
+    SOURCE = "source"
 
 
-class ReloadArtifactPluginRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    expected_generation: Annotated[StrictInt, Field(ge=0)]
-
-
-class ChangeArtifactPluginStateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    expected_generation: Annotated[StrictInt, Field(ge=1)]
-
-
-class DesiredState(StrEnum):
-    ENABLED = "enabled"
-    DISABLED = "disabled"
-    UNLOADED = "unloaded"
-
-
-class Phase(StrEnum):
-    ACTIVATING = "activating"
-    ENABLED = "enabled"
-    STOPPING = "stopping"
-    DISABLED = "disabled"
-    UNLOADING = "unloading"
-    UNLOADED = "unloaded"
+class PluginLoadStatus(StrEnum):
+    LOADED = "loaded"
     FAILED = "failed"
 
 
-class ArtifactPluginState(BaseModel):
+class PluginTrigger(StrEnum):
+    SCHEDULE = "schedule"
+    SOURCES = "sources"
+
+
+class Method(StrEnum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+
+
+class Access(StrEnum):
+    AUTHENTICATED = "authenticated"
+    SCOPE_READ = "scope.read"
+    SCOPE_CONTRIBUTE = "scope.contribute"
+
+
+class PluginRoute(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binding_name: StrictStr
-    plugin_id: StrictStr
-    family: StrictStr
-    binding_generation: Annotated[StrictInt, Field(ge=1)]
-    desired_state: DesiredState
-    phase: Phase
-    last_error: Annotated[StrictStr | None, Field(...)]
+    method: Method
+    path: Annotated[StrictStr, Field(description="Route template under /v1/plugins/{name}/api.")]
+    access: Access
+    mcp: Annotated[StrictBool, Field(description="The route is also an MCP tool.")]
 
 
-class ArtifactPluginPage(BaseModel):
+class PluginVersionRef(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    items: list[ArtifactPluginState]
+    name: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    version: Annotated[StrictStr, Field(max_length=64, min_length=1)]
 
 
-class Outcome(StrEnum):
-    ACCEPTED = "accepted"
-    SKIPPED = "skipped"
-    FAILED = "failed"
-
-
-class ErrorEnum(StrEnum):
-    CONFLICT = "conflict"
-    INVALID_PLUGIN = "invalid_plugin"
-    UNAVAILABLE = "unavailable"
-
-
-class Error(RootModel[ErrorEnum | None]):
-    root: Annotated[
-        ErrorEnum | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
-    ] = None
-
-
-class EnableArtifactPluginResult(BaseModel):
+class SourceRunnerPluginReport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binding_name: StrictStr
-    outcome: Outcome
-    status_url: Annotated[StrictStr, Field(description="Registration status URL for the asynchronous result.")]
-    state: ArtifactPluginState
-    error: Annotated[
-        Error | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
+    name: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    version: Annotated[
+        StrictStr | None, Field(description="Null when the plugin failed to load on the runner.", max_length=64)
+    ]
+    error: Annotated[StrictStr | None, Field(description="Safe load failure category on the runner.", max_length=1024)]
+
+
+class SourceRunnerSyncRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    plugins: Annotated[list[SourceRunnerPluginReport], Field(max_length=200)]
+
+
+class SourceRunnerTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    capability: StrictStr
+    parameters: dict[str, Any]
+    checkpoint: Annotated[
+        Any | None, Field(description="The target's last committed checkpoint; null before the first commit.")
     ]
 
 
-class EnableAllArtifactPluginsResponse(BaseModel):
+class Code1(StrEnum):
+    PLUGIN_VERSION_INCOMPATIBLE = "plugin_version_incompatible"
+    PLUGIN_NOT_LOADED = "plugin_not_loaded"
+
+
+class SourceRunnerRejection(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    items: list[EnableArtifactPluginResult]
+    name: StrictStr
+    code: Code1
+
+
+class SourceRunnerSyncResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    targets: list[SourceRunnerTarget]
+    rejected: list[SourceRunnerRejection]
+
+
+class SourceRunnerCapability(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: StrictStr
+    version: Annotated[StrictStr | None, Field(description="The version the runner reported.")]
+    error: Annotated[StrictStr | None, Field(...)]
+    compatible: Annotated[
+        StrictBool, Field(description="This Server loaded the plugin and accepts the runner's version.")
+    ]
+    description: Annotated[
+        StrictStr | None, Field(description="From the plugin this Server loaded; null when it loaded none.")
+    ]
+    parameters_schema: Annotated[dict[str, Any] | None, Field(...)]
+    identity: Annotated[
+        dict[str, list[StrictStr]] | None, Field(description="Identity parameters and their normalization steps.")
+    ]
+
+
+class SourceRunner(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    runner: StrictStr
+    last_seen_at: Annotated[AwareDatetime | None, Field(description="Null for the Server's own runner.")]
+    capabilities: list[SourceRunnerCapability]
+
+
+class SourceRunnerPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceRunner]
+
+
+class SourceTargetCreateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    runner: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    capability: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    parameters: dict[str, Any]
+
+
+class SourceTargetUpdateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: StrictBool | None = None
+    parameters: dict[str, Any] | None = None
+
+
+class SourceTargetStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    last_attempt_at: Annotated[AwareDatetime | None, Field(...)]
+    last_success_at: Annotated[AwareDatetime | None, Field(...)]
+    consecutive_failures: Annotated[StrictInt, Field(ge=0)]
+    last_error_code: Annotated[StrictStr | None, Field(...)]
+    last_error_message: Annotated[StrictStr | None, Field(...)]
+
+
+class SourceTargetResultStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    succeeded: StrictBool
+    error_code: Annotated[StrictStr | None, Field(max_length=128)] = None
+    error_message: Annotated[StrictStr | None, Field(max_length=1024)] = None
+
+
+class SourceTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    runner: StrictStr
+    capability: StrictStr
+    target_key: StrictStr
+    parameters: dict[str, Any]
+    enabled: StrictBool
+    updated_at: AwareDatetime
+    updated_by: StrictStr
+    status: SourceTargetStatus
+
+
+class SourceTargetPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceTarget]
+
+
+class PluginOpenApiDocument(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class PluginPagesState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    title: Annotated[dict[str, StrictStr], Field(description="Navigation title by language.")]
+    path: Annotated[StrictStr, Field(description="Dashboard path of the plugin's page.")]
+
+
+class PluginState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: StrictStr
+    kind: PluginKind
+    status: PluginLoadStatus
+    error: Annotated[StrictStr | None, Field(description="Safe failure category when the plugin is not loaded.")]
+    family: Annotated[StrictStr | None, Field(...)]
+    binding_name: Annotated[StrictStr | None, Field(...)]
+    scopes: Annotated[list[StrictStr] | None, Field(...)]
+    source_types: Annotated[
+        list[StrictStr] | None,
+        Field(description="Source types delivered to the plugin; null when it consumes no Sources."),
+    ]
+    triggers: list[PluginTrigger]
+    version_digest: Annotated[
+        StrictStr | None,
+        Field(description="Content digest of the plugin version in use on this instance; null when none loaded."),
+    ]
+    declaration_digest: Annotated[StrictStr | None, Field(description="Digest of the declaration in use.")]
+    activated_at: Annotated[
+        AwareDatetime | None, Field(description="When this instance switched to the version in use.")
+    ]
+    last_check_failure: Annotated[
+        StrictStr | None,
+        Field(
+            description="Safe category of the latest failed check of a newer version; the version in use stays active. Cleared when a version activates."
+        ),
+    ]
+    routes: list[PluginRoute]
+    pages: Annotated[PluginPagesState | None, Field(...)]
+
+
+class PluginPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[PluginState]
+
+
+class PluginScopeState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    pending: Annotated[
+        StrictBool, Field(description="New Sources or a schedule request are waiting for an invocation.")
+    ]
+    consumed_position: Annotated[
+        StrictInt | None,
+        Field(
+            description="Source journal position the plugin has consumed through; null when it consumes no Sources.",
+            ge=0,
+        ),
+    ]
+    source_position: Annotated[
+        StrictInt | None, Field(description="Latest Source journal position in the Scope, of any Source type.", ge=0)
+    ]
+
+
+class ListPluginScopesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cursor: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=200)] = 50
+
+
+class PluginScopePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[PluginScopeState]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactLifecycleState(StrEnum):
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    RETIRED = "retired"
+
+
+class ArtifactGovernanceInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    state_version: Annotated[StrictInt, Field(ge=0)]
+
+
+class ForgetArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    revision: Annotated[StrictInt, Field(ge=1)]
+    state_version: Annotated[StrictInt, Field(ge=0)]
+
+
+class ArtifactRestorationOperation(StrEnum):
+    RESTORE = "restore"
+    UNDO_MERGE = "undo_merge"
+
+
+class RestoreArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: ArtifactRestorationOperation = ArtifactRestorationOperation.RESTORE
+    revision: Annotated[
+        StrictInt | None,
+        Field(
+            description="Content revision to restore; omitted restores the current one. Not accepted with undo_merge.",
+            ge=1,
+        ),
+    ] = None
+
+
+class ArtifactGovernanceRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    lifecycle_state: ArtifactLifecycleState
+    state_version: Annotated[StrictInt, Field(ge=0)]
+    merged_into_id: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactGovernanceResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changed: StrictBool
+    records: list[ArtifactGovernanceRecord]
+
+
+class ArtifactRestorationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changed: StrictBool
+    restored: list[ArtifactReference]
+    retired: list[ArtifactReference]
+    undo_merge_results: list[StrictStr]
+
+
+class CreatePluginArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    content: dict[str, Any]
+
+
+class ReplacePluginArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: dict[str, Any]
 
 
 class Configuration(StrEnum):
@@ -1341,6 +1612,12 @@ class SubmitSourceObservationRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     observation: SourceObservation
+    plugin: Annotated[
+        PluginVersionRef | None,
+        Field(
+            description="Set by collection runners. The Server checks the version against the Source plugin it loaded and has that plugin resolve and project the observation; unsupported versions return plugin_version_incompatible."
+        ),
+    ] = None
 
 
 class CommitConnectorCheckpointRequest(BaseModel):
@@ -1350,6 +1627,14 @@ class CommitConnectorCheckpointRequest(BaseModel):
     binding: ConnectorBinding
     expected: Annotated[Any | None, Field(...)]
     checkpoint: Annotated[Any | None, Field(...)]
+    plugin: Annotated[
+        PluginVersionRef | None,
+        Field(description="Set by collection runners for a target's checkpoint; checked like a runner's observations."),
+    ] = None
+    status: Annotated[
+        SourceTargetResultStatus | None,
+        Field(description="The collection attempt's outcome, recorded on the target together with the checkpoint."),
+    ] = None
 
 
 class Kind1(StrEnum):
@@ -1401,7 +1686,7 @@ class PolicyId(StrEnum):
     POWERCONTEXT_PREPARED_CONTEXT_RECEIPT_V1 = "powercontext.prepared-context-receipt.v1"
 
 
-class Outcome1(StrEnum):
+class Outcome(StrEnum):
     COMPLETED = "completed"
     EXPANSION_FAILED = "expansion_failed"
 
@@ -1411,7 +1696,7 @@ class PreparedContextRecallRound(BaseModel):
         extra="forbid",
     )
     round: Annotated[StrictInt, Field(ge=0, le=2)]
-    outcome: Outcome1
+    outcome: Outcome
     retained: StrictBool
 
 
@@ -1424,7 +1709,7 @@ class Mode3(StrEnum):
     NONE = "none"
 
 
-class Outcome2(StrEnum):
+class Outcome1(StrEnum):
     COMPLETED = "completed"
     NOT_RUN = "not_run"
     FAILED = "failed"
@@ -1437,6 +1722,26 @@ class FallbackReason(StrEnum):
     REUSED_FTS_FALLBACK = "reused_fts_fallback"
 
 
+class PreparedContextSearchGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    round: Annotated[StrictInt, Field(ge=0, le=2)]
+    family: Annotated[
+        StrictStr,
+        Field(
+            description="atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9-]*$",
+        ),
+    ]
+    mode: Mode3
+    outcome: Outcome1
+    fallback_reason: FallbackReason
+    count: Annotated[StrictInt, Field(ge=1)]
+
+
 class PreparedContextPromptArtifactAddress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1445,7 +1750,7 @@ class PreparedContextPromptArtifactAddress(BaseModel):
     artifact: ArtifactReference
 
 
-class Outcome3(StrEnum):
+class Outcome2(StrEnum):
     SELECTED = "selected"
     FALLBACK = "fallback"
     FAILED = "failed"
@@ -1465,17 +1770,9 @@ class PreparedContextRerankGroup(BaseModel):
     )
     round: Annotated[StrictInt, Field(ge=0, le=2)]
     config_id: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
-    outcome: Outcome3
+    outcome: Outcome2
     fallback_reason: FallbackReason1
     count: Annotated[StrictInt, Field(ge=1)]
-
-
-class PreparedContextFamily(StrEnum):
-    ATOMIC_MEMORY = "atomic-memory"
-    TOPIC_MEMORY = "topic-memory"
-    EXPERIENCE = "experience"
-    PROFILE = "profile"
-    CODE = "code"
 
 
 class PreparedContextCodeEvidence(BaseModel):
@@ -1495,7 +1792,15 @@ class PreparedContextSelectedItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: PreparedContextFamily
+    kind: Annotated[
+        StrictStr,
+        Field(
+            description="atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9-]*$",
+        ),
+    ]
     artifact_address: ArtifactAddress | None = None
     code_evidence: PreparedContextCodeEvidence | None = None
     rendered_bytes: Annotated[StrictInt, Field(ge=0)]
@@ -1517,7 +1822,15 @@ class PreparedContextOmittedGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    family: PreparedContextFamily
+    family: Annotated[
+        StrictStr,
+        Field(
+            description="atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9-]*$",
+        ),
+    ]
     reason: Reason
     count: Annotated[StrictInt, Field(ge=1)]
 
@@ -1609,7 +1922,7 @@ class PreparedContextLocation(BaseModel):
     location: ModelJsonTextLocation
 
 
-class Phase1(StrEnum):
+class Phase(StrEnum):
     BEFORE_SEND = "before_send"
 
 
@@ -1624,7 +1937,7 @@ class CheckContextBeforeSend(BaseModel):
     prepared_contexts: Annotated[list[PreparedContextLocation], Field(max_length=16)]
 
 
-class Phase2(StrEnum):
+class Phase1(StrEnum):
     BEFORE_RELEASE = "before_release"
 
 
@@ -1664,7 +1977,7 @@ class Schema9(StrEnum):
     POWERCONTEXT_CONTEXT_CHECK_V1 = "powercontext.context-check.v1"
 
 
-class Phase3(StrEnum):
+class Phase2(StrEnum):
     BEFORE_SEND = "before_send"
     BEFORE_RELEASE = "before_release"
 
@@ -1693,7 +2006,7 @@ class ContextCheckResult(BaseModel):
         extra="forbid",
     )
     schema_: Annotated[Schema9, Field(alias="schema")]
-    phase: Phase3
+    phase: Phase2
     decision: Decision
     reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
     coverage: ContextCheckCoverage
@@ -2167,7 +2480,7 @@ class Validation(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Outcome4(StrEnum):
+class Outcome3(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     UNKNOWN = "unknown"
@@ -2659,7 +2972,7 @@ class CodeQueryResponse(RootModel[CodeQueryResult | CodeStatus]):
     root: CodeQueryResult | CodeStatus
 
 
-class Outcome5(StrEnum):
+class Outcome4(StrEnum):
     INJECTED = "injected"
     FAILED = "failed"
 
@@ -2670,14 +2983,36 @@ class RecordBootstrapDeliveryRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     receipt_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    outcome: Outcome5
+    outcome: Outcome4
 
 
-class ContextAssemblyFamily(StrEnum):
-    MEMORY = "memory"
-    EXPERIENCE = "experience"
-    PROFILE = "profile"
-    TOPIC_MEMORY = "topic-memory"
+class ContextAssemblySection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[
+        StrictStr,
+        Field(
+            description="A built-in family (memory, experience, profile, topic-memory) or a loaded plugin family that implements search. A plugin family's entries come from the plugin's search with the request query and this limit; a family that is neither returns HTTP 422.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9-]*$",
+        ),
+    ]
+    search: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Additional generic search fields passed to the plugin's search unchanged, such as mode, filters, fusion, or rerank. Only plugin families accept it; the query and limit come from the request and this section."
+        ),
+    ] = None
+    limit: Annotated[
+        StrictInt,
+        Field(
+            description="Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count.",
+            ge=1,
+            le=8,
+        ),
+    ]
 
 
 class ContextAssemblyFormat(StrEnum):
@@ -2953,6 +3288,22 @@ class ArtifactSearchScores(BaseModel):
         return value
 
 
+class Format(StrEnum):
+    MARKDOWN = "markdown"
+    TEXT = "text"
+
+
+class ArtifactRendering(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(min_length=1)]
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    format: Format
+    text: StrictStr
+
+
 class ArtifactSearchItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3094,24 +3445,33 @@ class CreateSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    source_type: SourceType = SourceType.CONTENT
+    source_type: Annotated[
+        StrictStr,
+        Field(
+            description="The built-in content type, or a Source type that a loaded plugin defines. A plugin type's content is that type's input; the plugin resolves it into the stored Source.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9._-]*$",
+        ),
+    ] = "content"
     content: Annotated[
         Any,
         Field(
-            description="JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected."
+            description="JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected."
         ),
     ]
 
 
-class TaggableArtifactFamily(StrEnum):
-    MEMORY = "memory"
-    ATOMIC_MEMORY = "atomic-memory"
-    EXPERIENCE = "experience"
-    SKILL = "skill"
-    HANDOFF = "handoff"
-    PROFILE = "profile"
-    PROMPT = "prompt"
-    TOPIC_MEMORY = "topic-memory"
+class TaggableArtifactFamily(RootModel[StrictStr]):
+    root: Annotated[
+        StrictStr,
+        Field(
+            description="A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead.",
+            max_length=128,
+            min_length=1,
+            pattern="^[a-z][a-z0-9-]*$",
+        ),
+    ]
 
 
 class TagMatch(StrEnum):
@@ -3251,6 +3611,13 @@ class ListArtifactsRequest(BaseModel):
     tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class GetArtifactRenderingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    revision: Annotated[StrictInt | None, Field(ge=1)] = None
 
 
 class ListArtifactRevisionsRequest(BaseModel):
@@ -4180,273 +4547,6 @@ class CatalogTagResult(BaseModel):
     etag: Annotated[StrictStr, Field(min_length=1)]
 
 
-class SourceCapabilityQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any] | None = None
-
-
-class SourceWritePluginLoadRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")]
-    entry: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
-
-
-class SourceWritePluginState(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: StrictStr
-    entry: StrictStr
-    capabilities: list[dict[str, Any]]
-
-
-class SourceAddRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    capability_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any]
-
-
-class View(StrEnum):
-    RESULT = "result"
-    CONTROL = "control"
-
-
-class SourceStatusRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    view: View = View.RESULT
-
-
-class SourceInstanceSetEnabledRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool
-
-
-class SourceConfigureRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    update: StrictBool = False
-    registration: dict[str, Any]
-
-
-class Management(StrEnum):
-    NOT_CONFIGURED = "not-configured"
-    ONLINE = "online"
-    UNAVAILABLE = "unavailable"
-
-
-class SourceCapabilityResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    capabilities: list[dict[str, Any]]
-    management: Management
-
-
-class SourceInstancesResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instances: list[dict[str, Any]]
-    capabilities: list[dict[str, Any]] | None = None
-    management: Management | None = None
-
-
-class Outcome6(StrEnum):
-    SAVED = "saved"
-    UNCHANGED = "unchanged"
-
-
-class SourceCollectionResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    outcome: Outcome6
-    source_refs: list[SourceTypeReference]
-
-
-class Tracking(StrEnum):
-    ENABLED = "enabled"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-
-
-class Availability(StrEnum):
-    ONLINE = "online"
-    OFFLINE = "offline"
-    UNAVAILABLE = "unavailable"
-
-
-class Kind12(StrEnum):
-    COLLECT = "collect"
-    WRITE = "write"
-
-
-class SourceManagementReceipt(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    tracking: Tracking | None = None
-    result: SourceCollectionResult | None = None
-    error: StrictStr | None = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability_version: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    availability: Availability | None = None
-    updated_at: StrictStr | None = None
-    kind: Kind12 | None = None
-    enabled: StrictBool | None = None
-    source_refs: Annotated[
-        list[SourceTypeReference] | None,
-        Field(
-            description="Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history.",
-            max_length=1,
-        ),
-    ] = None
-    last_submitted_at: Annotated[
-        StrictStr | None,
-        Field(
-            description="Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses."
-        ),
-    ] = None
-
-
-class SourceInstanceStatus(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    targets_initialized: StrictBool | None = None
-    target_id: StrictStr | None = None
-    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool | None = None
-    actual: StrictStr | None = None
-    run_id: StrictStr | None = None
-    availability: StrictStr | None = None
-    reused: StrictBool | None = None
-
-
-class SourceChannelOpen(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    protocol: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    deployment_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    manager_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class SourceChannelRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    response: dict[str, Any] | None = None
-    catalog: dict[str, Any] | None = None
-
-
-class SourceChannelResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    confirmed: StrictBool | None = None
-    messages: list[dict[str, Any]] | None = None
-
-
-class Status6(StrEnum):
-    RUNNING = "running"
-    COMPLETE = "complete"
-    COMPLETED = "completed"
-    PENDING = "pending"
-    FAILED = "failed"
-    STOPPED = "stopped"
-    CLEANUP_FAILED = "cleanup-failed"
-
-
-class SourceInstanceExchangeRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    execution_location: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    configuration_digest: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    run_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    execution: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
-    response: dict[str, Any] | None = None
-    owner: dict[str, Any] | None = None
-    status: Status6 | None = None
-    source_refs: Annotated[
-        list[SourceTypeReference] | None,
-        Field(
-            description="One confirmed Source submission reported by the Runtime; not a batch or historical reference list.",
-            max_length=1,
-            min_length=1,
-        ),
-    ] = None
-    error: Annotated[StrictStr | None, Field(max_length=1024)] = None
-    targets: Annotated[list[dict[str, Any]] | None, Field(max_length=256)] = None
-    cursor: Annotated[StrictStr | None, Field(max_length=256)] = None
-    owner_exited: StrictBool | None = None
-    previous_owner: dict[str, Any] | None = None
-    submitted_at: StrictStr | None = None
-
-
-class SourceInstanceExchangeResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
-
-
-class SourceTargetSetEnabledRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    enabled: StrictBool
-
-
-class View1(StrEnum):
-    DISCOVERY = "discovery"
-    CONTROL = "control"
-
-
-class SourceInstancesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    input: dict[str, Any] | None = None
-    view: View1 = View1.DISCOVERY
-
-
 class ScopeId1(RootModel[StrictStr]):
     root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
 
@@ -4831,9 +4931,6 @@ class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    schema_version: Annotated[
-        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
-    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     sources: list[SourceTypeReference]
     artifacts: list[ArtifactReference]
@@ -4854,7 +4951,7 @@ class ArtifactCollectionItem(BaseModel):
 
 class ArtifactCreated(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: BaseArtifactFamily
+    family: ArtifactReadFamily
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     revision: Annotated[StrictInt, Field(ge=1)]
     sources: list[SourceTypeReference]
@@ -4878,9 +4975,6 @@ class ArtifactRevision(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    schema_version: Annotated[
-        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
-    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     content: dict[str, Any]
     sources: list[SourceTypeReference]
@@ -4948,6 +5042,18 @@ class DreamRootEvidenceGroup(BaseModel):
     group_id: StrictStr
     sources: list[DreamSourceReference]
     independence: DreamEvidenceIndependence = DreamEvidenceIndependence.UNKNOWN
+
+
+class MergeArtifactsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    inputs: Annotated[list[ArtifactGovernanceInput], Field(min_length=2)]
+    content: Annotated[
+        dict[str, Any], Field(description="Complete content of the result in the Family's content shape.")
+    ]
+    source_refs: list[SourceReference] | None = None
+    artifact_refs: list[ArtifactReference] | None = None
 
 
 class ExtractionObservation(BaseModel):
@@ -5167,18 +5273,6 @@ class HandoffGenerationMetadata(BaseModel):
     edit_status: EditStatus
 
 
-class PreparedContextSearchGroup(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    round: Annotated[StrictInt, Field(ge=0, le=2)]
-    family: PreparedContextFamily
-    mode: Mode3
-    outcome: Outcome2
-    fallback_reason: FallbackReason
-    count: Annotated[StrictInt, Field(ge=1)]
-
-
 class PreparedContextPromptIdentity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5314,7 +5408,7 @@ class RecordSkillUsageRequest(BaseModel):
     selected: StrictBool
     invoked: Invoked
     validation: Validation
-    outcome: Outcome4
+    outcome: Outcome3
     task_source: SourceReference | None = None
     environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")] = None
 
@@ -5513,21 +5607,6 @@ class BootstrapContextRequest(BaseModel):
     handoff: Annotated[
         ArtifactReference | None, Field(description="Optional exact committed Handoff Revision in the current Scope.")
     ] = None
-
-
-class ContextAssemblySection(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    family: ContextAssemblyFamily
-    limit: Annotated[
-        StrictInt,
-        Field(
-            description="Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count.",
-            ge=1,
-            le=8,
-        ),
-    ]
 
 
 class ContextAssembly(BaseModel):
@@ -6117,7 +6196,6 @@ class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    custom_artifact_schemas: Annotated[list[CustomArtifactFamilySchema], Field(validate_default=True)] = []
     prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
     artifact_dreaming: Annotated[
         StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")
@@ -6606,7 +6684,7 @@ class GeneratedCandidateResponse(BaseModel):
     candidate: Annotated[Candidate | None, Field(...)]
 
 
-class CreateArtifactRequest(
+class CreateBuiltinArtifactRequest(
     RootModel[
         CreateAtomicMemoryArtifactRequest
         | CreateTopicMemoryArtifactRequest
@@ -6641,9 +6719,10 @@ class ReplaceArtifactRequest(
         | ReplaceHandoffArtifactRequest
         | ReplacePromptArtifactRequest
         | ReplaceProfileArtifactRequest
+        | ReplacePluginArtifactRequest
     ]
 ):
-    root: (
+    root: Annotated[
         ReplaceAtomicMemoryArtifactRequest
         | ReplaceTopicMemoryArtifactRequest
         | ReplaceMemoryArtifactRequest
@@ -6652,7 +6731,11 @@ class ReplaceArtifactRequest(
         | ReplaceHandoffArtifactRequest
         | ReplacePromptArtifactRequest
         | ReplaceProfileArtifactRequest
-    )
+        | ReplacePluginArtifactRequest,
+        Field(
+            description="The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies."
+        ),
+    ]
 
 
 class CandidateHistory(BaseModel):
@@ -6682,6 +6765,36 @@ class PreparedContextWithReuse(BaseModel):
     schema_: Annotated[Literal["powercontext.prepared-context-with-reuse.v1"], Field(alias="schema")]
     context: PreparedContext
     reuse: ContextReuse
+
+
+_CREATE_ARTIFACT_REQUEST_BUILTIN_FAMILIES = frozenset([
+    "atomic-memory",
+    "experience",
+    "handoff",
+    "memory",
+    "profile",
+    "prompt",
+    "skill",
+    "topic-memory",
+])
+
+
+def _create_artifact_request_branch(value: Any) -> str:
+    family = value.get("family") if isinstance(value, dict) else getattr(value, "family", None)
+    return (
+        "plugin" if isinstance(family, str) and family not in _CREATE_ARTIFACT_REQUEST_BUILTIN_FAMILIES else "builtin"
+    )
+
+
+class CreateArtifactRequest(RootModel[CreateBuiltinArtifactRequest | CreatePluginArtifactRequest]):
+    root: Annotated[
+        Annotated[CreateBuiltinArtifactRequest, UnionTag("builtin")]
+        | Annotated[CreatePluginArtifactRequest, UnionTag("plugin")],
+        Discriminator(_create_artifact_request_branch),
+        Field(
+            description="A built-in family's creation request, or the complete content of an Artifact in a loaded plugin's family. The family name selects the branch: built-in names select the built-in branch."
+        ),
+    ]
 
 
 class PrepareContextResult(RootModel[PreparedContext | PreparedContextWithReuse]):

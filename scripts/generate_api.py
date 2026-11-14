@@ -196,6 +196,7 @@ def _generate_models(
     source = _with_source_locator_validation(source, contract_schemas)
     source = _with_exclusive_fields(source, exclusive_schemas)
     source = _with_artifact_search_validation(source, contract_schemas)
+    source = _with_family_dispatch(source, contract_schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
 
 
@@ -247,6 +248,53 @@ def _with_exclusive_fields(source: str, schemas: dict[str, Schema]) -> str:
         return self
 """
         source = f"{source[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{source[insert_at:].lstrip()}"
+    return source
+
+
+def _with_family_dispatch(source: str, schemas: dict[str, Schema | Reference]) -> str:
+    """Select a built-in or plugin branch by family name, so built-in bodies keep their own validation.
+
+    A plugin branch accepts any family name and content object, so plain union matching would
+    let an invalid built-in body pass as a plugin body.
+    """
+
+    for name, schema in schemas.items():
+        if not isinstance(schema, Schema):
+            continue
+        dispatch = (schema.model_extra or {}).get("x-powercontext-family-dispatch")
+        if dispatch is None:
+            continue
+        builtin, plugin = dispatch["builtin"], dispatch["plugin"]
+        builtin_schema = schemas[builtin]
+        if not isinstance(builtin_schema, Schema) or builtin_schema.discriminator is None:
+            raise ContractGenerationError("x-powercontext-family-dispatch", builtin)
+        families = sorted((builtin_schema.discriminator.mapping or {}).keys())
+        snake = "".join(f"_{char.lower()}" if char.isupper() else char for char in name)
+        union = f"        {builtin} | {plugin},\n"
+        start = source.find(f"class {name}(RootModel[{builtin} | {plugin}]):")
+        at = source.find(union, start)
+        if start < 0 or at < 0:
+            raise ContractGenerationError("generated family dispatch model", name)  # noqa: TRY003
+        source = (
+            source[:at]
+            + f'        Annotated[{builtin}, UnionTag("builtin")] | Annotated[{plugin}, UnionTag("plugin")],\n'
+            + f"        Discriminator({snake}_branch),\n"
+            + source[at + len(union) :]
+        )
+        helper = f"""
+
+{snake.upper()}_BUILTIN_FAMILIES = frozenset({families!r})
+
+
+def {snake}_branch(value: Any) -> str:
+    family = value.get("family") if isinstance(value, dict) else getattr(value, "family", None)
+    return "plugin" if isinstance(family, str) and family not in {snake.upper()}_BUILTIN_FAMILIES else "builtin"
+"""
+        source = source[:start].rstrip() + "\n" + helper + "\n\n" + source[start:]
+        # The contract has its own Tag schema, so pydantic's Tag needs another name here.
+        for imported in ("Discriminator", "Tag as UnionTag"):
+            if f"    {imported},\n" not in source:
+                source = source.replace("from pydantic import (\n", f"from pydantic import (\n    {imported},\n", 1)
     return source
 
 

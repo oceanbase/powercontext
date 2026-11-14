@@ -261,131 +261,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/artifact-plugins": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Artifact plugin registrations */
-        get: operations["list_artifact_plugins"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get an Artifact plugin registration */
-        get: operations["get_artifact_plugin"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/enable-all": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enable the currently disabled Artifact plugins
-         * @description Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
-         */
-        post: operations["enable_all_artifact_plugins"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/reload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load or update a Worker-loaded Artifact plugin
-         * @description Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
-         */
-        post: operations["reload_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/enable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Enable an Artifact plugin */
-        post: operations["enable_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/disable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Disable an Artifact plugin */
-        post: operations["disable_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/unload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Unload an Artifact plugin */
-        post: operations["unload_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -997,6 +872,271 @@ export interface paths {
          * @description Persist a flush generation without waiting for background processing to complete. Request pending Topic Memory processing when the user explicitly asks for that processing. Processing depends on configured capabilities and can yield no changes. Do not use it as an explicit Memory save or infer success from Source acceptance alone.
          */
         post: operations["flush_topic_memory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List loaded plugins
+         * @description Lists the plugins in the plugin directory as this Server instance sees them: whether each loaded or failed, the version in use, and what it declares. Plugins have no persisted lifecycle state. Each instance rescans the directory on its own, so instances may briefly differ after a plugin changes.
+         */
+        get: operations["list_plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one loaded plugin */
+        get: operations["get_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins/{name}/openapi.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe a plugin's own routes
+         * @description Returns an OpenAPI 3.1 document that core generates from the routes the loaded plugin version declares: paths, methods, the access each route requires, request and response schemas, and the shared error responses. The plugin owns the compatibility of its routes.
+         */
+        get: operations["get_plugin_openapi"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-runners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List collection runners
+         * @description Lists the Server's own runner and every runner that has synced, with the Source plugins each loaded, whether each plugin version is compatible with the version this Server loaded, and when each runner last synced. A capability's description, parameter schema, and identity come from the Source plugin this Server loaded.
+         */
+        get: operations["pc_source_runners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-runners/{runner}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync a collection runner
+         * @description Records the runner's loaded Source plugins and last-seen time and returns every enabled target assigned to it across Scopes, with each target's checkpoint. Only the runner itself may sync: the caller's identifier equals the runner name, or the caller is the subject that first synced with this name. Targets of plugins whose version this Server does not accept are withheld and listed as rejected.
+         */
+        post: operations["sync_source_runner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-runners/{runner}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a collection runner record
+         * @description Deletes a runner's record once it has no targets.
+         */
+        delete: operations["delete_source_runner"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/source-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a Scope's collection targets
+         * @description Returns each target's configuration and the status its runner last reported.
+         */
+        get: operations["pc_source_status"];
+        put?: never;
+        /**
+         * Add a collection target
+         * @description Assigns a target of a Source plugin capability to a runner. Parameters are validated against the parameter schema of the plugin version this Server loaded, and the declared identity parameters form the target key. A target with the same Scope, runner, capability, and key is returned unchanged when its parameters match and is a conflict otherwise. Targets of the Server's own runner, named server, require server.admin.
+         */
+        post: operations["pc_source_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/source-targets/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a collection target
+         * @description Deletes the target and its checkpoint. Sources it collected stay. Targets of the server runner require server.admin.
+         */
+        delete: operations["pc_source_target_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Change or pause a collection target
+         * @description Enables or disables a target, or replaces its parameters. Identity parameters cannot change: to collect another object, add a target. A disabled target keeps its checkpoint and resumes from it. Targets of the server runner require server.admin.
+         */
+        patch: operations["pc_source_target_set_enabled"];
+        trace?: never;
+    };
+    "/v1/plugins/{name}/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a plugin's progress per Scope
+         * @description Reads the plugin's pending work and consumption cursor in each Scope from the database, so every Server role returns the same answer. Call outcomes are reported through logs and metrics, not here.
+         */
+        get: operations["list_plugin_scopes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/merges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge exact current Artifacts into a new Artifact
+         * @description Freezes every input into a new result Artifact in one transaction. Available for every Family registered with the shared merge service, including plugin families; other families return 422. The caller needs write access to each input.
+         */
+        post: operations["merge_artifacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read an Artifact's current governance state
+         * @description Returns the lifecycle state, state version and merge target that forget, merge and restoration check. Available for every Family registered with the shared merge service.
+         */
+        get: operations["get_artifact_governance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forget one Artifact without changing its content revision
+         * @description Deprecates the exact current Artifact without a replacement so it leaves search; restoration brings it back. Available for every Family registered with the shared merge service.
+         */
+        post: operations["forget_artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore an Artifact or undo the merge that produced it
+         * @description `restore` reactivates the Artifact, optionally at an earlier content revision, and undoes the merges that froze it. `undo_merge` restores a merge result's inputs and retires the result. Each runs as one group. Available for every Family registered with the shared merge service.
+         */
+        post: operations["restore_artifact"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2039,7 +2179,7 @@ export interface paths {
         put?: never;
         /**
          * Create a durable Source
-         * @description Persist one Source without synchronously deriving Artifacts. The Server generates source_id.
+         * @description Persist one Source without synchronously deriving Artifacts. The Server generates source_id. A Source type defined by a loaded plugin is resolved by that plugin from the submitted input; unknown types return 404.
          */
         post: operations["create_source"];
         delete?: never;
@@ -2076,7 +2216,7 @@ export interface paths {
         put?: never;
         /**
          * Create an Artifact
-         * @description Dispatch the family-specific creation command through the owning Family writer and atomically create revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton: Create returns 409 when it already exists and callers must use Replace to update it. Creating a Prompt requires scope.admin because its configuration affects the whole Scope; other families require scope.contribute. Topic Memory accepts complete title, summary, and detail text without semantic generation; its active head, chunks, and configured retrieval indexes are committed atomically.
+         * @description Dispatch the family-specific creation command through the owning Family writer and atomically create revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton: Create returns 409 when it already exists and callers must use Replace to update it. Creating a Prompt requires scope.admin because its configuration affects the whole Scope; other families require scope.contribute. Topic Memory accepts complete title, summary, and detail text without semantic generation; its active head, chunks, and configured retrieval indexes are committed atomically. A family provided by a loaded plugin takes the complete content object; core allocates the Artifact ID and the plugin's create_artifact method writes revision one.
          */
         post: operations["create_artifact"];
         delete?: never;
@@ -2140,7 +2280,7 @@ export interface paths {
         get: operations["get_artifact"];
         /**
          * Replace the current Artifact head
-         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow.
+         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow. Plugin families accept their own content unchanged; the plugin's next invocation sees the new revision.
          */
         put: operations["replace_artifact"];
         post?: never;
@@ -2227,6 +2367,26 @@ export interface paths {
         };
         /** Get one exact immutable Artifact revision */
         get: operations["get_artifact_revision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Present a plugin Artifact
+         * @description Returns the default presentation of one revision of a plugin family as the plugin renders it, in Markdown or plain text, for people and for agent context. The current revision is used unless revision is given. Built-in families have no rendering and return 422.
+         */
+        get: operations["get_artifact_rendering"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2462,265 +2622,6 @@ export interface paths {
         put?: never;
         /** List data-minimized Access audit events */
         post: operations["list_access_audit"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/capabilities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** pc source capabilities */
-        post: operations["pc_source_capabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/add": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source add
-         * @description Use the discovered write or collect capability and version. Collect capabilities require an explicit instance_id. Write runs in the Server using loaded Definition and Projection implementations, without an instance or management service. Write waits for Source references or an error in the original call; no durable request or status query is created. Collect establishes or reuses a persistent target and never resumes a stopped target. No mode or idempotency_key is accepted; write retries use the underlying Source identity rules.
-         */
-        post: operations["pc_source_add"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source status
-         * @description Query a collect target by scope_id and target_id. Result view requires scope.read and returns received Source references and submission time, not per-round completion. Control view requires scope.contribute and returns enabled and tracking without input or results.
-         */
-        post: operations["pc_source_status"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/target-set-enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop or resume a collect target
-         * @description Set collect target enabled state using scope.contribute. Repeating the current state is safe. Resume requires stopped confirmation; it does not restart an ended apply or enable a disabled instance. No revision or retry key is required.
-         */
-        post: operations["pc_source_target_set_enabled"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instances": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source instances
-         * @description Discover instances with scope_id from the Server capability catalog. Control view requires instance_id and server.admin, and returns enabled, actual and availability without business configuration.
-         */
-        post: operations["pc_source_instances"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instance-set-enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * pc source instance set enabled
-         * @description Set instance business enabled state using server.admin. Repeating the same state does not restart apply. Restarting an ended run requires disable, confirmed stopped, then enable. The Runtime process stays online.
-         */
-        post: operations["pc_source_instance_set_enabled"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/configure": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** source configure */
-        post: operations["source_configure"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/write/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load a trusted Server-local Source write plugin
-         * @description Requires server.admin. The Server imports the local directory or module, validates and registers its Source Definitions, and persists its entry for restart. An identical deployment is reusable; conflicting configurations fail. Existing code is replaced only through controlled Server restart.
-         */
-        post: operations["load_source_write_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/open": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel open */
-        post: operations["source_channel_open"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/catalog": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel catalog */
-        post: operations["source_channel_catalog"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/poll": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel poll */
-        post: operations["source_channel_poll"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/reply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel reply */
-        post: operations["source_channel_reply"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/channel/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Source manager reverse channel close */
-        post: operations["source_channel_close"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/source-management/instances/{instance_id}/{operation}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Authenticated instance control, permission checks and durable result exchange
-         * @description Served by the optional standalone Source manager. Instances initiate every exchange; this is not a Server or public MCP endpoint. The operation path chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and the applicable fields. Source observations continue to go directly to the PC Server.
-         */
-        post: operations["source_instance_exchange"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3102,8 +3003,6 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
-            /** @description Persisted schema version for a custom Artifact family. */
-            schema_version?: string | null;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
             artifacts: components["schemas"]["ArtifactReference"][];
@@ -3127,7 +3026,7 @@ export interface components {
         };
         ArtifactCreated: {
             scope_id: string;
-            family: components["schemas"]["BaseArtifactFamily"];
+            family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
@@ -3145,8 +3044,6 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
-            /** @description Persisted schema version for a custom Artifact family. */
-            schema_version?: string | null;
             revision: number;
             content: {
                 [key: string]: unknown;
@@ -3481,58 +3378,249 @@ export interface components {
             /** @enum {string} */
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
-        CustomArtifactFamilySchema: {
-            family: string;
-            schema_version: string;
-            content_schema: {
+        /** @enum {string} */
+        PluginKind: "artifact" | "source";
+        /** @enum {string} */
+        PluginLoadStatus: "loaded" | "failed";
+        /** @enum {string} */
+        PluginTrigger: "schedule" | "sources";
+        PluginRoute: {
+            /** @enum {string} */
+            method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+            /** @description Route template under /v1/plugins/{name}/api. */
+            path: string;
+            /** @enum {string} */
+            access: "authenticated" | "scope.read" | "scope.contribute";
+            /** @description The route is also an MCP tool. */
+            mcp: boolean;
+        };
+        /** @description The Source plugin and version a runner used; the Server accepts it only within the loaded plugin's compatible range. */
+        PluginVersionRef: {
+            name: string;
+            version: string;
+        };
+        SourceRunnerPluginReport: {
+            name: string;
+            /** @description Null when the plugin failed to load on the runner. */
+            version: string | null;
+            /** @description Safe load failure category on the runner. */
+            error: string | null;
+        };
+        SourceRunnerSyncRequest: {
+            plugins: components["schemas"]["SourceRunnerPluginReport"][];
+        };
+        SourceRunnerTarget: {
+            scope_id: string;
+            target_id: string;
+            capability: string;
+            parameters: {
                 [key: string]: unknown;
             };
-            /** @description Legacy persisted text fields; new plugins use search. */
-            search_fields: string[];
-            /** @description Persistent declarative indexes and supported search modes. */
-            search?: {
+            /** @description The target's last committed checkpoint; null before the first commit. */
+            checkpoint: unknown;
+        };
+        SourceRunnerRejection: {
+            name: string;
+            /** @enum {string} */
+            code: "plugin_version_incompatible" | "plugin_not_loaded";
+        };
+        SourceRunnerSyncResult: {
+            targets: components["schemas"]["SourceRunnerTarget"][];
+            rejected: components["schemas"]["SourceRunnerRejection"][];
+        };
+        SourceRunnerCapability: {
+            name: string;
+            /** @description The version the runner reported. */
+            version: string | null;
+            error: string | null;
+            /** @description This Server loaded the plugin and accepts the runner's version. */
+            compatible: boolean;
+            /** @description From the plugin this Server loaded; null when it loaded none. */
+            description: string | null;
+            parameters_schema: {
                 [key: string]: unknown;
-            };
+            } | null;
+            /** @description Identity parameters and their normalization steps. */
+            identity: {
+                [key: string]: string[];
+            } | null;
         };
-        ReloadArtifactPluginRequest: {
-            expected_generation: number;
-        };
-        ChangeArtifactPluginStateRequest: {
-            expected_generation: number;
-        };
-        ArtifactPluginState: {
-            binding_name: string;
-            plugin_id: string;
-            family: string;
-            binding_generation: number;
-            /** @enum {string} */
-            desired_state: "enabled" | "disabled" | "unloaded";
-            /** @enum {string} */
-            phase: "activating" | "enabled" | "stopping" | "disabled" | "unloading" | "unloaded" | "failed";
-            last_error: string | null;
-        };
-        ArtifactPluginPage: {
-            items: components["schemas"]["ArtifactPluginState"][];
-        };
-        EnableArtifactPluginResult: {
-            binding_name: string;
-            /** @enum {string} */
-            outcome: "accepted" | "skipped" | "failed";
-            /** @description Registration status URL for the asynchronous result. */
-            status_url: string;
-            state: components["schemas"]["ArtifactPluginState"];
+        SourceRunner: {
+            runner: string;
             /**
-             * @description Safe per-plugin failure code; null for accepted or skipped entries.
-             * @enum {string|null}
+             * Format: date-time
+             * @description Null for the Server's own runner.
              */
-            error: "conflict" | "invalid_plugin" | "unavailable" | null;
+            last_seen_at: string | null;
+            capabilities: components["schemas"]["SourceRunnerCapability"][];
         };
-        EnableAllArtifactPluginsResponse: {
-            items: components["schemas"]["EnableArtifactPluginResult"][];
+        SourceRunnerPage: {
+            items: components["schemas"]["SourceRunner"][];
+        };
+        SourceTargetCreateRequest: {
+            runner: string;
+            capability: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+        };
+        SourceTargetUpdateRequest: {
+            enabled?: boolean;
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceTargetStatus: {
+            /** Format: date-time */
+            last_attempt_at: string | null;
+            /** Format: date-time */
+            last_success_at: string | null;
+            consecutive_failures: number;
+            last_error_code: string | null;
+            last_error_message: string | null;
+        };
+        /** @description The outcome of the collection attempt whose checkpoint this commits. */
+        SourceTargetResultStatus: {
+            succeeded: boolean;
+            error_code?: string | null;
+            error_message?: string | null;
+        };
+        SourceTarget: {
+            scope_id: string;
+            target_id: string;
+            runner: string;
+            capability: string;
+            target_key: string;
+            parameters: {
+                [key: string]: unknown;
+            };
+            enabled: boolean;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: string;
+            status: components["schemas"]["SourceTargetStatus"];
+        };
+        SourceTargetPage: {
+            items: components["schemas"]["SourceTarget"][];
+        };
+        /** @description An OpenAPI 3.1 document describing one plugin's routes. */
+        PluginOpenApiDocument: {
+            [key: string]: unknown;
+        };
+        PluginPagesState: {
+            /** @description Navigation title by language. */
+            title: {
+                [key: string]: string;
+            };
+            /** @description Dashboard path of the plugin's page. */
+            path: string;
+        };
+        PluginState: {
+            name: string;
+            kind: components["schemas"]["PluginKind"];
+            status: components["schemas"]["PluginLoadStatus"];
+            /** @description Safe failure category when the plugin is not loaded. */
+            error: string | null;
+            family: string | null;
+            binding_name: string | null;
+            scopes: string[] | null;
+            /** @description Source types delivered to the plugin; null when it consumes no Sources. */
+            source_types: string[] | null;
+            triggers: components["schemas"]["PluginTrigger"][];
+            /** @description Content digest of the plugin version in use on this instance; null when none loaded. */
+            version_digest: string | null;
+            /** @description Digest of the declaration in use. */
+            declaration_digest: string | null;
+            /**
+             * Format: date-time
+             * @description When this instance switched to the version in use.
+             */
+            activated_at: string | null;
+            /** @description Safe category of the latest failed check of a newer version; the version in use stays active. Cleared when a version activates. */
+            last_check_failure: string | null;
+            routes: components["schemas"]["PluginRoute"][];
+            pages: components["schemas"]["PluginPagesState"] | null;
+        };
+        PluginPage: {
+            items: components["schemas"]["PluginState"][];
+        };
+        PluginScopeState: {
+            scope_id: string;
+            /** @description New Sources or a schedule request are waiting for an invocation. */
+            pending: boolean;
+            /** @description Source journal position the plugin has consumed through; null when it consumes no Sources. */
+            consumed_position: number | null;
+            /** @description Latest Source journal position in the Scope, of any Source type. */
+            source_position: number | null;
+        };
+        ListPluginScopesRequest: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
+        PluginScopePage: {
+            items: components["schemas"]["PluginScopeState"][];
+            next_cursor: string | null;
+        };
+        /** @enum {string} */
+        ArtifactLifecycleState: "active" | "deprecated" | "retired";
+        /** @description An exact current Artifact the caller has read; a later change rejects the request. */
+        ArtifactGovernanceInput: {
+            artifact_id: string;
+            revision: number;
+            state_version: number;
+        };
+        MergeArtifactsRequest: {
+            inputs: components["schemas"]["ArtifactGovernanceInput"][];
+            /** @description Complete content of the result in the Family's content shape. */
+            content: {
+                [key: string]: unknown;
+            };
+            source_refs?: components["schemas"]["SourceReference"][];
+            artifact_refs?: components["schemas"]["ArtifactReference"][];
+        };
+        ForgetArtifactRequest: {
+            revision: number;
+            state_version: number;
+        };
+        /** @enum {string} */
+        ArtifactRestorationOperation: "restore" | "undo_merge";
+        RestoreArtifactRequest: {
+            /** @default restore */
+            operation: components["schemas"]["ArtifactRestorationOperation"];
+            /** @description Content revision to restore; omitted restores the current one. Not accepted with undo_merge. */
+            revision?: number | null;
+        };
+        ArtifactGovernanceRecord: {
+            artifact: components["schemas"]["ArtifactReference"];
+            lifecycle_state: components["schemas"]["ArtifactLifecycleState"];
+            state_version: number;
+            merged_into_id: string | null;
+        };
+        ArtifactGovernanceResponse: {
+            changed: boolean;
+            records: components["schemas"]["ArtifactGovernanceRecord"][];
+        };
+        ArtifactRestorationResult: {
+            changed: boolean;
+            restored: components["schemas"]["ArtifactReference"][];
+            retired: components["schemas"]["ArtifactReference"][];
+            undo_merge_results: string[];
+        };
+        /** @description Create an Artifact of a family a loaded plugin provides. The family must not be a built-in family name; core allocates the Artifact ID and stores the content the plugin writes. */
+        CreatePluginArtifactRequest: {
+            family: string;
+            content: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Complete content of a plugin Artifact; core stores it unchanged and indexes the declared fields. */
+        ReplacePluginArtifactRequest: {
+            content: {
+                [key: string]: unknown;
+            };
         };
         Capabilities: {
-            /** @default [] */
-            custom_artifact_schemas: components["schemas"]["CustomArtifactFamilySchema"][];
             /** @default {} */
             prompts: {
                 [key: string]: components["schemas"]["PromptCapability"];
@@ -4066,6 +4154,8 @@ export interface components {
         SubmitSourceObservationRequest: {
             scope_id: string;
             observation: components["schemas"]["SourceObservation"];
+            /** @description Set by collection runners. The Server checks the version against the Source plugin it loaded and has that plugin resolve and project the observation; unsupported versions return plugin_version_incompatible. */
+            plugin?: components["schemas"]["PluginVersionRef"];
         };
         SourceObservationReceipt: {
             source: components["schemas"]["SourceReference"];
@@ -4075,6 +4165,10 @@ export interface components {
             binding: components["schemas"]["ConnectorBinding"];
             expected: unknown;
             checkpoint: unknown;
+            /** @description Set by collection runners for a target's checkpoint; checked like a runner's observations. */
+            plugin?: components["schemas"]["PluginVersionRef"];
+            /** @description The collection attempt's outcome, recorded on the target together with the checkpoint. */
+            status?: components["schemas"]["SourceTargetResultStatus"];
         };
         CommitHandoffRequest: {
             scope_id: string;
@@ -4255,7 +4349,8 @@ export interface components {
         };
         PreparedContextSearchGroup: {
             round: number;
-            family: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            family: string;
             /** @enum {string} */
             mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
             /** @enum {string} */
@@ -4301,8 +4396,6 @@ export interface components {
             fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
             count: number;
         };
-        /** @enum {string} */
-        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
         PreparedContextCodeEvidence: {
             scope_id: string;
             fingerprint: string;
@@ -4313,14 +4406,16 @@ export interface components {
             snippet_sha256: string;
         };
         PreparedContextSelectedItem: {
-            kind: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            kind: string;
             artifact_address?: components["schemas"]["ArtifactAddress"];
             code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
             rendered_bytes: number;
             truncated: boolean;
         };
         PreparedContextOmittedGroup: {
-            family: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            family: string;
             /** @enum {string} */
             reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
             count: number;
@@ -5233,7 +5328,12 @@ export interface components {
             outcome: "injected" | "failed";
         };
         ContextAssemblySection: {
-            family: components["schemas"]["ContextAssemblyFamily"];
+            /** @description A built-in family (memory, experience, profile, topic-memory) or a loaded plugin family that implements search. A plugin family's entries come from the plugin's search with the request query and this limit; a family that is neither returns HTTP 422. */
+            family: string;
+            /** @description Additional generic search fields passed to the plugin's search unchanged, such as mode, filters, fusion, or rerank. Only plugin families accept it; the query and limit come from the request and this section. */
+            search?: {
+                [key: string]: unknown;
+            };
             /** @description Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count. */
             limit: number;
         };
@@ -5258,8 +5358,6 @@ export interface components {
             /** @default [] */
             show: components["schemas"]["ContextAssemblyMetadata"][];
         };
-        /** @enum {string} */
-        ContextAssemblyFamily: "memory" | "experience" | "profile" | "topic-memory";
         /** @enum {string} */
         ContextAssemblyFormat: "markdown";
         /** @enum {string} */
@@ -5439,6 +5537,14 @@ export interface components {
                 [key: string]: components["schemas"]["ArtifactChannelScore"];
             };
         };
+        ArtifactRendering: {
+            family: string;
+            artifact_id: string;
+            revision: number;
+            /** @enum {string} */
+            format: "markdown" | "text";
+            text: string;
+        };
         ArtifactSearchItem: {
             family: string;
             artifact_id: string;
@@ -5502,7 +5608,9 @@ export interface components {
             detail: string;
             source_refs: components["schemas"]["SourceReference"][];
         };
-        CreateArtifactRequest: components["schemas"]["CreateAtomicMemoryArtifactRequest"] | components["schemas"]["CreateTopicMemoryArtifactRequest"] | components["schemas"]["CreateMemoryArtifactRequest"] | components["schemas"]["CreateExperienceArtifactRequest"] | components["schemas"]["CreateSkillArtifactRequest"] | components["schemas"]["CreateHandoffArtifactRequest"] | components["schemas"]["CreatePromptArtifactRequest"] | components["schemas"]["CreateProfileArtifactRequest"];
+        /** @description A built-in family's creation request, or the complete content of an Artifact in a loaded plugin's family. The family name selects the branch: built-in names select the built-in branch. */
+        CreateArtifactRequest: components["schemas"]["CreateBuiltinArtifactRequest"] | components["schemas"]["CreatePluginArtifactRequest"];
+        CreateBuiltinArtifactRequest: components["schemas"]["CreateAtomicMemoryArtifactRequest"] | components["schemas"]["CreateTopicMemoryArtifactRequest"] | components["schemas"]["CreateMemoryArtifactRequest"] | components["schemas"]["CreateExperienceArtifactRequest"] | components["schemas"]["CreateSkillArtifactRequest"] | components["schemas"]["CreateHandoffArtifactRequest"] | components["schemas"]["CreatePromptArtifactRequest"] | components["schemas"]["CreateProfileArtifactRequest"];
         TopicMemoryWriteContent: {
             title: string;
             summary: string;
@@ -5571,20 +5679,22 @@ export interface components {
             /** @description Durable non-empty Memory entry text used to create the Entry Version and search projection. */
             text: string;
         };
-        CreateSourceRequest: {
-            /**
-             * @default content
-             * @enum {string}
-             */
-            source_type: "content";
-            /** @description JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
-            content: unknown;
-        };
         /**
-         * @description All readable Artifact families support logical tags on persisted Artifacts.
+         * @description The built-in Source type that create_source accepts.
          * @enum {string}
          */
-        TaggableArtifactFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+        SourceType: "content";
+        CreateSourceRequest: {
+            /**
+             * @description The built-in content type, or a Source type that a loaded plugin defines. A plugin type's content is that type's input; the plugin resolves it into the stored Source.
+             * @default content
+             */
+            source_type: string;
+            /** @description JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
+            content: unknown;
+        };
+        /** @description A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead. */
+        TaggableArtifactFamily: string;
         /** @enum {string} */
         TagMatch: "all" | "any";
         /** @enum {string} */
@@ -5658,11 +5768,15 @@ export interface components {
             limit: number;
             cursor?: string | null;
         };
-        ReplaceArtifactRequest: components["schemas"]["ReplaceAtomicMemoryArtifactRequest"] | components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"];
+        /** @description The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies. */
+        ReplaceArtifactRequest: components["schemas"]["ReplaceAtomicMemoryArtifactRequest"] | components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"] | components["schemas"]["ReplacePluginArtifactRequest"];
         ReplacePromptArtifactRequest: {
             content: components["schemas"]["PromptContent"];
             restored_from_revision?: number | null;
             reason?: string | null;
+        };
+        GetArtifactRenderingRequest: {
+            revision?: number | null;
         };
         ListArtifactRevisionsRequest: {
             /** @default 50 */
@@ -6176,183 +6290,6 @@ export interface components {
         CandidateHistory: {
             /** @default [] */
             versions: components["schemas"]["Candidate"][];
-        };
-        SourceCapabilityQuery: {
-            scope_id: string;
-            capability?: string;
-            instance_id?: string;
-            input?: {
-                [key: string]: unknown;
-            };
-        };
-        SourceWritePluginLoadRequest: {
-            id: string;
-            entry: string;
-        };
-        SourceWritePluginState: {
-            id: string;
-            entry: string;
-            capabilities: {
-                [key: string]: unknown;
-            }[];
-        };
-        SourceAddRequest: {
-            scope_id: string;
-            capability: string;
-            capability_version: string;
-            instance_id?: string;
-            input: {
-                [key: string]: unknown;
-            };
-        };
-        SourceStatusRequest: {
-            scope_id: string;
-            target_id: string;
-            /**
-             * @default result
-             * @enum {string}
-             */
-            view: "result" | "control";
-        };
-        SourceInstanceSetEnabledRequest: {
-            instance_id: string;
-            enabled: boolean;
-        };
-        SourceConfigureRequest: {
-            /** @default false */
-            update: boolean;
-            registration: {
-                [key: string]: unknown;
-            };
-        };
-        SourceCapabilityResponse: {
-            capabilities: {
-                [key: string]: unknown;
-            }[];
-            /** @enum {string} */
-            management: "not-configured" | "online" | "unavailable";
-        };
-        SourceInstancesResponse: {
-            instances: {
-                [key: string]: unknown;
-            }[];
-            capabilities?: {
-                [key: string]: unknown;
-            }[];
-            /** @enum {string} */
-            management?: "not-configured" | "online" | "unavailable";
-        };
-        SourceCollectionResult: {
-            /** @enum {string} */
-            outcome: "saved" | "unchanged";
-            source_refs: components["schemas"]["SourceTypeReference"][];
-        };
-        SourceManagementReceipt: {
-            target_id?: string;
-            /** @enum {string} */
-            tracking?: "enabled" | "stopping" | "stopped";
-            result?: components["schemas"]["SourceCollectionResult"];
-            error?: string;
-            instance_id?: string;
-            capability?: string;
-            capability_version?: string;
-            /** @enum {string} */
-            availability?: "online" | "offline" | "unavailable";
-            updated_at?: string;
-            /** @enum {string} */
-            kind?: "collect" | "write";
-            enabled?: boolean;
-            /** @description Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history. */
-            source_refs?: components["schemas"]["SourceTypeReference"][];
-            /** @description Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses. */
-            last_submitted_at?: string | null;
-        };
-        SourceInstanceStatus: {
-            targets_initialized?: boolean;
-            target_id?: string;
-            instance_id: string;
-            enabled?: boolean;
-            actual?: string;
-            run_id?: string | null;
-            availability?: string;
-            reused?: boolean;
-        };
-        SourceChannelOpen: {
-            protocol: string;
-            deployment_id: string;
-            manager_id: string;
-        };
-        SourceChannelRequest: {
-            generation: string;
-            message_id?: string;
-            response?: {
-                [key: string]: unknown;
-            };
-            catalog?: {
-                [key: string]: unknown;
-            };
-        };
-        SourceChannelResponse: {
-            generation?: string;
-            protocol?: string;
-            confirmed?: boolean;
-            messages?: {
-                [key: string]: unknown;
-            }[];
-        };
-        SourceInstanceExchangeRequest: {
-            generation?: string;
-            protocol?: string;
-            message_id?: string;
-            execution_location?: string;
-            configuration_digest?: string;
-            run_id?: string;
-            execution?: string;
-            target_id?: string;
-            capabilities?: {
-                [key: string]: unknown;
-            }[];
-            response?: {
-                [key: string]: unknown;
-            };
-            owner?: {
-                [key: string]: unknown;
-            };
-            /** @enum {string} */
-            status?: "running" | "complete" | "completed" | "pending" | "failed" | "stopped" | "cleanup-failed";
-            /** @description One confirmed Source submission reported by the Runtime; not a batch or historical reference list. */
-            source_refs?: components["schemas"]["SourceTypeReference"][];
-            error?: string;
-            targets?: {
-                [key: string]: unknown;
-            }[];
-            cursor?: string;
-            owner_exited?: boolean;
-            previous_owner?: {
-                [key: string]: unknown;
-            };
-            submitted_at?: string;
-        };
-        SourceInstanceExchangeResponse: {
-            [key: string]: unknown;
-        };
-        SourceTargetSetEnabledRequest: {
-            scope_id: string;
-            target_id: string;
-            enabled: boolean;
-        };
-        SourceInstancesQuery: {
-            scope_id?: string;
-            capability?: string;
-            instance_id?: string;
-            input?: {
-                [key: string]: unknown;
-            };
-            /**
-             * @default discovery
-             * @enum {string}
-             */
-            view: "discovery" | "control";
         };
         PlanAccessOwnershipRequest: {
             /** @description Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments. */
@@ -7031,217 +6968,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    list_artifact_plugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Durable registration states. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginPage"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    get_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Durable registration state without plugin configuration secrets. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    enable_all_artifact_plugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Per-plugin acceptance, skip or failure results. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnableAllArtifactPluginsResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    reload_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReloadArtifactPluginRequest"];
-            };
-        };
-        responses: {
-            /** @description Definition saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    enable_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    disable_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    unload_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -8288,6 +8014,441 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugins found in the plugin directory by this instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plugin's check result, version in use, and declaration on this instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_plugin_openapi: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plugin's route description. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginOpenApiDocument"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_runners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runners ordered by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRunnerPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    sync_source_runner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runner: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRunnerSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description The runner's current targets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRunnerSyncResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    delete_source_runner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runner: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The runner record is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Targets ordered by ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTargetPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The same target already exists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            /** @description The target was added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The target is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The changed target. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTarget"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_plugin_scopes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scopes the plugin has been asked to process, ordered by Scope ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginScopePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    merge_artifacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeArtifactsRequest"];
+            };
+        };
+        responses: {
+            /** @description The merge result and the frozen inputs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_governance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current governance state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceRecord"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    forget_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgetArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description The Artifact's governance state after forgetting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    restore_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description The revisions restored and retired by the operation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRestorationResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -10222,7 +10383,7 @@ export interface operations {
             };
             path: {
                 scope_id: string;
-                family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "prompt" | "topic-memory" | "profile";
+                family: components["schemas"]["ArtifactReadFamily"];
                 artifact_id: string;
             };
             cookie?: never;
@@ -10479,6 +10640,39 @@ export interface operations {
                     "application/json": components["schemas"]["ArtifactRevision"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_rendering: {
+        parameters: {
+            query?: {
+                revision?: number;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rendering of the exact revision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRendering"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -10855,436 +11049,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_capabilities: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceCapabilityQuery"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceCapabilityResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_add: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceAddRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceStatusRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_target_set_enabled: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceTargetSetEnabledRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceManagementReceipt"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_instances: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstancesQuery"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstancesResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    pc_source_instance_set_enabled: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstanceSetEnabledRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceStatus"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_configure: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceConfigureRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmed Source management result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceStatus"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    load_source_write_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceWritePluginLoadRequest"];
-            };
-        };
-        responses: {
-            /** @description The Server has loaded and persisted the executable write capabilities. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceWritePluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_open: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelOpen"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_catalog: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_poll: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_reply: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_channel_close: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceChannelRequest"];
-            };
-        };
-        responses: {
-            /** @description Channel exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceChannelResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    source_instance_exchange: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                instance_id: string;
-                operation: "owner" | "connect" | "poll" | "reply" | "sync" | "execution" | "results" | "stopped-targets" | "close";
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceInstanceExchangeRequest"];
-            };
-        };
-        responses: {
-            /** @description Instance control exchange. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceInstanceExchangeResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

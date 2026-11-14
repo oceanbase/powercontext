@@ -68,6 +68,7 @@ builtin = [
     "sqlalchemy[asyncio]>=2,<3",
     "sqlite-vec>=0.1.9,<0.2",
     "tzdata>=2026.3",
+    "tzlocal>=5.2,<6",
 ]
 seekdb = [
     "powercontext[builtin]",

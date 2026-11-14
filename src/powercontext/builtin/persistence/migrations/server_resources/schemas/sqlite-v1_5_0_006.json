@@ -1,0 +1,8 @@
+{
+  "statements": [
+    "DROP TABLE pc_source_write_plugins",
+    "CREATE TABLE pc_source_runners (\n\trunner VARCHAR(128) NOT NULL, \n\tsubject VARCHAR(256) NOT NULL, \n\tcapabilities BLOB NOT NULL, \n\tcapabilities_digest VARCHAR(64) NOT NULL, \n\tlast_seen_at DATETIME, \n\tPRIMARY KEY (runner)\n)",
+    "CREATE TABLE pc_source_collect_targets (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_id VARCHAR(64) NOT NULL, \n\trunner VARCHAR(128) NOT NULL, \n\tcapability VARCHAR(64) NOT NULL, \n\ttarget_key VARCHAR(64) NOT NULL, \n\tparameters BLOB NOT NULL, \n\tenabled BOOLEAN NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tupdated_by VARCHAR(256) NOT NULL, \n\tlast_attempt_at DATETIME, \n\tlast_success_at DATETIME, \n\tconsecutive_failures BIGINT DEFAULT '0' NOT NULL, \n\tlast_error_code VARCHAR(128), \n\tlast_error_message VARCHAR(1024), \n\tPRIMARY KEY (scope_id, target_id), \n\tCONSTRAINT uq_pc_source_collect_target_key UNIQUE (scope_id, runner, capability, target_key)\n)",
+    "CREATE INDEX ix_pc_source_collect_targets_runner ON pc_source_collect_targets (runner)"
+  ]
+}

@@ -125,8 +125,7 @@ describe('PowerContext MCP bridge', () => {
   )
 
   it.each([
-    'pc_source_capabilities', 'pc_source_status', 'pc_source_add',
-    'pc_source_target_set_enabled', 'pc_source_instances',
+    'pc_source_status', 'pc_source_add', 'pc_source_target_set_enabled', 'pc_source_target_delete',
   ])('binds %s to the host Scope before allowing or asking', async operation => {
     for (const requested of ['scope-b', undefined]) {
       const next = vi.fn(async () => ({ kind: 'allow' as const }))
@@ -153,9 +152,8 @@ describe('PowerContext MCP bridge', () => {
   })
 
   it.each([
-    ['pc_source_instances', { instance_id: 'tickets', view: 'control' }, 'allow'],
-    ['pc_source_instance_set_enabled', { instance_id: 'tickets', enabled: false }, 'ask'],
-  ])('keeps administrator operation %s independent of the host Scope', async (operation, args, kind) => {
+    ['pc_source_runners', {}, 'allow'],
+  ])('keeps Server-wide operation %s independent of the host Scope', async (operation, args, kind) => {
     const resolveScope = vi.fn(async () => undefined)
     const result = await policyHook(resolveScope)({
       name: `mcp__powercontext__${operation}`,
@@ -179,8 +177,8 @@ describe('PowerContext MCP bridge', () => {
   })
 
   it.each([
-    ['pc_source_add', { capability: 'content.inline', input: { text: 'sk-review-fixture-only' } }],
-    ['pc_source_add', { capability: 'ticket.write', input: { metadata: { notes: ['api_key=FAKE_REVIEW_CANARY'] } } }],
+    ['pc_source_add', { runner: 'server', capability: 'tickets', parameters: { file: 'sk-review-fixture-only' } }],
+    ['pc_source_add', { runner: 'robot-7', capability: 'tickets', parameters: { notes: ['api_key=FAKE_REVIEW_CANARY'] } }],
     ['remember_memory', { text: 'api_key=FAKE_REVIEW_MARKER' }],
     ['replace_artifact', { content: { kind: 'decision', text: 'api_key=FAKE_REVIEW_MARKER' } }],
     ['merge_atomic_memories', { content: { kind: 'decision', text: 'api_key=FAKE_REVIEW_MARKER' } }],

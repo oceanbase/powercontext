@@ -21,7 +21,8 @@ const PAYLOAD_WRITES = new Set([
   'replace_artifact', 'change_atomic_memory_lifecycle',
 ])
 const CONTENT_FIELDS = new Map<string, readonly string[]>([
-  ['pc_source_add', ['input']],
+  ['pc_source_add', ['parameters']],
+  ['pc_source_target_set_enabled', ['parameters']],
   ['create_scope', ['title', 'summary', 'external_references']],
   ['create_work_contract', ['contract']],
   ['record_task_outcome', ['outcome']],

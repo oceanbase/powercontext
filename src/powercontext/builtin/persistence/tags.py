@@ -266,7 +266,7 @@ class RelationalTagService:
                 head_key = (family, artifact_id)
                 if head_key not in artifacts:
                     ref = ArtifactRef(family=family, artifact_id=artifact_id, revision=int(row[4]))
-                    artifacts[head_key] = await self._artifacts.get(connection, scope_id, ref)
+                    artifacts[head_key] = await self._repository(family).get(connection, scope_id, ref)
                 reference = artifacts[head_key].as_ref()
                 labels = await self._read(connection, scope_id, target)
                 items.append(TaggedTarget(**labels.model_dump(), reference=reference))
@@ -283,9 +283,17 @@ class RelationalTagService:
         labels = await connection.scalars(statement)
         return tag_set(scope_id, target, tuple(labels))
 
+    def _repository(self, family: str) -> Any:
+        from powercontext.builtin.plugins.families import is_plugin_family, plugin_artifact_repository
+
+        # Plugin families are registered per process, not composed into the shared repository.
+        return plugin_artifact_repository(family) if is_plugin_family(family) else self._artifacts
+
     async def _target_reference(self, connection: AsyncConnection, scope_id: str, target: TagTarget) -> ArtifactRef:
         try:
-            artifact = await self._artifacts.latest(connection, scope_id, target.family, target.artifact_id)
+            artifact = await self._repository(target.family).latest(
+                connection, scope_id, target.family, target.artifact_id
+            )
         except RepositoryNotFoundError:
             raise BaseValueNotFoundError("artifact", target) from None
         return artifact.as_ref()

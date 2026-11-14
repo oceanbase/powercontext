@@ -153,6 +153,11 @@ Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed
 失败的 code stage 保留诊断 `error_code`；领域错误还保留 `status_code`。日志与 span 使用这些值区分超时、冲突、
 无效请求和内部故障。
 
+插件目录的变化记录为 `plugin.changed` event：`plugin_name` 为插件名，`plugin_event` 为 `loaded`、`updated`、`removed`、
+`check_failed` 或 `upgrade_failed`，`version_digest` 与 `declaration_digest` 为本次生效（或检查失败时仍在使用）的版本内容
+摘要和声明摘要。检查失败只记录已知的失败分类，不记录异常消息。开启热加载时，每次扫描在 `DEBUG` 级别记录一条
+`plugin.scanned` event，`scan_ms` 为该次扫描的耗时，单位为毫秒。
+
 Server 创建的 workers 使用配置的 log level 和 format。通过 SDK 导入或运行 Runtime 时不配置 global logging，
 由 embedding application 管理 logging。Logging bootstrap 失败不会使 processing 失败。
 Formatting 或写入失败时，Server handler 向 stderr 输出无内容的 `observability.log_failed` 通知，每个 handler

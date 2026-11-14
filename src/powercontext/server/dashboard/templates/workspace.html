@@ -31,6 +31,8 @@ limitations under the License.
       {% from 'components/read-error.html' import read_error with context %}
       {% if page_error %}
         {{ read_error(page_error, t.method_generation_failed if page == 'methods' and request.method == 'POST' else '') }}
+      {% elif plugin_page %}
+        {% include 'plugin.html' %}
       {% elif (not scope_descriptor and not record_only and page not in ['runtime','observability']) or page == 'entry' %}
         {% include 'entry.html' %}
       {% else %}

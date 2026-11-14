@@ -47,6 +47,14 @@
     "v1_5_0_004": [
       "schemas/sqlite-v1_5_0_004.json",
       "schemas/mysql-v1_5_0_004.json"
+    ],
+    "v1_5_0_005": [
+      "schemas/sqlite-v1_5_0_005.json",
+      "schemas/mysql-v1_5_0_005.json"
+    ],
+    "v1_5_0_006": [
+      "schemas/sqlite-v1_5_0_006.json",
+      "schemas/mysql-v1_5_0_006.json"
     ]
   },
   "sqlite_baselines": {
@@ -85,6 +93,12 @@
     ],
     "v1_5_0_004": [
       "cfafc8c1d4f0207e5d04febca1e3f9f9a91948d15fb85678de3765d8e772efdc"
+    ],
+    "v1_5_0_005": [
+      "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
+    ],
+    "v1_5_0_006": [
+      "9e49c26fffa97d8ceadd3150a6ff20882c0b6d5e9cb08468eb334ca2536da3f4"
     ]
   },
   "affected_objects": [
@@ -202,7 +216,9 @@
     "pc_topic_memory_topic_fts_docsize",
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
-    "pc_topic_memory_work_budgets"
+    "pc_topic_memory_work_budgets",
+    "pc_source_runners",
+    "pc_source_collect_targets"
   ],
   "readiness_scope": "server",
   "retained_objects": [
@@ -297,6 +313,49 @@
         "seekdb",
         "oceanbase"
       ]
+    },
+    {
+      "id": "plugin_artifacts",
+      "revision": "v1_5_0_005",
+      "kind": "data",
+      "module": "plugin_artifact_readiness.py",
+      "resources": [
+        "server_domain.py",
+        "server_vector_domain.py",
+        "atomic_memory_readiness_1300.py",
+        "dream/upgrade.py",
+        "dream/schema.json"
+      ],
+      "depends_on": [
+        "artifact_storage"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
+    },
+    {
+      "id": "source_collection",
+      "revision": "v1_5_0_006",
+      "kind": "data",
+      "module": "source_collection_readiness.py",
+      "resources": [
+        "server_domain.py",
+        "server_vector_domain.py",
+        "atomic_memory_readiness_1300.py",
+        "dream/upgrade.py",
+        "dream/schema.json",
+        "plugin_artifact_readiness.py"
+      ],
+      "depends_on": [
+        "plugin_artifacts"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
     }
   ],
   "domain_readiness": {
@@ -340,6 +399,16 @@
       "artifact_storage",
       "portable_storage",
       "atomic_memory_evidence_projection"
+    ],
+    "v1_5_0_005": [
+      "plugin_artifacts",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
+    "v1_5_0_006": [
+      "source_collection",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
     ]
   },
   "retained_fingerprints": {
@@ -361,7 +430,9 @@
     "schemas/mysql-v1_5_0_001.json",
     "schemas/mysql-v1_5_0_002.json",
     "schemas/mysql-v1_5_0_003.json",
-    "schemas/mysql-v1_5_0_004.json"
+    "schemas/mysql-v1_5_0_004.json",
+    "schemas/mysql-v1_5_0_005.json",
+    "schemas/mysql-v1_5_0_006.json"
   ],
   "mysql_history": "mysql",
   "mysql_schema_extensions": {

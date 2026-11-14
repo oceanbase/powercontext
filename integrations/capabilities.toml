@@ -104,7 +104,7 @@ capabilities = ["memory_write"]
 id = "capture_content_source"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "pc_source_capabilities"
+id = "pc_source_runners"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "pc_source_add"
@@ -116,10 +116,7 @@ capabilities = ["source_capture"]
 id = "pc_source_target_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "pc_source_instances"
-capabilities = ["source_capture"]
-[[toolsets.tools]]
-id = "pc_source_instance_set_enabled"
+id = "pc_source_target_delete"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"
@@ -337,7 +334,7 @@ capabilities = ["memory_write"]
 id = "mcp__powercontext__capture_content_source"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "mcp__powercontext__pc_source_capabilities"
+id = "mcp__powercontext__pc_source_runners"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__pc_source_add"
@@ -349,10 +346,7 @@ capabilities = ["source_capture"]
 id = "mcp__powercontext__pc_source_target_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "mcp__powercontext__pc_source_instances"
-capabilities = ["source_capture"]
-[[toolsets.tools]]
-id = "mcp__powercontext__pc_source_instance_set_enabled"
+id = "mcp__powercontext__pc_source_target_delete"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_working_note"
@@ -1187,7 +1181,7 @@ capabilities = ["memory_write"]
 id = "capture_content_source"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "pc_source_capabilities"
+id = "pc_source_runners"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "pc_source_add"
@@ -1199,10 +1193,7 @@ capabilities = ["source_capture"]
 id = "pc_source_target_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
-id = "pc_source_instances"
-capabilities = ["source_capture"]
-[[toolsets.tools]]
-id = "pc_source_instance_set_enabled"
+id = "pc_source_target_delete"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"

@@ -20,6 +20,7 @@ from powercontext.builtin.persistence.statistics import daily_usage_statement
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACT_REVISION_COLUMNS,
     ARTIFACTS_TABLE,
     SCOPES_TABLE,
     SOURCES_TABLE,
@@ -224,7 +225,7 @@ async def revision_contents(connection, scope, family, artifact_id, revisions):
     return (
         (
             await connection.execute(
-                select(ARTIFACTS_TABLE).where(
+                select(*ARTIFACT_REVISION_COLUMNS).where(
                     ARTIFACTS_TABLE.c.scope_id == scope,
                     ARTIFACTS_TABLE.c.family == family,
                     ARTIFACTS_TABLE.c.artifact_id == artifact_id,

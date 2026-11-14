@@ -15,7 +15,6 @@
 """Shared dialect-neutral relational tables."""
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -35,7 +34,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import BINARY, DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
-from powercontext.builtin.persistence.artifact_search_schema import artifact_search_tables
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
     MAX_ARTIFACT_HANDLE_KEY_LENGTH,
@@ -203,7 +201,11 @@ ARTIFACTS_TABLE = Table(
     Column("created_by", String(MAX_ARTIFACT_REVISION_ACTOR_LENGTH), nullable=True),
     Column("restored_from_revision", Integer, nullable=True),
     Column("rollback_reason", String(1024), nullable=True),
+    # Canonical JSON bytes that never take part in search or the content digest, such as the writing plugin.
+    Column("metadata", _canonical_payload_type(), nullable=True),
 )
+# Revision reads omit metadata: domain steps read revisions at earlier registered revisions that lack it.
+ARTIFACT_REVISION_COLUMNS = tuple(column for column in ARTIFACTS_TABLE.c if column.name != "metadata")
 
 ARTIFACT_HANDLES_TABLE = Table(
     "pc_artifact_handles",
@@ -593,22 +595,7 @@ ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
     Column("scan_generation", BigInteger, nullable=False, server_default="0"),
     Column("scan_in_progress", Boolean, nullable=False, server_default="0"),
     Column("scan_upper_pending_sequence", BigInteger),
-    Column("plugin_id", String(128)),
-    Column("plugin_family", String(128)),
-    Column("plugin_spec", JSON(none_as_null=True)),
-    Column("binding_generation", BigInteger, nullable=False, server_default="0"),
-    Column("desired_state", String(16)),
-    Column("phase", String(16)),
-    Column("last_error", String(1024)),
     CheckConstraint("scan_generation >= 0", name="ck_pc_processing_scan_generation"),
-)
-
-ARTIFACT_FAMILY_SCHEMAS_TABLE = Table(
-    "pc_artifact_family_schemas",
-    SHARED_METADATA,
-    Column("family", identity_string(128), primary_key=True),
-    Column("schema_version", identity_string(128), primary_key=True),
-    Column("declaration", JSON, nullable=False),
 )
 
 ARTIFACT_PROCESSING_SEQUENCES_TABLE = Table(
@@ -870,11 +857,45 @@ SOURCE_DEFINITION_MANIFESTS_TABLE = Table(
     UniqueConstraint("definition_name", "fingerprint", name="uq_pc_source_definition_manifest_fingerprint"),
 )
 
-SOURCE_WRITE_PLUGINS_TABLE = Table(
-    "pc_source_write_plugins",
+
+def _instant_type():
+    return DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql")
+
+
+# Collection runners: the Server's own runner and every device runner that synced. A runner reports
+# the Source plugins it loaded; a name is bound to the credential subject that first synced with it.
+SOURCE_RUNNERS_TABLE = Table(
+    "pc_source_runners",
     SHARED_METADATA,
-    Column("plugin_id", identity_string(128), primary_key=True),
-    Column("definition", _canonical_payload_type(), nullable=False),
+    Column("runner", identity_string(128), primary_key=True),
+    Column("subject", identity_string(256), nullable=False),
+    Column("capabilities", _canonical_payload_type(), nullable=False),
+    Column("capabilities_digest", identity_string(64), nullable=False),
+    # Null until the runner syncs, including after a restore.
+    Column("last_seen_at", _instant_type(), nullable=True),
+)
+
+# Collection targets users assign to runners. Users write the configuration columns; the runner writes
+# the status columns together with the target's checkpoint.
+SOURCE_COLLECT_TARGETS_TABLE = Table(
+    "pc_source_collect_targets",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_id", identity_string(64), primary_key=True),
+    Column("runner", identity_string(128), nullable=False),
+    Column("capability", identity_string(64), nullable=False),
+    Column("target_key", identity_string(64), nullable=False),
+    Column("parameters", _canonical_payload_type(), nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("updated_at", _instant_type(), nullable=False),
+    Column("updated_by", identity_string(256), nullable=False),
+    Column("last_attempt_at", _instant_type(), nullable=True),
+    Column("last_success_at", _instant_type(), nullable=True),
+    Column("consecutive_failures", BigInteger, nullable=False, server_default="0"),
+    Column("last_error_code", identity_string(128), nullable=True),
+    Column("last_error_message", identity_string(1024), nullable=True),
+    UniqueConstraint("scope_id", "runner", "capability", "target_key", name="uq_pc_source_collect_target_key"),
+    Index("ix_pc_source_collect_targets_runner", "runner"),
 )
 
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
@@ -1105,7 +1126,6 @@ RECALL_EFFORT_DAILY_TABLE = Table(
 
 
 SHARED_TABLES = (
-    ARTIFACT_FAMILY_SCHEMAS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
     ARTIFACTS_TABLE,
@@ -1134,7 +1154,8 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
-    SOURCE_WRITE_PLUGINS_TABLE,
+    SOURCE_RUNNERS_TABLE,
+    SOURCE_COLLECT_TARGETS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
     SKILL_PACKAGES_TABLE,
     AGENT_SKILL_TARGETS_TABLE,
@@ -1472,17 +1493,3 @@ BUILTIN_TABLES = (
         LEXICAL_PROJECTION_VERSIONS_TABLE,
     )
 )
-
-
-# Search builds are independent of generation bindings.
-
-(
-    ARTIFACT_VECTOR_SPACES_TABLE,
-    ARTIFACT_VECTOR_INDEXES_TABLE,
-    ARTIFACT_SEARCH_STATES_TABLE,
-    ARTIFACT_INDEX_COVERAGE_TABLE,
-    ARTIFACT_INDEX_CHANGES_TABLE,
-    ARTIFACT_VECTORS_TABLE,
-    ARTIFACT_SEARCH_TEXT_TABLE,
-) = ARTIFACT_SEARCH_TABLES = artifact_search_tables(SHARED_METADATA, identity_string)
-BUILTIN_TABLES += ARTIFACT_SEARCH_TABLES

@@ -22,12 +22,10 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
-from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from prometheus_client.exposition import choose_encoder
-from sqlalchemy import select
 from starlette.middleware import Middleware
 
 from powercontext._logging import log_safely
@@ -53,13 +51,11 @@ from powercontext.builtin.authz.owner_recovery import (
     owner_recovery_session,
     owner_write_access,
 )
-from powercontext.builtin.authz.profiles import register_custom_artifact_access_family
 from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import ARTIFACT_FAMILY_SCHEMAS_TABLE
 from powercontext.builtin.runtime import (
     BuiltinRuntime,
 )
@@ -86,13 +82,9 @@ from powercontext.http import (
     ReadinessResponse,
     ReadinessStatus,
 )
+from powercontext.paths import powercontext_data_dir
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import _bind_evidence_access, access_readiness_checks, create_app
-from powercontext.server.artifact_plugins import (
-    ArtifactPluginManager,
-    read_artifact_declarations,
-    refresh_artifact_access_families,
-)
 from powercontext.server.authentication import (
     AuthenticationProvider,
     MultiBearerAuthenticationProvider,
@@ -109,6 +101,7 @@ from powercontext.server.logging import worker_logging
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
+from powercontext.server.plugins import PluginManager
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.request_id import HttpRequestIdMiddleware
 from powercontext.server.settings import MissingAuthenticationProviderError, ServerSettings
@@ -194,9 +187,6 @@ def create_server_app(  # noqa: C901
             authentication_provider=authentication_provider,
         )
     )
-    from powercontext.source_management.deployment import prepare as prepare_source_deployment
-
-    configured_authentication, _ = prepare_source_deployment(resolved, configured_authentication)
     config = BuiltinConfig(
         code=resolved.code,
         runtime=resolved.runtime,
@@ -221,7 +211,7 @@ def create_server_app(  # noqa: C901
     readiness_probe = _ServerReadinessProbe(metrics, tracing=resolved_tracing)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901 - shared Server and plugin resource lifecycle
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
         if resolved.allow_insecure_http:
             _log_insecure_remote_http_warning()
@@ -337,36 +327,55 @@ def create_server_app(  # noqa: C901
                 app.state.owner_recovery = recovery
                 await resources.enter_async_context(recovery.monitor())
             server_id = await _initialize_server_identity(runtime, cursor_secret)
-            records = await _restore_artifact_access_profiles(runtime)
-            app.state.artifact_access_refresher = partial(refresh_artifact_access_families, records.database)
+            records = runtime._records()
+            if not isinstance(records, RelationalRecordService):
+                raise TypeError("Plugins require relational record storage")  # noqa: TRY003
             _bind_evidence_access(runtime, active_access_control, resolved.access.mode)
-            if (
+            dispatch_plugins = (
                 config.runtime.artifact_processing_supervisor_mode == "global"
                 and config.runtime.artifact_processing_role != "api"
-            ):
+            )
 
-                def bind_plugin_supervisor(supervisors) -> None:
-                    runtime.artifact_processing_supervisor = supervisors
+            def bind_supervisor(supervisors) -> None:
+                runtime.artifact_processing_supervisor = supervisors
 
-                app.state.artifact_plugin_manager = await resources.enter_async_context(
-                    ArtifactPluginManager(
-                        records.database,
-                        config.database,
-                        runtime.artifact_processing_supervisor,
-                        lambda: build_worker_security(
+            app.state.plugin_manager = await resources.enter_async_context(
+                PluginManager(
+                    records.database,
+                    config.database,
+                    runtime.artifact_processing_supervisor,
+                    lambda: (
+                        build_worker_security(
                             resolved,
                             active_access_control,
                             legacy_static_principal=static_principal if legacy_static_admin else None,
                             enabled=True,
                             injected=configured_access_control is not None,
-                        ),
-                        on_supervisor=bind_plugin_supervisor,
-                        plugins_dir=resolved.artifact_plugins_dir,
-                        embedding_model=runtime._topic_memory_embedding_model,
-                        inference_config=config.inference,
-                        runtime_config=config.runtime,
-                    )
+                        )
+                        if dispatch_plugins
+                        else None
+                    ),
+                    on_supervisor=bind_supervisor,
+                    plugins_dir=resolved.plugins_dir,
+                    register_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.register,
+                    unregister_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.unregister,
+                    dispatch=dispatch_plugins,
+                    inference_config=config.inference,
+                    storage_root=powercontext_data_dir() / "plugins",
+                    snapshot_root=powercontext_data_dir() / "plugin-versions",
+                    rescan_seconds=resolved.plugins_rescan_seconds,
+                    # Host processes authorize callers in every role that serves requests.
+                    host_security_builder=lambda: build_worker_security(
+                        resolved,
+                        active_access_control,
+                        legacy_static_principal=static_principal if legacy_static_admin else None,
+                        enabled=True,
+                        injected=configured_access_control is not None,
+                    ),
+                    host_processes=resolved.plugin_host_processes,
+                    host_processes_total=resolved.plugin_total_host_processes,
                 )
+            )
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
                     active_access_control.committed_receipt_identity,
@@ -377,9 +386,7 @@ def create_server_app(  # noqa: C901
                 )
                 await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
-            gateway = await _source_gateway(runtime, resolved)
-            await resources.enter_async_context(gateway)
-            app.state.source_gateway = gateway
+            app.state.plugin_api_max_body_bytes = resolved.plugin_api_max_body_bytes
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
             app.state.access_control = active_access_control
@@ -397,31 +404,19 @@ def create_server_app(  # noqa: C901
                     }
                 )
 
-            app.state.artifact_declaration_provider = partial(read_artifact_declarations, records.database)
             app.state.capabilities = capabilities
             app.state.capability_provider = current_capabilities
             app.state.server_info = server_info(server_id)
             await readiness_probe()
-            deployment_task = None
-            if resolved.source_plugins_dir is not None or resolved.source_management.autostart:
-                from powercontext.source_management.deployment import DeploymentCoordinator
-
-                deployment_task = asyncio.create_task(DeploymentCoordinator(resolved).startup())
             if metrics is not None:
                 await resources.enter_async_context(readiness_probe.monitor())
             try:
                 yield
             finally:
-                if deployment_task is not None:
-                    deployment_task.cancel()
-                    await asyncio.gather(deployment_task, return_exceptions=True)
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
-                app.state.artifact_plugin_manager = None
-                app.state.artifact_declaration_provider = None
-                app.state.artifact_access_refresher = None
+                app.state.plugin_manager = None
                 app.state.application = None
-                app.state.source_gateway = None
                 app.state.dashboard_runtime = None
                 app.state.capability_provider = None
                 app.state.access_control = configured_access_control
@@ -443,7 +438,12 @@ def create_server_app(  # noqa: C901
 
     configured_middleware = list(middleware)
     configured_middleware.insert(
-        0, Middleware(HttpRequestBodyLimitMiddleware, max_request_body_bytes=resolved.http.max_request_body_bytes)
+        0,
+        Middleware(
+            HttpRequestBodyLimitMiddleware,
+            max_request_body_bytes=resolved.http.max_request_body_bytes,
+            plugin_api_max_body_bytes=resolved.plugin_api_max_body_bytes,
+        ),
     )
     if configured_authentication is not None:
         configured_middleware.insert(
@@ -523,30 +523,6 @@ async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: by
             deployment_id=server_id,
         )
     return server_id
-
-
-async def _restore_artifact_access_profiles(runtime: BuiltinRuntime) -> RelationalRecordService:
-    """Restore retained family access even when this process runs no plugin manager."""
-    records = runtime._records()
-    if not isinstance(records, RelationalRecordService):
-        raise TypeError("Artifact plugins require relational record storage")  # noqa: TRY003
-    async with records.database.transaction() as connection:
-        families = (await connection.execute(select(ARTIFACT_FAMILY_SCHEMAS_TABLE.c.family).distinct())).scalars().all()
-    for family in families:
-        register_custom_artifact_access_family(family)
-    return records
-
-
-async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
-    from powercontext.source_management.gateway import SourceGateway
-    from powercontext.source_management.write import SourceWritePlugins
-
-    records = runtime._records()
-    write_plugins = None
-    if isinstance(records, RelationalRecordService):
-        write_plugins = SourceWritePlugins(records.database, settings.workspace)
-        await write_plugins.restore()
-    return SourceGateway(settings, write_plugins)
 
 
 def _state_access_checks(app: FastAPI) -> Callable[[], Awaitable[Mapping[str, str]]]:

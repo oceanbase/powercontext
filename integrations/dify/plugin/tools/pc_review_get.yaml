@@ -1163,17 +1163,12 @@ output_schema:
                       - artifact
                     family:
                       type: string
-                      description: All readable Artifact families support logical
-                        tags on persisted Artifacts.
-                      enum:
-                      - memory
-                      - atomic-memory
-                      - experience
-                      - skill
-                      - handoff
-                      - profile
-                      - prompt
-                      - topic-memory
+                      description: A built-in Family or a loaded plugin family; every
+                        readable Family supports logical tags on persisted Artifacts.
+                        The collection-level memory Family tags entries instead.
+                      minLength: 1
+                      maxLength: 128
+                      pattern: ^[a-z][a-z0-9-]*$
                     artifact_id:
                       type: string
                       minLength: 1
@@ -1429,17 +1424,12 @@ output_schema:
                       - artifact
                     family:
                       type: string
-                      description: All readable Artifact families support logical
-                        tags on persisted Artifacts.
-                      enum:
-                      - memory
-                      - atomic-memory
-                      - experience
-                      - skill
-                      - handoff
-                      - profile
-                      - prompt
-                      - topic-memory
+                      description: A built-in Family or a loaded plugin family; every
+                        readable Family supports logical tags on persisted Artifacts.
+                        The collection-level memory Family tags entries instead.
+                      minLength: 1
+                      maxLength: 128
+                      pattern: ^[a-z][a-z0-9-]*$
                     artifact_id:
                       type: string
                       minLength: 1

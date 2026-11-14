@@ -260,21 +260,22 @@ _SERVER_WIDE_WITHOUT_CONTENT = frozenset({
     "set_scope_binding",
     "clear_scope_binding",
     "register_source_definition",
-    "list_artifact_plugins",
-    "get_artifact_plugin",
-    "enable_all_artifact_plugins",
-    "reload_artifact_plugin",
-    "enable_artifact_plugin",
-    "disable_artifact_plugin",
-    "unload_artifact_plugin",
-    "load_source_write_plugin",
-    "source_configure",
-    "pc_source_instance_set_enabled",
+    # Deletes a collection runner record that has no targets.
+    "delete_source_runner",
+    # Plugin descriptors, and per-Scope processing positions of a plugin's Supervisor binding.
+    "list_plugins",
+    "get_plugin",
+    "list_plugin_scopes",
     "scan_external_skills",
     "list_external_skills",
     "resolve_external_skill",
     "get_stats",
 })
+
+
+# Authorized for any authenticated caller like the Access API, but returning no Scope content: a plugin's route
+# descriptions, the collection runners and their plugin versions, and a runner's own targets and checkpoints.
+_AUTHENTICATED_WITHOUT_CONTENT = frozenset({"get_plugin_openapi", "pc_source_runners", "sync_source_runner"})
 
 
 def test_every_server_wide_operation_is_classified_by_whether_it_returns_scope_content() -> None:
@@ -294,7 +295,7 @@ def test_every_server_wide_operation_is_classified_by_whether_it_returns_scope_c
 
     assert server_wide == SERVER_WIDE_CONTENT_OPERATIONS | _SERVER_WIDE_WITHOUT_CONTENT
     # The Access API authorizes the caller itself and then decides about any resource it names, returning no content.
-    assert access_api == ACCESS_OPERATIONS
+    assert access_api == ACCESS_OPERATIONS | _AUTHENTICATED_WITHOUT_CONTENT
 
 
 class _AuditClient:
