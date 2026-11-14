@@ -45,7 +45,9 @@ def _free_port() -> int:
 
 @pytest.mark.anyio
 @pytest.mark.skipif(not GATEWAY_BINARY.is_file(), reason="Build the real Gateway binary with cargo build first")
-async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_path):  # noqa: C901 - cross-process acceptance
+@pytest.mark.parametrize("route", ["chat/completions", "responses"])
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_path, route, mode):  # noqa: C901
     received_a: list[bytes] = []
     received_b: list[bytes] = []
 
@@ -67,15 +69,31 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
             if b"redirect-me" in payload and received is received_a:
                 writer.write(
                     b"HTTP/1.1 307 Temporary Redirect\r\nLocation: "
-                    + f"http://127.0.0.1:{port_b}/v1/chat/completions".encode()
+                    + f"http://127.0.0.1:{port_b}/v1/{route}".encode()
                     + b"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 )
                 await writer.drain()
                 return
-            body = json.dumps({
-                "model": "test",
-                "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
-            }).encode()
+            body = json.dumps(
+                {
+                    "model": "test",
+                    "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                }
+                if route == "chat/completions"
+                else {
+                    "id": "resp-target",
+                    "object": "response",
+                    "model": "test",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "ok", "annotations": []}],
+                        }
+                    ],
+                }
+            ).encode()
             writer.write(
                 b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
                 + str(len(body)).encode()
@@ -95,12 +113,12 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
         update={
             "inference": InferenceConfig(
                 protection=InferenceProtectionConfig(
-                    mode="enforcing",
+                    mode=mode,
                     targets={
                         "model": UpstreamProfile(
-                            endpoint=f"http://127.0.0.1:{port_a}/v1/chat/completions",
+                            endpoint=f"http://127.0.0.1:{port_a}/v1/{route}",
                             model="test",
-                            protocol="openai-chat",
+                            protocol="openai-chat" if route == "chat/completions" else "openai-responses",
                             max_output_tokens=64,
                             context_window_tokens=65536,
                             validated_utf8_token_bound=True,
@@ -145,6 +163,7 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
                     },
                 )
                 assert grant.status_code == 201, grant.text
+            invocation_grant = grant.json()
             environment = {
                 key: value
                 for key, value in os.environ.items()
@@ -155,6 +174,7 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
                 "PC_GATEWAY_CORE_TOKEN": "transport-admin",
                 "PC_GATEWAY_LISTEN": f"127.0.0.1:{gateway_port}",
                 "PC_GATEWAY_UPSTREAM_PROFILE": "model",
+                "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES": "model",
                 "PC_GATEWAY_DEFAULT_SCOPE": scope,
                 "PC_GATEWAY_API_KEY": "gateway-key",
             })
@@ -176,46 +196,67 @@ async def test_real_gateway_sends_only_to_core_approved_a_and_never_to_b(tmp_pat
                         await asyncio.sleep(0.05)
                 else:
                     pytest.fail("Gateway listener did not start")
-                unauthorized = await gateway.post(
-                    "/gateway/v1/chat/completions",
-                    json={"model": "test", "messages": [{"role": "user", "content": "hello"}]},
+                path = f"/gateway/v1/{route}"
+                payload = {"model": "test"} | (
+                    {"max_tokens": 64, "messages": [{"role": "user", "content": "hello"}]}
+                    if route == "chat/completions"
+                    else {"max_output_tokens": 64, "store": False, "input": "hello"}
                 )
+                unauthorized = await gateway.post(path, json=payload)
                 assert unauthorized.status_code == 401
                 assert received_a == received_b == []
                 wrong_model = await gateway.post(
-                    "/gateway/v1/chat/completions",
+                    path,
                     headers={"Authorization": "Bearer gateway-key"},
-                    json={
-                        "model": "unapproved-model",
-                        "max_tokens": 64,
-                        "messages": [{"role": "user", "content": "hello"}],
-                    },
+                    json=payload | {"model": "unapproved-model"},
                 )
                 assert wrong_model.status_code == 400, wrong_model.text
                 assert wrong_model.json()["reason_codes"] == ["model_mismatch"]
                 assert received_a == received_b == []
                 response = await gateway.post(
-                    "/gateway/v1/chat/completions",
+                    path,
                     headers={
                         "Authorization": "Bearer gateway-key",
-                        "X-Upstream-URL": f"http://127.0.0.1:{port_b}/v1/chat/completions",
+                        "X-Upstream-URL": f"http://127.0.0.1:{port_b}/v1/{route}",
                     },
-                    json={"model": "test", "max_tokens": 64, "messages": [{"role": "user", "content": "hello"}]},
+                    json=payload,
                 )
                 assert response.status_code == 200, response.text
-                assert response.json()["choices"][0]["message"]["content"] == "ok"
+                value = response.json()
+                text = (
+                    value["choices"][0]["message"]["content"]
+                    if route == "chat/completions"
+                    else value["output"][0]["content"][0]["text"]
+                )
+                assert text == "ok"
                 assert len(received_a) == 1
                 assert b'"hello"' in received_a[0]
                 assert received_b == [], "Core profile A must not send any bytes to listener B"
+                redirect_payload = json.loads(json.dumps(payload).replace("hello", "redirect-me"))
                 redirected = await gateway.post(
-                    "/gateway/v1/chat/completions",
+                    path,
                     headers={"Authorization": "Bearer gateway-key"},
-                    json={"model": "test", "max_tokens": 64, "messages": [{"role": "user", "content": "redirect-me"}]},
+                    json=redirect_payload,
                 )
+                # The empty redirect body cannot form a valid release-check payload in any mode.
                 assert redirected.status_code == 503, redirected.text
                 assert redirected.json()["decision"] == "gate_paused"
                 assert len(received_a) == 2
                 assert received_b == [], "An upstream redirect must not reach listener B"
+                revoked = await client.post(
+                    "/v1/access/bindings/revoke",
+                    json={
+                        "binding_id": invocation_grant["binding_id"],
+                        "expected_version": invocation_grant["version"],
+                        "idempotency_key": "revoke-gateway-invocation",
+                    },
+                )
+                assert revoked.status_code == 200, revoked.text
+                denied = await gateway.post(path, headers={"Authorization": "Bearer gateway-key"}, json=payload)
+                assert denied.status_code == 503, denied.text
+                assert denied.json()["decision"] == "gate_paused"
+                assert len(received_a) == 2, "A new send must observe revoked Gateway invocation authority"
+                assert received_b == []
     finally:
         if process is not None:
             process.terminate()

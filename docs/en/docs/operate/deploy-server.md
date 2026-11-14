@@ -236,6 +236,9 @@ or a protocol mismatch pauses sending. The provider credential remains deploymen
 Do not share a profile between provider credential identities with distinct permissions. No offline passthrough
 is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
 
+The model in a privileged send request must match the Core profile in every privacy mode, including `disabled`,
+`shadow` and `advisory`. Turning off privacy enforcement does not authorize a different model.
+
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared

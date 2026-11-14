@@ -377,6 +377,18 @@ async def test_gateway_target_is_issued_by_the_same_final_payload_admission():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_gateway_target_never_authorizes_a_different_model_in_any_privacy_mode(mode):
+    request = _send(payload=_payload({"model": "other-model", "messages": [{"role": "user", "content": "safe"}]}))
+    result = await _check(request, BindingCodec(), config=_config(mode=mode), resolve_target=True)
+    assert result.decision == "withhold"
+    assert result.reason_codes == ("model_mismatch",)
+    assert result.binding is None
+    assert result.target_endpoint is None
+    assert result.target_protocol is None
+
+
+@pytest.mark.anyio
 async def test_new_admission_uses_changed_core_target_without_reusing_old_target():
     codec = BindingCodec()
     first = await _check(_send(), codec, resolve_target=True)

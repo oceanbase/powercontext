@@ -215,6 +215,9 @@ Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口�
 （或共用的 `PC_GATEWAY_UPSTREAM_API_KEY`）管理；此阶段 Core **不校验**账号/区域身份。权限不同的凭据身份
 不能共用一个 profile。离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
 
+特权发送请求中的模型在所有隐私模式下都必须匹配 Core profile，包括 `disabled`、`shadow` 和 `advisory`。
+关闭隐私强制检查不会授予调用其他模型的权限。
+
 ### 网关上下文注入
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入

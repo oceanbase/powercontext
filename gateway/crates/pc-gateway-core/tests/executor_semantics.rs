@@ -747,6 +747,7 @@ async fn missing_or_mismatched_core_target_never_sends() {
 async fn definite_not_sent_retry_uses_the_newly_approved_destination() {
     let first = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
     let second = ContextCheckResult {
+        binding: Some("binding-2".into()),
         target_endpoint: Some("https://second.example/v1/chat/completions".into()),
         ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
     };
@@ -782,11 +783,44 @@ async fn definite_not_sent_retry_uses_the_newly_approved_destination() {
     let sent = transport.sends.lock().unwrap();
     assert_eq!(checked[0].0, CheckPhase::BeforeSend);
     assert_eq!(checked[1].0, CheckPhase::BeforeSend);
+    assert_eq!(checked[2], (CheckPhase::BeforeRelease, "binding-2".into()));
     assert_eq!(checked[0].1, checked[1].1);
     assert_eq!(
         sent.as_slice(),
         [checked[0].1.as_bytes(), checked[1].1.as_bytes()]
     );
+}
+
+#[tokio::test]
+async fn retry_without_a_valid_target_never_reuses_the_previous_admission() {
+    for missing_target in [true, false] {
+        let mut retry = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+        if missing_target {
+            retry.target_endpoint = None;
+        } else {
+            retry.target_protocol = Some("openai-responses".into());
+        }
+        let (executor, renderer, transport, _) = harness(
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(retry),
+            ],
+            vec![SendOutcome::NotSent(
+                pc_gateway_transport::NotSentReason::ConnectRefused,
+            )],
+            2,
+        );
+        let outcome = executor
+            .run(
+                request_control(),
+                call(),
+                &RendererRef(renderer),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+        assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    }
 }
 
 #[tokio::test]
