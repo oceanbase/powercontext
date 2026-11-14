@@ -117,6 +117,7 @@ try:
         UserPromptPart,
     )
     from pydantic_ai.models import Model, ModelRequestParameters
+    from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.models.wrapper import WrapperModel
     from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
@@ -350,9 +351,18 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             )
             # Keep request identity across streaming/continuation wrappers; owned SDK
             # clients admit their serialized body in the task-local HTTP hook.
-            guarded_model: Model = model if self._limits.allow_continuations else _CompleteResponseModel(model)
+            # Agent discovers explicit instrumentation only on the outermost model.
+            # Keep that layer outside the request-control wrappers.
+            instrumentation = model.instrumentation_settings if isinstance(model, InstrumentedModel) else None
+            agent_model = model.wrapped if isinstance(model, InstrumentedModel) else model
+            guarded_model: Model = (
+                agent_model if self._limits.allow_continuations else _CompleteResponseModel(agent_model)
+            )
+            guarded_model = (
+                InstrumentedModel(guarded_model, instrumentation) if instrumentation is not None else guarded_model
+            )
             self._agent = Agent(
-                guarded_model if budget is None else BudgetedModel(guarded_model),
+                guarded_model if budget is None else BudgetedModel.wrap(guarded_model),
                 deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,

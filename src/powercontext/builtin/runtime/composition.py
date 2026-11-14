@@ -1543,7 +1543,7 @@ async def _dream_generator(
         default=str,
     )
     generator = PydanticAIStructuredGenerator(
-        model=BudgetedModel(model),
+        model=BudgetedModel.wrap(model),
         instructions=DREAM_INSTRUCTIONS,
         input_type=DreamGenerationInput,
         output_type=DreamPlan,

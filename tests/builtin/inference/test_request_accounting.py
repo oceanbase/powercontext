@@ -454,17 +454,28 @@ def test_extra_body_cannot_increase_the_reserved_output_limit() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("protocol", ["responses", "anthropic"])
-def test_supported_sdk_protocols_reject_before_transport(protocol: str) -> None:
+@pytest.mark.parametrize("protocol", ["chat", "responses", "anthropic"])
+@pytest.mark.parametrize("rejection", ["budget", "configuration"])
+def test_supported_sdk_protocols_reject_before_transport_without_retrying(protocol: str, rejection: str) -> None:
     async def scenario() -> None:
         sent = []
+        attempts = []
+
+        async def record_attempt(request):
+            attempts.append(request)
 
         async def handler(request):
             sent.append(request)
             raise AssertionError("budget-bypass")
 
-        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
-            if protocol == "responses":
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(handler), event_hooks={"request": [record_attempt]}
+        ) as client:
+            if protocol == "chat":
+                model = OpenAIChatModel(
+                    "gpt-4o", provider=OpenAIProvider(openai_client=AsyncOpenAI(api_key="k", http_client=client))
+                )
+            elif protocol == "responses":
                 from pydantic_ai.models.openai import OpenAIResponsesModel
 
                 model = OpenAIResponsesModel(
@@ -484,12 +495,19 @@ def test_supported_sdk_protocols_reject_before_transport(protocol: str) -> None:
                 instructions="Instructions",
                 input_type=Input,
                 output_type=Output,
-                budget=_budget(5),
+                budget=_budget(5 if rejection == "budget" else 100_000),
                 operation="skill.generate",
+                model_settings=(
+                    None
+                    if rejection == "budget"
+                    else ModelSettings(extra_body={"previous_response_id": "unaccounted-history"})
+                ),
             )
-            with pytest.raises(InferenceBudgetExceededError):
+            error_type = InferenceBudgetExceededError if rejection == "budget" else InferenceConfigurationError
+            with pytest.raises(error_type):
                 await generator.generate(Input(payload="some text"))
             assert sent == []
+            assert len(attempts) == 1
 
     asyncio.run(scenario())
 

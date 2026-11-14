@@ -28,9 +28,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx2
+from anthropic import AnthropicError
+from openai import OpenAIError
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
+from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.profiles import DEFAULT_PROMPTED_OUTPUT_TEMPLATE
 from pydantic_ai.settings import ModelSettings
@@ -240,7 +243,22 @@ def _require_admission(exchange: _RequestExchange, estimate: RequestEstimate) ->
         raise
 
 
+class _AdmissionRejected(OpenAIError, AnthropicError):
+    """Carry a local rejection through SDKs without connection-error retries."""
+
+
 async def admit_http_request(request: httpx2.Request) -> None:
+    """Check the SDK body and preserve provider retries for actual upstream failures."""
+
+    try:
+        await _admit_http_request(request)
+    except (InferenceBudgetExceededError, InferenceConfigurationError) as error:
+        # Both SDKs propagate their own base errors without treating them as a
+        # connection failure. The inference adapter restores the original cause.
+        raise _AdmissionRejected("budget-admission-rejected") from error
+
+
+async def _admit_http_request(request: httpx2.Request) -> None:
     """Check the final SDK body before its HTTP client enters the transport."""
 
     exchange = _CURRENT_EXCHANGE.get()
@@ -301,11 +319,16 @@ class BudgetedModel(WrapperModel):
         if isinstance(client, httpx2.AsyncClient):
             if admit_http_request not in client.event_hooks["request"]:
                 client.event_hooks["request"].append(admit_http_request)
-            # SDK retries must not turn local rejections into connection retries.
-            if hasattr(sdk, "max_retries"):
-                sdk.max_retries = 0
         elif self.wrapped.system not in {"test", "function"}:
             raise InferenceConfigurationError("budget-accounting-unsupported")
+
+    @classmethod
+    def wrap(cls, model: Model) -> Model:
+        """Keep explicit instrumentation visible to the Agent after wrapping."""
+
+        if isinstance(model, InstrumentedModel):
+            return InstrumentedModel(cls(model.wrapped), model.instrumentation_settings)
+        return cls(model)
 
     def _admit(
         self,
