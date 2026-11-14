@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import { PowerContextClient } from '../src/client.ts'
 import { invokeOperation } from '../src/invoke.ts'
-import { containsSecret, scrubSecrets } from '../src/secrets.ts'
+import { containsSecret, scrubSecrets } from '../src/prompt-privacy.ts'
 
 describe('secret detection', () => {
   it('recognizes assignments and token-shaped credentials', () => {

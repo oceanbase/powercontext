@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { open, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { containsSecret } from '../../powercontext/src/secrets.ts'
+import { containsSecret } from '../../powercontext/src/prompt-privacy.ts'
 import { privateDirectory, record, type Binding } from './state.ts'
 
 export const MAX_TURN_BYTES = 24_000

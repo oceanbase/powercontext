@@ -60,8 +60,13 @@ COPIES = {
         f"{_CODEX}/hooks/bootstrap_context.py",
     ),
 }
-# A copy keeps the path its plugin imports, so bundled output still names the same module.
+# Each copy sits at the path its plugin imports.
 TYPESCRIPT_COPIES = {
+    "prompt-privacy.ts": (
+        f"{_DSH}/src/prompt-privacy.ts",
+        f"{_OPENCODE}/src/prompt-privacy.ts",
+        f"{_PI}/src/prompt-privacy.ts",
+    ),
     "transport.ts": (
         f"{_DSH}/src/transport.ts",
         f"{_OPENCLAW}/src/transport.ts",

@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import type { ResolvedConfig } from '../src/config.ts'
 import { runRecallPreStep } from '../src/recall.ts'
-import { containsSecret, scrubSecrets } from '../src/secrets.ts'
+import { containsSecret, scrubSecrets } from '../src/prompt-privacy.ts'
 
 const { cases } = JSON.parse(readFileSync(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',

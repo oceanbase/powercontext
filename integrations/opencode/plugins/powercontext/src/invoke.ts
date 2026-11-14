@@ -19,7 +19,7 @@ import type { JsonObject, PowerContextClient } from './client.ts'
 import { InvalidResponseError, ServerResponseError, UnknownOperationError } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
 import { MemoryOperationError, requestMemoryOperation } from './memory-operations.ts'
-import { containsSecret } from './secrets.ts'
+import { containsSecret } from './prompt-privacy.ts'
 
 export interface ToolResult {
   ok: boolean

@@ -20,7 +20,7 @@ import { PowerContextClient, type ClientSuccess } from '../../powercontext/src/c
 import { storedAuthorization } from '../../powercontext/src/config.ts'
 import { ServerResponseError } from '../../powercontext/src/errors.ts'
 import { boundedRecallQuery } from '../../powercontext/src/prepared-context.ts'
-import { containsSecret } from '../../powercontext/src/secrets.ts'
+import { containsSecret } from '../../powercontext/src/prompt-privacy.ts'
 import { CaptureQueue, MAX_TURN_BYTES, pruneExpired } from './queue.ts'
 import { identityOf, readSettings, record, writeStatus, type Binding, type Settings } from './state.ts'
 
