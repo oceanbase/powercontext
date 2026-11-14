@@ -24,8 +24,8 @@ native MCP discovery before validating capture and recall.
 The same package also exposes an independent browser entry, `./client`. After restart, DSH Web and Desktop show a
 PowerContext status control above the account area. If the control is absent, the host did not load the browser
 entry; existing tools and lifecycle behavior remain available, so this is not a Server failure. Click the control
-for connection diagnostics and the **Open Dashboard** action. With a selected conversation, the existing Dashboard
-opens in DSH's right sidebar.
+for connection diagnostics, version controls, and the **Open Dashboard** action. With a selected conversation,
+the existing Dashboard opens in DSH's right sidebar.
 
 The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
 `beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
@@ -33,9 +33,8 @@ before installation. Local `.tgz` installation verifies the archive path, not np
 
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The latest official release checked for this implementation is
-`0.2.2-rc.1` (a prerelease published on 2026-11-04); the P1/P2 Web and Desktop bundled-runtime acceptance was run
-against that exact package. The deterministic SDK runtime contract tests remain pinned to their older fixture.
+Install DeepSeek Harness Web or Desktop. The P1/P2 Web and Desktop bundled-runtime acceptance was run against
+the official `0.2.2-rc.1` prerelease (published on 2026-11-04). The deterministic SDK runtime contract tests remain pinned to their older fixture.
 Do not infer support for another DSH release from this result. Choose one PowerContext installation path and keep
 the Server and plugin together.
 
@@ -158,6 +157,67 @@ the Server default/workspace binding, or set it to an existing Scope intentional
 Environment overrides take precedence over plugin patch values, which take precedence over defaults. They must be
 present in the process launching DSH; changing another terminal's environment does not update a running host.
 
+## Optional long-term memory for dsh-pet
+
+Pet chat in DSH Web and Desktop can recall older preferences from a dedicated PowerContext Scope while keeping the pet's
+native persona, recent window and local history. The adapter is separate from the ordinary DSH agent plugin
+and is off by default. The initial combination is DSH `0.2.2-rc.1`, dsh-pet `0.4.8`, and the adapter
+and Server from the same PowerContext checkout or release. Desktop acceptance covers the macOS arm64 app.
+Standalone pets do not use the adapter.
+
+Create a [separate Scope](../workflows/scopes-and-access.md) for each pet on the Server. Use the exact pet
+instance ID (the built-in default is `main`) and Scope ID. The selected profile must already contain one
+enabled dsh-pet entry. Configure generation and [Memory processing](../get-started/configure-models.md)
+on that Server to turn eligible text exchanges into searchable Memory.
+
+Run `powercontext setup dsh` in a terminal to configure pet memory for the first time. If the selected profile
+already has a compatible dsh-pet enabled, setup offers to enable long-term memory. Confirm, enter the pet instance
+ID (Enter accepts `main`), and select a dedicated Scope by number or enter its exact ID. Skipping keeps pet memory
+off and ordinary DSH setup completes. Rerunning setup without pet options preserves an existing pet memory configuration.
+
+For scripts, piped input, or `--json`, opt in with both explicit options:
+
+```bash
+powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
+  --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
+```
+
+For Desktop, use `--profile desktop` instead. Initialize that profile by opening the installed DSH
+Desktop app once, then fully quit it before running setup. Use its [Desktop-installed command](#install-matching-server-and-plugin-versions).
+Web and Desktop have separate pet bindings and delivery queues. Set up each profile you want to use.
+
+Replace `<PET_SCOPE_ID>` with the actual ID, without the angle brackets. Repeat `--dsh-pet-bind` for other
+pets, with a different Scope each time. The bindings supplied to `on` are the complete set for that profile.
+Remote Servers require HTTPS and authentication; use the normal URL-bound DSH credential configuration.
+A loopback Server with authentication disabled must be reachable without credentials. Pet memory does not send
+a stored DSH credential to that Server.
+With access enforcement enabled, the credential needs Scope read and contribution access.
+Setup uses the dsh-pet already enabled in the selected profile and only installs the PowerContext memory adapter.
+A missing, disabled, ambiguous or incompatible pet does not block ordinary DSH setup. Check the separate
+`dsh_pet_memory` result to see whether the adapter was enabled.
+
+Restart the selected host, then run `powercontext doctor dsh --profile web` or
+`powercontext doctor dsh --profile desktop`. Provider registration,
+recall, pending delivery and Source acceptance are separate observations. A Source acceptance does not
+mean the Server extracted a Memory. Recall is limited to the bound Scope; an empty result, outage or
+timeout leaves the original chat input intact. If the single provider slot is occupied, the adapter leaves it alone.
+
+Opting in sends newly completed text questions and replies to the configured Server. That Server may
+process the text with its configured model providers, and recalled text is passed to the pet's chat model.
+Attachments and past local history are excluded. The private local queue retains up to 128 records per
+binding and skips records older than seven days. Retrying an already queued record reuses its Source
+identity and payload. Changing the Server identity or Scope never sends the old queue to the new destination.
+
+```bash
+powercontext setup dsh --profile web --dsh-pet-memory off
+powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
+```
+
+The first command stops recall, capture and delivery. The second also discards unsent records for this profile.
+Use `--profile desktop` to change the Desktop profile instead. Neither retracts a request the Server already accepted. Clearing the pet's local chat does not clear this queue
+or delete remote Sources or Memories. Restarting or enabling the exact same binding again can retry its remaining
+pending records; run one DSH host per profile.
+
 ## Sidebar status and diagnostics
 
 The sidebar control appears above the account area. Its color and accessible label are always paired:
@@ -169,13 +229,13 @@ The sidebar control appears above the account area. Its color and accessible lab
 | Green | Liveness, readiness, and the required PreparedContext capability were verified |
 | Red | Connection, DSH authentication, or a required capability failed |
 
-Clicking the control opens a read-only diagnostics panel in Simplified Chinese by default. The language icon
+Clicking the control opens a diagnostics panel in Simplified Chinese by default. The language icon
 switches to English; an explicit choice persists in the current browser's local storage, with Chinese as the
 fallback. The compact view shows connection state, Server address, workspace and Scope. Expand **Technical details**
 for the conversation ID, deployment mode, authentication source (never the credential), readiness dependencies,
 context schema and automatic-path observations.
-The footer reads `package_version` from `GET /v1/server-info` through the Host and shows the current Server package
-version. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
+The footer shows the running plugin version. **Technical details** shows the connected Server's package version
+from `GET /v1/server-info`. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
 the plugin version or API contract version. The bounded metadata read does not determine readiness.
 The panel reuses the same in-memory `RuntimeStatus` as `/pc`, rather than reconstructing history from logs.
 It never calls a model, sends a diagnostic prompt, or polls `/pc doctor`.
@@ -216,9 +276,28 @@ prints the launch token, Authorization value, or a bearer header. A conversation
 session and invalidates responses from the previous selection. With no conversation, the panel says so and does
 not create one.
 
-Updating the plugin is an install-and-restart operation; the existing profile and connection settings are
-preserved. Uninstalling it removes the browser entry, the `/powercontext/status` and `/powercontext/dashboard` routes, subscriptions, and
-timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
+Updating and restarting the plugin preserves the existing profile and connection settings. Uninstalling it removes
+the browser entry, the `/powercontext/status`, `/powercontext/dashboard`, and `/powercontext/updates` routes,
+subscriptions, and timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
+
+### Check for PowerContext updates
+
+The local DSH Host checks published PowerContext releases shortly after startup and every hour, even when the panel
+is closed or the Server is offline. To check immediately, use the refresh icon in the version footer. The footer
+links to the release notes, and the control's tooltip describes the check or installation state. Checks never install
+an update. The default channel is stable; set `updateChannel: preview` in the plugin patch to include prereleases,
+or set `updateHold: true` to keep the installed plugin version.
+
+When the matching Server is already running and DSH can verify the exact compatible package on an eligible npm source,
+the icon becomes **Update**. Select it to let DSH install the plugin in the current profile. Finish active turns first.
+You can close the panel while installation runs; reopen it to check progress. If DSH asks for a reload or restart,
+the running version changes only once the new plugin loads. If the registry does not have the package yet, check again later. Linked
+checkouts, Git installs, archives, and custom registries retain their existing update workflow. Tests cover the
+npm update capability reported by DSH `0.2.2-rc.2` using a simulated plugin manager. They do not verify installation
+from the public npm registry or the full workflow on a real rc.2 host.
+
+**Technical details** links to the [Server upgrade guide](../get-started/install-and-run.md#update-or-replace-an-installation).
+Use the deployment's supported process for updating, restarting, and, when required, migrating its database.
 
 ## Open the Dashboard in DSH
 
@@ -369,6 +448,13 @@ The plugin has three deliberately different paths to the same Server:
 - before each model step it asks the Runtime to prepare one final, bounded context value, then independently captures the user's prompt as Source evidence;
 - DSH's native MCP client connects to `/mcp/` and exposes the Server tools as `mcp__powercontext__<operation>`;
 - `/pc` commands and automatic lifecycle stages use the bounded HTTP client for host control and diagnostics.
+
+The automatic path follows the [automatic prompt privacy](index.md#automatic-prompt-privacy) policy. Before
+preparation, recognized credentials in the recall query are replaced with `[REDACTED]`: credential assignments such
+as `api_key=…` or `password: …`, `Authorization` and `Cookie` headers, bearer and provider tokens, private keys, and
+the configured Server token. A prompt that contains any of them is not captured. Ordinary words that only contain a
+marker, such as `task-runner` or `token budgets`, are captured unchanged. The rule recognizes common shapes, not
+every secret.
 
 The MCP surface covers the full PowerContext profile: Memory read/write, Source capture, Work Contract, Handoff and
 acknowledgement, task outcome, Experience, managed and external Skill workflows, candidate inspection, Scope

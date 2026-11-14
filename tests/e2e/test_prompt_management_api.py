@@ -18,16 +18,23 @@ import asyncio
 import json
 from pathlib import Path
 
+import aiosqlite
 import httpx
 import pytest
-from pydantic import SecretStr
+from pydantic import JsonValue, SecretStr
 from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
+from sqlalchemy.exc import IntegrityError
 
 from powercontext.builtin.artifacts.memory import MemoryExtractionProfile, memory_extraction_instructions
+from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations
+from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
+from powercontext.builtin.records import ArtifactWrite
+from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, open_builtin_runtime
 from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
     CreateArtifactRequest,
@@ -42,10 +49,11 @@ from powercontext.http import (
     ReplaceArtifactRequest,
 )
 from powercontext.server.factory import create_server_app
+from powercontext.server.logging import JsonFormatter
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
 
-def _content(instructions: str = "", *, mode: str = "auto") -> dict[str, object]:
+def _content(instructions: str = "", *, mode: str = "auto") -> dict[str, JsonValue]:
     return {
         "schema_version": "powercontext.prompt.v1",
         "mode": mode,
@@ -436,5 +444,110 @@ def test_prompt_http_history_generation_and_scoped_inference(
                     json={"instructions": "valid", "demonstration_count": 1},
                 )
             ).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_prompt_demonstration_schema_failure_is_safe_and_unsaved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def respond(messages, info) -> ModelResponse:
+        return ModelResponse(parts=[TextPart('{"demonstrations": [], "raw": "private-model-output"}')])
+
+    model = FunctionModel(respond)
+
+    async def open_model(*args, **kwargs):
+        return model, model
+
+    monkeypatch.setattr("powercontext.builtin.runtime.composition._open_pydantic_ai_model", open_model)
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'prompt-diagnostics.db'}"),
+                inference=InferenceConfig(generation_model="test:prompt"),
+            ),
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Prompt diagnostics", summary="Generate demonstrations", idempotency_key="prompt-diag")
+            )
+            prompts = runtime.prompts.for_scope(scope.scope_id)
+            key = "atomic_memory.extract"
+            with pytest.raises(InvalidInferenceOutputError):
+                await prompts.generate_demonstrations(
+                    key, GeneratePromptDemonstrations(instructions="private-demo-guidance", demonstration_count=2)
+                )
+            (failure,) = [
+                record for record in caplog.records if getattr(record, "event", None) == "artifact.operation.failed"
+            ]
+            fields = vars(failure)
+            assert (fields["family"], fields["operation"], fields["scope"]) == (
+                "prompt",
+                "prompt.generate_demonstrations",
+                scope.scope_id,
+            )
+            assert (fields["processing_stage"], fields["failure_reason"]) == ("output_parsing", "schema_invalid")
+            assert failure.exc_info is None
+            assert "private-demo-guidance" not in repr(vars(failure))
+            assert "private-model-output" not in repr(vars(failure))
+            assert (await prompts.read_configuration(key)).artifact is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("operation", ["create", "replace"])
+def test_prompt_write_reports_database_failure_and_rolls_back(
+    operation: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "prompt-write.db"
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{db_path}"))
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Prompt write diagnostics", summary="Publish Prompt", idempotency_key="prompt-write")
+            )
+            records = runtime.records.for_scope(scope.scope_id)
+            key = "atomic_memory.extract"
+            if operation == "replace":
+                await records.create_artifact("prompt", ArtifactWrite(content=_content(), prompt_key=key))
+
+            async with aiosqlite.connect(db_path) as connection:
+                await connection.execute(
+                    f"CREATE TRIGGER reject_prompt_revision BEFORE INSERT ON {ARTIFACTS_TABLE.name} "
+                    "BEGIN SELECT RAISE(ABORT, 'private-driver-detail'); END"
+                )
+
+            async def write() -> None:
+                payload = _content()
+                if operation == "create":
+                    await records.create_artifact("prompt", ArtifactWrite(content=payload, prompt_key=key))
+                else:
+                    await records.replace_artifact("prompt", key, '"revision:1"', ArtifactWrite(content=payload))
+
+            with pytest.raises(IntegrityError, match="private-driver-detail"):
+                await write()
+            (record,) = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+            rendered = JsonFormatter().format(record)
+            fields = json.loads(rendered)
+            assert (fields["family"], fields["operation"], fields["scope"]) == (
+                "prompt",
+                f"prompt.{operation}",
+                scope.scope_id,
+            )
+            assert fields["processing_stage"] == "persistence"
+            assert fields["failure_reason"] == "storage_failure"
+            assert fields["failure_location"] == f"prompt-{operation}-storage"
+            assert fields["exception_type"] == fields["cause_exception_type"] == "IntegrityError"
+            assert "private-driver-detail" not in rendered
+            assert "exception" not in fields
+
+            async with aiosqlite.connect(db_path) as connection:
+                await connection.execute("DROP TRIGGER reject_prompt_revision")
+            await write()
+            current = await records.get_artifact("prompt", key)
+            assert current.revision == (1 if operation == "create" else 2)
 
     asyncio.run(scenario())

@@ -1103,6 +1103,48 @@ jobs:
       - name: Verify OpenCode guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[opencode]"
 
+  codex-host:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').codex) }}
+    timeout-minutes: 20
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    env:
+      CODEX_VERSION: '0.167.2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - name: Install the pinned Codex host
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-host" \
+            --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
+            "@openai/codex@$CODEX_VERSION"
+          cli="$RUNNER_TEMP/codex-host/node_modules/.bin/codex"
+          test "$("$cli" --version)" = "codex-cli $CODEX_VERSION"
+          echo "CODEX_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Run Codex with the PowerContext plugin against a real Server
+        # Without the binary the cases skip, so refuse to run without it.
+        run: |
+          test -x "$CODEX_CLI_BIN"
+          uv run pytest tests/e2e/test_codex_host_service_chain.py --basetemp "$RUNNER_TEMP/codex-e2e"
+
+      - name: Upload Codex host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: codex-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          # pytest also links each case's directory as *current; upload each log once.
+          path: |
+            ${{ runner.temp }}/codex-e2e/**/codex.log
+            !${{ runner.temp }}/codex-e2e/*current/**
+          if-no-files-found: ignore
+          retention-days: 7
+
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
@@ -1248,6 +1290,24 @@ jobs:
     uses: ./.github/workflows/managed-resource-candidates.yml
     with:
       suites: ${{ needs.quality.outputs.suites }}
+      # Windows and macOS are the required managed-resource platforms. Linux
+      # qualification runs in a separate optional caller below.
+      targets: '["windows-x86_64","macos-arm64","macos-x86_64"]'
+      concurrency_suffix: required
+
+  managed-resource-candidates-linux:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').managed_resources) }}
+    uses: ./.github/workflows/managed-resource-candidates.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+      # Linux is optional under #2112. Its diagnostics and artifacts remain
+      # visible, but it is deliberately outside the required result gate.
+      targets: '["linux-x86_64"]'
+      concurrency_suffix: linux
 
   script-installation:
     needs: [quality, tests]
@@ -1352,6 +1412,7 @@ jobs:
       - pi-package
       - opencode-package
       - openclaw-package
+      - codex-host
       - opendal-package
       - website-link-validation-windows
       - check-website

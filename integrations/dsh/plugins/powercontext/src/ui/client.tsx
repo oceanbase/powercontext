@@ -22,6 +22,7 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+import { UpdateDetails, useVersionUpdates, VersionFooter } from './update-panel.tsx'
 import { dashboardTextKey, hasMismatchedLoopbackSite, readDashboard } from './dashboard.ts'
 
 const LocaleContext = createContext<Locale>('zh-CN')
@@ -102,7 +103,10 @@ function SessionSection({ data }: { data: StatusPayload }) {
   </Section>
 }
 
-function TechnicalDetails({ data }: { data: StatusPayload }) {
+function TechnicalDetails({ data, updates, serverVersion }: {
+  data: StatusPayload; updates: ReturnType<typeof useVersionUpdates>; serverVersion: string | null | undefined
+}) {
+  const locale = useContext(LocaleContext)
   const t = useText()
   return <details className="pc-details"><summary>{t('details')}</summary>
     <Section title={t('connection')}><div className="pc-kv">
@@ -117,6 +121,7 @@ function TechnicalDetails({ data }: { data: StatusPayload }) {
       {(['liveness', 'readiness', 'capabilities'] as const).map(key => <div className="pc-detail-row" key={key}>
         <span className="pc-key">{t(key)}</span><span className="pc-value">{t(data.server[key].state)} {data.server[key].code}</span>
       </div>)}
+      <UpdateDetails locale={locale} serverVersion={serverVersion} updates={updates} />
       <span className="pc-key">{t('dependencies')}</span><span className="pc-value pc-mono">{Object.entries(data.server.readiness.dependencies ?? {}).map(([key, value]) => `${key}=${value}`).join(', ') || t('unknown')}</span>
       <span className="pc-key">{t('scopeSource')}</span><span className="pc-value">{data.configuration.scope_source}</span>
       <span className="pc-key">{t('schema')}</span><span className="pc-value pc-mono">{data.capabilities.context_versions.join(', ') || t('unknown')}</span>
@@ -161,6 +166,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const sessionId = useSessions(state => activeSessionId(state))
   const snapshot = useStatus(value => value)
   const [open, setOpen] = useState(false)
+  const updates = useVersionUpdates(open)
   const [dashboardBusy, setDashboardBusy] = useState(false)
   const [dashboardNotice, setDashboardNotice] = useState<TextKey | null>(null)
   const [externalDashboard, setExternalDashboard] = useState<string | null>(null)
@@ -175,6 +181,8 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const now = Math.max(clockTick, snapshot.last_success_at ?? 0)
   const state = displayState(snapshot, now)
   const data = snapshot.data
+  const serverVersion = snapshot.error !== null || state === 'stale' || data?.server.liveness.state === 'failed'
+    ? null : data?.server.package_version
 
   useEffect(() => { setSession(sessionId) }, [sessionId, setSession])
 
@@ -421,7 +429,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
               <>
                 <Section title={t('server')}><div className="pc-kv"><span className="pc-key">{t('address')}</span><span className="pc-value pc-mono">{data.configuration.endpoint_origin || t('unknown')}</span></div></Section>
                 <SessionSection data={data} />
-                <TechnicalDetails data={data} />
+                <TechnicalDetails data={data} updates={updates} serverVersion={serverVersion} />
               </>
             )}
 
@@ -430,10 +438,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
             )}
           </div>
 
-          <footer className="pc-panel-foot">
-            <span>{t('serverVersion')}</span>
-            <span className="pc-mono">{snapshot.error !== null || state === 'stale' ? t('unknown') : data?.server.package_version ?? t('unknown')}</span>
-          </footer>
+          <VersionFooter locale={props.locale} pluginVersion={data?.plugin_version} updates={updates} />
         </div>
       )}
     </div>

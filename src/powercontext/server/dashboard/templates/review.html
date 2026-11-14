@@ -13,60 +13,95 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
-
-<div class="container-xl">
-  <h2>{{ t.review }}</h2>
-  <form method="get" action="/dashboard/review" class="row g-3 mb-4">
-    <input type="hidden" name="scope" value="{{ scope }}">
-    <div class="col-md-4"><label class="form-label" for="review-resource">{{ t.review_resource }}</label><select id="review-resource" class="form-select" name="resource_type">
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/review-values.html' import review_value with context %}
+<div class="review-view">
+  <style>
+    me .review-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr); gap: 1.25rem; }
+    me .review-grid > * { min-width: 0; }
+    me .review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+    me .review-title { overflow-wrap: anywhere; }
+    me .review-raw { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 32rem; overflow: auto; }
+    me .review-field + .review-field { border-top: 1px solid var(--tblr-border-color); margin-top: 1.5rem; padding-top: 1.5rem; }
+    me .review-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+    me .review-comparison > * { min-width: 0; border: 1px solid var(--tblr-border-color); border-radius: var(--tblr-border-radius); padding: 1rem; }
+    me .review-comparison .review-proposed { border-inline-start: 3px solid var(--tblr-primary); }
+    me .review-value-map { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: .5rem .75rem; }
+    me .review-value-map dt { font-weight: normal; color: var(--tblr-secondary-color); overflow-wrap: anywhere; }
+    me .review-value-map dd { min-width: 0; margin: 0; }
+    me .review-value-list { padding-left: 1.25rem; }
+    me .review-reference { overflow-wrap: anywhere; }
+    me .review-evidence + .review-evidence { border-top: 1px solid var(--tblr-border-color); margin-top: 1rem; padding-top: 1rem; }
+    @media (max-width: 1199px) { me .review-grid { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 767px) { me .review-comparison { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+  {% if not review.selected %}
+  {{ page_heading(t.review, t.review_subtitle) }}
+  <form method="get" action="/dashboard/review" class="row g-3 align-items-end mb-4">
+    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}"><input type="hidden" name="period" value="{{ period }}">
+    <div class="col-sm-5"><label class="form-label" for="review-resource">{{ t.review_resource }}</label><select id="review-resource" class="form-select" name="resource_type">
       {% for value in ['all', 'artifact', 'tag'] %}<option value="{{ value }}" {% if review.kind == value %}selected{% endif %}>{{ t['review_' ~ value] }}</option>{% endfor %}
     </select></div>
-    <div class="col-md-4"><label class="form-label" for="review-status">{{ t.review_status }}</label><select id="review-status" class="form-select" name="review_status">
+    <div class="col-sm-5"><label class="form-label" for="review-status">{{ t.review_status }}</label><select id="review-status" class="form-select" name="review_status">
       {% for value in ['pending', 'approved', 'rejected'] %}<option value="{{ value }}" {% if review.status == value %}selected{% endif %}>{{ t['review_' ~ value] }}</option>{% endfor %}
     </select></div>
-    <div class="col-md-4 align-self-end"><button class="btn" type="submit">{{ t.apply }}</button></div>
+    <div class="col-sm-2"><button class="btn w-100" type="submit">{{ t.review_apply_filters }}</button></div>
   </form>
+  {% endif %}
+  {% if errors.get('candidates') %}{{ read_error(errors.candidates, t.review_directory) }}{% endif %}
+  {% if review.selected %}<a class="d-inline-block mb-3" href="{{ link('review', candidate_id=none, candidate_kind=none, evidence=none, view=none) }}">← {{ t.review_directory }}</a><details class="mb-4"><summary>{{ t.review_other_candidates }}</summary>{% endif %}
   {% for section in review.sections %}
-  <section class="mb-4">
-    <h3>{{ t['review_' ~ section.kind] }}</h3>
-    <div class="table-responsive"><table class="table table-vcenter">
-      <thead><tr><th>{{ t.review_resource }}</th><th>{{ t.review_version }}</th><th>{{ t.review_reason }}</th><th>{{ t.review_status }}</th></tr></thead>
-      <tbody>{% for item in section.candidates %}<tr>
-        <td><a href="{{ link('review', candidate_id=item.candidate_id, candidate_kind=item.candidate_kind, evidence=none, view=none) }}">{{ item.family if item.candidate_kind == 'artifact' else 'Tag' }} · {{ item.candidate_id }}</a></td>
-        <td>{{ item.version }}</td><td>{{ item.reason or '' }}</td><td>{{ t['review_' ~ item.status] }}</td>
-      </tr>{% else %}<tr><td colspan="4">{{ t.review_empty }}</td></tr>{% endfor %}</tbody>
-    </table></div>
-    {% if section.next_cursor %}<a class="btn" href="{{ link('review', **{'cursor': section.next_cursor, 'candidate_id': none}) }}">{{ t.review_next }}</a>{% endif %}
+  <section class="card mb-4 mt-3">
+    <div class="card-header"><h2 class="card-title mb-0">{{ t['review_' ~ section.kind] }}</h2><span class="badge bg-secondary-lt ms-auto">{{ t['review_' ~ review.status] }}</span></div>
+    <div class="list-group list-group-flush">
+      {% for item in section.candidates %}<a class="list-group-item list-group-item-action" data-candidate-id="{{ item.candidate_id }}" href="{{ link('review', candidate_id=item.candidate_id, candidate_kind=item.candidate_kind, evidence=none, view=none) }}" {% if review.selected and review.selected.candidate.candidate_id == item.candidate_id %}aria-current="true"{% endif %}>
+        <div class="d-flex flex-wrap justify-content-between gap-2"><span class="review-title fw-medium">{{ item.display_title|truncate(120, true) }}</span><span class="badge bg-{{ {'pending':'yellow', 'approved':'green', 'rejected':'secondary'}[item.status] }}-lt">{{ t['review_' ~ item.status] }}</span></div>
+        <div class="small text-secondary mt-2">{{ item.family_label }} · {{ t.review_version }} {{ item.version }}{% if item.candidate_kind == 'tag' %} · {{ t.review_tag }}{% endif %}</div>
+
+      </a>{% else %}<p class="text-secondary px-3 py-4 mb-0">{{ t.review_empty }}</p>{% endfor %}
+    </div>
+    {% if section.next_cursor %}<div class="card-footer"><a class="btn" href="{{ link('review', cursor=section.next_cursor, candidate_id=none, candidate_kind=none, evidence=none, view=none) }}">{{ t.review_next }}</a></div>{% endif %}
   </section>
   {% endfor %}
-  {% if review.selected %}{% set detail = review.selected %}{% set candidate = detail.candidate %}
-  <article class="card mb-4"><div class="card-body">
-    <h3>{{ candidate.candidate_id }} · {{ t.review_version }} {{ candidate.version }}</h3>
-    <p>{{ candidate.reason or '' }}</p>
-    {% if detail.kind == 'tag' %}<p>{{ t.review_effect_tag }}</p>
-    {% elif candidate.family in ['prompt', 'skill', 'handoff'] %}<p>{{ t['review_effect_' ~ candidate.family] }}</p>{% endif %}
-    <h4>{{ t.review_diff }}</h4>
-    {% if detail.get('baseline_error') %}<p>{{ t.review_target_unavailable }}</p>{% else %}<pre class="overflow-auto">{{ detail.diff }}</pre>{% endif %}
-    <details class="mb-3"><summary>{{ t.review_content }}</summary><pre>{{ detail.proposal }}</pre></details>
-    <h4>{{ t.review_evidence }}</h4>
-    {% for evidence in detail.evidence %}<details class="mb-3" {% if evidence.selected %}open{% else %}hx-get="{{ link('review/inspect', candidate_id=candidate.candidate_id, evidence=loop.index0) }}" hx-trigger="toggle[target.open] once" hx-target="this" hx-select="unset" hx-swap="outerHTML" hx-sync="this:replace" hx-boost="false"{% endif %}><summary><code>{{ evidence.reference }}</code></summary>
-      {% if evidence.get('error') %}<p>{{ t.review_unavailable }}</p>{% elif evidence.selected %}<pre>{{ evidence.content }}</pre>{% endif %}
-    </details>{% endfor %}
-    <details class="mb-3" {% if detail.history %}open{% else %}hx-get="{{ link('review/inspect', candidate_id=candidate.candidate_id, view='history') }}" hx-trigger="toggle[target.open] once" hx-target="this" hx-select="unset" hx-swap="outerHTML" hx-sync="this:replace" hx-boost="false"{% endif %}><summary>{{ t.review_history }}</summary>{% for entry in detail.history %}<p>{{ t.review_version }} {{ entry.version }} · {{ t['review_' ~ entry.status] }} · {{ entry.decision_reason or entry.reason }}</p>{% endfor %}</details>
-    {% if candidate.status == 'pending' %}
-    {% set permissions = candidate.get('permissions') %}
-    <form method="post" action="/dashboard/review/decision" class="mb-3" hx-boost="false">
-      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
-      {% if permissions is none or permissions.can_approve %}<button type="submit" name="action" value="approve" class="btn btn-primary">{{ t.review_approve }}</button>{% endif %}
-      {% if permissions is none or permissions.can_reject %}<label class="form-label mt-3" for="rejection-reason">{{ t.review_reject_reason }}</label><input id="rejection-reason" class="form-control mb-2" name="reason" maxlength="2000"><button type="submit" name="action" value="reject" class="btn">{{ t.review_reject }}</button>{% endif %}
-    </form>
-    {% if permissions is none or permissions.can_revise %}<details><summary>{{ t.review_edit }}</summary>
-    <form method="post" action="/dashboard/review/decision" hx-boost="false">
-      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
-      <textarea class="form-control font-monospace my-3" rows="16" name="replacement" aria-label="{{ t.review_content }}" required>{{ detail.revision }}</textarea>
-      <button type="submit" name="action" value="revise" class="btn">{{ t.review_revise }}</button>
-    </form></details>{% endif %}
-    {% endif %}
-  </div></article>
+  {% if review.selected %}</details>
+  {% set detail = review.selected %}{% set candidate = detail.candidate %}
+  <header class="mb-4">
+    <div class="text-secondary small mb-2">{{ detail.family_label }} · {{ t.review_version }} {{ candidate.version }} <span class="badge bg-{{ {'pending':'yellow', 'approved':'green', 'rejected':'secondary'}[candidate.status] }}-lt ms-2">{{ t['review_' ~ candidate.status] }}</span></div>
+    <h1 class="review-title">{{ detail.title|truncate(160, true) }}</h1>
+  </header>
+  <div class="review-grid">
+    <div>
+      {% if candidate.status == 'approved' %}<section class="card border-success mb-3" aria-label="{{ t.review_saved_result }}"><div class="card-body"><h2 class="card-title">{{ t.review_saved_result }}</h2>
+        {% if detail.kind == 'tag' and candidate.get('result') %}<p>{{ t.review_saved_tags }}</p>{{ review_value(candidate.result.tags, 'tags') }}{% if detail.target_url %}<a class="btn mt-3" href="{{ detail.target_url }}">{{ t.review_view_basis }}</a>{% endif %}
+        {% elif detail.result_url %}<p>{{ t.review_saved_revision.format(revision=candidate.result_artifact.revision) }}</p><a class="btn btn-success" href="{{ detail.result_url }}">{{ t.review_open_result }} →</a>
+        {% else %}<p class="text-secondary">{{ t.review_result_reference_only }}</p>{% endif %}
+      </div></section>{% elif candidate.status == 'rejected' %}<section class="card mb-3"><div class="card-body"><h2 class="card-title">{{ t.review_rejected }}</h2><p class="review-text mb-0">{{ candidate.decision_reason or t.review_reason_empty }}</p></div></section>{% endif %}
+      <section class="card mb-3" aria-label="{{ t.review_readable_content }}">
+        <div class="card-header"><h2 class="card-title mb-0">{{ t.review_readable_content }}</h2><span class="badge bg-secondary-lt ms-auto">{{ t.review_tag if detail.kind == 'tag' else t.review_replace if candidate.get('target') else t.review_create }}</span></div>
+        <div class="card-body">
+          {% if detail.get('baseline_error') %}<p class="text-warning">{{ t.review_target_unavailable }}</p>
+          {% elif candidate.get('target') %}<p class="text-secondary small">{{ t.review_recorded_baseline.format(revision=candidate.target.revision) }} {% if detail.target_url %}<a href="{{ detail.target_url }}">{{ t.review_view_basis }}</a>{% endif %}</p>{% endif %}
+          {% for field in detail.fields if not field.technical %}
+          <section class="review-field" data-review-field="{{ field.name }}">
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-3"><h3 class="h4 mb-0">{{ t.get(field.label, field.label) }}</h3>{% if candidate.get('target') or detail.kind == 'tag' %}<span class="badge {{ 'bg-blue-lt' if field.changed else 'bg-secondary-lt' }}">{{ t.review_comparison_unknown if field.changed is none else t.review_field_changed if field.changed else t.review_field_unchanged }}</span>{% endif %}</div>
+            {% if candidate.get('target') or detail.kind == 'tag' %}<div class="review-comparison"><div><div class="small text-secondary mb-2">{{ t.review_before }}</div>{% if detail.get('baseline_error') %}<span class="text-secondary">{{ t.review_target_unavailable }}</span>{% else %}{{ review_value(field.before, field.name) }}{% endif %}</div><div class="review-proposed"><div class="small text-secondary mb-2">{{ t.review_proposed }}</div>{{ review_value(field.after, field.name) }}</div></div>
+            {% else %}{{ review_value(field.after, field.name) }}{% endif %}
+          </section>{% endfor %}
+          {% set extra = detail.fields|selectattr('technical')|list %}{% if extra %}<details class="mt-4 border-top pt-3"><summary>{{ t.review_extra_fields }}</summary>{% for field in extra %}<section class="mt-3"><h3 class="h4">{{ t.get(field.label, field.label) }}</h3>{% if candidate.get('target') %}<div class="review-comparison"><div><div class="small text-secondary mb-2">{{ t.review_before }}</div>{% if detail.get('baseline_error') %}{{ t.review_target_unavailable }}{% else %}{{ review_value(field.before, field.name) }}{% endif %}</div><div><div class="small text-secondary mb-2">{{ t.review_proposed }}</div>{{ review_value(field.after, field.name) }}</div></div>{% else %}{{ review_value(field.after, field.name) }}{% endif %}</section>{% endfor %}</details>{% endif %}
+        </div>
+      </section>
+      <details class="card mb-3"><summary class="card-body">{{ t.review_raw_details }}</summary><div class="card-body pt-0"><h3 class="h4">{{ t.review_content }}</h3><pre class="review-raw">{{ detail.proposal }}</pre><h3 class="h4">{{ t.review_diff }}</h3>{% if detail.get('baseline_error') %}<p>{{ t.review_target_unavailable }}</p>{% else %}<pre class="review-raw">{{ detail.diff }}</pre>{% endif %}</div></details>
+    </div>
+    <aside><div class="detail-actions">
+      {% include 'components/review-actions.html' %}
+      <section class="card mb-3"><div class="card-header"><h2 class="card-title mb-0">{{ t.review_reason }}</h2></div><div class="card-body"><p class="review-text mb-0">{{ candidate.reason or t.review_reason_empty }}</p>{% if detail.run_url %}<a class="d-inline-block mt-3" href="{{ detail.run_url }}">{{ t.processing_view_run }} →</a>{% endif %}</div></section>
+      <section class="card mb-3"><div class="card-header"><h2 class="card-title mb-0">{{ t.review_source_material }}</h2><span class="badge bg-secondary-lt ms-auto">{{ detail.evidence|length }}</span></div><div class="card-body">
+        {% for evidence in detail.evidence %}<details class="review-evidence" {% if evidence.selected %}open{% else %}hx-get="{{ link('review/inspect', candidate_id=candidate.candidate_id, evidence=loop.index0) }}" hx-trigger="toggle[target.open] once" hx-target="this" hx-select="unset" hx-swap="outerHTML" hx-sync="this:replace" hx-boost="false"{% endif %}><summary>{{ t.review_source_evidence if evidence.kind == 'source' else t.review_artifact_evidence }} {{ evidence.number }}{% if evidence.kind == 'artifact' %} · {{ t.revision }} {{ evidence.ref.revision }}{% endif %}</summary>{% if evidence.selected %}{% include 'components/review-evidence-body.html' %}{% endif %}</details>{% else %}<p class="text-secondary mb-0">{{ t.review_evidence_empty }}</p>{% endfor %}
+      </div></section>
+      <section class="card mb-3"><div class="card-header"><h2 class="card-title mb-0">{{ t.review_effect_heading }}</h2></div><div class="card-body"><p class="mb-0">{% if detail.kind == 'tag' %}{{ t.review_effect_tag }}{% elif candidate.family in ['prompt', 'skill', 'handoff'] %}{{ t['review_effect_' ~ candidate.family] }}{% elif candidate.get('target') %}{{ t.review_effect_replace }}{% else %}{{ t.review_effect_create }}{% endif %}</p></div></section>
+      <section class="card mb-3"><div class="card-body"><details {% if detail.history %}open{% else %}hx-get="{{ link('review/inspect', candidate_id=candidate.candidate_id, view='history') }}" hx-trigger="toggle[target.open] once" hx-target="this" hx-select="unset" hx-swap="outerHTML" hx-sync="this:replace" hx-boost="false"{% endif %}><summary>{{ t.review_history }}</summary>{% for entry in detail.history %}<p class="mt-3 mb-0">{{ t.review_version }} {{ entry.version }} · {{ t['review_' ~ entry.status] }} · {{ entry.decision_reason or entry.reason or t.review_reason_empty }}</p>{% endfor %}</details></div></section>
+      <details class="card"><summary class="card-body">{{ t.note_record_identity }}</summary><div class="card-body pt-0 review-reference">{{ candidate.candidate_id }} · {{ t.review_version }} {{ candidate.version }}</div></details>
+    </div></aside>
+  </div>
   {% endif %}
 </div>

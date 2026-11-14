@@ -278,14 +278,40 @@ try {
     && evidence.checks.compact.closed && evidence.checks.compact.text.includes('技术详情')
     && !evidence.checks.compact.text.includes('就绪依赖') && evidence.checks.compact.fits,
     JSON.stringify(evidence.checks.compact))
-  evidence.checks.serverVersion = await evaluate(cdp, `(async () => {
+  evidence.checks.versions = await evaluate(cdp, `(async () => {
     const payload = await (await fetch('/powercontext/status')).json()
-    return { version: payload.server.package_version, plugin: payload.plugin_version,
-      footer: document.querySelector('.pc-panel-foot').innerText }
+    const footer = document.querySelector('.pc-panel-foot')
+    const link = footer.querySelector('.pc-release-link')
+    const control = footer.querySelector('.pc-update-check')
+    const version = footer.querySelector('[data-pc-plugin-version]')
+    const bounds = node => node.getBoundingClientRect()
+    return { server: payload.server.package_version, plugin: payload.plugin_version,
+      serverDetails: document.querySelector('[data-pc-server-version]')?.textContent,
+      displayedPlugin: version.textContent,
+      compact: !footer.querySelector('[data-pc-server-version]') && footer.scrollWidth <= footer.clientWidth
+        && getComputedStyle(link).textDecorationLine === 'none'
+        && bounds(link).right <= bounds(control).left && bounds(control).right <= bounds(version).left
+        && bounds(link).top <= bounds(version).bottom && bounds(version).top <= bounds(link).bottom }
   })()`)
-  check('footer uses live Server package version', !!evidence.checks.serverVersion.version
-    && evidence.checks.serverVersion.footer.includes(evidence.checks.serverVersion.version),
-    JSON.stringify(evidence.checks.serverVersion))
+  check('footer displays one plugin version, with the Server version in details', !!evidence.checks.versions.server
+    && evidence.checks.versions.server === evidence.checks.versions.serverDetails
+    && evidence.checks.versions.plugin === evidence.checks.versions.displayedPlugin
+    && evidence.checks.versions.compact, JSON.stringify(evidence.checks.versions))
+  const updateMode = process.env.DSH_CHECK_UPDATES
+  if (updateMode === '1' || updateMode === 'auto') {
+    if (updateMode === '1') await clickByLabel(cdp, '检查更新')
+    await waitFor(cdp, `document.querySelector('.pc-panel-foot')?.dataset.pcUpdateState === 'manual'`,
+      40_000, 'release check completes')
+    evidence.checks.updates = await evaluate(cdp, `(() => {
+      const footer = document.querySelector('.pc-panel-foot')
+      return { state: footer.dataset.pcUpdateState, release: footer.querySelector('.pc-release-link').href,
+        detailLinks: [...document.querySelectorAll('.pc-details a')].map(link => link.href) }
+    })()`)
+    check('linked installation shows release notes and its manual update path', evidence.checks.updates.state === 'manual'
+      && evidence.checks.updates.release.startsWith('https://github.com/oceanbase/powercontext/releases/tag/')
+      && evidence.checks.updates.detailLinks.some(link => link.endsWith('/docs/integrations/dsh')),
+    JSON.stringify(evidence.checks.updates))
+  }
   await clickByLabel(cdp, '切换语言')
   await evaluate(cdp, `document.querySelector('.pc-language input[value="en"]').focus()`)
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 })
@@ -296,13 +322,14 @@ try {
   await waitFor(cdp, `!!document.querySelector('.pc-trigger') && document.querySelector('.pc-status').lang === 'en'`, 45_000, 'persisted English')
   await evaluate(cdp, `document.querySelector('.pc-trigger').click()`)
   await waitFor(cdp, `!!document.querySelector('.pc-panel details')`, 10_000)
+  await new Promise(resolve => setTimeout(resolve, 100))
   await evaluate(cdp, `document.querySelector('.pc-panel details summary').focus()`)
-  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
   await waitFor(cdp, `document.querySelector('.pc-panel details').open`, 5_000, 'keyboard details')
   const expandedText = await evaluate(cdp, `document.querySelector('.pc-panel').innerText`)
   check('expanded English details retain diagnostic fields', expandedText.includes('Readiness dependencies')
-    && expandedText.includes('Automatic path'), expandedText)
+    && /automatic path/i.test(expandedText), expandedText)
   const expectedDeployment = mode === 'desktop' ? 'DSH Desktop' : 'Local Web'
   check('panel is a focused dialog', evidence.checks.panel.expanded === 'true'
     && evidence.checks.panel.role === 'dialog'

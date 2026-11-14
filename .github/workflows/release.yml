@@ -159,6 +159,10 @@ jobs:
           node "$package_dir/scripts/pack-release.mjs" "$POWERCONTEXT_DSH_PACKAGE_VERSION" "$PWD/dist/dsh"
           export POWERCONTEXT_DSH_TARBALL="$PWD/dist/dsh/powercontext-dsh-$POWERCONTEXT_DSH_PACKAGE_VERSION.tgz"
           node --test "$package_dir/tests/pack-release.test.mjs"
+          node "$package_dir/scripts/pack-release.mjs" "$POWERCONTEXT_DSH_PACKAGE_VERSION" "$PWD/dist/dsh" \
+            "$PWD/integrations/dsh/plugins/dsh-pet"
+          POWERCONTEXT_DSH_PET_TARBALL="$PWD/dist/dsh/powercontext-dsh-pet-$POWERCONTEXT_DSH_PACKAGE_VERSION.tgz" \
+            node --test integrations/dsh/plugins/dsh-pet/tests/package.test.mjs
           npm publish "$POWERCONTEXT_DSH_TARBALL" --dry-run --ignore-scripts --access public --tag "$DIST_TAG"
 
       - name: Preserve verified npm archive

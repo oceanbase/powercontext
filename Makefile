@@ -29,7 +29,7 @@ integration-guidance-check: ## Check native Skill copies without modifying files
 	@uv run python scripts/integration_guidance_skills.py --check
 
 .PHONY: integration-lifecycle integration-lifecycle-check
-integration-lifecycle: ## Write the lifecycle helper copies that copy-installed Python plugins ship.
+integration-lifecycle: ## Write the lifecycle helper copies that Python and TypeScript plugins ship.
 	@uv run python scripts/generate_integration_lifecycle.py
 
 integration-lifecycle-check: ## Reject a lifecycle helper copy that has drifted from its source.
@@ -85,8 +85,8 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests \
 		evaluation/memory/capture_ownership/tests -m "not live" -q
-	@# Agent tool recovery drives the real Server package, so it runs in the root project environment.
-	@uv run --frozen pytest evaluation/agent_tool_recovery/tests -q
+	@# Agent tool recovery and prepared-context budgets use the runtime in the root project environment.
+	@uv run --frozen pytest evaluation/agent_tool_recovery/tests evaluation/memory/prepared_context_budget/tests -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
@@ -196,9 +196,15 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 	@pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
 		integrations/dsh/plugins/powercontext/src/operations.generated.ts \
-		integrations/dsh/plugins/powercontext/lib
+		integrations/dsh/plugins/powercontext/lib \
+		integrations/dsh/plugins/dsh-pet/lib
+	@node --test integrations/dsh/plugins/dsh-pet/tests/adapter.test.mjs integrations/dsh/plugins/dsh-pet/tests/package.test.mjs
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
+
+.PHONY: dsh-pet-runtime-test
+dsh-pet-runtime-test: ## Exercise the packed pet adapter in pinned DSH Web (or set DSH_PET_TEST_DESKTOP_APP).
+	@DSH_PET_TEST_BIN="$${DSH_PET_TEST_BIN:-$$(command -v dsh)}" node --test integrations/dsh/plugins/dsh-pet/tests/runtime.test.mjs
 
 .PHONY: dsh-runtime-test
 dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.

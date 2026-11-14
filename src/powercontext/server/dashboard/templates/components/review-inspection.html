@@ -19,9 +19,9 @@ limitations under the License.
   {{ read_error(page_error, t.review) }}
 {% elif inspection.evidence is defined %}
   {% set evidence = inspection.evidence %}
-  <details class="mb-3" open><summary><code>{{ evidence.reference }}</code></summary>
-    {% if evidence.get('error') %}<p>{{ t.review_unavailable }}</p>{% else %}<pre>{{ evidence.content }}</pre>{% endif %}
+  <details class="review-evidence" open><summary>{{ t.review_source_evidence if evidence.kind == 'source' else t.review_artifact_evidence }} {{ evidence.number }}{% if evidence.kind == 'artifact' %} · {{ t.revision }} {{ evidence.ref.revision }}{% endif %}</summary>
+    {% include 'components/review-evidence-body.html' %}
   </details>
 {% else %}
-  <details class="mb-3" open><summary>{{ t.review_history }}</summary>{% for entry in inspection.history %}<p>{{ t.review_version }} {{ entry.version }} · {{ t['review_' ~ entry.status] }} · {{ entry.decision_reason or entry.reason }}</p>{% endfor %}</details>
+  <details class="mb-3" open><summary>{{ t.review_history }}</summary>{% for entry in inspection.history %}<p>{{ t.review_version }} {{ entry.version }} · {{ t['review_' ~ entry.status] }}{% if entry.decision_reason or entry.reason %} · {{ entry.decision_reason or entry.reason }}{% endif %}</p>{% endfor %}</details>
 {% endif %}

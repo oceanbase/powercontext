@@ -189,9 +189,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 单个 Runtime 在内存中保留的已接收用量记录条数；超出的记录会被丢弃并留下诊断日志 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 单条用量记录自身统计事务的预算，按片消耗，使争锁的写入者获得多次尝试机会 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 在操作完成边界或统计读取处，等待已接收用量的有界时长 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 每个用量批次的总写入预算；只有确认未应用的尝试才可在剩余预算内重试 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取和显式 flush 等待本进程已接收用量的有界时长；普通请求不等待 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
@@ -252,16 +252,31 @@ Scope、家族、条数限制和上下文预算，并复用已经生成的查询
 调用方显式传入的 `recall_effort_sink` 替代关系型记录器；关闭门控时两者都不调用。已有 SQLite 和 OceanBase 数据库通过正常的
 增量建表路径补建缺失的关系表。
 
-模型用量记账是尽力而为的，且永不阻塞模型调用。每个 Runtime 拥有一个有界记账器：接收记录时不产生任何 I/O，随后在独立的短事务
-中写入。因此统计故障、队列写满，或超出该记录自身预算的锁等待，只会丢弃该条记录并留下诊断日志，而不会让产生它的操作失败。
-操作完成、读取统计以及关闭时，都会在有界等待内冲刷已经接收的记录。业务写入等待该时长后失败属于设计行为：SQLite 同一时刻只允许一个写入者，并发写入者持锁超过配置值时，等待中的业务写就会
-报 `database is locked`。这正是多写入者部署需要提高 `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` 的原因；同样的锁压力
-已不再传到用量记账，用量记录只会被丢弃，而不会让产生它的操作失败。
+模型用量记账是尽力而为的，且不阻塞模型调用。每个 Runtime 拥有一个有界记账器，接收记录时不产生 I/O。
+消费者每次取出最多 32 条已经排队的记录，在一个独立事务内写入，不为凑满批次而延迟空闲队列。
+相同 Scope、日期、purpose、operation 的记录合并累加，同时保留已知 Token 小计和用量缺失标记。
+统计故障、队列写满或批次预算耗尽会留下安全诊断，不会让业务操作失败；批次写入失败或结果不确定时按原始记录数计数，
+提交结果不确定的事务不会重试。
+OceanBase 的首次事务使用完整写入预算，因为超时可能丢失提交确认；SQLite 首次尝试使用较短预算，
+确认回滚后可在剩余总预算内重试。
+
+普通 Scope 操作（包括 HTTP 查询和 Source 接收）返回时不等待用量落库。统计读取在打开数据库快照前，
+按 flush 预算等待本进程已经接收的记录；显式 Worker flush 和关闭仍保留有界排空。
+flush 超时后统计可能尚不完整，在一个 Server 上读取统计也不会排空其他 Server 的队列。
+关闭时先停止生产者，允许一个写入预算加一个 flush 预算排空记录，随后丢弃仍在排队的记录，
+再最多等待一个写入预算完成原生清理。队列指标不含正在写入的批次；丢弃和写入失败计数均按原始记录计算，不按合并后的组计算。
+
+业务写入仍与统计消费者共享数据库资源。SQLite 同一时刻只允许一个写入者；竞争写入者持锁超过业务 busy timeout 时，
+该业务写入可能报 `database is locked`。应按部署的锁竞争预算配置 `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS`，
+它与用量 flush 等待独立。
 
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
 嵌套复杂度。耗尽后保留 Source、Cursor、Pending 和同 Scope 尾部，停止后续 provider 调用；flush 和重启均不重置。
-运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。
+运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。Worker 读取 Topic head 后，如果并发的 replace
+或 Dream 移动了该 head（head 冲突），这次尝试不计入尝试次数：Worker 将 `head_conflict` 记为该次尝试的最后错误，
+重新读取 head 后重新计算。该次尝试预留的请求数和 token 容量仍然计入，因此 head 持续变化时会在
+`window_provider_budget_exceeded` 处停止，不会无限重试。
 
 Topic generation 只允许有界标量设置：`max_tokens`、`temperature`、`top_p`、`top_k`、`seed`、`presence_penalty`、
 `frequency_penalty`、`timeout`、`openai_reasoning_effort`、`openai_text_verbosity`、`service_tier`、

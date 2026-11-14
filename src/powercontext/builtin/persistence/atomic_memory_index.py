@@ -59,6 +59,7 @@ from powercontext.sources.evidence import SourceEvidence
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
 ATOMIC_MEMORY_RRF_CONSTANT = 60
+DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE = 250
 # Columns of unreleased development layouts; their tables are derived and rebuilt rather than migrated.
 _OBSOLETE_PROJECTION_COLUMNS = frozenset({"read_grants", "owner_type", "owner_id"})
 
@@ -160,6 +161,39 @@ class AtomicMemorySearchChannels:
 
 
 @dataclass(frozen=True)
+class AtomicMemoryRelatedRank:
+    """One lightweight channel rank; bodies are fetched only for the current page."""
+
+    artifact_ref: ArtifactRef
+    state_version: int
+    kind: str
+    score: float
+    distance: float | None = None
+    channel_scores: dict[str, ChannelScore] | None = None
+
+
+@dataclass(frozen=True)
+class AtomicMemoryRelatedCursor:
+    """Complete lightweight rank snapshot taken when the enumeration started.
+
+    Later pages slice ``ranks`` by ``offset``. Rankings depend on corpus statistics,
+    so re-ranking a later page could reorder or skip candidates after another Scope
+    changes. No body is retained here: each page still reads and authorizes only
+    its own identities.
+    """
+
+    ranks: tuple[AtomicMemoryRelatedRank, ...]
+    offset: int = 0
+
+
+@dataclass(frozen=True)
+class AtomicMemoryRelatedPage:
+    hits: tuple[AtomicMemoryIndexHit, ...]
+    heads: dict[str, dict[str, object]]
+    cursor: AtomicMemoryRelatedCursor | None
+
+
+@dataclass(frozen=True)
 class AtomicMemorySearchRequest:
     query: str
     filters: AtomicMemoryIndexFilter
@@ -172,7 +206,7 @@ class AtomicMemorySearchRequest:
 
 @dataclass(frozen=True)
 class AtomicMemoryRelatedRequest:
-    """Complete channel enumeration; there is deliberately no candidate limit."""
+    """Complete enumeration in page-sized batches; page size never bounds the total."""
 
     query: str
     filters: AtomicMemoryIndexFilter
@@ -181,6 +215,7 @@ class AtomicMemoryRelatedRequest:
     embedding_profile: EmbeddingProfile | None = None
     max_distance: float | None = None
     admission: AdmissionFloor | None = None
+    page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
 
 
 class AtomicMemoryIndex(Protocol):
@@ -228,6 +263,21 @@ class AtomicMemoryIndex(Protocol):
     async def probe_recoverable(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, floor: AdmissionFloor, /
     ) -> bool: ...
+
+    async def related_page(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        request: AtomicMemoryRelatedRequest,
+        cursor: AtomicMemoryRelatedCursor | None = None,
+        /,
+    ) -> AtomicMemoryRelatedPage | None:
+        """Return one page of a complete enumeration.
+
+        The first call ranks the complete eligible set; later calls only read the
+        cursor's lightweight slice. Bodies and authorization stay per page.
+        """
+        ...
 
     async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
@@ -449,6 +499,93 @@ def atomic_memory_filter_sql(
     return " AND ".join(conditions) or "1 = 1", parameters
 
 
+ATOMIC_MEMORY_AUTHORITY_COLUMNS = (
+    "scope_id",
+    "family",
+    "artifact_id",
+    "revision",
+    "lifecycle_state",
+    "replacement_artifact_id",
+    "merged_into_id",
+    "governance_generation",
+)
+
+
+def atomic_memory_body_select() -> str:
+    """Select projection text and authoritative bodies for one page of artifact identities."""
+
+    authority = ", ".join(f"head.{name} AS authority_{name}" for name in ATOMIC_MEMORY_AUTHORITY_COLUMNS)
+    return (
+        "SELECT current.artifact_id AS artifact_id, current.text AS projected_text, "  # noqa: S608
+        f"{authority}, body.content AS authority_content "
+        "FROM pc_atomic_memory_current AS current "
+        "LEFT JOIN pc_artifact_heads AS head ON head.scope_id = current.scope_id "
+        "AND head.family = 'atomic-memory' AND head.artifact_id = current.artifact_id "
+        "LEFT JOIN pc_artifacts AS body ON body.scope_id = head.scope_id "
+        "AND body.family = head.family AND body.artifact_id = head.artifact_id "
+        "AND body.revision = head.revision "
+        "WHERE current.scope_id = :scope_id AND current.artifact_id IN :body_ids"
+    )
+
+
+def atomic_memory_bodies_from_rows(rows: Any, /) -> tuple[dict[str, str], dict[str, dict[str, object]]]:
+    """Decode page bodies and authoritative heads, skipping rows without a joined head."""
+
+    texts: dict[str, str] = {}
+    heads: dict[str, dict[str, object]] = {}
+    for row in rows:
+        artifact_id = str(row["artifact_id"])
+        texts[artifact_id] = str(row["projected_text"])
+        if row["authority_artifact_id"] is not None:
+            heads[artifact_id] = {
+                name: row[f"authority_{name}"] for name in (*ATOMIC_MEMORY_AUTHORITY_COLUMNS, "content")
+            }
+    return texts, heads
+
+
+def atomic_memory_page_slice(
+    ranks: Sequence[AtomicMemoryRelatedRank], cursor: AtomicMemoryRelatedCursor | None, page_size: int, /
+) -> tuple[tuple[AtomicMemoryRelatedRank, ...], AtomicMemoryRelatedCursor | None] | None:
+    """Slice the stable rank snapshot and carry it forward while pages remain."""
+
+    offset = 0 if cursor is None else cursor.offset
+    page = tuple(ranks[offset : offset + page_size])
+    if not page:
+        return None
+    following = offset + len(page)
+    return page, (AtomicMemoryRelatedCursor(ranks=tuple(ranks), offset=following) if following < len(ranks) else None)
+
+
+def atomic_memory_page_from_ranks(
+    ranks: Sequence[AtomicMemoryRelatedRank],
+    texts: dict[str, str],
+    heads: dict[str, dict[str, object]],
+    cursor: AtomicMemoryRelatedCursor | None,
+) -> AtomicMemoryRelatedPage:
+    """Attach page bodies to lightweight ranks while preserving rank order."""
+
+    missing = next((rank for rank in ranks if rank.artifact_ref.artifact_id not in texts), None)
+    if missing is not None:
+        raise AtomicMemoryIndexError(
+            "stale-recall", f"Related memory {missing.artifact_ref.artifact_id} left the index after ranking"
+        )
+    hits = tuple(
+        AtomicMemoryIndexHit(
+            artifact_ref=rank.artifact_ref,
+            state_version=rank.state_version,
+            kind=rank.kind,
+            text=texts[rank.artifact_ref.artifact_id],
+            score=rank.score,
+            distance=rank.distance,
+            channel_scores=rank.channel_scores,
+        )
+        for rank in ranks
+    )
+    identities = {rank.artifact_ref.artifact_id for rank in ranks}
+    page_heads = {identity: heads[identity] for identity in identities if identity in heads}
+    return AtomicMemoryRelatedPage(hits=hits, heads=page_heads, cursor=cursor)
+
+
 def atomic_memory_vector_sql(
     eligibility: str, dialect: Literal["sqlite", "mysql"], /, *, bounded: bool, threshold: bool
 ) -> str:
@@ -598,6 +735,71 @@ def combine_atomic_memory_channels(  # noqa: C901
     return tuple(
         replace(hits[identity], score=ranks[identity])
         for identity in sorted(hits, key=lambda identity: (-ranks[identity], identity))
+    )
+
+
+def atomic_memory_channel_ranks(rows: Any, /, *, vector: bool = False) -> tuple[AtomicMemoryRelatedRank, ...]:
+    """Decode lightweight channel ranks without reading projection or authority bodies."""
+
+    ranks = []
+    for row in rows:
+        distance = float(row["distance"]) if vector else None
+        channel_scores = None
+        if distance is not None:
+            if not math.isfinite(distance) or distance < 0:
+                raise InvalidSearchScore("Atomic vector distance must be finite and nonnegative")  # noqa: TRY003
+            channel_scores = {"vector": ChannelScore(distance, "l2_distance", False)}
+            score = -distance
+        else:
+            _, observation = lexical_search_score(row["raw_score"], row.get("score_metric"))
+            channel_scores = {"text": observation}
+            score = float(row["score"])
+        ranks.append(
+            AtomicMemoryRelatedRank(
+                artifact_ref=ArtifactRef(
+                    family="atomic-memory", artifact_id=str(row["artifact_id"]), revision=int(row["revision"])
+                ),
+                state_version=int(row["state_version"]),
+                kind=str(row["kind"]),
+                score=score,
+                distance=distance,
+                channel_scores=channel_scores,
+            )
+        )
+    return tuple(ranks)
+
+
+def combine_atomic_memory_related_ranks(
+    fts: tuple[AtomicMemoryRelatedRank, ...],
+    vector: tuple[AtomicMemoryRelatedRank, ...],
+) -> tuple[AtomicMemoryRelatedRank, ...]:
+    """Fuse complete lightweight channel ranks with the RRF ordering used by related recall."""
+
+    versions: dict[str, tuple[int, int]] = {}
+    merged: dict[str, AtomicMemoryRelatedRank] = {}
+    scores: dict[str, float] = {}
+    for channel in (fts, vector):
+        for rank in channel:
+            artifact_id = rank.artifact_ref.artifact_id
+            version = (rank.artifact_ref.revision, rank.state_version)
+            if artifact_id in versions and versions[artifact_id] != version:
+                raise AtomicMemoryIndexError("stale-recall", "Atomic Memory changed between retrieval channels")
+            versions[artifact_id] = version
+    for channel in (fts, vector):
+        for position, rank in enumerate(channel, start=1):
+            artifact_id = rank.artifact_ref.artifact_id
+            previous = merged.setdefault(artifact_id, rank)
+            observations = dict(previous.channel_scores or {})
+            observations.update(rank.channel_scores or {})
+            if observations:
+                merged[artifact_id] = replace(previous, channel_scores=observations)
+                previous = merged[artifact_id]
+            if previous.distance is None and rank.distance is not None:
+                merged[artifact_id] = replace(previous, distance=rank.distance)
+            scores[artifact_id] = scores.get(artifact_id, 0.0) + 1.0 / (ATOMIC_MEMORY_RRF_CONSTANT + position)
+    return tuple(
+        replace(merged[artifact_id], score=scores[artifact_id])
+        for artifact_id in sorted(merged, key=lambda identity: (-scores[identity], identity))
     )
 
 
@@ -880,10 +1082,16 @@ class RelationalAtomicMemoryIndex:
             raise AtomicMemoryIndexError(
                 "threshold", "Complete vector enumeration requires a finite nonnegative L2 threshold"
             )
+        if isinstance(request, AtomicMemoryRelatedRequest):
+            page_size = request.page_size
+            if isinstance(page_size, bool) or not isinstance(page_size, int) or not 1 <= page_size <= 1000:
+                raise AtomicMemoryIndexError("limit", "Related page size must be a positive integer up to 1000")
 
 
 __all__ = [
+    "ATOMIC_MEMORY_AUTHORITY_COLUMNS",
     "ATOMIC_MEMORY_RRF_CONSTANT",
+    "DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE",
     "AtomicMemoryIndex",
     "AtomicMemoryIndexCapabilities",
     "AtomicMemoryIndexError",
@@ -891,17 +1099,26 @@ __all__ = [
     "AtomicMemoryIndexHit",
     "AtomicMemoryProjection",
     "AtomicMemoryProjectionPublisher",
+    "AtomicMemoryRelatedCursor",
+    "AtomicMemoryRelatedPage",
+    "AtomicMemoryRelatedRank",
     "AtomicMemoryRelatedRequest",
     "AtomicMemorySearchChannels",
     "AtomicMemorySearchRequest",
     "PreparedAtomicMemoryProjection",
     "RelationalAtomicMemoryIndex",
+    "atomic_memory_bodies_from_rows",
+    "atomic_memory_body_select",
     "atomic_memory_channel_hits",
+    "atomic_memory_channel_ranks",
     "atomic_memory_embedding_input",
     "atomic_memory_embedding_input_hash",
     "atomic_memory_filter_sql",
+    "atomic_memory_page_from_ranks",
+    "atomic_memory_page_slice",
     "atomic_memory_profile_fingerprint",
     "combine_atomic_memory_channels",
+    "combine_atomic_memory_related_ranks",
     "load_atomic_memory_tags",
     "oceanbase_fts_coverage_sql",
     "sqlite_fts_coverage_sql",
