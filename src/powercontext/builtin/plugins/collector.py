@@ -91,7 +91,7 @@ async def execute_collect(  # noqa: C901 - one collection from target selection 
     async with AsyncExitStack() as resources:
         if database is None:
             database = await resources.enter_async_context(open_plugin_database(spec.database))
-        from powercontext.server.processing_security import open_worker_security
+        from powercontext.builtin.authz.worker import open_worker_security
 
         security = await resources.enter_async_context(open_worker_security(spec.security, database))
 
