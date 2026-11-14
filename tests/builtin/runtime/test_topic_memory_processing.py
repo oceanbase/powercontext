@@ -1580,7 +1580,12 @@ def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
 
             async def search(self, _connection, _scope_id, _query, **_kwargs):
                 self.calls += 1
-                selected = range(1, 12) if self.calls == 1 else range(11, 22)
+                # The two searches overlap on history-0005..0020. First-batch
+                # scores decay with the index while second-batch scores grow, so
+                # the shared candidates peak mid-range: keeping the maximum
+                # per-candidate score drops history-0013, while first-score or
+                # candidate-id ranking would both drop history-0021 instead.
+                selected = range(1, 21) if self.calls == 1 else range(5, 22)
                 return TopicMemorySearchResult(
                     mode="fts",
                     hits=tuple(
@@ -1588,7 +1593,7 @@ def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
                             artifact_ref=published[f"history-{index:04d}"].topic.as_ref(),
                             title=f"history {index}",
                             summary="shared durable state",
-                            score=100 - index,
+                            score=float((81 - index) if self.calls == 1 else (55 + index)),
                             matched_by=("topic_fts",),
                         )
                         for index in selected
@@ -1613,7 +1618,7 @@ def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
             stages = _stages(
                 probe=TopicMemoryProbeOutput(),
                 global_output=TopicMemoryGlobalOutput(),
-                reconcile=(TopicMemoryReconcileOutput(),),
+                reconcile=(TopicMemoryReconcileOutput(), TopicMemoryReconcileOutput()),
             )
             processor = TopicMemoryProcessor(
                 database=profile.database,
@@ -1627,12 +1632,19 @@ def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
             await processor._coordinate("scope-a", proposals, candidates, evidence)
 
             # Every discovered related Topic stays reachable; the per-component
-            # ranking keeps each reconcile input at the stage limit of 20.
+            # ranking keeps each reconcile input at the stage limit of 20. The two
+            # overlapping searches put both proposals in one component of 21
+            # related candidates; the shared ones must keep their highest score,
+            # so the dropped candidate is history-0013 — different from what
+            # first-score ranking or candidate-id ranking would drop (both would
+            # drop history-0021 instead).
             assert len(candidates) == 21
             assert len(stages.reconciler.inputs) == 1
             history = stages.reconciler.inputs[0].historical
             assert len(history) == 20
-            assert {item.title for item in history} == {f"history-{index:04d} topic" for index in range(1, 21)}
+            assert {item.title for item in history} == {
+                f"history-{index:04d} topic" for index in range(1, 22) if index != 13
+            }
         finally:
             await manager.__aexit__(None, None, None)
 
@@ -1963,6 +1975,10 @@ def test_full_initial_history_does_not_block_a_distinct_second_pass_match() -> N
             titles = {item.artifact_ref.artifact_id for item in current}
             assert titles == {f"history-{index:04d}" for index in range(1, 21)} | {"retention-policy"}
             assert "created" not in titles
+            # The window updated the existing Topic in place rather than silently
+            # publishing nothing; the CREATE bound to the second-pass match.
+            retention = next(item for item in current if item.artifact_ref.artifact_id == "retention-policy")
+            assert retention.artifact_ref.revision == 2
         finally:
             await manager.__aexit__(None, None, None)
 
