@@ -46,6 +46,8 @@ limitations under the License.
         {{ icon(item) }}<span class="nav-link-title">{{ t.processing_dream_tab if item == 'dream_records' else t.processing_sources_title if item == 'source_records' else t[item] }}</span>
       </a></li>
       {% endfor %}
+      {% endfor %}
+      {% if plugin_pages %}<li class="nav-section" role="presentation">{{ t.nav_plugins }}</li>{% endif %}
       {% for item in plugin_pages %}
       {% set active = plugin_page and plugin_page.name == item.name %}
       <li class="nav-item {% if active %}active{% endif %}"><a href="{{ item.path }}?{{ {'scope': scope or '', 'lang': language}|urlencode }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
