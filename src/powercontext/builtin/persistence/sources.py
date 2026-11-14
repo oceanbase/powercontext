@@ -264,8 +264,11 @@ class SourceRepository:
             # Reuse only within this journal-locked batch; a rollback or later
             # registration must never inherit an earlier transaction's result.
             native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
-            for ref, source in new_sources.values():
-                await self._bind_memory_evidence(connection, scope_id, ref, source, native_manifests)
+            bindings = [
+                await self._memory_evidence_binding(connection, scope_id, ref, source, native_manifests)
+                for ref, source in new_sources.values()
+            ]
+            await connection.execute(insert(SOURCE_EVIDENCE_BINDINGS_TABLE), bindings)
         for (source_type, source_id), payload in upgrades.items():
             await connection.execute(
                 update(SOURCES_TABLE)
@@ -772,15 +775,15 @@ class SourceRepository:
             )
         return tuple(evidence)
 
-    async def _bind_memory_evidence(
+    async def _memory_evidence_binding(
         self,
         connection: AsyncConnection,
         scope_id: str,
         ref: SourceRef,
         source: Source,
         native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None],
-    ) -> None:
-        """Freeze registration evidence only for a newly accepted Source row."""
+    ) -> dict[str, Any]:
+        """Prepare the immutable evidence binding within the accepting transaction."""
 
         if isinstance(source, SourceObservation):
             manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
@@ -806,18 +809,16 @@ class SourceRepository:
         declaration = (
             MemoryEvidenceDeclaration() if manifest is None else self._registry.memory_evidence_for_source(source)
         )
-        await connection.execute(
-            insert(SOURCE_EVIDENCE_BINDINGS_TABLE).values(
-                scope_id=scope_id,
-                source_type=ref.source_type,
-                source_id=ref.source_id,
-                material_digest=_source_material_digest(source),
-                definition_name=ref.source_type,
-                definition_version=source.definition_version,
-                manifest_fingerprint=None if manifest is None else manifest.fingerprint,
-                declaration=declaration.model_dump_json().encode("utf-8"),
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "source_type": ref.source_type,
+            "source_id": ref.source_id,
+            "material_digest": _source_material_digest(source),
+            "definition_name": ref.source_type,
+            "definition_version": source.definition_version,
+            "manifest_fingerprint": None if manifest is None else manifest.fingerprint,
+            "declaration": declaration.model_dump_json().encode("utf-8"),
+        }
 
     async def list(
         self,

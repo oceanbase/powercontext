@@ -20,7 +20,7 @@ import asyncio
 import re
 from weakref import WeakKeyDictionary
 
-from pyobvector import VECTOR, VectorIndex
+from pyobvector import VectorIndex
 from sqlalchemy import TextClause, bindparam, text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -55,6 +55,7 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
     ATOMIC_MEMORY_PROJECTION_FORMAT,
     atomic_memory_current_table,
 )
+from powercontext.builtin.persistence.oceanbase.vector import OceanBaseVector
 from powercontext.builtin.persistence.schema import create_tables
 
 _FTS_INDEX_NAME = "ix_pc_atomic_memory_current_fts"
@@ -144,7 +145,9 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
     def __init__(self, profile: EmbeddingProfile | None = None, *, ef_search: int = 1000) -> None:
         if isinstance(ef_search, bool) or not 1 <= ef_search <= 1000:
             raise AtomicMemoryIndexError("vector-search", "Vector search breadth must be between 1 and 1000")
-        super().__init__(atomic_memory_current_table(None if profile is None else VECTOR(profile.dimension)), profile)
+        super().__init__(
+            atomic_memory_current_table(None if profile is None else OceanBaseVector(profile.dimension)), profile
+        )
         self._ef_search = ef_search
         self._native_fts_support: WeakKeyDictionary[Pool, bool] = WeakKeyDictionary()
         self._native_long_fts_support: WeakKeyDictionary[Pool, bool] = WeakKeyDictionary()
@@ -357,7 +360,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         recovered = " OR ".join(recoverable) if recoverable else "0 = 1"
         statement = text(f"{common_tables}SELECT CASE WHEN {invalid} THEN -1 ELSE ({recovered}) END")
         if vector and profile is not None:
-            statement = statement.bindparams(bindparam("probe_vector", type_=VECTOR(profile.dimension)))
+            statement = statement.bindparams(bindparam("probe_vector", type_=OceanBaseVector(profile.dimension)))
         result = await connection.scalar(statement, parameters)
         if result == -1:
             raise AtomicMemoryIndexError(
@@ -458,7 +461,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         )
         profile = self.profile
         if profile is not None:
-            statement = statement.bindparams(bindparam("query_vector", type_=VECTOR(profile.dimension)))
+            statement = statement.bindparams(bindparam("query_vector", type_=OceanBaseVector(profile.dimension)))
         return statement
 
     async def _related_hybrid_ranks(
@@ -624,7 +627,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                 oceanbase_atomic_memory_vector_sql(eligibility)
                 if limit <= 16384
                 else atomic_memory_vector_sql(eligibility, "mysql", bounded=True, threshold=False)
-            ).bindparams(bindparam("query_vector", type_=VECTOR(profile.dimension)))
+            ).bindparams(bindparam("query_vector", type_=OceanBaseVector(profile.dimension)))
             rows = (await connection.execute(statement, parameters)).mappings()
             vector = atomic_memory_channel_hits(rows, vector=True)
         return AtomicMemorySearchChannels(fts=fts, vector=vector)

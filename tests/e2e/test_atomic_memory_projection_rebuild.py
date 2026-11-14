@@ -15,12 +15,16 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
+import aiosqlite
 import pytest
 from sqlalchemy import select, text
 
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryRelationError
 from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexError
 from powercontext.builtin.persistence.errors import PersistenceError
@@ -29,12 +33,52 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
+from powercontext.builtin.runtime.atomic_memory_rebuild import (
+    rebuild_atomic_memory_projection,
+    verify_atomic_memory_current,
+)
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
 from powercontext.sources import SourceDefinitionRegistry
 from powercontext.sources.evidence import MemoryEvidenceDeclaration
 from tests.e2e.atomic_memory_migration_fixture import SCOPE, _atomic, _seed_and_migrate
 from tests.legacy_memory import add_legacy_citation_columns
+
+
+def test_projection_verification_checks_every_page_with_sqlite_variable_limit(tmp_path: Path) -> None:
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'bounded-verification.db'}")
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=config)) as contexts:
+            service = contexts.atomic_memory.service
+            for number in range(501):
+                async with contexts.database.transaction() as connection:
+                    plan = await service.inspect_change(
+                        connection,
+                        SCOPE,
+                        f"memory-{number:04d}",
+                        AtomicMemoryContent(kind="fact", text=f"Retained fact {number}."),
+                        None,
+                    )
+                prepared = await service.prepare_change(plan)
+                async with contexts.database.transaction() as connection:
+                    await service.commit(connection, prepared, None)
+            async with contexts.database.transaction() as connection:
+                driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+                previous_limit = await driver._execute(driver._conn.setlimit, sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+                try:
+                    report = await verify_atomic_memory_current(connection, SQLiteAtomicMemoryIndex(), batch_size=1000)
+                    assert report.ready and report.counts["active_rows"] == 501
+                    await connection.execute(
+                        text("DELETE FROM pc_atomic_memory_current WHERE scope_id = :scope AND artifact_id = :id"),
+                        {"scope": SCOPE, "id": "memory-0500"},
+                    )
+                    report = await verify_atomic_memory_current(connection, SQLiteAtomicMemoryIndex(), batch_size=1000)
+                    assert not report.ready and report.counts["active_rows"] == 501
+                    assert report.errors == (f"{SCOPE}/memory-0500: active projection is missing",)
+                finally:
+                    await driver._execute(driver._conn.setlimit, sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("retention", ["complete", "archive_only", "entries_only", "removed", "unreadable"])
