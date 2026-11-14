@@ -146,7 +146,6 @@ class WorkerInitializerPreparation(Protocol):
     def prepare(self) -> AbstractContextManager[Callable[[], None]]: ...
 
 
-
 __all__ = [
     "ArtifactProcessingBlock",
     "ArtifactProcessingBlockedError",
