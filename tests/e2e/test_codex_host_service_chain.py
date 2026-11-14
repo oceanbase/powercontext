@@ -240,7 +240,9 @@ def _text(output: str | bytes | None) -> str:
 
 def _codex_config(model_url: str) -> str:
     # Codex 0.167 accepts only the Responses wire API for a custom provider. Plain HTTP streaming and no retries keep
-    # a fixture failure from turning into a long wait.
+    # a fixture failure from turning into a long wait. The plugin's MCP server is optional, and Codex otherwise lists
+    # the first turn's tools after one second whether or not it has connected. A grace of 0 makes Codex wait for it,
+    # up to the server's 10 s startup timeout, before the first model request.
     return f"""\
 model = "fixture"
 model_provider = "fixture"
@@ -248,6 +250,7 @@ approval_policy = "never"
 sandbox_mode = "read-only"
 web_search = "disabled"
 check_for_update_on_startup = false
+mcp_optional_startup_grace_ms = 0
 
 [analytics]
 enabled = false
@@ -317,7 +320,8 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
     log.write_text(f"$ powercontext setup codex\n{completed.stdout}\n{completed.stderr}\n", encoding="utf-8")
     assert completed.returncode == 0, f"powercontext_setup_codex_failed; see {log}"
     # On first use the MCP header helper and the SessionStart hook would both build the plugin's environment while
-    # Codex starts; on a loaded runner MCP startup then misses the first model request. Build it once beforehand.
+    # Codex starts, under different interpreters, and the helper can fail on the half-replaced environment. Build it
+    # once beforehand.
     (installed,) = Path(environment["CODEX_HOME"]).glob("plugins/cache/*/powercontext/*/.codex-plugin")
     synced = subprocess.run(
         ["uv", "sync", "--frozen", "--quiet", "--project", str(installed.parent)],  # noqa: S607 - uv from PATH.
