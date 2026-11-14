@@ -50,6 +50,48 @@ _FAILURE_CLASS_BY_PHASE_FILE = {
     "score": "judge",
     "replay": "integrity",
 }
+_AUDIT_V1 = "powercontext.longmemeval-v2-memory-audit.v1"
+_AUDIT_V2 = "powercontext.longmemeval-v2-memory-audit.v2"
+_DIAGNOSTICS_SCHEMA = "powercontext.longmemeval-v2-prepared-context-diagnostics.v1"
+_RECEIPT_SCHEMA = "powercontext.prepared-context-receipt.v1"
+_FAMILIES = ("atomic-memory", "topic-memory", "experience", "profile", "code")
+_OMISSION_REASONS = (
+    "duplicate",
+    "blank",
+    "family_limit",
+    "entry_limit",
+    "below_min_bytes",
+    "no_fitting_truncation",
+    "rerank_not_selected",
+    "not_retrieved",
+)
+_STAGES = ("memory.search", "experience.search", "topic_memory.search", "memory.rerank", "context.build")
+_DIAGNOSTIC_STATUS_COUNTERS = (
+    "query_count",
+    "available_count",
+    "unavailable_count",
+    "invalid_count",
+    "incomplete_count",
+    "failed_request_count",
+)
+_DIAGNOSTIC_COUNTERS = (
+    *_DIAGNOSTIC_STATUS_COUNTERS,
+    "selected_count",
+    "truncated_item_count",
+    "truncated_receipt_count",
+    "non_deterministic_count",
+    "expansion_failure_count",
+    "used_bytes",
+    "requested_max_bytes",
+)
+_GROUP_FIELDS = {
+    "selected": ("kind",),
+    "omitted": ("family", "reason"),
+    "searches": ("round", "family", "mode", "outcome", "fallback_reason"),
+    "reranks": ("round", "outcome", "fallback_reason"),
+    "rounds": ("round", "outcome", "retained"),
+    "stages": ("stage",),
+}
 
 ReportStatus: TypeAlias = str
 
@@ -114,7 +156,7 @@ def _build(run_root: Path, directories: Mapping[str, str]) -> dict[str, object]:
 
     context_items = _sum_list_length(retrieval_results, "memory_context")
     retrieval_latency = _sum_nested_ms(retrieval_results, "timings_ms")
-    ingest_latency = _sum_ingest_ms(audit)
+    ingest_latency, diagnostics = _audit_summary(audit)
     reader_latency = _sum_number(reader_outputs, "reader_latency_ms")
     judge_latency, abstention = _judge_totals(judge_outputs)
     artifacts = _artifacts(run_root, directories)
@@ -148,6 +190,7 @@ def _build(run_root: Path, directories: Mapping[str, str]) -> dict[str, object]:
             "tokens": _number(prepare_summary, "memory_context_tokens"),
             "citations_available": _number(retrieval_summary, "citation_count"),
         },
+        "prepared_context_diagnostics": diagnostics,
         "usage": usage,
         "failures": _failure_counts(run_root, directories),
         "abstention": abstention,
@@ -677,20 +720,210 @@ def _sum_nested_ms(path: Path, key: str) -> float | None:
     return round(total, 3) if seen else None
 
 
-def _sum_ingest_ms(path: Path) -> float | None:
+def _audit_summary(path: Path) -> tuple[float | None, dict[str, object]]:
+    """Consume one audit version; unknown or mixed schemas cannot become zero totals."""
+
     total = 0.0
     seen = False
-    for row in _iter_jsonl(path):
-        if row.get("operation") != "ingest":
+    schema: str | None = None
+    counts = dict.fromkeys(_DIAGNOSTIC_COUNTERS, 0)
+    groups: dict[str, dict[tuple[object, ...], dict[str, object]]] = {key: {} for key in _GROUP_FIELDS}
+    for row in _iter_audit(path):
+        version = row.get("schema")
+        if version not in (_AUDIT_V1, _AUDIT_V2):
+            message = "Unsupported memory audit schema"
+            raise ReportError(message)
+        if schema is not None and version != schema:
+            message = "Mixed memory audit schemas"
+            raise ReportError(message)
+        schema = str(version)
+        if row.get("operation") == "ingest":
+            value = _mapping(row.get("timings_ms")).get("total")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                seen = True
+                total += float(value)
+        if schema != _AUDIT_V2 or row.get("operation") != "query":
             continue
-        inner = row.get("timings_ms")
-        if not isinstance(inner, Mapping):
-            continue
-        value = inner.get("total")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            seen = True
-            total += float(value)
-    return round(total, 3) if seen else None
+        _accumulate_query_diagnostics(row, counts, groups)
+
+    collected = schema == _AUDIT_V2
+    available = counts["available_count"] > 0
+    result: dict[str, object] = {
+        "status": "collected" if collected else "not_collected",
+        "completeness": ("incomplete" if counts["incomplete_count"] or counts["failed_request_count"] else "complete")
+        if collected
+        else "not_collected",
+        "candidate_count": None,
+        "candidate_count_basis": "not_exposed",
+        "attribution_basis": "available_receipts",
+    }
+    for key, count in counts.items():
+        attribution = key not in _DIAGNOSTIC_STATUS_COUNTERS
+        result[key] = count if collected and (available or not attribution) else None
+    for row in groups["stages"].values():
+        row["duration_ms"] = round(cast(float, row["duration_ms"]), 3)
+    for key, values in groups.items():
+        unit = "items" if key in ("selected", "omitted") else "rounds" if key == "rounds" else "executions"
+        result[key] = [dict(row, unit=unit) for row in values.values()] if available else None
+    return (round(total, 3) if seen else None), result
+
+
+def _accumulate_query_diagnostics(
+    row: Mapping[str, object],
+    counts: dict[str, int],
+    groups: dict[str, dict[tuple[object, ...], dict[str, object]]],
+) -> None:
+    counts["query_count"] += 1
+    if row.get("status") == "failed":
+        # A failed prepare has no receipt. Never trust stray diagnostics on its row.
+        counts["failed_request_count"] += 1
+        return
+    diagnostic = _mapping(row.get("prepared_context_diagnostics"))
+    receipt_status = diagnostic.get("receipt_status")
+    public_groups = _diagnostic_groups(diagnostic) if row.get("status") == "succeeded" else None
+    if public_groups is None:
+        counts["invalid_count"] += 1
+        counts["incomplete_count"] += 1
+        return
+    counts[f"{receipt_status}_count"] += 1
+    if diagnostic["completeness"] != "complete" or receipt_status != "available":
+        counts["incomplete_count"] += 1
+    if receipt_status == "available":
+        _accumulate_diagnostics(diagnostic, public_groups, counts, groups)
+
+
+def _diagnostic_groups(diagnostic: Mapping[str, object]) -> dict[str, list[dict[str, object]]] | None:
+    """Validate aggregate inputs and project only public grouping fields, never identities."""
+
+    status = diagnostic.get("receipt_status")
+    if (
+        diagnostic.get("schema") != _DIAGNOSTICS_SCHEMA
+        or status not in ("available", "unavailable", "invalid")
+        or diagnostic.get("completeness") not in ("complete", "incomplete")
+        or "candidate_count" not in diagnostic
+        or diagnostic["candidate_count"] is not None
+        or diagnostic.get("candidate_count_basis") != "not_exposed"
+    ):
+        return None
+    if status != "available":
+        return {}
+    if (
+        diagnostic["completeness"] != "complete"
+        or diagnostic.get("validation_failure") is not None
+        or diagnostic.get("receipt_schema") != _RECEIPT_SCHEMA
+        or not all(_nonnegative_int(diagnostic.get(key)) for key in ("used_bytes", "requested_max_bytes"))
+        or not all(isinstance(diagnostic.get(key), bool) for key in ("truncated", "non_deterministic"))
+    ):
+        return None
+    try:
+        encoded = json.dumps(dict(diagnostic), ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return None
+    if len(encoded) > 8192:
+        return None
+    retrieval = _mapping(diagnostic.get("retrieval"))
+    groups: dict[str, list[dict[str, object]]] = {}
+    for key in _GROUP_FIELDS:
+        source = diagnostic if key in ("selected", "omitted", "stages") else retrieval
+        rows = source.get(key)
+        if not isinstance(rows, list):
+            return None
+        projected = [_diagnostic_group(key, row) for row in rows]
+        if any(row is None for row in projected):
+            return None
+        groups[key] = [row for row in projected if row is not None]
+    if diagnostic["truncated"] != any(row["truncated_count"] for row in groups["selected"]):
+        return None
+    return groups
+
+
+def _diagnostic_group(key: str, value: object) -> dict[str, object] | None:
+    row = _mapping(value)
+    fields = _GROUP_FIELDS[key]
+    if not all(field in row for field in fields):
+        return None
+    result = {field: row[field] for field in fields}
+    if not _public_group_values(key, result):
+        return None
+    if key == "selected":
+        truncated = row.get("truncated")
+        if not _nonnegative_int(row.get("rendered_bytes")) or not isinstance(truncated, bool):
+            return None
+        result.update(count=1, rendered_bytes=row["rendered_bytes"], truncated_count=int(truncated))
+    elif key == "rounds":
+        result["count"] = 1
+    else:
+        count = row.get("count")
+        if not _nonnegative_int(count) or count < 1:
+            return None
+        result["count"] = count
+    if key == "stages":
+        duration = row.get("duration_ms")
+        if not _finite_nonnegative_number(duration):
+            return None
+        result["duration_ms"] = float(duration)
+        # Stage names are open in the receipt contract. Keep unknown names content-free.
+        if result["stage"] not in _STAGES:
+            result["stage"] = "other"
+    return result
+
+
+def _public_group_values(key: str, row: Mapping[str, object]) -> bool:
+    if "round" in row and (not _nonnegative_int(row["round"]) or row["round"] > 2):
+        return False
+    if "family" in row and row["family"] not in _FAMILIES:
+        return False
+    if key == "selected":
+        return row["kind"] in _FAMILIES
+    if key == "omitted":
+        return row["reason"] in _OMISSION_REASONS
+    if key == "rounds":
+        return row["outcome"] in ("completed", "expansion_failed") and isinstance(row["retained"], bool)
+    if key == "stages":
+        return isinstance(row["stage"], str)
+    if key == "searches":
+        return (
+            row["mode"] in ("fts", "vector", "hybrid", "snapshot", "code", "none")
+            and row["outcome"] in ("completed", "not_run", "failed")
+            and row["fallback_reason"] in ("none", "inference_unavailable", "inference_timeout", "reused_fts_fallback")
+        )
+    return row["outcome"] in ("selected", "fallback", "failed") and row["fallback_reason"] in (
+        "none",
+        "empty_selection",
+        "inference_unavailable",
+        "inference_timeout",
+        "invalid_output",
+    )
+
+
+def _nonnegative_int(value: object) -> TypeGuard[int]:
+    return _is_int(value) and value >= 0
+
+
+def _accumulate_diagnostics(
+    diagnostic: Mapping[str, object],
+    projected: Mapping[str, list[dict[str, object]]],
+    counts: dict[str, int],
+    groups: dict[str, dict[tuple[object, ...], dict[str, object]]],
+) -> None:
+    counts["truncated_receipt_count"] += int(cast(bool, diagnostic["truncated"]))
+    counts["non_deterministic_count"] += int(cast(bool, diagnostic["non_deterministic"]))
+    for key in ("used_bytes", "requested_max_bytes"):
+        counts[key] += cast(int, diagnostic[key])
+    counts["selected_count"] += len(projected["selected"])
+    counts["truncated_item_count"] += sum(cast(int, item["truncated_count"]) for item in projected["selected"])
+    counts["expansion_failure_count"] += sum(item["outcome"] == "expansion_failed" for item in projected["rounds"])
+    for key, rows in projected.items():
+        for row in rows:
+            identity = tuple(row[field] for field in _GROUP_FIELDS[key])
+            previous = groups[key].get(identity)
+            if previous is None:
+                groups[key][identity] = dict(row)
+                continue
+            for field in row.keys() - _GROUP_FIELDS[key]:
+                previous[field] = cast(int | float, previous[field]) + cast(int | float, row[field])
 
 
 def _is_int(value: object) -> TypeGuard[int]:
@@ -719,6 +952,26 @@ def _iter_jsonl(path: Path) -> Iterator[dict[str, object]]:
                     yield value
     except OSError:
         return
+
+
+def _iter_audit(path: Path) -> Iterator[dict[str, object]]:
+    """Reject damaged audit evidence without changing other artifact readers."""
+
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    message = "Memory audit row must be an object"
+                    raise ReportError(message)
+                yield value
+    except FileNotFoundError:
+        return
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        message = "Cannot read valid memory audit records"
+        raise ReportError(message) from error
 
 
 def _json(value: object) -> str:
@@ -751,9 +1004,9 @@ def _markdown(report: Mapping[str, object]) -> str:
         "Cost: " + _pairs(_cost_line(usage)),
         "Failures: " + _pairs(failures),
         "Abstention: " + _pairs(abstention),
-        "",
-        "Artifacts:",
     ]
+    lines.extend(_diagnostics_markdown(_mapping(report["prepared_context_diagnostics"])))
+    lines.extend(["", "Artifacts:"])
     lines.extend(f"- {name}: {_display(value)}" for name, value in sorted(artifacts.items()))
     lines.extend(
         [
@@ -774,6 +1027,19 @@ def _markdown(report: Mapping[str, object]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _diagnostics_markdown(diagnostics: Mapping[str, object]) -> list[str]:
+    lines = [
+        "",
+        "Prepared context diagnostics: "
+        + _pairs({name: value for name, value in diagnostics.items() if name not in _GROUP_FIELDS}),
+    ]
+    for key in _GROUP_FIELDS:
+        rows = diagnostics.get(key)
+        if isinstance(rows, list):
+            lines.extend(f"- {key}: " + _pairs(_mapping(row)) for row in rows)
+    return lines
 
 
 def _mapping(value: object) -> Mapping[str, object]:

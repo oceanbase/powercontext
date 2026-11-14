@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from collections.abc import Iterator, Mapping
@@ -113,6 +114,8 @@ def run_retrieval_smoke(
     base_url: str = "http://127.0.0.1:8000",
     token_env: str = "POWERCONTEXT_TOKEN",
     experiment_arm: str | ExperimentArm | None = None,
+    receipt_diagnostics: bool = False,
+    receipt_server_revision: str | None = None,
     search_limit: int = 10,
     timeout_seconds: float = 30.0,
     runtime: RetrievalSmokeRuntime | None = None,
@@ -125,6 +128,11 @@ def run_retrieval_smoke(
     powercontext_ref = _nonblank(powercontext_revision, "powercontext_revision")
     integration_ref = _nonblank(integration_revision, "integration_revision")
     arm = resolve_experiment_arm(experiment_arm)
+    diagnostic_config = receipt_diagnostics_config(
+        arm=arm,
+        receipt_diagnostics=receipt_diagnostics,
+        receipt_server_revision=receipt_server_revision,
+    )
     if isinstance(search_limit, bool) or not 1 <= search_limit <= 50:
         raise RetrievalSmokeError("search_limit must be from 1 through 50")
     if timeout_seconds <= 0:
@@ -200,6 +208,7 @@ def run_retrieval_smoke(
                 "task_lens": arm.task_lens,
                 "search_limit": search_limit,
                 "timeout_seconds": timeout_seconds,
+                **diagnostic_config,
             }
         )
         adapter.configure_runtime(runtime=client)
@@ -214,6 +223,11 @@ def run_retrieval_smoke(
             "execution_namespace": execution_namespace,
             "started_at": started_at.isoformat(),
             "experiment_arm": arm_manifest_record(arm),
+            **(
+                {"diagnostics": {**diagnostic_config, "server_revision_basis": "operator_attested"}}
+                if diagnostic_config
+                else {}
+            ),
             "revisions": {
                 "powercontext": powercontext_ref,
                 "integration": integration_ref,
@@ -402,6 +416,28 @@ def run_retrieval_smoke(
         summary_path=summary_path,
         audit_path=audit_path,
     )
+
+
+def receipt_diagnostics_config(
+    *,
+    arm: ExperimentArm,
+    receipt_diagnostics: bool,
+    receipt_server_revision: str | None,
+) -> dict[str, object]:
+    """Validate the operator's Receipt opt-in before HTTP calls or output creation."""
+
+    if not isinstance(receipt_diagnostics, bool):
+        raise RetrievalSmokeError("receipt_diagnostics must be a boolean")
+    if not receipt_diagnostics:
+        return {}
+    if arm.retrieval_strategy != "prepared-context":
+        raise RetrievalSmokeError("receipt_diagnostics requires a prepared-context experiment arm")
+    if not isinstance(receipt_server_revision, str) or re.fullmatch(r"[0-9a-f]{40}", receipt_server_revision) is None:
+        raise RetrievalSmokeError(
+            "receipt_server_revision must be a 40-character lowercase hexadecimal SHA for an "
+            "operator-attested Server build verified to support Receipts"
+        )
+    return {"receipt_diagnostics": True, "receipt_server_revision": receipt_server_revision}
 
 
 def _require_runtime(runtime: RetrievalSmokeRuntime, arm: ExperimentArm) -> None:
