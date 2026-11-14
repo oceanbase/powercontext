@@ -47,7 +47,11 @@ budget does not replay a write whose commit outcome is unknown after a connectio
 
 Source processing generates candidates, then enumerates related active memories satisfying permission, tag and
 retrieval eligibility. Fts enumerates all qualifying matches; vector enumerates all results within its threshold;
-hybrid combines both. Neither comparison batch size nor token budget truncates the total candidates. Oversized
+hybrid combines both. Lexical relatedness counts both sides: a memory qualifies when the distinct candidate terms it
+contains meet the lexical admission threshold for the candidate's distinct terms, or number at least the minimum match
+count and cover the coverage fraction of the memory's own indexed words, including its kind. A long candidate therefore
+still finds a short memory of the same fact. Ordinary search and `prepare_context` keep the query-only threshold.
+Neither comparison batch size nor token budget truncates the total candidates. Oversized
 comparison input reduces the batch until every candidate is processed. A single object or complete extraction input
 that exceeds the budget fails the window without partial publication or cursor advancement. Fallback changes recall
 evidence and requires an explicit choice; by default errors retain the window for diagnosis and retry.
@@ -647,6 +651,10 @@ Atomic Memory uses native `minimum_should_match` filtering when the connected Oc
 Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
 permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
 query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+For related-memory enumeration, the native path also matches memories that share at least the minimum match count of
+terms and are short enough to qualify below the candidate's threshold, then applies whole-word coverage to them. For a
+long candidate almost every memory is that short, so the whole-word check runs on nearly every memory sharing that
+many terms.
 Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
 Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
 OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.

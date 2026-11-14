@@ -47,6 +47,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_page_from_ranks,
     atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_requirement_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
     oceanbase_fts_coverage_sql,
@@ -481,27 +482,54 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         parameters: dict[str, object],
     ) -> str | None:
         terms, required = fts_query_requirements(request.query, floor=request.admission)
-        if not terms or required > len(terms):
-            # Whole-word coverage can never reach a threshold above the query's distinct terms.
+        if not terms:
             return None
-        parameters.update(fts_query=" ".join(terms), fts_required=required)
-        if await self._supports_native_fts(connection, terms=terms):
-            parameters["fts_options"] = f"operator=or;minimum_should_match={required}"
-            score = "SCORE()"
-            coverage = ":fts_required"
-            admission = _NATIVE_FTS_MATCH
-        else:
+        requirement, requirement_parameters, lowest = atomic_memory_related_requirement_sql(
+            len(terms), "mysql", floor=request.admission
+        )
+        if lowest > len(terms):
+            # No memory can contain enough distinct query terms to be lexically related.
+            return None
+        parameters.update(requirement_parameters, fts_query=" ".join(terms), fts_required=required)
+        columns = "artifact_id, revision, state_version, kind"
+        if not await self._supports_native_fts(connection, terms=terms):
             coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
             parameters.update(coverage_parameters)
             score = "MATCH(searchable_text) AGAINST (:fts_query)"
-            admission = f"{score} > 0 AND ({coverage}) >= :fts_required"
-        return (
-            "SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
-            f"{score} AS score, {score} AS raw_score, 'oceanbase_match' AS score_metric, "
-            f"{coverage} AS coverage FROM pc_atomic_memory_current "
-            "WHERE scope_id = :scope_id "
-            f"AND ({eligibility}) AND {admission}"
-        )
+            return (
+                f"SELECT {columns}, {score} AS score, {score} AS raw_score, "  # noqa: S608
+                f"'oceanbase_match' AS score_metric, {coverage} AS coverage FROM pc_atomic_memory_current "
+                f"WHERE scope_id = :scope_id AND ({eligibility}) AND {score} > 0 AND ({coverage}) >= {requirement}"
+            )
+        # For a validated floor (coverage <= 1, at least one matched term), a requirement above the term count can only
+        # be the minimum match count, which the guard has already rejected; so required <= len(terms) here.
+        parameters["fts_options"] = f"operator=or;minimum_should_match={required}"
+        blocks = [
+            f"SELECT {columns}, SCORE() AS score, SCORE() AS raw_score, "  # noqa: S608
+            "'oceanbase_match' AS score_metric, :fts_required AS coverage FROM pc_atomic_memory_current "
+            f"WHERE scope_id = :scope_id AND ({eligibility}) AND {_NATIVE_FTS_MATCH}"
+        ]
+        if lowest < required:
+            # A memory shorter than the candidate can be related below the candidate's own threshold. Only such rows
+            # pay for the whole-word count, after sharing the fewest terms any memory needs. The unbounded LIMIT keeps
+            # OceanBase from merging this native MATCH block.
+            coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
+            parameters.update(coverage_parameters)
+            parameters["fts_reverse_options"] = f"operator=or;minimum_should_match={lowest}"
+            reverse = (
+                f"SELECT {columns}, SCORE() AS score, SCORE() AS raw_score, "  # noqa: S608
+                f"'oceanbase_match' AS score_metric, {coverage} AS coverage, {requirement} AS fts_requirement "
+                f"FROM pc_atomic_memory_current WHERE scope_id = :scope_id AND ({eligibility}) "
+                "AND MATCH(searchable_text^1, :fts_query, :fts_reverse_options) "
+                f"AND {requirement} < :fts_required LIMIT 18446744073709551615"
+            )
+            blocks.append(
+                f"SELECT {columns}, score, raw_score, score_metric, coverage "  # noqa: S608
+                f"FROM ({reverse}) AS reverse_hits "
+                "WHERE reverse_hits.coverage >= reverse_hits.fts_requirement "
+                "AND reverse_hits.coverage < :fts_required"
+            )
+        return blocks[0] if len(blocks) == 1 else " UNION ALL ".join(f"({block})" for block in blocks)
 
     async def _require_related_vectors(
         self,

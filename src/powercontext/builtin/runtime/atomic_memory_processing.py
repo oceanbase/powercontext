@@ -69,6 +69,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexFilter,
     AtomicMemoryRelatedRequest,
     atomic_memory_embedding_input,
+    atomic_memory_related_requirement,
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
@@ -1089,13 +1090,16 @@ def related_window_match(
 ) -> bool:
     """Apply the related-enumeration threshold to one unindexed item, as the backends do for indexed rows.
 
-    Lexical coverage counts whole analyzed terms of the projection's searchable text; the vector channel compares the
-    item's document embedding by exact L2 distance. Hybrid admits an item that meets either channel.
+    Lexical coverage counts whole analyzed terms of the projection's searchable text against the related threshold,
+    which also measures the item's own indexed words; the vector channel compares the item's document embedding by
+    exact L2 distance. Hybrid admits an item that meets either channel.
     """
 
     if request.mode in {"fts", "hybrid"}:
-        terms, required = fts_query_requirements(request.query, floor=request.admission)
-        searchable = f" {analyze_text(atomic_memory_embedding_input(kind, body))} "
+        terms, _ = fts_query_requirements(request.query, floor=request.admission)
+        words = analyze_text(atomic_memory_embedding_input(kind, body))
+        searchable = f" {words} "
+        required = atomic_memory_related_requirement(len(terms), len(words.split()), floor=request.admission)
         if terms and sum(f" {term} " in searchable for term in terms) >= required:
             return True
     if request.mode in {"vector", "hybrid"}:

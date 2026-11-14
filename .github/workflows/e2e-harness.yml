@@ -427,9 +427,9 @@ jobs:
       - name: Test long-query retrieval and admission without skips
         env:
           POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
-        # The count cap keeps 13 cases within 7 per shard, independent of duration estimates.
-        # 7 * (300s + 10s grace) + 190s collection < 40m.
-        timeout-minutes: 40
+        # The count cap keeps 16 cases within 8 per shard, independent of duration estimates.
+        # 8 * (300s + 10s grace) + 190s collection < 45m.
+        timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
             oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
@@ -486,8 +486,8 @@ jobs:
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Five cases (including three parser fallbacks), bounded setup, and diagnostics.
-    timeout-minutes: 65
+    # Eight cases (including three parser fallbacks), bounded setup, and diagnostics.
+    timeout-minutes: 80
     env:
       OCEANBASE_CI_CONTAINER: atomic-memory-native-fts-oceanbase
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.4.2.1-101000022026050611
@@ -528,7 +528,8 @@ jobs:
             --output "$MIGRATION_REPORTS/startup"
 
       - name: Test native FTS retrieval and admission without skips
-        timeout-minutes: 30
+        # 8 * (300s + 10s grace) + 190s collection < 45m.
+        timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
             oceanbase --test-timeout 300 --output "$MIGRATION_REPORTS/native-fts" --tests \
