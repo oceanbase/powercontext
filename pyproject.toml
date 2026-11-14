@@ -256,6 +256,9 @@ exclude = [
     "evaluation/memory/capture_ownership",
     "evaluation/skills",
     "evaluation/zcode_guidance",
+    # Both plugin directories are search paths, and ty resolves powercontext_lifecycle to the Claude Code copy, so it
+    # cannot resolve the relative imports of this identical generated copy.
+    "integrations/codex/plugins/powercontext/powercontext_lifecycle",
 ]
 
 [tool.ty.rules]
@@ -295,8 +298,7 @@ fix = true
 # The plugins ship generated copies of these modules. Ruff must check each copy like its source, or a fix that it
 # applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
-"integrations/codex/plugins/powercontext/powercontext_client_config.py" = "py39"
-"integrations/codex/plugins/powercontext/hooks/{bootstrap_context,prepared_context,prompt_privacy}.py" = "py39"
+"integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
 "integrations/hermes/plugins/powercontext/powercontext_client_config.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 

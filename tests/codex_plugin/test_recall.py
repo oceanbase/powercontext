@@ -710,7 +710,7 @@ def test_session_start_clears_the_kept_receipt_when_a_response_cannot_be_read_or
     handler: type[BaseHTTPRequestHandler],
     outcome: str,
 ) -> None:
-    session_binding_module.save_receipt("thread-a", "scope:test", "bcr_previous")
+    session_binding_module.CODEX.bootstrap_state.save_receipt("thread-a", "scope:test", "bcr_previous")
     with _serve(handler) as server_url:
         settings = session_binding_module.CodexPluginSettings()
         object.__setattr__(settings, "server_url", server_url)
@@ -722,7 +722,7 @@ def test_session_start_clears_the_kept_receipt_when_a_response_cannot_be_read_or
         )
 
     assert json.loads(errors)["outcome"] == outcome
-    assert session_binding_module.load_receipt_state("thread-a") is None
+    assert session_binding_module.CODEX.bootstrap_state.load_receipt_state("thread-a") is None
 
 
 @pytest.mark.parametrize(

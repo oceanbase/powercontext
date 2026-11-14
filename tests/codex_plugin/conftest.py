@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -48,6 +49,8 @@ def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "codex-diagnostics.json"))
     monkeypatch.setenv("POWERCONTEXT_BOOTSTRAP_STATE_DIR", str(tmp_path / "plugin-data"))
+    # The host's plugin data directory is set as well, so the tests notice if it takes precedence over the override.
+    monkeypatch.setenv("PLUGIN_DATA", str(tmp_path / "host-plugin-data"))
     monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
     monkeypatch.delenv("POWERCONTEXT_CODEX_SCOPE_ID", raising=False)
     monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
@@ -72,3 +75,8 @@ def bind_tools_module() -> ModuleType:
 @pytest.fixture
 def session_binding_module() -> ModuleType:
     return _load_module("powercontext_codex_session_binding", PLUGIN_ROOT / "hooks" / "session_binding.py")
+
+
+@pytest.fixture
+def session_start_flow(session_binding_module: ModuleType) -> ModuleType:
+    return sys.modules[session_binding_module.run_session_start.__module__]

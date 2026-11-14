@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Typed Scope binding failures shared by the Claude Code plugin entry points."""
+# Generated from src/powercontext_integration_lifecycle/scope_binding_errors.py; do not edit.
+# Edit the source and run `make integration-lifecycle` instead.
+
+"""Typed Scope binding failures that the Scope clients raise and the lifecycle flows classify."""
 
 from __future__ import annotations
 
 
 class ScopeBindingError(RuntimeError):
-    """Raised when Claude Code cannot establish one current Scope."""
+    """Raised when the integration cannot establish one current Scope."""
 
 
 class ScopeBindingUnavailableError(ScopeBindingError):
@@ -41,11 +44,3 @@ class ScopeBindingStatusError(ScopeBindingError):
         self.path = path
         self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
-
-
-__all__ = [
-    "ScopeBindingError",
-    "ScopeBindingRejectedError",
-    "ScopeBindingStatusError",
-    "ScopeBindingUnavailableError",
-]
