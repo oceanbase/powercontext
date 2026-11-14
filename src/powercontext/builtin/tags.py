@@ -24,12 +24,28 @@ from hashlib import sha256
 from typing import Literal, get_args
 
 import rfc8785
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.records import BaseAccessError, BaseArtifactFamily, InvalidBaseAccessRequestError
 
-TaggableArtifactFamily = BaseArtifactFamily
+TaggableArtifactFamily = str
+
+
+def _taggable_families() -> tuple[str, ...]:
+    from powercontext.builtin.plugins.families import plugin_families
+
+    return (*get_args(BaseArtifactFamily), *sorted(plugin_families()))
+
+
+def _require_taggable(family: str) -> str:
+    """Accept built-in families and the plugin families loaded in this process."""
+
+    if family not in _taggable_families():
+        raise InvalidBaseAccessRequestError("family", "is not a taggable Artifact family")
+    return family
+
+
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact"]
 MAX_TARGET_TAGS = 32
@@ -45,6 +61,11 @@ class ArtifactTagTarget(_TagModel):
     type: Literal["artifact"] = "artifact"
     family: TaggableArtifactFamily
     artifact_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("family")
+    @classmethod
+    def validate_family(cls, value: str) -> str:
+        return _require_taggable(value)
 
 
 TagTarget = ArtifactTagTarget
@@ -120,7 +141,7 @@ class TagPreconditionError(BaseAccessError):
 class TagQuery(TagFilter):
     """A bounded exact query within one authorized Scope."""
 
-    families: tuple[TaggableArtifactFamily, ...] = get_args(TaggableArtifactFamily)
+    families: tuple[TaggableArtifactFamily, ...] = Field(default_factory=_taggable_families)
     target_types: tuple[TagTargetType, ...] = ("artifact",)
     include_inactive: bool = False
     limit: int = Field(default=50, ge=1, le=100)
@@ -128,9 +149,12 @@ class TagQuery(TagFilter):
 
     @field_validator("families", "target_types")
     @classmethod
-    def validate_selection(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_selection(cls, value: tuple[str, ...], info: ValidationInfo) -> tuple[str, ...]:
         if not value or len(set(value)) != len(value):
             raise InvalidBaseAccessRequestError("filters", "must contain distinct nonempty selections")
+        if info.field_name == "families":
+            for family in value:
+                _require_taggable(family)
         return value
 
 

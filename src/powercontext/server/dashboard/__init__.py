@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 from typing_extensions import override
 
+from powercontext.server.dashboard.plugin_pages import plugin_asset, plugin_client, plugin_forward, plugin_page
 from powercontext.server.dashboard.session import save_session
 
 
@@ -44,5 +45,15 @@ def mount_dashboard(app: FastAPI) -> None:
     app.add_api_route(
         "/dashboard/session", save_session, methods=["POST"], include_in_schema=False, response_model=None
     )
+    app.add_api_route("/dashboard/plugins/_client.js", plugin_client, include_in_schema=False)
+    app.add_api_route("/dashboard/plugins/{name}/ui/{path:path}", plugin_asset, include_in_schema=False)
+    app.add_api_route(
+        "/dashboard/plugins/{name}/api/{path:path}",
+        plugin_forward,
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        include_in_schema=False,
+        response_model=None,
+    )
+    app.add_api_route("/dashboard/plugins/{name}", plugin_page, include_in_schema=False, response_model=None)
     app.include_router(router, prefix="/dashboard", include_in_schema=False)
     app.add_api_route("/", lambda: RedirectResponse("/dashboard/home"), include_in_schema=False)

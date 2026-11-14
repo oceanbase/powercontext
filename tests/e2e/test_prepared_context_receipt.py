@@ -135,7 +135,7 @@ def test_http_and_sdk_receipt_matches_injected_memory_and_empty_query(tmp_path, 
                 == "sha256:" + hashlib.sha256(normalize_query(large_query).encode("utf-8")).hexdigest()
             )
             assert any(
-                item.family.value == "atomic-memory" and item.reason.value == "not_retrieved"
+                item.family == "atomic-memory" and item.reason.value == "not_retrieved"
                 for item in empty.receipt.omitted
             )
             ref = receipt["selected"][0]["artifact_address"]["artifact"]

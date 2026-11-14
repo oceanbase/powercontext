@@ -499,319 +499,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             }
         },
-        "/v1/admin/artifact-plugins": {
-            "get": {
-                "tags": ["artifact-plugins"],
-                "summary": "List Artifact plugin registrations",
-                "operationId": "list_artifact_plugins",
-                "responses": {
-                    "200": {
-                        "description": "Durable registration states.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginPage"}}
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}": {
-            "get": {
-                "tags": ["artifact-plugins"],
-                "summary": "Get an Artifact plugin registration",
-                "operationId": "get_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Durable registration state without plugin configuration secrets.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/enable-all": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Enable the currently disabled Artifact plugins",
-                "description": "Captures "
-                "registrations and "
-                "generations at "
-                "request start, then "
-                "accepts each "
-                "eligible enable "
-                "independently. "
-                "Enabled, unloaded, "
-                "failed and "
-                "transitioning "
-                "plugins are skipped. "
-                "Concurrent changes "
-                "and validation "
-                "failures are "
-                "reported per plugin "
-                "without rolling back "
-                "successes. Does not "
-                "discover or reload "
-                "plugins; poll each "
-                "status URL for the "
-                "asynchronous "
-                "outcome.",
-                "operationId": "enable_all_artifact_plugins",
-                "responses": {
-                    "200": {
-                        "description": "Per-plugin acceptance, skip or failure results.",
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/EnableAllArtifactPluginsResponse"}
-                            }
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/reload": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Load or update a Worker-loaded Artifact plugin",
-                "description": "Reads the "
-                "binding's "
-                "direct "
-                "child "
-                "entry "
-                "under "
-                "POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR "
-                "and fixes "
-                "its "
-                "resolved "
-                "immutable "
-                "directory. "
-                "The "
-                "manifest "
-                "binding_name "
-                "must "
-                "match the "
-                "directory "
-                "entry and "
-                "request "
-                "path. "
-                "Saves "
-                "validated "
-                "configuration "
-                "and "
-                "declarations "
-                "without "
-                "creating "
-                "a "
-                "pipeline. "
-                "Existing "
-                "enabled "
-                "or "
-                "disabled "
-                "plugins "
-                "keep "
-                "their "
-                "state; "
-                "initial, "
-                "unloaded "
-                "or failed "
-                "registrations "
-                "become "
-                "disabled. "
-                "This "
-                "initial "
-                "path "
-                "supports "
-                "the "
-                "global "
-                "SQLite "
-                "Supervisor. "
-                "Plugin "
-                "code is "
-                "loaded "
-                "only in "
-                "child "
-                "processes.",
-                "operationId": "reload_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/ReloadArtifactPluginRequest"}}
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Definition saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/enable": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Enable an Artifact plugin",
-                "operationId": "enable_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/disable": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Disable an Artifact plugin",
-                "operationId": "disable_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/unload": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Unload an Artifact plugin",
-                "operationId": "unload_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
         "/v1/capabilities": {
             "get": {
                 "tags": ["capabilities"],
@@ -2291,6 +1978,400 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
                 "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/plugins": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "List loaded plugins",
+                "description": "Lists the plugins checked at Server startup, "
+                "whether each loaded or failed, and what each "
+                "one declares. Plugins have no persisted "
+                "lifecycle state; change the plugin directory "
+                "and restart Server.",
+                "operationId": "list_plugins",
+                "responses": {
+                    "200": {
+                        "description": "Plugins found in the plugin directory at startup.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+            }
+        },
+        "/v1/plugins/{name}": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "Get one loaded plugin",
+                "operationId": "get_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plugin's startup check result and declaration.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginState"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/plugins/{name}/scopes": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "List a plugin's progress per Scope",
+                "description": "Reads the plugin's pending work "
+                "and consumption cursor in each "
+                "Scope from the database, so every "
+                "Server role returns the same "
+                "answer. Call outcomes are "
+                "reported through logs and "
+                "metrics, not here.",
+                "operationId": "list_plugin_scopes",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Scopes the plugin has been asked to process, ordered by Scope ID.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginScopePage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/merges": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Merge exact current Artifacts into a new Artifact",
+                "description": "Freezes "
+                "every "
+                "input into "
+                "a new "
+                "result "
+                "Artifact "
+                "in one "
+                "transaction. "
+                "Available "
+                "for every "
+                "Family "
+                "registered "
+                "with the "
+                "shared "
+                "merge "
+                "service, "
+                "including "
+                "plugin "
+                "families; "
+                "other "
+                "families "
+                "return "
+                "422. The "
+                "caller "
+                "needs "
+                "write "
+                "access to "
+                "each "
+                "input.",
+                "operationId": "merge_artifacts",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MergeArtifactsRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "The merge result and the frozen inputs.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance": {
+            "get": {
+                "tags": ["artifacts"],
+                "summary": "Read an Artifact's current governance state",
+                "description": "Returns "
+                "the "
+                "lifecycle "
+                "state, "
+                "state "
+                "version "
+                "and "
+                "merge "
+                "target "
+                "that "
+                "forget, "
+                "merge "
+                "and "
+                "restoration "
+                "check. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "get_artifact_governance",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The current governance state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceRecord"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Forget one Artifact without changing its content revision",
+                "description": "Deprecates "
+                "the "
+                "exact "
+                "current "
+                "Artifact "
+                "without "
+                "a "
+                "replacement "
+                "so "
+                "it "
+                "leaves "
+                "search; "
+                "restoration "
+                "brings "
+                "it "
+                "back. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "forget_artifact",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ForgetArtifactRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "The Artifact's governance state after forgetting.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Restore an Artifact or undo the merge that produced it",
+                "description": "`restore` "
+                "reactivates "
+                "the "
+                "Artifact, "
+                "optionally "
+                "at "
+                "an "
+                "earlier "
+                "content "
+                "revision, "
+                "and "
+                "undoes "
+                "the "
+                "merges "
+                "that "
+                "froze "
+                "it. "
+                "`undo_merge` "
+                "restores "
+                "a "
+                "merge "
+                "result's "
+                "inputs "
+                "and "
+                "retires "
+                "the "
+                "result. "
+                "Each "
+                "runs "
+                "as "
+                "one "
+                "group. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "restore_artifact",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RestoreArtifactRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The revisions restored and retired by the operation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRestorationResult"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
             }
         },
         "/v1/scopes/{scope_id}/artifacts/{family}/search": {
@@ -4424,7 +4505,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "description": "Persist one Source without "
                 "synchronously deriving "
                 "Artifacts. The Server "
-                "generates source_id.",
+                "generates source_id. A "
+                "Source type defined by a "
+                "loaded plugin is resolved by "
+                "that plugin from the "
+                "submitted input; unknown "
+                "types return 404.",
                 "operationId": "create_source",
                 "x-powercontext-access": {
                     "action": "scope.contribute",
@@ -4530,7 +4616,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "head, chunks, and "
                 "configured retrieval "
                 "indexes are committed "
-                "atomically.",
+                "atomically. A family "
+                "provided by a loaded "
+                "plugin takes the complete "
+                "content object; core "
+                "allocates the Artifact ID "
+                "and the plugin's "
+                "create_artifact method "
+                "writes revision one.",
                 "operationId": "create_artifact",
                 "x-powercontext-access": {"resolver": "create_artifact_access"},
                 "parameters": [
@@ -4976,7 +5069,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "through "
                 "its "
                 "restoration "
-                "flow.",
+                "flow. "
+                "Plugin "
+                "families "
+                "accept "
+                "their "
+                "own "
+                "content "
+                "unchanged; "
+                "the "
+                "plugin's "
+                "next "
+                "invocation "
+                "sees "
+                "the "
+                "new "
+                "revision.",
                 "operationId": "replace_artifact",
                 "x-powercontext-scope-mode": "current",
                 "x-powercontext-access": {"resolver": "path_artifact_write_access"},
@@ -4991,19 +5099,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {
-                            "type": "string",
-                            "enum": [
-                                "memory",
-                                "atomic-memory",
-                                "experience",
-                                "skill",
-                                "handoff",
-                                "prompt",
-                                "topic-memory",
-                                "profile",
-                            ],
-                        },
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -5426,6 +5522,92 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRevision"}}},
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering": {
+            "get": {
+                "tags": ["artifacts"],
+                "summary": "Present a plugin Artifact",
+                "description": "Returns "
+                "the "
+                "default "
+                "presentation "
+                "of "
+                "one "
+                "revision "
+                "of "
+                "a "
+                "plugin "
+                "family "
+                "as "
+                "the "
+                "plugin "
+                "renders "
+                "it, "
+                "in "
+                "Markdown "
+                "or "
+                "plain "
+                "text, "
+                "for "
+                "people "
+                "and "
+                "for "
+                "agent "
+                "context. "
+                "The "
+                "current "
+                "revision "
+                "is "
+                "used "
+                "unless "
+                "revision "
+                "is "
+                "given. "
+                "Built-in "
+                "families "
+                "have "
+                "no "
+                "rendering "
+                "and "
+                "return "
+                "422.",
+                "operationId": "get_artifact_rendering",
+                "x-powercontext-access": {"resolver": "path_artifact_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                    {"name": "revision", "in": "query", "required": False, "schema": {"type": "integer", "minimum": 1}},
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The rendering of the exact revision.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRendering"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -7385,11 +7567,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "schema_version": {
-                        "type": "string",
-                        "description": "Persisted schema version for a custom Artifact family.",
-                        "nullable": True,
-                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
@@ -7427,7 +7604,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactCreated": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
@@ -7458,11 +7635,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "schema_version": {
-                        "type": "string",
-                        "description": "Persisted schema version for a custom Artifact family.",
-                        "nullable": True,
-                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "content": {"additionalProperties": True, "type": "object"},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
@@ -8196,106 +8368,232 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["operation", "output_kind", "effect"],
             },
-            "CustomArtifactFamilySchema": {
+            "PluginKind": {"type": "string", "enum": ["artifact"]},
+            "PluginLoadStatus": {"type": "string", "enum": ["loaded", "failed"]},
+            "PluginTrigger": {"type": "string", "enum": ["schedule", "sources"]},
+            "PluginState": {
                 "properties": {
-                    "family": {"type": "string"},
-                    "schema_version": {"type": "string"},
-                    "content_schema": {"additionalProperties": True, "type": "object"},
-                    "search_fields": {
+                    "name": {"type": "string"},
+                    "kind": {"$ref": "#/components/schemas/PluginKind"},
+                    "status": {"$ref": "#/components/schemas/PluginLoadStatus"},
+                    "error": {
+                        "type": "string",
+                        "description": "Safe failure category from the startup check.",
+                        "nullable": True,
+                    },
+                    "family": {"type": "string", "nullable": True},
+                    "binding_name": {"type": "string", "nullable": True},
+                    "scopes": {"items": {"type": "string"}, "type": "array", "nullable": True},
+                    "source_types": {
                         "items": {"type": "string"},
                         "type": "array",
-                        "description": "Legacy persisted text fields; new plugins use search.",
+                        "description": "Source types delivered to the plugin; null when it consumes no Sources.",
+                        "nullable": True,
                     },
-                    "search": {
-                        "additionalProperties": True,
-                        "type": "object",
-                        "description": "Persistent declarative indexes and supported search modes.",
-                    },
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["family", "schema_version", "content_schema", "search_fields"],
-            },
-            "ReloadArtifactPluginRequest": {
-                "properties": {"expected_generation": {"type": "integer", "minimum": 0.0}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["expected_generation"],
-            },
-            "ChangeArtifactPluginStateRequest": {
-                "properties": {"expected_generation": {"type": "integer", "minimum": 1.0}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["expected_generation"],
-            },
-            "ArtifactPluginState": {
-                "properties": {
-                    "binding_name": {"type": "string"},
-                    "plugin_id": {"type": "string"},
-                    "family": {"type": "string"},
-                    "binding_generation": {"type": "integer", "minimum": 1.0},
-                    "desired_state": {"type": "string", "enum": ["enabled", "disabled", "unloaded"]},
-                    "phase": {
-                        "type": "string",
-                        "enum": ["activating", "enabled", "stopping", "disabled", "unloading", "unloaded", "failed"],
-                    },
-                    "last_error": {"type": "string", "nullable": True},
+                    "triggers": {"items": {"$ref": "#/components/schemas/PluginTrigger"}, "type": "array"},
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": [
-                    "binding_name",
-                    "plugin_id",
+                    "name",
+                    "kind",
+                    "status",
+                    "error",
                     "family",
-                    "binding_generation",
-                    "desired_state",
-                    "phase",
-                    "last_error",
+                    "binding_name",
+                    "scopes",
+                    "source_types",
+                    "triggers",
                 ],
             },
-            "ArtifactPluginPage": {
-                "properties": {
-                    "items": {"items": {"$ref": "#/components/schemas/ArtifactPluginState"}, "type": "array"}
-                },
+            "PluginPage": {
+                "properties": {"items": {"items": {"$ref": "#/components/schemas/PluginState"}, "type": "array"}},
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["items"],
             },
-            "EnableArtifactPluginResult": {
+            "PluginScopeState": {
                 "properties": {
-                    "binding_name": {"type": "string"},
-                    "outcome": {"type": "string", "enum": ["accepted", "skipped", "failed"]},
-                    "status_url": {
-                        "type": "string",
-                        "description": "Registration status URL for the asynchronous result.",
+                    "scope_id": {"type": "string"},
+                    "pending": {
+                        "type": "boolean",
+                        "description": "New Sources or a schedule request are waiting for an invocation.",
                     },
-                    "state": {"$ref": "#/components/schemas/ArtifactPluginState"},
-                    "error": {
-                        "type": "string",
-                        "enum": ["conflict", "invalid_plugin", "unavailable", None],
-                        "description": "Safe per-plugin failure code; null for accepted or skipped entries.",
+                    "consumed_position": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Source "
+                        "journal "
+                        "position "
+                        "the "
+                        "plugin "
+                        "has "
+                        "consumed "
+                        "through; "
+                        "null "
+                        "when "
+                        "it "
+                        "consumes "
+                        "no "
+                        "Sources.",
+                        "nullable": True,
+                    },
+                    "source_position": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Latest Source journal position in the Scope, of any Source type.",
                         "nullable": True,
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["binding_name", "outcome", "status_url", "state", "error"],
+                "required": ["scope_id", "pending", "consumed_position", "source_position"],
             },
-            "EnableAllArtifactPluginsResponse": {
+            "ListPluginScopesRequest": {
                 "properties": {
-                    "items": {"items": {"$ref": "#/components/schemas/EnableArtifactPluginResult"}, "type": "array"}
+                    "cursor": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 50},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["items"],
+            },
+            "PluginScopePage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/PluginScopeState"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items", "next_cursor"],
+            },
+            "ArtifactLifecycleState": {"type": "string", "enum": ["active", "deprecated", "retired"]},
+            "ArtifactGovernanceInput": {
+                "properties": {
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_id", "revision", "state_version"],
+                "description": "An exact current Artifact the caller has read; a later change rejects the request.",
+            },
+            "MergeArtifactsRequest": {
+                "properties": {
+                    "inputs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactGovernanceInput"},
+                        "type": "array",
+                        "minItems": 2,
+                    },
+                    "content": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Complete content of the result in the Family's content shape.",
+                    },
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["inputs", "content"],
+            },
+            "ForgetArtifactRequest": {
+                "properties": {
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["revision", "state_version"],
+            },
+            "ArtifactRestorationOperation": {"type": "string", "enum": ["restore", "undo_merge"]},
+            "RestoreArtifactRequest": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/ArtifactRestorationOperation", "default": "restore"},
+                    "revision": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Content "
+                        "revision "
+                        "to "
+                        "restore; "
+                        "omitted "
+                        "restores "
+                        "the "
+                        "current "
+                        "one. "
+                        "Not "
+                        "accepted "
+                        "with "
+                        "undo_merge.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "ArtifactGovernanceRecord": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "lifecycle_state": {"$ref": "#/components/schemas/ArtifactLifecycleState"},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                    "merged_into_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "lifecycle_state", "state_version", "merged_into_id"],
+            },
+            "ArtifactGovernanceResponse": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "records": {"items": {"$ref": "#/components/schemas/ArtifactGovernanceRecord"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "records"],
+            },
+            "ArtifactRestorationResult": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "restored": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "retired": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "undo_merge_results": {"items": {"type": "string"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "restored", "retired", "undo_merge_results"],
+            },
+            "CreatePluginArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "content": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+                "description": "Create an Artifact of "
+                "a family a loaded "
+                "plugin provides. The "
+                "family must not be a "
+                "built-in family name; "
+                "core allocates the "
+                "Artifact ID and stores "
+                "the content the plugin "
+                "writes.",
+            },
+            "ReplacePluginArtifactRequest": {
+                "properties": {"content": {"additionalProperties": True, "type": "object"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+                "description": "Complete content of a "
+                "plugin Artifact; core "
+                "stores it unchanged "
+                "and indexes the "
+                "declared fields.",
             },
             "Capabilities": {
                 "properties": {
-                    "custom_artifact_schemas": {
-                        "items": {"$ref": "#/components/schemas/CustomArtifactFamilySchema"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "prompts": {
                         "additionalProperties": {"$ref": "#/components/schemas/PromptCapability"},
                         "type": "object",
@@ -10349,7 +10647,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "PreparedContextSearchGroup": {
                 "properties": {
                     "round": {"type": "integer", "maximum": 2.0, "minimum": 0.0},
-                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "mode": {"type": "string", "enum": ["fts", "vector", "hybrid", "snapshot", "code", "none"]},
                     "outcome": {"type": "string", "enum": ["completed", "not_run", "failed"]},
                     "fallback_reason": {
@@ -10449,10 +10762,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["round", "config_id", "outcome", "fallback_reason", "count"],
             },
-            "PreparedContextFamily": {
-                "type": "string",
-                "enum": ["atomic-memory", "topic-memory", "experience", "profile", "code"],
-            },
             "PreparedContextCodeEvidence": {
                 "properties": {
                     "scope_id": {"type": "string"},
@@ -10477,7 +10786,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "PreparedContextSelectedItem": {
                 "properties": {
-                    "kind": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "kind": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "artifact_address": {"$ref": "#/components/schemas/ArtifactAddress"},
                     "code_evidence": {"$ref": "#/components/schemas/PreparedContextCodeEvidence"},
                     "rendered_bytes": {"type": "integer", "minimum": 0.0},
@@ -10489,7 +10813,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "PreparedContextOmittedGroup": {
                 "properties": {
-                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "reason": {
                         "type": "string",
                         "enum": [
@@ -12620,7 +12959,88 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ContextAssemblySection": {
                 "properties": {
-                    "family": {"$ref": "#/components/schemas/ContextAssemblyFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "A "
+                        "built-in "
+                        "family "
+                        "(memory, "
+                        "experience, "
+                        "profile, "
+                        "topic-memory) "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family "
+                        "that "
+                        "implements "
+                        "search. "
+                        "A "
+                        "plugin "
+                        "family's "
+                        "entries "
+                        "come "
+                        "from "
+                        "the "
+                        "plugin's "
+                        "search "
+                        "with "
+                        "the "
+                        "request "
+                        "query "
+                        "and "
+                        "this "
+                        "limit; "
+                        "a "
+                        "family "
+                        "that "
+                        "is "
+                        "neither "
+                        "returns "
+                        "HTTP "
+                        "422.",
+                    },
+                    "search": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Additional "
+                        "generic "
+                        "search "
+                        "fields "
+                        "passed "
+                        "to "
+                        "the "
+                        "plugin's "
+                        "search "
+                        "unchanged, "
+                        "such "
+                        "as "
+                        "mode, "
+                        "filters, "
+                        "fusion, "
+                        "or "
+                        "rerank. "
+                        "Only "
+                        "plugin "
+                        "families "
+                        "accept "
+                        "it; "
+                        "the "
+                        "query "
+                        "and "
+                        "limit "
+                        "come "
+                        "from "
+                        "the "
+                        "request "
+                        "and "
+                        "this "
+                        "section.",
+                    },
                     "limit": {
                         "type": "integer",
                         "maximum": 8.0,
@@ -12759,7 +13179,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "preserve the existing context "
                 "format; null is invalid.",
             },
-            "ContextAssemblyFamily": {"type": "string", "enum": ["memory", "experience", "profile", "topic-memory"]},
             "ContextAssemblyFormat": {"type": "string", "enum": ["markdown"]},
             "ContextAssemblyMetadata": {"type": "string", "enum": ["confidence", "recall_rank"]},
             "ProposeExperienceRequest": {
@@ -13312,6 +13731,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["retrieval", "channels"],
                 "x-powercontext-artifact-search-validation": "score",
             },
+            "ArtifactRendering": {
+                "properties": {
+                    "family": {"type": "string", "minLength": 1},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "format": {"type": "string", "enum": ["markdown", "text"]},
+                    "text": {"type": "string"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "artifact_id", "revision", "format", "text"],
+            },
             "ArtifactSearchItem": {
                 "properties": {
                     "family": {"type": "string", "minLength": 1},
@@ -13429,6 +13860,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["artifact", "title", "summary", "detail", "source_refs"],
             },
             "CreateArtifactRequest": {
+                "anyOf": [
+                    {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
+                ],
+                "description": "A built-in family's creation "
+                "request, or the complete "
+                "content of an Artifact in a "
+                "loaded plugin's family. The "
+                "family name selects the "
+                "branch: built-in names "
+                "select the built-in branch.",
+                "x-powercontext-family-dispatch": {
+                    "builtin": "CreateBuiltinArtifactRequest",
+                    "plugin": "CreatePluginArtifactRequest",
+                },
+            },
+            "CreateBuiltinArtifactRequest": {
                 "oneOf": [
                     {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateTopicMemoryArtifactRequest"},
@@ -13607,9 +14055,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["kind", "text"],
             },
+            "SourceType": {
+                "type": "string",
+                "enum": ["content"],
+                "description": "The built-in Source type that create_source accepts.",
+            },
             "CreateSourceRequest": {
                 "properties": {
-                    "source_type": {"type": "string", "enum": ["content"], "default": "content"},
+                    "source_type": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9._-]*$",
+                        "description": "The "
+                        "built-in "
+                        "content "
+                        "type, "
+                        "or "
+                        "a "
+                        "Source "
+                        "type "
+                        "that "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "defines. "
+                        "A "
+                        "plugin "
+                        "type's "
+                        "content "
+                        "is "
+                        "that "
+                        "type's "
+                        "input; "
+                        "the "
+                        "plugin "
+                        "resolves "
+                        "it "
+                        "into "
+                        "the "
+                        "stored "
+                        "Source.",
+                        "default": "content",
+                    },
                     "content": {
                         "description": "JSON "
                         "value "
@@ -13619,7 +14107,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "built-in "
                         "content "
                         "Source "
-                        "adapter. "
+                        "adapter, "
+                        "or "
+                        "the "
+                        "input "
+                        "of "
+                        "a "
+                        "plugin "
+                        "Source "
+                        "type. "
                         "Server-reserved "
                         "payload "
                         "schemas, "
@@ -13653,17 +14149,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "TaggableArtifactFamily": {
                 "type": "string",
-                "enum": [
-                    "memory",
-                    "atomic-memory",
-                    "experience",
-                    "skill",
-                    "handoff",
-                    "profile",
-                    "prompt",
-                    "topic-memory",
-                ],
-                "description": "All readable Artifact families support logical tags on persisted Artifacts.",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "description": "A built-in Family or a "
+                "loaded plugin family; every "
+                "readable Family supports "
+                "logical tags on persisted "
+                "Artifacts. The "
+                "collection-level memory "
+                "Family tags entries "
+                "instead.",
             },
             "TagMatch": {"type": "string", "enum": ["all", "any"]},
             "TagTargetType": {"type": "string", "enum": ["artifact", "memory_entry"]},
@@ -13853,7 +14349,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ReplaceArtifactRequest": {
-                "oneOf": [
+                "anyOf": [
                     {"$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceTopicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceMemoryArtifactRequest"},
@@ -13862,7 +14358,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {"$ref": "#/components/schemas/ReplaceHandoffArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplacePromptArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceProfileArtifactRequest"},
-                ]
+                    {"$ref": "#/components/schemas/ReplacePluginArtifactRequest"},
+                ],
+                "description": "The complete content for "
+                "the family in the path. A "
+                "plugin family's content is "
+                "any object, so a built-in "
+                "family's request also "
+                "matches the plugin branch; "
+                "the path family selects the "
+                "branch the Server applies.",
             },
             "ReplacePromptArtifactRequest": {
                 "properties": {
@@ -13879,6 +14384,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
+            },
+            "GetArtifactRenderingRequest": {
+                "properties": {"revision": {"type": "integer", "minimum": 1.0, "nullable": True}},
+                "additionalProperties": False,
+                "type": "object",
             },
             "ListArtifactRevisionsRequest": {
                 "properties": {

@@ -1,0 +1,109 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<section class="plugin-page" aria-labelledby="plugin-title">
+  <style>
+    me iframe { min-height: calc(100vh - 9rem); background: var(--tblr-bg-surface); }
+    me .plugin-frame { position: relative; }
+    me [data-plugin-loading] { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  </style>
+  <div class="page-header mb-3"><h2 class="page-title" id="plugin-title">{{ plugin_page.title }}</h2></div>
+  <div class="alert alert-warning" role="alert" data-plugin-stopped hidden>
+    {{ t.plugin_page_stopped }} <a href="{{ plugin_page.path }}">{{ t.retry }}</a>
+  </div>
+  <div class="plugin-frame" aria-busy="true">
+    <div class="text-secondary" data-plugin-loading role="status">
+      <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}
+    </div>
+    <iframe class="w-100 border rounded" title="{{ plugin_page.title }}"
+            sandbox="{{ plugin_page.sandbox }}" referrerpolicy="no-referrer"></iframe>
+  </div>
+  <script>
+    me().run(section => {
+      const frame = me('iframe', section);
+      const notice = me('[data-plugin-stopped]', section);
+      const loading = me('[data-plugin-loading]', section);
+      const config = {{ plugin_page|tojson }};
+      const pageContext = {
+        scopeId: {{ scope|tojson }},
+        language: {{ language|tojson }},
+        theme: document.documentElement.getAttribute('data-bs-theme') || 'light',
+      };
+      const escape = text => text.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+      const routes = config.routes.map(route => ({
+        method: route.method,
+        pattern: new RegExp('^' + escape(route.path).replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, '[^/]+') + '$'),
+      }));
+      const safePath = path => /^\/[A-Za-z0-9._~%!$&'()*+,;=:@\/-]*$/.test(path) && !/(^|\/)\.\.?(\/|$)/.test(path);
+      const declared = (method, path) => safePath(path) && routes.some(route => route.method === method && route.pattern.test(path));
+      // The first load is the plugin page. Any later load may be another site, so forwarding stops.
+      let loads = 0;
+      let forwarding = true;
+      const send = message => { if (forwarding) frame.contentWindow.postMessage(message, '*'); };
+      frame.addEventListener('load', () => {
+        loads += 1;
+        // The page and its scripts have loaded; anything slower is the plugin's own to show.
+        loading.remove();
+        frame.parentElement.removeAttribute('aria-busy');
+        if (loads === 1) {
+          send({ type: 'powercontext.context', context: pageContext });
+        } else {
+          forwarding = false;
+          notice.hidden = false;
+        }
+      });
+      async function forward(event) {
+        if (!frame.isConnected) { window.removeEventListener('message', forward); return; }
+        if (!forwarding || event.source !== frame.contentWindow) return;
+        const data = event.data || {};
+        if (data.type === 'powercontext.ready') { send({ type: 'powercontext.context', context: pageContext }); return; }
+        if (data.type !== 'powercontext.request') return;
+        const reply = fields => send({ type: 'powercontext.response', id: data.id, ...fields });
+        const method = String(data.method || 'GET').toUpperCase();
+        const path = String(data.path || '');
+        if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
+        const url = new URL(config.api + path, location.origin);
+        for (const [key, value] of Object.entries(data.query || {})) {
+          for (const item of [].concat(value)) url.searchParams.append(key, String(item));
+        }
+        const init = { method, credentials: 'same-origin', headers: {} };
+        if (data.json !== undefined) {
+          init.body = JSON.stringify(data.json);
+          init.headers['Content-Type'] = 'application/json';
+        } else if (data.body !== undefined && data.body !== null) {
+          init.body = data.body;
+          if (data.contentType) init.headers['Content-Type'] = String(data.contentType);
+        }
+        try {
+          const response = await fetch(url, init);
+          const contentType = response.headers.get('content-type') || '';
+          const disposition = response.headers.get('content-disposition') || '';
+          const result = { status: response.status, contentType, filename: (/filename="([^"]+)"/.exec(disposition) || [])[1] };
+          if (response.status !== 204) {
+            if (contentType.includes('application/json')) result.json = await response.json();
+            else result.blob = await response.blob();
+          }
+          reply(result);
+        } catch {
+          reply({ status: 0, error: 'network_error' });
+        }
+      }
+      window.addEventListener('message', forward);
+      // Load only after the listeners exist, so the first load counted is the plugin page.
+      frame.src = config.src;
+    });
+  </script>
+</section>
