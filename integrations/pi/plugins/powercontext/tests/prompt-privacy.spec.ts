@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { containsSecret, scrubSecrets } from '../src/secrets.ts'
+import { containsSecret, scrubSecrets } from '../src/prompt-privacy.ts'
 
 const { cases } = JSON.parse(readFileSync(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',

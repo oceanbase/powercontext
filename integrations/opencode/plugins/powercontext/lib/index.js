@@ -2253,7 +2253,7 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 }
 
 //#endregion
-//#region src/secrets.ts
+//#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
 	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
@@ -2261,11 +2261,13 @@ const SECRET_PATTERNS = [
 	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
 	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
+/** Return text with recognized credential-shaped values replaced. */
 function scrubSecrets(text, authorization) {
 	const credential = authorization?.replace(/^Bearer\s+/iu, "");
 	if (credential) text = text.replaceAll(credential, "[REDACTED]");
-	return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[REDACTED]"), text);
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
 }
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
 function containsSecret(text, authorization) {
 	return scrubSecrets(text, authorization) !== text;
 }
