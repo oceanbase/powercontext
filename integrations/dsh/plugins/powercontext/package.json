@@ -70,7 +70,7 @@
     "build": "node scripts/clean-build.mjs && tsdown && node scripts/wrap-client.mjs && node scripts/copy-assets.mjs && node scripts/normalize-build-output.mjs",
     "prepare": "node scripts/prepare.mjs",
     "test": "vitest run --exclude=tests/e2e/**",
-    "test:e2e": "vitest run tests/e2e",
+    "test:e2e": "vitest run --no-file-parallelism tests/e2e",
     "test:e2e:runtime": "pnpm --dir tests/runtime test",
     "test:all": "vitest run",
     "test:package": "pnpm build && node --test tests/pack-release.test.mjs",

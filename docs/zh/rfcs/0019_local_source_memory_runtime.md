@@ -9,6 +9,9 @@ description: 本地 Runtime 的设计提案，以 SQLite 保存 Scope 内的 Sou
 
 > **注意：** PowerContext 当前使用随 builtin 依赖捆绑的 sqlite-vec 提供 SQLite 向量检索。本 RFC 中关于 Vec1 的
 > 表述已不再适用，仅作为原始设计记录保留。
+>
+> **注意：** 自动处理由 Artifact Processing Supervisor 执行（[RFC 1515](1515_artifact_processing_supervisor.md)）。
+> 本 RFC 描述的 APScheduler interval job、SQLite sidecar 和 `ScheduledSourceProcessor` 已不存在，仅作为原始设计记录保留。
 
 # Summary
 

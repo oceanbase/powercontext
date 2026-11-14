@@ -383,15 +383,84 @@ def doctor(
     )
 
 
+def _codex_plugin_root(marketplace: str, plugin_version: str) -> Path:
+    """Return the directory where Codex installed this plugin version."""
+
+    if any(part in {"", ".", ".."} or "/" in part or "\\" in part for part in (marketplace, plugin_version)):
+        raise SetupError("Invalid Codex plugin cache location")  # noqa: TRY003
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    return codex_home / "plugins" / "cache" / marketplace / PLUGIN_NAME / plugin_version
+
+
+def _sync_codex_plugin_runtime(plugin_root: Path, *options: str, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run `uv sync` on the plugin's own `.venv`, the environment the MCP header helper uses."""
+
+    # Never sync into another project's environment named by the caller's shell.
+    environment = {
+        name: value for name, value in os.environ.items() if name not in {"UV_PROJECT_ENVIRONMENT", "VIRTUAL_ENV"}
+    }
+    return subprocess.run(  # noqa: S603 - the hooks and the MCP helper run the same uv from PATH.
+        ["uv", "sync", "--frozen", "--quiet", *options, "--project", str(plugin_root)],  # noqa: S607
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        timeout=timeout,
+    )
+
+
+def _prepare_codex_plugin_runtime(plugin_root: Path) -> None:
+    """Build the installed plugin's Python environment before Codex first starts it.
+
+    Codex starts the MCP header helper with a filtered environment and the hooks with the session's environment, both
+    through `uv run` at session start. Left to that moment, both build the environment: uv replaces it when the two
+    request different interpreters, failing the helper mid-import, and a cold build delays the optional MCP server
+    past the point where Codex lists the first turn's tools.
+    """
+
+    retry = "the plugin is installed; rerun setup once uv can install its dependencies"
+    try:
+        completed = _sync_codex_plugin_runtime(plugin_root, timeout=300)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SetupError(f"Cannot prepare the Codex plugin runtime with uv ({retry}): {error}") from error  # noqa: TRY003
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        raise SetupError(f"Preparing the Codex plugin runtime with uv failed ({retry}): {detail}")  # noqa: TRY003
+
+
+def _codex_plugin_runtime_diagnostic(plugin: dict[str, Any]) -> Diagnostic:
+    """Report whether the installed plugin's environment is ready without building it."""
+
+    rerun = "rerun `powercontext setup codex`"
+    if which("uv") is None:
+        return Diagnostic(
+            status=DiagnosticStatus.FAILED,
+            detail=f"uv is not on PATH; the plugin's hooks and MCP credential helper need it; install uv and {rerun}",
+        )
+    try:
+        root = _codex_plugin_root(_required_string(plugin, "marketplaceName"), _required_string(plugin, "version"))
+        completed = _sync_codex_plugin_runtime(root, "--check", timeout=60)
+    except (SetupError, OSError, subprocess.SubprocessError) as error:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"cannot check the plugin environment: {error}")
+    if completed.returncode == 0:
+        return Diagnostic(status=DiagnosticStatus.OK, detail="plugin environment is ready")
+    return Diagnostic(
+        status=DiagnosticStatus.DEGRADED,
+        detail=(
+            "plugin environment is not built; the next Codex session builds it while starting and may begin "
+            f"without PowerContext MCP tools; {rerun}"
+        ),
+    )
+
+
 def _codex_endpoint_updates(marketplace: str, plugin_version: str, server_url: str) -> dict[Path, bytes]:
     """Keep the installed native MCP and Hook endpoint and saved credential source identical."""
 
     from powercontext.cli.authorization import credential_path
 
-    if any(part in {"", ".", ".."} or "/" in part or "\\" in part for part in (marketplace, plugin_version)):
-        raise SetupError("Invalid Codex plugin cache location")  # noqa: TRY003
-    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-    path = codex_home / "plugins" / "cache" / marketplace / PLUGIN_NAME / plugin_version / ".mcp.json"
+    path = _codex_plugin_root(marketplace, plugin_version) / ".mcp.json"
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
         entry = config["mcpServers"][PLUGIN_NAME]
@@ -1364,6 +1433,10 @@ class CodexInstaller:
     def install(self, source):
         if _codex_path_executable() is None:
             raise SetupError("Codex CLI is not installed or is not on PATH.")  # noqa: TRY003
+        if which("uv") is None:
+            raise SetupError(  # noqa: TRY003
+                "uv is not installed or is not on PATH; the Codex plugin's hooks and MCP helper need it."
+            )
         marketplace_source, local = _normalize_marketplace_source(source.location)
         arguments = ["plugin", "marketplace", "add", marketplace_source]
         if not local:
@@ -1379,10 +1452,12 @@ class CodexInstaller:
         )
         if plugin is None or plugin.get("enabled") is not False:
             plugin = _run_codex_json("plugin", "add", f"{PLUGIN_NAME}@{marketplace}")
+        plugin_version = _required_string(plugin, "version")
+        _prepare_codex_plugin_runtime(_codex_plugin_root(marketplace, plugin_version))
         return {
             "marketplace": marketplace,
             "plugin": _required_string(plugin, "name"),
-            "plugin_version": _required_string(plugin, "version"),
+            "plugin_version": plugin_version,
             "data_dir": str(powercontext_data_dir()),
         }
 
@@ -1464,6 +1539,8 @@ class CodexInstaller:
                 detail="not checked because the PowerContext plugin is unavailable",
             )
             return diagnostics
+        # Before the MCP probe below, whose helper run would build the environment itself.
+        diagnostics["plugin_runtime"] = _codex_plugin_runtime_diagnostic(plugin)
 
         try:
             servers = _run_codex_mcp_list()

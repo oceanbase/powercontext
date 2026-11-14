@@ -20,7 +20,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
+import { SERVER_E2E_TIMEOUT_MS, startPowerContextServer } from '../../scripts/e2e-server.mjs'
 import { PowerContextClient } from '../../src/client.ts'
 import { createHandoffServices } from '../../src/handoff/assembly.ts'
 import type { DeliveryView, SourceBoundary } from '../../src/handoff/contracts.ts'
@@ -241,4 +241,4 @@ it('revalidates preflight, persists one real Server package, and recovers launch
       rmSync(server.home, { recursive: true, force: true })
     }
   }
-}, 60_000)
+}, SERVER_E2E_TIMEOUT_MS)

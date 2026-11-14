@@ -30,10 +30,8 @@ from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.errors import (
     GenerationConflictError,
     InvalidRepositoryArgumentError,
-    InvalidStoredColumnError,
-    InvalidStoredPayloadError,
 )
-from powercontext.builtin.persistence.tables import SOURCE_CURSORS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import SOURCE_CURSORS_TABLE
 from powercontext.builtin.sources import SourceCursor
 from powercontext.limits import MAX_BINDING_NAME_LENGTH, MAX_SCOPE_ID_LENGTH
 
@@ -49,49 +47,6 @@ class StoredSourceCursor(BaseModel):
 
 class SourceCursorRepository:
     """Persist source-window cursors with generation CAS."""
-
-    async def unconsumed_scope_ids(self, connection: AsyncConnection, binding_name: str, /) -> tuple[str, ...]:
-        """Select journals ahead of this binding, without per-Scope transactions.
-
-        This is advisory discovery. The processor still validates its cursor and
-        window inside the owning transaction. Invalid cursors remain selected so
-        that their failure stays isolated to that Scope.
-        """
-
-        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
-        heads = SOURCE_JOURNAL_HEADS_TABLE
-        cursors = SOURCE_CURSORS_TABLE
-        statement = (
-            select(heads.c.scope_id, heads.c.position, cursors.c.cursor)
-            .select_from(
-                heads.outerjoin(
-                    cursors,
-                    (cursors.c.scope_id == heads.c.scope_id) & (cursors.c.binding_name == binding_name),
-                )
-            )
-            .where(heads.c.position > 0)
-            .order_by(heads.c.scope_id)
-        )
-        selected: list[str] = []
-        async with connection.stream(statement) as result:
-            async for batch in result.partitions(SELECTION_BATCH_SIZE):
-                for scope_id, position, payload in batch:
-                    if payload is None:
-                        selected.append(str(scope_id))
-                        continue
-                    try:
-                        cursor = load_model(
-                            SourceCursor,
-                            stored_bytes(payload, column="cursor"),
-                            kind="source-cursor",
-                            name=binding_name,
-                        )
-                    except (InvalidStoredColumnError, InvalidStoredPayloadError):
-                        selected.append(str(scope_id))
-                    else:
-                        if cursor.sequence < position:
-                            selected.append(str(scope_id))
-        return tuple(selected)
 
     async def load(
         self,

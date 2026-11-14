@@ -29,6 +29,9 @@ from powercontext.builtin.artifacts.handoff.models import HandoffContent, Handof
 from powercontext.builtin.artifacts.profile.models import ProfileContent, ProfileGeneration
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryContent
+from powercontext.builtin.authz import AccessRole, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.service import AccessAuditContext, CreateBinding
 from powercontext.builtin.catalog_changes.models import TagChangeProposal, TagDreamTarget
 from powercontext.builtin.dream import provenance
 from powercontext.builtin.dream.models import CreateDreamRunRequest, DreamPlan, GetDreamRunRequest
@@ -42,9 +45,6 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.tags import ArtifactTagTarget
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import AccessRole, PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.service import AccessAuditContext, CreateBinding
 from powercontext.server.middleware import AuthenticationMiddleware
 from tests.e2e.dream_support import open_dream_runtime, process_pending
 from tests.e2e.test_artifact_dreaming import database as database

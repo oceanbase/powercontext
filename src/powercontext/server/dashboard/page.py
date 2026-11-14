@@ -14,21 +14,27 @@
 import asyncio
 from contextlib import asynccontextmanager, nullcontext
 
+from powercontext.builtin.authz import AccessAction, AccessDeniedError, ResourceRef
+from powercontext.builtin.authz.service import _require_allowed, access_control_for_mode
 from powercontext.builtin.scope.errors import ScopeBindingTargetMissingError
 from powercontext.builtin.sources import validate_scope_id
-from powercontext.server.authz import AccessAction, AccessDeniedError, ResourceRef
-from powercontext.server.authz.service import _require_allowed, access_control_for_mode
 from powercontext.server.context import current_principal
 from powercontext.server.dashboard.content import (
     RECORDS,
     load_content,
     load_note_history,
+    note_sources,
     present_search,
     validate_note_selection,
 )
 from powercontext.server.dashboard.errors import ReadError
 from powercontext.server.dashboard.pagination import PAGE_SIZE, cursor_links
-from powercontext.server.dashboard.presenters import memory_view, set_scope, usage_view
+from powercontext.server.dashboard.presenters import (
+    artifact_destination,
+    memory_view,
+    set_scope,
+    usage_view,
+)
 
 
 @asynccontextmanager
@@ -127,7 +133,46 @@ async def _load_usage(snapshot, ctx):
             set_scope(ctx, await snapshot.scope())
 
 
-async def _select_note(snapshot, rows, ctx):
+async def _load_activity(snapshot, ctx, execution):
+    try:
+        from powercontext.server.dashboard.processing import present_source
+
+        directory = await snapshot.source_directory(limit=3, context=execution)
+        ctx["home_activity"] = [
+            {
+                "title": present_source(item)["preview"],
+                "at": item["saved_at"],
+                "artifact_families": item.get("artifact_families"),
+                "url": ctx["link"]("processing", source_id=item["source_id"], record_type="sources"),
+            }
+            for item in directory["items"]
+        ]
+    except Exception as error:
+        ctx["errors"]["activity"] = ReadError.from_exception(error)
+    try:
+        ctx["home_changes"] = [
+            {
+                **value,
+                "url": None if value.get("unreadable") else artifact_destination(ctx, value),
+                "family_label": ctx["t"].get(
+                    {"atomic-memory": "notes", "topic-memory": "topic_memory"}.get(value["family"], value["family"]),
+                    value["family"],
+                ),
+            }
+            for value in await snapshot.recent_changes(limit=3, context=execution)
+        ]
+    except Exception as error:
+        ctx["errors"]["changes"] = ReadError.from_exception(error)
+
+
+async def _load_inventory(snapshot, ctx):
+    try:
+        ctx["inventory"] = (await snapshot.inventory()).model_dump(mode="json")
+    except Exception as error:
+        ctx["errors"]["inventory"] = ReadError.from_exception(error)
+
+
+async def _select_note(snapshot, rows, ctx, execution):
     selected = ctx.get("note_selection") or next(iter(ctx["data"]["notes"]), None)
     if selected is not None:
         row = next(
@@ -148,6 +193,7 @@ async def _select_note(snapshot, rows, ctx):
         }
         if "matched_by" in selected:
             ctx["selected_note"].update(matched_by=selected["matched_by"], score=selected["score"])
+    note_sources(ctx)
 
 
 async def _load_content(snapshot, request, ctx, execution):
@@ -191,7 +237,7 @@ async def _load_content(snapshot, request, ctx, execution):
         return
     if not searching:
         ctx["notes_pager"] = cursor_links(request, ctx, "notes", cursor)
-    await _select_note(snapshot, rows, ctx)
+    await _select_note(snapshot, rows, ctx, execution)
 
 
 async def _resolve_default(api, request, ctx):
@@ -255,17 +301,37 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
     if default_scope and not await _resolve_default(api, request, ctx):
         return True
     if ctx["page"] not in {"home", "notes", "usage"}:
+        if ctx["page"] == "processing":
+            from powercontext.server.dashboard.processing import load_processing
+
+            await load_processing(api, request, ctx)
         async with _snapshot(runtime, request, ctx, default_scope=default_scope) as (snapshot, _execution):
             if not ctx["record_only"]:
                 set_scope(ctx, await snapshot.scope())
         # Each detail, history and mutation keeps its own current authorization.
         # Finish the metadata snapshot before a transport adapter can make reads.
+        if ctx["page"] == "processing":
+            return True
         if ctx["page"] == "review":
             from powercontext.server.dashboard.review import load_review
 
             await load_review(api, request, ctx)
         else:
             await load_content(api, request, ctx)
+            if ctx["page"] == "handoff-detail" and ctx["data"]["handoff"]:
+                from powercontext.artifacts import ArtifactRef
+
+                record = ctx["data"]["handoff"]
+                try:
+                    ctx["work_followup"] = await api.project(
+                        ctx["scope"],
+                        "work_followup",
+                        artifact=ArtifactRef(
+                            family="handoff", artifact_id=record["artifact_id"], revision=record["revision"]
+                        ),
+                    )
+                except ReadError as error:
+                    ctx["errors"]["work_followup"] = error
         return True
     if ctx["page"] == "notes" and ctx["search_query"]:
         await _search_notes(api, request, ctx, default_scope=default_scope)
@@ -276,6 +342,9 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
             await load_note_history(api, request, ctx, snapshot=snapshot)
         if ctx["page"] in {"home", "usage"}:
             await _load_usage(snapshot, ctx)
+        if ctx["page"] == "home":
+            await _load_inventory(snapshot, ctx)
+            await _load_activity(snapshot, ctx, execution)
         if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
             raise next(iter(ctx["errors"].values()))
     return True

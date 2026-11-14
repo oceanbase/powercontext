@@ -17,7 +17,7 @@
 
 import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
-import { hasSecretContent } from '../secrets.ts'
+import { containsSecret } from '../secrets.ts'
 import { HandoffError } from './errors.ts'
 import type { NativeLaunchIntent, NativeTargetId } from './targets.ts'
 
@@ -36,12 +36,17 @@ export interface SystemLaunch {
 
 export type LaunchPlanner = (target: NativeTargetId, effectiveCwd: string, intent: NativeLaunchIntent) => SystemLaunch
 
-export function nativeLaunchUrl(target: NativeTargetId, cwd: string, { draft }: NativeLaunchIntent): string {
+export function nativeLaunchUrl(
+  target: NativeTargetId, cwd: string, { draft }: NativeLaunchIntent, authorization?: string,
+): string {
   const route = DESTINATIONS[target]
   if (!route || !isAbsolute(cwd) || /[\x00-\x1f\x7f]/u.test(cwd) || typeof draft !== 'string' || !draft.trim()
     || /[\x00-\x08\x0b-\x1f\x7f]|[\uD800-\uDFFF]/u.test(draft)
-    || Buffer.byteLength(draft) > 2_048 || hasSecretContent('capture_content_source', draft)) {
+    || Buffer.byteLength(draft) > 2_048) {
     throw new HandoffError('payload_invalid')
+  }
+  if (containsSecret(draft, authorization) || containsSecret(cwd, authorization)) {
+    throw new HandoffError('secret_rejected')
   }
   const [base, cwdKey, draftKey] = route
   const uri = `${base}?${cwdKey}=${encodeURIComponent(cwd)}&${draftKey}=${encodeURIComponent(draft)}`
@@ -49,9 +54,11 @@ export function nativeLaunchUrl(target: NativeTargetId, cwd: string, { draft }: 
   return uri
 }
 
-export const planNativeLaunch: LaunchPlanner = (target, cwd, intent) => {
+export function planNativeLaunch(
+  target: NativeTargetId, cwd: string, intent: NativeLaunchIntent, authorization?: string,
+): SystemLaunch {
   if (process.platform !== 'darwin') throw new HandoffError('deployment_unsupported')
-  const uri = nativeLaunchUrl(target, cwd, intent)
+  const uri = nativeLaunchUrl(target, cwd, intent, authorization)
   return {
     dispatch() {
       return new Promise(resolve => {

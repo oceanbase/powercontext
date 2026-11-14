@@ -115,7 +115,7 @@ async def _flush(provider: _Provider, monkeypatch, tmp_path):
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'retry.db'}"),
         inference=InferenceConfig(generation_model="provider:test-model"),
     )
-    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         assert runtime.scopes is not None
         assert runtime.atomic_memory is not None
         scope = await runtime.scopes.create(ScopeDraft(title="Billing", summary="Decisions", idempotency_key="billing"))
@@ -249,7 +249,7 @@ async def _flush_published_workflow(provider: _PublishedWorkflowProvider, monkey
         ),
         runtime=RuntimeConfig(atomic_memory_related_mode="vector"),
     )
-    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         assert runtime.scopes is not None and runtime.atomic_memory is not None
         scope = await runtime.scopes.create(
             ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
@@ -323,7 +323,7 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
     )
 
     async def scenario():
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
@@ -355,7 +355,7 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
             assert (await memory.list()).items == entries
 
         # The consumed window and retained facts survive restart; later Sources must not hit the old rejection.
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.atomic_memory is not None
             memory = runtime.atomic_memory.for_scope(scope.scope_id)
             assert (await memory.list()).items == entries

@@ -22,7 +22,7 @@ import { PowerContextClient } from '../../src/client.ts'
 import { LocalDeliveryService } from '../../src/handoff/delivery.ts'
 import type { SourceBoundary } from '../../src/handoff/contracts.ts'
 import { wire } from '../../src/handoff/wire.ts'
-import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
+import { SERVER_E2E_TIMEOUT_MS, startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 it('round trips a complete current-work Handoff and a selected exact Revision through the real Server', async () => {
   const server = await startPowerContextServer({ env: { POWERCONTEXT_SERVER_ACCESS_MODE: 'disabled' } })
@@ -85,4 +85,4 @@ it('round trips a complete current-work Handoff and a selected exact Revision th
       rmSync(server.home, { recursive: true, force: true })
     }
   }
-}, 60_000)
+}, SERVER_E2E_TIMEOUT_MS)

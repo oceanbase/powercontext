@@ -463,6 +463,23 @@ describe('launch and recovery', () => {
     }
     expect(() => nativeLaunchUrl('codex-desktop', cwd, { draft: '字'.repeat(1000) })).toThrow(HandoffError)
   })
+
+  it('allows ordinary credential terminology in a draft', () => {
+    const draft = 'Do not put api_key, sk- or BEGIN PRIVATE in a URL.'
+    const url = nativeLaunchUrl('codex-desktop', '/tmp/workspace', { draft })
+    expect(new URL(url).searchParams.get('prompt')).toBe(draft)
+  })
+
+  it.each([
+    ['Authorization: Bearer fixture.value.signature', undefined],
+    ['ghp_' + 'fixture12345', undefined],
+    ['xoxb-' + 'fixture12345', undefined],
+    [['-----BEGIN', 'RSA', 'PRIVATE KEY-----'].join(' '), undefined],
+    ['The Server secret is a-fixture-only-value', 'Bearer a-fixture-only-value'],
+  ])('rejects likely secrets from native launch URLs (%#)', (draft, authorization) => {
+    expect(() => nativeLaunchUrl('codex-desktop', '/tmp/workspace', { draft }, authorization))
+      .toThrow(expect.objectContaining({ code: 'secret_rejected', status: 400 }))
+  })
 })
 
 describe('Host routing and authorization', () => {

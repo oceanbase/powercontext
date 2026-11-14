@@ -29,7 +29,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import TYPE_CHECKING, Literal
 
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessConflictError,
@@ -39,14 +39,14 @@ from powercontext.server.authz import (
     ResourceRef,
     bounded_idempotency_key,
 )
-from powercontext.server.authz.models import MemoryEntrySelector
-from powercontext.server.authz.owner_recovery import flush_owner_writes, owner_recovery_session, owner_write_access
+from powercontext.builtin.authz.models import MemoryEntrySelector
+from powercontext.builtin.authz.owner_recovery import flush_owner_writes, owner_recovery_session, owner_write_access
 
 if TYPE_CHECKING:
+    from powercontext.builtin.authz.owner_recovery import OwnerCommit, OwnerRecovery
+    from powercontext.builtin.authz.service import AccessControlService
     from powercontext.builtin.runtime import BuiltinRuntime
     from powercontext.server.app import ServerApplication
-    from powercontext.server.authz.owner_recovery import OwnerCommit, OwnerRecovery
-    from powercontext.server.authz.service import AccessControlService
 
     Application = ServerApplication | BuiltinRuntime
 

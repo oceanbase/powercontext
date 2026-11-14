@@ -25,6 +25,8 @@ from sqlalchemy import insert, select
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft
 from powercontext.builtin.artifacts.memory.canonical import canonical_json, entry_content_hash, normalize_refs
+from powercontext.builtin.authz import ArtifactOwnerRelation, MemoryEntrySelector, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
 from powercontext.builtin.persistence.migrations.atomic_memory_v1 import (
@@ -42,8 +44,6 @@ from powercontext.builtin.persistence.tables import (
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.config import DatabaseConfig
 from powercontext.builtin.sources.content import ContentSource, ContentSourceInternal, ContentSourceTarget
-from powercontext.server.authz import ArtifactOwnerRelation, MemoryEntrySelector, PrincipalRef, ResourceRef
-from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.e2e.atomic_memory_migration_backend import migration_index, migration_profile
 from tests.legacy_memory import add_legacy_citation_columns

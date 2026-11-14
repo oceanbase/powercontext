@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::ManagedOutcome;
+use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-pub use pc_gateway_types::{ExecutionTerminal, ModelSendState};
+pub use pc_gateway_types::{ExecutionTerminal, LifecycleStopReason, ModelSendState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionState {
@@ -26,11 +27,22 @@ pub enum ExecutionState {
     Finished(ExecutionTerminal),
 }
 
+/// Observations made by the local delivery owner, never a client receipt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalDeliveryState {
+    NotStarted,
+    InProgress,
+    Completed,
+    Interrupted(LifecycleStopReason),
+}
+
 /// A bounded, content-free snapshot. Completion does not release retained resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutionSnapshot {
     pub model_send: ModelSendState,
     pub execution: ExecutionState,
+    pub stop_reason: Option<LifecycleStopReason>,
+    pub local_delivery: LocalDeliveryState,
 }
 
 struct Shared {
@@ -49,29 +61,86 @@ impl Shared {
     }
 }
 
-/// One-shot control consumed by `Executor::run`. The deadline is control data,
-/// not automatic interruption. Obtain cancellation and observation handles before running.
+/// One-shot execution control. Obtain the lifecycle and observation before running.
 pub struct RequestControl {
-    shared: Arc<Shared>,
-    cancellation: RequestCancellation,
+    lifecycle: RequestLifecycle,
 }
 
 impl RequestControl {
     pub fn new(deadline: Instant, request_id: Option<String>) -> Self {
         Self {
-            shared: Arc::new(Shared {
-                deadline,
-                request_id,
-                call_id: pc_gateway_evidence::new_call_id(),
-                started: std::time::Instant::now(),
-                snapshot: Mutex::new(ExecutionSnapshot {
-                    model_send: ModelSendState::NoSend,
-                    execution: ExecutionState::NotStarted,
+            lifecycle: RequestLifecycle {
+                shared: Arc::new(Shared {
+                    deadline,
+                    request_id,
+                    call_id: pc_gateway_evidence::new_call_id(),
+                    started: std::time::Instant::now(),
+                    snapshot: Mutex::new(ExecutionSnapshot {
+                        model_send: ModelSendState::NoSend,
+                        execution: ExecutionState::NotStarted,
+                        stop_reason: None,
+                        local_delivery: LocalDeliveryState::NotStarted,
+                    }),
                 }),
-            }),
-            cancellation: RequestCancellation {
-                signal: watch::channel(false).0,
+                cancellation: RequestCancellation {
+                    signal: watch::channel(None).0,
+                },
             },
+        }
+    }
+
+    /// Retain across body intake, execution, and response handoff. Never resets the deadline.
+    pub fn lifecycle(&self) -> RequestLifecycle {
+        self.lifecycle.clone()
+    }
+
+    pub fn observation(&self) -> ExecutionObservation {
+        self.lifecycle.observation()
+    }
+
+    pub fn cancellation(&self) -> RequestCancellation {
+        self.lifecycle.cancellation()
+    }
+
+    pub(crate) fn start(self) -> Execution {
+        self.lifecycle.shared.snapshot().execution = ExecutionState::Running;
+        Execution { control: self }
+    }
+}
+
+/// Cloneable control for the actual owner of each stage. Cancellation drops inline work;
+/// callers that spawn tasks must also join those tasks before claiming reclamation.
+#[derive(Clone)]
+pub struct RequestLifecycle {
+    shared: Arc<Shared>,
+    cancellation: RequestCancellation,
+}
+
+impl RequestLifecycle {
+    /// The response is handed to its actual delivery owner. Body EOF is not completion.
+    pub fn begin_local_delivery(&self) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::NotStarted {
+            snapshot.local_delivery = LocalDeliveryState::InProgress;
+        }
+    }
+
+    /// Call only after normal completion of the model's closing HTTP/1 connection.
+    /// This does not claim the client application read or accepted the response.
+    pub fn complete_local_delivery(&self) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::InProgress {
+            snapshot.local_delivery = LocalDeliveryState::Completed;
+        }
+    }
+
+    /// The delivery owner stopped unfinished output. Execution/send facts are preserved.
+    pub fn interrupt_local_delivery(&self, reason: LifecycleStopReason) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::InProgress {
+            snapshot.stop_reason = Some(snapshot.stop_reason.unwrap_or(reason));
+            snapshot.local_delivery =
+                LocalDeliveryState::Interrupted(snapshot.stop_reason.unwrap());
         }
     }
 
@@ -85,30 +154,89 @@ impl RequestControl {
         self.cancellation.clone()
     }
 
-    pub(crate) fn start(self) -> Execution {
-        self.shared.snapshot().execution = ExecutionState::Running;
-        Execution { control: self }
+    /// Check before and after bounded synchronous processing and before business side effects.
+    /// Only a check that stops work commits a reason; signaling intent alone does not.
+    pub fn checkpoint(&self) -> Result<(), LifecycleStopReason> {
+        let mut snapshot = self.shared.snapshot();
+        let reason = snapshot.stop_reason.or_else(|| {
+            if Instant::now() >= self.shared.deadline {
+                Some(LifecycleStopReason::DeadlineExceeded)
+            } else {
+                *self.cancellation.signal.borrow()
+            }
+        });
+        if let Some(reason) = reason {
+            snapshot.stop_reason = Some(reason);
+            Err(reason)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Bound a complete stage, including pool/connection waits and all response framing.
+    /// The future is owned inline and dropped before this method returns on a stop.
+    pub async fn run<F: Future>(&self, work: F) -> Result<F::Output, LifecycleStopReason> {
+        self.checkpoint()?;
+        let mut stage = ActiveStage {
+            lifecycle: self,
+            finished: false,
+        };
+        let result = tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => Err(self.checkpoint().unwrap_err()),
+            _ = tokio::time::sleep_until(self.shared.deadline) => Err(self.checkpoint().unwrap_err()),
+            result = work => Ok(result),
+        };
+        self.checkpoint()?;
+        stage.finished = true;
+        result
     }
 }
 
-/// Shared cancellation intent. Signaling or dropping a handle does not stop execution.
+// An outer owner can drop a pending stage before its select branch is polled again.
+// Preserve a known stop even during ingress, where no Execution guard exists yet.
+struct ActiveStage<'a> {
+    lifecycle: &'a RequestLifecycle,
+    finished: bool,
+}
+
+impl Drop for ActiveStage<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.lifecycle.checkpoint();
+        }
+    }
+}
+
+/// Shared cancellation intent. Dropping a handle does not cancel work.
 #[derive(Clone)]
 pub struct RequestCancellation {
-    signal: watch::Sender<bool>,
+    signal: watch::Sender<Option<LifecycleStopReason>>,
 }
 
 impl RequestCancellation {
     pub fn cancel(&self) {
-        self.signal.send_replace(true);
+        self.cancel_with(LifecycleStopReason::RequestCancelled);
+    }
+
+    /// Signal a known lifecycle cause, including service shutdown. The first intent wins.
+    pub fn cancel_with(&self, reason: LifecycleStopReason) {
+        self.signal.send_if_modified(|current| {
+            if current.is_some() {
+                return false;
+            }
+            *current = Some(reason);
+            true
+        });
     }
 
     pub fn is_cancelled(&self) -> bool {
-        *self.signal.borrow()
+        self.signal.borrow().is_some()
     }
 
     pub async fn cancelled(&self) {
         let mut receiver = self.signal.subscribe();
-        let _ = receiver.wait_for(|cancelled| *cancelled).await;
+        let _ = receiver.wait_for(Option::is_some).await;
     }
 }
 
@@ -148,20 +276,42 @@ pub(crate) struct Execution {
 }
 
 impl Execution {
+    pub(crate) fn lifecycle(&self) -> RequestLifecycle {
+        self.control.lifecycle()
+    }
+
+    pub(crate) fn checkpoint(&self) -> Result<(), ManagedOutcome> {
+        self.control
+            .lifecycle
+            .checkpoint()
+            .map_err(|reason| ManagedOutcome::Stopped {
+                reason,
+                model_send: self.control.observation().snapshot().model_send,
+            })
+    }
+
     pub(crate) fn model_send(&mut self, state: ModelSendState) {
-        self.control.shared.snapshot().model_send = state;
+        self.control.lifecycle.shared.snapshot().model_send = state;
     }
 
     pub(crate) fn finish(&mut self, outcome: &ManagedOutcome) {
-        self.control.shared.snapshot().execution = ExecutionState::Finished(outcome.terminal());
+        self.control.lifecycle.shared.snapshot().execution =
+            ExecutionState::Finished(outcome.terminal());
     }
 }
 
 impl Drop for Execution {
     fn drop(&mut self) {
-        let mut snapshot = self.control.shared.snapshot();
+        let reason = if self.control.observation().snapshot().execution == ExecutionState::Running {
+            self.control.lifecycle.checkpoint().err()
+        } else {
+            None
+        };
+        let mut snapshot = self.control.lifecycle.shared.snapshot();
         if snapshot.execution == ExecutionState::Running {
-            snapshot.execution = ExecutionState::Finished(ExecutionTerminal::Abandoned);
+            snapshot.execution = ExecutionState::Finished(
+                reason.map_or(ExecutionTerminal::Abandoned, ExecutionTerminal::Stopped),
+            );
         }
     }
 }

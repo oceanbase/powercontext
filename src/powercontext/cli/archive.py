@@ -51,7 +51,6 @@ from powercontext.builtin.portability import (
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.builtin.runtime.relational import BUILTIN_ARTIFACT_TYPES, BUILTIN_CANDIDATE_PROPOSAL_TYPES
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
-from powercontext.paths import default_scheduler_path
 from powercontext.server.configuration import server_settings_context
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -139,9 +138,7 @@ async def _run_archive(
             handoff_report=settings.handoff_report,
             external_skills=settings.external_skills,
         )
-        async with open_builtin_runtime(
-            config, scheduler_path=default_scheduler_path(), _archive_recovery=recovery
-        ) as runtime:
+        async with open_builtin_runtime(config, _archive_recovery=recovery) as runtime:
             if runtime.archive is None:
                 raise RuntimeError("portable archive service is unavailable")  # noqa: TRY003
             return await operation(runtime.archive)

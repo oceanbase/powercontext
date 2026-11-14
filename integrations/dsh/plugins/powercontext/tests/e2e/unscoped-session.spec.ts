@@ -22,7 +22,7 @@ import type { PluginRuntime } from '../../src/invoke.ts'
 import { runRecallPreStep } from '../../src/recall.ts'
 import { registerMcpPolicy } from '../../src/mcp.ts'
 import { resolveScopeId } from '../../src/scope.ts'
-import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
+import { SERVER_E2E_TIMEOUT_MS, startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 let scopeId = ''
 const TEXT = 'Optional session cwd must not invent a harness working directory.'
@@ -179,7 +179,7 @@ describe('plugin runtime with header.cwd === undefined', () => {
       }),
     })
     scopeId = String((await response.json() as { scope_id: string }).scope_id)
-  }, 60_000)
+  }, SERVER_E2E_TIMEOUT_MS)
 
   afterAll(async () => {
     await server?.stop()

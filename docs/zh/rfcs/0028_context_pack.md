@@ -382,6 +382,30 @@ Builder 必须确定性地执行以下算法：
 `content_bytes` 必须等于 `len(content.encode("utf-8"))`，且不得超过请求的 `max_bytes`。Runtime 可以把来源特定计数保留在
 内部指标中，但它们不属于共享 Context response。
 
+### 内部预算记录
+
+内部调用方可以为单个 Builder 挂接预算记录器，用于解释字节预算的去向；生产环境不挂接。挂接后，每次成功构建
+报告一份不可变 trace，包含请求的 `max_bytes`、最终 `content_bytes`，以及按装入顺序排列的记录：预算装入尝试过的
+每个 candidate，以及尝试前被条目上限挡下的每个 candidate，各一条。记录绑定冻结 candidate 的精确 origin、kind、
+从 1 开始的装入 rank 和处置结果：
+
+| 处置结果 | 含义 |
+| --- | --- |
+| `full` | 交付了完整正文 |
+| `truncated` | 交付了至少 64 bytes 的截断正文 |
+| `dropped_below_min_bytes` | 完整正文放不下，且短到无法截断 |
+| `dropped_no_fitting_truncation` | 没有至少 64 bytes 的截断形式能放下 |
+| `entry_limit` | 尝试该 candidate 之前已达到条目上限 |
+
+记录只另外携带字节数：来源正文、截断与 64-byte 下限所度量的显示正文、包含省略号的交付正文，以及 Receipt
+统计的渲染片段。本路径的显示正文就是来源文本，JSON 转义属于渲染。预算类处置结果与 Builder 的丢弃计数严格
+对应。在装入之前被去重、空正文、类别上限或策略排除移除的 candidate 没有记录，也不算预算失败。代码证据共享
+同一次准备时，trace 只覆盖历史部分：其 `max_bytes` 是留给历史的预算，`content_bytes` 不含代码。
+
+记录不包含 query、正文或引用文本，只交给挂接的记录器：Builder 不保留也不持久化它们，它们不会出现在 Context
+response、Receipt、日志或指标中，预算探测不报告记录，记录器失败会被忽略且不改变构建结果。
+`evaluation/memory/prepared_context_budget` 用这些记录离线比较分配方式。
+
 ## Trust and safe rendering
 
 Runtime 持有固定 trust policy；它不是 Memory 或远端调用方提供的自由文本 warning。Builder 必须满足：

@@ -5882,11 +5882,12 @@ function receiptIdentity(value) {
 //#endregion
 //#region src/handoff/prepare.ts
 async function prepareCarrier(context, binding, input, deliveryId, resolve$1, readBoundary, markDispatched) {
-	const { client, generation } = await resolve$1(context, binding);
+	const { client, generation, assertDispatch } = await resolve$1(context, binding);
 	const scope = binding.scopeId;
 	const call$1 = async (operation, payload, mayWrite = false, signal = context.signal) => {
 		signal.throwIfAborted();
 		if (hasSecretContent(operation, payload)) invalid();
+		assertDispatch?.();
 		if (mayWrite) markDispatched();
 		const result$1 = await client.request(operation, {
 			...payload,
@@ -6736,6 +6737,7 @@ const ERRORS = {
 	idempotency_conflict: [409, "The request conflicts with an existing operation. Read its state before continuing."],
 	integration_unavailable: [503, "The required handoff integration is unavailable."],
 	capacity_exceeded: [429, "Handoff bookkeeping reached its capacity."],
+	secret_rejected: [400, "The launch draft or directory may contain a credential. No launch was attempted."],
 	payload_invalid: [400, "The handoff request or package is invalid."],
 	outcome_unknown: [409, "The outcome is unknown. Check the target before choosing to retry."],
 	cancelled: [409, "The operation was cancelled."],
@@ -7715,17 +7717,18 @@ const SAFE_ENV = {
 	LANG: "C"
 };
 const OPEN_TIMEOUT_MS = 3e3;
-function nativeLaunchUrl(target, cwd, { draft }) {
+function nativeLaunchUrl(target, cwd, { draft }, authorization) {
 	const route = DESTINATIONS[target];
-	if (!route || !isAbsolute(cwd) || /[\x00-\x1f\x7f]/u.test(cwd) || typeof draft !== "string" || !draft.trim() || /[\x00-\x08\x0b-\x1f\x7f]|[\uD800-\uDFFF]/u.test(draft) || Buffer.byteLength(draft) > 2048 || hasSecretContent("capture_content_source", draft)) throw new HandoffError("payload_invalid");
+	if (!route || !isAbsolute(cwd) || /[\x00-\x1f\x7f]/u.test(cwd) || typeof draft !== "string" || !draft.trim() || /[\x00-\x08\x0b-\x1f\x7f]|[\uD800-\uDFFF]/u.test(draft) || Buffer.byteLength(draft) > 2048) throw new HandoffError("payload_invalid");
+	if (containsSecret(draft, authorization) || containsSecret(cwd, authorization)) throw new HandoffError("secret_rejected");
 	const [base, cwdKey, draftKey] = route;
 	const uri = `${base}?${cwdKey}=${encodeURIComponent(cwd)}&${draftKey}=${encodeURIComponent(draft)}`;
 	if (Buffer.byteLength(uri) > 4096) throw new HandoffError("payload_invalid");
 	return uri;
 }
-const planNativeLaunch = (target, cwd, intent) => {
+function planNativeLaunch(target, cwd, intent, authorization) {
 	if (process.platform !== "darwin") throw new HandoffError("deployment_unsupported");
-	const uri = nativeLaunchUrl(target, cwd, intent);
+	const uri = nativeLaunchUrl(target, cwd, intent, authorization);
 	return { dispatch() {
 		return new Promise((resolve$1) => {
 			const child = spawn("/usr/bin/open", [uri], {
@@ -7752,12 +7755,12 @@ const planNativeLaunch = (target, cwd, intent) => {
 			});
 		});
 	} };
-};
+}
 
 //#endregion
 //#region src/handoff/assembly.ts
 /** The only boundary that knows both implementations and their independent storage roots. */
-function createHandoffServices({ root, authority, catalog, client, signal, plan }) {
+function createHandoffServices({ root, authority, catalog, client, signal, authorization, plan }) {
 	let delivery;
 	const preflight = new PreflightService({
 		authority,
@@ -7775,14 +7778,17 @@ function createHandoffServices({ root, authority, catalog, client, signal, plan 
 			const live = await authority.sourceConnection(context, binding.source);
 			assertInstaller();
 			if (live.serverIdentity !== binding.serverIdentity || live.scopeId !== binding.scopeId || live.connectionRef !== binding.connectionRef || live.connectionGeneration !== binding.connectionGeneration) throw new DeliveryError("binding_mismatch");
-			return { client };
+			return {
+				client,
+				assertDispatch: assertInstaller
+			};
 		}
 	});
 	const launch = new LaunchService({
 		preflight,
 		delivery,
 		requireLocal: () => authority.requireLocal(),
-		plan: plan ?? planNativeLaunch,
+		plan: plan ?? ((target, cwd, intent) => planNativeLaunch(target, cwd, intent, authorization)),
 		records: launchRecords(join(root, "launch-attempts")),
 		signal
 	});
@@ -8234,6 +8240,7 @@ function registerHandoffBridge(ctx, runtime, adapters = []) {
 						catalog,
 						signal: lifetime.signal,
 						client: runtime.client,
+						authorization: runtime.config.authorization,
 						authority: {
 							requireLocal,
 							sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),

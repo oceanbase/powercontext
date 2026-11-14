@@ -237,6 +237,7 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
           privateDirectory(root)
           services = createHandoffServices({
             root, catalog, signal: lifetime.signal, client: runtime.client,
+            authorization: runtime.config.authorization,
             authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
               verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
           })

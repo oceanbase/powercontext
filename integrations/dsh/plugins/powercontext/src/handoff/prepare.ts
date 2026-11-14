@@ -32,6 +32,8 @@ export type Carrier =
 
 export interface PreparationConnection {
   client: Pick<PowerContextClient, 'request'>
+  /** Synchronous Host guard for changes since connection resolution. */
+  assertDispatch?: () => void
   /** Opt in only when the trusted connection has a configured generation pipeline. */
   generation?: { maxInputBytes: number; maxOutputBytes?: number }
 }
@@ -50,11 +52,12 @@ export async function prepareCarrier(
   readBoundary: BoundaryReader | undefined,
   markDispatched: () => void,
 ): Promise<Carrier | undefined> {
-  const { client, generation } = await resolve(context, binding)
+  const { client, generation, assertDispatch } = await resolve(context, binding)
   const scope = binding.scopeId
   const call = async (operation: string, payload: JsonObject, mayWrite = false, signal = context.signal) => {
     signal.throwIfAborted()
     if (hasSecretContent(operation, payload)) invalid()
+    assertDispatch?.()
     if (mayWrite) markDispatched()
     const result = await client.request(operation, { ...payload, scope_id: scope }, signal)
     if (result.kind !== 'json') invalid()

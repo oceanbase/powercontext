@@ -352,8 +352,9 @@ that have no delivery reference, and unused ready records at least 30 days old. 
 unknown work, and preflights still referenced by a delivery, are kept. Once a preflight is
 reclaimed, start a new check; a replay no longer returns the old preflight.
 
-Launch requires an existing complete delivery and checks its saved binding and package again. The
-Host persists the attempt before calling the fixed macOS opener. `opened` means the OS accepted
+Launch requires an existing complete delivery and checks its saved binding and package again. The Host checks the draft and directory for likely credentials before building the native link.
+A `secret_rejected` response means it did not attempt to open the target. The Host persists the
+attempt before calling the fixed macOS opener. `opened` means the OS accepted
 the request. The receiving draft, user send and PowerContext acknowledgement are separate events.
 An interrupted or ambiguous attempt appears as `unknown`. Check the destination before explicitly
 retrying with a new request ID that names the previous attempt. A retry reuses the same saved package

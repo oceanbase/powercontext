@@ -25,7 +25,7 @@ Scope names, summaries and saved content supply the business topic. A payment se
 | Experiences | What happened in a particular situation, what was learned, and the conditions and evidence behind that lesson |
 | Skills | Reusable practices, steps and checks |
 | Handoffs | The objective, progress and next action recorded for a piece of work |
-| Usage | Estimated changes in prepared context size and PowerContext's own model usage |
+| Usage | Preparation counts, context size estimates, and PowerContext's own model usage |
 
 Experiences need their original context, skills need their conditions of use, and handoffs describe the state at the time of saving. Related records may support different conclusions. A record's claim that a fix is complete still needs to be checked against the relevant evidence.
 
@@ -51,9 +51,13 @@ Home summaries, daily charts and detail tables use the same statistical definiti
 
 ### Home provides an overview and entry points
 
-Home shows usage first, memories alongside experiences and skills next, and handoffs last. Usage provides an overview of activity. Memories and reusable content are available for reference, while handoffs lead into specific work records.
+Home starts with the selected Scope. Issues precede all data when processing is blocked, failed, unconfirmed or unreadable; ordinary pending work and review candidates are not faults. Four pale-blue overview cards precede Token usage, an optional saved handoff, recent Sources and saved revisions. Each preview contains at most three records with a full-directory link and no extra-record disclosure. Home and Token usage share the complete comparison component, including axes, grid, legend, statistics and notices.
 
-Each section has a clear heading and a link to its collection or details. Excerpts are previews. Wide screens place memories beside experiences and skills; narrow screens preserve the reading order in a single column. When a content type has no records, its empty state stays in its own section.
+The overview summarizes saved sources and active memories, then shows current inventory, pending candidates, and context preparation counts for the selected period. Counts come from the statistics contract rather than the number of home previews. Inventory and preparation counts use different time bases; they are not a conversion funnel for the same inputs and do not establish Agent adoption or task benefit. Pending counts include artifact and tag-change candidates, with a matching Review filter for all pending candidates. Family inventory counts include all lifecycle states of current heads; destination collections retain their existing filters.
+
+The built-in Runtime reads inventory inside the page's authorized, audited snapshot without loading additional recurrence history. Inventory and usage have independent reads and error displays, so either can remain available alongside readable content when the other fails. Changing the reporting period does not change inventory; switching Scope updates all overview values.
+
+Each section has a clear heading and a link to its collection or details. Excerpts are previews. Wide screens place recent processing beside recently saved content; narrow screens preserve the reading order in a single column. Titles use saved content fields rather than technical identities or serialized envelopes. When a content type has no records, its empty state stays in its own section.
 
 Users can also open records directly from a collection, a bookmark or an exact reference.
 
@@ -63,13 +67,29 @@ Collections help users identify and select entries. Pagination limits how much t
 
 Memories use a list and reading pane. Experiences, skills and handoffs lead from a collection to a detail page containing the full record and related material. Summaries may be shortened when there are many entries, but users must still have a way to read the full text.
 
+Exact Memory links retain the desktop list on the left and display the selected immutable revision on the right. Selecting a list entry replaces the memory browser in place, preserving lifecycle filters, period and pagination in the URL. Small screens retain the accordion. Artifact-only access keeps a standalone detail without disclosing a Scope directory. Source association checks, missing historical reasons and version comparisons retain their existing behavior. The Profile page uses the same outer content width as other main pages.
+
 After opening a record, the user should be able to return to its collection. A new search starts on the first page. Switching scopes clears the previous scope's record selection and pagination position, returning detail pages to the corresponding collection. Changing only the language or theme preserves the scope, period and record being read.
 
 Memory search follows the deployment's capabilities by default and allows users to choose a retrieval mode. Show the actual mode, each result's matching channels and retrieval score so users can inspect why it was recalled; the score is not a similarity percentage.
 
+## Source processing
+
+The processing page reads Content Sources from the existing Source journal and checks the existing Artifact lineage relation. A Source cited by exact Artifact revisions shows one tag per type, such as Memory, Topic Memory, Experience or Skill. Each tag opens the matching type group in the Source detail. Groups show the type first, followed by each result title and body, with links to exact revision details. Results use pages of at most 20 exact revisions, with previous and next links; selecting a type starts its own result page. The original Source section preserves the complete content, including every field of a structured JSON value. A Source without a lineage row shows None. A runtime without a lineage projection shows Unknown. Neither establishes that processing failed. The page shows the first server save time in UTC from the stored Source envelope. Historical envelopes without this metadata show Unknown and are not backfilled. Readers predating this envelope field cannot read newly written envelopes; do not roll back to such a reader after new writes. This view adds no table, no public JSON interface and no execution or feedback record.
+
+Dream details show the persisted status, outcome, reason, attempt count and timestamps, plus saved input-manifest references and a link to the recorded candidate. Candidate publication and current review state are checked in Review. Input-manifest nodes can supply resolved upstream Source references; these execution inputs are not automatically direct evidence for every output. Per-attempt timings, errors and missing history are not invented. Dream records cover only recorded Dream executions, not all automatic Source processing.
+
+### Review explains the proposal and the saved result
+
+The inbox directory uses existing reasons and family labels; an opened candidate can use its saved content as its title. The built-in directory keeps its metadata-only reads rather than loading every proposal for a title. Details put readable content fields before raw data. Updates compare the candidate with its recorded target revision, which may no longer be current. An unavailable baseline is shown as an unavailable comparison, not as unchanged content or an empty base.
+
+Evidence bodies and candidate history remain explicit, deferred reads. Full proposal data, raw diffs, package metadata and the complete versioned editor remain available in disclosures. Approval effects are separate from the candidate's reason and evidence. Decisions retain current permission checks, same-origin protection and candidate-version guards.
+
+After a decision, Review opens the same candidate under its saved status and preserves the language, Scope and reporting period. Approved content links to the exact recorded result revision, even after a later head change. Approved tag changes show the tags saved by that decision and the recorded content basis; they do not create a content revision or establish that those tags remain current.
+
 ### Source material supports checking in context
 
-Sources appear after the record's text and can be opened directly from an experience, skill or handoff. They use Tabler's large modal, which fills the screen on smaller devices. A menu switches between sources. Closing the reader returns to the user's place in the record. The same actions are available from the keyboard.
+Sources can be opened directly from a memory, experience, skill or handoff. They use Tabler's large modal, which fills the screen on smaller devices. A menu switches between sources. Closing the reader returns to the user's place in the record. The same actions are available from the keyboard.
 
 Source text can be long. Size its reading area to the viewport, keep the heading and close control reachable, and let the text scroll within that area. Opening a source should not lengthen the whole page until the user loses their place. If one source fails to load, the open record remains readable.
 
@@ -145,3 +165,11 @@ The HTTP API specification defines request fields and limits.
 | Usage | `POST /v1/stats` | Read the current scope with `exact` and use Server reporting periods and statistical definitions |
 
 Home shows the selected Scope's memories, handoffs, experiences, skills, and usage summaries. Collections show readable entries and pagination without inferring an unreported total. Record and source references preserve their complete identities.
+
+`/dashboard/runtime` requires the same Dashboard authentication as the other pages but does not require a Scope. It reads this instance's existing `/health/live` and `/health/ready` contracts. A readiness response with HTTP 503 is displayed as not ready; a failed probe read is displayed as unavailable. These checks do not establish health for every worker or for metrics, logs, and tracing pipelines. Access coverage is secondary detail, separate from dependency health.
+
+### Manual Experience and Skill generation
+
+Methods pages offer Generate experience and Generate Skill. Users choose exact evidence from the current Scope and submit the current page selection. Experience supports Sources, active Memory revisions, and approved Experiences. Skill supports Sources or approved Experiences with the matching provenance origin. Supplemental notes are candidate metadata.
+
+The Dashboard posts to the existing generation API using the current credentials and requires a same-origin request. It never approves the candidate. Pending candidates open in the review inbox; a semantic no-op is reported explicitly. Calls have a bounded 120-second wait with no automatic retries. Direct Generate calls do not create Dream execution records.

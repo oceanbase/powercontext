@@ -25,6 +25,7 @@ const ERRORS = {
   idempotency_conflict: [409, 'The request conflicts with an existing operation. Read its state before continuing.'],
   integration_unavailable: [503, 'The required handoff integration is unavailable.'],
   capacity_exceeded: [429, 'Handoff bookkeeping reached its capacity.'],
+  secret_rejected: [400, 'The launch draft or directory may contain a credential. No launch was attempted.'],
   payload_invalid: [400, 'The handoff request or package is invalid.'],
   outcome_unknown: [409, 'The outcome is unknown. Check the target before choosing to retry.'],
   cancelled: [409, 'The operation was cancelled.'],

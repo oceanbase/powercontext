@@ -53,6 +53,7 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffSourceCitation,
     HandoffStatement,
 )
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.dream.models import CreateDreamRunRequest, DreamError, DreamRecord, DreamRun
 from powercontext.builtin.evidence.models import EvidenceManifest, EvidenceNode, EvidenceResolutionError, content_digest
 from powercontext.builtin.evidence.resolver import EvidenceResolver, evidence_id
@@ -96,7 +97,6 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_me
 from powercontext.builtin.runtime.config import DatabaseConfig
 from powercontext.builtin.sources.content import ContentSource, ContentSourceTarget
 from powercontext.builtin.work.models import HandoffReceipt, TaskOutcome
-from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 from tests.e2e.atomic_memory_migration_fixture import (

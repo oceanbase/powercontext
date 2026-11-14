@@ -152,6 +152,21 @@ describe('local DSH handoff deliveries', () => {
     expect(service.referencedPreflightIds().size).toBe(0)
   })
 
+  it('does not dispatch or mark a work write as sent if the connection guard closes after resolution', async () => {
+    let installerPending = false
+    open({
+      resolveConnection: async () => {
+        queueMicrotask(() => { installerPending = true })
+        return { client, assertDispatch() {
+          if (installerPending) throw Object.assign(new Error('installer pending'), { code: 'not_ready' })
+        } }
+      },
+    })
+    const result = await service.prepare(caller(), input())
+    expect(result).toMatchObject({ preparationState: 'failed', error: { code: 'not_ready' } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('fails closed without a gate and rejects a substituted reply or revision', async () => {
     open({ preflightGate: undefined })
     await expect(service.prepare(caller(), input())).rejects.toMatchObject({ code: 'integration_unavailable' })

@@ -30,11 +30,14 @@ interface HandoffServicesOptions {
   catalog: TargetCatalog
   client: Pick<PowerContextClient, 'request'>
   signal: AbortSignal
+  authorization?: string
   plan?: LaunchPlanner
 }
 
 /** The only boundary that knows both implementations and their independent storage roots. */
-export function createHandoffServices({ root, authority, catalog, client, signal, plan }: HandoffServicesOptions) {
+export function createHandoffServices({
+  root, authority, catalog, client, signal, authorization, plan,
+}: HandoffServicesOptions) {
   let delivery: LocalDeliveryService
   const preflight = new PreflightService({
     authority, catalog, signal, records: preflightRecords(join(root, 'preflights')),
@@ -54,11 +57,12 @@ export function createHandoffServices({ root, authority, catalog, client, signal
       }
       // The configured Host client keeps authorization in memory. This composition
       // supports inspected work input and exact references, without a session content reader.
-      return { client }
+      return { client, assertDispatch: assertInstaller }
     },
   })
   const launch = new LaunchService({
-    preflight, delivery, requireLocal: () => authority.requireLocal(), plan: plan ?? planNativeLaunch,
+    preflight, delivery, requireLocal: () => authority.requireLocal(),
+    plan: plan ?? ((target, cwd, intent) => planNativeLaunch(target, cwd, intent, authorization)),
     records: launchRecords(join(root, 'launch-attempts')), signal,
   })
   return {

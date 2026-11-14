@@ -24,14 +24,14 @@ limitations under the License.
   {% include "components/navigation.html" %}
   <div class="page-wrapper">
     <div id="request-status" class="htmx-indicator pe-none position-fixed top-0 end-0 m-3 p-2 bg-surface rounded shadow-sm z-3 small" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</div>
-    <main class="page-body" id="main" tabindex="-1" data-title="{{ t[page] }} · PowerContext"><div class="container-xl">
+    <main class="page-body" id="main" tabindex="-1" data-title="{{ document_title }}"><div class="container-xl">
       <div id="network-error" class="alert alert-warning" role="alert" hidden>
         {{ t.loading_error }} <a href="{{ link() }}">{{ t.retry }}</a>
       </div>
       {% from 'components/read-error.html' import read_error with context %}
       {% if page_error %}
-        {{ read_error(page_error) }}
-      {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
+        {{ read_error(page_error, t.method_generation_failed if page == 'methods' and request.method == 'POST' else '') }}
+      {% elif (not scope_descriptor and not record_only and page not in ['runtime','observability']) or page == 'entry' %}
         {% include 'entry.html' %}
       {% else %}
         {% include page ~ '.html' %}
@@ -49,6 +49,10 @@ limitations under the License.
       });
       workspace.on('htmx:beforeSwap', event => {
         if ([401, 403, 404, 409, 410, 413, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
+          if (event.detail.target?.id === 'notes-browser') {
+            event.detail.target = workspace;
+            event.detail.selectOverride = '#workspace';
+          }
           event.detail.shouldSwap = true;
           event.detail.isError = false;
         }

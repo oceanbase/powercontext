@@ -27,16 +27,7 @@ from pydantic import SecretStr
 from starlette.middleware import Middleware
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, ArtifactSearchExecutionContext
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.publication import ArtifactPublication, ArtifactPublicationRequest
-from powercontext.builtin.runtime.config import RuntimeConfig
-from powercontext.server.app import create_app
-from powercontext.server.authentication import (
-    AuthenticationResult,
-    ProviderReadiness,
-    StaticBearerAuthenticationProvider,
-)
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -49,8 +40,18 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
-from powercontext.server.authz.service import BindingSearchRequest
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.service import BindingSearchRequest
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.publication import ArtifactPublication, ArtifactPublicationRequest
+from powercontext.builtin.runtime.composition import BuiltinConfigurationError
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.server.app import create_app
+from powercontext.server.authentication import (
+    AuthenticationResult,
+    ProviderReadiness,
+    StaticBearerAuthenticationProvider,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
@@ -88,10 +89,23 @@ def test_enforced_mode_cannot_silently_start_without_authentication_or_provider(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scheduled.db'}"),
             access=AccessControlConfig(mode="enforced"),
             runtime=RuntimeConfig(schedule_seconds=60),
+            inference=InferenceConfig(generation_model="test"),
         ),
         authentication_provider=_ActingAuthenticationProvider(),
     )
     with pytest.raises(ValueError, match="BACKGROUND_PRINCIPAL_ID"), TestClient(scheduled):
+        pass
+
+    # A schedule with no runnable family is rejected at startup as well.
+    unrunnable = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'unrunnable.db'}"),
+            access=AccessControlConfig(mode="enforced"),
+            runtime=RuntimeConfig(schedule_seconds=60),
+        ),
+        authentication_provider=_ActingAuthenticationProvider(),
+    )
+    with pytest.raises(BuiltinConfigurationError), TestClient(unrunnable):
         pass
 
 
@@ -135,11 +149,11 @@ def test_declared_background_processing_requires_identity_even_without_automatic
 
 @pytest.mark.parametrize("background", [False, True])
 def test_profile_flush_authorizes_the_actual_snapshot(tmp_path: Path, monkeypatch, background) -> None:
+    from powercontext.builtin.authz import AccessDeniedError
     from powercontext.builtin.persistence.tables import BUILTIN_TABLES
     from powercontext.builtin.records import ArtifactWrite
     from powercontext.builtin.runtime.relational import RelationalContexts
     from powercontext.builtin.scope import ScopeDraft
-    from powercontext.server.authz import AccessDeniedError
     from powercontext.server.factory import _scheduled_profile_runner
 
     class Generator:

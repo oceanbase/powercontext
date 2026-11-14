@@ -1,5 +1,185 @@
 # Desktop validation
 
+## Server 5fb2b2d1 Gateway contract qualification
+
+`sqlite-gateway-5fb2b2d1-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `5fb2b2d149dee376adb1bb09b73bb3d6f015b192`, including the Gateway
+lifecycle schemas and the v1.5.1 API additions.
+
+- Normalized OpenAPI SHA-256: `d2c3b84ad4e6206bd911acf5d2652dcaa881a6039c217dcd7f066ffc12fb1a72`.
+- Wheel: `powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl`.
+- Wheel SHA-256: `6e8f523146999243404d71e96b735a597dc9e5d64e081fed6778bda5e389ece2`.
+
+All 750 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit development version. Historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-10, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting isolated real Python Server processes. All four modes preserve committed-write
+response loss as unknown without replay and leave the Server alive after client exit.
+The Provider mode additionally passes identity-change invalidation, same-identity revocation,
+51-Scope pagination, and scoped native authorization when Server discovery is denied.
+These checks establish local native protocol behavior; installed GUI, system credentials,
+Windows/macOS, external providers, and production deployment require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-5fb2b2d1-v1 \
+  --wheel desktop/.artifacts/server-5fb2b2d1/powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl
+```
+
+The wheel, aggregate report, and source-equivalence report are retained under ignored
+`desktop/.artifacts/server-5fb2b2d1/`. Per-mode process artifacts remain under ignored
+`desktop/.artifacts/real-server-*/`.
+
+## Server 58dda714 Gateway contract qualification
+
+`sqlite-gateway-58dda714-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `58dda7146afe8a1c9241e8c1bc1e645179945330`, including the Gateway
+lifecycle contract and listener authentication.
+
+- Normalized OpenAPI SHA-256: `0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb`.
+- Wheel: `powercontext-1.5.1.dev0+g58dda714-py3-none-any.whl`.
+- Wheel SHA-256: `db79f910642f9b6841e297d50f08d2d05e5b4ecab82dbc8f8e4d6f4c8e875528`.
+
+All 738 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit build version. Historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting isolated real Python Server processes. All four modes preserve committed-write
+response loss as unknown without replay and leave the Server alive after client exit.
+The Provider mode additionally passes identity-change invalidation, same-identity revocation,
+51-Scope pagination, and scoped native authorization when Server discovery is denied.
+These checks establish local native protocol behavior; installed GUI, system credentials,
+Windows/macOS, external providers, and production deployment require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-58dda714-v1 \
+  --wheel desktop/.artifacts/server-58dda714/powercontext-1.5.1.dev0+g58dda714-py3-none-any.whl
+```
+
+The wheel, aggregate report, and source-equivalence report are retained under ignored
+`desktop/.artifacts/server-58dda714/`. Per-mode process artifacts remain under ignored
+`desktop/.artifacts/real-server-*/`.
+
+## Gateway contract 0df224e7 authenticated legacy qualification
+
+The `authenticatedClients` entries for `sqlite-atomic-112db11e-v1` and
+`sqlite-atomic-3cefa45a-v1` qualify their original eleven operations for client contract
+`0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb` in authenticated mode.
+Their original Server commits, contract digests, artifact hashes, operation sets and existing evidence are preserved.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed static Bearer,
+HTTPS with explicit CA/base path, and enforced Provider modes for both historical Servers through the
+unchanged native probe. The explicit rebuilt-source fixture verified every packaged runtime file against
+each historical Git archive before execution. The rebuilt artifacts are the same fixture wheels and
+SHA-256 values recorded under Gateway contract authenticated legacy qualification; these checks do not
+qualify them as the original product wheels. Anonymous legacy use still requires an upgrade.
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-112db11e-v1 \
+  --wheel desktop/.artifacts/legacy-112db11e/powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-3cefa45a-v1 \
+  --wheel desktop/.artifacts/legacy-3cefa45a/powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl
+```
+
+Reports are retained in `.scratch/gateway-g3-follow-up/merge-2538/` and the harness process artifacts
+under ignored `desktop/.artifacts/`. These checks establish local native protocol behavior, not installed
+GUI, system credentials, Windows/macOS, external providers, or production deployment acceptance.
+
+## Server c527f3f6 Gateway contract qualification
+
+`sqlite-gateway-c527f3f6-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `c527f3f65c3d3a38f53399230075eceef9364078`. Gateway lifecycle schemas
+are included in the authoritative OpenAPI document; Desktop's existing operation set
+and native wire models remain unchanged.
+
+- Normalized OpenAPI SHA-256: `ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f`.
+- Wheel: `powercontext-1.5.1.dev0+gc527f3f6-py3-none-any.whl`.
+- Wheel SHA-256: `bbf4227a828a8964fa5eb5eab8b08c499cd3a76fbdcf986600c3db74aeff3106`.
+
+All 739 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit build version. All historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the unchanged native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting its isolated real Python Server processes; no fixture qualification was injected.
+All four modes preserve committed-write response loss as unknown without replay and leave
+the Server alive after client exit. The Provider mode additionally passes identity-change
+invalidation, same-identity revocation, 51-Scope pagination, and scoped native authorization
+when Server discovery is denied. These are local protocol checks, not installed UI, system
+vault, Windows, macOS, external-provider, or production-deployment acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-c527f3f6-v1 \
+  --wheel desktop/.artifacts/server-wheel/powercontext-1.5.1.dev0+gc527f3f6-py3-none-any.whl
+```
+
+The debug native probe SHA-256 is
+`347ac20bbdf1574776e16c487a713afae263de05b4d602d916348a76f685bcda`.
+The report identifies source `c527f3f6` with the new qualification record in the working
+tree. Raw reports, per-mode Server logs, the source-equivalence report, and the exact wheel
+are retained under ignored `desktop/.artifacts/`.
+
+## Gateway contract authenticated legacy qualification
+
+The `authenticatedClients` entries for `sqlite-atomic-112db11e-v1` and
+`sqlite-atomic-3cefa45a-v1` qualify their original eleven operations for client contract
+`ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f` in Bearer mode.
+Their original Server commits, Server contract digests, artifact hashes, operations and
+evidence remain unchanged. Anonymous legacy use still requires an upgrade.
+
+On 2026-11-07, the unchanged native probe passed static Bearer, HTTPS with explicit CA/base
+path, and enforced Provider modes for each historical Server on Linux x86_64 / WSL2 /
+Python 3.14.4 / Rust 1.97.1. The existing explicit rebuilt-source fixture path compared every
+packaged runtime file with each exact Git archive before execution. The rebuilt wheels are
+distinct fixture artifacts; these runs do not qualify them as the original product wheels.
+
+| Historical Server source | Rebuilt fixture wheel | Actual fixture SHA-256 |
+| --- | --- | --- |
+| `112db11e885c38b997da2177e03a4065a7e35dc3` | `powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl` | `567d0cd4a4c7488d6ba76325f0652593a9fddf8782eb0008e75b2b88a76c5c87` |
+| `3cefa45ad08490423391148439c9eb73f1d48f58` | `powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl` | `9831d1e045b21267d3cd6d6c04fada5f54f2180013c0de9aaf477fa6861a8f6b` |
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-112db11e-v1 \
+  --wheel desktop/.artifacts/legacy-112db11e/powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-3cefa45a-v1 \
+  --wheel desktop/.artifacts/legacy-3cefa45a/powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl
+```
+
+Aggregate reports and harness output are retained under ignored `desktop/.artifacts/g3-legacy-*`.
+Per-mode Server logs and process reports are under `desktop/.artifacts/real-server-*/`;
+the process reports identify each fixture by its wheel SHA-256.
+The probe identity and platform limits are the same as in the current product qualification above.
+
+The native regression suite also passes with these product and authenticated-client records:
+
+```sh
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --tests
+```
+
+One existing case is explicitly ignored. The passing suite includes the legacy compatibility
+regressions and bundled-product assertions; it does not establish installed GUI or platform acceptance.
+
 ## Installed connection journey acceptance
 
 The Windows installed WebDriver entry point runs `installed_connections.py` before
@@ -443,6 +623,23 @@ normalized OpenAPI SHA-256 is `0f6befcd87645b83e63ea6393ba57002387302b4e53cf85fc
 Product qualification records remain unchanged. These isolated local processes do not qualify
 external production deployments, managed installation/apply, installed Windows/macOS UI,
 login/reboot, signing or notarization. UI tests mock IPC, and native unit HTTP fixtures are synthetic.
+
+### Linux local-service validation
+
+The Linux Desktop job runs the full Rust suite, including the Linux Ops Bridge and trusted-window IPC boundary tests. The separate [native personal service workflow](../.github/workflows/native-service.yml) runs the lifecycle suite against the runner's real systemd `--user` manager. It covers installation, start/restart, uninstall, foreign registrations, unrelated user services, recovery after an external stop, an unavailable user manager, and the user-session boundary. The native checks verify `default.target` login activation, explicit stop without disabling that activation, unchanged pre-existing linger state, and absence of a system-level unit. They do not force logout of the active CI account; GNOME logout/login behavior is reserved for installed Ubuntu Desktop qualification. The Linux managed-resource candidate job builds a real Ops bundle from a pinned standalone Python runtime and runs the generated bundle through the native manifest/digest trust test; the candidate remains unsigned and is not a release qualification.
+
+To reproduce the systemd lifecycle checks on a disposable Linux user manager:
+
+```sh
+sudo systemctl start "user@$(id -u).service"
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS=1
+export POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER="powercontext-local-validation-$(id -u).service"
+uv run --no-sync pytest -q tests/native/test_personal_service_lifecycle.py
+```
+
+The Desktop page uses `ops.inspect` for read-only status inspection and dispatches explicitly approved lifecycle plans through `ops.apply`; with a valid Linux binding, the page can install, repair, start, stop or restart the personal service. These operations use the current user's `systemctl --user` manager and do not enable linger, write system units or require root. A passing Rust, lifecycle or candidate-bundle test does not by itself qualify a signed package or a normal user's login-session configuration.
 
 ## Deployment context validation
 
@@ -3051,3 +3248,187 @@ and `desktop/.artifacts/server-wheel/`. Previous profiles retain their original 
 contract, artifact and evidence identities. This is local SQLite protocol qualification,
 not an installed WebView or credential-persistence test, other-platform qualification,
 external database deployment, gateway transport acceptance, or release approval.
+
+## Server 83bfee5d dashboard protocol qualification
+
+`sqlite-dashboard-stats-83bfee5d-v1` qualifies all twelve declared Desktop protocol
+operations, including statistics, against Server runtime sources at
+`83bfee5df1177dd04012f3d73006a202983292b3`.
+
+OpenAPI SHA-256: `36cfd6704fd7753a9893ecda9d5b10d178d21207b124528b26be29ab806a6c41`.
+Wheel: `powercontext-1.5.1.dev146+g83bfee5df-py3-none-any.whl`.
+Wheel SHA-256: `3c532a1cabfc8081b40dc18a09ae8a8a7d9056da2ff0e0b0393bfac7fe43982e`.
+
+On 2026-11-06, macOS arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback,
+Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced access.
+The native `server_probe` was built from the matching product sources and generated
+contract. Both disposable fixture qualification and normal native ConnectionManager
+product qualification passed. The product run selected the checked-in record without
+`ci-fixtures`, covering save/search/exact reads, Scope selection, statistics, lost
+write responses without replay, identity changes, revocation and Server survival
+after client exit.
+
+All 768 packaged runtime files match the recorded Git source bytes. Evidence is
+retained under ignored `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/server-wheel/`; preceding local artifacts are preserved under
+`desktop/.artifacts/before-dashboard-rebase-20261106/`.
+
+Validation commands:
+
+```bash
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-dashboard-stats-83bfee5d-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session bundled_product_qualification_covers_every_desktop_operation
+make contract-test
+```
+
+This record covers local SQLite protocol behavior. It does not establish installed UI,
+native credential persistence, Windows execution, external production acceptance or
+release readiness.
+
+## Recall ranking source snapshot protocol qualification
+
+`sqlite-recall-2d3fea1a-v1` qualifies the twelve declared Desktop protocol operations against a disposable local runtime source snapshot at `2d3fea1a4e25ba5a35128e528aa55bf3fd88db73`. The snapshot was created from the working tree based on `625b0a64457a04470421426ad6466a5f3fbe5861`; it is not a commit on the Dashboard branch or a published release. Its source archive and Git identity are retained under ignored `desktop/.artifacts/recall-qualification-source.tar.gz` and `recall-qualification-source.json`.
+
+OpenAPI SHA-256: `4e27882f91b1d230bd3c6d23cffcc5ae2677a498a7f13fb33f4cee254b7ae5cb`.
+Wheel: `powercontext-1.5.1.dev0-py3-none-any.whl`.
+Wheel SHA-256: `5feca3c799a34eb0c604c72851e086637b13a3ec98b40a9ef8df9b3a1cd12ff1`.
+
+On 2026-11-08, macOS arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The native `server_probe` selected the bundled product record without `ci-fixtures`. The checks cover the normal ConnectionManager, save/search/exact reads, Scope pagination, statistics, lost write responses without replay, identity changes, revocation and Server survival after client exit. All 777 packaged runtime files match the source snapshot bytes.
+
+The recall-ranked Atomic Memory list is separately tested through its public HTTP API and Dashboard. The native Desktop probe does not exercise recall ranking. Evidence is retained under ignored `desktop/.artifacts/real-server.json` and `server-wheel/`; earlier local qualification artifacts remain under `desktop/.artifacts/before-recall-ranking-20261108-210849`.
+
+Validation commands:
+
+```bash
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-recall-2d3fea1a-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session bundled_product_qualification_covers_every_desktop_operation
+make contract-test
+```
+
+These results qualify the local SQLite protocol and this source snapshot only. They do not establish installed UI, native credential persistence, Windows execution, OceanBase performance, external production acceptance or release readiness.
+
+
+## Stable note counts source snapshot protocol qualification
+
+`sqlite-counts-e6f79326-v1` qualifies the twelve declared Desktop protocol operations against the disposable local runtime snapshot `e6f793267dad95e767ab2c421c78f32a4993f496`, based on `625b0a64457a04470421426ad6466a5f3fbe5861`. The snapshot is not a commit on the Dashboard branch or a published release. Its Git identity and source archive are retained under ignored `desktop/.artifacts/stable-counts-qualification-source.json` and `stable-counts-qualification-source.tar.gz`.
+
+OpenAPI SHA-256: `4967ac1fa8aaa603af85fa8e517a764f7c0d3f08542e4d1d163db76c41a2013a`.
+Wheel: `powercontext-1.5.1.dev0-py3-none-any.whl`.
+Wheel SHA-256: `34248197e2b13cee0a59c7425d66940db52569266704812f3f0781ea6910e606`.
+
+On 2026-11-08, macOS arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The normal native ConnectionManager selected the checked-in product qualification without `ci-fixtures`. Native operation coverage passed, as did all 61 contract tests. All 778 packaged runtime files match the recorded snapshot bytes.
+
+The bounded Atomic Memory identity filter and stable recall counts are separately checked through the public HTTP API and Dashboard. The native probe does not exercise those list options. Evidence is retained under ignored `desktop/.artifacts/real-server.json` and `server-wheel/`; preceding artifacts remain under `desktop/.artifacts/before-stable-counts-20261108-213554`.
+
+```bash
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-counts-e6f79326-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session bundled_product_qualification_covers_every_desktop_operation
+make contract-test
+```
+
+These results cover the recorded source snapshot and local SQLite protocol. Subsequent Dashboard layout and internal preparation-list filtering changes are validated separately; they are not byte-identical to this wheel. This evidence does not establish installed UI, Windows execution, native credential persistence, OceanBase performance or production release readiness.
+
+## Server e5465878 Dashboard protocol qualification
+
+`sqlite-dashboard-e5465878-v1` qualifies all thirteen declared Desktop protocol operations against Server commit `e54658781c0f1e340956bd82f4f7e54a0455d084`. This record includes `get_connection_identity`, which the twelve-operation stable-counts record did not qualify. Historical records retain their original operation sets and evidence.
+
+OpenAPI SHA-256: `9b2a59d45693226708c21405d9e30298077f0cde48edcfe5f728374e8cf02557`.
+Wheel: `powercontext-1.5.2.dev11+ge54658781-py3-none-any.whl`.
+Wheel SHA-256: `230c90c6c53100ace5263d47971409455d26dffe9c9f8fa53ad87109e69e0739`.
+All 819 packaged runtime files match the recorded Git commit bytes, including the service bootstrap and integration lifecycle packages.
+
+On 2026-11-10, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The native `server_probe` used the normal ConnectionManager and this bundled product record without `ci-fixtures`. Checks cover save/search/exact reads, Scope pagination, statistics, lost write responses without replay, identity changes, revocation and Server survival after client exit. The enforced-provider case also passed scoped native authorization without Server observation permission.
+
+Commands executed from the repository root:
+
+```bash
+uv build --cache-dir .git/pr2557-uv-cache --wheel --out-dir .git/pr2557-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+.venv/bin/python desktop/tests/real_server.py --product-qualification sqlite-dashboard-e5465878-v1 --wheel .git/pr2557-wheel/powercontext-1.5.2.dev11+ge54658781-py3-none-any.whl
+```
+
+The exact wheel is retained under `.git/pr2557-wheel/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. The earlier report is preserved under `.git/pr2557-maintenance/real-server-before.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
+
+## Server 74082534 Dashboard protocol qualification
+
+`sqlite-dashboard-74082534-v1` qualifies all thirteen declared Desktop protocol operations against Server commit `74082534e86c67dd1ea3c3fff52bbb8f1c48ea68`. The rebase onto master changed the merged HTTP contract, so this record replaces the previous digest for contract-based selection. Historical records retain their original operation sets and evidence.
+
+OpenAPI SHA-256: `250c6be5d0b35e41eeb2d708c4dd00c36df80f4025ab7eb83a4cdb9a85ed46c3`.
+Wheel: `powercontext-1.5.2.dev71+g74082534e-py3-none-any.whl`.
+Wheel SHA-256: `0e610250ed08ebe73cb0309d2abb6a4e086369c2b2f38e85baa231bda772aecc`.
+All 816 packaged runtime files match the recorded Git commit bytes, including the service bootstrap and integration lifecycle packages.
+
+On 2026-11-13, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The native `server_probe` used the normal ConnectionManager and this bundled product record without `ci-fixtures`. Checks cover save/search/exact reads, Scope pagination, statistics, lost write responses without replay, identity changes, revocation and Server survival after client exit. The enforced-provider case also passed scoped native authorization without Server observation permission.
+
+Commands executed from the repository root:
+
+```bash
+uv build --cache-dir .git/pr2557-uv-cache --wheel --out-dir .git/pr2557-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+.venv/bin/python desktop/tests/real_server.py --product-qualification sqlite-dashboard-74082534-v1 --wheel .git/pr2557-wheel/powercontext-1.5.2.dev71+g74082534e-py3-none-any.whl
+```
+
+The exact wheel is retained under `.git/pr2557-wheel/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
+
+## Server c7492133 Dashboard protocol qualification
+
+`sqlite-dashboard-c7492133-v1` qualifies all thirteen declared Desktop protocol operations against Server commit `c74921338ee2ac751b3de3ab69afd6ddb7a9d4ca`. The failure-navigation fix changed the HTTP contract (a repeated `status` filter and an explicit `all_time` summary window), so this record replaces the previous digest for contract-based selection. Historical records retain their original operation sets and evidence.
+
+OpenAPI SHA-256: `7b8707c172494249b2f8525d1cbe20b05e139e4b10a295bbf8ea48f59b0130d0`.
+Wheel: `powercontext-1.5.2.dev74+gc74921338.d20261113-py3-none-any.whl`.
+Wheel SHA-256: `1fbb6b9e8aa4c5dcadbd1fe69eb629af58c743b6452e703e29868ff44d185f44`.
+All 816 packaged runtime files match the recorded Git commit bytes, including the service bootstrap and integration lifecycle packages.
+
+On 2026-11-13, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four built-wheel SQLite modes: anonymous loopback, Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. The native `server_probe` used the normal ConnectionManager and this bundled product record without `ci-fixtures`. Checks cover save/search/exact reads, Scope pagination, statistics, lost write responses without replay, identity changes, revocation and Server survival after client exit. The enforced-provider case also passed scoped native authorization without Server observation permission.
+
+Commands executed from the repository root:
+
+```bash
+uv build --cache-dir .git/pr2557-uv-cache --wheel --out-dir .git/pr2557-wheel3
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+.venv/bin/python desktop/tests/real_server.py --product-qualification sqlite-dashboard-c7492133-v1 --wheel .git/pr2557-wheel3/powercontext-1.5.2.dev74+gc74921338.d20261113-py3-none-any.whl
+```
+
+The exact wheel is retained under `.git/pr2557-wheel3/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
+
+## Server a211ba84 merged gateway contract protocol qualification
+
+`sqlite-gateway-deadline-a211ba84-v1` qualifies the thirteen bundled Desktop
+operations against Server source `a211ba8491a3ab18de6b79906ee23760f130207b`
+and the merged Gateway deadline and cancellation contract.
+
+- Normalized OpenAPI SHA-256: `382b67847c63cf8cdd6561a85053ddf1bde2673a03934e03f208dde6b8430acc`.
+- Wheel: `powercontext-1.5.2.dev105+ga211ba849-py3-none-any.whl`.
+- Wheel SHA-256: `d1575941d03ae449bc83553daf29ce82072749ffba1b1adaccf2188f288c40a9`.
+- Native debug probe SHA-256: `9c44e7d16739ad02e64a5e8cf13b7df66ce90902fbbdb0f32bafc98dca308078`.
+
+All 749 packaged Server and service-bootstrap runtime files match the clean Git
+source archive after CRLF normalization; no runtime file is missing or added. The
+wheel was built from the clean merge commit before adding this product profile. The
+native `server_probe` was built with the product Cargo lock and Rust 1.95.0, without
+`ci-fixtures`.
+
+On 2026-11-13, Linux 6.6.87.2 WSL2 x86_64 and Python 3.14.4 passed all four modes
+in `desktop/tests/real_server.py`: anonymous loopback, static Bearer, HTTPS with an
+explicit CA/base path, and enforced Provider access. The ordinary product
+`ConnectionManager` reported `bundled product records` and this exact profile for
+all four modes. Checks cover discovery, connection identity, exact Scope selection,
+statistics, Memory save/search/exact revision reads, committed writes with lost
+responses without replay, and independent Server survival after client exit.
+Provider mode also checks Principal changes, same-identity revocation, scoped native
+authorization without Server observation permission, and 51 same-title Scopes.
+Statistics usage is controlled fixture input, not an external model-provider
+execution claim.
+
+The harness report is retained under ignored `desktop/.artifacts/real-server.json`;
+the wheel is retained under ignored `desktop/.artifacts/server-wheel/`. The harness
+records the Desktop working tree as dirty because this profile had not yet been
+committed; the Server wheel itself is bound to the clean recorded source. Previous
+profiles retain their original source, contract, artifact and evidence identities.
+This is local SQLite protocol qualification, not an installed WebView or
+credential-persistence test, other-platform qualification, external database
+deployment, gateway transport acceptance, or release approval.
