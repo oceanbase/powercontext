@@ -30,6 +30,7 @@ _PLUGIN_MODULE_NAMES = (
     "claude_code_settings",
     "hooks",
     "hooks.bootstrap_context",
+    "hooks.dsh_handoff",
     "hooks.prepared_context",
     "hooks.prompt_privacy",
     "scripts",

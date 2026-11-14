@@ -60,6 +60,7 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_REVISION,
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
+    GET_CONNECTION_IDENTITY,
     GET_DREAM_RUN,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
@@ -142,6 +143,9 @@ Current-turn instructions, conceptual questions, and previews do not authorize w
 For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
 only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
 Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+For a local DSH delivery, use the verified receive context supplied by the PowerContext plugin after the user sends
+the draft. If that context is missing, tell the user to check the receiving plugin and reopen the delivery; do not
+guess the Scope, substitute the most recent Handoff, or acknowledge a delivery that was not verified.
 When available, prepare_handoff_hint provides optional bounded historical orientation for the selected Handoff.
 Hints never replace the complete Handoff, evidence checks, current instructions, or live validation.
 For requested Experience or Skill synthesis use generate_experience or generate_skill; caller-authored content uses
@@ -174,6 +178,7 @@ _MCP_OPERATION_IDS = frozenset({
     "restore_atomic_memory",
     GET_ARTIFACT.operation_id,
     GET_ARTIFACT_REVISION.operation_id,
+    GET_CONNECTION_IDENTITY.operation_id,
     REPLACE_ARTIFACT.operation_id,
     GENERATE_EXPERIENCE.operation_id,
     GET_EXPERIENCE.operation_id,
@@ -233,6 +238,7 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     "preview_atomic_memory_restoration",
     GET_ARTIFACT.operation_id,
     GET_ARTIFACT_REVISION.operation_id,
+    GET_CONNECTION_IDENTITY.operation_id,
     GET_EXPERIENCE.operation_id,
     GET_SKILL.operation_id,
     LIST_MANAGED_SKILLS.operation_id,

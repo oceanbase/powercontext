@@ -128,6 +128,9 @@ capabilities = ["source_capture"]
 id = "create_work_contract"
 capabilities = ["work_contract"]
 [[toolsets.tools]]
+id = "get_connection_identity"
+capabilities = ["handoff"]
+[[toolsets.tools]]
 id = "handoff_current_work"
 capabilities = ["handoff"]
 [[toolsets.tools]]
@@ -360,6 +363,9 @@ capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__create_work_contract"
 capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "mcp__powercontext__get_connection_identity"
+capabilities = ["handoff"]
 [[toolsets.tools]]
 id = "mcp__powercontext__handoff_current_work"
 capabilities = ["handoff"]

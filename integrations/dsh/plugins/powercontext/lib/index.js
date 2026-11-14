@@ -3761,6 +3761,7 @@ const MCP_OPERATIONS = {
 	"get_atomic_memory_state": { "readOnly": true },
 	"get_candidate": { "readOnly": true },
 	"get_candidate_history": { "readOnly": true },
+	"get_connection_identity": { "readOnly": true },
 	"get_dream_run": { "readOnly": true },
 	"get_experience": { "readOnly": true },
 	"get_handoff_report": { "readOnly": true },

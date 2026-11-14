@@ -20,6 +20,19 @@ Work Contract 和 Task Outcome 也会保留 Source 证据。
 采集成功表示证据已保存，不表示提取成功，也不表示内容一定值得长期保留。
 通过 Source 引用追溯生成结果的输入。不要在同一身份下修改内容并重试采集，将其当作新的观察。
 
+### 读取 Handoff 回执
+
+Handoff 接收确认是一条 `content` Source。按本次确认分配的精确 Scope、Source 类型和 Source ID 点查，
+不要用最新 Source 或扫描 journal 推断匹配。`SourceRecord.handoff_receipt` 是 Server 所有的标记，表示该 Source
+作为 Handoff 回执采集；它与 Source 正文分离，本身不证明接收方接受了某份 Handoff。还须验证回执 schema、
+精确 Prepared 摘要或已提交 Revision、接收检查和预期的 Source 身份。
+
+启用访问控制时，`receipt_identity` 仅在归属身份已提交后报告 Principal。归属尚未提交或不可用时，读取可能返回
+503；不能将其解释为拒绝。已知预期 Principal 时必须核对，接收方与认证身份不匹配也不能视为已认证确认。
+关闭访问控制时没有经过认证的接收方归属，回执属于接收方自行报告。旧 Server 可能不返回 `handoff_receipt`；
+缺失不能证明该 Source 是回执，依赖此标记前应升级 Server。只有 Server 能安全确认历史回执来源时才会为其补上标记；
+无法确认的旧记录保持未确认。原有 Source 正文、身份及精确引用不变。
+
 ## 选择采集入口
 
 - Agent Prompt Hook：在[接入指南](../integrations/index.md)中选择宿主对应的采集开关。

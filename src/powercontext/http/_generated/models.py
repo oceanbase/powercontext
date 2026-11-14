@@ -5795,6 +5795,9 @@ class ReplaceSkillArtifactRequest(BaseModel):
 
 
 class SourceRecord(BaseModel):
+    handoff_receipt: Annotated[
+        StrictBool | None, Field(description="Server-owned marker that this Source was captured as a Handoff Receipt.")
+    ] = None
     receipt_identity: Annotated[
         HandoffReceiptIdentity | None,
         Field(
