@@ -1,0 +1,30 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% set topic = processing_topic_status|default(none) %}
+{% if (topic and topic.state == 'blocked') or errors.get('processing_topic_status') %}
+<section id="home-issues" class="home-issues" aria-labelledby="home-issues-heading">
+  <h2 id="home-issues-heading">{{ t.home_issues_title }}</h2>
+  <div class="home-attention">
+    {% if topic and topic.state == 'blocked' %}{% set block = topic.block %}
+    <div class="home-attention-item">
+      <div class="home-issue-module"><strong>{{ t.topic_memory }}</strong>{% if block %}<span class="home-issue-reason"> · {{ t.home_issue_topic_attempt_limit if block.error_code == 'window_attempt_limit' else t.home_issue_topic_budget_limit if block.error_code == 'window_provider_budget_exceeded' else t.home_issue_topic_recorded_error }}{% set last = block.last_error_code|default(none) %}{% if last %} · {{ t.home_issue_latest_error }} <code>{{ last }}</code>{% endif %}</span>{% else %}<span class="home-issue-reason"> · {{ t.home_issue_reason_unknown }}</span>{% endif %}</div>
+      <a href="{{ link('processing',record_type='attempts') }}">{{ t.home_record_details }} →</a>
+    </div>
+    {% elif errors.get('processing_topic_status') %}{{ read_error(errors.processing_topic_status,t.topic_memory) }}{% endif %}
+  </div>
+</section>
+{% endif %}

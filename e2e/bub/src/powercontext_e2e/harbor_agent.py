@@ -45,6 +45,10 @@ BUB_ACP_SERVER_VERSION = "0.1.3"
 # install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
 # conflicts with this requirement and fails to install.
 ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
+# Harbor 0.16's client uses text_block and set_session_model. Its runner venv
+# is separate from the Bub server, whose SDK pin follows bub-acp-server.
+HARBOR_ACP_SDK_REQUIREMENT = "agent-client-protocol==0.10.0"
+HARBOR_ACP_CONSTRAINT = "/tmp/powercontext-harbor-acp-constraints.txt"  # noqa: S108
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 # Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
 STEP_TESTS_DIR = "/tests"
@@ -101,10 +105,17 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
+        constraint = self.logs_dir / "harbor-acp-constraints.txt"
+        constraint.write_text(f"{HARBOR_ACP_SDK_REQUIREMENT}\n", encoding="utf-8")
+        await environment.upload_file(source_path=constraint, target_path=HARBOR_ACP_CONSTRAINT)
         await self.exec_as_root(
             environment,
             command=self._build_dependencies_command("uvx"),
-            env={"DEBIAN_FRONTEND": "noninteractive", "PIP_INDEX_URL": pip_index_url()},
+            env={
+                "DEBIAN_FRONTEND": "noninteractive",
+                "PIP_INDEX_URL": pip_index_url(),
+                "PIP_CONSTRAINT": HARBOR_ACP_CONSTRAINT,
+            },
         )
         await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())

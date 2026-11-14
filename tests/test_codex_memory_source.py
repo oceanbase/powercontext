@@ -122,7 +122,7 @@ def test_file_and_total_byte_limits_do_not_truncate_evidence(tmp_path):
     put(config, "b.md", "5678")
     result = scan(config, MemoryInput())
     assert [item.content for item in result.captures] == ["1234"]
-    assert result.failures == (("b.md", "file_too_large"),)
+    assert result.failures == (("b.md", "read_budget_exhausted"),)
 
 
 def test_explicit_unsupported_or_missing_target_is_not_a_successful_empty_import(tmp_path):
@@ -181,3 +181,57 @@ def test_memories_root_symlink_is_rejected(tmp_path):
     result = scan(config, MemoryInput())
     assert result.captures == ()
     assert result.failures == ((".", "symlink_unsupported"),)
+
+
+def test_oversized_files_do_not_spend_the_budget_of_later_readable_files(tmp_path):
+    config = memory_config(tmp_path, max_file_bytes=8, max_total_bytes=8)
+    for index in range(4):
+        put(config, f"{index}.md", "too large for one file")
+    put(config, "last.md", "readable")
+    result = scan(config, MemoryInput())
+    assert [(item.relative_path, item.content) for item in result.captures] == [("last.md", "readable")]
+    assert set(result.failures) == {(f"{index}.md", "file_too_large") for index in range(4)}
+
+
+def test_unreadable_files_do_not_spend_the_budget_of_later_files(tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+
+    config = memory_config(tmp_path, max_file_bytes=8, max_total_bytes=8)
+    denied = {f"{index}.md" for index in range(4)}
+    for name in denied:
+        put(config, name, "denied")
+    put(config, "last.md", "readable")
+    open_file = os.open
+
+    def deny_files(path, flags, **kwargs):
+        if Path(path).name in denied:
+            raise PermissionError
+        return open_file(path, flags, **kwargs)
+
+    monkeypatch.setattr(os, "open", deny_files)
+    result = scan(config, MemoryInput())
+    assert [(item.relative_path, item.content) for item in result.captures] == [("last.md", "readable")]
+    assert set(result.failures) == {(name, "unreadable_file") for name in denied}
+
+
+def test_partially_failed_reads_charge_only_the_bytes_actually_acquired(tmp_path, monkeypatch):
+    import os
+
+    config = memory_config(tmp_path, max_file_bytes=16, max_total_bytes=10)
+    interrupted = put(config, "a.md", "12345678")
+    put(config, "b.md", "remain")
+    inode = interrupted.stat().st_ino
+    read_file = os.read
+
+    def interrupt_read(descriptor, size):
+        if os.fstat(descriptor).st_ino == inode:
+            if os.lseek(descriptor, 0, os.SEEK_CUR) >= 4:
+                raise OSError
+            return read_file(descriptor, min(size, 4))
+        return read_file(descriptor, size)
+
+    monkeypatch.setattr(os, "read", interrupt_read)
+    result = scan(config, MemoryInput())
+    assert [(item.relative_path, item.content) for item in result.captures] == [("b.md", "remain")]
+    assert result.failures == (("a.md", "unreadable_file"),)

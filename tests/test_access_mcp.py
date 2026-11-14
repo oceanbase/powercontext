@@ -24,11 +24,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from starlette.middleware import Middleware
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryPage
-from powercontext.server.app import create_app
-from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAuditContext,
     AccessBinding,
     AccessBindingState,
@@ -39,7 +35,11 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryPage
+from powercontext.server.app import create_app
+from powercontext.server.authentication import StaticBearerAuthenticationProvider
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.middleware import AuthenticationMiddleware
 

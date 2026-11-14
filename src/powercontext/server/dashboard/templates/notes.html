@@ -14,53 +14,63 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<div class="notes-view">
+<div class="notes-view" id="notes-browser">
 {% include 'components/collection-style.html' %}
 <style>
   me .note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  me .note-detail-grid { display: block; }
+  me .note-detail-grid > * { min-width: 0; }
+  me .note-body { font-size: 1rem; line-height: 1.9; margin: 0; }
+  me .note-document + .note-document { border-top: 1px solid var(--tblr-border-color); padding-top: 1rem; margin-top: 1rem; }
+  me .note-reference { overflow-wrap: anywhere; }
+
   [data-bs-theme="dark"] me .accordion-button-toggle img { filter: invert(1); }
 </style>
 {% from 'components/pagination.html' import pagination %}
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/search.html' import search_form with context %}
 {% from 'components/memory-search-evidence.html' import search_evidence %}
-{{ page_heading(t.notes, t.notes_subtitle) }}
+{% if not record_only %}{{ page_heading(t.notes, t.notes_subtitle) }}
 {{ search_form(t.search_notes, 8192, mode=search_mode) }}
-{% if not search_query %}<nav class="nav nav-pills mb-3" aria-label="{{ t.note_state }}">
+{% if not search_query %}<div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+<nav class="nav nav-pills mb-3" aria-label="{{ t.note_state }}">
   {% for state in ['active', 'forgotten', 'merged', 'retired'] %}<a class="nav-link {% if note_state == state %}active{% endif %}" href="{{ link('notes', note_state=state, artifact=none, revision=none, notes_cursor=none, notes_history=none, notes_page=none) }}">{{ t['memory_state_' ~ state] }}</a>{% endfor %}
-</nav>{% endif %}
+</nav></div>{% endif %}
 {% if search_query and not errors.get('notes') %}<p class="text-secondary memory-search-mode">{{ t.memory_requested_mode }}: {{ t.get('memory_mode_' ~ search_mode, search_mode) }} · {{ t.memory_used_mode }}: {{ t.get('memory_mode_' ~ search_used_mode, search_used_mode) if search_used_mode else t.unknown_value }}</p>{% endif %}
+{% endif %}
+{% if record_only %}<h1 class="page-title mb-4">{{ t.notes }}</h1>{% endif %}
 {% if search_limited %}<p class="text-secondary">{{ t.notes_search_limit }}</p>{% endif %}
 {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% endif %}
 {% if not errors.get('notes') or data.notes or selected_note %}
+{% if record_only %}<a class="d-inline-block mb-3" href="{{ link('notes', artifact=none, revision=none, compare=none, notes_revision_cursor=none, fragment='') }}">← {{ t.notes_list }}</a>{% endif %}
 <div class="row row-cards">
-  <aside class="col-xl-4"><div class="card memory-directory">
+  {% if not record_only or search_query %}<aside class="{{ 'col-12' if record_only else 'col-xl-4' }}">
+  {% if record_only %}{% if search_query %}{{ search_form(t.search_notes, 8192, mode=search_mode) }}{% endif %}<details><summary class="mb-3">{{ t.note_search_results }}</summary>{% endif %}
+  <div class="card memory-directory">
     <style>
-      me .memory-items { display: grid; grid-template-rows: repeat({{ notes_page_size }}, minmax(calc(2lh + 2 * var(--tblr-list-group-item-padding-y) + var(--tblr-spacer-2) + var(--tblr-list-group-border-width)), 1fr)); flex: 1; }
+      me .memory-items { display: block; }
       me .memory-empty { grid-row: 1 / -1; }
       me .note-selector { min-width: 0; }
-      @media (min-width: 1200px) { me { min-height: 65dvh; } }
+      me .note-summary { line-height: 1.5; min-height: 3em; max-height: 3em; overflow: hidden; }
+      me .note-recall-count { min-height: 1.25rem; }
+
     </style>
     <nav class="list-group list-group-flush memory-items d-none d-xl-grid" aria-label="{{ t.notes_list }}">
-      {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.note_key == item.note_key %}active{% endif %}" href="{{ link('notes', artifact=item.artifact_id, revision=item.revision, fragment='note-reading') }}" hx-swap="outerHTML show:#note-reading:top" {% if selected_note and selected_note.note_key == item.note_key %}aria-current="true"{% endif %}>
-        {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}<span class="note-summary d-block text-truncate fw-normal">{{ item.text|truncate(48, true) }}</span>
+      {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.note_key == item.note_key %}active{% endif %}" href="{{ link('notes', artifact=item.artifact_id, revision=item.revision, fragment='') }}" hx-target="#notes-browser" hx-select="#notes-browser" hx-swap="outerHTML show:none" {% if selected_note and selected_note.note_key == item.note_key %}aria-current="true"{% endif %}>
+        {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}<span class="note-summary d-block fw-normal">{{ item.text|truncate(48, true) }}</span>
         {{ search_evidence(item, t) }}
       </a>{% else %}<div class="empty memory-empty d-flex flex-column justify-content-center"><h2 class="empty-title">{{ t.notes_no_match if search_query else t.notes_empty }}</h2></div>{% endfor %}
     </nav>
     {% include 'components/memory-accordion.html' %}
     <div class="card-footer collection-footer">{{ pagination(notes_pager, t, compact=true, always=true) }}</div>
-  </div></aside>
-  <section class="col-xl-8 d-none d-xl-flex flex-column" id="note-reading" tabindex="-1" aria-label="{{ t.note_reading }}"><article class="card collection-panel flex-fill">
-    <div class="card-body note-reading collection-content" tabindex="0" role="region" aria-label="{{ t.notes }}">
+  </div>{% if record_only %}</details>{% endif %}</aside>{% endif %}
+  <section class="{{ 'col-12 note-full-detail' if record_only else 'col-xl-8 d-none d-xl-block' }}" id="note-reading" tabindex="-1" aria-label="{{ t.full_detail }}">
       {% if selected_note %}
-      {% set item = selected_note %}{% include 'components/memory-metadata.html' %}
-      <p class="note-text">{{ selected_note.text }}</p>
-      {% from 'components/record-references.html' import record_references with context %}
-      {{ record_references(selected_note, selected_note.family) }}
+      {% set item = selected_note %}{% include 'components/note-detail.html' %}
       {% elif data.notes %}<div class="empty"><h2>{{ t.not_found }}</h2><a class="btn" href="{{ link('notes') }}">{{ t.notes_list }}</a></div>{% else %}<div class="empty"><p class="empty-subtitle">{{ t.notes_no_match if search_query else t.notes_empty_body }}</p></div>{% endif %}
-    </div>
-  </article></section>
+  </section>
 </div>
 {% include 'components/revision-history.html' %}
+{% include 'components/evidence-modal.html' %}
 {% endif %}
 </div>

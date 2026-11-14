@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.5.0",
+        "version": "1.5.1",
     },
     "paths": {
         "/v1/recall/manifest": {
@@ -1606,9 +1606,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "or release exactly the approved bytes "
                 "before their deadline.",
                 "operationId": "check_context",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "parameters": [
+                    {
+                        "name": "X-PowerContext-Resolve-Target",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "boolean", "default": False},
+                        "description": "Only for before_send by "
+                        "an authenticated service "
+                        "principal authorized for "
+                        "gateway.invoke on this "
+                        "Scope as well as "
+                        "scope.read. Neither "
+                        "scope.read nor "
+                        "server.admin implies "
+                        "invocation.",
+                    }
+                ],
                 "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckContextRequest"}}},
                     "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckContextRequest"}}},
                 },
                 "responses": {
                     "200": {
@@ -1632,11 +1654,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-                "x-powercontext-access": {
-                    "action": "scope.read",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/context/bootstrap": {
@@ -6613,6 +6630,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "GatewayLifecycleDecision": {
+                "type": "string",
+                "enum": ["deadline_exceeded", "gateway_shutdown", "request_cancelled"],
+            },
+            "GatewayModelSend": {
+                "type": "string",
+                "enum": ["no_send", "definitely_not_sent", "possibly_sent", "response_received"],
+                "description": "Sending facts known at the stop "
+                "boundary. Possibly sent never "
+                "means safe to resend; response "
+                "received does not authorize "
+                "release or establish client "
+                "receipt.",
+            },
+            "GatewayLifecycleError": {
+                "properties": {
+                    "decision": {"$ref": "#/components/schemas/GatewayLifecycleDecision"},
+                    "model_send": {"$ref": "#/components/schemas/GatewayModelSend"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["decision", "model_send"],
+                "description": "Lifecycle control result, independent of Core allow/block/withhold and local delivery.",
+            },
             "ContractVersion": {
                 "properties": {
                     "major": {"type": "integer", "minimum": 1.0},
@@ -9513,6 +9554,57 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["name", "status", "basis", "evidence"],
             },
+            "TaskStopReasonKind": {
+                "type": "string",
+                "enum": ["safety", "authorization", "capability", "missing_evidence", "scope"],
+            },
+            "TaskStopReason": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/TaskStopReasonKind"},
+                    "condition": {
+                        "type": "string",
+                        "maxLength": 8192,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "The "
+                        "circumstance "
+                        "under "
+                        "which "
+                        "continuing "
+                        "would "
+                        "have "
+                        "been "
+                        "wrong; "
+                        "must "
+                        "be "
+                        "trimmed.",
+                    },
+                    "basis": {"$ref": "#/components/schemas/WorkClaimBasis"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 31,
+                        "description": "Use [] "
+                        "with "
+                        "declared. "
+                        "verified "
+                        "requires "
+                        "exact "
+                        "previously "
+                        "returned "
+                        "same-scope "
+                        "citations.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "condition", "basis", "evidence"],
+                "description": "A caller-recorded judgement about "
+                "why continuing would have been "
+                "wrong. It grants no permission, "
+                "approval, or retry budget and is "
+                "not success or failure evidence.",
+            },
             "TaskOutcome": {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.task-outcome.v1"]},
@@ -9521,6 +9613,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "status": {"$ref": "#/components/schemas/TaskOutcomeStatus"},
                     "summary": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "handoff_receipt_ref": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "stop_reason": {
+                        "$ref": "#/components/schemas/TaskStopReason",
+                        "description": "Optional "
+                        "deliberate-stop "
+                        "reason, "
+                        "accepted "
+                        "only "
+                        "with "
+                        "blocked "
+                        "or "
+                        "cancelled "
+                        "status.",
+                        "nullable": True,
+                    },
                     "observations": {
                         "items": {"$ref": "#/components/schemas/WorkClaim"},
                         "type": "array",
@@ -10615,6 +10721,51 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "and "
                         "exact "
                         "payload.",
+                    },
+                    "target_endpoint": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "description": "Exact "
+                        "Core-configured "
+                        "endpoint, "
+                        "present "
+                        "only "
+                        "on "
+                        "an "
+                        "allow "
+                        "for "
+                        "before_send "
+                        "when "
+                        "X-PowerContext-Resolve-Target "
+                        "was "
+                        "authorized "
+                        "for "
+                        "a "
+                        "service "
+                        "principal.",
+                    },
+                    "target_protocol": {
+                        "type": "string",
+                        "enum": [
+                            "openai-chat",
+                            "openai-responses",
+                            "anthropic-messages",
+                            "openai-embeddings",
+                            "minimax-embeddings",
+                            "jev-rerank",
+                        ],
+                        "description": "Protocol "
+                        "of "
+                        "the "
+                        "Core-configured "
+                        "endpoint; "
+                        "present "
+                        "under "
+                        "the "
+                        "same "
+                        "condition "
+                        "as "
+                        "target_endpoint.",
                     },
                 },
                 "additionalProperties": False,
@@ -14351,6 +14502,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope.review",
                     "scope.delegate",
                     "scope.admin",
+                    "gateway.invoke",
                     "artifact.read",
                     "artifact.write",
                     "artifact.share",
@@ -14525,6 +14677,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope.reviewer",
                     "scope.delegator",
                     "scope.admin",
+                    "gateway.user",
                     "server.observer",
                     "server.admin",
                 ],
@@ -15325,6 +15478,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
         },
         "responses": {
+            "GatewayDeadlineExceeded": {
+                "description": "Total monotonic work "
+                "deadline exceeded. Best "
+                "effort only while HTTP "
+                "status can still be "
+                "sent; an expired "
+                "deadline or unavailable "
+                "connection may prevent "
+                "delivery. Does not imply "
+                "zero cost or permit "
+                "retry.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
+            "GatewayStopped": {
+                "description": "Gateway shutdown, or explicit "
+                "in-process cancellation when a "
+                "response channel remains "
+                "available. No HTTP cancellation "
+                "endpoint or nonstandard "
+                "cancellation status is defined. "
+                "Already started HTTP status and "
+                "completed execution terminals are "
+                "preserved.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
             "ClientUpgradeRequired": {
                 "description": "This response requires a "
                 "coordinated client "
@@ -15445,5 +15623,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},
+    },
+    "x-powercontext-gateway-lifecycle": {
+        "paths": ["/gateway/v1/chat/completions", "/gateway/v1/responses"],
+        "responses": {
+            "504": {"$ref": "#/components/responses/GatewayDeadlineExceeded"},
+            "503": {"$ref": "#/components/responses/GatewayStopped"},
+        },
     },
 }

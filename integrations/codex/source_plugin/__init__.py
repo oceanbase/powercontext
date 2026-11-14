@@ -23,7 +23,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, CONTENT_SOURCE_NAME, ContentCapture
-from powercontext.client.capture import redact_known_secrets
+from powercontext.redaction import known_secret_values, redact_known_secrets
 from powercontext.source_management import Capability, TargetIdentity
 from powercontext.source_management.models import ManagementError, SourceTarget
 from powercontext.sources import ConnectorRunCompletion, ConnectorRunStatus, ConnectorSubmissionStatus
@@ -99,6 +99,8 @@ class CodexHistoryConnector:
         # A checkpoint is already scoped by deployment, instance and Scope in the framework.
         accepted = set(checkpoint.get("accepted", []))
         complete = True
+        secrets = known_secret_values(codex_home=self.config.codex_home)
+        attempted: set[str] = set()
         for target in self.targets:
             try:
                 root, path = session_path(self.config, SessionInput.model_validate(target.input).session_file)
@@ -113,9 +115,12 @@ class CodexHistoryConnector:
                 source_id = prompt.source_id_for_scope(session.binding.scope_id)
                 if source_id in accepted:
                     continue
-                content = redact_known_secrets(prompt.content, codex_home=self.config.codex_home.expanduser()).strip()
+                if source_id in attempted:
+                    continue
+                content = redact_known_secrets(prompt.content, secrets=secrets).strip()
                 if not content or len(content) > 200_000:
                     continue
+                attempted.add(source_id)
                 receipt = await self.ctx.targets.submit(
                     target,
                     session=session,
@@ -124,7 +129,8 @@ class CodexHistoryConnector:
                     value=ContentCapture(source_id=source_id, content=content, metadata=_metadata(prompt)),
                 )
                 if receipt.status != ConnectorSubmissionStatus.ACCEPTED:
-                    return ConnectorRunCompletion(status=ConnectorRunStatus.INCOMPLETE, checkpoint=checkpoint)
+                    complete = False
+                    continue
                 accepted.add(source_id)
         return ConnectorRunCompletion(
             status=ConnectorRunStatus.COMPLETE if complete else ConnectorRunStatus.INCOMPLETE,

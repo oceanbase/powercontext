@@ -5,7 +5,7 @@ description: 复用精确的 Atomic Memory 上下文，并按当前授权检查�
 
 # 上下文复用与最终准入
 
-准备一次上下文，保留短期复用证明，在每次模型请求发送前和完整响应交付前验证实际字节。使用公开准入 API 前，先按[推理隐私保护](inference-protection.md)配置 enforcing 目标。调用方负责模型执行与响应交付；检查本身不会调用模型，也不会授予模型调用额度。
+准备一次上下文，保留短期复用证明，在每次模型请求发送前和完整响应交付前验证实际字节。先按[推理隐私保护](inference-protection.md)配置目标和隐私模式；需要完整隐私检查的调用方必须使用 enforcing 模式。调用方负责模型执行与响应交付；检查本身不会调用模型，也不会授予模型调用额度。
 
 升级带有此 API 的 Server 前，请遵循 [SDK/CLI 协调升级要求](../get-started/install-and-run.md#更新或替换安装)。即使关闭保护，旧客户端仍会拒绝新增的能力字段。
 
@@ -66,6 +66,18 @@ Server 用既有签名秘密派生独立用途的密钥，并绑定持久 Server
 两个阶段都沿用根级 `scope_id`、当前认证/委托和当前 Scope、资料权限。
 `scope.read` 不授予模型付费或工具执行权限；请求字段不能降低部署策略。
 
+可选请求头 `X-PowerContext-Resolve-Target: true` 仅供同时拥有 `gateway.invoke` 与相应
+`scope.read` 的已认证**服务**主体使用。只有准许的 `before_send` 才会从 Core 的可信
+profile 返回 `target_endpoint` 和 `target_protocol`；普通检查和拒绝决定不泄露地址。
+Python 调用方可通过 `PowerContextClient.check_context(request, resolve_target=True)` 显式请求；
+如果准许结果缺少目标字段，客户端会拒绝该响应。
+Gateway 必须在 `valid_until` 前向此地址发送获准的准确字节；确定未发送后重试必须重新检查。
+目标字段缺失、协议不符或准入前 Core 不可用时一律零发送。已签发的准入在 `valid_until`
+前仍可使用；Core 随后不可用或配置变化不会自动撤销它。UDS 本身不是认证；远端 Core
+必须通过 HTTPS 传递这一高权限凭据（回环地址允许 HTTP）。这只绑定端点，不声称已核验
+独立配置的服务商凭据背后的账号或区域。Gateway 的客户端密钥必须与 Core 服务凭据不同；
+这个统一的服务身份不提供逐客户端的 Scope 授权。
+
 版本化载体保存原始 JSON 文本，不接受重新拼装的摘要对象：
 
 ```json
@@ -93,10 +105,16 @@ JSON pointer，以及解码后 UTF-8 文本的 `start_byte`、`end_byte` 半开�
 网关不能在请求获准后脱敏，或在响应获准后还原值，再把原批准用于变化后的字节。
 变化后的载荷需要单独准入；本 API 不提供占位符映射，也不授予逆转隐私变换的权限。
 
-只有 `allow` 且 `coverage.complete=true` 才能继续对应动作。
+要求完整隐私检查的调用方，只有在 `allow` 且 `coverage.complete=true` 时才能继续对应动作。
 `block`、`withhold` 虽然返回 HTTP 200，但都禁止执行；只判断 HTTP 成功是不够的。
 载体或位置不合法返回 422，权限失败返回 401/403，正文超限返回 413。
-必需检查不可用时不发送、不交付；未配置 enforcing 的公开检查只返回暂缓。
+必需检查不可用时不发送、不交付。
+在 `disabled`、`shadow` 和 `advisory` 模式下，Core 验证授权和上下文复用后可以返回 `allow` 和绑定，
+但会如实返回 `coverage.complete=false`。Disabled 跳过隐私检查；shadow 和 advisory 对请求进行不阻断的观察，
+不检查响应；enforcing 保留请求和响应的强制检查。
+Gateway 只有在可信的 Core 能力发现明确返回 `enforcing=false` 时才接受不完整隐私覆盖，
+仍要求允许的决定、有效绑定和未过期的期限；能力发现失败不会开启这种行为。
+修改 Core 隐私模式后应重启 Gateway，刷新启动时获取的模式信息。外部执行器示例仍要求完整隐私覆盖。
 
 发送批准绑定准确载荷、目标、策略、身份和 Scope。60 秒发送期限与五分钟响应关联期限分开：
 把发送批准的 `binding` 作为 `before_release.request_binding`，提交完整响应载体及

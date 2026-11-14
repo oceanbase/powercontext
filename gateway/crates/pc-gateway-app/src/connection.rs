@@ -1,0 +1,1239 @@
+// Copyright (c) 2026 OceanBase.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! HTTP/1 connection ownership. Model permits outlive bodies and Hyper's pending writes.
+
+use crate::shutdown::Deadlines;
+use axum::{body::Body, http::header, response::Response, Router};
+use pc_gateway_core::{
+    ExecutionState, LifecycleStopReason, LocalDeliveryState, ModelSendState, RequestControl,
+    RequestLifecycle,
+};
+use std::{
+    convert::Infallible,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpListener,
+    sync::{watch, Notify, OwnedSemaphorePermit},
+    task::JoinSet,
+};
+use tower::ServiceExt;
+
+pub(crate) fn is_model_route(path: &str) -> bool {
+    matches!(
+        path,
+        "/gateway/v1/chat/completions" | "/gateway/v1/responses"
+    )
+}
+
+#[derive(Default)]
+struct ModelState {
+    control: Option<RequestControl>,
+    lifecycle: Option<RequestLifecycle>,
+    permit: Option<OwnedSemaphorePermit>,
+}
+
+/// Inserted before polling the Router. The connection driver clears resource
+/// ownership after dropping Hyper and all inline request/body owners.
+#[derive(Clone, Default)]
+pub(crate) struct ModelConnection {
+    state: Arc<Mutex<ModelState>>,
+    registered: Arc<Notify>,
+}
+
+impl ModelConnection {
+    fn begin(&self, control: RequestControl) {
+        let mut state = self.state.lock().unwrap();
+        state.lifecycle = Some(control.lifecycle());
+        state.control = Some(control);
+        self.registered.notify_one();
+    }
+
+    pub(crate) fn take_control(&self) -> RequestControl {
+        self.state
+            .lock()
+            .unwrap()
+            .control
+            .take()
+            .expect("one model request per closing connection")
+    }
+
+    pub(crate) fn hold(&self, permit: OwnedSemaphorePermit) {
+        self.state.lock().unwrap().permit = Some(permit);
+    }
+
+    fn lifecycle(&self) -> Option<RequestLifecycle> {
+        self.state.lock().unwrap().lifecycle.clone()
+    }
+
+    fn interrupt(&self, reason: LifecycleStopReason) {
+        if let Some(lifecycle) = self.lifecycle() {
+            lifecycle.cancellation().cancel_with(reason);
+            let reason = lifecycle.checkpoint().unwrap_err();
+            lifecycle.interrupt_local_delivery(reason);
+        }
+    }
+
+    async fn stopped(&self) -> LifecycleStopReason {
+        loop {
+            let registered = self.registered.notified();
+            if let Some(lifecycle) = self.lifecycle() {
+                let cancellation = lifecycle.cancellation();
+                tokio::select! {
+                    _ = cancellation.cancelled() => {}
+                    _ = tokio::time::sleep_until(lifecycle.observation().deadline()) => {}
+                }
+                return lifecycle.checkpoint().unwrap_err();
+            }
+            registered.await;
+        }
+    }
+}
+
+/// Hyper can discard a service future on EOF before returning its connection
+/// result. Signal the known cause before dropping that future's Executor guard.
+struct RequestOwner {
+    work: Pin<Box<dyn Future<Output = Result<Response, Infallible>> + Send>>,
+    model: Option<ModelConnection>,
+    handed_off: bool,
+    shutdown: watch::Receiver<Option<Deadlines>>,
+}
+
+impl Future for RequestOwner {
+    type Output = Result<Response, Infallible>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.work.as_mut().poll(cx) {
+            Poll::Ready(Ok(mut response)) => {
+                if let Some(model) = &self.model {
+                    response.headers_mut().insert(
+                        header::CONNECTION,
+                        header::HeaderValue::from_static("close"),
+                    );
+                    if response
+                        .extensions()
+                        .get::<crate::ingress::ModelContent>()
+                        .is_some()
+                    {
+                        if let Some(lifecycle) = model.lifecycle() {
+                            lifecycle.begin_local_delivery();
+                        }
+                    }
+                }
+                self.handed_off = true;
+                Poll::Ready(Ok(response))
+            }
+            other => other,
+        }
+    }
+}
+
+impl Drop for RequestOwner {
+    fn drop(&mut self) {
+        if !self.handed_off {
+            if let Some(model) = &self.model {
+                model.interrupt(drop_reason(&self.shutdown));
+            }
+        }
+    }
+}
+
+fn drop_reason(shutdown: &watch::Receiver<Option<Deadlines>>) -> LifecycleStopReason {
+    if shutdown
+        .borrow()
+        .as_ref()
+        .is_some_and(|deadlines| tokio::time::Instant::now() >= deadlines.drain())
+    {
+        LifecycleStopReason::GatewayShutdown
+    } else {
+        LifecycleStopReason::RequestCancelled
+    }
+}
+
+// Declared before Hyper, so even task abortion destroys Hyper and its inline
+// request/body owners before releasing permits and removing active control.
+struct ConnectionResources {
+    model: ModelConnection,
+    shutdown: watch::Receiver<Option<Deadlines>>,
+}
+
+impl Drop for ConnectionResources {
+    fn drop(&mut self) {
+        if self.model.lifecycle().is_some_and(|lifecycle| {
+            let snapshot = lifecycle.observation().snapshot();
+            snapshot.execution == ExecutionState::Running
+                || snapshot.local_delivery == LocalDeliveryState::InProgress
+        }) {
+            self.model.interrupt(drop_reason(&self.shutdown));
+        }
+        *self.model.state.lock().unwrap() = ModelState::default();
+    }
+}
+
+pub(crate) async fn drive<I>(io: I, app: Router, mut shutdown: watch::Receiver<Option<Deadlines>>)
+where
+    I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let owner = ModelConnection::default();
+    let resources = ConnectionResources {
+        model: owner.clone(),
+        shutdown: shutdown.clone(),
+    };
+    let service_owner = owner.clone();
+    let service_shutdown = shutdown.clone();
+    let service =
+        hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
+            let mut request = request.map(Body::new);
+            let model = is_model_route(request.uri().path()).then(|| service_owner.clone());
+            if let Some(model) = &model {
+                let id = crate::middleware::request_id::resolve(request.headers());
+                request.extensions_mut().insert(id.clone());
+                model.begin(RequestControl::new(
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+                    Some(id),
+                ));
+                if service_shutdown.borrow().is_some() {
+                    model.interrupt(LifecycleStopReason::GatewayShutdown);
+                }
+                request.extensions_mut().insert(model.clone());
+            }
+            RequestOwner {
+                work: Box::pin(app.clone().oneshot(request)),
+                model,
+                handed_off: false,
+                shutdown: service_shutdown.clone(),
+            }
+        });
+    // HTTP/1 only; half-close remains disabled so Hyper can observe EOF while
+    // an inline service is waiting. No competing socket reader is installed.
+    let mut connection = Box::pin(
+        hyper::server::conn::http1::Builder::new()
+            .serve_connection(hyper_util::rt::TokioIo::new(io), service),
+    );
+    let mut draining = None;
+    loop {
+        let requested = shutdown.borrow_and_update().clone();
+        if draining.is_none() {
+            if let Some(deadlines) = requested {
+                draining = Some(deadlines);
+                connection.as_mut().graceful_shutdown();
+                if let Some(lifecycle) = owner.lifecycle() {
+                    let snapshot = lifecycle.observation().snapshot();
+                    if matches!(
+                        snapshot.execution,
+                        ExecutionState::NotStarted | ExecutionState::Running
+                    ) && matches!(
+                        snapshot.model_send,
+                        ModelSendState::NoSend | ModelSendState::DefinitelyNotSent
+                    ) {
+                        owner.interrupt(LifecycleStopReason::GatewayShutdown);
+                    }
+                }
+            }
+        }
+        tokio::select! {
+            biased;
+            // A ready stop must prevent Hyper from advancing pending output.
+            reason = owner.stopped() => {
+                owner.interrupt(reason);
+                break;
+            }
+            _ = shutdown.changed(), if draining.is_none() => {}
+            _ = async {
+                if let Some(deadlines) = &draining { deadlines.drain_expired().await; }
+                else { std::future::pending::<()>().await; }
+            } => {
+                owner.interrupt(LifecycleStopReason::GatewayShutdown);
+                break;
+            }
+            result = &mut connection => {
+                if result.is_err() {
+                    owner.interrupt(LifecycleStopReason::RequestCancelled);
+                } else if let Some(lifecycle) = owner.lifecycle() {
+                    lifecycle.complete_local_delivery();
+                }
+                break;
+            }
+        }
+    }
+    // Destruction is synchronous: includes the service future, body and write
+    // buffers. Only afterwards may the final owner release the model permit.
+    drop(connection);
+    drop(resources);
+    drop(owner);
+}
+
+pub(crate) async fn serve(
+    listener: TcpListener,
+    app: Router,
+    shutdown: impl Future<Output = Deadlines>,
+) -> std::io::Result<()> {
+    let (signal, receiver) = watch::channel(None);
+    let mut connections = JoinSet::new();
+    let mut accept_after = tokio::time::Instant::now();
+    tokio::pin!(shutdown);
+    let mut failed = false;
+    let deadlines = loop {
+        tokio::select! {
+            biased;
+            deadlines = &mut shutdown => break deadlines,
+            // Reap completed owners even when the accept backlog stays ready.
+            joined = connections.join_next(), if !connections.is_empty() => {
+                failed |= joined.is_some_and(|result| result.is_err());
+            }
+            accepted = async {
+                tokio::time::sleep_until(accept_after).await;
+                listener.accept().await
+            } => {
+                match accepted {
+                    Ok((stream, _)) => {
+                        connections.spawn(drive(stream, app.clone(), receiver.clone()));
+                    }
+                    Err(error) => {
+                        // Preserve Axum's accept recovery: connection errors retry
+                        // immediately, resource exhaustion backs off. The outer
+                        // select keeps shutdown and owner joins live during backoff.
+                        if !matches!(error.kind(), std::io::ErrorKind::ConnectionRefused
+                            | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::ConnectionReset) {
+                            accept_after = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    drop(listener);
+    signal.send_replace(Some(deadlines.clone()));
+    let drain = async {
+        while let Some(result) = connections.join_next().await {
+            failed |= result.is_err();
+        }
+    };
+    let expired = tokio::select! {
+        _ = drain => false,
+        _ = deadlines.drain_expired() => true,
+    };
+    if expired {
+        connections.abort_all();
+        let joins = async {
+            while let Some(result) = connections.join_next().await {
+                failed |= result.is_err_and(|error| !error.is_cancelled());
+            }
+        };
+        tokio::select! {
+            _ = joins => {},
+            _ = deadlines.exit_expired() => return Err(std::io::Error::other("gateway owner join exceeded exit deadline")),
+        }
+    }
+    if failed {
+        return Err(std::io::Error::other("gateway connection owner failed"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{extract::Request, middleware::Next};
+    use pc_gateway_core::{
+        ExecutionObservation, ExecutionState, ExecutionTerminal, LocalDeliveryState, ModelSendState,
+    };
+    use std::{sync::atomic::Ordering, time::Duration};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const REQUEST: &[u8] = b"POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: 63\r\n\r\n{\"model\":\"test\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}";
+
+    struct WriteProbe<I> {
+        io: I,
+        pending: Arc<Notify>,
+    }
+    impl<I: AsyncRead + Unpin> AsyncRead for WriteProbe<I> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_read(cx, buf)
+        }
+    }
+    impl<I: AsyncWrite + Unpin> AsyncWrite for WriteProbe<I> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            let result = Pin::new(&mut self.io).poll_write(cx, bytes);
+            if result.is_pending() {
+                self.pending.notify_one();
+            }
+            result
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_flush(cx)
+        }
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_shutdown(cx)
+        }
+    }
+
+    struct BodyDrop {
+        body: Body,
+        dropped: Arc<Notify>,
+    }
+    impl Drop for BodyDrop {
+        fn drop(&mut self) {
+            self.dropped.notify_one();
+        }
+    }
+    impl http_body::Body for BodyDrop {
+        type Data = bytes::Bytes;
+        type Error = axum::Error;
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+            Pin::new(&mut self.body).poll_frame(cx)
+        }
+        fn is_end_stream(&self) -> bool {
+            self.body.is_end_stream()
+        }
+        fn size_hint(&self) -> http_body::SizeHint {
+            self.body.size_hint()
+        }
+    }
+
+    async fn bounded<F: Future>(work: F) -> F::Output {
+        tokio::time::timeout(Duration::from_secs(3), work)
+            .await
+            .expect("local HTTP/1 operation stalled")
+    }
+
+    async fn normal_request(addr: std::net::SocketAddr) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(format!("http://{addr}/gateway/v1/chat/completions"))
+            .bearer_auth("gateway-key")
+            .json(
+                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
+            )
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_unsent_calls_and_joins_their_actual_owners() {
+        let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        received.blocked_phase.store(1, Ordering::SeqCst);
+        let owners = Arc::new(Mutex::new(Vec::<ModelConnection>::new()));
+        let retained = owners.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                if let Some(owner) = req.extensions().get::<ModelConnection>() {
+                    retained.lock().unwrap().push(owner.clone());
+                }
+                async move { next.run(req).await }
+            },
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (shutdown, signal) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(serve(listener, app, async {
+            let _ = signal.await;
+            Deadlines::from_signal(tokio::time::Instant::now())
+        }));
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(REQUEST).await.unwrap();
+        bounded(received.entered.notified()).await;
+        let owner = owners.lock().unwrap().pop().unwrap();
+        let observation = owner.lifecycle().unwrap().observation();
+        shutdown.send(()).unwrap();
+        bounded(server).await.unwrap().unwrap();
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::GatewayShutdown)
+        );
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::Stopped(
+                LifecycleStopReason::GatewayShutdown
+            ))
+        );
+        assert!(owner.lifecycle().is_none());
+        assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline() {
+        for mode in [
+            "normal",
+            "drain",
+            "earlier_request",
+            "delayed_coordinator",
+            "disconnect",
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            received.blocked_phase.store(3, Ordering::SeqCst);
+            let owners = Arc::new(Mutex::new(Vec::<ModelConnection>::new()));
+            let retained = owners.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    if let Some(owner) = req.extensions().get::<ModelConnection>() {
+                        retained.lock().unwrap().push(owner.clone());
+                    }
+                    async move { next.run(req).await }
+                },
+            ));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (shutdown, signal) = tokio::sync::oneshot::channel();
+            let coordinated = Arc::new(Notify::new());
+            let ready = coordinated.clone();
+            let server = tokio::spawn(serve(listener, app, async move {
+                let deadlines = signal.await.unwrap();
+                ready.notify_one();
+                deadlines
+            }));
+            let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+            if mode == "earlier_request" {
+                // Spend the original ingress budget BEFORE starting the provider's
+                // independent 120s attempt budget, using a slow inbound body.
+                client
+                    .write_all(&REQUEST[..REQUEST.len() - 1])
+                    .await
+                    .unwrap();
+                bounded(async {
+                    while owners.lock().unwrap().is_empty() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await;
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(170)).await;
+                tokio::time::resume();
+                client
+                    .write_all(&REQUEST[REQUEST.len() - 1..])
+                    .await
+                    .unwrap();
+            } else {
+                client.write_all(REQUEST).await.unwrap();
+            }
+            bounded(received.entered.notified()).await;
+            let owner = owners.lock().unwrap().pop().unwrap();
+            let observation = owner.lifecycle().unwrap().observation();
+            tokio::time::pause();
+            let now = tokio::time::Instant::now();
+            let started = if mode == "delayed_coordinator" {
+                now - Duration::from_secs(20)
+            } else {
+                now
+            };
+            assert!(shutdown.send(Deadlines::from_signal(started)).is_ok());
+            coordinated.notified().await;
+            tokio::task::yield_now().await;
+            assert!(
+                std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err(),
+                "listener must be closed"
+            );
+            assert_eq!(observation.snapshot().stop_reason, None);
+            assert!(!server.is_finished(), "{mode}");
+            let expected_stop = match mode {
+                "normal" => {
+                    tokio::time::resume();
+                    received.release.notify_one();
+                    let mut response = Vec::new();
+                    bounded(client.read_to_end(&mut response)).await.unwrap();
+                    assert!(String::from_utf8_lossy(&response).contains("checked"));
+                    None
+                }
+                "disconnect" => {
+                    tokio::time::resume();
+                    drop(client);
+                    Some(LifecycleStopReason::RequestCancelled)
+                }
+                _ => {
+                    let limit = if mode == "earlier_request" {
+                        observation.deadline()
+                    } else {
+                        started + Duration::from_secs(25)
+                    };
+                    tokio::time::advance(
+                        limit - tokio::time::Instant::now() - Duration::from_secs(1),
+                    )
+                    .await;
+                    assert!(!server.is_finished(), "handed-off work must keep draining");
+                    tokio::time::advance(Duration::from_secs(1)).await;
+                    Some(if mode == "earlier_request" {
+                        LifecycleStopReason::DeadlineExceeded
+                    } else {
+                        LifecycleStopReason::GatewayShutdown
+                    })
+                }
+            };
+            server.await.unwrap().unwrap();
+            if !matches!(mode, "normal" | "disconnect") {
+                tokio::time::resume();
+            }
+            assert_eq!(observation.snapshot().stop_reason, expected_stop, "{mode}");
+            assert_eq!(
+                observation.snapshot().model_send,
+                if mode == "normal" {
+                    ModelSendState::ResponseReceived
+                } else {
+                    ModelSendState::PossiblySent
+                }
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(expected_stop.map_or(
+                    ExecutionTerminal::ReleaseAuthorized,
+                    ExecutionTerminal::Stopped
+                ))
+            );
+            assert!(owner.lifecycle().is_none());
+            assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+
+    #[tokio::test]
+    async fn consumed_body_with_pending_writes_holds_capacity_until_connection_ends() {
+        for (stop, explicit) in [
+            (None, false),
+            (Some(LifecycleStopReason::RequestCancelled), false),
+            (Some(LifecycleStopReason::DeadlineExceeded), false),
+            (Some(LifecycleStopReason::RequestCancelled), true),
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            let observations = Arc::new(Mutex::new(Vec::<ExecutionObservation>::new()));
+            let retained = observations.clone();
+            let cancellations = Arc::new(Mutex::new(Vec::new()));
+            let retained_cancellations = cancellations.clone();
+            let dropped = Arc::new(Notify::new());
+            let body_dropped = dropped.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    let retained = retained.clone();
+                    let retained_cancellations = retained_cancellations.clone();
+                    let dropped = body_dropped.clone();
+                    async move {
+                        let response = next.run(req).await;
+                        if let Some(obs) = response.extensions().get::<ExecutionObservation>() {
+                            retained.lock().unwrap().push(obs.clone());
+                            retained_cancellations.lock().unwrap().push(
+                                response
+                                    .extensions()
+                                    .get::<pc_gateway_core::RequestCancellation>()
+                                    .unwrap()
+                                    .clone(),
+                            );
+                        }
+                        let (parts, body) = response.into_parts();
+                        Response::from_parts(parts, Body::new(BodyDrop { body, dropped }))
+                    }
+                },
+            ));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (shutdown, signal) = tokio::sync::oneshot::channel();
+            let server_app = app.clone();
+            let server = tokio::spawn(serve(listener, server_app, async {
+                let _ = signal.await;
+                Deadlines::from_signal(tokio::time::Instant::now())
+            }));
+            let (mut client, io) = tokio::io::duplex(64);
+            let pending = Arc::new(Notify::new());
+            let (_signal, receiver) = watch::channel(None);
+            let connection = tokio::spawn(drive(
+                WriteProbe {
+                    io,
+                    pending: pending.clone(),
+                },
+                app,
+                receiver,
+            ));
+            bounded(client.write_all(REQUEST)).await.unwrap();
+            bounded(dropped.notified()).await;
+            bounded(pending.notified()).await;
+            let observation = observations.lock().unwrap()[0].clone();
+            let terminal = observation.snapshot().execution;
+            assert_eq!(
+                terminal,
+                ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+            );
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::ResponseReceived
+            );
+            assert_eq!(
+                observation.snapshot().local_delivery,
+                LocalDeliveryState::InProgress
+            );
+            assert!(!connection.is_finished());
+            assert_eq!(received.admissions.load(Ordering::SeqCst), 1);
+            assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+            let second = bounded(normal_request(addr)).await;
+            assert_eq!(second.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                second.json::<serde_json::Value>().await.unwrap()["error"],
+                "concurrency_limit"
+            );
+            assert_eq!(received.admissions.load(Ordering::SeqCst), 1);
+            assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+            match stop {
+                None => {
+                    let mut response = Vec::new();
+                    bounded(client.read_to_end(&mut response)).await.unwrap();
+                    assert!(String::from_utf8(response)
+                        .unwrap()
+                        .contains("connection: close"));
+                }
+                Some(LifecycleStopReason::RequestCancelled) => {
+                    if explicit {
+                        cancellations.lock().unwrap()[0].cancel();
+                    } else {
+                        drop(client);
+                    }
+                }
+                Some(LifecycleStopReason::DeadlineExceeded) => {
+                    // The original ingress budget, after response handoff. No new budget.
+                    tokio::time::pause();
+                    tokio::time::advance(Duration::from_secs(181)).await;
+                    tokio::time::resume();
+                }
+                _ => unreachable!(),
+            }
+            bounded(connection).await.unwrap();
+            assert_eq!(observation.snapshot().execution, terminal);
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::ResponseReceived
+            );
+            assert_eq!(observation.snapshot().stop_reason, stop);
+            assert_eq!(
+                observation.snapshot().local_delivery,
+                stop.map_or(
+                    LocalDeliveryState::Completed,
+                    LocalDeliveryState::Interrupted
+                )
+            );
+            let recovered = bounded(normal_request(addr)).await;
+            assert_eq!(recovered.status(), reqwest::StatusCode::CREATED);
+            assert!(recovered.json::<serde_json::Value>().await.unwrap()["choices"].is_array());
+            assert_eq!(received.sends.load(Ordering::SeqCst), 2);
+            shutdown.send(()).unwrap();
+            bounded(server).await.unwrap().unwrap();
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+
+    #[tokio::test]
+    async fn real_listener_disconnect_stops_execution_without_rewriting_sending_facts() {
+        for (phase, model_send) in [
+            (1, ModelSendState::NoSend),
+            (3, ModelSendState::PossiblySent),
+            (2, ModelSendState::ResponseReceived),
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            received.blocked_phase.store(phase, Ordering::SeqCst);
+            let owners = Arc::new(Mutex::new(Vec::<ModelConnection>::new()));
+            let retained = owners.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    if let Some(owner) = req.extensions().get::<ModelConnection>() {
+                        retained.lock().unwrap().push(owner.clone());
+                    }
+                    async move { next.run(req).await }
+                },
+            ));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (shutdown, signal) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(serve(listener, app, async {
+                let _ = signal.await;
+                Deadlines::from_signal(tokio::time::Instant::now())
+            }));
+            let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+            client.write_all(REQUEST).await.unwrap();
+            bounded(received.entered.notified()).await;
+            let owner = owners.lock().unwrap().pop().unwrap();
+            let observation = owner.lifecycle().unwrap().observation();
+            drop(owner);
+            drop(client);
+            bounded(async {
+                while observation.snapshot().stop_reason.is_none() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await;
+            assert_eq!(
+                observation.snapshot().stop_reason,
+                Some(LifecycleStopReason::RequestCancelled)
+            );
+            assert_eq!(observation.snapshot().model_send, model_send);
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::Stopped(
+                    LifecycleStopReason::RequestCancelled
+                ))
+            );
+            assert_eq!(
+                observation.snapshot().local_delivery,
+                LocalDeliveryState::NotStarted
+            );
+            assert_eq!(
+                received.sends.load(Ordering::SeqCst),
+                usize::from(phase != 1)
+            );
+            received.blocked_phase.store(0, Ordering::SeqCst);
+            let recovered = bounded(normal_request(addr)).await;
+            assert_eq!(recovered.status(), reqwest::StatusCode::CREATED);
+            recovered.bytes().await.unwrap();
+            owners.lock().unwrap().clear();
+            let health = reqwest::get(format!("http://{addr}/healthz"))
+                .await
+                .unwrap();
+            assert_eq!(health.status(), reqwest::StatusCode::OK);
+            assert_eq!(
+                received.sends.load(Ordering::SeqCst),
+                1 + usize::from(phase != 1)
+            );
+            shutdown.send(()).unwrap();
+            bounded(server).await.unwrap().unwrap();
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+
+    #[tokio::test]
+    async fn real_tcp_backpressure_keeps_capacity_until_original_delivery_deadline() {
+        let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        received.response_bytes.store(512 * 1024, Ordering::SeqCst);
+        let observations = Arc::new(Mutex::new(Vec::<ExecutionObservation>::new()));
+        let retained = observations.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                let retained = retained.clone();
+                async move {
+                    let response = next.run(req).await;
+                    if let Some(obs) = response.extensions().get::<ExecutionObservation>() {
+                        retained.lock().unwrap().push(obs.clone());
+                    }
+                    response
+                }
+            },
+        ));
+        // Small real socket buffers force observable TCP write backpressure.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_send_buffer_size(4096).unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let listener = socket.listen(8).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_recv_buffer_size(4096).unwrap();
+        let mut client = socket.connect(addr).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let pending = Arc::new(Notify::new());
+        let (_signal, receiver) = watch::channel(None);
+        let connection = tokio::spawn(drive(
+            WriteProbe {
+                io: stream,
+                pending: pending.clone(),
+            },
+            app.clone(),
+            receiver,
+        ));
+        client.write_all(REQUEST).await.unwrap();
+        bounded(pending.notified()).await;
+        let observation = observations.lock().unwrap()[0].clone();
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::InProgress
+        );
+        assert!(!connection.is_finished());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (shutdown, signal) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(serve(listener, app, async {
+            let _ = signal.await;
+            Deadlines::from_signal(tokio::time::Instant::now())
+        }));
+        assert_eq!(
+            bounded(normal_request(addr)).await.status(),
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(received.admissions.load(Ordering::SeqCst), 1);
+        assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+        let deadline = observation.deadline();
+        tokio::time::pause();
+        tokio::time::advance(deadline - tokio::time::Instant::now() + Duration::from_millis(1))
+            .await;
+        tokio::time::resume();
+        bounded(connection).await.unwrap();
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::Interrupted(LifecycleStopReason::DeadlineExceeded)
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        received.response_bytes.store(0, Ordering::SeqCst);
+        assert_eq!(
+            bounded(normal_request(addr)).await.status(),
+            reqwest::StatusCode::CREATED
+        );
+        shutdown.send(()).unwrap();
+        bounded(server).await.unwrap().unwrap();
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    /// Holds all response writes until a stop and writable output can be made
+    /// ready in the same single-threaded runtime turn.
+    struct GatedOutput {
+        io: tokio::io::DuplexStream,
+        writable: Arc<std::sync::atomic::AtomicBool>,
+        blocked: Arc<Notify>,
+        writer: Arc<Mutex<Option<std::task::Waker>>>,
+        written: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl AsyncRead for GatedOutput {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for GatedOutput {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            if !self.writable.load(Ordering::SeqCst) {
+                *self.writer.lock().unwrap() = Some(cx.waker().clone());
+                self.blocked.notify_one();
+                return Poll::Pending;
+            }
+            self.written.fetch_add(bytes.len(), Ordering::SeqCst);
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    async fn ready_stop_prevents_pending_output(reason: LifecycleStopReason) {
+        let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        let retained = Arc::new(Mutex::new(None::<RequestLifecycle>));
+        let captured = retained.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                let captured = captured.clone();
+                let model = req.extensions().get::<ModelConnection>().unwrap().clone();
+                async move {
+                    let response = next.run(req).await;
+                    *captured.lock().unwrap() = model.lifecycle();
+                    response
+                }
+            },
+        ));
+        let (mut client, io) = tokio::io::duplex(4096);
+        let writable = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let blocked = Arc::new(Notify::new());
+        let writer = Arc::new(Mutex::new(None));
+        let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (shutdown, receiver) = watch::channel(None);
+        let connection = tokio::spawn(drive(
+            GatedOutput {
+                io,
+                writable: writable.clone(),
+                blocked: blocked.clone(),
+                writer: writer.clone(),
+                written: written.clone(),
+            },
+            app,
+            receiver,
+        ));
+        bounded(client.write_all(REQUEST)).await.unwrap();
+        bounded(blocked.notified()).await;
+        let lifecycle = retained.lock().unwrap().clone().unwrap();
+        let observation = lifecycle.observation();
+        let terminal = observation.snapshot().execution;
+        assert_eq!(
+            terminal,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::InProgress
+        );
+        match reason {
+            LifecycleStopReason::RequestCancelled => lifecycle.cancellation().cancel(),
+            LifecycleStopReason::DeadlineExceeded => tokio::time::pause(),
+            LifecycleStopReason::GatewayShutdown => {
+                shutdown.send_replace(Some(Deadlines::from_signal(
+                    tokio::time::Instant::now() - Duration::from_secs(26),
+                )));
+            }
+        }
+        writable.store(true, Ordering::SeqCst);
+        if reason == LifecycleStopReason::DeadlineExceeded {
+            tokio::time::advance(Duration::from_secs(181)).await;
+            tokio::time::resume();
+        }
+        if let Some(writer) = writer.lock().unwrap().take() {
+            writer.wake();
+        }
+        bounded(connection).await.unwrap();
+        assert_eq!(
+            written.load(Ordering::SeqCst),
+            0,
+            "output continued after {reason}"
+        );
+        assert_eq!(observation.snapshot().stop_reason, Some(reason));
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::Interrupted(reason)
+        );
+        assert_eq!(observation.snapshot().execution, terminal);
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn ready_cancellation_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::RequestCancelled).await;
+    }
+
+    #[tokio::test]
+    async fn ready_deadline_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::DeadlineExceeded).await;
+    }
+
+    #[tokio::test]
+    async fn ready_drain_deadline_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::GatewayShutdown).await;
+    }
+
+    #[tokio::test]
+    async fn rejected_responses_do_not_report_model_content_delivery() {
+        for (key, body, length, status) in [
+            ("wrong-key", "{}", 2, 401),
+            ("gateway-key", "invalid json", 12, 400),
+            ("gateway-key", "", 1024 * 1024 + 1, 413),
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            let retained = Arc::new(Mutex::new(None::<ExecutionObservation>));
+            let captured = retained.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    let captured = captured.clone();
+                    let model = req.extensions().get::<ModelConnection>().unwrap().clone();
+                    async move {
+                        let response = next.run(req).await;
+                        *captured.lock().unwrap() = Some(model.lifecycle().unwrap().observation());
+                        response
+                    }
+                },
+            ));
+            let (mut client, io) = tokio::io::duplex(4096);
+            let (_shutdown, receiver) = watch::channel(None);
+            let connection = tokio::spawn(drive(io, app, receiver));
+            let request = format!(
+                "POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer {key}\r\nContent-Length: {length}\r\n\r\n{body}"
+            );
+            bounded(client.write_all(request.as_bytes())).await.unwrap();
+            let mut response = Vec::new();
+            bounded(client.read_to_end(&mut response)).await.unwrap();
+            bounded(connection).await.unwrap();
+            assert!(String::from_utf8_lossy(&response).starts_with(&format!("HTTP/1.1 {status}")));
+            let observation = retained.lock().unwrap().clone().unwrap();
+            assert_eq!(
+                observation.snapshot().local_delivery,
+                LocalDeliveryState::NotStarted,
+                "{status}"
+            );
+            assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+            assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+            assert_eq!(observation.snapshot().stop_reason, None);
+            assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn real_listener_slow_body_stops_before_executor_and_recovers() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (router, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retained = observations.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ingress_entered = entered.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: Request, next: axum::middleware::Next| {
+                let retained = retained.clone();
+                let ingress_entered = ingress_entered.clone();
+                async move {
+                    if let Some(model) = req.extensions().get::<ModelConnection>() {
+                        retained
+                            .lock()
+                            .unwrap()
+                            .push(model.lifecycle().unwrap().observation());
+                        ingress_entered.notify_one();
+                    }
+                    next.run(req).await
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            crate::connection::serve(listener, router, std::future::pending())
+                .await
+                .unwrap()
+        });
+        // Resume for network setup, then freeze once the request has entered the body read.
+        tokio::time::resume();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        // A health request establishes that the listener is progressing before advancing time.
+        let healthy = reqwest::Client::new()
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(healthy.status(), reqwest::StatusCode::OK);
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(181)).await;
+        tokio::time::resume();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.read_to_end(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // The absolute deadline ends the connection; it grants no extra error-delivery window.
+        assert!(
+            response.is_empty(),
+            "output continued after the body deadline"
+        );
+        let observation = observations.lock().unwrap()[0].clone();
+        assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::DeadlineExceeded)
+        );
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::NotStarted
+        );
+        assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/gateway/v1/chat/completions"))
+            .bearer_auth("gateway-key")
+            .json(
+                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+        server.abort();
+        server.await.unwrap_err();
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn responses_sse_content_completes_local_delivery() {
+        let (app, upstream, _) = crate::ingress::tests::lifecycle_router().await;
+        let retained = Arc::new(Mutex::new(None::<ExecutionObservation>));
+        let captured = retained.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                let captured = captured.clone();
+                async move {
+                    let response = next.run(req).await;
+                    *captured.lock().unwrap() =
+                        response.extensions().get::<ExecutionObservation>().cloned();
+                    response
+                }
+            },
+        ));
+        let (mut client, io) = tokio::io::duplex(4096);
+        let (_shutdown, receiver) = watch::channel(None);
+        let connection = tokio::spawn(drive(io, app, receiver));
+        let body = r#"{"model":"test","input":[{"role":"user","content":"hello"}],"stream":true}"#;
+        let request = format!(
+            "POST /gateway/v1/responses HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        bounded(client.write_all(request.as_bytes())).await.unwrap();
+        let mut response = Vec::new();
+        bounded(client.read_to_end(&mut response)).await.unwrap();
+        bounded(connection).await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("text/event-stream"));
+        assert!(response.contains("event: response.completed"));
+        let snapshot = retained.lock().unwrap().as_ref().unwrap().snapshot();
+        assert_eq!(snapshot.local_delivery, LocalDeliveryState::Completed);
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+        assert_eq!(snapshot.model_send, ModelSendState::ResponseReceived);
+        assert_eq!(snapshot.stop_reason, None);
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+}

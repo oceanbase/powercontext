@@ -1311,6 +1311,49 @@ def test_launchd_loaded_registration_requires_matching_path_arguments_and_metada
     assert adapter.loaded_registration().state is ManagerOwnershipState.FOREIGN
 
 
+@pytest.mark.parametrize("padding", [1, 2], ids=["single-padding", "double-padding"])
+def test_launchd_loaded_registration_reads_metadata_with_consumed_equals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    padding: int,
+) -> None:
+    """`launchctl` echoes `=`-terminated values as `NAME=value =>` and drops the padding."""
+    adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
+    base = _definition(tmp_path)
+    definition: ServiceDefinition | None = None
+    metadata = ""
+    for suffix in range(3):
+        candidate = replace(base, data_dir=f"{base.data_dir}{'x' * suffix}")
+        encoded = encode_metadata(candidate)
+        if encoded.endswith("=" * padding) and not encoded.endswith("=" * (padding + 1)):
+            definition, metadata = candidate, encoded
+            break
+    assert definition is not None
+
+    arguments = plistlib.loads(adapter.render(definition))["ProgramArguments"]
+    rendered_arguments = "\n".join(f"    {value}" for value in arguments)
+    echoed_metadata = metadata.rstrip("=")
+    output = (
+        f"path = {adapter.artifact_path}\n"
+        f"program = {arguments[0]}\n"
+        "arguments = {\n"
+        f"{rendered_arguments}\n"
+        "}\n"
+        "environment = {\n"
+        "    POWERCONTEXT_SERVICE_OWNED => true\n"
+        f"    POWERCONTEXT_SERVICE_METADATA={echoed_metadata} =>\n"
+        "}\n"
+        "state = running\n"
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_run",
+        Mock(return_value=subprocess.CompletedProcess(["launchctl"], 0, output, "")),
+    )
+
+    assert adapter.loaded_registration().state is ManagerOwnershipState.OWNED
+
+
 def test_launchd_loaded_registration_recognizes_an_intact_legacy_definition(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

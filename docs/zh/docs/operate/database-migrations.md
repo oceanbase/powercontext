@@ -117,7 +117,7 @@ MySQL 兼容后端的结构反射支持 CHECK 表达式中的二元 `+`、`-`、
 
 ## 迁移编号与软件版本
 
-目标发布版本为 **PowerContext 1.5.0**。迁移名称采用
+目标发布版本为 **PowerContext 1.5.1**。迁移名称采用
 `v<主版本>_<次版本>_<补丁版本>_<序号>`，序号在同一版本内使用三位数字。
 `000` 表示已登记的历史基线，升级步骤从 `001` 开始。
 
@@ -328,6 +328,12 @@ powercontext server db-migrate apply --env-file deployment.env --backup manual \
 数据库通过现有 [Server 配置](configuration.md)选择。维护连接不使用当前应用 metadata 初始化业务表。OceanBase 须已有 MySQL 模式用户租户和用户数据库；迁移命令不创建集群、租户或数据库。
 
 OceanBase 维护须能通过 `effective_tenant_id()`、`oceanbase.GV$OB_PARAMETERS`、`oceanbase.DBA_OB_TENANTS` 读取租户 ID、集群 ID 和租户创建信息。权限不足或身份信息不完整时返回 `target_identity_unavailable`，不以代理主机名代替数据库身份。
+
+### 独立 seekdb 服务器
+
+独立 seekdb 服务器不是新的存储 kind。它通过现有 `oceanbase` kind 和 `mysql+aoceanbase://` URL 连接；当 `ob_compatibility_mode` 缺失或为空、且 `VERSION()` 包含 `-OceanBase seekdb-` 时，维护命令将其识别为独立 seekdb。其身份来自已连接的数据库名与 `@@server_uuid`，不查询 `effective_tenant_id()` 和 `oceanbase.*` 租户表，也不涉及 `pylibseekdb` 或本地引擎目录。
+
+所选数据库必须预先存在。PowerContext 不自动建库，也不为此目标启用嵌入式 seekDB Code 存储。与所有 OceanBase 目标相同，四个命令均须显式传入 `--evidence-dir <path>` 和 `--lock-coordination single-host`，并固定在同一维护主机；显式 `db-migrate` 序列确认数据库就绪后，才运行 `powercontext server run`。数据库名或 server UUID 缺失或为空时返回 `target_identity_unavailable`；版本不含 seekdb 标识的 MySQL 服务器返回 `unsupported_target`。
 
 seekdb 只读检查遇到缺失路径或空目录时不启动引擎；非空目录缺少可识别的引擎结构时返回 `unsupported_target`。未显式配置库名、而旧 `test` 库中仍有 PowerContext 表时返回 `explicit_database_required`，不会隐式选择任一数据库；显式选定库名后重跑该命令。已有引擎中缺少所选数据库时，`status` 和 `verify` 返回带库名和准备指引的 `database_missing`；`plan` 不创建数据库，而是返回绑定所选库的 `uninitialized` 计划。操作员确认计划后，`apply` 才可创建数据库并初始化已登记的结构。访问被拒时返回 `database_access_denied`。可写 seekDB 维护无法创建配置指定的库时返回 `database_creation_required`，权限被拒且无法确认库是否存在时返回 `database_access_denied`；两者都在载荷中保留管理员语句与准备指引。打开有效的已有引擎可能写入原生日志和引擎维护文件；只读迁移命令不执行业务 DDL、不初始化表。
 

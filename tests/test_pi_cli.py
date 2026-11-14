@@ -32,7 +32,7 @@ def _write_pi_package(root: Path) -> Path:
     (package / "extensions").mkdir(parents=True)
     (package / "skills" / "powercontext-project-context").mkdir(parents=True)
     (package / "package.json").write_text(
-        '{"name": "powercontext-pi", "pi": {"extensions": ["./extensions/powercontext.ts"]}}',
+        '{"name": "powercontext-pi", "powercontext": {"memoryProtocol": "atomic-artifact-v1"}, "pi": {"extensions": ["./extensions/powercontext.ts"]}}',
         encoding="utf-8",
     )
     (package / "extensions" / "powercontext.ts").write_text("export default () => {}\n", encoding="utf-8")
@@ -273,19 +273,25 @@ def test_doctor_pi_reports_a_missing_cli(monkeypatch, server_checks) -> None:
     assert "package: skipped - not checked because Pi CLI is unavailable" in result.output
 
 
-def test_doctor_pi_reports_an_installed_package_as_json(tmp_path: Path, monkeypatch, server_checks) -> None:
+@pytest.mark.parametrize("protocol, expected_exit", [(None, 1), ("collection-v1", 1), ("atomic-artifact-v1", 0)])
+def test_doctor_pi_reports_an_installed_package_as_json(
+    tmp_path: Path, monkeypatch, server_checks, protocol, expected_exit
+) -> None:
     import powercontext.cli.pi as pi_cli
 
     package = _write_pi_package(tmp_path / "powercontext")
+    metadata = json.loads((package / "package.json").read_text())
+    metadata["powercontext"] = {"memoryProtocol": protocol}
+    (package / "package.json").write_text(json.dumps(metadata))
     monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
 
     monkeypatch.setattr(pi_cli, "_run_pi", lambda *_arguments: f"User packages:\n  {package}\n    {package}\n")
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "pi", "--json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == expected_exit
     payload = json.loads(result.output)["hosts"]["pi"]
-    assert payload["ok"] is True
+    assert payload["ok"] is (expected_exit == 0)
     assert payload["checks"]["package"] == {
         "ok": True,
         "status": "ok",

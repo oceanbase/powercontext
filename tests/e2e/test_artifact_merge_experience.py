@@ -32,6 +32,18 @@ from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.experience import ExperienceContent, FailureRecord
 from powercontext.builtin.artifacts.merge_models import ArtifactMergeRelationError
+from powercontext.builtin.authz import (
+    AccessAuditContext,
+    AccessBinding,
+    AccessBindingState,
+    AccessControlService,
+    AccessDeniedError,
+    AccessRole,
+    BuiltinAuthorizationProvider,
+    PrincipalRef,
+    ResourceRef,
+)
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.persistence.artifact_governance import InvalidArtifactLifecycleError
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
@@ -49,18 +61,6 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.tags import ArtifactTagTarget
-from powercontext.server.authz import (
-    AccessAuditContext,
-    AccessBinding,
-    AccessBindingState,
-    AccessControlService,
-    AccessDeniedError,
-    AccessRole,
-    BuiltinAuthorizationProvider,
-    PrincipalRef,
-    ResourceRef,
-)
-from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.sources import SourceRef
 
 OWNER = PrincipalRef(type="service", id="experience-owner")
@@ -152,9 +152,7 @@ def test_experience_management_merge_freezes_inputs_preserves_history_and_candid
     database, tmp_path
 ) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             records = runtime.records.for_scope(scope)
@@ -255,9 +253,7 @@ def test_experience_management_merge_freezes_inputs_preserves_history_and_candid
 
 def test_registered_families_keep_same_result_identity_and_projections_separate(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             assert runtime.atomic_memory is not None
@@ -326,7 +322,7 @@ def test_experience_nested_restore_republishes_the_selected_group(database, tmp_
             database=database,
             runtime=RuntimeConfig(atomic_memory_preview_signing_secret=SecretStr("x" * 32)),
         )
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -408,9 +404,7 @@ def test_experience_nested_restore_republishes_the_selected_group(database, tmp_
 
 def test_experience_merge_preserves_explicit_caller_identity_and_denies_foreign_inputs(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -462,8 +456,7 @@ def test_experience_merge_preserves_explicit_caller_identity_and_denies_foreign_
 def test_restoration_outcome_survives_reopen_and_requires_group_read_access(database, tmp_path) -> None:
     async def scenario() -> None:
         config = BuiltinConfig(database=database)
-        scheduler_path = tmp_path / "scheduler.db"
-        async with open_builtin_runtime(config, scheduler_path=scheduler_path) as runtime:
+        async with open_builtin_runtime(config) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -518,7 +511,7 @@ def test_restoration_outcome_survives_reopen_and_requires_group_read_access(data
             assert (await merge.get(a.ref.artifact_id, revision=2, context=context)).ref == restored.primary.ref
             with pytest.raises(AccessDeniedError):
                 await merge.restoration_outcome(a.ref.artifact_id, revision=2, context=context)
-        async with open_builtin_runtime(config, scheduler_path=scheduler_path) as reopened:
+        async with open_builtin_runtime(config) as reopened:
             assert reopened.artifact_merge is not None
             merge = reopened.artifact_merge.for_scope(scope, "experience")
             recovered = await merge.restoration_outcome(a.ref.artifact_id, revision=2)
@@ -599,9 +592,7 @@ def test_existing_shared_tables_upgrade_preserves_exact_rows_and_defaults(databa
 
 def test_experience_merge_rejects_unsupported_lineage_before_writing(database, tmp_path) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             scope = await _scope(runtime)
             assert runtime.artifact_merge is not None
             merge = runtime.artifact_merge.for_scope(scope, "experience")
@@ -622,5 +613,56 @@ def test_experience_merge_rejects_unsupported_lineage_before_writing(database, t
                 len((await runtime.records.for_scope(scope).query_artifacts("experience", limit=20, cursor=None)).items)
                 == 2
             )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ("atomic-memory", "experience"))
+def test_merge_tags_beyond_the_label_limit_are_bounded_deterministic_and_restorable(database, tmp_path, family) -> None:
+    labels = (
+        ("zz-all", "yy-pair", *(f"a{index:02}" for index in range(20))),
+        ("zz-all", "yy-pair", *(f"b{index:02}" for index in range(20))),
+        ("zz-all", *(f"c{index:02}" for index in range(20))),
+    )
+    # Labels carried by more inputs come first, then normalized key order fills the 32-label limit.
+    expected = {"zz-all", "yy-pair", *(f"a{index:02}" for index in range(20)), *(f"b{index:02}" for index in range(10))}
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
+            scope = await _scope(runtime)
+            assert runtime.artifact_merge is not None
+            records = runtime.records.for_scope(scope)
+            merge = runtime.artifact_merge.for_scope(scope, family)
+            inputs = []
+            for name, assigned in zip(("canary", "pause", "health"), labels, strict=True):
+                if family == "experience":
+                    created = await _create(runtime, scope, name)
+                else:
+                    write = ArtifactWrite(content={"kind": "rule", "text": f"Keep the rollout {name} check."})
+                    created = await merge.get((await records.create_artifact(family, write)).artifact_id)
+                target = ArtifactTagTarget(family=family, artifact_id=created.ref.artifact_id)
+                await records.replace_tags(target, assigned, expected_etag=(await records.get_tags(target)).etag)
+                inputs.append(created)
+            content = (
+                _content("combined")
+                if family == "experience"
+                else AtomicMemoryContent(kind="rule", text="Keep every rollout check.")
+            )
+
+            async def merged_tags(selected) -> tuple[str, set[str]]:
+                result = await merge.merge(tuple(item.as_read() for item in selected), content)
+                target = ArtifactTagTarget(family=family, artifact_id=result.primary.ref.artifact_id)
+                return target.artifact_id, set((await records.get_tags(target)).tags)
+
+            result_id, first = await merged_tags(inputs)
+            assert first == expected
+            undo = await merge.restore(result_id, operation="undo_merge")
+            assert len(undo.restored) == len(inputs)
+            for original, assigned in zip(inputs, labels, strict=True):
+                target = ArtifactTagTarget(family=family, artifact_id=original.ref.artifact_id)
+                assert set((await records.get_tags(target)).tags) == set(assigned)
+            restored = [await merge.get(item.ref.artifact_id) for item in reversed(inputs)]
+            assert all(item.state.lifecycle_state == "active" for item in restored)
+            assert (await merged_tags(restored))[1] == first
 
     asyncio.run(scenario())

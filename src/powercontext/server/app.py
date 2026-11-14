@@ -42,7 +42,6 @@ from pydantic import JsonValue
 from pydantic import ValidationError as PydanticValidationError
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
-from starlette.middleware.base import RequestResponseEndpoint
 from starlette.routing import Match
 from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
@@ -143,6 +142,56 @@ from powercontext.builtin.artifacts.topic_memory.processing import (
     TopicMemoryRetryResult as RuntimeTopicMemoryRetryResult,
 )
 from powercontext.builtin.artifacts.topic_memory.processing import TopicMemoryWorkBlock as RuntimeTopicMemoryWorkBlock
+from powercontext.builtin.authz import (
+    AccessAction,
+    AccessAuditContext,
+    AccessAuditEvent,
+    AccessBinding,
+    AccessBindingNotFoundError,
+    AccessBindingState,
+    AccessConflictError,
+    AccessControlError,
+    AccessControlService,
+    AccessDecision,
+    AccessDeniedError,
+    AccessIdentityRequiredError,
+    AccessInvalidRequestError,
+    AccessResourceType,
+    AccessRole,
+    AccessSubjectRef,
+    AccessUnavailableError,
+    AuditSearchRequest,
+    AuthorizedResourceFilter,
+    BindingSearchRequest,
+    CreateBinding,
+    GroupRef,
+    MemoryEntrySelector,
+    PrincipalRef,
+    ReplaceBinding,
+    ResourceRef,
+    access_control_for_mode,
+    bounded_idempotency_key,
+)
+from powercontext.builtin.authz.dream import principal_identity
+from powercontext.builtin.authz.models import (
+    ROLE_ACTIONS,
+    ROLE_CARDINALITIES,
+    ROLE_RESOURCE_TYPES,
+    ROLE_SUBJECT_TYPES,
+    HandoffReceiptIdentity,
+)
+from powercontext.builtin.authz.owner_recovery import (
+    flush_owner_writes,
+    owner_recovery_available,
+    owner_recovery_session,
+    owner_write_access,
+)
+from powercontext.builtin.authz.profiles import (
+    ARTIFACT_FAMILY_PROFILES,
+    artifact_family_profile,
+    register_custom_artifact_access_family,
+)
+from powercontext.builtin.authz.service import _require_allowed
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate as RuntimeTagCandidate
 from powercontext.builtin.code.application import CodeApplication
 from powercontext.builtin.code.errors import CodeError
@@ -369,6 +418,7 @@ from powercontext.builtin.sources import (
     ObservedValidation,
     SkillUsageCapture,
 )
+from powercontext.builtin.sources.content import is_handoff_receipt_content as _is_handoff_receipt_content
 from powercontext.builtin.tags import (
     ArtifactTagSet as RuntimeArtifactTagSet,
 )
@@ -860,67 +910,16 @@ from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
 from powercontext.server.atomic_memory import record_response as atomic_record_response
 from powercontext.server.authentication import AuthenticationProvider
-from powercontext.server.authz import (
-    AccessAction,
-    AccessAuditContext,
-    AccessAuditEvent,
-    AccessBinding,
-    AccessBindingNotFoundError,
-    AccessBindingState,
-    AccessConflictError,
-    AccessControlError,
-    AccessControlService,
-    AccessDecision,
-    AccessDeniedError,
-    AccessIdentityRequiredError,
-    AccessInvalidRequestError,
-    AccessResourceType,
-    AccessRole,
-    AccessSubjectRef,
-    AccessUnavailableError,
-    AuditSearchRequest,
-    AuthorizedResourceFilter,
-    BindingSearchRequest,
-    CreateBinding,
-    GroupRef,
-    MemoryEntrySelector,
-    PrincipalRef,
-    ReplaceBinding,
-    ResourceRef,
-    access_control_for_mode,
-    bounded_idempotency_key,
-)
-from powercontext.server.authz.models import (
-    ROLE_ACTIONS,
-    ROLE_CARDINALITIES,
-    ROLE_RESOURCE_TYPES,
-    ROLE_SUBJECT_TYPES,
-    HandoffReceiptIdentity,
-)
-from powercontext.server.authz.owner_recovery import (
-    flush_owner_writes,
-    owner_recovery_available,
-    owner_recovery_session,
-    owner_write_access,
-)
-from powercontext.server.authz.profiles import (
-    ARTIFACT_FAMILY_PROFILES,
-    artifact_family_profile,
-    register_custom_artifact_access_family,
-)
-from powercontext.server.authz.service import _require_allowed
 from powercontext.server.context import (
-    bind_request_id,
     current_authentication,
     current_principal,
     current_request_id,
     is_internal_bridge,
-    reset_request_id,
 )
-from powercontext.server.dream_access import DreamAccess, principal_identity
+from powercontext.server.dream_access import DreamAccess
 from powercontext.server.dream_compatibility import (
     LEGACY_DREAM_OPERATIONS,
-    negotiate_dream_contract,
+    DreamContractMiddleware,
     require_extended_dream,
 )
 from powercontext.server.metrics import HttpMetricsMiddleware, HttpResponseMetricsMiddleware, http_operations
@@ -930,7 +929,7 @@ from powercontext.server.ownership import (
     apply_ownership_migration,
     plan_ownership_migration,
 )
-from powercontext.server.request_id import REQUEST_ID_HEADER
+from powercontext.server.request_id import REQUEST_ID_HEADER, HttpRequestIdMiddleware
 from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
@@ -1076,6 +1075,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        resolve_target: bool = False,
     ) -> RuntimeContextCheckResult: ...
 
 
@@ -1494,20 +1494,8 @@ def create_app(
     )
     app.state.server_info = None
 
-    app.middleware("http")(negotiate_dream_contract)
-
-    @app.middleware("http")
-    async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = current_request_id() or request_id_from_span()
-        request.state.request_id = request_id
-        token = bind_request_id(request_id)
-        try:
-            response = await call_next(request)
-            request.state.request_id = getattr(request.state, "request_id", current_request_id() or request_id)
-            response.headers[REQUEST_ID_HEADER] = request.state.request_id
-        finally:
-            reset_request_id(token)
-        return response
+    app.add_middleware(DreamContractMiddleware)
+    app.add_middleware(HttpRequestIdMiddleware, reuse_bound_request_id=True)
 
     @app.exception_handler(RequestValidationError)
     @app.exception_handler(PydanticValidationError)
@@ -3604,11 +3592,24 @@ async def check_context(
     request: CheckContextRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
+    x_powercontext_resolve_target: Annotated[bool, Header()] = False,
 ) -> ContextCheckResult:
     value = request.root
     checked_request = CHECK_CONTEXT_REQUEST.validate_json(value.model_dump_json(by_alias=True, exclude={"scope_id"}))
     scoped = application.context.for_scope(value.scope_id)
     access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+
+    # An endpoint is privileged deployment metadata, not a scope.read response. UDS is not authentication.
+    if x_powercontext_resolve_target:
+        principal = _require_principal()
+        if principal.type != "service" or access is None or value.phase != "before_send":
+            raise AccessDeniedError
+        await access.require(
+            principal,
+            AccessAction.GATEWAY_INVOKE,
+            ResourceRef.scope(value.scope_id),
+            context=_access_audit_context(CHECK_CONTEXT.operation_id),
+        )
 
     async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
         if access is not None:
@@ -3621,6 +3622,7 @@ async def check_context(
     result = await scoped.check(
         checked_request,
         binding_identity=_context_binding_identity(),
+        resolve_target=x_powercontext_resolve_target,
         atomic_context=_atomic_execution_context(http_request, CHECK_CONTEXT.operation_id),
         authorize_scopes=authorize_scopes,
     )
@@ -3741,15 +3743,6 @@ def _receipt_identity_response(identity: HandoffReceiptIdentity) -> TransportHan
         principal=_access_principal_response(identity.principal),
         receiver_identity_matches=identity.receiver_identity_matches,
     )
-
-
-def _is_handoff_receipt_content(content: JsonValue) -> bool:
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except (ValueError, RecursionError):
-            return False
-    return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"
 
 
 def _reject_reserved_handoff_receipt_content(content: JsonValue) -> None:
@@ -6285,6 +6278,9 @@ def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] 
                 422,
                 "legacy_memory_operation_unsupported",
                 "The legacy Memory collection contract cannot continue for this operation. "
+                "Update the client/SDK and host plugin to a release compatible with this Server, "
+                "rerun powercontext setup for the affected host and profile, fully restart the host, "
+                "and rerun Doctor. Search again for an Atomic Memory artifact reference. "
                 "Reconstruct the request using Atomic Memory operations; do not drop collection CAS "
                 "preconditions and retry automatically.",
                 {

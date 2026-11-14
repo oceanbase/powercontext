@@ -227,7 +227,7 @@ Only real user prompts are saved. Assistant replies, AGENTS/environment messages
 are excluded. Secrets are redacted using the execution environment and the configured Codex home's `auth.json`. Empty text and
 text exceeding 200,000 characters are omitted. Sources retain the built-in `content` type and the identity and metadata used by
 the live Codex hook. Identical identity and content reuse the existing Source. Different content under the same identity conflicts,
-including redacted history overlapping an existing raw capture; the plugin neither overwrites evidence nor treats a conflict as success.
+including redacted history overlapping an existing raw capture; the plugin neither overwrites evidence nor treats a conflict as success. Source conflicts and invalid-observation refusals remain visible as rejected batch items. Collection continues with later prompts and subsequent polls; rejected batches retain their previous checkpoint and safely resubmit accepted items.
 
 The framework stores progress in an instance/Scope checkpoint on the destination Server and advances it only after a complete
 successful batch. Retrying can resubmit already saved items, which the Server deduplicates by Source identity. A malformed file

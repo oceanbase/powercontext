@@ -33,7 +33,9 @@ from pydantic import BaseModel, JsonValue, field_validator
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
 # Older runtimes expose the same frozen schema under TextEvidence alone.
-_TEXT_EVIDENCE_MODEL: type[BaseModel] = getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
+_TEXT_EVIDENCE_MODEL = cast(
+    type[source_models.TextEvidence], getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
+)
 
 
 class TextFileSnapshotCapture(BaseModel):
@@ -157,12 +159,12 @@ class TextFileEvidenceProjection:
             metadata["provider_version"] = source.provider_version
         if source.modified_at is not None:
             metadata["modified_at"] = source.modified_at.isoformat()
-        return _TEXT_EVIDENCE_MODEL(
-            source_type=TEXT_FILE_SNAPSHOT_SOURCE_NAME,
-            source_id=source.name,
-            content=source.content,
-            metadata=metadata,
-        )
+        return _TEXT_EVIDENCE_MODEL.model_validate({
+            "source_type": TEXT_FILE_SNAPSHOT_SOURCE_NAME,
+            "source_id": source.name,
+            "content": source.content,
+            "metadata": metadata,
+        })
 
 
 def _snapshot_id(namespace: str, path: str, content_digest: str) -> str:

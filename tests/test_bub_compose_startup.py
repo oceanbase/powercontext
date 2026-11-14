@@ -114,3 +114,76 @@ def test_oceanbase_compose_does_not_start_server_after_migration_failure(tmp_pat
     assert failed_action in actions
     assert "server-start" not in actions
     assert "harness" not in actions
+
+
+@pytest.mark.parametrize(
+    ("database", "replay_status", "probe_status"),
+    [("oceanbase", 0, 0), ("oceanbase", 7, 0), ("oceanbase", 7, 19), ("oceanbase", 124, 0), ("sqlite", 7, 0)],
+)
+def test_replay_failure_preserves_diagnostics_before_teardown(
+    tmp_path, monkeypatch, database, replay_status, probe_status
+):
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    alive = tmp_path / "container-alive"
+    diagnostics = tmp_path / "diagnostics"
+    # Run the launcher and real collector. Substitute Docker to model a container
+    # whose diagnostics become unavailable after down; this is not engine acceptance.
+    executable = (
+        f"#!{sys.executable}\n"
+        + r"""
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if Path(sys.argv[0]).name == "timeout":
+    # Deadline enforcement is covered by the collector's Linux tests.
+    os.execvp(args[2], args[2:])
+alive = Path(os.environ["BUB_TEST_ALIVE"])
+if args[0] == "compose":
+    if "up" in args:
+        alive.touch()
+    elif "down" in args:
+        alive.unlink(missing_ok=True)
+    elif "ps" in args:
+        assert alive.exists()
+        print("test-oceanbase")
+    elif "run" in args and "harness" in args:
+        raise SystemExit(int(os.environ["BUB_TEST_REPLAY_STATUS"]))
+else:
+    assert alive.exists(), "diagnostics requested after container teardown"
+    print("diagnostic evidence")
+    raise SystemExit(int(os.environ["BUB_TEST_PROBE_STATUS"]))
+"""
+    )
+    for name in ("docker", "timeout"):
+        path = commands / name
+        path.write_text(executable, encoding="utf-8")
+        path.chmod(0o755)
+    (commands / "python3").symlink_to(sys.executable)
+    monkeypatch.setenv("PATH", f"{commands}{os.pathsep}{os.defpath}")
+    monkeypatch.setenv("POWERCONTEXT_VERSION", "1.4.1")
+    monkeypatch.setenv("GITHUB_SHA", "compose-diagnostics-regression")
+    monkeypatch.setenv("POWERCONTEXT_E2E_DATABASE", database)
+    monkeypatch.setenv("POWERCONTEXT_E2E_OUTPUT", str(tmp_path / "output"))
+    monkeypatch.setenv("POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS", str(diagnostics))
+    monkeypatch.setenv("BUB_TEST_ALIVE", str(alive))
+    monkeypatch.setenv("BUB_TEST_REPLAY_STATUS", str(replay_status))
+    monkeypatch.setenv("BUB_TEST_PROBE_STATUS", str(probe_status))
+    result = subprocess.run(
+        ["/bin/sh", str(_ROOT / "e2e/bub/run.sh"), "acceptance"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == replay_status, result.stderr
+    assert not alive.exists(), "diagnostics must not prevent container teardown"
+    if database == "oceanbase" and replay_status:
+        snapshot = json.loads((diagnostics / "snapshot.json").read_text())
+        assert snapshot["exit_codes"]
+        assert set(snapshot["exit_codes"].values()) == {probe_status}
+        assert "diagnostic evidence" in (diagnostics / "locks.txt").read_text()
+    else:
+        assert not diagnostics.exists()

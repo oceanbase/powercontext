@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
@@ -32,6 +33,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 import powercontext.builtin.runtime.composition as runtime_composition
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import AccessControlService
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -50,7 +52,6 @@ from powercontext.http import (
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.authz import AccessControlService
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
@@ -543,6 +544,18 @@ def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, mo
     with TestClient(app):
         assert (data_dir / "powercontext.db").is_file()
         assert not (data_dir / "scheduler.db").exists()
+
+
+def test_server_app_ignores_deprecated_scheduler_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "powercontext-data"))
+    sidecar = tmp_path / "scheduler.db"
+
+    with pytest.warns(DeprecationWarning, match="scheduler_path is ignored"):
+        app = create_server_app(settings=ServerSettings(mcp=McpConfig(enabled=False)), scheduler_path=sidecar)
+    with TestClient(app):
+        pass
+
+    assert not sidecar.exists()
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:
@@ -1047,11 +1060,11 @@ def test_server_provider_cache_shares_refreshes_and_retries_transient_failures_s
 def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog, monkeypatch, tmp_path) -> None:
     now = [0.0]
     monkeypatch.setattr("powercontext.builtin.runtime.readiness.monotonic", lambda: now[0])
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def reject(request: httpx.Request) -> httpx.Response:
+    def reject(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx.Response(
+        return httpx2.Response(
             404,
             json={
                 "error": {
@@ -1065,7 +1078,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
     provider = OpenAIProvider(
         base_url="https://provider.example",
         api_key="secret-api-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(reject)),
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(reject)),
     )
     monkeypatch.setattr("pydantic_ai.providers.infer_provider", lambda _name: provider)
     app = create_server_app(

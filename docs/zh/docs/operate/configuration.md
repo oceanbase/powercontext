@@ -50,8 +50,8 @@ MemoryWriteGate 采用 fail-open 策略，只裁决写入，不修改权威历�
 `MEMORY_WRITE_GATE_PRIVACY_BOUNDARY=hosted_redacted` 和显式的 `MEMORY_WRITE_GATE_SANITIZER=known_secrets`。
 内置 sanitizer 覆盖已知的敏感环境变量/Codex 值及有限的 provider 前缀，不是通用的 PII 或口令检测器。sanitizer
 默认是 `none`；hosted-redacted 组合在未选择 sanitizer 时会以命名配置错误失败。
-Atomic Memory 的标签仍遵守每个 Artifact 最多 32 个的限制。合并输入标签的并集超过此上限时，整笔合并失败；
-Source 抽取窗口也不会部分提交或推进游标。
+合并结果仍遵守每个 Artifact 最多 32 个标签的限制。输入标签按规范化键去重后超过 32 个时，结果保留确定性选出的 32 个，
+合并及其 Source 窗口照常提交。选择顺序见[使用标签整理内容](../workflows/manage-artifact-tags.md#标签规则与存储)。
 
 ## 用户数据
 
@@ -165,7 +165,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 FTS 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 FTS 的候选 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 vector 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 vector 的候选 |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时，其中默认值最短的是 Kimi Code、ZCode 和 DSH 的 1 秒 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时，其中默认值最短的是 Kimi Code 和 DSH 的 1 秒；ZCode 单次请求允许 3 秒，并受 4 秒 Hook 总预算限制 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
@@ -189,9 +189,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 单个 Runtime 在内存中保留的已接收用量记录条数；超出的记录会被丢弃并留下诊断日志 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 单条用量记录自身统计事务的预算，按片消耗，使争锁的写入者获得多次尝试机会 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 在操作完成边界或统计读取处，等待已接收用量的有界时长 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 每个用量批次的总写入预算；只有确认未应用的尝试才可在剩余预算内重试 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取和显式 flush 等待本进程已接收用量的有界时长；普通请求不等待 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
@@ -252,16 +252,31 @@ Scope、家族、条数限制和上下文预算，并复用已经生成的查询
 调用方显式传入的 `recall_effort_sink` 替代关系型记录器；关闭门控时两者都不调用。已有 SQLite 和 OceanBase 数据库通过正常的
 增量建表路径补建缺失的关系表。
 
-模型用量记账是尽力而为的，且永不阻塞模型调用。每个 Runtime 拥有一个有界记账器：接收记录时不产生任何 I/O，随后在独立的短事务
-中写入。因此统计故障、队列写满，或超出该记录自身预算的锁等待，只会丢弃该条记录并留下诊断日志，而不会让产生它的操作失败。
-操作完成、读取统计以及关闭时，都会在有界等待内冲刷已经接收的记录。业务写入等待该时长后失败属于设计行为：SQLite 同一时刻只允许一个写入者，并发写入者持锁超过配置值时，等待中的业务写就会
-报 `database is locked`。这正是多写入者部署需要提高 `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` 的原因；同样的锁压力
-已不再传到用量记账，用量记录只会被丢弃，而不会让产生它的操作失败。
+模型用量记账是尽力而为的，且不阻塞模型调用。每个 Runtime 拥有一个有界记账器，接收记录时不产生 I/O。
+消费者每次取出最多 32 条已经排队的记录，在一个独立事务内写入，不为凑满批次而延迟空闲队列。
+相同 Scope、日期、purpose、operation 的记录合并累加，同时保留已知 Token 小计和用量缺失标记。
+统计故障、队列写满或批次预算耗尽会留下安全诊断，不会让业务操作失败；批次写入失败或结果不确定时按原始记录数计数，
+提交结果不确定的事务不会重试。
+OceanBase 的首次事务使用完整写入预算，因为超时可能丢失提交确认；SQLite 首次尝试使用较短预算，
+确认回滚后可在剩余总预算内重试。
+
+普通 Scope 操作（包括 HTTP 查询和 Source 接收）返回时不等待用量落库。统计读取在打开数据库快照前，
+按 flush 预算等待本进程已经接收的记录；显式 Worker flush 和关闭仍保留有界排空。
+flush 超时后统计可能尚不完整，在一个 Server 上读取统计也不会排空其他 Server 的队列。
+关闭时先停止生产者，允许一个写入预算加一个 flush 预算排空记录，随后丢弃仍在排队的记录，
+再最多等待一个写入预算完成原生清理。队列指标不含正在写入的批次；丢弃和写入失败计数均按原始记录计算，不按合并后的组计算。
+
+业务写入仍与统计消费者共享数据库资源。SQLite 同一时刻只允许一个写入者；竞争写入者持锁超过业务 busy timeout 时，
+该业务写入可能报 `database is locked`。应按部署的锁竞争预算配置 `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS`，
+它与用量 flush 等待独立。
 
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
 嵌套复杂度。耗尽后保留 Source、Cursor、Pending 和同 Scope 尾部，停止后续 provider 调用；flush 和重启均不重置。
-运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。
+运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。Worker 读取 Topic head 后，如果并发的 replace
+或 Dream 移动了该 head（head 冲突），这次尝试不计入尝试次数：Worker 将 `head_conflict` 记为该次尝试的最后错误，
+重新读取 head 后重新计算。该次尝试预留的请求数和 token 容量仍然计入，因此 head 持续变化时会在
+`window_provider_budget_exceeded` 处停止，不会无限重试。
 
 Topic generation 只允许有界标量设置：`max_tokens`、`temperature`、`top_p`、`top_k`、`seed`、`presence_penalty`、
 `frequency_penalty`、`timeout`、`openai_reasoning_effort`、`openai_text_verbosity`、`service_tier`、
@@ -566,6 +581,13 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 
 URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charset=utf8mb4`。省略库名时使用 `powercontext`，
 显式库名保持有效。租户必须使用 MySQL 兼容模式。
+
+Atomic Memory 会在连接的 OceanBase 或 seekDB 引擎支持时，使用原生 `minimum_should_match` 过滤；旧版引擎继续使用
+完整词 `LOCATE` 覆盖检查。能力检测不会把查询超时、权限错误或连接错误当作功能不支持。两条路径使用相同的分析、去重后的
+查询词和准入阈值，也适用于恢复探测与完整关联记忆枚举。超过 256 个不同词的查询，仅在确认版本为 OceanBase 4.6 或更新版本时使用
+原生过滤；更早的 OceanBase、seekDB 和无法识别版本的引擎继续使用完整词覆盖检查，因为 OceanBase CE 4.4.2.1 虽然接受原生语法，
+但超过该词数时可能忽略匹配阈值。查询包含 `com` 等被 SPACE 分词器省略的 Analyzer 词时，检索、完整枚举和恢复探测
+也会保留完整词覆盖检查，阈值仍按所有不同的 Analyzer 词计算。该选择无需新增配置、表或索引迁移，沿用现有 `SPACE` 全文索引。
 
 seekDB 启动和 OceanBase Python SDK 初始化会先创建缺失的目标库，再初始化表；已有可用库不会执行建库语句。
 完整 OceanBase Server 需要先准备数据库并通过显式维护初始化 Server 表结构，再启动服务；自动建库不替代该准入规则。

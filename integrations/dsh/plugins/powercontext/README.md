@@ -2,6 +2,28 @@
 
 This plugin is a thin DeepSeek Harness integration for a running PowerContext Server. It does not embed storage or start the Server.
 
+The package has two independent Host faces and one optional browser face:
+
+- `lib/index.js` (the package root) contains the native MCP registration, lifecycle hooks, commands, and Host bridge.
+- `lib/client.js` is the `./client` browser entry declared through `dsh.client`; DSH serves it as a module-loader
+  factory and shows the sidebar connection status. It is optional for headless hosts: without it the root entry
+  continues to provide tools, recall, capture, and diagnostics.
+- `lib/assets/powercontext.svg` is the packaged client mark exported through `./assets/*`.
+
+The sidebar control reuses the plugin's in-memory `RuntimeStatus` for recall/capture/flush/injection observations
+and the existing liveness, readiness, and capability operations for connectivity. It does not call a model or poll
+`/pc doctor`. For a local Web host, set `ownerLocal: true` in the plugin patch (or
+`POWERCONTEXT_DSH_OWNER_LOCAL=true`) to affirm that the loopback host is your own. Desktop is identified by the
+managed `desktop` profile context; an Electron executable running a Web profile is not Desktop authority.
+SSH-forwarded, remote, shared, and unconfigured Web hosts are rejected rather than labeled local.
+
+With the Server Dashboard explicitly enabled, click the sidebar PowerContext control and **Open Dashboard** to
+use the existing Dashboard in DSH's right Browser panel. The selected conversation supplies the Scope; without
+one, the panel offers an external browser entry and creates no conversation. The Host-only authenticated
+`GET /powercontext/dashboard` check reports disabled, authentication, and loading states independently of API
+health. DSH Web uses its Browser iframe; the 0.2.2-rc.1 Desktop release uses an isolated Browser webview. Token
+authentication uses the Dashboard's own sign-in page, with no token in the browser URL or plugin script.
+
 ## Install from npm
 
 Once the desired version is published on npm, open **Plugins → Add plugin** in DeepSeek Harness Web or Desktop,
@@ -24,8 +46,8 @@ and [npm release instructions](https://github.com/oceanbase/powercontext/blob/ma
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.0
+uv tool install --force "powercontext[cli,server]==1.5.1"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.1
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
@@ -106,8 +128,8 @@ make js-api-generate-check
 
 The plugin resolves an explicit Scope, a durable workspace binding, or the Server default. Environment overrides use
 the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAPTURE_PROMPTS`, and `FLUSH_ON_CAPTURE`.
-`timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Context returned by recall
-is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
+`timeoutMs`, `requestTimeoutMs`, `maxBytes`, `flushMaxCalls`, and `ownerLocal` are plugin patch settings. Context
+returned by recall is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
 
 Remote HTTP is rejected by default. For an explicitly trusted plaintext connection, set
 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.

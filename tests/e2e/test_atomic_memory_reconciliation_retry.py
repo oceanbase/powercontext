@@ -21,7 +21,7 @@ import json
 
 import pytest
 from pydantic_ai.embeddings import TestEmbeddingModel
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
@@ -46,9 +46,11 @@ class _Provider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
+        retries = [
+            part for part in request.parts if isinstance(part, UserPromptPart) and REVISE_RULE in str(part.content)
+        ]
         self.retry_feedback.extend(str(part.content) for part in retries)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
@@ -113,7 +115,7 @@ async def _flush(provider: _Provider, monkeypatch, tmp_path):
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'retry.db'}"),
         inference=InferenceConfig(generation_model="provider:test-model"),
     )
-    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         assert runtime.scopes is not None
         assert runtime.atomic_memory is not None
         scope = await runtime.scopes.create(ScopeDraft(title="Billing", summary="Decisions", idempotency_key="billing"))
@@ -185,15 +187,16 @@ class _PublishedWorkflowProvider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
-        self.retry_feedback.extend(str(part.content) for part in retries)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
             for part in message.parts
             if isinstance(part, UserPromptPart)
         )
+        # FunctionModel receives normalized retry feedback as another user prompt.
+        retries = [part for part in request.parts if isinstance(part, UserPromptPart) and part.content != prompt]
+        self.retry_feedback.extend(str(part.content) for part in retries)
         value = json.loads(str(prompt))
         if "proposal" not in value:
             return _json({
@@ -246,7 +249,7 @@ async def _flush_published_workflow(provider: _PublishedWorkflowProvider, monkey
         ),
         runtime=RuntimeConfig(atomic_memory_related_mode="vector"),
     )
-    async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+    async with open_builtin_runtime(config) as runtime:
         assert runtime.scopes is not None and runtime.atomic_memory is not None
         scope = await runtime.scopes.create(
             ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
@@ -320,7 +323,7 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
     )
 
     async def scenario():
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
@@ -352,7 +355,7 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
             assert (await memory.list()).items == entries
 
         # The consumed window and retained facts survive restart; later Sources must not hit the old rejection.
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.atomic_memory is not None
             memory = runtime.atomic_memory.for_scope(scope.scope_id)
             assert (await memory.list()).items == entries

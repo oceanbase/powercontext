@@ -55,11 +55,11 @@ in its processing path.
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
 | Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Experience | Partial | N/A | Partial | Missing | Missing | Missing |
-| Profile | Partial | N/A | Partial | Missing | Missing | Missing |
-| Skill | Partial | N/A | Partial | Missing | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
-| Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
+| Experience | Partial | N/A | Partial | Partial | Missing | Missing |
+| Profile | Partial | N/A | Partial | Partial | Missing | Missing |
+| Skill | Partial | N/A | Partial | Partial | Missing | Missing |
+| Handoff | Partial | N/A | Partial | Partial | Partial | Missing |
+| Prompt | Partial | N/A | Partial | Partial | Partial | Missing |
 
 Memory / Atomic Memory and Topic Memory are tracked at operation granularity while they are the active slices:
 
@@ -83,22 +83,60 @@ Topic Memory operation-level coverage:
 | `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
 | `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
 | `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
-| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
+| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. A Topic head conflict records `head_conflict` as the attempt's last error and does not spend a window attempt. |
 | Usage accounting | Usage accounting | Missing | The window provider budget is reported as `generation` / `usage_limit`; accounting failures are not classified. |
 
-The first two rollout slices cover Memory / Atomic Memory and Topic Memory: provider failures,
-budget exhaustion, and extraction/reconciliation/domain validation are classified, and safe
-accounting fields travel from the child Worker to the supervisor log. Other Families keep their
-current behavior until their own slice lands; the matrix is updated in the same change as each slice.
+Experience, Profile, and Skill operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `experience.incubate` | Business validation | Partial | Bounded input and out-of-window evidence carry explicit diagnostics; structural limits do not establish context overflow. |
+| `profile.generate` | Business validation | Partial | Invalid Markdown carries the input count and original validation exception type without exposing the content. |
+| Experience / Skill typed generation | Output parsing | Partial | Invalid typed results use the shared schema mapping; unclassified provider details remain unknown. |
+| Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity. Evidence limits, unavailable evidence, and rejected request targets carry `business_validation` and their failure location. |
+| Publication / persistence | Persistence | Missing | These slices do not yet classify all storage entry points. |
+| Usage accounting | Usage accounting | Missing | Accounting failures remain separate from processing outcomes. |
+
+Handoff and Prompt operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `handoff.generate` | Generation / output parsing / business validation | Partial | Explicit preparation and source-triggered generation report known provider and schema failures. Objective, citation, rollover, and byte-limit violations are invalid output. Missing evidence carries the validation stage and location. |
+| `handoff.finalize` / `handoff.commit` | Business validation | Partial | Evidence, scope, and provenance rejections retain their domain errors. A revision conflict keeps its existing outcome and carries no storage-failure reason. |
+| `handoff.commit` | Persistence | Partial | Database driver failures in the Handoff commit path carry `persistence` / `storage_failure`. |
+| `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider/schema errors use shared classification. Invalid demonstration results are business validation. Demonstration generation never saves a Prompt revision. |
+| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | The scoped management operations report known Prompt rejections and database driver failures, including failures at transaction exit. Other Prompt write paths are outside this coverage. |
+| Handoff / Prompt | Embedding | N/A | These processing paths do not generate embeddings. |
+| Handoff / Prompt | Usage accounting | Missing | Accounting failures are tracked separately. |
+
+Covered boundaries emit up to one `artifact.operation.failed` event per failed operation. Each process
+emits at most 16 events in a rolling second for the same Family, operation, error code, and failure
+reason. The event carries the existing Scope and bound request or trace identity, when present. It uses the shared diagnostic
+fields and omits traceback, raw error text, SQL, and content. Unclassified errors omit unknown fields.
+Logging has no effect on the returned error, transaction outcome, or retry behavior.
+
+The matrices describe classification coverage, not completion of the whole issue. Dream failure
+records contain bounded diagnostic fields only, never exception text or evidence content. Its
+persisted run outcome and retry policy remain authoritative; the failure record is an observation,
+not a new durable failure history. Durable-block classification currently covers Topic Memory only;
+Dream uses its existing Run outcomes and attempt logs, not a durable scheduler block.
+
+A timeout from Dream's own execution deadline produces the terminal Run code `budget_exceeded`.
+Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded` and
+`exception_type=TimeoutError`. The stage identifies the owner of the execution budget. A bare
+`TimeoutError` raised before that deadline expires follows the terminal `generation_failed` path
+and logs `timeout` without inferring a stage.
+Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
+retryable within the existing Run budget.
 
 ## Rollout
 
 1. Shared diagnostics contract, allowlisted fields, Worker propagation, and the Memory / Atomic
    Memory slice.
-2. Topic Memory: tag its staged generation, index/embedding, and persistence failures (this change).
+2. Topic Memory: tag its staged generation, index/embedding, and persistence failures.
 3. Experience, Profile, and Skill: tag generation output validation and persistence entry points.
-4. Handoff and Prompt: tag generation and publication failures, then add usage-accounting
-   classification and complete the matrix.
+4. Handoff and Prompt: tag generation and publication failures.
+5. Classify usage-accounting failures and continue filling the remaining coverage gaps.
 
 For new instrumentation, cover the observable behavior: successful classification, propagation
 across a real spawned Worker, sensitive-value exclusion, and that a diagnostics failure does not

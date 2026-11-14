@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -29,6 +30,16 @@ from powercontext.sources.models import Source, SourceMaterialization
 CONTENT_SOURCE_NAME = "content"
 WORKING_NOTE_SOURCE_KIND = "working_note"
 NonEmptyText = Annotated[str, Field(min_length=1)]
+
+
+def is_handoff_receipt_content(content: JsonValue) -> bool:
+    """Recognize the reserved envelope, without establishing receipt authority."""
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (ValueError, RecursionError):
+            return False
+    return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"
 
 
 class ContentCapture(BaseModel):

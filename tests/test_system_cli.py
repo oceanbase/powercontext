@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tomllib
 from email.message import Message
@@ -35,7 +37,6 @@ from powercontext.cli.app import create_cli
 from powercontext.cli.installation import PluginSource
 from powercontext.cli.installation import setup as install_plugin
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError, doctor_app, setup_app
-from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
 from powercontext.service.model import (
     DefinitionState,
@@ -49,6 +50,9 @@ from powercontext.service.model import (
 
 _probe_codex_mcp_status = system_cli._probe_codex_mcp_status
 _run_codex_mcp_list = system_cli._run_codex_mcp_list
+_prepare_codex_plugin_runtime = system_cli._prepare_codex_plugin_runtime
+_codex_plugin_runtime_diagnostic = system_cli._codex_plugin_runtime_diagnostic
+CODEX_PLUGIN = Path(__file__).resolve().parents[1] / "integrations/codex/plugins/powercontext"
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +65,13 @@ def isolated_codex_plugin_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
     monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", lambda _value: False)
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: None)
+    # These caches hold only the MCP declaration; the runtime tests below install the real plugin.
+    monkeypatch.setattr(system_cli, "_prepare_codex_plugin_runtime", lambda _root: None)
+    monkeypatch.setattr(
+        system_cli,
+        "_codex_plugin_runtime_diagnostic",
+        lambda _plugin: Diagnostic(status=DiagnosticStatus.OK, detail="plugin environment is ready"),
+    )
     for marketplace in ("powercontext", "powercontext-local"):
         cache = tmp_path / "codex" / "plugins" / "cache" / marketplace / "powercontext" / "0.1.0"
         cache.mkdir(parents=True)
@@ -102,7 +113,6 @@ def test_server_defaults_to_persistent_user_storage(
     assert settings.database.kind == "sqlite"
     database_path = (data_dir / "powercontext.db").as_posix()
     assert settings.database.url == f"sqlite+aiosqlite:///{database_path}"
-    assert default_scheduler_path() == data_dir / "scheduler.db"
 
 
 @pytest.mark.parametrize("already_disabled", [False, True])
@@ -274,6 +284,26 @@ def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missi
     assert full["status"] == ("ok" if missing is None else "degraded")
     if missing is not None:
         assert missing in full["detail"]
+
+
+def test_desktop_fixture_holds_every_codex_doctor_check(monkeypatch) -> None:
+    """Desktop rejects a doctor report with an unknown check, so its fixture must hold every Codex verification check.
+
+    Doctor adds the shared Server checks for every host; the fixture carries them, but this covers Codex's own checks.
+    """
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    record = {"name": "powercontext", "installed": True, "enabled": True, "marketplaceName": "powercontext"}
+    monkeypatch.setattr(system_cli, "_run_codex_json", lambda *_args: {"installed": [{**record, "version": "0.1.0"}]})
+
+    emitted = system_cli.CodexInstaller().verify()
+
+    fixture = Path(__file__).resolve().parents[1] / "desktop/src-tauri/tests/fixtures/doctor-codex.json"
+    projected = json.loads(fixture.read_text(encoding="utf-8"))["hosts"]["codex"]["checks"]
+    assert set(emitted) <= set(projected), (
+        "Add the new Codex doctor checks to desktop/src-tauri/tests/fixtures/doctor-codex.json and to the check "
+        "allowlist in desktop/src-tauri/src/diagnostics.rs."
+    )
 
 
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
@@ -532,6 +562,91 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
     assert "mcp_headers.py" in helper
     assert str(tmp_path / "codex/powercontext/credentials.json") in helper
     assert "setup-token" not in json.dumps(mcp)
+
+
+@pytest.fixture
+def real_codex_plugin(tmp_path: Path, monkeypatch) -> dict[str, Any]:
+    """Let setup and doctor work on a copy of the real plugin that the fake `codex plugin add` installs."""
+
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
+    monkeypatch.setenv("UV_PYTHON", sys.executable)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr(system_cli, "_prepare_codex_plugin_runtime", _prepare_codex_plugin_runtime)
+    monkeypatch.setattr(system_cli, "_codex_plugin_runtime_diagnostic", _codex_plugin_runtime_diagnostic)
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    plugin_version = tomllib.loads((CODEX_PLUGIN / "pyproject.toml").read_text())["project"]["version"]
+    record: dict[str, Any] = {
+        "name": "powercontext",
+        "installed": True,
+        "enabled": True,
+        "marketplaceName": "powercontext",
+        "version": plugin_version,
+        "root": tmp_path / "codex/plugins/cache/powercontext/powercontext" / plugin_version,
+    }
+    installed: list[dict[str, Any]] = []
+
+    def native(*arguments):
+        if arguments[:2] == ("plugin", "marketplace"):
+            return {"marketplaceName": "powercontext"}
+        if arguments[:2] == ("plugin", "add"):
+            shutil.copytree(CODEX_PLUGIN, record["root"], ignore=shutil.ignore_patterns(".venv", "__pycache__"))
+            installed[:] = [record]
+            return record
+        return {"installed": installed}
+
+    monkeypatch.setattr(system_cli, "_run_codex_json", native)
+    return record
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the helper command is parsed with POSIX shell rules")
+def test_setup_codex_prepares_the_plugin_runtime_before_codex_starts_it(
+    tmp_path: Path, real_codex_plugin, installed_agent_checks
+) -> None:
+    """The first session must not build the plugin's environment while Codex starts the helper and the hooks."""
+
+    install_plugin("codex", source="oceanbase/powercontext", ref="master")
+
+    mcp = real_codex_plugin["root"] / ".mcp.json"
+    helper = json.loads(mcp.read_text())["mcpServers"]["powercontext"]["http_headers_helper"]
+    # Codex passes the helper only a few variables. UV_NO_SYNC stands for the first session: uv must find the
+    # environment ready rather than build it.
+    environment = {"HOME": str(tmp_path / "home"), "PATH": os.environ["PATH"], "UV_NO_SYNC": "1"}
+    completed = subprocess.run(
+        shlex.split(helper), env=environment, capture_output=True, text=True, check=False, timeout=60
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"Authorization": "Bearer setup-token"}
+    assert system_cli.CodexInstaller().verify()["plugin_runtime"].status is DiagnosticStatus.OK
+
+
+def test_doctor_codex_reports_a_plugin_environment_that_setup_did_not_build(real_codex_plugin) -> None:
+    """A plugin installed or updated outside setup is found before its first session builds the environment."""
+
+    system_cli._run_codex_json("plugin", "add", "powercontext@powercontext")
+
+    runtime = system_cli.CodexInstaller().verify()["plugin_runtime"]
+
+    assert runtime.status is DiagnosticStatus.DEGRADED
+    assert "powercontext setup codex" in runtime.detail
+    assert not (real_codex_plugin["root"] / ".venv").exists()
+
+
+def test_setup_codex_requires_uv_before_changing_codex(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "which", lambda name: None if name == "uv" else f"/usr/bin/{name}")
+    commands = []
+
+    def native(*arguments):
+        commands.append(arguments)
+        return {"installed": []}
+
+    monkeypatch.setattr(system_cli, "_run_codex_json", native)
+
+    with pytest.raises(SetupError, match="uv is not installed"):
+        install_plugin("codex", source="oceanbase/powercontext", ref="master")
+
+    assert [command for command in commands if command[:2] != ("plugin", "list")] == []
 
 
 def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
@@ -1033,6 +1148,9 @@ def recording_codex_cmd(codex_cmd_shim: Path, monkeypatch) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     codex_cmd_shim.write_text('@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\record.py" %*\n', encoding="ascii")
+    # Setup requires uv on PATH, which here holds only this directory. The autouse fixture stubs the environment
+    # build, so this placeholder is found but never run; `.exe` matches every PATHEXT these tests set.
+    (codex_cmd_shim.parent / "uv.exe").touch()
     monkeypatch.setenv("CODEX_TEST_VALUE", "expanded")
     monkeypatch.delenv("CODEX_TEST_MARKETPLACE", raising=False)
     return codex_cmd_shim, received
@@ -1921,6 +2039,13 @@ class _Response(BytesIO):
         return self._status
 
 
+_MEMORY_CONTRACT = {
+    "openapi": "3.0.3",
+    "paths": {},
+    "x-powercontext-feature-contracts": {"memory.explicit": {"major": 1, "minor": 0}},
+}
+
+
 def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> None:
     _mock_optional_personal_service(monkeypatch)
     monkeypatch.setattr(
@@ -1935,6 +2060,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
             side_effect=[
                 _Response(200, {"status": "ok"}),
                 _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+                _Response(200, _MEMORY_CONTRACT),
             ]
         ),
     )
@@ -1951,6 +2077,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
         "service_registration",
         "server_liveness",
         "server_readiness",
+        "server_memory_protocol",
     ]
 
 
@@ -1960,6 +2087,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
         side_effect=[
             _Response(200, {"status": "ok"}),
             _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+            _Response(200, _MEMORY_CONTRACT),
         ]
     )
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
@@ -1972,6 +2100,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:8888/health/live",
         "http://127.0.0.1:8888/health/ready",
+        "http://127.0.0.1:8888/openapi.json",
     ]
 
     # Explicit CLI argument should override the environment variable.
@@ -1979,6 +2108,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     urlopen.side_effect = [
         _Response(200, {"status": "ok"}),
         _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+        _Response(200, _MEMORY_CONTRACT),
     ]
     override = CliRunner().invoke(
         create_cli([doctor_app]),
@@ -1991,6 +2121,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:9999/health/live",
         "http://127.0.0.1:9999/health/ready",
+        "http://127.0.0.1:9999/openapi.json",
     ]
 
 
@@ -2044,7 +2175,7 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
                 },
             ),
         )
-        return [_Response(200, {"status": "ok"}), readiness]
+        return [_Response(200, {"status": "ok"}), readiness, _Response(200, _MEMORY_CONTRACT)]
 
     monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
     human = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
@@ -2085,7 +2216,7 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                     },
                 },
             ),
-            _Response(200, {"status": "ok"}),
+            _Response(200, _MEMORY_CONTRACT),
             _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
         ]
 
@@ -2098,7 +2229,9 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
     assert "server readiness: degraded - http://127.0.0.1:8000 status=degraded" in human.output
     assert "  inference.embedding: misconfigured" in human.output
     assert machine.exit_code == 1
-    assert json.loads(machine.output) == {
+    payload = json.loads(machine.output)
+    assert payload["checks"].pop("server_memory_protocol")["status"] == "ok"
+    assert payload == {
         "ok": False,
         "status": "degraded",
         "checks": {
@@ -2223,9 +2356,20 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     checkout = tmp_path / "powercontext"
     plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
     plugin.mkdir(parents=True)
-    (plugin / "package.json").write_text('{"name": "powercontext-dsh"}', encoding="utf-8")
+    (plugin / "package.json").write_text(
+        json.dumps({
+            "name": "powercontext-dsh",
+            "version": "0.1.0",
+            "exports": {"./client": "./lib/client.js", "./assets/*": "./lib/assets/*"},
+            "dsh": {"client": {"platform": "web"}},
+        }),
+        encoding="utf-8",
+    )
     (plugin / "lib").mkdir()
     (plugin / "lib" / "index.js").write_text("export const name = 'powercontext-dsh'\n", encoding="utf-8")
+    (plugin / "lib" / "client.js").write_text("export const inject = ['slots']\n", encoding="utf-8")
+    (plugin / "lib" / "assets").mkdir()
+    (plugin / "lib" / "assets" / "powercontext.svg").write_text("<svg/>", encoding="utf-8")
     shutil.copytree(
         Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
         plugin / "skills",
@@ -2245,6 +2389,14 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     assert json.loads(result.output)["hosts"]["dsh"]["result"] == {
         "plugin": "powercontext-dsh",
         "plugin_path": str(plugin),
+        "capabilities": {
+            "package": "powercontext-dsh",
+            "version": "0.1.0",
+            "host_bundle": "present",
+            "browser_client": "present",
+            "client_declaration": "present",
+            "asset_export": "present",
+        },
         "data_dir": str(tmp_path / "data"),
         "authorization_state": "not_configured",
         "profile": "web",

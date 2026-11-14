@@ -150,7 +150,8 @@ An import receipt proves Source acceptance, not successful Memory generation, re
   deduplicates accepted Sources. Missing checkpoints, process interruption or switching to a managed instance allow safe resubmission.
   Concurrent checkpoint conflicts do not overwrite progress; retry serially.
 - Each poll fully scans and rereads the selected tree; this is not an append-byte incremental reader. Defaults are 256 KiB per file,
-  a 16 MiB file-read budget per target per poll, 1,000 text files and 10,000 directory entries. Failed reads conservatively consume
-  budget too; probing file growth reads at most one extra byte. File or entry count limits reject partial directory enumeration.
+  a 16 MiB file-read budget per target per poll, 1,000 text files and 10,000 directory entries. Only bytes actually acquired consume
+  budget, including bytes obtained before a read fails. Files refused before reading consume no read budget.
+  `read_budget_exhausted` identifies a target budget limit; `file_too_large` identifies the per-file limit. Probing file growth reads at most one extra byte. File or entry count limits reject partial directory enumeration.
   Checkpoints retain only the latest successful snapshot per path, not every historical version. Adjust limits through configuration
   or the one-shot command's `--max-file-bytes`, `--max-total-bytes`, `--max-files` and `--max-entries` options.

@@ -2771,6 +2771,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        GatewayLifecycleDecision: "deadline_exceeded" | "gateway_shutdown" | "request_cancelled";
+        /**
+         * @description Sending facts known at the stop boundary. Possibly sent never means safe to resend; response received does not authorize release or establish client receipt.
+         * @enum {string}
+         */
+        GatewayModelSend: "no_send" | "definitely_not_sent" | "possibly_sent" | "response_received";
+        /** @description Lifecycle control result, independent of Core allow/block/withhold and local delivery. */
+        GatewayLifecycleError: {
+            decision: components["schemas"]["GatewayLifecycleDecision"];
+            model_send: components["schemas"]["GatewayModelSend"];
+        };
         /** @description A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields. */
         ContractVersion: {
             major: number;
@@ -3937,6 +3949,17 @@ export interface components {
             basis: components["schemas"]["WorkClaimBasis"];
             evidence: components["schemas"]["HandoffCitation"][];
         };
+        /** @enum {string} */
+        TaskStopReasonKind: "safety" | "authorization" | "capability" | "missing_evidence" | "scope";
+        /** @description A caller-recorded judgement about why continuing would have been wrong. It grants no permission, approval, or retry budget and is not success or failure evidence. */
+        TaskStopReason: {
+            kind: components["schemas"]["TaskStopReasonKind"];
+            /** @description The circumstance under which continuing would have been wrong; must be trimmed. */
+            condition: string;
+            basis: components["schemas"]["WorkClaimBasis"];
+            /** @description Use [] with declared. verified requires exact previously returned same-scope citations. */
+            evidence: components["schemas"]["HandoffCitation"][];
+        };
         TaskOutcome: {
             /** @enum {string} */
             schema: "powercontext.task-outcome.v1";
@@ -3946,6 +3969,8 @@ export interface components {
             status: components["schemas"]["TaskOutcomeStatus"];
             summary: string;
             handoff_receipt_ref?: components["schemas"]["SourceReference"];
+            /** @description Optional deliberate-stop reason, accepted only with blocked or cancelled status. */
+            stop_reason?: components["schemas"]["TaskStopReason"];
             observations: components["schemas"]["WorkClaim"][];
             checks: components["schemas"]["TaskCheck"][];
             produced_artifacts: components["schemas"]["ArtifactReference"][];
@@ -4397,6 +4422,13 @@ export interface components {
             correlate_until?: string;
             /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
             binding?: string;
+            /** @description Exact Core-configured endpoint, present only on an allow for before_send when X-PowerContext-Resolve-Target was authorized for a service principal. */
+            target_endpoint?: string;
+            /**
+             * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
+             * @enum {string}
+             */
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];
@@ -5913,7 +5945,7 @@ export interface components {
             artifact_families: components["schemas"]["ArtifactFamilyAccessCapability"][];
         };
         /** @enum {string} */
-        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
         /** @enum {string} */
         AccessResourceType: "server" | "scope" | "artifact";
         ServerAccessResource: {
@@ -5986,7 +6018,7 @@ export interface components {
             next_cursor: string | null;
         };
         /** @enum {string} */
-        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
         /** @enum {string} */
         AccessRoleCardinality: "many_per_resource" | "one_per_resource";
         ListAccessRolesRequest: {
@@ -6371,6 +6403,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description Total monotonic work deadline exceeded. Best effort only while HTTP status can still be sent; an expired deadline or unavailable connection may prevent delivery. Does not imply zero cost or permit retry. */
+        GatewayDeadlineExceeded: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
+        /** @description Gateway shutdown, or explicit in-process cancellation when a response channel remains available. No HTTP cancellation endpoint or nonstandard cancellation status is defined. Already started HTTP status and completed execution terminals are preserved. */
+        GatewayStopped: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
         /** @description This response requires a coordinated client supporting Dream contract 2. Upgrade the Python SDK, CLI or integration and send X-PowerContext-Dream-Contract: 2. Original operations and compatible candidate shapes remain available without the header. */
         ClientUpgradeRequired: {
             headers: {
@@ -7797,7 +7847,10 @@ export interface operations {
     check_context: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Only for before_send by an authenticated service principal authorized for gateway.invoke on this Scope as well as scope.read. Neither scope.read nor server.admin implies invocation. */
+                "X-PowerContext-Resolve-Target"?: boolean;
+            };
             path?: never;
             cookie?: never;
         };

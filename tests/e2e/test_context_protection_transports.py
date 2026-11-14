@@ -41,6 +41,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from pydantic import SecretStr
 
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
@@ -51,8 +53,6 @@ from powercontext.server.authentication import (
     AuthenticationResult,
     ProviderReadiness,
 )
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -106,7 +106,6 @@ def _app(directory: Path):
     return create_server_app(
         settings=_settings(directory),
         authentication_provider=_Authentication(),
-        scheduler_path=directory / "scheduler.db",
     )
 
 

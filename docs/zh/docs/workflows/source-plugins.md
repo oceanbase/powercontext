@@ -221,7 +221,7 @@ pc_source_add({
 插件仅保存真实用户 Prompt，排除 assistant 回复、AGENTS/environment、内部执行通知与 Page 上下文，
 使用执行机器的环境及所配置 Codex home 的 `auth.json` 脱敏。空文本与超过 200,000 字符的文本不导入。
 Source 保持内置 `content` 类型，身份和 metadata 与 Codex 实时 Hook 一致；相同身份和内容会复用既有 Source。
-同身份内容不同会冲突，包括已有原始内容而历史文本被脱敏的情况；插件不会覆盖既有证据或将冲突当作成功。
+同身份内容不同会冲突，包括已有原始内容而历史文本被脱敏的情况；插件不会覆盖既有证据或将冲突当作成功。 Source 冲突及无效 observation 会作为批次中的 rejected 项保留；采集继续处理后续 Prompt 和后续轮询。存在拒绝项的批次不推进 checkpoint，重试时按身份复用已保存的项。
 
 进度由框架保存在目标 Server 的 instance/Scope checkpoint 中，只在批次完整成功后推进。
 失败后重新运行可能重交已经保存的项，服务端按 Source 身份去重。单个文件格式错误时不提交该文件的部分解析结果。

@@ -123,6 +123,7 @@ Child 返回结果不能单独证明业务完成。强制终止进程可能来�
 
 Supervisor 在本地入队时输出 `artifact_processing.queued`，开始一次执行时输出
 `artifact_processing.dispatched`，结束该次执行时输出 `artifact_processing.attempt.completed`。
+以控制冲突结束的执行，其 outcome 为 `conflict`，`error_code` 为 `cursor_conflict` 或 `head_conflict`。
 `queue_wait_ms` 使用单调时钟，不包含入队前的策略等待和重试退避。
 完成事件的 `duration_ms` 单独表示 supervisor 的执行耗时，与排队时间和 child 执行时间分开计算。
 这些事件用于执行诊断，不能当作新发布 Artifact 的数量。
@@ -413,8 +414,8 @@ Inference probe 保留原有正常结果 300 秒、临时失败 30 秒的缓存�
 | `artifact_processing_last_success_timestamp_seconds` | 最近一次 supervisor 验证 acknowledgement 的时间，不是 child return 时间 |
 | `artifact_processing_oldest_observed_pending_timestamp_seconds` | 本地 ready/running/retry 中最早且仍保留的 admission 时间；零表示没有观察到 |
 | `artifact_processing_invocation_duration_seconds{family,outcome}` | 已完成 reap 的 invocation attempt histogram，包含 launch、execution、acknowledgement；每次 retry 单独采样 |
-| `model_usage_queue_depth`、`model_usage_queue_capacity` | 父进程 recorder 的 queue 和 capacity；不包含正在写入的记录和 child queue |
-| `model_usage_dropped_records_total`、`model_usage_write_failures_total` | 父进程 recorder 与已收到的 child report 中累计丢失记录及失败或结果不确定的写入次数；不是 billing ledger |
+| `model_usage_queue_depth`、`model_usage_queue_capacity` | 父进程 recorder 的 queue 和 capacity，按原始记录计数；不包含正在写入的批次（最多 32 条）和 child queue |
+| `model_usage_dropped_records_total`、`model_usage_write_failures_total` | 被丢弃、写入失败或结果不确定的原始记录数，包含已收到的 child report；失败批次按其中的原始记录数计数，不按事务数计数；不是 billing ledger |
 | `model_usage_worker_reports_total{outcome}` | 收到 recorder 计数的 `received` attempt，以及缺少观察的 `missing` attempt；missing 不表示零丢失 |
 | `metrics_collection_failures_total` | Processing snapshot 刷新失败次数；失败时可能保留上一次 snapshot |
 
@@ -434,7 +435,8 @@ Scope 的后台处理结果尚未确认写入成功；长时间大于零可能�
 “策略阻塞”在页面中显示为“被规则阻止”。它不是 Worker 崩溃，也不是一次新的失败；它表示同一批 Source
 已经达到允许的重试或资源预算，系统停止继续调用模型。常见 `error_code` 如下：
 
-- `window_attempt_limit`：同一 Cursor 后的这批 Source 已尝试 3 次，仍未完成。请求数和 Token 预算不一定用完。
+- `window_attempt_limit`：同一 Cursor 后的这批 Source 已尝试 3 次，仍未完成。因并发 replace 或 Dream 导致
+  Topic head 冲突的尝试不计入。请求数和 Token 预算不一定用完。
 - `window_provider_budget_exceeded`：同一批 Source 已达到请求数或 Token 预算。
 - `source_complexity_limit`：该窗口的 Source 结构超过处理上限。
 
@@ -515,5 +517,7 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 重试消耗现有 Window 持久化预算；耗尽后保留待处理前沿。诊断码由现有 Worker 事件及关联字段承载。
 不得将 Source 文本、生成正文或服务商响应写入运维日志。
 
+
+LangChain 适配层范围内的 Client span 另含不携带正文的 GenAI 属性：`gen_ai.provider.name=powercontext`；上下文准备采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`，辅助调用使用有界的 `powercontext.<operation_id>` 操作名。该语义范围按任务隔离并在退出时重置，不修改全局 provider/exporter，也不改变独立 SDK 调用的遥测。详见 LangChain 集成指南。
 Rust Gateway 的调用/尝试/usage 与 HTTP 框架观测使用独立的[有界证据输出](gateway-evidence.md)，
 不新增 Python 日志字段，也不证明客户端已收到内容。

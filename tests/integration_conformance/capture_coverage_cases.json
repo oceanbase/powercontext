@@ -1,0 +1,627 @@
+{
+  "schema_version": 1,
+  "declarations": [
+    {
+      "id": "hermes-turn-text.v1-0",
+      "projection": "hermes-turn-text.v1",
+      "reasons": [],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "hermes-turn-text.v1",
+        "unit": "user_assistant_text_pair",
+        "status": "complete",
+        "reasons": []
+      }
+    },
+    {
+      "id": "hermes-turn-text.v1-1",
+      "projection": "hermes-turn-text.v1",
+      "reasons": [
+        "character_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "hermes-turn-text.v1",
+        "unit": "user_assistant_text_pair",
+        "status": "partial",
+        "reasons": [
+          "character_limit"
+        ]
+      }
+    },
+    {
+      "id": "hermes-precompress-text.v1-0",
+      "projection": "hermes-precompress-text.v1",
+      "reasons": [],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "hermes-precompress-text.v1",
+        "unit": "new_user_assistant_window",
+        "status": "complete",
+        "reasons": []
+      }
+    },
+    {
+      "id": "hermes-precompress-text.v1-1",
+      "projection": "hermes-precompress-text.v1",
+      "reasons": [
+        "character_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "hermes-precompress-text.v1",
+        "unit": "new_user_assistant_window",
+        "status": "partial",
+        "reasons": [
+          "character_limit"
+        ]
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-0",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "complete",
+        "reasons": []
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-1",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [
+        "field_byte_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "partial",
+        "reasons": [
+          "field_byte_limit"
+        ]
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-2",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [
+        "transcript_byte_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "partial",
+        "reasons": [
+          "transcript_byte_limit"
+        ]
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-3",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [
+        "transcript_byte_limit",
+        "field_byte_limit",
+        "field_byte_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "partial",
+        "reasons": [
+          "field_byte_limit",
+          "transcript_byte_limit"
+        ]
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-4",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [
+        "unmeasured_projection"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "unknown",
+        "reasons": [
+          "unmeasured_projection"
+        ]
+      }
+    },
+    {
+      "id": "gateway-turn-text.v1-5",
+      "projection": "gateway-turn-text.v1",
+      "reasons": [
+        "unmeasured_projection",
+        "field_byte_limit"
+      ],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v1",
+        "unit": "gateway_turn_projection",
+        "status": "partial",
+        "reasons": [
+          "field_byte_limit",
+          "unmeasured_projection"
+        ]
+      }
+    }
+  ],
+  "interpretations": [
+    {
+      "id": "valid-hermes-turn-text.v1-0",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": []
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "complete"
+    },
+    {
+      "id": "valid-hermes-turn-text.v1-1",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "partial",
+          "reasons": [
+            "character_limit"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "valid-hermes-precompress-text.v1-0",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-precompress-text.v1",
+          "unit": "new_user_assistant_window",
+          "status": "complete",
+          "reasons": []
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "complete"
+    },
+    {
+      "id": "valid-hermes-precompress-text.v1-1",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-precompress-text.v1",
+          "unit": "new_user_assistant_window",
+          "status": "partial",
+          "reasons": [
+            "character_limit"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-0",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "complete",
+          "reasons": []
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "complete"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-1",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "partial",
+          "reasons": [
+            "field_byte_limit"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-2",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "partial",
+          "reasons": [
+            "transcript_byte_limit"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-3",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "partial",
+          "reasons": [
+            "field_byte_limit",
+            "transcript_byte_limit"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-4",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "unknown",
+          "reasons": [
+            "unmeasured_projection"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "valid-gateway-turn-text.v1-5",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "partial",
+          "reasons": [
+            "field_byte_limit",
+            "unmeasured_projection"
+          ]
+        },
+        "prefix_extension": {
+          "handle": "synthetic-opaque"
+        }
+      },
+      "expected": "partial"
+    },
+    {
+      "id": "missing",
+      "metadata": {},
+      "expected": "unknown"
+    },
+    {
+      "id": "null-metadata",
+      "metadata": null,
+      "expected": "unknown"
+    },
+    {
+      "id": "null-declaration",
+      "metadata": {
+        "powercontext_capture_coverage": null
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "unknown-schema",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v2",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "unknown-profile",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "future.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "wrong-unit",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "gateway_turn_projection",
+          "status": "complete",
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "complete-with-loss",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": [
+            "character_limit"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "partial-without-loss",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "partial",
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "partial-only-unmeasured",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "partial",
+          "reasons": [
+            "unmeasured_projection"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "unknown-hides-loss",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "unknown",
+          "reasons": [
+            "character_limit"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "wrong-reasons-type",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": "character_limit"
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "wrong-reason-item",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": [
+            false
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "unsupported-reason",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": [
+            "other"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "duplicate-reason",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "partial",
+          "reasons": [
+            "character_limit",
+            "character_limit"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "unsorted-reasons",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "partial",
+          "reasons": [
+            "transcript_byte_limit",
+            "field_byte_limit"
+          ]
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "extra-field",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": [],
+          "extra": "synthetic"
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "oversized",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": [],
+          "extra": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "wrong-status-type",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": [],
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "wrong-profile-type",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": {},
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": []
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "missing-field",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete"
+        }
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "independent-coverage-facts",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "hermes-turn-text.v1",
+          "unit": "user_assistant_text_pair",
+          "status": "complete",
+          "reasons": []
+        },
+        "coverage": {
+          "complete": false
+        },
+        "evidence_manifest": {
+          "incomplete": true
+        },
+        "authority": "synthetic-unverified",
+        "root_independence": false
+      },
+      "expected": "complete"
+    }
+  ],
+  "budget_sample": {
+    "source_id": "synthetic-turn",
+    "content": "[user]\nUse uv.\n\n[assistant]\nUnderstood.",
+    "metadata": {
+      "kind": "hermes-turn",
+      "session_id": "synthetic-session"
+    },
+    "coverage": {
+      "schema": "powercontext.capture-coverage.v1",
+      "projection": "hermes-turn-text.v1",
+      "unit": "user_assistant_text_pair",
+      "status": "complete",
+      "reasons": []
+    }
+  }
+}

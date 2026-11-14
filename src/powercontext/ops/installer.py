@@ -94,6 +94,32 @@ class ManagedLayout:
                 Path.home() / "Library/Caches/PowerContextManaged",
                 default_data_dir(),
             )
+        if sys.platform == "linux":
+            home = Path.home()
+
+            def xdg_home(name: str, fallback: Path) -> Path:
+                value = os.environ.get(name)
+                if not value:
+                    return fallback
+                candidate = Path(value)
+                # The XDG Base Directory Specification says relative values are
+                # ignored. Keep the default layout instead of disabling Ops.
+                if not candidate.is_absolute() or ".." in candidate.parts:
+                    return fallback
+                return candidate
+
+            data = xdg_home("XDG_DATA_HOME", home / ".local/share")
+            config = xdg_home("XDG_CONFIG_HOME", home / ".config")
+            state = xdg_home("XDG_STATE_HOME", home / ".local/state")
+            cache = xdg_home("XDG_CACHE_HOME", home / ".cache")
+            root = data / "PowerContextManaged"
+            return cls(
+                root / "programs",
+                config / "PowerContextManaged",
+                state / "PowerContextManaged",
+                cache / "PowerContextManaged",
+                data / "powercontext",
+            )
         raise OpsError("unsupported_platform")
 
     def as_dict(self) -> dict[str, str]:

@@ -85,7 +85,7 @@ export function Diagnostics({
   }
   const code = typeof error === "string" ? error : null;
   return (
-    <section className="card stack">
+    <section id="local-diagnostics" className="card stack">
       {serviceOnly ? (
         <h2>{zh ? "登记的本机 CLI" : "Registered local CLI"}</h2>
       ) : (

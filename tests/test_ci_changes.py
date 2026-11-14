@@ -43,11 +43,13 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/native/test_installation.py"], {"tests", "native", "packaging"}),
         (["tests/native/test_install_sources.py"], {"tests", "native", "packaging"}),
         (["tests/e2e/test_blog_site.py"], {"website", "tests"}),
-        (["AGENTS.md", "CONTRIBUTING.md"], set()),
+        (["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"], set()),
         (["deploy/helm/powercontext/templates/deployments.yaml"], {"helm"}),
         (["deploy/helm/powercontext/README.md"], {"helm"}),
         (["tests/test_helm_chart.py"], {"tests", "helm"}),
         (["tests/e2e/helm_probe.py"], {"tests", "helm"}),
+        (["integrations/langchain/src/powercontext_langchain/middleware.py"], {"tests", "packaging", "observability"}),
+        (["tests/langchain_middleware/test_default_langfuse_tracing.py"], {"tests", "observability"}),
         (["integrations/pi/plugins/powercontext/index.ts"], {"tests", "pi", "zcode"}),
         (["integrations/kimi-code/plugins/powercontext/skills/context/SKILL.md"], {"tests", "kimi"}),
         (["evaluation/coding/work_continuity/run.py"], {"evaluation"}),
@@ -62,12 +64,39 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["scripts/generate_js_operations.py"], {"tests", "dsh", "cindy"}),
         (["tests/builtin/persistence/test_mysql_schema.py"], {"tests", "database", "upgrade", "candidate_replay"}),
         (["tests/native/test_personal_service_lifecycle.py"], {"tests", "native"}),
-        (["e2e/bub/compose.yaml"], {"harness"}),
+        (["e2e/bub/compose.yaml"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/compose.oceanbase.yaml"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/run.sh"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/scenarios/new.json"], {"harness"}),
+        (["tests/e2e/test_runtime_server.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_server_metrics_oceanbase.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_portable_archive.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_atomic_memory_read_snapshot.py"], {"tests", "database", "oceanbase_acceptance"}),
+        (["tests/builtin/runtime/test_recall_sufficiency.py"], {"tests"}),
+        (["tests/builtin/runtime/test_statistics.py"], {"tests"}),
+        (["tests/builtin/runtime/test_prepared_context.py"], {"tests"}),
+        (["tests/builtin/runtime/test_model_usage_recorder.py"], {"tests", "observability"}),
+        (["tests/e2e/test_recall_sufficiency_gate.py"], {"tests"}),
+        (["tests/e2e/test_context_text_assembly.py"], {"tests"}),
+        (["tests/builtin/runtime/test_recall_new_backend.py"], {"tests", "database"}),
+        (
+            ["tests/builtin/runtime/test_recall_sufficiency.py", "tests/builtin/runtime/test_recall_new_backend.py"],
+            {"tests", "database"},
+        ),
         (["scripts/scan_e2e_evidence.sh"], {"tests", "harness"}),
         (["scripts/run_atomic_memory_clean_migration.py"], {"tests", "database", "upgrade"}),
         (["scripts/check_atomic_memory_migration_shards.py"], {"tests", "database"}),
+        ([".github/oceanbase-migration-durations.json"], {"tests", "database"}),
+        (
+            ["scripts/oceanbase_ci.py"],
+            {"tests", "database", "harness", "oceanbase_acceptance", "upgrade", "candidate_replay", "release_schema"},
+        ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
-        (["scripts/generate_integration_lifecycle.py"], {"tests", "hermes"}),
+        (
+            ["scripts/generate_integration_lifecycle.py"],
+            {"tests", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"},
+        ),
+        (["integrations/lifecycle/transport.ts"], {"tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
@@ -85,7 +114,7 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/test_ops_resources.py"], {"tests", "managed_resources"}),
         (
             [".github/actions/cache-pnpm/action.yml"],
-            {"tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"},
+            {"tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"},
         ),
         ([".github/workflows/native-service.yml"], {"native"}),
         ([".github/workflows/kimi-code-acceptance.yml"], {"kimi"}),
@@ -145,7 +174,7 @@ def test_shared_or_unclassified_changes_run_every_suite(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "src/powercontext/server/authz/owner_recovery.py",
+        "src/powercontext/builtin/authz/owner_recovery.py",
         "src/powercontext/builtin/persistence/mysql.py",
         "uv.lock",
         "pyproject.toml",
@@ -165,9 +194,11 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "zcode",
         "cindy",
         "managed_resources",
+        "harness",
+        "oceanbase_acceptance",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
-    assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
+    assert selected["seekdb_lock"] is (path != "src/powercontext/builtin/authz/owner_recovery.py")
 
 
 def git(repository: Path, *arguments: str) -> str:
@@ -224,8 +255,11 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
 @pytest.mark.parametrize(
     ("path", "required_jobs"),
     [
-        ("scripts/run_atomic_memory_clean_migration.py", {"seekdb-managed-startup", "upgrade-acceptance"}),
-        (".github/actions/cache-pnpm/action.yml", {"tests", "windows-unit-portability", "cindy-package"}),
+        ("scripts/run_atomic_memory_clean_migration.py", {"upgrade-acceptance"}),
+        (
+            ".github/actions/cache-pnpm/action.yml",
+            {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
+        ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
@@ -248,7 +282,14 @@ def test_changed_shared_input_requires_its_consumers_in_result_gate(repository, 
         ("evaluation/performance/input_encoding/semantic_cases.json", {"tests", "evaluation"}),
         ("integrations/pi/plugins/powercontext/package.json", {"tests", "pi", "zcode"}),
         ("tests/e2e/test_cross_host_work_continuity.py", {"tests", "zcode"}),
-        ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode"}),
+        ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode", "pi"}),
+        ("tests/e2e/zcode_acceptance/protocol.py", {"tests", "zcode", "pi", "opencode", "codex"}),
+        ("tests/e2e/zcode_acceptance/runner.py", {"tests", "zcode", "pi", "opencode", "codex"}),
+        ("tests/e2e/test_pi_service_chain.py", {"tests", "pi"}),
+        ("tests/e2e/test_opencode_service_chain.py", {"tests", "opencode"}),
+        ("tests/e2e/test_codex_host_service_chain.py", {"tests", "codex"}),
+        ("tests/e2e/host_models/responses.py", {"tests", "codex"}),
+        ("integrations/codex/plugins/powercontext/hooks/recall.py", {"tests", "codex"}),
         ("tests/e2e/cross_host_work_continuity/fixtures/task.py", {"tests", "zcode"}),
     ],
 )
@@ -269,7 +310,41 @@ def test_harness_workflow_change_selects_acceptance_and_database_suites(reposito
 
     selected = run_selector(repository, "pull_request", base, head)
 
-    assert {suite for suite, enabled in selected.items() if enabled} == {"harness", "database"}
+    assert {suite for suite, enabled in selected.items() if enabled} == {"harness"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/e2e/atomic_memory_migration_backend.py",
+        "tests/e2e/atomic_memory_migration_fixture.py",
+        "tests/e2e/server_storage.py",
+        "tests/e2e/dream_support.py",
+        "tests/builtin/persistence/contract.py",
+        "tests/legacy_memory.py",
+    ],
+)
+def test_native_acceptance_helper_changes_keep_real_backend_coverage(path: str) -> None:
+    selected = select_suites([path], RULES)
+    assert selected["tests"]
+    assert selected["oceanbase_acceptance"]
+
+
+def test_test_only_exclusion_cannot_suppress_shared_or_full_coverage() -> None:
+    for path in ("src/powercontext/server/settings.py", "tests/conftest.py", "uv.lock", "new-component/code.py"):
+        assert select_suites(["tests/builtin/runtime/test_recall_sufficiency.py", path], RULES) == select_suites(
+            [path], RULES
+        )
+
+
+def test_native_acceptance_moves_and_deletions_preserve_coverage(repository: Path) -> None:
+    base = commit(repository, "tests/e2e/test_runtime_server.py", "tests/e2e/test_server_metrics_oceanbase.py")
+    (repository / "e2e/bub").mkdir(parents=True)
+    git(repository, "mv", "tests/e2e/test_runtime_server.py", "e2e/bub/moved.py")
+    git(repository, "rm", "tests/e2e/test_server_metrics_oceanbase.py")
+    git(repository, "commit", "-m", "Move and remove native test inputs")
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert {suite for suite, enabled in selected.items() if enabled} == {"tests", "harness"}
 
 
 def test_diff_covers_all_pr_commits_and_excludes_base_branch_changes(repository: Path) -> None:
@@ -315,25 +390,27 @@ def test_large_diff_includes_code_after_hundreds_of_docs(repository: Path) -> No
     base = git(repository, "rev-parse", "HEAD")
     head = commit(repository, *(f"docs/page-{index}.md" for index in range(350)), "src/powercontext/client.py")
     selected = run_selector(repository, "pull_request", base, head)
-    assert selected["tests"] and selected["database"] and selected["upgrade"]
+    assert selected["tests"] and selected["upgrade"]
+    assert not selected["database"]
     assert selected["desktop"] and selected["website"]
 
 
-@pytest.mark.parametrize("event", ["workflow_dispatch", "merge_group"])
+@pytest.mark.parametrize("event", ["workflow_dispatch"])
 def test_non_pr_events_run_every_suite(repository: Path, event: str) -> None:
     head = commit(repository, "docs/README.md")
     assert all(run_selector(repository, event, head, head).values())
 
 
-def test_nightly_keeps_full_acceptance_without_archive_generation_or_lock_experiments(repository: Path) -> None:
+def test_nightly_includes_schema_capture_and_short_lock_probes(repository: Path) -> None:
     head = commit(repository, "docs/README.md")
     selected = run_selector(repository, "schedule", head, head)
-    assert {suite for suite, enabled in selected.items() if not enabled} == {"release_schema", "seekdb_lock"}
+    assert all(selected.values())
 
 
 @pytest.mark.parametrize("base", ["", "not-a-commit", "0" * 40])
 def test_unavailable_diff_runs_every_suite(repository: Path, base: str) -> None:
-    assert all(run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD")).values())
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_push_uses_two_dot_range_from_the_verified_baseline(repository: Path) -> None:
@@ -352,7 +429,8 @@ def test_rewritten_push_baseline_runs_every_suite(repository: Path) -> None:
     git(repository, "checkout", "-b", "rewritten", initial)
     head = commit(repository, "docs/new.md")
 
-    assert all(run_selector(repository, "push", old_head, head).values())
+    selected = run_selector(repository, "push", old_head, head)
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_successful_push_baseline_retains_changes_from_cancelled_runs(repository: Path, monkeypatch) -> None:
@@ -400,7 +478,8 @@ def test_successful_push_baseline_retains_changes_from_cancelled_runs(repository
 
 def test_no_successful_push_baseline_runs_every_suite(repository: Path) -> None:
     head = commit(repository, "docs/new.md")
-    assert all(run_selector(repository, "push", "", head).values())
+    selected = run_selector(repository, "push", "", head)
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_successful_baseline_ignores_a_newer_success_on_rewritten_history(repository: Path, monkeypatch) -> None:
@@ -428,7 +507,31 @@ def test_selector_cli_exposes_full_matrix_and_required_jobs_on_missing_baseline(
     matrix = json.loads(outputs["test-matrix"])
     assert set(matrix["python-version"]) == {"3.11", "3.12", "3.13", "3.14"}
     assert set(matrix["suite"]) == {"unit", "e2e"}
-    assert set(json.loads(outputs["required-jobs"])) == {job for jobs in RULES["checks"].values() for job in jobs} | {
+    assert set(json.loads(outputs["required-jobs"])) == {
+        job for suite, jobs in RULES["checks"].items() if suite not in RULES["nightly_suites"] for job in jobs
+    } | {
         "quality",
         "upgrade-release-gate",
     }
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "merge_group", "schedule", "workflow_dispatch"])
+@pytest.mark.parametrize("full", [False, True])
+def test_database_execution_policy_controls_required_jobs_even_for_full_scope(repository, monkeypatch, event, full):
+    base = git(repository, "rev-parse", "HEAD")
+    head = commit(repository, ".github/workflows/master.yml")
+    monkeypatch.setenv("CI_FULL_VALIDATION", str(full).lower())
+    selected = run_selector(repository, event, base, head)
+    outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
+    required = set(json.loads(outputs["required-jobs"]))
+    native = event in {"schedule", "workflow_dispatch"}
+    assert selected["database"] is native
+    assert selected["oceanbase_acceptance"] is native
+    assert selected["harness"] and selected["upgrade"] and selected["candidate_replay"]
+    native_jobs = {"seekdb-managed-startup", "code-seekdb", "atomic-memory-clean-seekdb", "oceanbase-engine-recovery"}
+    assert required & native_jobs == (native_jobs if native else set())
+    assert {"harness-validation", "upgrade-acceptance", "candidate-replay"} <= required
+    assert ("seekdb-lock" in required) is native
+    assert "release-schema" in required
+    if not native:
+        assert "deferred to the nightly or manual run" in (repository / "summary.md").read_text()

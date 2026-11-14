@@ -45,6 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact
 from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.authz import ArtifactOwnerRelation, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
 from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndex,
@@ -94,8 +96,6 @@ from powercontext.builtin.persistence.migrations.atomic_memory_references import
     remove_legacy_collections,
     residual_issues,
 )
-from powercontext.server.authz import ArtifactOwnerRelation, PrincipalRef, ResourceRef
-from powercontext.server.authz.repository import RelationalAccessRepository
 
 MIGRATION_ID = "powercontext.memory.v1-to-atomic-memory.v1"
 DEFAULT_SNAPSHOT_BUDGET_BYTES = 256 * 1024 * 1024

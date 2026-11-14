@@ -22,6 +22,7 @@ import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { formatScopeRouting, sessionCwd } from './scope.ts'
+import { scrubSecrets } from './secrets.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
 export interface TextBlock {
@@ -119,7 +120,7 @@ async function recallContent(input: RecallInput, query: string, scopeId: string,
     if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const result = await input.client.request('prepare_context', {
       scope_id: scopeId,
-      query: boundedRecallQuery(query),
+      query: boundedRecallQuery(scrubSecrets(query, input.config.authorization)),
       max_bytes: input.config.maxBytes,
       ...(input.config.contextAssembly === undefined ? {} : { assembly: input.config.contextAssembly }),
     }, input.signal)

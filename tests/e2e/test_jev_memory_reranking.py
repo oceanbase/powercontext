@@ -22,15 +22,16 @@ from typing import cast
 from uuid import uuid4
 
 import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 from starlette.middleware import Middleware
 
 from powercontext.builtin.artifacts.memory import JevMemoryReranker, JevRerankConfig
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_runtime
 from powercontext.server.app import ServerApplication, create_app
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.middleware import AuthenticationMiddleware
 from tests.e2e.test_access_control_regressions import ADMIN, _Authentication, _grant
 from tests.e2e.test_atomic_memory_read_snapshot import database as jev_database
@@ -49,8 +50,8 @@ def test_jev_search_and_prepare_preserve_identity_authorization_and_budget(datab
         if failure == "timeout":
             await asyncio.Event().wait()
         if failure == "unavailable":
-            return httpx.Response(429)
-        return httpx.Response(
+            return httpx2.Response(429)
+        return httpx2.Response(
             200,
             json={
                 "model": "jev-1.13.0",
@@ -63,7 +64,7 @@ def test_jev_search_and_prepare_preserve_identity_authorization_and_budget(datab
         efforts.append(effort)
 
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as provider:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as provider:
             reranker = JevMemoryReranker(
                 JevRerankConfig(
                     endpoint="https://api.typesafe.ai/v1/systemone",
@@ -86,7 +87,6 @@ def test_jev_search_and_prepare_preserve_identity_authorization_and_budget(datab
                     ),
                     memory_reranker=reranker,
                     recall_effort_sink=record_effort,
-                    scheduler_path=tmp_path / "jev-scheduler.db",
                 ) as runtime,
             ):
                 assert runtime.atomic_memory is not None

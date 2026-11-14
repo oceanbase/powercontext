@@ -29,11 +29,11 @@ from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryBrowseCursor
+from powercontext.builtin.authz import AccessAction, ResourceRef
+from powercontext.builtin.authz.service import _require_allowed, access_control_for_mode
 from powercontext.builtin.runtime.models import GetTopicMemoryRequest
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.server import mapping
-from powercontext.server.authz import AccessAction, ResourceRef
-from powercontext.server.authz.service import _require_allowed, access_control_for_mode
 from powercontext.server.context import current_principal
 from powercontext.server.dashboard.errors import ReadError as ReadError
 from powercontext.server.dashboard.session import authentication_headers
@@ -63,7 +63,13 @@ class DashboardAPI:
 
     async def atomic_memory_list(self, scope, *, state, limit, cursor):
         return await self.read(
-            "/v1/atomic-memory/list", {"scope_id": scope, "states": [state], "limit": limit, "cursor": cursor}
+            "/v1/atomic-memory/list",
+            {
+                "scope_id": scope,
+                "states": [state],
+                "limit": limit,
+                "cursor": cursor,
+            },
         )
 
     async def read(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -145,11 +151,32 @@ class DashboardAPI:
         except Exception as error:
             raise ReadError.from_exception(error) from error
 
+    async def source_directory(self, scope, *, limit, cursor=None):
+        """Read the same Source collection for processing and generation evidence."""
+        if self.builtin is not None:
+            return await self.project(scope, "source_directory", limit=limit, cursor=cursor)
+        url = httpx.URL(f"/v1/scopes/{segment(scope)}/sources", params={"limit": limit})
+        return await self.read(str(url.copy_add_param("cursor", cursor) if cursor else url))
+
+    async def project(self, scope, operation, **params):
+        """Finish the same authorization and audit lifecycle for bounded built-in projections."""
+        from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+        from powercontext.server.app import _atomic_execution_context
+
+        if self.builtin is None:
+            raise ReadError(503, "operation_not_supported")
+        context = _atomic_execution_context(self.request, "dashboard_" + operation)
+        try:
+            async with deferred_decision_audit(context), self.builtin.read_snapshot(scope) as reader:
+                return await getattr(reader, operation)(context=context, **params)
+        except Exception as error:
+            raise ReadError.from_exception(error) from error
+
     async def candidates(self, payload):
         if self.builtin is None:
             return await self.read("/v1/candidates/list", payload)
         from powercontext.builtin.runtime.models import ListCandidatesRequest
-        from powercontext.server.app import _access_audit_context
+        from powercontext.server.app import _access_audit_context, _atomic_execution_context
 
         scope = payload["scope_id"]
         access = access_control_for_mode(self.app.state.access_control, mode=self.app.state.access_mode)
@@ -171,6 +198,13 @@ class DashboardAPI:
                     connection=reader.connection,
                 )
                 result = page.model_dump(mode="json")
+                titles = await reader.candidate_titles(
+                    [(item.candidate_id, item.version) for item in page.candidates],
+                    context=_atomic_execution_context(self.request, "dashboard_review_titles"),
+                )
+                for item in result["candidates"]:
+                    item["catalog_title"] = titles.get(item["candidate_id"])
+
         except Exception as error:
             raise ReadError.from_exception(error) from error
         else:
@@ -350,12 +384,11 @@ class DashboardAPI:
                 results.append(error)
         return results
 
-    async def usage(self, scope: str, period: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def statistics(self, scope: str, period: str) -> dict[str, Any]:
         try:
-            result = await self.read(
+            return await self.read(
                 "/v1/stats", {"selection": {"mode": "exact", "scope_ids": [scope]}, "period": period}
             )
-            return result["usage"], result["recall"]
         except Exception as error:
             raise ReadError.from_exception(error) from error
 

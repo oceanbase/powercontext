@@ -18,7 +18,8 @@ controlled MCP replies and a no-Skill baseline, covering ordinary coding, empty 
 candidate approval. CI verifies its pin and grader offline; live qualification requires a retained model run.
 
 SessionStart resolves Scope; resume/compact handlers can restore readonly context. The tested open-source CLI emitted
-startup/resume; `/compact` did not emit a compact event. Stop optionally processes pending Sources with a 1000 ms budget,
+startup/resume; `/compact` did not emit a compact event. Prompt and SessionStart Hooks allow 3 seconds per HTTP request
+within a shared 4-second budget and a 5-second host timeout. Stop optionally processes pending Sources with a 1000 ms budget,
 defaulting to disabled. Cursor progress, Memory creation and model reception remain separate evidence. Unknown flushes
 pause automatic retry, and runtime status exposes pending tracking. Official Windows desktop 3.14.3 also completed
 `/compact` without a compact Hook. Desktop resume emitted its Hook and readonly context; an opt-in Stop timed out

@@ -33,6 +33,19 @@ from pydantic import SecretStr
 from sqlalchemy import insert, text
 from starlette.middleware import Middleware
 
+from powercontext.builtin.authz import (
+    AccessBinding,
+    AccessBindingState,
+    AccessConflictError,
+    AccessRole,
+    ArtifactOwnerRelation,
+    MemoryEntrySelector,
+    PrincipalRef,
+    ResourceRef,
+)
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.service import ReplaceBinding
 from powercontext.builtin.persistence.atomic_memory_identity import legacy_entry_artifact_id
 from powercontext.builtin.persistence.migrations.atomic_memory_v1 import (
     apply_atomic_memory_migration,
@@ -45,21 +58,9 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, MEMORY_ENTRY_VERSIONS_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.builtin.scope.application import ScopeApplication
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import (
-    AccessBinding,
-    AccessBindingState,
-    AccessConflictError,
-    AccessRole,
-    ArtifactOwnerRelation,
-    MemoryEntrySelector,
-    PrincipalRef,
-    ResourceRef,
-)
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.repository import RelationalAccessRepository
-from powercontext.server.authz.service import ReplaceBinding
 from powercontext.server.factory import create_server_app
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, MetricsConfig, ServerSettings
@@ -82,7 +83,6 @@ def _client(migration_backend: MigrationBackend) -> TestClient:
                 mcp=McpConfig(enabled=False),
                 metrics=MetricsConfig(enabled=False),
             ),
-            scheduler_path=migration_backend.directory / "scheduler.db",
         ),
         headers={"Authorization": "Bearer migration-test-token"},
     )
@@ -301,9 +301,19 @@ def _prepare(migration_backend: MigrationBackend, **options):
         ),
         evidence_dir=migration_backend.directory / "server-migration-evidence",
     )
-    with _client(migration_backend) as client:
-        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
-    return asyncio.run(_seed_legacy(migration_backend, scope_id, **options))
+
+    async def seed():
+        # The full fresh Server schema is already prepared. Bootstrap only the
+        # fixture's Scope and administrator; HTTP startup remains in the tests
+        # that verify post-migration admission and grant replay.
+        async with (
+            migration_profile(migration_backend.config) as profile,
+            open_builtin_access_control(migration_backend.config, bootstrap_administrators=(ACTOR,)),
+        ):
+            scope = await ScopeApplication(profile.database).bootstrap_default()
+        return await _seed_legacy(migration_backend, scope.scope_id, **options)
+
+    return asyncio.run(seed())
 
 
 @pytest.mark.parametrize("revoked", [False, True])
@@ -464,7 +474,6 @@ def test_server_startup_keeps_grant_projection_current(migration_backend: Migrat
                         BuiltinConfig(
                             database=migration_backend.config, runtime=RuntimeConfig(artifact_processing_families=())
                         ),
-                        scheduler_path=migration_backend.directory / "adapter-scheduler.db",
                     )
                 )
                 authentication = StaticBearerAuthenticationProvider("migration-test-token", ACTOR)

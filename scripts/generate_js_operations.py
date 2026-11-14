@@ -31,6 +31,7 @@ GENERATED_PATHS = (
     ROOT / "integrations" / "pi" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
 )
 MCP_GENERATED_PATH = ROOT / "integrations" / "dsh" / "plugins" / "powercontext" / "src" / "mcp-operations.generated.ts"
+HANDOFF_GENERATED_PATH = MCP_GENERATED_PATH.with_name("handoff") / "http.generated.ts"
 DRIFT_MESSAGE = "Generated JS operations drifted; run 'make js-api-generate' and review the result."
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 LICENSE_HEADER = """\
@@ -109,17 +110,55 @@ def main() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
     source = render_operations_source(contract)
     mcp_source = render_mcp_operations_source()
+    handoff_source = render_handoff_schemas(contract)
     if args.check:
         current = [path.read_text(encoding="utf-8") if path.is_file() else "" for path in GENERATED_PATHS]
         if any(item.replace("\r\n", "\n") != source.replace("\r\n", "\n") for item in current):
             raise SystemExit(DRIFT_MESSAGE)
         if not MCP_GENERATED_PATH.is_file() or MCP_GENERATED_PATH.read_text(encoding="utf-8") != mcp_source:
             raise SystemExit(DRIFT_MESSAGE)
+        if not HANDOFF_GENERATED_PATH.is_file() or HANDOFF_GENERATED_PATH.read_text(encoding="utf-8") != handoff_source:
+            raise SystemExit(DRIFT_MESSAGE)
         return
     for path in GENERATED_PATHS:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source, encoding="utf-8", newline="\n")
     MCP_GENERATED_PATH.write_text(mcp_source, encoding="utf-8", newline="\n")
+    HANDOFF_GENERATED_PATH.write_text(handoff_source, encoding="utf-8", newline="\n")
+
+
+def render_handoff_schemas(doc: dict[str, Any]) -> str:
+    """Export the existing wire schemas used by the DSH delivery service."""
+
+    schemas = doc["components"]["schemas"]
+    definitions: dict[str, Any] = {}
+
+    def select(value: dict[str, Any]) -> dict[str, Any]:
+        result = {key: item for key, item in value.items() if key not in {"description", "title", "discriminator"}}
+        if "$ref" in result:
+            name = result["$ref"].rsplit("/", 1)[1]
+            result["$ref"] = name
+            if name not in definitions:
+                definitions[name] = select(schemas[name])
+        if "properties" in result:
+            result["properties"] = {key: select(item) for key, item in result["properties"].items()}
+        if "items" in result:
+            result["items"] = select(result["items"])
+        for key in ("oneOf", "allOf"):
+            if key in result:
+                result[key] = [select(item) for item in result[key]]
+        return result
+
+    for name in ("CurrentWorkHandoff", "PreparedWorkHandoff", "HandoffDraft", "CaptureContentSourceResponse"):
+        definitions[name] = select(schemas[name])
+    lines = "\n".join(
+        f"  {name}: {json.dumps(value, ensure_ascii=False, separators=(',', ':'))},"
+        for name, value in sorted(definitions.items())
+    )
+    return (
+        f"{LICENSE_HEADER}// generated from openapi/powercontext.yaml; do not edit.\n\n"
+        f"export const HANDOFF_HTTP_SCHEMAS = {{\n{lines}\n}} as const\n"
+    )
 
 
 def render_mcp_operations_source() -> str:

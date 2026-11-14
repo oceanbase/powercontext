@@ -69,7 +69,6 @@ def test_source_declarations_preserve_recall_and_consumers(migration_backend: Mi
             ))
             async with open_builtin_runtime(
                 config,
-                scheduler_path=migration_backend.directory / "consumer-scheduler.db",
                 source_registry=registry,
                 handoff_pipeline=_EchoHandoffPipeline(),
             ) as runtime:

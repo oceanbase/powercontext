@@ -47,7 +47,7 @@ def short_tmp_path() -> Iterator[Path]:
 @pytest.fixture(autouse=True)
 def isolated_artifact_family_profiles():
     """Plugin registration in one test must not change another Server's readiness."""
-    from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
+    from powercontext.builtin.authz.profiles import ARTIFACT_FAMILY_PROFILES
 
     original = dict(ARTIFACT_FAMILY_PROFILES)
     try:

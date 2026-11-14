@@ -20,7 +20,7 @@ import asyncio
 import json
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
@@ -68,8 +68,8 @@ def _model(
     )
 
 
-def _ok_response(vectors: list[list[float]], status_code: int = 0) -> httpx.Response:
-    return httpx.Response(
+def _ok_response(vectors: list[list[float]], status_code: int = 0) -> httpx2.Response:
+    return httpx2.Response(
         200,
         json={
             "vectors": vectors,
@@ -82,12 +82,12 @@ def _ok_response(vectors: list[list[float]], status_code: int = 0) -> httpx.Resp
 def test_embed_returns_validated_vectors_and_sends_native_shape() -> None:
     captured: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         captured.append(json.loads(request.content))
         return _ok_response([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             result = await model.embed(("alpha", "beta"))
             assert result.vectors == ((0.1, 0.2, 0.3), (0.4, 0.5, 0.6))
@@ -101,12 +101,12 @@ def test_embed_returns_validated_vectors_and_sends_native_shape() -> None:
 def test_embed_query_sends_query_type() -> None:
     captured: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         captured.append(json.loads(request.content))
         return _ok_response([[0.1, 0.2, 0.3]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             result = await model.embed_query(("alpha",))
             assert result.vectors == ((0.1, 0.2, 0.3),)
@@ -118,13 +118,13 @@ def test_embed_query_sends_query_type() -> None:
 def test_embed_batches_requests_without_split_size_mismatch() -> None:
     calls: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
         calls.append(body)
         return _ok_response([[0.1, 0.2, 0.3] for _ in body["texts"]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(batch_size=2, http_client=client)
             result = await model.embed(("a", "b", "c", "d", "e"))
             assert result.usage.requests == 3
@@ -134,14 +134,14 @@ def test_embed_batches_requests_without_split_size_mismatch() -> None:
 
 
 def test_embed_raises_unavailable_on_business_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         # MiniMax answers HTTP 200 with a non-zero base_resp.status_code.
-        return httpx.Response(
+        return httpx2.Response(
             200, json={"vectors": None, "base_resp": {"status_code": 2013, "status_msg": "missing texts"}}
         )
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InferenceUnavailableError) as error:
                 await model.embed(("alpha",))
@@ -152,11 +152,11 @@ def test_embed_raises_unavailable_on_business_error() -> None:
 
 
 def test_embed_raises_unavailable_on_http_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"base_resp": {"status_code": 1001}})
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401, json={"base_resp": {"status_code": 1001}})
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InferenceUnavailableError):
                 await model.embed(("alpha",))
@@ -165,11 +165,11 @@ def test_embed_raises_unavailable_on_http_error() -> None:
 
 
 def test_embed_classifies_rate_limited_http_status() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={"base_resp": {"status_code": 1002}})
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(429, json={"base_resp": {"status_code": 1002}})
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InferenceUnavailableError) as error:
                 await model.embed(("alpha",))
@@ -184,11 +184,11 @@ def test_embed_classifies_rate_limited_http_status() -> None:
 
 
 def test_embed_maps_http_timeout_to_inference_timeout() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("provider did not respond", request=request)  # noqa: TRY003
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("provider did not respond", request=request)  # noqa: TRY003
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InferenceTimeoutError):
                 await model.embed(("alpha",))
@@ -208,11 +208,11 @@ def test_default_http_client_uses_configured_timeout() -> None:
 
 
 def test_embed_raises_invalid_output_on_wrong_vector_count() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         return _ok_response([[0.1, 0.2, 0.3]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InvalidInferenceOutputError):
                 await model.embed(("alpha", "beta"))
@@ -221,11 +221,11 @@ def test_embed_raises_invalid_output_on_wrong_vector_count() -> None:
 
 
 def test_embed_raises_invalid_output_on_malformed_json() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"not-json")
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, content=b"not-json")
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InvalidInferenceOutputError):
                 await model.embed(("alpha",))
@@ -250,11 +250,11 @@ def test_embed_does_not_classify_unexpected_adapter_errors_as_unavailable() -> N
 
 
 def test_embed_raises_invalid_output_on_dimension_mismatch() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         return _ok_response([[0.1, 0.2, 0.3, 0.4]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InvalidInferenceOutputError):
                 await model.embed(("alpha",))
@@ -263,14 +263,14 @@ def test_embed_raises_invalid_output_on_dimension_mismatch() -> None:
 
 
 def test_embed_empty_returns_no_vectors() -> None:
-    captured: list[httpx.Request] = []
+    captured: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         captured.append(request)
         return _ok_response([])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             result = await model.embed(())
             assert result.vectors == ()
@@ -282,12 +282,12 @@ def test_embed_empty_returns_no_vectors() -> None:
 def test_embed_sends_configured_headers() -> None:
     captured: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         captured.append(dict(request.headers))
         return _ok_response([[0.1, 0.2, 0.3]])
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(headers={"Authorization": "Bearer secret-key"}, http_client=client)
             await model.embed(("alpha",))
 
@@ -333,11 +333,11 @@ def test_embedding_model_name_strips_provider_prefix() -> None:
     ],
 )
 def test_embed_classifies_http_status_reason(status_code, reason) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code, json={"base_resp": {"status_code": 1000}})
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(status_code, json={"base_resp": {"status_code": 1000}})
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
             model = _model(http_client=client)
             with pytest.raises(InferenceUnavailableError) as error:
                 await model.embed(("alpha",))

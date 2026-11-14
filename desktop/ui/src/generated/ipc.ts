@@ -15,7 +15,7 @@
  */
 
 // Generated from Rust IPC types. Do not edit.
-export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
+export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "integrity_failure" | "process_failure" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
 export type FoundationInfo = { version: string, phase: string, credentialBackend: string, serverConnected: boolean, };
 export type StorageChoice = "persistent" | "session_only";
 export type CredentialWriteRequest = { secret: string, storage: StorageChoice, };
@@ -31,9 +31,9 @@ export type OpsPreflightInput = { operation: OpsOperation, options: OpsOptions, 
 export type OpsApprovalInput = { approvalId: string, planId: string, };
 export type OpsStatusInput = { operationId: string, };
 export type OpsCancelInput = { operationId: string, attempt: number, };
-export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, };
+export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, operation?: OpsOperation, options?: OpsOptions, };
 export type OpsReferenceBindingStatus = "current" | "different" | "unavailable";
-export type OpsReferences = { bindingAvailable: boolean, operations: Array<OpsOperationReference>, };
+export type OpsReferences = { bindingAvailable: boolean, loginStartChoice: boolean, operations: Array<OpsOperationReference>, };
 export type OpsInspectionReply = { outcome: OpsOutcome, components?: OpsComponents, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsValidationReply = { outcome: OpsOutcome, configuration: OpsConfigurationState, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsConfigurationState = "valid" | "missing_or_invalid" | "unknown";
@@ -46,7 +46,7 @@ export type OpsInstallationClassification = "missing" | "owned_current" | "owned
 export type OpsInstallationResources = "missing" | "damaged" | "verified";
 export type OpsDatabaseClassification = "new" | "existing_unknown" | "existing_ready" | "incompatible" | "unknown";
 export type OpsComponents = { support?: OpsSupportState, registration?: OpsRegistrationState, definition?: OpsDefinitionState, managerOwnership?: OpsManagerOwnership, manager?: OpsManagerState, liveness?: OpsLivenessState, readiness?: OpsReadinessState, endpoint?: string, maintenance?: OpsMaintenancePhase, resources?: OpsRuntimeResources, configuration?: OpsConfigurationState, installationId?: string, resourceId?: string, resourceDigest?: string, database?: OpsDatabaseClassification, connectionCompatibility?: OpsConnectionCompatibility, installationStage?: OpsServicePhase, installationObservation?: OpsObservationState, };
-export type OpsProgress = { requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
+export type OpsProgress = { approvalId?: string, requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
 export type OpsOperationReply = { operationId: string, outcome: OpsOutcome, attempt?: number, exitCode?: number, error?: OpsErrorCode, bridgeError?: OpsBridgeError, status?: OpsOperationStatus, };
 export type OpsOperationStatus = { operationId: string, attempt: number, phase: OpsAttemptPhase, executor: OpsExecutor, executionState: OpsExecutionState, outcome: OpsOutcome, cancelRequested?: boolean, result?: OpsStoredResult, observation: OpsObservation, history: Array<OpsAttemptSummary>, recoveryActions: Array<OpsRecoveryAction>, };
 export type OpsExecutor = { pid?: number, observation: OpsExecutorObservation, };
@@ -127,13 +127,13 @@ export type OpsSessionObservation = { action: OpsAction,
  */
 operationId: string, attempt: number | null, phase: OpsServicePhase | null, attemptPhase: OpsAttemptPhase | null, outcome: OpsOutcome, errorCode: OpsErrorCode | null, bridgeError: OpsBridgeError | null, observedAtMs: number, };
 export type OpsSessionSummary = { capacity: number, evicted: number, droppedSinceStart: number, recent: Array<OpsSessionObservation>, };
-export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
 export type AccessControlMode = "disabled" | "enforced";
 export type AccessMeResponse = { principal: AccessPrincipal, mode: AccessControlMode, resource_kinds: Array<AccessResourceType>, provider_capabilities: AccessProviderCapabilities, artifact_families: Array<ArtifactFamilyAccessCapability>, };
 export type AccessPrincipal = { type: Type, id: string, description?: string | null, };
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
-export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
 export type ActualAdoption = "unobserved";
 export type AllScopeSelection = { mode: AllScopeSelectionMode, };
 export type AllScopeSelectionMode = "all";

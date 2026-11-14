@@ -50,6 +50,24 @@ def memory_view(response: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def artifact_destination(ctx, ref, *, scope=None, return_to=None):
+    """Link an immutable Artifact reference to its existing family reader."""
+    family = ref["family"]
+    params = {"scope": scope or ctx["scope"], "lang": ctx["language"]}
+    if return_to:
+        params["return_to"] = return_to
+    if family == "topic-memory":
+        return ctx["link"]("topics", topic_artifact=ref["artifact_id"], topic_revision=ref["revision"], **params)
+    if family == "profile":
+        return ctx["link"]("profile", revision=ref["revision"], **params)
+    if family == "prompt":
+        return ctx["link"]("prompts", prompt_key=ref["artifact_id"], prompt_revision=ref["revision"], **params)
+    page = {"atomic-memory": "notes", "experience": "experience", "skill": "skill", "handoff": "handoff-detail"}.get(
+        family
+    )
+    return ctx["link"](page, artifact=ref["artifact_id"], revision=ref["revision"], **params) if page else None
+
+
 def usage_view(usage: dict[str, Any], recall: dict[str, Any]) -> dict[str, Any]:
     """Keep reported totals authoritative and separate missing estimates from inactivity."""
     totals = recall["totals"]

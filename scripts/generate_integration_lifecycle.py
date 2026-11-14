@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Write the copies of the integration lifecycle helpers that copy-installed Python plugins ship."""
+"""Write the copies of the integration lifecycle helpers that plugins ship.
+
+Copy-installed Python plugins get the Python helpers. TypeScript host plugins get the TypeScript helpers, which their
+bundlers inline or, for Pi, which the host loads as source.
+"""
 
 from __future__ import annotations
 
@@ -23,11 +27,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "powercontext_integration_lifecycle"
+TYPESCRIPT_SOURCE = ROOT / "integrations" / "lifecycle"
 PLUGINS = "integrations/*/plugins/*"
 _CLAUDE_CODE = "integrations/claude-code/plugins/powercontext"
 _CODEX = "integrations/codex/plugins/powercontext"
 _HERMES = "integrations/hermes/plugins/powercontext"
 _WORKBUDDY = "integrations/workbuddy/plugins/powercontext"
+_DSH = "integrations/dsh/plugins/powercontext"
+_OPENCLAW = "integrations/openclaw/plugins/memory-powercontext"
+_OPENCODE = "integrations/opencode/plugins/powercontext"
+_PI = "integrations/pi/plugins/powercontext"
 # Each copy stays where its host's hooks and installer already expect it.
 COPIES = {
     "client_config.py": (
@@ -51,33 +60,65 @@ COPIES = {
         f"{_CODEX}/hooks/bootstrap_context.py",
     ),
 }
+# A copy keeps the path its plugin imports, so bundled output still names the same module.
+TYPESCRIPT_COPIES = {
+    "transport.ts": (
+        f"{_DSH}/src/transport.ts",
+        f"{_OPENCLAW}/src/transport.ts",
+        f"{_OPENCODE}/src/transport.ts",
+        f"{_PI}/src/transport.ts",
+    ),
+}
 DRIFT_MESSAGE = (
-    "Generated integration lifecycle helpers drifted; edit src/powercontext_integration_lifecycle/, "
-    "run 'make integration-lifecycle', and review the result."
+    "Generated integration lifecycle helpers drifted; edit src/powercontext_integration_lifecycle/ or "
+    "integrations/lifecycle/, run 'make integration-lifecycle', and review the result."
 )
 UNLISTED_MESSAGE = (
-    "Plugin files share a name with a generated integration lifecycle helper; add each copy to COPIES in "
-    "scripts/generate_integration_lifecycle.py, or rename or delete the file."
+    "Plugin files share a name with a generated integration lifecycle helper; add each copy to COPIES or "
+    "TYPESCRIPT_COPIES in scripts/generate_integration_lifecycle.py, or rename or delete the file."
 )
 
 
-def render(module: str) -> str:
+def render(source: Path) -> str:
     """Return a plugin's copy of one helper, marked as generated below its license header."""
 
-    source = SOURCE / module
     lines = source.read_text(encoding="utf-8").splitlines(keepends=True)
-    header = next((index for index, line in enumerate(lines) if not line.startswith("#")), len(lines))
+    if source.suffix == ".py":
+        comment = "#"
+        header = next((index for index, line in enumerate(lines) if not line.startswith("#")), len(lines))
+    elif source.suffix in {".ts", ".mjs"}:
+        # The JavaScript and TypeScript license header is one leading block comment.
+        comment = "//"
+        header = 0
+        if lines and lines[0].startswith("/*"):
+            end = next((index for index, line in enumerate(lines) if line.rstrip().endswith("*/")), None)
+            if end is None:
+                raise SystemExit(f"{source.relative_to(ROOT)}: no license header line ends with '*/'")  # noqa: TRY003
+            header = end + 1
+    else:
+        raise SystemExit(f"{source.relative_to(ROOT)}: no generated-file marker for this file type")  # noqa: TRY003
     marker = (
-        f"# Generated from {source.relative_to(ROOT).as_posix()}; do not edit.\n"
-        "# Edit the source and run `make integration-lifecycle` instead.\n"
+        f"{comment} Generated from {source.relative_to(ROOT).as_posix()}; do not edit.\n"
+        f"{comment} Edit the source and run `make integration-lifecycle` instead.\n"
     )
     return "".join([*lines[:header], "\n" if header else "", marker, *lines[header:]])
 
 
-def unlisted_copies() -> list[Path]:
-    """Return committable plugin files named like a generated copy that no entry in COPIES writes."""
+def expected_copies() -> dict[Path, str]:
+    """Return every copy the generator writes, keyed by its path."""
 
-    listed = {ROOT / target for targets in COPIES.values() for target in targets}
+    tables = ((SOURCE, COPIES), (TYPESCRIPT_SOURCE, TYPESCRIPT_COPIES))
+    return {
+        ROOT / target: render(source / module)
+        for source, copies in tables
+        for module, targets in copies.items()
+        for target in targets
+    }
+
+
+def unlisted_copies(listed: set[Path]) -> list[Path]:
+    """Return committable plugin files named like a generated copy that the generator does not write."""
+
     pathspecs = sorted({f":(glob){PLUGINS}/**/{path.name}" for path in listed})
     # Git leaves out ignored build output and installed dependencies, which are not plugin sources.
     # Git writes its own errors, such as a missing checkout, to the terminal.
@@ -96,7 +137,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Fail when a copy is missing, stale, or kept by hand.")
     args = parser.parse_args()
-    expected = {ROOT / target: render(module) for module, targets in COPIES.items() for target in targets}
+    expected = expected_copies()
     if args.check:
         stale = []
         for path, text in expected.items():
@@ -104,7 +145,7 @@ def main() -> None:
                 stale.append(f"  {path.relative_to(ROOT)} is missing")
             elif path.read_text(encoding="utf-8") != text:
                 stale.append(f"  {path.relative_to(ROOT)} has drifted")
-        unlisted = [f"  {path.relative_to(ROOT)}" for path in unlisted_copies()]
+        unlisted = [f"  {path.relative_to(ROOT)}" for path in unlisted_copies(set(expected))]
         problems = []
         if stale:
             problems += [DRIFT_MESSAGE, *stale]

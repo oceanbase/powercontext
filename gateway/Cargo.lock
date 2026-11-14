@@ -638,6 +638,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "pc-gateway-core",
  "pc-gateway-evidence",
  "pc-gateway-protocol",
@@ -646,6 +647,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "signal-hook-registry",
  "subtle",
  "tokio",
  "tower",
@@ -657,7 +659,9 @@ dependencies = [
 name = "pc-gateway-core"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "bytes",
+ "hyper",
  "pc-gateway-evidence",
  "pc-gateway-protocol",
  "pc-gateway-transport",

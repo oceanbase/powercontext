@@ -54,9 +54,10 @@ builtin = [
     "cryptography>=46,<51",
     "filelock>=3.16,<4",
     "httpx>=0.28,<1",
+    "httpx2>=2.7,<3",
     "jieba==0.42.1",
     "packaging>=24,<27",
-    "pydantic-ai-slim[anthropic,openai]>=2.27.1,<3",
+    "pydantic-ai-slim[anthropic,openai]>=2.64.0,<3",
     "pydantic-settings>=2.7,<3",
     "pyyaml>=6,<7",
     "pycasbin>=2.8,<3",
@@ -120,7 +121,7 @@ powercontext = "powercontext.cli.app:main"
 powercontext-ops = "powercontext.ops.__main__:main"
 
 [project.entry-points."powercontext.cli"]
-code = "powercontext.builtin.code.cli:app"
+code = "powercontext.cli.code:app"
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
 observability = "powercontext.observability.cli:app"
@@ -135,6 +136,8 @@ Repository = "https://github.com/oceanbase/powercontext"
 Documentation = "https://powercontext.oceanbase.io/en/docs/"
 
 [dependency-groups]
+# Optional consumer regression dependencies; never installed by the adapter itself.
+tracing-tests = ["langfuse==5.0.2", "powercontext[tracing-otlp]"]
 # Producer/consumer checks import Ops settings and models, without installing
 # Server transports or cryptography before the pinned native builder runs.
 resource-build = [
@@ -144,6 +147,7 @@ resource-build = [
     "click>=8.1,<9",
     "filelock>=3.16,<4",
     "httpx>=0.28,<1",
+    "httpx2>=2.7,<3",
     "jsonschema>=4.23,<5",
     "opentelemetry-api>=1.30,<2",
     "opentelemetry-sdk>=1.30,<2",
@@ -222,6 +226,7 @@ extra-paths = [
     "./scripts",
     "./deploy/observability",
     "./desktop/tests",
+    "./deploy/observability",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",

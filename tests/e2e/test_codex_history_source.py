@@ -227,3 +227,75 @@ async def _redact(directory):
             assert secret not in source.model_dump_json()
             assert "[REDACTED]" in source.model_dump_json()
             await ctx.close()
+
+
+@pytest.mark.parametrize("conflict", [True, False])
+def test_rejected_prompts_remain_visible_without_blocking_later_history(tmp_path, conflict):
+    asyncio.run(_rejected_prompts(tmp_path, conflict))
+
+
+async def _rejected_prompts(directory, conflict):
+    from powercontext.sources import ConnectorSubmissionStatus
+
+    home = directory / "codex"
+    credential = "synthetic-history-secret-for-conflict"
+    text = f"credential {credential}" if conflict else '{"schema":"powercontext.handoff-receipt.v1"}'
+    path = write_session(home, content=text)
+    (home / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": credential}))
+    with path.open("a") as stream:
+        # A repeated rejected item must not claim one session item twice.
+        stream.write(
+            json.dumps({
+                "type": "response_item",
+                "payload": {"type": "message", "role": "user", "content": text, "turn_id": "turn-a"},
+            })
+            + "\n"
+        )
+        stream.write(
+            json.dumps({
+                "type": "response_item",
+                "payload": {"type": "message", "role": "user", "content": "later ordinary prompt", "turn_id": "turn-b"},
+            })
+            + "\n"
+        )
+    async with running_server(directory) as (admin, url, _):
+        scope = await create_scope(admin, "rejected-history")
+        await grant(admin, scope, "deployer")
+        original_id = (
+            "codex-user-prompt:" + sha256("\0".join((scope, "session-a", "turn-a", text)).encode()).hexdigest()
+        )
+        async with PowerContextClient(url, token=TOKENS["deployer"], allow_insecure_http=True) as client:
+            if conflict:
+                await client.capture_content_source(
+                    CaptureContentSourceRequest(
+                        scope_id=scope,
+                        source_id=original_id,
+                        content=text,
+                        metadata={
+                            "origin": "codex",
+                            "event": "user_prompt_submit",
+                            "cwd": "/project",
+                            "session_id": "session-a",
+                            "turn_id": "turn-a",
+                        },
+                    )
+                )
+            selected = target(scope)
+            ctx = await context(client, home, selected)
+            for _poll in range(2):
+                result = await ctx.run_batch(scope_id=scope, targets=(selected,))
+                assert result.status == ConnectorRunStatus.INCOMPLETE
+                assert result.committed_checkpoint is None
+                rejected, accepted = result.items
+                assert rejected.item_id == original_id
+                assert rejected.status == ConnectorSubmissionStatus.REJECTED
+                assert rejected.detail == ("source_conflict" if conflict else "invalid_source_ingestion")
+                assert accepted.status == ConnectorSubmissionStatus.ACCEPTED
+                assert (
+                    await client.get_source(scope, "content", accepted.source_ref.source_id)
+                ).content == "later ordinary prompt"
+            if conflict:
+                assert (await client.get_source(scope, "content", original_id)).content == text
+            rows = (await admin.get(f"/v1/scopes/{scope}/sources")).json()["items"]
+            assert len(rows) == (2 if conflict else 1)
+            await ctx.close()

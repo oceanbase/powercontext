@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from powercontext.client.capture import known_secret_values, redact_known_secrets
+from powercontext.redaction import known_secret_values, redact_known_secrets
 
 from .definition import MemoryCapture
 
@@ -75,8 +75,9 @@ class MemoryInput(BaseModel):
 class MemoryFileError(ValueError):
     """A bounded reason; never carries file contents or external error text."""
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, *, bytes_read: int = 0):
         self.reason = reason
+        self.bytes_read = bytes_read
         super().__init__(reason)
 
 
@@ -151,29 +152,43 @@ def _open_directory(root: Path, path: Path) -> int:
     return directory
 
 
-def _read(root: Path, path: Path, limit: int) -> bytes:
+def _read(root: Path, path: Path, file_limit: int, budget: int) -> bytes:
     directory = _open_directory(root, path.parent)
     try:
         descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-        with os.fdopen(descriptor, "rb") as stream:
-            before = os.fstat(stream.fileno())
+    finally:
+        os.close(directory)
+    raw = bytearray()
+    limit = min(file_limit, budget)
+    try:
+        try:
+            before = os.fstat(descriptor)
             if not stat.S_ISREG(before.st_mode):
                 raise MemoryFileError("not_regular_file")
-            if before.st_size > limit:
+            if before.st_size > file_limit:
                 raise MemoryFileError("file_too_large")
-            raw = stream.read(limit + 1)
-            after = os.fstat(stream.fileno())
+            if before.st_size > budget:
+                raise MemoryFileError("read_budget_exhausted")
+            while len(raw) <= limit:
+                chunk = os.read(descriptor, min(65_536, limit + 1 - len(raw)))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+            after = os.fstat(descriptor)
             if len(raw) > limit:
-                raise MemoryFileError("file_too_large")
+                reason = "file_too_large" if limit == file_limit else "read_budget_exhausted"
+                raise MemoryFileError(reason, bytes_read=len(raw))
             if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size,
                 after.st_mtime_ns,
                 after.st_ctime_ns,
             ):
-                raise MemoryFileError("file_changed_during_read")
-            return raw
+                raise MemoryFileError("file_changed_during_read", bytes_read=len(raw))
+            return bytes(raw)
+        except OSError:
+            raise MemoryFileError("unreadable_file", bytes_read=len(raw)) from None
     finally:
-        os.close(directory)
+        os.close(descriptor)
 
 
 def scan(config: Config, value: MemoryInput) -> MemoryScan:
@@ -191,15 +206,13 @@ def scan(config: Config, value: MemoryInput) -> MemoryScan:
     total = 0
     for path in paths:
         relative = path.relative_to(root).as_posix()
-        read_limit = min(config.max_file_bytes, config.max_total_bytes - total)
         try:
-            raw = _read(root, path, read_limit)
+            raw = _read(root, path, config.max_file_bytes, max(0, config.max_total_bytes - total))
         except MemoryFileError as error:
-            total += read_limit
+            total += error.bytes_read
             failures.append((relative, error.reason))
             continue
         except OSError:
-            total += read_limit
             failures.append((relative, "unreadable_file"))
             continue
         total += len(raw)

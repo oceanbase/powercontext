@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.5.0 and run the local Server.
+description: Install PowerContext 1.5.1 and run the local Server.
 ---
 
 # Install and run
@@ -82,15 +82,15 @@ To install an integration with the package, pass `--host codex` to the installer
 
 ## Installer version selection
 
-The default `--version latest` installs or upgrades to the newest compatible stable release on the selected index. To install PowerContext 1.5.0, choose the command for your platform:
+The default `--version latest` installs or upgrades to the newest compatible stable release on the selected index. To install PowerContext 1.5.1, choose the command for your platform:
 
 ```bash tab="macOS / Linux"
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.0
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.1
 ```
 
 ```powershell tab="Windows"
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.0
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.1
 ```
 
 You can also request an explicit prerelease, such as `1.3.0rc1`. If the selected index lacks that version, installation fails and preserves the installed tool. `latest` excludes prereleases. A mirror may lag PyPI, so its latest available release may differ.
@@ -144,11 +144,11 @@ If you already manage Python and uv, you can install a fixed release directly. C
 
 ### Choose a version
 
-These instructions use PowerContext 1.5.0. Keep the package and Agent integration on the same version: package `1.5.0` and Git tag `powercontext-v1.5.0`.
+These instructions use PowerContext 1.5.1. Keep the package and Agent integration on the same version: package `1.5.1` and Git tag `powercontext-v1.5.1`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
-powercontext setup codex --ref powercontext-v1.5.0
+uv tool install --force "powercontext[cli,server]==1.5.1"
+powercontext setup codex --ref powercontext-v1.5.1
 ```
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status. Capabilities marked `experimental` remain experimental in this release.
@@ -158,13 +158,13 @@ Check the [capability matrix](../integrations/capabilities.md) for host support 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 ```
 
 For a source installation of the same version:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.0"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.1"
 ```
 
 For a machine that only connects to a remote Server, the `cli` extra includes `setup`, `doctor`, and remote content commands. Add `server` to run a local Server or use the `service` commands. If a command provider has a missing dependency, the CLI reports the provider and missing module so the installation can be repaired.
@@ -222,7 +222,7 @@ This minimal launch does not enable model-backed extraction or vector search. To
 Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.5.0"
+uv tool install --force "powercontext[cli,server,seekdb]==1.5.1"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit SQLAlchemy database URL is not valid for seekDB. Then select the backend and start the Server:
@@ -287,6 +287,15 @@ CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
 
 For the full Server, follow [database migrations](../operate/database-migrations.md) to plan, apply, and verify the registered Server bundle with an explicit evidence directory and coordination mode. Start `powercontext server run` only after the database is ready. Server startup checks readiness and does not initialize OceanBase schemas or automatically migrate existing databases. SDK callers can retry initialization using the same URL after provisioning. Creating missing tables requires table-creation privileges; an existing fully initialized database does not acquire a new database-creation privilege requirement. Initialization never drops or recreates an existing database, never switches to another database after a failure, and does not authorize schema upgrades. Concurrent creation uses idempotent database/table DDL and handles duplicate-index creation races. This does not provide coordination for existing-schema migrations or change embedded seekDB's process-ownership restrictions.
 
+### Standalone seekdb server
+
+A standalone seekdb server uses this same `oceanbase` kind and `mysql+aoceanbase://` URL format; it is not a new
+storage kind. Maintenance recognizes it when `ob_compatibility_mode` is missing or empty and `VERSION()` contains
+`-OceanBase seekdb-`. No `pylibseekdb` installation or local engine path is needed. The selected database must
+already exist: PowerContext does not create it, does not enable embedded seekDB Code storage, and does not start
+`powercontext server run` until the explicit `db-migrate` commands with `--evidence-dir <path>` and
+`--lock-coordination single-host` report the database ready.
+
 For Python callers, `OceanBaseProfile.open()` resolves an omitted URL database and provisions it when necessary. `OceanBaseProfile.open_existing()` connects only to an already provisioned database, and `attach()` requires a caller-owned engine that already selects an existing database; neither replaces that engine or provisions a different connection target. Read-only inspection (`plan`, `verify`, and the `db-migrate` inspection commands) never creates a missing OceanBase or embedded seekDB database; explicit writable seekDB maintenance can provision its configured database before applying its bundle.
 
 Read-only seekDB inspection requires an initialized instance directory. A missing or empty path is rejected before starting the native engine, without creating parent directories or storage files. A file or a nonempty directory without recognized native storage is also rejected without changing its contents. Ordinary startup still initializes new instances.
@@ -306,7 +315,7 @@ For a long-running process, Docker, authentication, or remote access, continue w
 ## Update or replace an installation
 
 <!-- upgrade-support:start -->
-Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance on SQLite, seekDB and OceanBase. These migration paths are not yet verified; do not upgrade existing databases.
+Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance.
 <!-- upgrade-support:end -->
 
 Keep existing deployments on their working version until their source version and backend have an accepted upgrade path. To evaluate a fresh installation, use a separate program environment, database location, and port. Replacing the installed package does not migrate its database. Backups do not make an unsupported migration supported.
@@ -323,11 +332,11 @@ release or Git ref before resuming capability reads. This endpoint does not nego
 disabling protection does not restore compatibility. This client requirement is additional to the database upgrade
 gates above.
 
-To install 1.5.0 in a separate environment for a fresh deployment:
+To install 1.5.1 in a separate environment for a fresh deployment:
 
 ```bash
 uv venv /path/to/powercontext-preview
-uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.0"
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.1"
 ```
 
 To install another Git ref in the separate environment:
@@ -343,7 +352,7 @@ Use the matching ref for clients and Agent integrations connected to the fresh d
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.5.0"
+uv add "powercontext[client]==1.5.1"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for the Server-backed command line. An extra that is only present in the isolated `uv tool` environment is not importable by an unrelated Python project.

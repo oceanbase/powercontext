@@ -296,7 +296,7 @@ an output allowance. Core's response configuration, content checks and the JSON/
 own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling
 is a separate direction and is not model-body capacity.
 
-A response buffer overflow discards the response and returns HTTP 409 with `response_buffer_limit_exceeded`.
+A response buffer overflow discards the response and returns HTTP 400 with `response_buffer_limit_exceeded`.
 No provider content is released and the call is not retried. The execution observation retains `PossiblySent`
 and a `Withheld` terminal: the provider may already have charged for the call. This is not proof of a complete
 response or of zero cost. This observation is process-local; this stage does not export a readable call record
@@ -307,8 +307,23 @@ Smaller, completely received responses still pass `before_release` before releas
 Transparent Core/MCP forwarding retains the deployment body limit rather than consuming the model input allowance.
 `PC_GATEWAY_MAX_CONCURRENT` (default 64) applies independently to model calls and fallback calls, so an active
 fallback SSE connection cannot exhaust the model semaphore. The combined ceiling is therefore up to twice the
-configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling. Each permit stays attached to the response body
-until drop; `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
+configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling.
+Model permits stay with the actual HTTP/1 connection owner through local response delivery and the end of
+related request work, including writes still buffered after body EOF/drop. Model responses declare
+`Connection: close`; normal connection completion establishes local completion, without proving client receipt.
+The original 180-second monotonic deadline covers intake, execution, and local delivery. Expiration ends the
+connection without an extra delivery/cleanup window; a response may be truncated and error JSON is best effort.
+Framework-observed disconnects stop local work with `request_cancelled`; unobserved network loss is bounded by
+the deadline. A delivery interruption preserves completed execution and model-send facts, including
+`ReleaseAuthorized` and `ResponseReceived`. Cancellation does not prove provider rollback or safe resend.
+The process-local `ExecutionSnapshot::local_delivery` reports model content delivery as `NotStarted`, `InProgress`,
+`Completed`, or `Interrupted(reason)`; rejection and lifecycle-error responses do not start model content delivery.
+It is independent of the execution terminal and does not retain response bytes or permits.
+Fallback permits remain attached to their response body until drop. Fallback retains authentication,
+keep-alive and streaming behavior without the model deadline or forced connection closure. Provider sends and HTTP
+Core RPCs use fresh HTTP/1 connections with idle pooling disabled; the UDS Core client retains its bounded idle pool.
+Gateway shutdown allows up to 25 seconds to drain and bounds process exit to 30 seconds from the first shutdown signal.
+`/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
 returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached
 Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not
 buffer an entire MCP stream to force a uniform error status.

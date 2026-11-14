@@ -46,5 +46,28 @@ jobs:
         run: cargo fmt --manifest-path gateway/Cargo.toml --all --check
       - name: Clippy
         run: cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
+      - name: Install Python Core for mandatory UDS recovery acceptance
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
       - name: Tests
         run: cargo test --locked --manifest-path gateway/Cargo.toml --workspace
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: gateway/tck/upstreams.json
+      - name: Upstream protocol compatibility suites
+        run: |
+          npm ci --prefix gateway/tck --no-audit --no-fund
+          cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+          python3 tests/e2e/gateway_tck.py
+      - name: Upload protocol test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gateway-tck
+          path: .artifacts/gateway-tck
+          if-no-files-found: ignore

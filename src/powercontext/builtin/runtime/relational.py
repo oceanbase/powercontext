@@ -168,12 +168,18 @@ from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingBindingStateRepository,
     ArtifactProcessingLeaseRepository,
 )
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.builtin.persistence.tags import RelationalTagService
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
 from powercontext.builtin.portability import PortableBundleService
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -230,6 +236,7 @@ from powercontext.builtin.sources import (
     SourceJournalEntry,
     validate_scope_id,
 )
+from powercontext.builtin.sources.content import is_handoff_receipt_content
 from powercontext.builtin.sources.observation_validation import (
     validate_source_definition_manifest,
     validate_source_observation,
@@ -930,6 +937,8 @@ class RelationalContexts:
                 "content": observation.payload["content"],
                 "metadata": observation.payload.get("metadata", {}),
             })
+            if is_handoff_receipt_content(capture.content):
+                raise InvalidSourceObservationError("content", "uses a server-reserved handoff receipt schema")
             source = await CONTENT_SOURCE_DEFINITION.resolve(capture)
             canonical = project_source_for_transport(SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,)), source)
             if canonical != observation or capture.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND:
@@ -1100,7 +1109,7 @@ class RelationalContexts:
         scope = validate_scope_id(scope_id)
         access = None if execution_context is None else execution_context.access
         if execution_context is not None and access is None and not execution_context.trusted_local:
-            from powercontext.server.authz import AccessDeniedError
+            from powercontext.builtin.authz import AccessDeniedError
 
             raise AccessDeniedError
         audit = nullcontext() if access is None else access.defer_decision_audit()
@@ -1415,23 +1424,6 @@ class RelationalContexts:
             reason=reason,
             on_commit=on_commit,
         )
-
-    async def scope_ids(self) -> tuple[str, ...]:
-        """Return scopes with a Source journal, in deterministic order."""
-
-        async with self.database.transaction() as connection:
-            values = (
-                await connection.execute(
-                    select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id).order_by(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id)
-                )
-            ).scalars()
-            return tuple(str(value) for value in values)
-
-    async def unconsumed_source_scope_ids(self) -> tuple[str, ...]:
-        """Return built-in Source windows that still have journal input."""
-
-        async with self.database.transaction() as connection:
-            return await self.repositories.cursors.unconsumed_scope_ids(connection, SOURCE_WINDOW_TRIGGER_NAME)
 
     async def handoff_scope_ids(self) -> tuple[str, ...]:
         """Return scopes with a committed Handoff head, in deterministic order."""
@@ -1995,9 +1987,17 @@ def _validate_experience_plans(
 ) -> None:
     available = {(row.ref.source_type, row.ref.source_id) for row in rows}
     if any((source.source_type, source.source_id) not in available for plan in plans for source in plan.sources):
-        raise InvalidInferenceOutputError(
-            "experience-incubate",
-            "pipeline cited a Source outside the current incubation window",
+        raise attach_diagnostics(
+            InvalidInferenceOutputError(
+                "experience-incubate",
+                "pipeline cited a Source outside the current incubation window",
+            ),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                input_item_count=len(rows),
+                failure_location="experience-incubate-evidence",
+            ),
         )
 
 

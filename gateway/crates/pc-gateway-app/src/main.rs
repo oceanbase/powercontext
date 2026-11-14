@@ -25,12 +25,14 @@
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
 mod authentication;
+mod connection;
 mod evidence_body;
 mod evidence_diagnostics;
 mod ingress;
 mod link;
 mod middleware;
 mod proxy;
+mod shutdown;
 mod steering;
 
 use crate::link::CoreLink;
@@ -175,7 +177,8 @@ async fn main() {
                 ReqwestTransport::new(Duration::from_secs(120)),
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
-            .with_input_limit(model_body_bytes),
+            .with_input_limit(model_body_bytes)
+            .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
@@ -212,6 +215,9 @@ async fn main() {
         degradation_allowed,
     });
 
+    let executor = state.executor.clone();
+    let shutdown = shutdown::Shutdown::install(executor.model_admission())
+        .expect("install process shutdown watchdog before accepting requests");
     let router = router(state, proxy_state);
 
     // 中间件链：按序注册，前者为外层。新增功能 = 实现 GatewayMiddleware + 此处一行。
@@ -226,10 +232,13 @@ async fn main() {
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("serve");
+    connection::serve(listener, app, async {
+        let deadlines = shutdown.signalled().await;
+        executor.close_model_admission();
+        deadlines
+    })
+    .await
+    .expect("serve");
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
@@ -242,11 +251,6 @@ fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
         .route("/gateway/v1/responses", post(ingress::responses))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state))
-}
-
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-    tracing::info!("shutting down (draining)");
 }
 
 /// A failed or incompatible startup discovery pauses model routes. Core still
