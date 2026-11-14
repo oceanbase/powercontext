@@ -277,7 +277,7 @@ def test_original_unicode_manifest_rejects_multiple_requests_without_changing_ev
     asyncio.run(scenario())
 
 
-def test_many_source_2k_reports_current_runtime_resource_budget():
+def test_many_source_2k_reports_current_runtime_indivisible_range():
     async def scenario():
         from powercontext_eval_evidence_admission.manifests import load_suite
         from powercontext_eval_evidence_admission.v16.admission import pack
@@ -285,10 +285,11 @@ def test_many_source_2k_reports_current_runtime_resource_budget():
         _, sample, inputs = await prepared("many-source-overflow", budget=2048)
         plan = pack(inputs, sample.supports, 2048, load_suite(experiment_version="v5").experiment.v3)
         assert not plan.accepted
-        assert plan.reason == "resource_budget"
-        assert len(plan.requests) <= 16
-        assert all(r.cost["single_estimated_input_tokens"] <= 2048 for r in plan.requests)
-        assert sum(r.cost["single_estimated_input_tokens"] for r in plan.requests) <= 16384
+        assert plan.reason == "indivisible_range_over_budget"
+        assert plan.overflow == {"per_call": True, "cumulative": True, "call_count": True}
+        assert len(plan.requests) > 16
+        assert any(r.cost["single_estimated_input_tokens"] > 2048 for r in plan.requests)
+        assert sum(r.cost["single_estimated_input_tokens"] for r in plan.requests) > 16384
 
     asyncio.run(scenario())
 
@@ -324,6 +325,7 @@ def test_offline_gate_rejects_one_historical_regression_despite_full_aggregate_c
             }
         )
     monkeypatch.setattr(workflow, "verified_comparisons", lambda *_: {"controlled": {"samples": rows}})
+    monkeypatch.setattr(workflow, "identity", lambda: {"controlled_test": "offline_gate"})
     assert workflow.summarize(tmp_path, persist=False)["offline_gate_passed"]
     if defect == "input":
         rows[0]["historical_v15_input_unchanged"] = False

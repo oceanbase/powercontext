@@ -339,6 +339,7 @@ def test_raw_response_tampering_is_rejected(tmp_path):
 
 def test_genuine_git_freeze_accepts_committed_bytes_and_rejects_untracked_bytes(tmp_path, monkeypatch):
     # Read actual Git blobs; no mocked commit flag can establish the production guard.
+    monkeypatch.setattr(freeze, "identity", lambda: {"controlled_test": "git_blob_verification"})
     monkeypatch.setattr(freeze, "frozen_paths", lambda: [freeze.REPOSITORY / "pyproject.toml"])
     assert freeze.committed_freeze()["verified"]
     temporary = freeze.REPOSITORY / ".artifacts/evidence-admission/v13-readiness/checks/untracked-freeze-test.json"

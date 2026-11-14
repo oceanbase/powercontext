@@ -24,7 +24,7 @@ model settings, and per-call budget.
   charging it twice. A required response with no score is a formal `scoring_incomplete` blocker and cannot produce
   `no_production_change`.
 - Rebased-runtime expectations for the six evaluation tests reported in review. Historical budget tests explicitly use
-  their recorded public instruction context; current-runtime tests keep the newly observed losses and resource-budget
+  their recorded public instruction context; current-runtime tests keep the newly observed losses and budget
   rejection visible instead of rewriting historical outcomes.
 - Generated reports, run records, and historical result bundles are removed from the code diff. Historical commands
   accept a separately extracted result bundle through `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`.
@@ -67,14 +67,16 @@ nor provider credentials.
 
 Completed locally on the review-fix branch:
 
-- commit hooks for the crash-safe continuation change: conflict checks, Ruff lint/format, frozen-contract byte check,
-  and `ty check` all passed;
-- focused Ruff lint/format and Python compilation passed for the changed workflows and tests.
+- `make evaluation-unit-test`: 1,460 passed and 48 skipped in the evaluation suite, followed by 104 passed in the
+  included tool-recovery suite;
+- `make check` passed before the final current-runtime expectation adjustments;
+- the repository test suite reached one timing-sensitive operational-metrics failure; that test passed when rerun alone;
+- focused Ruff lint/format and the affected evaluation files passed after the final adjustments.
 
-Before updating the PR, the remaining required validation is to run the full evidence-admission non-live suite after the
-result-bundle split and rerun the repository-required checks. The artifact download URL must also replace the placeholder
-above. Historical bundle-dependent tests skip by default and can be opted in by setting
-`POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to the verified extracted archive.
+Before updating the PR, rerun the repository-required checks at the final commit and replace the artifact download URL
+placeholder above. Historical bundle-dependent tests skip by default and can be opted in by setting
+`POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to the verified extracted archive. The separately published archive is required
+to reproduce historical receipts; it is not required for default offline validation.
 
 # AI usage statement
 

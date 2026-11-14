@@ -233,7 +233,7 @@ def test_scoring_failure_preserves_received_usage_and_stops(continuation, monkey
 
 def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation):
     directory, _ = continuation
-    process = multiprocessing.get_context("spawn").Process(target=_terminate_v19_before_scoring, args=(directory,))
+    process = multiprocessing.get_context("fork").Process(target=_terminate_v19_before_scoring, args=(directory,))
     process.start()
     process.join(60)
     assert process.exitcode == 91

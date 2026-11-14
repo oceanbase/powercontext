@@ -56,7 +56,6 @@ from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlsplit
 
 from powercontext_eval_swebench_pro import docker_pressure
 from powercontext_eval_swebench_pro.artifacts import ArtifactStore
-from powercontext_eval_swebench_pro.egress import PYTHON_INSTALL_MIRROR, AllowlistProxy, EgressPolicy
 from powercontext_eval_swebench_pro.codex import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_REASONING_EFFORT,
@@ -67,6 +66,7 @@ from powercontext_eval_swebench_pro.codex import (
     CodexRunner,
     is_safe_codex_model,
 )
+from powercontext_eval_swebench_pro.egress import PYTHON_INSTALL_MIRROR, AllowlistProxy, EgressPolicy
 from powercontext_eval_swebench_pro.errors import CommandError, CommandFailed, CommandTimedOut, SweBenchProError
 from powercontext_eval_swebench_pro.models import Arm, arm_scope_key
 from powercontext_eval_swebench_pro.process import CommandResult, ProcessRunner
@@ -186,7 +186,7 @@ try:
         for sample in family.samples:
             if sample.name != "powercontext_server_transport_requests_total" or sample.labels.get("transport") != "mcp":
                 continue
-            value = sample.value
+            value = float(sample.value)
             if not math.isfinite(value) or value < 0 or not value.is_integer():
                 raise ValueError("MCP request counter is invalid")
             total += int(value)

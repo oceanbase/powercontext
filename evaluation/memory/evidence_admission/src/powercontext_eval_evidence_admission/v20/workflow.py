@@ -390,6 +390,7 @@ async def run_next(directory, *, execute_live=False, transport=None):
         account_record(state, record)
         record["score_required"] = output is not None and terminal is None
         record["scoring_state"] = "pending" if record["score_required"] else "not_applicable"
+        record["score"] = None
         state["records"].append(record)
         if terminal:
             state.update(state=terminal, stop_reason=terminal + "_no_resend")

@@ -96,7 +96,7 @@ Content adapter 没有提供可信的角色或所有权结构，文本中的角�
 `COMPLETE.json` 与文件哈希共同确定结果是否可消费；未完成或被修改的目录会被拒绝读取。
 报告区分 `complete`、`bounded`、`unavailable`、`cancelled`，以及准备、预算拒绝和生成等执行状态。
 
-`results/synthetic-v1-preparation/` 保存本地模型无关结果。未运行线上模型时，候选正确性、错误归因等指标为 null，
+独立结果包中的 `results/synthetic-v1-preparation/` 保存本地模型无关结果。未运行线上模型时，候选正确性、错误归因等指标为 null，
 不会用零次错误冒充模型质量通过。输入重放确定性、事实是否进入输入和模型是否正确提取是独立指标。
 即使候选策略增加了可准备样本数，只要丢失可容纳的必要事实，也不能满足生产后续门槛。
 

@@ -35,22 +35,24 @@ def v3_suite():
 
 
 @pytest.mark.parametrize(
-    "case_id,budget",
+    "case_id,budget,v2_loses_content",
     [
-        ("validation-off-center-facts", 2048),
-        ("validation-off-center-facts", 4096),
-        ("validation-off-center-facts", 8192),
-        ("validation-metadata-pressure", 2048),
+        ("validation-off-center-facts", 2048, True),
+        ("validation-off-center-facts", 4096, True),
+        ("validation-off-center-facts", 8192, False),
+        ("validation-metadata-pressure", 2048, True),
     ],
 )
-def test_v3_repairs_v2_known_losses_under_the_same_budget(case_id, budget, historical_budget_context):
+def test_v3_preserves_or_repairs_v2_coverage_under_the_same_budget(
+    case_id, budget, v2_loses_content, historical_budget_context
+):
     suite = load_suite(experiment_version="v3", dataset="validation-v2")
     case = next(c for c in suite.cases if c.case_id == case_id)
 
     async def scenario():
         before = await run_sample(suite, case, "bounded-fragments-v2", budget, 0)
         after = await run_sample(suite, case, "bounded-fragments-v3", budget, 0)
-        assert before.preparation.missing_claim_hashes
+        assert bool(before.preparation.missing_claim_hashes) is v2_loses_content
         assert after.status == "prepared" and after.preparation.required_content_fits
         assert not after.preparation.missing_claim_hashes
         assert set(before.preparation.retained_claim_hashes) <= set(after.preparation.retained_claim_hashes)

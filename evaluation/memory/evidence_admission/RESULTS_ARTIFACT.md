@@ -20,3 +20,6 @@ export POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS="$PWD/results"
 Default validation does not download this archive and does not require provider credentials. Tests that exercise a
 historical result bundle skip when `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` is unset; implementation, fixtures,
 manifests, current-runtime regressions, and model-free protocol tests remain self-contained in the code PR.
+
+Historical documents retain `results/...` names as archive-relative evidence identities. Those paths resolve after
+extracting the archive; they are not files in the code pull request.

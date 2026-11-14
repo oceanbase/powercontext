@@ -94,7 +94,8 @@ artifact hashes and a `COMPLETE.json` marker. Existing output directories are re
 runs. The `report` command regenerates and verifies the aggregate from per-sample records under the matching code/configuration.
 It prints the regenerated JSON without mutating the saved run.
 
-The saved result under `results/synthetic-v1-preparation/` is model-free. Its manifest records exact code and dataset hashes.
+The archived result at `results/synthetic-v1-preparation/` is model-free. Its manifest records exact code and dataset
+hashes; the path is relative to the separately published result archive.
 Provider-dependent unsupported-candidate and attribution metrics are null when unmeasured. Neither zero model requests nor
 successful preparation establishes that a model will extract correct facts. An uncommitted freeze is disclosed and cannot
 authorize a production follow-up.
