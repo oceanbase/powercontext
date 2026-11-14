@@ -25,6 +25,7 @@ import { HandoffError } from '../errors.ts'
 import type { PresentTarget, TargetAdapter, TargetDetection, TargetEnvironment } from '../targets.ts'
 import { claudeConfigurationKey, createClaudeIntegration, type ClaudeIntegration, type ClaudeIntegrationOptions } from './claude-runtime.ts'
 import { probeClaudeCodeCli } from './claude-code-cli-probe.ts'
+import { installedClaudePowerContext } from './claude-code-cli-runtime.ts'
 
 /** Observations must describe the new terminal launched by the registered handler. */
 export interface ClaudeCliReceiver {
@@ -46,6 +47,16 @@ export interface ClaudeCodeCliOptions {
 /** Compatible with the Host contract where qualification is optional. */
 export type ClaudeCliAdapter = Omit<TargetAdapter, 'qualification'> & {
   readonly qualification?: TargetAdapter['qualification']
+}
+
+function launchIntent(options: ClaudeCodeCliOptions, target: PresentTarget, bundle: LaunchBundle, locale?: HandoffLocale) {
+  const { qualification, buildReceiverPrompt, receiver } = options
+  if (!qualification?.evidence.trim() || !buildReceiverPrompt || !receiver) throw new HandoffError('integration_unavailable')
+  if (target.version !== qualification.targetVersion || bundle.binding.targetId !== 'claude-code-cli'
+    || bundle.binding.targetVersion !== target.version) throw new HandoffError('binding_mismatch')
+  const draft = buildReceiverPrompt(bundle, locale)
+  if (typeof draft !== 'string' || !draft.trim()) throw new HandoffError('payload_invalid')
+  return { draft }
 }
 
 /** Unqualified targets remain detectable and never expose native launch as ready. */
@@ -132,14 +143,9 @@ export function createClaudeCodeCliAdapter(options: ClaudeCodeCliOptions = {}): 
       }
     },
     launchIntent(target, bundle, locale) {
-      if (!qualified || !qualification || !buildReceiverPrompt) throw new HandoffError('integration_unavailable')
-      if (target.version !== qualification.targetVersion || target.configurationKey !== integration.configurationKey
-        || bundle.binding.targetId !== 'claude-code-cli' || bundle.binding.targetVersion !== target.version) {
-        throw new HandoffError('binding_mismatch')
-      }
-      const draft = buildReceiverPrompt(bundle, locale)
-      if (typeof draft !== 'string' || !draft.trim()) throw new HandoffError('payload_invalid')
-      return { draft }
+      if (!qualified) throw new HandoffError('integration_unavailable')
+      if (target.configurationKey !== integration.configurationKey) throw new HandoffError('binding_mismatch')
+      return launchIntent(options, target, bundle, locale)
     },
   }
 }
@@ -183,8 +189,21 @@ export async function createClaudeCodeCliTarget(options: ClaudeCodeCliTargetOpti
       try { await access(executable, constants.X_OK); executableAvailable = (await stat(executable)).isFile() } catch { /* unavailable */ }
     }
     if (!executable || !executableAvailable) {
-      return createClaudeCodeCliAdapter({ ...adapterOptions, qualification: undefined, path,
-        integration: { ...unavailable, configurationKey } })
+      return createClaudeCodeCliAdapter({ ...adapterOptions, path,
+        integration: { ...unavailable, configurationKey, async check(signal) {
+          if (!adapterOptions.receiver || !adapterOptions.qualification) return unavailable.check(signal)
+          try {
+            const cli = await probeClaudeCodeCli(signal, path)
+            if (cli.state !== 'present') return { state: 'unknown' }
+            const plugin = await installedClaudePowerContext(cli.executable, environment, signal)
+            if (plugin?.enabled !== true || plugin.errors?.length) return { state: 'needs_user_action', action: 'configure_target' }
+            // Environment preflight still checks the installed hook, MCP tools, Server and Scope.
+            return { state: 'ready' }
+          } catch {
+            signal.throwIfAborted()
+            return { state: 'unknown' }
+          }
+        } } })
     }
     const integration = await createClaudeIntegration({ ...integrationOptions, configDir, environment,
       powercontextExecutable: executable })
@@ -198,18 +217,22 @@ export async function createClaudeCodeCliTarget(options: ClaudeCodeCliTargetOpti
 export function createDefaultClaudeCodeCliAdapter(
   options: Omit<ClaudeCodeCliTargetOptions, 'qualification' | 'receiver'> = {},
 ): ClaudeCliAdapter {
-  // Re-observe PATH on each operation so installing PowerContext can recover without a Host restart.
+  return createDeferredClaudeCodeCliTarget(options)
+}
+
+/** Keep Host composition synchronous; resolve the actual installer/profile when an operation runs. */
+export function createDeferredClaudeCodeCliTarget(options: ClaudeCodeCliTargetOptions): ClaudeCliAdapter {
+  const { qualification, receiver, buildReceiverPrompt } = options
+  const qualified = Boolean(qualification?.targetVersion.trim() && qualification.evidence.trim() && receiver && buildReceiverPrompt)
   const getTarget = () => createClaudeCodeCliTarget(options)
   return {
     id: 'claude-code-cli', version: '1',
+    ...(qualified && qualification ? { qualification: { platform: 'darwin' as const, evidence: qualification.evidence } } : {}),
     async detect(signal) { signal.throwIfAborted(); return (await getTarget()).detect(signal) },
     async checkIntegration(present, signal) { signal.throwIfAborted(); return (await getTarget()).checkIntegration(present, signal) },
-    async installIntegration(_present, signal) {
-      signal.throwIfAborted()
-      return { state: 'needs_user_action', action: 'configure_target' }
-    },
-    async resolveEnvironment(_present, _cwd, signal) { signal.throwIfAborted(); throw new HandoffError('integration_unavailable') },
-    async canReadPackage(_present, _bundle, signal) { signal.throwIfAborted(); return false },
-    launchIntent() { throw new HandoffError('integration_unavailable') },
+    async installIntegration(present, signal) { signal.throwIfAborted(); return (await getTarget()).installIntegration(present, signal) },
+    async resolveEnvironment(present, cwd, signal) { signal.throwIfAborted(); return (await getTarget()).resolveEnvironment(present, cwd, signal) },
+    async canReadPackage(present, bundle, signal) { signal.throwIfAborted(); return (await getTarget()).canReadPackage(present, bundle, signal) },
+    launchIntent(present, bundle, locale) { return launchIntent(options, present, bundle, locale) },
   }
 }

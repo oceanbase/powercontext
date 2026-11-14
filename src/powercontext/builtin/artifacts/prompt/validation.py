@@ -166,6 +166,7 @@ def _handoff(value: HandoffGenerationInput, output: HandoffGenerationOutput) -> 
     }
     PrepareHandoff(
         objective=value.objective,
+        output_language=value.output_language,
         rollover_reasons=value.rollover_reasons,
         evidence=tuple(citations.values()),
         max_bytes=value.max_bytes,

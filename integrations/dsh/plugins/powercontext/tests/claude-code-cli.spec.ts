@@ -20,7 +20,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { LaunchBundle } from '../src/handoff/contracts.ts'
-import { createClaudeCodeCliAdapter, createClaudeCodeCliTarget, createDefaultClaudeCodeCliAdapter, type ClaudeCliReceiver } from '../src/handoff/adapters/claude-code-cli.ts'
+import { createClaudeCodeCliAdapter, createClaudeCodeCliTarget, createDefaultClaudeCodeCliAdapter,
+  createDeferredClaudeCodeCliTarget, type ClaudeCliReceiver } from '../src/handoff/adapters/claude-code-cli.ts'
 import type { ClaudeIntegration } from '../src/handoff/adapters/claude-runtime.ts'
 
 const probe = vi.hoisted(() => vi.fn())
@@ -98,6 +99,33 @@ describe('Claude Code CLI adapter', () => {
       if (detection.state !== 'present') throw new Error('fixture CLI not detected')
       expect(await adapter.checkIntegration(detection, signal)).toEqual({ state: 'needs_user_action', action: 'configure_target' })
       expect(() => adapter.launchIntent(detection, bundle('/tmp/handoff', 'x'))).toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('allows a qualified CLI with the receiving plugin already installed and no setup executable', async () => {
+    const { receiver } = fixture()
+    const dir = await mkdtemp(join(tmpdir(), 'pc-claude-configured-'))
+    try {
+      const executable = join(dir, 'claude')
+      const writeInventory = (enabled: boolean) => writeFile(executable,
+        `#!/bin/sh\nprintf '%s' '[{"id":"powercontext@powercontext","enabled":${enabled}}]'\n`, { mode: 0o755 })
+      await writeInventory(true)
+      probe.mockResolvedValue({ state: 'present', version: target.version, executable })
+      const adapter = createDeferredClaudeCodeCliTarget({
+        receiver, buildReceiverPrompt: () => 'Review the handoff',
+        qualification: { targetVersion: target.version, evidence: 'fixture' },
+        integrationOptions: { configDir: dir, environment: { HOME: dir, PATH: '/usr/bin:/bin' },
+          powercontextExecutable: join(dir, 'missing') },
+      })
+      const detected = await adapter.detect(signal)
+      if (detected.state !== 'present') throw new Error('fixture CLI not detected')
+      expect(await adapter.checkIntegration(detected, signal)).toEqual({ state: 'ready' })
+      expect(await adapter.resolveEnvironment(detected, '/workspace', signal)).toEqual(env)
+      expect(adapter.launchIntent(detected, bundle('/tmp/handoff', 'x'))).toEqual({ draft: 'Review the handoff' })
+      await writeInventory(false)
+      expect(await adapter.checkIntegration(detected, signal)).toEqual({ state: 'needs_user_action', action: 'configure_target' })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

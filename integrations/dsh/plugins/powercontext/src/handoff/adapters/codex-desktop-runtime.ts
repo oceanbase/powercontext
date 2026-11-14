@@ -37,7 +37,7 @@ export interface CodexDesktopRuntimeOptions {
   readonly deliveryRoot: string
   /** Persistent Host key; never logged or persisted by this adapter. */
   readonly generationKey: Buffer
-  readonly setup?: { readonly executable: string; readonly source?: string; readonly serverUrl: string }
+  readonly setup?: { readonly executable: string; readonly source?: string; readonly serverUrl: string; readonly path?: string }
 }
 
 type ObjectValue = Record<string, unknown>
@@ -327,8 +327,10 @@ export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): 
       if (!setup) return { state: 'needs_user_action', action: 'configure_target' }
       return new Promise(resolve => {
         const args = ['setup', 'codex', ...(setup.source ? ['--source', setup.source] : []), '--server-url', setup.serverUrl, '--json']
+        const env = envFor(options)
+        if (setup.path) env.PATH = `${dirname(options.cliPath)}:${setup.path}`
         const child = spawn(setup.executable, args,
-          { env: envFor(options), cwd: options.codexHome, stdio: 'ignore', shell: false, detached: true })
+          { env, cwd: options.codexHome, stdio: 'ignore', shell: false, detached: true })
         let started = false, interrupted = false
         const stop = () => { interrupted = true; if (child.pid) { try { process.kill(-child.pid, 'SIGKILL') } catch { /* exited */ } } }
         const timer = setTimeout(stop, 120_000)

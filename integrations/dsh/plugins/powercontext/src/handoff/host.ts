@@ -25,13 +25,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { PluginRuntime } from '../invoke.ts'
 import { isLoopbackAddress, localDeploymentFacts, resolveDeployment } from '../status-bridge.ts'
 import { createHandoffServices } from './assembly.ts'
+import { createDefaultTargetAdapters } from './adapters/defaults.ts'
+import { createBoundaryReader } from './boundary-reader.ts'
 import type { CallContext, SourceBoundary } from './contracts.ts'
 import { HandoffError } from './errors.ts'
 import { keyFor, privateDirectory } from './records.ts'
 import { createHandoffHandler } from './routes.ts'
 import { TargetCatalog, type TargetAdapter } from './targets.ts'
 
-const COLLECTIONS = ['/powercontext/targets', '/powercontext/preflights', '/powercontext/deliveries'] as const
+const COLLECTIONS = ['/powercontext/targets', '/powercontext/preflights', '/powercontext/deliveries', '/powercontext/boundaries'] as const
 const MAX_SOURCE_EVENTS = 512
 
 interface SessionEvent {
@@ -89,6 +91,28 @@ function selectedReply(events: readonly SessionEvent[], id: string, throughSeq: 
     throw new HandoffError('stale_preflight')
   }
   return { selected, latest: candidates.at(-1) }
+}
+
+/** Resolve a UI message identity from Host-owned events; clients never supply its sequence or time. */
+export function resolveHostBoundary(host: Pick<Context, 'get'>, context: CallContext,
+  sessionId: string, messageId: string): SourceBoundary {
+  context.signal.throwIfAborted()
+  const sessions = host.get('sessions') as { get(id: string): Session | undefined } | undefined
+  const session = sessions?.get(sessionId)
+  if (!session || session.header.id !== sessionId || session.header.origin === 'subagent') {
+    throw new HandoffError('not_found')
+  }
+  const workingDirectory = host.get('workingDirectory') as { get?: (session: Session) => string } | undefined
+  if (!workingDirectory?.get || !Number.isSafeInteger(session.seq)) throw new HandoffError('integration_unavailable')
+  const events = session.snapshotEvents(Math.max(0, session.seq - MAX_SOURCE_EVENTS), session.seq)
+  const reply = events.find(event => event.type === 'assistant/message' && event.data?.message?.id === messageId)
+  const end = reply && events.find(event => event.seq > reply.seq && event.type === 'turn/end'
+    && event.data?.turn === reply.data?.turn && event.data?.reason?.kind === 'completed')
+  if (!reply || !end || !Number.isSafeInteger(end.time)) throw new HandoffError('stale_preflight')
+  const source = { sessionId, messageId, throughSeq: end.seq, cwd: workingDirectory.get(session),
+    workspaceObservedAt: new Date(end.time).toISOString() }
+  verifyHostSource(host, context, source, false)
+  return source
 }
 
 /** An owner-local Host session is the authority for the selected response and effective directory. */
@@ -198,20 +222,20 @@ function sourceConnection(host: Host, runtime: PluginRuntime, key: Buffer) {
       connectionRef, config.authorization, config.allowInsecureHttp, config.scopeId, serverIdentity,
       auth, access, principal?.type, principal?.id,
     ])).digest('hex')
-    return { serverIdentity, scopeId: identifier(scope), connectionRef,
+    return { serverIdentity, scopeId: identifier(scope), connectionRef, accessMode: access as 'disabled' | 'enforced',
       connectionGeneration: Number.parseInt(generation.slice(0, 13), 16) }
   }
 }
 
 /** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
-export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adapters: readonly TargetAdapter[] = []): void {
+export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adapters?: readonly TargetAdapter[]): void {
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['webServer', 'connection'], host => {
     const ui = host as Host
     const facts = localDeploymentFacts(ui, runtime.config.ownerLocal)
     const profile = ui.get('profileContext') as Profile | undefined
     const lifetime = new AbortController()
-    const catalog = new TargetCatalog(adapters)
+    let catalog: TargetCatalog | undefined
     const requireLocal = () => {
       if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) {
         throw new HandoffError('deployment_unsupported')
@@ -219,41 +243,71 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
     }
     let services: ReturnType<typeof createHandoffServices> | undefined
     let release: (() => void) | undefined
+    let maintenance: Promise<void> | undefined
+    let maintenanceTimer: ReturnType<typeof setInterval> | undefined
+    const ensureServices = () => {
+      lifetime.signal.throwIfAborted()
+      requireLocal()
+      if (services !== undefined) return services
+      if (!profile || !isAbsolute(profile.home)) throw new HandoffError('integration_unavailable')
+      const ownerRoot = join(homedir(), '.powercontext-dsh-handoff')
+      const unlock = lockWriter(ownerRoot)
+      try {
+        const root = join(ownerRoot, keyFor(profile.home, profile.name))
+        privateDirectory(root)
+        const generationKey = connectionKey(root)
+        catalog = new TargetCatalog(adapters ?? createDefaultTargetAdapters({
+          root, generationKey, sourceServerUrl: runtime.config.baseUrl,
+        }))
+        const connection = sourceConnection(ui, runtime, generationKey)
+        services = createHandoffServices({
+          root, catalog, signal: lifetime.signal, client: runtime.client,
+          authorization: runtime.config.authorization,
+          readBoundary: createBoundaryReader(ui),
+          resolveReceiptConnection: async (context, binding) => {
+            requireLocal()
+            const live = await connection(context, binding.source)
+            if (live.serverIdentity !== binding.serverIdentity || live.scopeId !== binding.scopeId
+              || live.connectionRef !== binding.connectionRef || live.connectionGeneration !== binding.connectionGeneration) {
+              throw new HandoffError('binding_mismatch')
+            }
+            return { client: runtime.client, accessMode: live.accessMode }
+          },
+          authority: { requireLocal, sourceConnection: connection,
+            verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
+        })
+        release = unlock
+        maintenanceTimer = setInterval(() => {
+          if (maintenance || lifetime.signal.aborted) return
+          // Retention reads cached receipts only, under this Host's existing writer lease.
+          maintenance = services!.maintain({ ownerId: `local-owner:${process.getuid?.() ?? 'host'}`,
+            signal: lifetime.signal }).catch(() => undefined).finally(() => { maintenance = undefined })
+        }, 60 * 60 * 1000)
+        maintenanceTimer.unref()
+        return services
+      } catch (error) { unlock(); throw error }
+    }
     const handler = createHandoffHandler({
-      facts, requireLocal, catalog, signal: lifetime.signal,
+      facts, requireLocal, signal: lifetime.signal,
+      get catalog() { ensureServices(); return catalog! },
       requestRejection: request => ui.connection.requestRejection(request),
       authenticatedOwner: request => {
         const admission = ui.connection.admit?.(request)
         if (ui.connection.admit && admission?.peer?.principal?.kind !== 'owner') return undefined
         return `local-owner:${process.getuid?.() ?? 'host'}`
       },
-      services: () => {
-        if (services !== undefined) return services
-        if (!profile || !isAbsolute(profile.home)) throw new HandoffError('integration_unavailable')
-        const ownerRoot = join(homedir(), '.powercontext-dsh-handoff')
-        const unlock = lockWriter(ownerRoot)
-        try {
-          const root = join(ownerRoot, keyFor(profile.home, profile.name))
-          privateDirectory(root)
-          services = createHandoffServices({
-            root, catalog, signal: lifetime.signal, client: runtime.client,
-            authorization: runtime.config.authorization,
-            authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
-              verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
-          })
-          release = unlock
-          return services
-        } catch (error) { unlock(); throw error }
-      },
+      resolveBoundary: (context, sessionId, messageId) => resolveHostBoundary(ui, context, sessionId, messageId),
+      services: ensureServices,
     })
     for (const path of COLLECTIONS) {
       host.effect(() => ui.webServer.register({
-        kind: path === COLLECTIONS[0] ? 'exact' : 'prefix', path, handler,
+        kind: 'prefix', path, handler,
       }), `powercontext: ${path}`)
     }
     host.effect(() => async () => {
       lifetime.abort()
-      try { await services?.close() } finally { release?.() }
+      clearInterval(maintenanceTimer)
+      try { await maintenance; await services?.close() } finally { release?.() }
     }, 'powercontext: handoff bridge disposal')
   })
 }

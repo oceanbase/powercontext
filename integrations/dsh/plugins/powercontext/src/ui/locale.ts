@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
-export type Locale = 'zh-CN' | 'en'
+import type { HandoffLocale } from '../handoff/locale.ts'
+
+export type Locale = HandoffLocale
 export const LOCALE_KEY = 'powercontext.dsh.locale'
+let sessionLocale: Locale | undefined
+const LOCALE_CHANGED = 'powercontext-dsh-locale-changed'
 export const texts = {
   "zh-CN": {
     "status": "状态",
@@ -211,11 +215,24 @@ export const texts = {
 export type TextKey = keyof typeof texts['en']
 
 export function readLocale(): Locale {
+  if (sessionLocale) return sessionLocale
   try { return localStorage.getItem(LOCALE_KEY) === 'en' ? 'en' : 'zh-CN' } catch { return 'zh-CN' }
 }
 
 export function saveLocale(locale: Locale): void {
-  try { localStorage.setItem(LOCALE_KEY, locale) } catch { /* Preference is session-only when storage is blocked. */ }
+  try { localStorage.setItem(LOCALE_KEY, locale); sessionLocale = undefined } catch { sessionLocale = locale }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(LOCALE_CHANGED))
+}
+
+export function subscribeLocale(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const onStorage = (event: StorageEvent) => { if (event.key === null || event.key === LOCALE_KEY) onChange() }
+  window.addEventListener(LOCALE_CHANGED, onChange)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    window.removeEventListener(LOCALE_CHANGED, onChange)
+    window.removeEventListener('storage', onStorage)
+  }
 }
 
 export function failureTextKey(code?: string, status?: number): TextKey {

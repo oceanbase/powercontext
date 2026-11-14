@@ -1,15 +1,14 @@
 # Claude Code CLI Handoff adapter
 
-`createClaudeCodeCliAdapter()` and `createDefaultClaudeCodeCliAdapter()` supply a synchronous, unqualified
-registry entry. It lazily discovers configuration and the existing PowerContext
-CLI on first detection or integration check. For explicit configuration,
-`createClaudeCodeCliTarget` is an awaitable factory. Alternatively,
-`createClaudeCodeCliAdapter` also accepts an already constructed shared service. The factories return a complete adapter without `qualification` when the receiver,
-prompt builder, or version-specific evidence is absent. The Host catalog may
-register it for read-only diagnostics and exposes `manual_setup_or_export`;
-it rejects native launch. The awaitable factory discovers an existing
-`powercontext` on PATH, and when it is absent still detects the CLI while
-reporting that integration configuration needs user action.
+The default macOS Host offers preflight for Claude Code CLI `2.1.323`. It checks the registered handler and
+the recorded Terminal.app or Ghostty preference, uses the default local Claude profile, and limits package reads
+to the current Host's delivery directory. The deferred factory discovers the existing PowerContext CLI as needed.
+Without that executable, an already configured receiver can pass preflight, but a missing or disabled integration
+requires manual setup.
+
+The standalone `createClaudeCodeCliAdapter()` and `createDefaultClaudeCodeCliAdapter()` still supply an
+unqualified entry. Use the awaitable `createClaudeCodeCliTarget` for explicit configuration or pass a
+constructed shared integration service to `createClaudeCodeCliAdapter`.
 
 For native launch, supply the existing receiver prompt builder, the shared
 Claude integration service, the receiver from `createClaudeCodeCliReceiver`, and
@@ -28,9 +27,9 @@ read-only operation. The installer uses the existing PowerContext Claude setup a
 installer must coordinate both Claude targets and not settle while a setup child
 can still write. The adapter does not install Claude Code itself.
 
-The receiver uses a Host-provided persistent `generationKey` and records a
-terminal environment only after real qualification. Its `launchEnvironment`,
-`environmentEvidence`, and `qualifiedPackageRoots` must come from the actual
+The receiver uses a Host-provided persistent `generationKey`. The built-in route uses a local environment
+with the normal user home and refuses unsupported terminal preferences or custom Claude permissions. For other
+configurations, `launchEnvironment`, `environmentEvidence`, and `qualifiedPackageRoots` must come from the actual
 handler-launched terminal and verified receiver access. The receiver checks that macOS routes `claude-cli://` to the
 intended CLI runtime. It must observe the new terminal's effective working
 directory, Server identity, Scope, configuration generation, new-session and

@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../src/client.ts'
 import type { CallContext, PrepareDeliveryInput, SourceBoundary, VerifiedPreflight } from '../src/handoff/contracts.ts'
 import { LocalDeliveryService } from '../src/handoff/delivery.ts'
+import { createBoundaryReader } from '../src/handoff/boundary-reader.ts'
 import type { DeliveryOptions } from '../src/handoff/delivery.ts'
 import type { BoundaryReader, WorkEvent } from '../src/handoff/materials.ts'
 import { preparedDigest, sha256, wire } from '../src/handoff/wire.ts'
@@ -429,6 +430,137 @@ describe('local DSH handoff deliveries', () => {
     expect(bundle.handoffSelection).toEqual({ kind: 'revision', revision: { ...revision, scope_id: 'scope-a' } })
     const exported = await service.exportPackage(owner, view.deliveryId)
     expect(JSON.parse(Buffer.from(exported.bytes).toString()).carrier).toEqual({ kind: 'revision', revision })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('prepares from the selected completed Host reply without generation and persists the exact returned carrier', async () => {
+    const rows = [
+      { seq: 0, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Fix the regression' }] } },
+      { seq: 1, time: 2, type: 'tool/call', data: { turn: 1, step: 1, callId: 'a', name: 'bash', arguments: JSON.stringify({ command: 'pnpm test' }) } },
+      { seq: 2, time: 3, type: 'tool/result', data: { turn: 1, step: 1, message: { toolCallId: 'a', content: [{ type: 'text', text: 'One test failed' }] } } },
+      { seq: 3, time: 4, type: 'assistant/message', data: { turn: 1, message: { id: 'reply-1', content: [{ type: 'text', text: 'Please inspect the failure.' }] } } },
+      { seq: 4, time: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const selected = { ...source, throughSeq: 4, workspaceObservedAt: new Date(5).toISOString() }
+    const session = { header: { id: source.sessionId }, seq: rows.length, snapshotEvents: (from: number, to: number) => rows.slice(from, to) }
+    const readBoundary = createBoundaryReader({ get: (name: string) => name === 'sessions'
+      ? { get: () => session } : { get: () => source.cwd } } as never)
+    let sent: any
+    fetch.mockImplementationOnce(async (url, init) => {
+      expect(url.endsWith('/v1/work/handoffs/prepare-current')).toBe(true)
+      sent = JSON.parse(init.body as string)
+      return response(responseForCurrent(sent))
+    })
+    open({ readBoundary })
+    const view = await service.prepare(caller(), input({ source: selected, workInput: undefined }))
+    expect(view).toMatchObject({ preparationState: 'prepared', preview: { objective: 'Fix the regression', disposition: 'continuable' } })
+    expect(sent.scope_id).toBe('scope-a')
+    expect(sent.source_id).toBe('dsh-delivery:' + view.deliveryId)
+    expect(sent.handoff.state.every((claim: any) => claim.basis === 'declared' && claim.evidence.length === 0)).toBe(true)
+    expect(JSON.stringify(sent.handoff)).toContain('Please inspect the failure.')
+    expect(JSON.stringify(sent.handoff)).toContain('pnpm test')
+    expect(JSON.stringify(sent.handoff)).toContain('unknown')
+    expect(sent.handoff.next_action).toMatchObject({ basis: 'declared', text: expect.stringContaining('Review the selected reply') })
+    expect(sent.handoff.omissions.join(' ')).toContain('task disposition')
+    const stored = JSON.parse(Buffer.from((await service.exportPackage(caller(), view.deliveryId)).bytes).toString())
+    expect(stored.binding.source).toEqual(selected)
+    expect(stored.carrier.sourceReceipts[0].source.source_id).toBe(sent.source_id)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('localizes default work statements while leaving original evidence in its own language', async () => {
+    const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: 999, text: 'Keep the original English reply.' },
+      events: [], workspace: null })
+    fetch.mockImplementationOnce(async (_url, init) => {
+      const body = JSON.parse(init.body as string)
+      expect(body.handoff.objective).toBe(work.objective)
+      expect(body.handoff.state).toEqual(expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('所选回复（内容未经核实）："Keep the original English reply."') }),
+      ]))
+      expect(body.handoff.next_action.text).toContain('再判断当前任务状态和下一步')
+      expect(body.handoff.omissions.join(' ')).toContain('未取得所选时点的工作区记录')
+      return response(responseForCurrent(body))
+    })
+    open({ readBoundary })
+    expect((await service.prepare(caller(), input({ workInput: undefined, locale: 'zh-CN' }))).preparationState).toBe('prepared')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([null, '', 'Bearer abcdefghijklmnop', 'x'.repeat(9000)])(
+    'requires input before dispatch for unavailable or unsafe required evidence (%#)', async reply => {
+      const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective: work.objective,
+        selectedReply: { messageId: selected.messageId, seq: 999, text: reply as string }, events: [], workspace: null })
+      open({ readBoundary })
+      const view = await service.prepare(caller(), input({ workInput: undefined }))
+      expect(view.preparationState).toBe('needs_input')
+      expect(fetch).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves omitted failures and rejects mismatched boundaries before dispatch', async () => {
+    const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: 999, text: 'Review available evidence' }, workspace: null,
+      events: [
+        { kind: 'check', sessionId: selected.sessionId, seq: 1, command: 'check --api_key fixture-value', status: 'failed' },
+        { kind: 'check', sessionId: selected.sessionId, seq: 2, command: 'check safe', status: 'interrupted' },
+      ] })
+    let sent: any
+    fetch.mockImplementationOnce(async (_url, init) => { sent = JSON.parse(init.body as string); return response(responseForCurrent(sent)) })
+    open({ readBoundary })
+    expect((await service.prepare(caller(), input({ workInput: undefined }))).preparationState).toBe('prepared')
+    expect(JSON.stringify(sent)).not.toContain('fixture-value')
+    expect(JSON.stringify(sent.handoff)).toContain('interrupted')
+    expect(sent.handoff.omissions.join(' ')).toContain('observed check failed')
+    await service.close()
+    open({ readBoundary: async (ctx, selected, limits) => ({ ...(await readBoundary(ctx, selected, limits)), source: { ...selected, messageId: 'other' } }) })
+    expect(await service.prepare(caller(), input({ requestId: 'mismatch', source: { ...source, sessionId: 'other' }, workInput: undefined })))
+      .toMatchObject({ preparationState: 'failed', error: { code: 'binding_mismatch' } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds deterministic input and discloses a failure that cannot fit', async () => {
+    const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: 999, text: 'Review evidence' }, workspace: null,
+      events: [
+        ...Array.from({ length: 8 }, (_, seq) => ({ kind: 'observation' as const, sessionId: selected.sessionId,
+          seq, text: 'observation '.repeat(300) })),
+        { kind: 'check', sessionId: selected.sessionId, seq: 9, command: 'check ' + 'x'.repeat(7000), status: 'failed' },
+      ] })
+    let sent: any
+    fetch.mockImplementationOnce(async (_url, init) => { sent = JSON.parse(init.body as string); return response(responseForCurrent(sent)) })
+    open({ readBoundary })
+    expect((await service.prepare(caller(), input({ workInput: undefined }))).preparationState).toBe('prepared')
+    expect(Buffer.byteLength(JSON.stringify(sent.handoff))).toBeLessThanOrEqual(32 * 1024)
+    expect(sent.handoff.omissions.join(' ')).toMatch(/observed.*fail/i)
+  })
+
+  it.each([null, 'password: abcdefgh'])('requires a safe original objective (%#)', async objective => {
+    const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective,
+      selectedReply: { messageId: selected.messageId, seq: 999, text: 'Selected reply' }, events: [], workspace: null })
+    open({ readBoundary })
+    expect((await service.prepare(caller(), input({ workInput: undefined }))).preparationState).toBe('needs_input')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back after an automatic generation error or an uncertain deterministic dispatch', async () => {
+    const readBoundary: BoundaryReader = async (_context, selected) => ({ source: selected, objective: work.objective,
+      selectedReply: { messageId: selected.messageId, seq: 999, text: 'Review evidence' }, events: [], workspace: null })
+    open({ readBoundary, resolveConnection: async () => ({ client, generation: { maxInputBytes: 6000 } }) })
+    fetch.mockImplementationOnce(async (_url, init) => {
+      const body = JSON.parse(init.body as string)
+      return response({ status: 'accepted', source: { name: 'content', source_id: body.source_id, locator: null }, position: 8 }, 202)
+    }).mockResolvedValueOnce(response({}, 503))
+    const generated = await service.prepare(caller(), input({ workInput: undefined }))
+    expect(generated.preparationState).toBe('unknown')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    await service.close()
+    fetch.mockClear()
+    fetch.mockRejectedValueOnce(new Error('connection lost'))
+    open({ readBoundary })
+    const unknown = await service.prepare(caller(), input({ requestId: 'deterministic', source: { ...source, sessionId: 'second' }, workInput: undefined }))
+    expect(unknown.preparationState).toBe('unknown')
+    expect((await service.prepare(caller(), input({ requestId: 'retry', source: { ...source, sessionId: 'second' }, workInput: undefined }))).preparationState).toBe('unknown')
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
