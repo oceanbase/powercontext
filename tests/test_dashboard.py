@@ -1503,8 +1503,13 @@ def test_home_previews_are_independent_of_missing_or_corrupt_notes(
         dashboard.portal.call(corrupt_body)
     response = dashboard.get("/dashboard/home", params={"scope": scope})
     assert response.status_code == 200
-    assert (LABELS["error_503"] in response.text) is (broken_family is not None)
-    assert ("Healthy atomic preview." in response.text) is (broken_family not in {None, "atomic-memory"})
-    assert ("Review the HTTP contract" in response.text) is (broken_family != "handoff")
-    assert ("Healthy experience preview." in response.text) is (broken_family != "experience")
-    assert ("healthy-skill-preview" in response.text) is (broken_family != "skill")
+    saved = response.text.split('<section id="notes"', 1)[1].split("</section>", 1)[0]
+    if broken_family is None:
+        assert "Review the HTTP contract" in saved
+        assert "Healthy experience preview." in saved
+        assert "Read the report" in saved
+    else:
+        # One unreadable head is named in the overview and must not hide the other content.
+        expected = "Read the report" if broken_family == "handoff" else "Review the HTTP contract"
+        assert expected in saved
+        assert (LABELS["home_change_unreadable"] in saved) is (broken_family != "atomic-memory")

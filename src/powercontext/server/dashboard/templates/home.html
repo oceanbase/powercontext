@@ -14,69 +14,66 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<div class="home-view">
-<style>
-  me .handoff-title { min-height: 2lh; }
-  me .state-content { min-height: 9lh; }
-  me .experience-lesson { min-height: 3lh; }
-  me .experience-situation { min-height: 4lh; }
-  me .experience-footer { min-height: 3lh; }
-  me .next-action { border-inline-start: 1px solid var(--tblr-border-color); }
-  @media (max-width: 767.98px) { me .next-action { border-inline-start: 0; } }
-  @media (min-width: 1200px) { me .note-list { display: grid; grid-auto-rows: 1fr; flex: 1; } }
-  @media (min-width: 1200px) { me .note-list .list-group-item { display: flex; align-items: center; } }
-</style>
-{% from 'macros.html' import note_rows, experience_card with context %}
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/artifact-type.html' import artifact_type %}
 {% from 'components/section-heading.html' import section_heading %}
+<div class="home-view">
 {{ page_heading(data.title, data.summary) }}
-
-<section id="usage">
-{{ section_heading(t.usage, link('usage'), t.view_usage) }}
-{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats %}
-  {% include 'compact_usage.html' %}
-{% endif %}
+{% include 'components/home-attention.html' %}
+{% include 'home-summary.html' %}
+<section class="home-panel home-token-usage" id="home-token-usage" aria-labelledby="home-token-usage-heading">
+  <header class="section-heading d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="mb-0" id="home-token-usage-heading">{{ t.usage_resources }}</h2><a href="{{ link('usage',view='resources') }}">{{ t.view_usage }} →</a></header>
+  {% if errors.get('usage') %}{{ read_error(errors.usage,t.usage_resources) }}{% elif stats %}{% include 'compact_usage.html' %}{% endif %}
 </section>
-<div class="row row-cards mt-2 home-columns">
-  <section class="col-xl-6 d-flex flex-column" id="notes">
-    {{ section_heading(t.remember_heading, link('notes'), t.view_notes) }}
-    {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
-    <div class="card flex-fill"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
-    {% endif %}
-  </section>
-  <section class="col-xl-6 d-flex flex-column" id="methods">
-    {{ section_heading(t.methods_heading, link('methods'), t.view_methods) }}
-    {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
-    {% if not errors.get('experience') %}{{ experience_card() }}{% endif %}
-    {% if not errors.get('skill') %}
-    <div class="card mt-2" id="skill-summary">
-      <div class="card-body py-3 d-flex align-items-center gap-3"><span class="text-secondary">{{ t.skill }}</span>{% if data.skill %}<a class="text-reset" href="{{ link('skill') }}">{{ data.skill.name }}</a>{% else %}<span class="text-secondary">{{ t.skills_empty }}</span>{% endif %}</div>
+{% if data.handoff or errors.get('handoff') %}
+<section id="handoff" class="home-panel home-handoff" aria-labelledby="home-handoff-heading">
+  <header class="section-heading d-flex justify-content-between align-items-center gap-3"><h2 id="home-handoff-heading">{{ t.handoff }}</h2><a href="{{ link('handoff') }}">{{ t.view_all }} →</a></header>
+  {% if errors.get('handoff') %}{{ read_error(errors.handoff,t.handoff) }}
+  {% else %}
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div class="home-handoff-content">
+      <span class="badge {{ 'bg-red-lt' if data.handoff.disposition == 'blocked' else 'bg-secondary-lt' }}">{{ t['home_handoff_' + data.handoff.disposition] }}</span>
+      <h3 class="home-handoff-objective">{{ data.handoff.objective }}</h3>
+      {% if data.handoff.state %}<p class="text-secondary small mb-3">{{ data.handoff.state[0].text }}</p>{% endif %}
+      {% if data.handoff.next_action %}<div class="home-handoff-next"><span class="text-secondary small">{{ t.next_action }}</span><p class="mb-0">{{ data.handoff.next_action.text }}</p></div>{% endif %}
     </div>
-    {% endif %}
-  </section>
-</div>
-<section id="handoff" class="mt-4">
-{{ section_heading(t.handoff, link('handoff'), t.view_all) }}
-{% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% else %}
-<article class="card handoff-sheet">
-  <div class="card-body">
-    <h3 class="handoff-title card-title">{% if data.handoff %}<a class="text-reset" href="{{ link('handoff-detail') }}">{{ data.handoff.objective|truncate(120, true) }}</a>{% else %}{{ t.handoff_empty }}{% endif %}</h3>
-    <div class="row row-cards">
-      <div class="col-md-7 handoff-state">
-        <h4>{{ t.recorded_state }}</h4>
-        <div class="state-content">{% if data.handoff %}<ul class="state-list mb-0">
-          {% for statement in data.handoff.state[:3] %}<li class="mb-2">{{ statement.text|truncate(120, true) }}</li>{% endfor %}
-        </ul>{% else %}<p class="text-secondary">{{ t.handoff_empty_body }}</p>{% endif %}</div>
-      </div>
-      <div class="col-md-5 next-action">
-        <h4>{{ t.next_action }}</h4><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff and data.handoff.next_action else t.no_next_action }}</p>
-      </div>
-    </div>
-    {% if data.handoff and data.handoff.disposition in ['complete', 'blocked'] %}<p class="history-note text-secondary mt-3 mb-0">{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
-
+    <a class="btn btn-primary" href="{{ link('handoff-detail',artifact=data.handoff.artifact_id,revision=data.handoff.revision) }}">{{ t.home_open_handoff }} →</a>
   </div>
-</article>
-{% endif %}
+  {% endif %}
 </section>
+{% endif %}
+<section id="recent-processing" class="home-panel home-processing">
+  <div class="section-heading d-flex flex-wrap justify-content-between align-items-center gap-3"><h2>{{ t.processing_sources_title }}</h2><div class="d-flex align-items-center gap-3"><a href="{{ link('processing',record_type='sources') }}">{{ t.view_all }} →</a></div></div>
+  <h3 class="home-subheading">{{ t.processing_recent_sources_title }}</h3>
+  {% if errors.get('activity') %}{{ read_error(errors.activity, t.recent_processing) }}
+  {% elif home_activity %}<div class="table-responsive"><table class="home-processing-table">
+    <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.home_activity_result }}</th><th scope="col">{{ t.home_activity_input }}</th></tr></thead>
+    <tbody>{% for item in home_activity[:3] %}<tr>
+      <td><time>{{ item.at|display_time }}</time></td>
+      <td><div class="d-flex flex-wrap gap-1">{% for family in item.artifact_families or [] %}<span class="badge bg-green-lt">{{ artifact_type(family) }}</span>{% else %}<span class="text-secondary">{{ 'Unknown' if item.artifact_families is none else 'None' }}</span>{% endfor %}</div></td>
+      <td><a class="home-processing-input" href="{{ item.url }}">{{ item.title|truncate(180,true) }}</a></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="home-empty-inline"><span>{{ t.recent_processing_empty }} · {{ t.home_processing_unknown }}</span><a href="{{ link('processing', record_type='sources') }}">{{ t.processing_sources }} →</a></div>{% endif %}
+</section>
+<section id="notes" class="home-panel home-saved">
+<header class="section-heading mb-3"><h2 class="mb-0">{{ t.home_saved_content_heading }}</h2></header>
+  <div class="d-flex justify-content-between align-items-center gap-3 mt-4 mb-2"><h3 class="home-subheading mb-0">{{ t.recent_saved_content }}</h3><a class="small" href="{{ link('notes') }}">{{ t.view_notes }} →</a></div>
+  {% macro change_table(items) %}
+  <div class="table-responsive"><table class="home-processing-table home-saved-table">
+    <thead><tr><th scope="col">{{ t.home_activity_time }}</th><th scope="col">{{ t.home_saved_type_version }}</th><th scope="col">{{ t.home_saved_content }}</th></tr></thead>
+    <tbody>{% for item in items %}<tr>
+      <td><time>{{ item.at|display_time }}</time></td>
+      <td><span class="badge bg-secondary-lt">{{ item.family_label }}</span><span class="text-secondary small ms-2">{{ t.revision }} {{ item.revision }}</span></td>
+      <td>{% if item.url %}<a class="home-processing-input" href="{{ item.url }}">{{ item.title|truncate(180,true) }}</a>{% else %}<span class="text-secondary">{{ t.home_change_unreadable }}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endmacro %}
+  {% if errors.get('changes') %}{{ read_error(errors.changes, t.notes) }}
+  {% elif home_changes %}{{ change_table(home_changes[:3]) }}
+  {% elif data.notes %}<div class="record-list">{% for item in data.notes %}<a class="record-row" href="{{ link('notes', artifact=item.artifact_id, revision=item.revision) }}"><div class="record-row-title">{{ item.text|truncate(140,true) }}</div></a>{% endfor %}</div>
+  {% elif errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% else %}<div class="home-empty-inline"><span>{{ t.notes_empty_body }}</span></div>{% endif %}
+</section>
+{% for family in ['experience','skill'] if errors.get(family) %}{{ read_error(errors[family],t[family]) }}{% endfor %}
 
 </div>

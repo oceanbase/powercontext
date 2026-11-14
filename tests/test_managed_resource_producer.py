@@ -175,6 +175,25 @@ def test_internal_file_alias_is_materialized_and_consumed_with_pinned_catalog(
         catalog.select_current()
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="case-distinct materialization requires a Linux filesystem")
+def test_linux_interpreter_keeps_case_distinct_runtime_paths(tmp_path: Path) -> None:
+    source = tmp_path / "python.tar.gz"
+    with tarfile.open(source, "w:gz") as archive:
+        for name in ("python/bin/python3", "python/lib/TermInfo", "python/lib/terminfo"):
+            content = name.encode()
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            member.mode = 0o755 if name.endswith("python3") else 0o644
+            archive.addfile(member, io.BytesIO(content))
+
+    with pytest.raises(ValueError, match="duplicate"):
+        extract_runtime(source, tmp_path / "windows-runtime")
+    extract_runtime(source, tmp_path / "linux-runtime", case_sensitive=True)
+    assert (tmp_path / "linux-runtime/lib/TermInfo").read_bytes() != (
+        tmp_path / "linux-runtime/lib/terminfo"
+    ).read_bytes()
+
+
 @pytest.mark.parametrize(
     "alias,directory", [("../outside", False), ("/absolute/python.exe", False), ("lib", True), ("pythonw.exe", False)]
 )
@@ -297,9 +316,9 @@ def test_windows_path_budget_covers_real_default_staging_and_utf16() -> None:
 
 
 def test_foreign_target_is_not_a_cross_compilation_request() -> None:
-    for target in ("macos-arm64", "macos-x86_64", "windows-x86_64"):
+    for target in ("linux-x86_64", "macos-arm64", "macos-x86_64", "windows-x86_64"):
         target_spec(target, native=False)
-    matching = {"darwin": "macos", "win32": "windows"}.get(sys.platform)
+    matching = {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform)
     foreign = "windows-x86_64" if matching != "windows" else "macos-arm64"
     with pytest.raises(ValueError, match="matching native"):
         target_spec(foreign)

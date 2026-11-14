@@ -52,6 +52,17 @@ export default defineConfig([
     external: hostExternal,
   },
   {
+    entry: { index: '../dsh-pet/src/index.ts' },
+    outDir: '../dsh-pet/lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2022',
+    dts: false,
+    banner,
+    fixedExtension: false,
+    external: hostExternal,
+  },
+  {
     // Browser entry: DSH discovers `dsh.client` and serves this bundle under
     // /plugins. It must be a closure factory, not an ES module; wrap-client.mjs
     // turns this CJS output into `window.__ModuleLoader__.load({id, factory})`.

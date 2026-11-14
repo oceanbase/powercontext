@@ -187,6 +187,25 @@ CaptureOption = Annotated[
 AgentsArgument = Annotated[list[str] | None, typer.Argument(help="Agent names; select interactively when omitted.")]
 
 
+def _dsh_pet_setup_bindings(
+    selected: tuple[str, ...], mode: str | None, raw_bindings: list[str] | None, discard: bool
+) -> dict[str, str] | None:
+    pet_bindings = None
+    if mode is not None or raw_bindings or discard:
+        if "dsh" not in selected or mode not in {"on", "off"}:
+            raise typer.BadParameter("Pet memory options require dsh and --dsh-pet-memory on or off.")  # noqa: TRY003
+        if (raw_bindings and mode != "on") or (discard and mode != "off"):
+            raise typer.BadParameter("Use --dsh-pet-bind with on and --discard-dsh-pet-pending with off.")  # noqa: TRY003
+        if mode == "on":
+            from powercontext.cli.dsh_pet import parse_pet_bindings
+
+            try:
+                pet_bindings = parse_pet_bindings(raw_bindings or [])
+            except ValueError as error:
+                raise typer.BadParameter(str(error), param_hint="--dsh-pet-bind") from error
+    return pet_bindings
+
+
 @setup_app.callback()
 def setup_agents(
     context: typer.Context,
@@ -210,6 +229,15 @@ def setup_agents(
         typer.Option(help="DSH profile or Kimi MCP profile: minimal, recommended, full; omission preserves it."),
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
+    dsh_pet_memory: Annotated[
+        str | None, typer.Option(help="DSH pet memory: on or off; interactive setup can offer first-time opt-in.")
+    ] = None,
+    dsh_pet_bind: Annotated[
+        list[str] | None, typer.Option(help="Pet memory binding PET_ID=SCOPE_ID; repeat for multiple pets.")
+    ] = None,
+    discard_dsh_pet_pending: Annotated[
+        bool, typer.Option(help="Discard unsent pet dialogue; requires --dsh-pet-memory off.")
+    ] = False,
     minimax_data_dir: Annotated[
         Path | None, typer.Option(help="MiniMax data root; plugins/powercontext is added.")
     ] = None,
@@ -241,12 +269,24 @@ def setup_agents(
     }
     validate_native_options(selected, **options, dsh_command=dsh_command)
 
+    pet_bindings = _dsh_pet_setup_bindings(selected, dsh_pet_memory, dsh_pet_bind, discard_dsh_pet_pending)
+
     def complete(host):
         native = native_options(host, **options)
+        pet_setup: dict[str, Any] = {}
         if host == "dsh":
             native["dsh_target"] = resolve_dsh_target(DshProfile(profile) if profile is not None else None, dsh_command)
+            if dsh_pet_memory == "off":
+                from powercontext.cli.dsh_pet import disable_pet_memory
+
+                result = disable_pet_memory(native["dsh_target"], discard=discard_dsh_pet_pending)
+                return {"status": "ok", "result": {"dsh_pet_memory": result}}
             if native["dsh_target"].profile == DshProfile.DESKTOP:
                 typer.echo("Fully quit DSH Desktop before replacing its plugin.", err=True)
+            if pet_bindings is not None:
+                pet_setup["dsh_pet_bindings"] = pet_bindings
+            elif not json_output and stdin_is_tty():
+                pet_setup["dsh_pet_interactive"] = True
         if host == "kimi-code" and not scope_id and not workspace_scope and not json_output and stdin_is_tty():
             from powercontext.cli.kimi_code import kimi_home
 
@@ -259,6 +299,7 @@ def setup_agents(
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
+            **pet_setup,
             **native,
         )
         checks = doctor_checks(host, **native)
@@ -342,15 +383,84 @@ def doctor(
     )
 
 
+def _codex_plugin_root(marketplace: str, plugin_version: str) -> Path:
+    """Return the directory where Codex installed this plugin version."""
+
+    if any(part in {"", ".", ".."} or "/" in part or "\\" in part for part in (marketplace, plugin_version)):
+        raise SetupError("Invalid Codex plugin cache location")  # noqa: TRY003
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+    return codex_home / "plugins" / "cache" / marketplace / PLUGIN_NAME / plugin_version
+
+
+def _sync_codex_plugin_runtime(plugin_root: Path, *options: str, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run `uv sync` on the plugin's own `.venv`, the environment the MCP header helper uses."""
+
+    # Never sync into another project's environment named by the caller's shell.
+    environment = {
+        name: value for name, value in os.environ.items() if name not in {"UV_PROJECT_ENVIRONMENT", "VIRTUAL_ENV"}
+    }
+    return subprocess.run(  # noqa: S603 - the hooks and the MCP helper run the same uv from PATH.
+        ["uv", "sync", "--frozen", "--quiet", *options, "--project", str(plugin_root)],  # noqa: S607
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        timeout=timeout,
+    )
+
+
+def _prepare_codex_plugin_runtime(plugin_root: Path) -> None:
+    """Build the installed plugin's Python environment before Codex first starts it.
+
+    Codex starts the MCP header helper with a filtered environment and the hooks with the session's environment, both
+    through `uv run` at session start. Left to that moment, both build the environment: uv replaces it when the two
+    request different interpreters, failing the helper mid-import, and a cold build delays the optional MCP server
+    past the point where Codex lists the first turn's tools.
+    """
+
+    retry = "the plugin is installed; rerun setup once uv can install its dependencies"
+    try:
+        completed = _sync_codex_plugin_runtime(plugin_root, timeout=300)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SetupError(f"Cannot prepare the Codex plugin runtime with uv ({retry}): {error}") from error  # noqa: TRY003
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        raise SetupError(f"Preparing the Codex plugin runtime with uv failed ({retry}): {detail}")  # noqa: TRY003
+
+
+def _codex_plugin_runtime_diagnostic(plugin: dict[str, Any]) -> Diagnostic:
+    """Report whether the installed plugin's environment is ready without building it."""
+
+    rerun = "rerun `powercontext setup codex`"
+    if which("uv") is None:
+        return Diagnostic(
+            status=DiagnosticStatus.FAILED,
+            detail=f"uv is not on PATH; the plugin's hooks and MCP credential helper need it; install uv and {rerun}",
+        )
+    try:
+        root = _codex_plugin_root(_required_string(plugin, "marketplaceName"), _required_string(plugin, "version"))
+        completed = _sync_codex_plugin_runtime(root, "--check", timeout=60)
+    except (SetupError, OSError, subprocess.SubprocessError) as error:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"cannot check the plugin environment: {error}")
+    if completed.returncode == 0:
+        return Diagnostic(status=DiagnosticStatus.OK, detail="plugin environment is ready")
+    return Diagnostic(
+        status=DiagnosticStatus.DEGRADED,
+        detail=(
+            "plugin environment is not built; the next Codex session builds it while starting and may begin "
+            f"without PowerContext MCP tools; {rerun}"
+        ),
+    )
+
+
 def _codex_endpoint_updates(marketplace: str, plugin_version: str, server_url: str) -> dict[Path, bytes]:
     """Keep the installed native MCP and Hook endpoint and saved credential source identical."""
 
     from powercontext.cli.authorization import credential_path
 
-    if any(part in {"", ".", ".."} or "/" in part or "\\" in part for part in (marketplace, plugin_version)):
-        raise SetupError("Invalid Codex plugin cache location")  # noqa: TRY003
-    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-    path = codex_home / "plugins" / "cache" / marketplace / PLUGIN_NAME / plugin_version / ".mcp.json"
+    path = _codex_plugin_root(marketplace, plugin_version) / ".mcp.json"
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
         entry = config["mcpServers"][PLUGIN_NAME]
@@ -1323,6 +1433,10 @@ class CodexInstaller:
     def install(self, source):
         if _codex_path_executable() is None:
             raise SetupError("Codex CLI is not installed or is not on PATH.")  # noqa: TRY003
+        if which("uv") is None:
+            raise SetupError(  # noqa: TRY003
+                "uv is not installed or is not on PATH; the Codex plugin's hooks and MCP helper need it."
+            )
         marketplace_source, local = _normalize_marketplace_source(source.location)
         arguments = ["plugin", "marketplace", "add", marketplace_source]
         if not local:
@@ -1338,10 +1452,12 @@ class CodexInstaller:
         )
         if plugin is None or plugin.get("enabled") is not False:
             plugin = _run_codex_json("plugin", "add", f"{PLUGIN_NAME}@{marketplace}")
+        plugin_version = _required_string(plugin, "version")
+        _prepare_codex_plugin_runtime(_codex_plugin_root(marketplace, plugin_version))
         return {
             "marketplace": marketplace,
             "plugin": _required_string(plugin, "name"),
-            "plugin_version": _required_string(plugin, "version"),
+            "plugin_version": plugin_version,
             "data_dir": str(powercontext_data_dir()),
         }
 
@@ -1423,6 +1539,8 @@ class CodexInstaller:
                 detail="not checked because the PowerContext plugin is unavailable",
             )
             return diagnostics
+        # Before the MCP probe below, whose helper run would build the environment itself.
+        diagnostics["plugin_runtime"] = _codex_plugin_runtime_diagnostic(plugin)
 
         try:
             servers = _run_codex_mcp_list()

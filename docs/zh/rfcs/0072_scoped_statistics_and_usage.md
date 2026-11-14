@@ -135,6 +135,10 @@ PowerContext-owned generation 和 embedding path 对每个成功的 capability r
 
 Usage recording 是 best-effort，失败不能改变 generation 或 embedding result。如果 retry 可能造成重复计数，实现不得重试。
 
+普通操作只将用量入队，完成时不等待落库。有界消费者可以批量写入，但须保留原始 Scope、日期、purpose、operation、
+已知 Token 小计和用量完整性标记。统计读取在打开快照前按有界预算刷新本进程已经接收的记录，关闭时也按有界预算排空；
+这两个边界都不保证其他进程队列的可见性。队列和丢失观察按原始记录计数，失败或结果不确定的批次包含其中每条原始记录。
+
 ## Recall token semantics
 
 Recall accounting 在 `prepare_context` 完成最终 selection 和 truncation 后执行。Baseline 是所有最终 Memory entry 或

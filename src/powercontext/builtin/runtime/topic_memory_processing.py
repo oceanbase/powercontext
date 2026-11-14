@@ -105,6 +105,7 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_REQUESTS,
     MAX_TOPIC_MEMORY_WORK_TOKENS,
     RECOVERABLE_TOPIC_MEMORY_REJECTIONS,
+    TOPIC_MEMORY_HEAD_CONFLICT,
     TopicMemoryWorkBudget,
     require_topic_memory_work_available,
 )
@@ -572,14 +573,22 @@ class TopicMemoryProcessor:
                         await self._generate(assignment.scope_id, projected) if projected else ((), {})
                     )
                     operations = await self._prepare_operations(assignment.scope_id, proposals, candidates, evidence)
-                with (
-                    nullcontext()
-                    if self._tracing is None
-                    else self._tracing.stage("topic_memory.commit", attributes={})
-                ):
-                    await self._publisher.publish(
-                        assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
-                    )
+                try:
+                    with (
+                        nullcontext()
+                        if self._tracing is None
+                        else self._tracing.stage("topic_memory.commit", attributes={})
+                    ):
+                        await self._publisher.publish(
+                            assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
+                        )
+                except RevisionConflictError:
+                    # A concurrent replace or Dream moved a Topic head after this attempt read it.
+                    # Recording the cause hands the attempt back; its reservations stay charged. Only a
+                    # generated proposal can target an existing head, and every stage reserves before its
+                    # call, so each recomputation spends from the frontier's request and token ceilings.
+                    await budget.record_failure(TOPIC_MEMORY_HEAD_CONFLICT)
+                    return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.HEAD_CONFLICT)
             except TopicMemoryGenerationError as error:
                 if error.code in RECORDED_TOPIC_MEMORY_REJECTIONS:
                     await budget.fail(error.code)
@@ -591,6 +600,7 @@ class TopicMemoryProcessor:
         except GenerationConflictError:
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
         except RevisionConflictError:
+            # Not raised by publication, so this attempt keeps counting toward the ceiling.
             return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.HEAD_CONFLICT)
         finally:
             self._document_vectors.reset(vector_token)

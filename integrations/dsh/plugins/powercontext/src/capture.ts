@@ -72,7 +72,7 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     observation?.skip('capture', 'capture_disabled')
     return
   }
-  if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+  if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt, input.config.authorization)) {
     observation?.skip('capture', input.prompt.length > MAX_SOURCE_LENGTH ? 'source_too_long' : 'sensitive_content')
     logSafely(input.log, { event: 'capture_content_source', outcome: 'skipped' })
     return

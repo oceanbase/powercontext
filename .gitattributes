@@ -17,5 +17,9 @@ src/powercontext/builtin/persistence/migrations/resources/** text eol=lf
 src/powercontext/builtin/persistence/migrations/mysql_resources/** text eol=lf
 src/powercontext/builtin/persistence/migrations/server_resources/** text eol=lf
 src/powercontext/builtin/persistence/migration_resources/** text eol=lf
+# The pinned budget reports are replayed byte for byte and the fixtures they name are hashed, so a checkout must
+# produce the canonical bytes too, not only a run on the machine that generated them.
+evaluation/memory/prepared_context_budget/fixtures/** text eol=lf
+evaluation/memory/prepared_context_budget/reports/** text eol=lf
 # SSE recordings retain their final blank event separator.
 gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/**/*.sse whitespace=-blank-at-eof

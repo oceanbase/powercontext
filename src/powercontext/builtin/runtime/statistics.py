@@ -146,21 +146,6 @@ class RelationalScopedStatistics:
     def _assemble(self, reads: _ScopeReads, period: ResolvedUsagePeriod, /) -> ScopeStatistics:
         """Project one Scope's raw rows into the statistics contract."""
 
-        artifacts = tuple(FamilyCount(family=family, total=total) for family, total in reads.inventory.artifacts)
-        candidates = _candidate_inventory(reads.inventory.candidates)
-        inventory = InventoryStatistics(
-            sources=SourceInventoryStatistics(
-                total=reads.inventory.sources,
-                memory_processed=reads.processed_sources,
-                memory_pending=max(reads.inventory.sources - reads.processed_sources, 0),
-            ),
-            artifacts=ArtifactInventoryStatistics(
-                total=sum(item.total for item in artifacts),
-                by_family=artifacts,
-            ),
-            candidates=candidates,
-            memory=MemoryInventoryStatistics(entries=_memory_inventory(reads.inventory.memories)),
-        )
         usage = _usage_statistics(period, reads.usage)
         recall = _recall_statistics(period, self._token_estimator, reads.recall)
         recurrence = _recurrence_statistics(
@@ -169,12 +154,18 @@ class RelationalScopedStatistics:
         )
         return ScopeStatistics(
             scope_id=self._scope_id,
-            inventory=inventory,
+            inventory=_inventory_statistics(reads.inventory, reads.processed_sources),
             usage=usage,
             recall=recall,
             recurrence=recurrence,
             bootstrap_delivery=BootstrapDeliveryStatistics(period=period, by_integration=reads.bootstrap_delivery),
         )
+
+    async def inventory(self, connection: AsyncConnection) -> InventoryStatistics:
+        """Read current inventory in the caller's snapshot without usage or recurrence history."""
+        counts = (await self._repository.inventory_many(connection, (self._scope_id,)))[self._scope_id]
+        cursor = await self._cursors.load(connection, self._scope_id, SOURCE_WINDOW_TRIGGER_NAME)
+        return _inventory_statistics(counts, _processed_sources(cursor))
 
     def offer_model_usage(
         self,
@@ -196,8 +187,8 @@ class RelationalScopedStatistics:
     async def flush_model_usage(self) -> None:
         """Wait, within a bounded budget, for the usage accepted so far.
 
-        Reading statistics already flushes; this covers the writer side. The wait
-        covers only the prefix accepted at entry, and a record still retrying a
+        Statistics reads explicitly flush before opening their snapshot. The wait
+        covers only the prefix accepted at entry, and a batch still retrying a
         contended write may settle after this returns: accounting stays
         best-effort rather than becoming a durability barrier.
         """
@@ -499,6 +490,20 @@ def _resolve_period(period: StatisticsPeriod, end_date: date) -> ResolvedUsagePe
         preset=period,
         start_date=end_date - timedelta(days=days - 1),
         end_date=end_date,
+    )
+
+
+def _inventory_statistics(counts: StoredInventoryCounts, processed_sources: int) -> InventoryStatistics:
+    artifacts = tuple(FamilyCount(family=family, total=total) for family, total in counts.artifacts)
+    return InventoryStatistics(
+        sources=SourceInventoryStatistics(
+            total=counts.sources,
+            memory_processed=processed_sources,
+            memory_pending=max(counts.sources - processed_sources, 0),
+        ),
+        artifacts=ArtifactInventoryStatistics(total=sum(item.total for item in artifacts), by_family=artifacts),
+        candidates=_candidate_inventory(counts.candidates),
+        memory=MemoryInventoryStatistics(entries=_memory_inventory(counts.memories)),
     )
 
 
