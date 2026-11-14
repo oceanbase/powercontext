@@ -95,7 +95,6 @@ from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_ATTEMPTS,
     exhausted_reason,
-    require_topic_memory_work_available,
 )
 from powercontext.builtin.persistence.topic_memory_index import (
     CompositeTopicMemoryIndex,
@@ -1554,7 +1553,7 @@ def test_planner_bounds_twenty_legal_cjk_previews_before_provider_call() -> None
     asyncio.run(scenario())
 
 
-def test_related_coordination_fails_closed_for_candidate_union_above_stage_contract() -> None:
+def test_related_coordination_caps_candidate_union_by_retrieval_score() -> None:
     async def scenario() -> None:
         manager, profile, sources, _ = await _repositories()
         published = {
@@ -1581,7 +1580,12 @@ def test_related_coordination_fails_closed_for_candidate_union_above_stage_contr
 
             async def search(self, _connection, _scope_id, _query, **_kwargs):
                 self.calls += 1
-                selected = range(1, 12) if self.calls == 1 else range(11, 22)
+                # The two searches overlap on history-0005..0020. First-batch
+                # scores decay with the index while second-batch scores grow, so
+                # the shared candidates peak mid-range: keeping the maximum
+                # per-candidate score drops history-0013, while first-score or
+                # candidate-id ranking would both drop history-0021 instead.
+                selected = range(1, 21) if self.calls == 1 else range(5, 22)
                 return TopicMemorySearchResult(
                     mode="fts",
                     hits=tuple(
@@ -1589,7 +1593,7 @@ def test_related_coordination_fails_closed_for_candidate_union_above_stage_contr
                             artifact_ref=published[f"history-{index:04d}"].topic.as_ref(),
                             title=f"history {index}",
                             summary="shared durable state",
-                            score=90,
+                            score=float((81 - index) if self.calls == 1 else (55 + index)),
                             matched_by=("topic_fts",),
                         )
                         for index in selected
@@ -1603,14 +1607,6 @@ def test_related_coordination_fails_closed_for_candidate_union_above_stage_contr
                 return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
 
         try:
-            stages = _stages(probe=TopicMemoryProbeOutput(), global_output=TopicMemoryGlobalOutput())
-            processor = TopicMemoryProcessor(
-                database=profile.database,
-                sources=sources,
-                topics=cast(Any, FakeTopics()),
-                stages=stages,
-                publisher=cast(Any, None),
-            )
             evidence = (
                 TopicMemoryEvidence(evidence_id="evidence-0001", source_type="note", content="first"),
                 TopicMemoryEvidence(evidence_id="evidence-0002", source_type="note", content="second"),
@@ -1619,13 +1615,36 @@ def test_related_coordination_fails_closed_for_candidate_union_above_stage_contr
                 TopicMemoryProposal(content=_content("shared-a"), evidence_ids=("evidence-0001",)),
                 TopicMemoryProposal(content=_content("shared-b"), evidence_ids=("evidence-0002",)),
             )
+            stages = _stages(
+                probe=TopicMemoryProbeOutput(),
+                global_output=TopicMemoryGlobalOutput(),
+                reconcile=(TopicMemoryReconcileOutput(), TopicMemoryReconcileOutput()),
+            )
+            processor = TopicMemoryProcessor(
+                database=profile.database,
+                sources=sources,
+                topics=cast(Any, FakeTopics()),
+                stages=stages,
+                publisher=cast(Any, None),
+            )
 
             candidates: dict[str, PublishedTopicMemory] = {}
-            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
-                await processor._coordinate("scope-a", proposals, candidates, evidence)
+            await processor._coordinate("scope-a", proposals, candidates, evidence)
 
+            # Every discovered related Topic stays reachable; the per-component
+            # ranking keeps each reconcile input at the stage limit of 20. The two
+            # overlapping searches put both proposals in one component of 21
+            # related candidates; the shared ones must keep their highest score,
+            # so the dropped candidate is history-0013 — different from what
+            # first-score ranking or candidate-id ranking would drop (both would
+            # drop history-0021 instead).
             assert len(candidates) == 21
-            assert stages.reconciler.inputs == []
+            assert len(stages.reconciler.inputs) == 1
+            history = stages.reconciler.inputs[0].historical
+            assert len(history) == 20
+            assert {item.title for item in history} == {
+                f"history-{index:04d} topic" for index in range(1, 22) if index != 13
+            }
         finally:
             await manager.__aexit__(None, None, None)
 
@@ -1740,15 +1759,8 @@ def test_related_coordination_fails_closed_and_keeps_cursor_when_history_exceeds
     asyncio.run(scenario())
 
 
-async def _union_over_stage_contract_setup(*, retrying: bool = False):
-    """Window whose coordinate phase sees a candidate union above the stage contract.
-
-    Two proposals hit overlapping secondary candidates, so each per-proposal
-    retrieval stays inside ``topic_memory_history_max_candidates`` while the
-    deduplicated union is 21. Only the first coordinate lookup overflows, so
-    ``retrying`` keeps the generated proposals available for a later attempt and
-    wires the real publisher, which is what shows what the frontier does next.
-    """
+async def _union_over_stage_contract_setup():
+    """Window whose coordinate phase selects 20 of 21 related historical Topics."""
     manager, profile, sources, repository = await _repositories()
     published = {
         f"history-{index:04d}": PublishedTopicMemory(
@@ -1813,21 +1825,17 @@ async def _union_over_stage_contract_setup(*, retrying: bool = False):
         probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
     )
     global_output = TopicMemoryGlobalOutput(proposals=(proposal,))
-    if retrying:
-        stages = TopicMemoryStageSet(
-            probe=_RepeatingGenerator(probe),
-            global_evolver=_RepeatingGenerator(global_output),
-            planner=_QueueGenerator(),
-            evolver=_QueueGenerator(),
-            temporary=_QueueGenerator(),
-            reconciler=_QueueGenerator(),
-            estimator=character_token_estimator(),
-            input_tokens_limit=100_000,
-        )
-        publisher = cast(Any, TopicMemoryAtomicPublisher(profile.database, sources, repository, leases=leases))
-    else:
-        stages = _stages(probe=probe, global_output=global_output)
-        publisher = cast(Any, None)
+    stages = TopicMemoryStageSet(
+        probe=_RepeatingGenerator(probe),
+        global_evolver=_RepeatingGenerator(global_output),
+        planner=_QueueGenerator(),
+        evolver=_QueueGenerator(),
+        temporary=_QueueGenerator(),
+        reconciler=_RepeatingGenerator(TopicMemoryReconcileOutput()),
+        estimator=character_token_estimator(),
+        input_tokens_limit=100_000,
+    )
+    publisher = cast(Any, TopicMemoryAtomicPublisher(profile.database, sources, repository, leases=leases))
     processor = TopicMemoryProcessor(
         database=profile.database,
         sources=sources,
@@ -1844,44 +1852,148 @@ async def _budget_row(profile):
         return None if row is None else dict(row)
 
 
-def test_related_history_limit_is_recorded_without_ending_the_frontier() -> None:
-    """The cause is kept for diagnosis; neither gate may treat it as a stop."""
+def test_full_initial_history_does_not_block_a_distinct_second_pass_match() -> None:
+    """A full initial history leaves the second-retrieval safeguard intact.
+
+    Every initial candidate is unrelated to the generated CREATE, so the probe's
+    first search fills all 20 candidate slots; the CREATE's secondary search then
+    finds the one existing Topic the proposal actually targets. That match must
+    reach the reconcile stage and be updated in place, not skipped in favor of
+    unrelated unbound candidates and re-published as a duplicate.
+    """
 
     async def scenario() -> None:
-        manager, profile, _, processor, assignment = await _union_over_stage_contract_setup()
+        manager, profile, sources, repository = await _repositories()
+        published: dict[str, PublishedTopicMemory] = {}
         try:
-            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
-                await processor.process(assignment)
-            row = await _budget_row(profile)
-            assert row is not None
-            assert row["failure_code"] == "related_history_limit"
-            assert row["attempts"] == 1
-
-            # The selector guard reads the same reason the Worker does, so a recorded
-            # cause that still stopped either one would block the Source for good.
-            assert exhausted_reason(row) == ""
             async with profile.database.transaction() as connection:
-                await require_topic_memory_work_available(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 0)
+                seed = await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(name="history-seed", materialization=SourceMaterialization.CAPTURED, body="seed"),
+                )
+                for artifact_id in (f"history-{index:04d}" for index in range(1, 21)):
+                    published[artifact_id] = await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        artifact_id,
+                        TopicMemoryDraft(content=_content(artifact_id), sources=(seed.ref,)),
+                        prepare_topic_memory_projection(_content(artifact_id)),
+                    )
+                published["retention-policy"] = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "retention-policy",
+                    TopicMemoryDraft(content=_content("retention-policy", term="retention"), sources=(seed.ref,)),
+                    prepare_topic_memory_projection(_content("retention-policy", term="retention")),
+                )
+
+            class FakeTopics:
+                def __init__(self) -> None:
+                    self.calls = 0
+
+                async def search(self, _connection, _scope_id, _query, **_kwargs):
+                    self.calls += 1
+                    if self.calls == 1:
+                        selected = tuple(f"history-{index:04d}" for index in range(1, 21))
+                    else:
+                        selected = ("retention-policy",)
+                    return TopicMemorySearchResult(
+                        mode="fts",
+                        hits=tuple(
+                            TopicMemorySearchHit(
+                                artifact_ref=published[artifact].topic.as_ref(),
+                                title=artifact,
+                                summary=f"{artifact} state is durable",
+                                score=100,
+                                matched_by=("topic_fts",),
+                            )
+                            for artifact in selected
+                        ),
+                    )
+
+                async def get_exact(self, connection, scope_id, ref):
+                    return await repository.get_exact(connection, scope_id, ref)
+
+                async def get_exact_many(self, connection, scope_id, refs):
+                    return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
+
+            topics = FakeTopics()
+            proposal = TopicMemoryProposal(content=_content("shared"), evidence_ids=("evidence-0001",))
+
+            class EchoingReconciler:
+                """Bind the CREATE to the single historical slot the component receives."""
+
+                def __init__(self) -> None:
+                    self.inputs: list[object] = []
+
+                async def generate(self, value, /) -> GenerationResult[TopicMemoryReconcileOutput]:
+                    self.inputs.append(value)
+                    member = value.proposals[0]
+                    output = member.model_copy(update={"candidate_id": value.historical[0].candidate_id})
+                    return GenerationResult(output=TopicMemoryReconcileOutput(proposals=(output,)))
+
+            reconciler = EchoingReconciler()
+            stages = TopicMemoryStageSet(
+                probe=_QueueGenerator(
+                    TopicMemoryProbeOutput(
+                        probes=(TopicMemoryProbe(query="shared durable state", evidence_ids=("evidence-0001",)),)
+                    )
+                ),
+                global_evolver=_QueueGenerator(TopicMemoryGlobalOutput(proposals=(proposal,))),
+                planner=_QueueGenerator(),
+                evolver=_QueueGenerator(),
+                temporary=_QueueGenerator(),
+                reconciler=cast(Any, reconciler),
+                estimator=character_token_estimator(),
+                input_tokens_limit=100_000,
+            )
+            leases = ArtifactProcessingLeaseRepository()
+            async with profile.database.transaction() as connection:
+                await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(
+                        name="new-state",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="new shared state",
+                    ),
+                )
+                term = await leases.start_single_process_term(connection, "holder")
+            processor = TopicMemoryProcessor(
+                database=profile.database,
+                sources=sources,
+                topics=cast(Any, topics),
+                stages=stages,
+                publisher=cast(Any, TopicMemoryAtomicPublisher(profile.database, sources, repository, leases=leases)),
+                id_factory=lambda: "created",
+            )
+            assert (await processor.process(_assignment(term.fence("single-process")))).outcome.value == "succeeded"
+            assert topics.calls >= 2
+            async with profile.database.transaction() as connection:
+                current = await repository.browse_current(connection, "scope-a", limit=100)
+            titles = {item.artifact_ref.artifact_id for item in current}
+            assert titles == {f"history-{index:04d}" for index in range(1, 21)} | {"retention-policy"}
+            assert "created" not in titles
+            # The window updated the existing Topic in place rather than silently
+            # publishing nothing; the CREATE bound to the second-pass match.
+            retention = next(item for item in current if item.artifact_ref.artifact_id == "retention-policy")
+            assert retention.artifact_ref.revision == 2
         finally:
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
 
 
-def test_recorded_related_history_limit_still_publishes_a_later_attempt() -> None:
-    """A retry regenerates and searches again, so a narrower union fits and the Cursor moves."""
+def test_oversized_related_history_candidate_union_publishes_the_window() -> None:
+    """A bounded candidate union lets the reconcile stage and cursor advance."""
 
     async def scenario() -> None:
-        manager, profile, topics, processor, assignment = await _union_over_stage_contract_setup(retrying=True)
+        manager, profile, topics, processor, assignment = await _union_over_stage_contract_setup()
         try:
-            with pytest.raises(TopicMemoryGenerationError, match="related_history_limit"):
-                await processor.process(assignment)
-            calls = topics.calls
-
             assert (await processor.process(assignment)).outcome.value == "succeeded"
-            assert topics.calls > calls
+            assert topics.calls >= 2
             assert await _budget_row(profile) is None
-
             async with profile.database.transaction() as connection:
                 cursor = await SourceCursorRepository().load(
                     connection,
