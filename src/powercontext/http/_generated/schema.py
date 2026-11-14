@@ -13860,7 +13860,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["artifact", "title", "summary", "detail", "source_refs"],
             },
             "CreateArtifactRequest": {
-                "oneOf": [
+                "anyOf": [
                     {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
                     {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
                 ],
@@ -14349,7 +14349,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ReplaceArtifactRequest": {
-                "oneOf": [
+                "anyOf": [
                     {"$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceTopicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceMemoryArtifactRequest"},
@@ -14359,7 +14359,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {"$ref": "#/components/schemas/ReplacePromptArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceProfileArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplacePluginArtifactRequest"},
-                ]
+                ],
+                "description": "The complete content for "
+                "the family in the path. A "
+                "plugin family's content is "
+                "any object, so a built-in "
+                "family's request also "
+                "matches the plugin branch; "
+                "the path family selects the "
+                "branch the Server applies.",
             },
             "ReplacePromptArtifactRequest": {
                 "properties": {

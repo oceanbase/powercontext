@@ -6765,7 +6765,7 @@ class ReplaceArtifactRequest(
         | ReplacePluginArtifactRequest
     ]
 ):
-    root: (
+    root: Annotated[
         ReplaceAtomicMemoryArtifactRequest
         | ReplaceTopicMemoryArtifactRequest
         | ReplaceMemoryArtifactRequest
@@ -6774,8 +6774,11 @@ class ReplaceArtifactRequest(
         | ReplaceHandoffArtifactRequest
         | ReplacePromptArtifactRequest
         | ReplaceProfileArtifactRequest
-        | ReplacePluginArtifactRequest
-    )
+        | ReplacePluginArtifactRequest,
+        Field(
+            description="The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies."
+        ),
+    ]
 
 
 class CandidateHistory(BaseModel):

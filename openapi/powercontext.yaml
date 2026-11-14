@@ -13163,7 +13163,9 @@ components:
         A built-in family's creation request, or the complete content of an Artifact in a loaded plugin's family.
         The family name selects the branch: built-in names select the built-in branch.
       x-powercontext-family-dispatch: {builtin: CreateBuiltinArtifactRequest, plugin: CreatePluginArtifactRequest}
-      oneOf:
+      # A plugin family's content is any object, so built-in requests also match the plugin branch; anyOf states
+      # that honestly, and the family name selects the branch the Server applies.
+      anyOf:
         - $ref: "#/components/schemas/CreateBuiltinArtifactRequest"
         - $ref: "#/components/schemas/CreatePluginArtifactRequest"
     CreateBuiltinArtifactRequest:
@@ -13473,7 +13475,10 @@ components:
           maxLength: 4096
           nullable: true
     ReplaceArtifactRequest:
-      oneOf:
+      description: >-
+        The complete content for the family in the path. A plugin family's content is any object, so a built-in
+        family's request also matches the plugin branch; the path family selects the branch the Server applies.
+      anyOf:
         - $ref: "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceTopicMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceMemoryArtifactRequest"
