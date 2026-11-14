@@ -6875,7 +6875,7 @@ const ACTIVE = new Set([
 	"installing",
 	"verifying"
 ]);
-const CHECK_TIMEOUT_MS$1 = 2e4;
+const PREFLIGHT_CHECK_TIMEOUT_MS = 45e3;
 const INSTALL_TIMEOUT_MS = 12e4;
 const UNUSED_READY_RETENTION_MS = 30 * 864e5;
 function preflightRecords(root, maxRecords) {
@@ -7060,7 +7060,7 @@ var PreflightService = class {
 				});
 			}
 			return this.inspect(call$1, updated, adapter, set);
-		}, installing ? INSTALL_TIMEOUT_MS + CHECK_TIMEOUT_MS$1 : CHECK_TIMEOUT_MS$1);
+		}, installing ? INSTALL_TIMEOUT_MS + PREFLIGHT_CHECK_TIMEOUT_MS : PREFLIGHT_CHECK_TIMEOUT_MS);
 	}
 	async validateForPrepare(context, input) {
 		this.options.authority.requireLocal();
@@ -7100,7 +7100,7 @@ var PreflightService = class {
 			signal: AbortSignal.any([
 				context.signal,
 				this.options.signal,
-				AbortSignal.timeout(CHECK_TIMEOUT_MS$1)
+				AbortSignal.timeout(PREFLIGHT_CHECK_TIMEOUT_MS)
 			])
 		};
 		if (latest !== void 0) await this.options.authority.verifySource(call$1, binding.source, latest);
@@ -7340,7 +7340,7 @@ var PreflightService = class {
 		this.options.records.save(preflightKey(record$3.preflightId), next);
 		return next;
 	}
-	run(context, record$3, work, timeoutMs = CHECK_TIMEOUT_MS$1) {
+	run(context, record$3, work, timeoutMs = PREFLIGHT_CHECK_TIMEOUT_MS) {
 		const id = record$3.preflightId;
 		const controller = new AbortController();
 		const deadline = AbortSignal.timeout(timeoutMs);
@@ -7482,30 +7482,46 @@ const TARGETS = [
 ];
 var TargetCatalog = class {
 	adapters = /* @__PURE__ */ new Map();
+	platform;
 	constructor(adapters = [], platform = process.platform) {
+		this.platform = platform;
 		for (const adapter of adapters) {
 			if (!NATIVE_TARGET_IDS.includes(adapter.id) || this.adapters.has(adapter.id)) throw new Error("Invalid or duplicate handoff adapter");
-			if (adapter.qualification.platform === platform) this.adapters.set(adapter.id, adapter);
+			this.adapters.set(adapter.id, adapter);
 		}
 	}
 	list() {
 		return TARGETS.map(([targetId, name$1, kind]) => {
 			const adapter = this.adapters.get(targetId);
+			const qualification = adapter?.qualification;
+			const qualified = qualification?.platform === this.platform && Boolean(qualification.evidence.trim());
 			return {
 				targetId,
 				name: name$1,
 				kind,
-				qualification: adapter?.qualification ?? null,
-				availability: adapter ? "requires_preflight" : "unavailable",
-				action: adapter ? "preflight" : kind === "framework" ? "developer_setup" : kind === "evaluation" ? "evaluation_only" : "manual_setup_or_export"
+				qualification: qualified ? qualification : null,
+				diagnostics: adapter ? "available" : "unavailable",
+				availability: qualified ? "requires_preflight" : "unavailable",
+				action: qualified ? "preflight" : kind === "framework" ? "developer_setup" : kind === "evaluation" ? "evaluation_only" : "manual_setup_or_export"
 			};
 		});
 	}
 	require(targetId) {
 		if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError("payload_invalid");
 		const adapter = this.adapters.get(targetId);
-		if (!adapter) throw new HandoffError("integration_unavailable");
+		if (!adapter || adapter.qualification?.platform !== this.platform || !adapter.qualification.evidence.trim()) throw new HandoffError("integration_unavailable");
 		return adapter;
+	}
+	/** Detection is read-only and available even before a target has launch qualification. */
+	async diagnose(targetId, signal) {
+		if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError("payload_invalid");
+		const adapter = this.adapters.get(targetId);
+		if (!adapter) throw new HandoffError("integration_unavailable");
+		const result$1 = await adapter.detect(signal);
+		return result$1.state === "present" ? {
+			state: "present",
+			version: result$1.version
+		} : { state: result$1.state };
 	}
 };
 
@@ -7513,7 +7529,7 @@ var TargetCatalog = class {
 //#region src/handoff/launch.ts
 const SCHEMA = "powercontext.dsh-launch-attempts.v1";
 const MAX_ATTEMPTS = 64;
-const CHECK_TIMEOUT_MS = 3e4;
+const CHECK_TIMEOUT_MS = PREFLIGHT_CHECK_TIMEOUT_MS + 15e3;
 function launchRecords(root) {
 	return new HandoffRecords(root, SCHEMA);
 }
