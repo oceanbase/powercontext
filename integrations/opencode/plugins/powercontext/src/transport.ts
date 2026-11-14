@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Generated from integrations/lifecycle/transport.ts; do not edit.
+// Edit the source and run `make integration-lifecycle` instead.
+
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
