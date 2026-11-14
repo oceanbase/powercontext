@@ -78,6 +78,6 @@ export default defineConfig([
     banner,
     clean: false,
     fixedExtension: true,
-    external: ['react', 'react/jsx-runtime'],
+    external: ['react', 'react/jsx-runtime', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
   },
 ])

@@ -3771,9 +3771,14 @@ async def record_task_outcome(
 
 async def prepare_handoff(
     request: PrepareHandoffRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> TransportHandoffDraft:
-    result = await application.handoff.for_scope(request.scope_id).prepare(mapping.prepare_handoff_request(request))
+    preferred = http_request.headers.get("accept-language")
+    normalized = (preferred or "").strip().lower()
+    output_language = "zh-CN" if normalized == "zh-cn" else "en" if normalized == "en" else None
+    action = mapping.prepare_handoff_request(request, output_language=output_language)
+    result = await application.handoff.for_scope(request.scope_id).prepare(action)
     return mapping.handoff_draft_response(result)
 
 

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import type { HandoffLocale } from './locale.ts'
 import type { Wire } from './wire.ts'
 
 // In-process only. The authenticated Host supplies ownerId.
@@ -111,6 +112,7 @@ export class DeliveryError extends Error {
 
 export interface PrepareDeliveryInput extends ValidateForPrepareInput {
   readonly requestId: string
+  readonly locale?: HandoffLocale
   readonly workInput?: unknown
   /** An exact, explicitly selected Handoff Revision in the verified Scope. */
   readonly revision?: Wire<'ArtifactReference'>

@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CallContext, DeliveryService, DeliveryView, LaunchBundle, VerifiedPreflight } from '../src/handoff/contracts.ts'
 import { HandoffError } from '../src/handoff/errors.ts'
-import { verifyHostSource } from '../src/handoff/host.ts'
+import { resolveHostBoundary, verifyHostSource } from '../src/handoff/host.ts'
 import { LaunchService, launchRecords } from '../src/handoff/launch.ts'
 import { nativeLaunchUrl } from '../src/handoff/native-launch.ts'
 import { PreflightService, preflightRecords } from '../src/handoff/preflight.ts'
@@ -407,6 +407,8 @@ describe('launch and recovery', () => {
     expect(await duplicate).toEqual(opened)
     expect(opened).toMatchObject({ state: 'opened', launchAttemptId: requested.launchAttemptId })
     expect(await f.newLaunch().launch(owner, f.id, f.launchInput)).toEqual(opened)
+    await expect(f.newLaunch().launch(owner, f.id, { ...f.launchInput, locale: 'zh-CN' }))
+      .rejects.toMatchObject({ code: 'idempotency_conflict' })
     expect(f.dispatch).toHaveBeenCalledTimes(1)
   })
 
@@ -491,6 +493,10 @@ describe('Host routing and authorization', () => {
       requestRejection: req => req.headers['x-session-auth'] ? undefined : 401,
       authenticatedOwner: req => req.headers['x-session-auth'] === 'valid' ? owner.ownerId : outsider.ownerId,
       catalog: unavailable ? new TargetCatalog() : f.catalog, signal, services,
+      resolveBoundary: (_context, selectedSession, selectedMessage) => {
+        if (selectedSession !== sessionId || selectedMessage !== f.source.messageId) throw new HandoffError('not_found')
+        return f.source
+      },
     })
     const server = createServer(handler)
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -505,6 +511,21 @@ describe('Host routing and authorization', () => {
       })
     return { request, services }
   }
+
+  it('reports installed unqualified targets without exposing configuration identity or permitting launch', async () => {
+    const f = await fixture()
+    f.catalog = new TargetCatalog([{ ...f.adapter, qualification: undefined }], 'darwin')
+    const { request, services } = await http(f)
+    const response = await request('/targets/codex-desktop/diagnose')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ targetId: 'codex-desktop', state: 'present', version: '1.2' })
+    expect((await request('/targets/codex-desktop/diagnose', {})).status).toBe(405)
+    expect((await request('/targets/codex-desktop/diagnose', undefined, { 'x-session-auth': '' })).status).toBe(401)
+    expect((await request('/deliveries/any/diagnose')).status).toBe(404)
+    expect((await request('/preflights', { source: f.source, targetId: 'codex-desktop', requestId: 'unqualified' })).status).toBe(503)
+    expect(services).not.toHaveBeenCalled()
+    expect(f.adapter.installIntegration).not.toHaveBeenCalled()
+  })
 
   it('gates Host authority before service access and cannot advertise or fake an unavailable integration', async () => {
     const f = await fixture()
@@ -526,6 +547,11 @@ describe('Host routing and authorization', () => {
   it('translates explicit operations, checks session selectors, and reads separate states with no GET side effects', async () => {
     const f = await fixture()
     const { request } = await http(f)
+    expect(await (await request(`/boundaries?sessionId=${sessionId}&messageId=${f.source.messageId}`)).json())
+      .toEqual({ source: f.source })
+    expect((await request(`/boundaries?sessionId=${sessionId}&messageId=${f.source.messageId}&cwd=/fake`)).status).toBe(400)
+    expect((await request(`/boundaries?sessionId=${sessionId}&messageId=${f.source.messageId}`, undefined,
+      { 'x-session-auth': '' })).status).toBe(401)
     const ready = await (await request('/preflights', { requestId: '1', source: f.source, targetId: f.adapter.id })).json()
     expect(ready.state).toBe('ready')
     const body = { requestId: '2', preflightId: ready.preflightId, expectedRevision: ready.revision,
@@ -561,10 +587,14 @@ describe('Host routing and authorization', () => {
     const host = { get: ((key: string) => key === 'sessions' ? { get: (id: string) => id === sessionId ? session : undefined }
       : key === 'workingDirectory' ? { get: () => f.cwd } : undefined) } as Parameters<typeof verifyHostSource>[0]
     expect(() => verifyHostSource(host, owner, f.source, true)).not.toThrow()
+    expect(resolveHostBoundary(host, owner, sessionId, f.source.messageId)).toEqual(f.source)
+    expect(() => resolveHostBoundary(host, owner, sessionId, 'missing')).toThrow(HandoffError)
+    expect(() => resolveHostBoundary(host, owner, 'other-session', f.source.messageId)).toThrow(HandoffError)
     expect(() => verifyHostSource(host, owner, { ...f.source, cwd: '/different' }, true)).toThrow(HandoffError)
     expect(() => verifyHostSource(host, owner, { ...f.source, workspaceObservedAt: '2026-11-10' }, true)).toThrow(HandoffError)
     expect(() => verifyHostSource(host, owner, { ...f.source, messageId: 'fake-reply' }, true)).toThrow(HandoffError)
     events[2]!.data.reason!.kind = 'aborted'
     expect(() => verifyHostSource(host, owner, f.source, true)).toThrow(HandoffError)
+    expect(() => resolveHostBoundary(host, owner, sessionId, f.source.messageId)).toThrow(HandoffError)
   })
 })

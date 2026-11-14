@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
 
 let react = require("react");
 let react_jsx_runtime = require("react/jsx-runtime");
+let __deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 //#region src/status-contract.ts
 /**
@@ -592,6 +593,8 @@ var StatusController = class {
 //#endregion
 //#region src/ui/locale.ts
 const LOCALE_KEY = "powercontext.dsh.locale";
+let sessionLocale;
+const LOCALE_CHANGED = "powercontext-dsh-locale-changed";
 const texts = {
 	"zh-CN": {
 		"status": "状态",
@@ -785,6 +788,7 @@ const texts = {
 	}
 };
 function readLocale() {
+	if (sessionLocale) return sessionLocale;
 	try {
 		return localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "zh-CN";
 	} catch {
@@ -794,11 +798,27 @@ function readLocale() {
 function saveLocale(locale) {
 	try {
 		localStorage.setItem(LOCALE_KEY, locale);
-	} catch {}
+		sessionLocale = void 0;
+	} catch {
+		sessionLocale = locale;
+	}
+	if (typeof window !== "undefined") window.dispatchEvent(new Event(LOCALE_CHANGED));
 }
-function failureTextKey(code, status) {
-	if (status === 401 || /authentication|unauthorized/.test(code ?? "")) return "authHelp";
-	if (status === 403) return "forbiddenHelp";
+function subscribeLocale(onChange) {
+	if (typeof window === "undefined") return () => {};
+	const onStorage = (event) => {
+		if (event.key === null || event.key === LOCALE_KEY) onChange();
+	};
+	window.addEventListener(LOCALE_CHANGED, onChange);
+	window.addEventListener("storage", onStorage);
+	return () => {
+		window.removeEventListener(LOCALE_CHANGED, onChange);
+		window.removeEventListener("storage", onStorage);
+	};
+}
+function failureTextKey(code, status$1) {
+	if (status$1 === 401 || /authentication|unauthorized/.test(code ?? "")) return "authHelp";
+	if (status$1 === 403) return "forbiddenHelp";
 	if (code === "unsupported_context_schema" || code === "version_mismatch") return "schemaHelp";
 	if (code === "not_ready" || code === "degraded") return "readinessHelp";
 	if (/timeout/.test(code ?? "")) return "timeoutHelp";
@@ -948,6 +968,32 @@ const STATUS_STYLES = `
   .pc-trigger, .pc-panel, .pc-icon-button, .pc-text-button { transition: none; }
 }
 `;
+
+//#endregion
+//#region src/ui/brand.tsx
+function PowerContextMark({ size = 20 }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+		className: "pc-brand-icon",
+		style: {
+			width: size,
+			height: size
+		},
+		"aria-hidden": "true",
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+			className: "pc-brand-icon-color",
+			src: "/plugins/powercontext-dsh/assets/powercontext.svg",
+			width: size,
+			height: size,
+			alt: ""
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+			className: "pc-brand-icon-reverse",
+			src: "/plugins/powercontext-dsh/assets/powercontext-reverse.svg",
+			width: size,
+			height: size,
+			alt: ""
+		})]
+	});
+}
 
 //#endregion
 //#region src/update-contract.ts
@@ -1371,6 +1417,1432 @@ async function readDashboard(sessionId, fetcher = fetch, signal) {
 }
 
 //#endregion
+//#region src/ui/handoff/client.ts
+var HandoffHttpError = class extends Error {
+	status;
+	constructor(code, status$1) {
+		super(code);
+		this.status = status$1;
+	}
+};
+var HandoffHttp = class {
+	fetcher;
+	constructor(fetcher = (input, init) => fetch(input, init)) {
+		this.fetcher = fetcher;
+	}
+	async json(path, body, signal) {
+		const response = await this.fetcher("/powercontext/" + path, body === void 0 ? {
+			cache: "no-store",
+			signal
+		} : {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+			cache: "no-store",
+			signal
+		});
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({}));
+			throw new HandoffHttpError(typeof error.code === "string" ? error.code : "integration_unavailable", response.status);
+		}
+		return response.json();
+	}
+	async resolveBoundary(sessionId, messageId) {
+		const source = (await this.json(`boundaries?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`))?.source;
+		if (!source || source.sessionId !== sessionId || source.messageId !== messageId || !Number.isSafeInteger(source.throughSeq) || source.throughSeq < 0 || typeof source.cwd !== "string" || !source.cwd || !Number.isFinite(Date.parse(source.workspaceObservedAt))) throw new HandoffHttpError("binding_mismatch", 409);
+		return Object.freeze({ ...source });
+	}
+	async readReceipt(deliveryId, sessionId) {
+		const result = await this.json(`deliveries/${encodeURIComponent(deliveryId)}/receipt?sessionId=${encodeURIComponent(sessionId)}`);
+		if (!result || result.deliveryId !== deliveryId || ![
+			"awaiting",
+			"accepted",
+			"needs_clarification",
+			"declined"
+		].includes(result.state) || ![
+			"not_found",
+			"verified",
+			"unavailable",
+			"forbidden",
+			"invalid",
+			"stale"
+		].includes(result.readState) || typeof result.observedAt !== "string" || !Number.isFinite(Date.parse(result.observedAt))) throw new HandoffHttpError("receipt_invalid", 422);
+		const attribution = result.attribution;
+		if (attribution && (typeof attribution.receiver !== "string" || !attribution.receiver.trim() || attribution.kind !== "self_reported" && attribution.kind !== "authenticated" || attribution.kind === "authenticated" && (!attribution.principal || typeof attribution.principal.type !== "string" || typeof attribution.principal.id !== "string"))) throw new HandoffHttpError("receipt_invalid", 422);
+		return result;
+	}
+	targets() {
+		return this.json("targets");
+	}
+	async diagnoseTarget(targetId, signal) {
+		const result = await this.json(`targets/${encodeURIComponent(targetId)}/diagnose`, void 0, signal);
+		if (!result || result.targetId !== targetId || ![
+			"present",
+			"missing",
+			"unknown",
+			"unsupported"
+		].includes(result.state) || result.state === "present" && (typeof result.version !== "string" || !result.version.trim())) throw new HandoffHttpError("integration_unavailable", 503);
+		return result;
+	}
+	preflight(source, targetId, requestId, signal) {
+		return this.json("preflights", {
+			source,
+			targetId,
+			requestId
+		}, signal);
+	}
+	async getPreflight(preflightId, sessionId, signal) {
+		const result = await this.json(`preflights/${encodeURIComponent(preflightId)}?sessionId=${encodeURIComponent(sessionId)}`, void 0, signal);
+		if (result?.preflightId !== preflightId || result.source?.sessionId !== sessionId) throw new HandoffHttpError("binding_mismatch", 409);
+		return result;
+	}
+	decision(preflight, consent, signal) {
+		return this.json(`preflights/${encodeURIComponent(preflight.preflightId)}/install`, {
+			sessionId: preflight.source.sessionId,
+			expectedRevision: preflight.revision,
+			consent
+		}, signal);
+	}
+	verify(preflight, confirmOriginal = false, signal) {
+		return this.json(`preflights/${encodeURIComponent(preflight.preflightId)}/install`, {
+			sessionId: preflight.source.sessionId,
+			expectedRevision: preflight.revision,
+			verify: true,
+			...confirmOriginal ? { confirmOriginal: true } : {}
+		}, signal);
+	}
+	cancelPreflight(preflight, signal) {
+		return this.json(`preflights/${encodeURIComponent(preflight.preflightId)}/cancel`, { sessionId: preflight.source.sessionId }, signal);
+	}
+	prepare(preflight, requestId, workInput$1, supersedesDeliveryId, signal, locale) {
+		return this.json("deliveries", {
+			preflightId: preflight.preflightId,
+			expectedRevision: preflight.revision,
+			source: preflight.source,
+			requestId,
+			...locale === void 0 ? {} : { locale },
+			...workInput$1 === void 0 ? {} : { workInput: workInput$1 },
+			...supersedesDeliveryId ? { supersedesDeliveryId } : {}
+		}, signal);
+	}
+	async history(sessionId, signal) {
+		const result = await this.json(`deliveries?sessionId=${encodeURIComponent(sessionId)}`, void 0, signal);
+		if (!Array.isArray(result?.deliveries) || result.deliveries.some((item) => item.source?.sessionId !== sessionId)) throw new HandoffHttpError("binding_mismatch", 409);
+		return result;
+	}
+	async pin(deliveryId, sessionId, pinned, signal) {
+		const result = await this.json(`deliveries/${encodeURIComponent(deliveryId)}/pin`, {
+			sessionId,
+			pinned
+		}, signal);
+		if (result?.deliveryId !== deliveryId || result.source?.sessionId !== sessionId || result.pinned !== pinned) throw new HandoffHttpError("binding_mismatch", 409);
+		return result;
+	}
+	async delete(deliveryId, sessionId, signal) {
+		const result = await this.json(`deliveries/${encodeURIComponent(deliveryId)}/delete`, { sessionId }, signal);
+		if (result?.deleted !== true) throw new HandoffHttpError("integration_unavailable", 503);
+		return result;
+	}
+	async get(deliveryId, sessionId, signal) {
+		const result = await this.json(`deliveries/${encodeURIComponent(deliveryId)}?sessionId=${encodeURIComponent(sessionId)}`, void 0, signal);
+		if (result?.delivery?.deliveryId !== deliveryId || result.delivery.source?.sessionId !== sessionId) throw new HandoffHttpError("binding_mismatch", 409);
+		return result;
+	}
+	cancel(deliveryId, sessionId, signal) {
+		return this.json(`deliveries/${encodeURIComponent(deliveryId)}/cancel`, { sessionId }, signal);
+	}
+	launch(deliveryId, sessionId, targetId, requestId, retryOf, signal, locale) {
+		return this.json(`deliveries/${encodeURIComponent(deliveryId)}/launch`, {
+			sessionId,
+			targetId,
+			requestId,
+			...locale === void 0 ? {} : { locale },
+			...retryOf ? { retryOf } : {}
+		}, signal);
+	}
+	exportUrl(deliveryId, sessionId) {
+		return `/powercontext/deliveries/${encodeURIComponent(deliveryId)}/export?sessionId=${encodeURIComponent(sessionId)}`;
+	}
+};
+function workInput(objective, state, next, omissions, disposition, locale = "en") {
+	return {
+		schema: "powercontext.current-work-handoff.v1",
+		trust: "untrusted_input",
+		objective: objective.trim(),
+		state: [{
+			text: state.trim(),
+			basis: "declared",
+			evidence: []
+		}],
+		disposition,
+		next_action: next.trim() ? {
+			text: next.trim(),
+			basis: "declared",
+			evidence: []
+		} : null,
+		omissions: [...new Set([...omissions.split("\n").map((line) => line.trim()).filter(Boolean), locale === "zh-CN" ? "未取得历史工作区快照。" : "The historical workspace observation was not available."])]
+	};
+}
+
+//#endregion
+//#region src/ui/handoff/panel.tsx
+const copy = {
+	zh: {
+		action: "交接给其他 Agent",
+		title: "交接当前工作",
+		close: "关闭",
+		unavailable: "交接边界服务不可用。请等待集成完成。",
+		target: "目标",
+		select: "选择目标",
+		check: "重新检查目标",
+		back: "返回",
+		diagnostics: "安装检查",
+		checkingInstallation: "正在检查",
+		checkFailed: "检查失败",
+		checkUnavailable: "检查不可用",
+		loading: "正在加载目标",
+		notAvailable: "目标当前不可用",
+		unqualifiedShort: "当前版本尚未通过交接验证",
+		installationPresent: "已安装，版本",
+		installationMissing: "未检测到安装",
+		installationUnknown: "无法确定安装状态",
+		installationUnsupported: "当前平台不支持检查",
+		unqualified: "当前版本尚未通过交接验证。可以检查安装状态；交接准备和启动暂不可用。",
+		preflight: "预检与安装",
+		preparation: "准备",
+		launch: "启动",
+		receipt: "接收确认",
+		original: "继续使用原来的回复",
+		yes: "同意安装",
+		no: "不安装并取消",
+		verify: "已完成，重新检查",
+		prepare: "整理交接",
+		manual: "手动填写并检查交接内容",
+		disposition: "工作状态",
+		selectDisposition: "选择状态",
+		continuable: "可以继续",
+		blocked: "受阻",
+		complete: "已完成",
+		objective: "工作目标",
+		state: "当前状态与已知问题",
+		next: "下一步",
+		omissions: "遗漏或未验证项（每行一项）",
+		newVersion: "明确创建新的交接",
+		submit: "使用填写内容准备",
+		open: "打开目标",
+		retry: "明确重试打开",
+		cancel: "取消交接",
+		refresh: "刷新状态",
+		pinned: "已固定",
+		pin: "固定",
+		unpin: "取消固定",
+		delete: "删除",
+		confirmDelete: "确认删除",
+		keep: "保留",
+		noHistory: "此会话没有已保存的交接",
+		export: "导出交接包",
+		history: "交接记录",
+		deliveryId: "交付 ID",
+		recover: "查看交付",
+		timeout: "五分钟内尚未确认，可手动刷新。",
+		receiptState: "接收状态",
+		receiptRead: "本次读取",
+		noReceipt: "尚未读取",
+		selfReported: "接收方自行报告",
+		authenticated: "已认证的接收方",
+		receiver: "接收方",
+		principal: "认证身份",
+		receiptUnavailable: "回执读取服务不可用",
+		instruction: "打开仅表示系统接受请求。请在目标中检查并发送预填提示。",
+		interrupted: "已请求停止，结果可能未知。请刷新预检或在交接历史中恢复；已完成的安装不会自动撤销。",
+		processing: "正在处理…",
+		fixedOmission: "交接会注明无法取得历史工作区快照。",
+		reset: "重新选择目标",
+		error: "操作未完成",
+		boundary: "回复已变化，请重新选择最新回复。",
+		empty: "请选择支持预检的目标。"
+	},
+	en: {
+		action: "Hand off to another agent",
+		title: "Hand off current work",
+		close: "Close",
+		unavailable: "The handoff boundary service is unavailable. Integration is required.",
+		target: "Target",
+		select: "Choose a target",
+		check: "Check target again",
+		back: "Back",
+		diagnostics: "Installation checks",
+		checkingInstallation: "Checking",
+		checkFailed: "Check failed",
+		checkUnavailable: "Check unavailable",
+		loading: "Loading targets",
+		notAvailable: "Target unavailable",
+		unqualifiedShort: "Current version not yet validated for handoff",
+		installationPresent: "Installed, version",
+		installationMissing: "Installation not detected",
+		installationUnknown: "Installation status unknown",
+		installationUnsupported: "Installation check is not supported on this platform",
+		unqualified: "This version has not yet been validated for handoff. You can check installation; preparation and launch are unavailable.",
+		preflight: "Preflight and installation",
+		preparation: "Preparation",
+		launch: "Launch",
+		receipt: "Receipt",
+		original: "Continue with the original reply",
+		yes: "Allow installation",
+		no: "Decline and cancel",
+		verify: "Done, check again",
+		prepare: "Prepare handoff",
+		manual: "Enter and review handoff details",
+		disposition: "Work disposition",
+		selectDisposition: "Choose a status",
+		continuable: "Continuable",
+		blocked: "Blocked",
+		complete: "Complete",
+		objective: "Objective",
+		state: "Current state and known issues",
+		next: "Next action",
+		omissions: "Omissions or unverified items (one per line)",
+		newVersion: "Explicitly create a new handoff",
+		submit: "Prepare with these details",
+		open: "Open target",
+		retry: "Retry opening explicitly",
+		cancel: "Cancel handoff",
+		refresh: "Refresh status",
+		pinned: "Pinned",
+		pin: "Pin",
+		unpin: "Unpin",
+		delete: "Delete",
+		confirmDelete: "Confirm deletion",
+		keep: "Keep",
+		noHistory: "No saved handoffs in this session",
+		export: "Export handoff package",
+		history: "Handoff history",
+		deliveryId: "Delivery ID",
+		recover: "View delivery",
+		timeout: "No confirmation after five minutes. Refresh manually.",
+		receiptState: "Receipt status",
+		receiptRead: "Latest read",
+		noReceipt: "Not read yet",
+		selfReported: "Receiver self-report",
+		authenticated: "Authenticated receiver",
+		receiver: "Receiver",
+		principal: "Principal",
+		receiptUnavailable: "Receipt reader unavailable",
+		instruction: "Opened means the system accepted the request. Review and send the prefilled prompt in the target.",
+		interrupted: "Stop requested; the outcome may be unknown. Refresh preflight or recover from history. Completed installation is not undone.",
+		processing: "Working…",
+		fixedOmission: "The handoff will note that the historical workspace snapshot was unavailable.",
+		reset: "Choose a target again",
+		error: "The action did not complete",
+		boundary: "The reply changed. Select the latest reply again.",
+		empty: "Choose a target that supports preflight."
+	}
+};
+const statusZh = {
+	checking_agent: "正在检查目标",
+	checking_integration: "正在检查集成",
+	needs_install_consent: "等待安装确认",
+	installing: "正在安装",
+	verifying: "正在验证",
+	ready: "已就绪",
+	needs_user_action: "需要操作",
+	failed: "失败",
+	cancelled: "已取消",
+	unknown: "结果未知",
+	preparing: "正在准备",
+	needs_input: "需要填写内容",
+	prepared: "已准备",
+	requested: "已请求",
+	opened: "已打开",
+	awaiting: "等待接收确认",
+	stale: "历史确认，未重新查询",
+	not_found: "未找到回执",
+	verified: "已验证",
+	unavailable: "服务不可用",
+	forbidden: "无读取权限",
+	invalid: "回执无效",
+	accepted: "接收方已确认",
+	needs_clarification: "接收方需要澄清",
+	declined: "接收方已拒绝",
+	install_agent: "请安装目标应用",
+	install_integration: "请安装集成",
+	repair_integration: "请修复集成",
+	restart_target: "请重启目标应用",
+	sign_in: "请登录目标应用",
+	configure_target: "请配置目标应用",
+	reselect_source: "请重新选择来源",
+	run_preflight_again: "请重新检查",
+	check_target: "请检查目标状态"
+};
+function status(value, locale) {
+	if (!value) return "";
+	return locale === "zh" ? statusZh[value] ?? value : value === "stale" ? "Historical confirmation, not rechecked" : value.replaceAll("_", " ");
+}
+const flowCopy = {
+	zh: {
+		checking: "检查目标环境",
+		installing: "安装 PowerContext",
+		preparing: "整理当前工作",
+		opening: "打开新会话",
+		waiting: "可在目标 Agent 补充要求，再发送预填草稿。",
+		received: "接收方已读取并确认本次交接。",
+		uncertain: "结果还未确认。先检查目标会话或在交接记录中查看，再决定是否重试。",
+		source: "回复已变化，请选择最新回复或明确继续原回复。",
+		missing: "还没有足够的可用上下文。可以换一条有任务背景的回复，或补充必要信息。",
+		unavailable: "无法继续交接。请检查目标环境后再试。",
+		details: "交付详情",
+		identifier: "交付编号",
+		refreshDelivery: "刷新交付状态",
+		refreshReceipt: "刷新接收确认",
+		optional: "补充下一步和未验证项"
+	},
+	en: {
+		checking: "Checking target",
+		installing: "Installing PowerContext",
+		preparing: "Preparing handoff",
+		opening: "Opening a new session",
+		waiting: "Send the prefilled draft in the target agent.",
+		received: "The receiver read and acknowledged this handoff.",
+		uncertain: "The outcome is unknown. Check the target session or handoff history before trying again.",
+		source: "The reply changed. Select the latest reply or confirm the original.",
+		missing: "There is not enough usable context. Choose a reply with task context or add the missing details.",
+		unavailable: "Handoff could not continue. Check the target environment and try again.",
+		details: "Delivery details",
+		identifier: "Delivery ID",
+		refreshDelivery: "Refresh delivery",
+		refreshReceipt: "Refresh receipt",
+		optional: "Add next steps and gaps"
+	}
+};
+function historyTime(value, locale) {
+	const time = new Date(value);
+	return Number.isFinite(time.getTime()) ? new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit"
+	}).format(time) : value;
+}
+const pendingByReply = /* @__PURE__ */ new Map();
+const nativeTargets = [
+	{
+		id: "codex-desktop",
+		name: "Codex Desktop"
+	},
+	{
+		id: "claude-desktop",
+		name: "Claude Desktop (Code)"
+	},
+	{
+		id: "claude-code-cli",
+		name: "Claude Code CLI"
+	}
+];
+function pendingOperations(sessionId, messageId) {
+	const key = JSON.stringify([sessionId, messageId]);
+	let pending = pendingByReply.get(key);
+	if (!pending) {
+		pending = {
+			users: 0,
+			preflights: /* @__PURE__ */ new Map(),
+			preparations: /* @__PURE__ */ new Map(),
+			launches: /* @__PURE__ */ new Map()
+		};
+		pendingByReply.set(key, pending);
+	}
+	return pending;
+}
+function releasePending(sessionId, messageId, pending) {
+	const key = JSON.stringify([sessionId, messageId]);
+	if (pending.users === 0 && pending.preflights.size === 0 && pending.preparations.size === 0 && pending.launches.size === 0 && pendingByReply.get(key) === pending) pendingByReply.delete(key);
+}
+function HandoffAction(props) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HandoffActionInstance, { ...props }, JSON.stringify([props.sessionId, props.messageId]));
+}
+function HandoffActionInstance(props) {
+	const latest = props.useChat((snapshot) => {
+		const turn = snapshot.timeline.turnOrder.at(-1);
+		if (turn === void 0) return false;
+		return snapshot.locations.getTurn(turn).some((key) => {
+			const node = snapshot.nodes.get(key);
+			return node?.kind === "turn-tail" && node.data.closing?.finalNode?.messageId === props.messageId;
+		});
+	});
+	const [open, setOpen] = (0, react.useState)(false);
+	const [visited, setVisited] = (0, react.useState)(false);
+	const locale = (0, react.useSyncExternalStore)(subscribeLocale, readLocale) === "en" ? "en" : "zh";
+	if (!latest && !visited) return null;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(HandoffPanel, {
+		...props,
+		locale,
+		active: open,
+		visited,
+		latest,
+		onOpen: () => {
+			setVisited(true);
+			setOpen(true);
+		},
+		onClose: () => setOpen(false)
+	});
+}
+function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, latest, onOpen, onClose }) {
+	const t = copy[locale];
+	const f = flowCopy[locale];
+	const api = (0, react.useRef)(new HandoffHttp()).current;
+	const pending = (0, react.useRef)(pendingOperations(sessionId, messageId)).current;
+	(0, react.useEffect)(() => {
+		pending.users++;
+		return () => {
+			pending.users--;
+			releasePending(sessionId, messageId, pending);
+		};
+	}, [
+		pending,
+		sessionId,
+		messageId
+	]);
+	const [replySource, setReplySource] = (0, react.useState)();
+	const [confirmedOriginal, setConfirmedOriginal] = (0, react.useState)(false);
+	const [recoveredFromHistory, setRecoveredFromHistory] = (0, react.useState)(false);
+	const [targets, setTargets] = (0, react.useState)([]);
+	const [view, setView] = (0, react.useState)("targets");
+	const [target, setTarget] = (0, react.useState)("");
+	const [diagnostics, setDiagnostics] = (0, react.useState)({});
+	const [preflight, setPreflight] = (0, react.useState)();
+	const [delivery, setDelivery] = (0, react.useState)();
+	const source = delivery?.delivery.source ?? replySource;
+	const [attempt, setAttempt] = (0, react.useState)();
+	const [receipt, setReceipt] = (0, react.useState)();
+	const [receiptRead, setReceiptRead] = (0, react.useState)();
+	const [timedOut, setTimedOut] = (0, react.useState)(false);
+	const [manual, setManual] = (0, react.useState)(false);
+	const [disposition, setDisposition] = (0, react.useState)("");
+	const [objective, setObjective] = (0, react.useState)("");
+	const [state, setState] = (0, react.useState)("");
+	const [next, setNext] = (0, react.useState)("");
+	const [omissions, setOmissions] = (0, react.useState)("");
+	const [history, setHistory] = (0, react.useState)();
+	const [deleteId, setDeleteId] = (0, react.useState)();
+	const [error, setError] = (0, react.useState)("");
+	const [busy, setBusy] = (0, react.useState)(false);
+	const [phase, setPhase] = (0, react.useState)("checking");
+	const latestReply = (0, react.useRef)(latest);
+	latestReply.current = latest;
+	const mounted = (0, react.useRef)(true);
+	(0, react.useEffect)(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	const lock = (0, react.useRef)(false);
+	const activeRequest = (0, react.useRef)();
+	const activeDeliveryId = (0, react.useRef)();
+	const pendingPreparations = (0, react.useRef)(pending.preparations);
+	const pendingLaunches = (0, react.useRef)(pending.launches);
+	const trigger = (0, react.useRef)(null);
+	const focusPanel = (0, react.useCallback)((node) => {
+		node?.focus({ preventScroll: true });
+	}, []);
+	const run = async (fn) => {
+		if (lock.current) return;
+		const controller = new AbortController();
+		activeRequest.current = controller;
+		lock.current = true;
+		setBusy(true);
+		setError("");
+		try {
+			await fn(controller.signal);
+		} catch (e) {
+			setError(controller.signal.aborted ? "outcome_unknown" : e instanceof Error ? e.message : "integration_unavailable");
+		} finally {
+			activeRequest.current = void 0;
+			lock.current = false;
+			setBusy(false);
+			releasePending(sessionId, messageId, pending);
+		}
+	};
+	const stop = () => {
+		if (activeRequest.current) activeRequest.current.abort();
+		else if (delivery) run(async (signal) => acceptDelivery(await api.cancel(delivery.delivery.deliveryId, sessionId, signal), true));
+		else if (preflight) run(async (signal) => setPreflight(await api.cancelPreflight(preflight, signal)));
+	};
+	(0, react.useEffect)(() => {
+		let active$1 = true;
+		if (!ports || !visited) return;
+		Promise.all([ports.resolveBoundary(sessionId, messageId), api.targets()]).then(([boundary, result]) => {
+			if (!active$1) return;
+			if (boundary.sessionId !== sessionId || boundary.messageId !== messageId) {
+				setError("binding_mismatch");
+				return;
+			}
+			setReplySource(Object.freeze({ ...boundary }));
+			setTargets(result.targets);
+		}).catch(() => {
+			if (active$1) setError("integration_unavailable");
+		});
+		return () => {
+			active$1 = false;
+		};
+	}, [
+		api,
+		ports,
+		sessionId,
+		messageId,
+		visited
+	]);
+	(0, react.useEffect)(() => {
+		if (!active || view !== "diagnostics") return;
+		const controller = new AbortController();
+		const available = nativeTargets.filter((item) => targets.some((target$1) => target$1.targetId === item.id && target$1.diagnostics === "available"));
+		setDiagnostics(Object.fromEntries(available.map((item) => [item.id, { state: "checking" }])));
+		for (const item of available) api.diagnoseTarget(item.id, controller.signal).then((result) => {
+			if (!controller.signal.aborted) setDiagnostics((current) => ({
+				...current,
+				[item.id]: result
+			}));
+		}, () => {
+			if (!controller.signal.aborted) setDiagnostics((current) => ({
+				...current,
+				[item.id]: { state: "error" }
+			}));
+		});
+		return () => {
+			controller.abort();
+		};
+	}, [
+		active,
+		view,
+		api,
+		targets
+	]);
+	const readReceipt = async (id$1, isCurrent = () => true) => {
+		if (!ports?.readReceipt) {
+			if (isCurrent()) setReceiptRead("unavailable");
+			return;
+		}
+		try {
+			const value = await ports.readReceipt(id$1, sessionId);
+			if (!isCurrent() || activeDeliveryId.current !== id$1) return void 0;
+			setReceipt(value);
+			setReceiptRead(value.readState);
+			if (value.state !== "awaiting") setTimedOut(false);
+			return value;
+		} catch (error$1) {
+			if (!isCurrent() || activeDeliveryId.current !== id$1) return void 0;
+			setReceiptRead(error$1 instanceof HandoffHttpError && error$1.status === 403 ? "forbidden" : error$1 instanceof HandoffHttpError && error$1.message === "receipt_invalid" ? "invalid" : "unavailable");
+			return;
+		}
+	};
+	(0, react.useEffect)(() => {
+		if (!active || view !== "flow" || !delivery || !attempt || !["opened", "unknown"].includes(attempt.state) || !ports?.readReceipt) return;
+		let stopped = false;
+		let timer;
+		const start = Date.parse(attempt.createdAt);
+		let delay = 2e3;
+		let inFlight = false;
+		const tick = async () => {
+			if (stopped || inFlight || document.visibilityState === "hidden") return;
+			if (!Number.isFinite(start) || Date.now() - start >= 3e5) {
+				setTimedOut(true);
+				return;
+			}
+			inFlight = true;
+			try {
+				const result = await readReceipt(delivery.delivery.deliveryId, () => !stopped);
+				if (stopped) return;
+				if (result && [
+					"accepted",
+					"needs_clarification",
+					"declined"
+				].includes(result.state)) return;
+			} catch {
+				if (!stopped) setReceiptRead("unavailable");
+			} finally {
+				inFlight = false;
+			}
+			if (!stopped && !document.hidden) {
+				timer = setTimeout(tick, Math.min(delay, Math.max(0, 3e5 - (Date.now() - start))));
+				delay = Math.min(delay * 2, 3e4);
+			}
+		};
+		const visibility = () => {
+			if (timer) clearTimeout(timer);
+			if (document.visibilityState !== "hidden") tick();
+		};
+		document.addEventListener("visibilitychange", visibility);
+		tick();
+		return () => {
+			stopped = true;
+			if (timer) clearTimeout(timer);
+			document.removeEventListener("visibilitychange", visibility);
+		};
+	}, [
+		active,
+		view,
+		delivery?.delivery.deliveryId,
+		attempt?.launchAttemptId,
+		ports,
+		sessionId
+	]);
+	const id = () => crypto.randomUUID();
+	const acceptDelivery = (value, fromHistory = false, expected = source) => {
+		const actual = value.delivery.source;
+		const bound = value.preflight?.source;
+		if (bound && (bound.sessionId !== actual.sessionId || bound.messageId !== actual.messageId || bound.throughSeq !== actual.throughSeq || bound.cwd !== actual.cwd || bound.workspaceObservedAt !== actual.workspaceObservedAt || value.preflight?.preflightId !== value.delivery.binding.preflightId || value.preflight?.targetId !== value.delivery.binding.targetId)) throw new Error("binding_mismatch");
+		if (actual.sessionId !== sessionId || !fromHistory && (!expected || actual.messageId !== expected.messageId || actual.throughSeq !== expected.throughSeq || actual.cwd !== expected.cwd || actual.workspaceObservedAt !== expected.workspaceObservedAt)) throw new Error("binding_mismatch");
+		const lastAttempt = value.launchAttempts.at(-1);
+		const pendingLaunch = pendingLaunches.current.get(value.delivery.deliveryId);
+		if (pendingLaunch && lastAttempt && lastAttempt.launchAttemptId !== pendingLaunch.baseline) pendingLaunches.current.delete(value.delivery.deliveryId);
+		activeDeliveryId.current = value.delivery.deliveryId;
+		if (fromHistory && delivery?.delivery.deliveryId !== value.delivery.deliveryId) {
+			setRecoveredFromHistory(true);
+			setConfirmedOriginal(false);
+		}
+		if (delivery?.delivery.deliveryId !== value.delivery.deliveryId) {
+			setReceipt(void 0);
+			setReceiptRead(void 0);
+			setTimedOut(false);
+			const draftKey = value.preflight && preparationKey(value.preflight.preflightId, value.delivery.deliveryId, "manual");
+			setManual(!!draftKey && pendingPreparations.current.has(draftKey));
+			setDisposition("");
+			setObjective("");
+			setState("");
+			setNext("");
+			setOmissions("");
+		}
+		setDelivery(value);
+		setPreflight(value.preflight ?? void 0);
+		setAttempt(value.launchAttempts.at(-1));
+	};
+	const preparationKey = (preflightId, predecessor, kind) => JSON.stringify([
+		preflightId,
+		predecessor,
+		kind
+	]);
+	const manualKey = preflight && delivery ? preparationKey(preflight.preflightId, delivery.delivery.deliveryId, "manual") : void 0;
+	const pendingManual = manualKey ? pendingPreparations.current.get(manualKey) : void 0;
+	const pendingInput = pendingManual?.input;
+	const requestLocale = () => readLocale();
+	const canHandoff = (targetId) => targets.some((item) => item.targetId === targetId && item.availability === "requires_preflight");
+	const boundTarget = targets.find((item) => item.targetId === (delivery?.delivery.binding.targetId ?? preflight?.targetId));
+	const launchDelivery = async (value, signal) => {
+		signal.throwIfAborted();
+		const item = value.delivery;
+		const baseline = value.launchAttempts.at(-1)?.launchAttemptId ?? null;
+		const pending$1 = pendingLaunches.current.get(item.deliveryId) ?? {
+			requestId: id(),
+			baseline,
+			locale: requestLocale()
+		};
+		pendingLaunches.current.set(item.deliveryId, pending$1);
+		setPhase("opening");
+		const result = await api.launch(item.deliveryId, sessionId, item.binding.targetId, pending$1.requestId, pending$1.baseline ?? void 0, signal, pending$1.locale);
+		pendingLaunches.current.delete(item.deliveryId);
+		setAttempt(result);
+		setTimedOut(false);
+	};
+	const prepareDelivery = async (verified, signal, autoOpen, allowOriginal = false, expected = source) => {
+		if (!mounted.current || !latestReply.current && !allowOriginal || verified.state !== "ready") return;
+		signal.throwIfAborted();
+		setPhase("preparing");
+		const key = preparationKey(verified.preflightId, null, "automatic");
+		const interrupted = pendingPreparations.current.get(key);
+		const pending$1 = interrupted ?? {
+			requestId: id(),
+			preflight: verified,
+			locale: requestLocale()
+		};
+		pendingPreparations.current.set(key, pending$1);
+		const result = await api.prepare(pending$1.preflight, pending$1.requestId, void 0, void 0, signal, pending$1.locale);
+		if (result.delivery.binding.preflightId !== verified.preflightId || result.delivery.binding.targetId !== verified.targetId) throw new Error("binding_mismatch");
+		acceptDelivery(result, false, expected);
+		pendingPreparations.current.delete(key);
+		if (autoOpen && !interrupted && mounted.current && (latestReply.current || allowOriginal) && !signal.aborted && result.delivery.preparationState === "prepared" && !result.delivery.expired && result.launchAttempts.length === 0 && !pendingLaunches.current.has(result.delivery.deliveryId)) await launchDelivery(result, signal);
+	};
+	const clearFlow = () => {
+		activeDeliveryId.current = void 0;
+		setTarget("");
+		setPreflight(void 0);
+		setDelivery(void 0);
+		setAttempt(void 0);
+		setReceipt(void 0);
+		setReceiptRead(void 0);
+		setTimedOut(false);
+		setConfirmedOriginal(false);
+		setRecoveredFromHistory(false);
+		setError("");
+		setManual(false);
+		setDisposition("");
+		setObjective("");
+		setState("");
+		setNext("");
+		setOmissions("");
+	};
+	const startPreflight = (targetId) => {
+		if (!replySource || !latest || !canHandoff(targetId) || lock.current) return;
+		const shownTarget = delivery?.delivery.binding.targetId ?? preflight?.targetId;
+		const belongsToReply = source?.messageId === messageId && source.throughSeq === replySource.throughSeq && source.cwd === replySource.cwd && source.workspaceObservedAt === replySource.workspaceObservedAt;
+		setView("flow");
+		if (shownTarget === targetId && belongsToReply) return;
+		clearFlow();
+		setTarget(targetId);
+		run(async (signal) => {
+			setPhase("checking");
+			const saved = pending.preflights.get(targetId);
+			const requested = saved ?? {
+				requestId: id(),
+				source: replySource
+			};
+			pending.preflights.set(targetId, requested);
+			const checked = await api.preflight(requested.source, targetId, requested.requestId, signal);
+			if (checked.targetId !== targetId || checked.source.sessionId !== sessionId || checked.source.messageId !== messageId || checked.source.throughSeq !== replySource.throughSeq || checked.source.cwd !== replySource.cwd || checked.source.workspaceObservedAt !== replySource.workspaceObservedAt) throw new Error("binding_mismatch");
+			setPreflight(checked);
+			pending.preflights.delete(targetId);
+			if (!saved) await prepareDelivery(checked, signal, true, false, replySource);
+		});
+	};
+	const returnToTargets = () => {
+		if (view === "flow") activeRequest.current?.abort();
+		setDeleteId(void 0);
+		setView("targets");
+	};
+	const closeMenu = () => {
+		onClose();
+		trigger.current?.focus({ preventScroll: true });
+	};
+	const errorMessage = error === "outcome_unknown" || error === "idempotency_conflict" ? f.uncertain : error === "stale_preflight" || error === "binding_mismatch" ? f.source : f.unavailable;
+	const sourceAllowed = latest && source?.messageId === messageId || confirmedOriginal || recoveredFromHistory;
+	const targetName = nativeTargets.find((item) => item.id === (delivery?.delivery.binding.targetId ?? preflight?.targetId ?? target))?.name;
+	const busyLabel = view === "flow" ? f[phase] : t.processing;
+	const preflightState = preflight?.state;
+	const deliveryState = delivery?.delivery.preparationState;
+	const receiptLabel = receipt ? status(receipt.state, locale) : status("awaiting", locale);
+	const receiptConfirmed = receipt?.state === "accepted";
+	const preparationStatus = delivery?.delivery.expired ? locale === "zh" ? "交接包已过期" : "The handoff package expired" : deliveryState === "needs_input" ? f.missing : deliveryState === "unknown" || delivery?.delivery.error?.code === "outcome_unknown" ? f.uncertain : deliveryState === "failed" ? f.unavailable : status(deliveryState, locale);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(__deepseek_ai_dsh_client_ui_primitives.Menu, {
+		open: active,
+		onClose: closeMenu,
+		side: "right",
+		portal: true,
+		compact: true,
+		dense: true,
+		autoFocus: view === "targets",
+		anchorRef: trigger,
+		listClassName: "pc-handoff-menu",
+		anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+			label: t.action,
+			side: "bottom",
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				ref: trigger,
+				type: "button",
+				className: "pc-handoff-action",
+				"aria-label": t.action,
+				"aria-haspopup": "menu",
+				"aria-expanded": active,
+				onClick: () => {
+					if (active) closeMenu();
+					else {
+						if (view === "diagnostics") setDiagnostics({});
+						onOpen();
+					}
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconShareOutlineRegular, {})
+			})
+		}),
+		children: [view === "targets" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "pc-handoff-brand",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PowerContextMark, { size: 15 }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "PowerContext" })]
+			}),
+			!ports && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				role: "status",
+				children: t.unavailable
+			}),
+			error && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				role: "alert",
+				className: "pc-handoff-notice",
+				children: errorMessage
+			}),
+			nativeTargets.map((item) => {
+				const targetInfo = targets.find((candidate) => candidate.targetId === item.id);
+				const available = !!replySource && latest && !busy && targetInfo?.availability === "requires_preflight";
+				const reason = !replySource ? error ? t.notAvailable : t.loading : !latest ? t.boundary : busy ? t.processing : targetInfo?.diagnostics === "available" ? t.unqualifiedShort : t.notAvailable;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.MenuItemButton, {
+					disabled: !available,
+					disabledReason: reason,
+					onSelect: () => startPreflight(item.id),
+					children: item.name
+				}, item.id);
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "pc-handoff-menu-footer",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					type: "button",
+					disabled: busy,
+					onClick: () => {
+						setDiagnostics({});
+						setView("diagnostics");
+					},
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						"aria-hidden": "true",
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconCheckCircleOutlineRegular, {})
+					}), t.diagnostics]
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					type: "button",
+					disabled: busy,
+					onClick: () => {
+						setView("history");
+						run(async (signal) => setHistory((await api.history(sessionId, signal)).deliveries));
+					},
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						"aria-hidden": "true",
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconClockOutlineRegular, {})
+					}), t.history]
+				})]
+			})
+		] }), view !== "targets" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			ref: focusPanel,
+			tabIndex: -1,
+			className: "pc-handoff-panel",
+			onKeyDown: (event) => {
+				if (event.key === "Tab") event.stopPropagation();
+				else if (event.target instanceof HTMLElement && [
+					"INPUT",
+					"TEXTAREA",
+					"SELECT"
+				].includes(event.target.tagName) && [
+					"ArrowDown",
+					"ArrowUp",
+					"Home",
+					"End"
+				].includes(event.key)) event.stopPropagation();
+			},
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "pc-handoff-panel-header",
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "pc-handoff-back",
+							"aria-label": t.back,
+							title: t.back,
+							disabled: busy && view !== "flow",
+							onClick: returnToTargets,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconChevronLeftOutlineRegular, {})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: view === "diagnostics" ? t.diagnostics : view === "history" ? t.history : targetName ?? t.target }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-handoff-header-mark",
+							"aria-hidden": "true",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PowerContextMark, { size: 14 })
+						})
+					]
+				}),
+				busy && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "pc-handoff-progress",
+					role: "status",
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: "pc-handoff-spinner",
+						"aria-hidden": "true"
+					}), busyLabel]
+				}),
+				!ports && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					role: "status",
+					children: t.unavailable
+				}),
+				error && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					role: "alert",
+					className: "pc-handoff-notice",
+					children: errorMessage
+				}),
+				view === "diagnostics" && nativeTargets.map((item) => {
+					const info = targets.find((candidate) => candidate.targetId === item.id);
+					const result = diagnostics[item.id];
+					return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: "pc-handoff-diagnostic-row",
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-handoff-row-content",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "pc-handoff-row-title",
+								children: item.name
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								role: "status",
+								className: "pc-handoff-row-meta pc-handoff-diagnostic-status",
+								children: result?.state === "checking" || !result && info?.diagnostics === "available" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "pc-handoff-spinner",
+									"aria-hidden": "true"
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "pc-sr-only",
+									children: t.checkingInstallation
+								})] }) : result?.state === "present" ? `${t.installationPresent}: ${result.version}` : result?.state === "missing" ? t.installationMissing : result?.state === "unsupported" ? t.installationUnsupported : result?.state === "unknown" ? t.installationUnknown : result?.state === "error" ? t.checkFailed : t.checkUnavailable
+							})]
+						})
+					}, item.id);
+				}),
+				view === "flow" && source && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+					!sourceAllowed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						role: "alert",
+						className: "pc-handoff-notice",
+						children: f.source
+					}),
+					boundTarget && boundTarget.availability !== "requires_preflight" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "pc-handoff-notice",
+						children: t.unqualified
+					}),
+					!busy && !preflight && pending.preflights.has(target) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: "pc-handoff-actions",
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							disabled: !canHandoff(target) || !latest,
+							onClick: () => startPreflight(target),
+							children: t.check
+						})
+					}),
+					preflight && !delivery && !busy && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "pc-handoff-stage",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-handoff-stage-heading",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "pc-handoff-stage-icon",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconCheckCircleOutlineRegular, {})
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: t.preflight }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: preflightState === "unknown" ? f.uncertain : preflightState === "needs_install_consent" ? status(preflight.nextAction ?? "install_integration", locale) : status(preflight.nextAction || preflightState, locale) })] })]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-handoff-actions",
+							children: [
+								preflightState === "needs_install_consent" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									className: "pc-handoff-emphasis",
+									disabled: !latest,
+									onClick: () => void run(async (signal) => {
+										setPhase("installing");
+										const checked = await api.decision(preflight, true, signal);
+										setPreflight(checked);
+										await prepareDelivery(checked, signal, true);
+									}),
+									children: t.yes
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									onClick: () => void run(async (signal) => setPreflight(await api.decision(preflight, false, signal))),
+									children: t.no
+								})] }),
+								preflightState === "needs_user_action" && preflight.nextAction === "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									onClick: () => void run(async (signal) => {
+										setPhase("checking");
+										const checked = await api.verify(preflight, true, signal);
+										setPreflight(checked);
+										setConfirmedOriginal(checked.state === "ready");
+										await prepareDelivery(checked, signal, true, true);
+									}),
+									children: t.original
+								}),
+								preflightState === "needs_user_action" && preflight.nextAction !== "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									disabled: !sourceAllowed,
+									onClick: () => void run(async (signal) => {
+										setPhase("checking");
+										const checked = await api.verify(preflight, false, signal);
+										setPreflight(checked);
+										await prepareDelivery(checked, signal, true, confirmedOriginal);
+									}),
+									children: t.verify
+								}),
+								error === "outcome_unknown" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									onClick: () => void run(async (signal) => setPreflight(await api.getPreflight(preflight.preflightId, sessionId, signal))),
+									children: t.refresh
+								}),
+								([
+									"failed",
+									"cancelled",
+									"unknown"
+								].includes(preflight.state) || !sourceAllowed) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									onClick: () => {
+										clearFlow();
+										setView("targets");
+									},
+									children: t.reset
+								}),
+								preflightState === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									className: "pc-handoff-emphasis",
+									disabled: !canHandoff(preflight.targetId) || !sourceAllowed,
+									onClick: () => void run((signal) => prepareDelivery(preflight, signal, false, confirmedOriginal)),
+									children: t.prepare
+								})
+							]
+						})]
+					}),
+					delivery && (!busy || phase !== "opening") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "pc-handoff-stage",
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-stage-heading",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "pc-handoff-stage-icon",
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconShareOutlineRegular, {})
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: attempt?.state === "opened" ? status("opened", locale) : t.preparation }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: attempt?.state === "opened" ? receiptConfirmed ? f.received : f.waiting : attempt?.state === "unknown" ? f.uncertain : attempt?.state === "failed" ? f.unavailable : preparationStatus })] })]
+							}),
+							deliveryState === "needs_input" && !manual && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "pc-handoff-actions",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									disabled: busy,
+									onClick: () => setManual(true),
+									children: t.manual
+								})
+							}),
+							deliveryState === "needs_input" && manual && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-fields",
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t.disposition, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+										disabled: busy || !!pendingManual,
+										value: pendingInput?.disposition ?? disposition,
+										onChange: (e) => setDisposition(e.target.value),
+										children: [
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+												value: "",
+												children: t.selectDisposition
+											}),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+												value: "continuable",
+												children: t.continuable
+											}),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+												value: "blocked",
+												children: t.blocked
+											}),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+												value: "complete",
+												children: t.complete
+											})
+										]
+									})] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t.objective, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+										disabled: busy || !!pendingManual,
+										value: pendingInput?.objective ?? objective,
+										onChange: (e) => setObjective(e.target.value)
+									})] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t.state, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+										disabled: busy || !!pendingManual,
+										value: pendingInput?.state[0]?.text ?? state,
+										onChange: (e) => setState(e.target.value)
+									})] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", { children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: f.optional }),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t.next, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+											disabled: busy || !!pendingManual,
+											value: pendingInput ? pendingInput.next_action?.text ?? "" : next,
+											onChange: (e) => setNext(e.target.value)
+										})] }),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [t.omissions, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+											disabled: busy || !!pendingManual,
+											value: pendingInput ? pendingInput.omissions.join("\n") : omissions,
+											onChange: (e) => setOmissions(e.target.value)
+										})] }),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t.fixedOmission })
+									] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: "pc-handoff-actions",
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											className: "pc-handoff-emphasis",
+											disabled: busy || !canHandoff(delivery.delivery.binding.targetId) || !sourceAllowed || !preflight || !pendingInput && (!disposition || !objective.trim() || !state.trim()),
+											onClick: () => void run(async (signal) => {
+												if (preflight && manualKey && (pendingInput || disposition)) {
+													setPhase("preparing");
+													const selectedLocale = requestLocale();
+													const pending$1 = pendingManual ?? {
+														requestId: id(),
+														preflight,
+														locale: selectedLocale,
+														input: workInput(objective, state, next, omissions, disposition, selectedLocale)
+													};
+													pendingPreparations.current.set(manualKey, pending$1);
+													acceptDelivery(await api.prepare(pending$1.preflight, pending$1.requestId, pending$1.input, delivery.delivery.deliveryId, signal, pending$1.locale));
+													pendingPreparations.current.delete(manualKey);
+												}
+											}),
+											children: t.submit
+										})
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-actions",
+								children: [
+									delivery.delivery.recoveryActions.includes("create_new_version") && deliveryState !== "needs_input" && preflight?.state === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy || !canHandoff(delivery.delivery.binding.targetId) || !sourceAllowed,
+										onClick: () => void run(async (signal) => {
+											setPhase("preparing");
+											const key = preparationKey(preflight.preflightId, delivery.delivery.deliveryId, "automatic");
+											const pending$1 = pendingPreparations.current.get(key) ?? {
+												requestId: id(),
+												preflight,
+												locale: requestLocale()
+											};
+											pendingPreparations.current.set(key, pending$1);
+											acceptDelivery(await api.prepare(pending$1.preflight, pending$1.requestId, void 0, delivery.delivery.deliveryId, signal, pending$1.locale));
+											pendingPreparations.current.delete(key);
+											setManual(false);
+										}),
+										children: t.newVersion
+									}),
+									deliveryState === "prepared" && !delivery.delivery.expired && !["opened", "requested"].includes(attempt?.state ?? "") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										className: "pc-handoff-emphasis",
+										disabled: busy || !canHandoff(delivery.delivery.binding.targetId) || !sourceAllowed,
+										onClick: () => void run((signal) => launchDelivery({
+											...delivery,
+											launchAttempts: attempt ? [attempt] : []
+										}, signal)),
+										children: attempt ? t.retry : t.open
+									}),
+									!attempt || attempt.state !== "opened" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										"aria-label": f.refreshDelivery,
+										disabled: busy,
+										onClick: () => void run(async (signal) => {
+											acceptDelivery(await api.get(delivery.delivery.deliveryId, sessionId, signal), true);
+										}),
+										children: t.refresh
+									}) : null
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+								className: "pc-handoff-details",
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: f.details }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										className: "pc-handoff-row-meta pc-handoff-break",
+										children: [
+											f.identifier,
+											": ",
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: delivery.delivery.deliveryId })
+										]
+									}),
+									delivery.delivery.preview?.objective && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: delivery.delivery.preview.objective }),
+									deliveryState === "prepared" && !delivery.delivery.expired && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: "pc-handoff-actions",
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+											href: api.exportUrl(delivery.delivery.deliveryId, sessionId),
+											download: true,
+											children: t.export
+										})
+									})
+								]
+							})
+						]
+					}),
+					delivery && attempt && ["opened", "unknown"].includes(attempt.state) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "pc-handoff-stage pc-handoff-receipt",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-handoff-stage-heading",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "pc-handoff-stage-icon",
+								children: receiptConfirmed ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconCheckCircleOutlineRegular, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconClockOutlineRegular, {})
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: receiptLabel }),
+								receiptRead && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", { children: [
+									t.receiptRead,
+									": ",
+									status(receiptRead, locale)
+								] }),
+								receipt?.attribution && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", { children: [
+									receipt.attribution.kind === "authenticated" ? t.authenticated : t.selfReported,
+									" · ",
+									t.receiver,
+									": ",
+									receipt.attribution.receiver,
+									receipt.attribution.kind === "authenticated" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+										" · ",
+										t.principal,
+										": ",
+										receipt.attribution.principal.type,
+										" · ",
+										receipt.attribution.principal.id
+									] })
+								] }),
+								timedOut && (!receipt || receipt.state === "awaiting") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t.timeout })
+							] })]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: "pc-handoff-actions",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								"aria-label": f.refreshReceipt,
+								onClick: () => void readReceipt(delivery.delivery.deliveryId),
+								children: t.refresh
+							})
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: "pc-handoff-actions pc-handoff-stop",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							onClick: returnToTargets,
+							children: locale === "zh" ? "更换目标" : "Change target"
+						}), (busy || preflight && ![
+							"failed",
+							"cancelled",
+							"unknown"
+						].includes(preflight.state) && attempt?.state !== "opened") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							onClick: stop,
+							children: t.cancel
+						})]
+					})
+				] }),
+				view === "history" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "pc-handoff-history-list",
+					children: [history?.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "pc-handoff-empty",
+						children: t.noHistory
+					}), history?.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: "pc-handoff-history-item",
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "pc-handoff-row-title",
+								title: item.preview?.objective ?? item.deliveryId,
+								children: item.preview?.objective ?? t.deliveryId
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-row-meta",
+								children: [
+									nativeTargets.find((target$1) => target$1.id === item.binding.targetId)?.name,
+									" · ",
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+										dateTime: item.createdAt,
+										title: item.createdAt,
+										children: historyTime(item.createdAt, locale)
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-row-meta",
+								title: item.deliveryId,
+								children: [
+									status(item.preparationState, locale),
+									" ",
+									item.pinned ? `· ${t.pinned}` : "",
+									" · ",
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: item.deliveryId.slice(-8) })
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-history-actions",
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy,
+										onClick: () => void run(async (signal) => {
+											acceptDelivery(await api.get(item.deliveryId, sessionId, signal), true);
+											setView("flow");
+										}),
+										children: t.recover
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy,
+										onClick: () => void run(async (signal) => {
+											const updated = await api.pin(item.deliveryId, sessionId, !item.pinned, signal);
+											setHistory((current) => current?.map((row) => row.deliveryId === updated.deliveryId ? updated : row));
+											if (delivery?.delivery.deliveryId === updated.deliveryId) setDelivery({
+												...delivery,
+												delivery: updated
+											});
+										}),
+										children: item.pinned ? t.unpin : t.pin
+									}),
+									deleteId === item.deliveryId ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy,
+										onClick: () => void run(async (signal) => {
+											await api.delete(item.deliveryId, sessionId, signal);
+											setHistory((current) => current?.filter((row) => row.deliveryId !== item.deliveryId));
+											setDeleteId(void 0);
+											pendingLaunches.current.delete(item.deliveryId);
+											for (const key of pendingPreparations.current.keys()) {
+												const [preflightId, predecessor] = JSON.parse(key);
+												if (predecessor === item.deliveryId || predecessor === null && preflightId === item.binding.preflightId) pendingPreparations.current.delete(key);
+											}
+											if (delivery?.delivery.deliveryId === item.deliveryId) clearFlow();
+										}),
+										children: t.confirmDelete
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy,
+										onClick: () => setDeleteId(void 0),
+										children: t.keep
+									})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: busy,
+										onClick: () => setDeleteId(item.deliveryId),
+										children: t.delete
+									})
+								]
+							})
+						]
+					}, item.deliveryId))]
+				})
+			]
+		})]
+	}, view);
+}
+
+//#endregion
+//#region src/ui/handoff/styles.ts
+const HANDOFF_STYLES = `
+@keyframes pc-handoff-spin { to { transform: rotate(360deg); } }
+.pc-handoff-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pc-handoff-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .pc-handoff-spinner { animation: none; border-right-color: currentColor; } }
+.pc-handoff-action { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: calc(28px + var(--dsh-content-font-delta, 0px)); height: calc(28px + var(--dsh-content-font-delta, 0px)); padding: 6px; border: 0; border-radius: var(--dsw-radius-sm); color: var(--dsw-alias-label-tertiary); background: transparent; cursor: pointer; }
+.pc-handoff-action svg { width: calc(15px + var(--dsh-content-font-delta, 0px)); height: calc(15px + var(--dsh-content-font-delta, 0px)); }
+@media (hover: hover) { .pc-handoff-action:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); } }
+.pc-handoff-action:focus-visible, .pc-handoff-menu-footer :focus-visible, .pc-handoff-panel :focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
+.pc-handoff-menu { max-width: min(320px, calc(100vw - 24px)); max-height: min(360px, calc(100dvh - 24px)); overflow-y: auto; }
+/* rc.3's right-side fallback otherwise pins a tall menu to the window top. */
+.pc-handoff-menu.pc-handoff-menu[data-anchor-side="right"] { position-try-fallbacks: --dsh-menu-left, --pc-handoff-above-right, --pc-handoff-above-left, --dsh-menu-wide-above, --dsh-menu-window, --dsh-menu-wide-window; }
+@position-try --pc-handoff-above-right { top: var(--dsh-menu-window-top); bottom: max(12px, calc(anchor(top) + 4px)); align-self: end; }
+@position-try --pc-handoff-above-left { top: var(--dsh-menu-window-top); bottom: max(12px, calc(anchor(top) + 4px)); left: 12px; right: max(12px, calc(anchor(left) + 4px)); align-self: end; justify-self: end; }
+.pc-handoff-brand { display: flex; align-items: center; gap: 6px; margin: 0 6px 3px; padding: 5px 4px 6px; border-bottom: .5px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; line-height: 16px; }
+.pc-handoff-menu-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 3px 6px 0; padding: 6px 0 2px; border-top: .5px solid var(--dsw-alias-border-l2); }
+.pc-handoff-menu-footer button { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; padding: 3px 8px; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font-family: inherit; font-size: 12px; font-weight: 400; line-height: 18px; white-space: nowrap; cursor: pointer; }
+.pc-handoff-menu-footer button span { display: inline-flex; color: var(--dsw-alias-label-tertiary); }
+.pc-handoff-menu-footer button svg { width: 13px; height: 13px; }
+.pc-handoff-menu-footer button:active:not(:disabled) { background: var(--dsw-alias-interactive-bg-active); }
+.pc-handoff-panel { box-sizing: border-box; width: min(278px, calc(100vw - 40px)); padding: 1px 5px 5px; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; line-height: 1.45; }
+.pc-handoff-panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 0 2px 5px; margin-bottom: 3px; border-bottom: .5px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font-weight: 550; }
+.pc-handoff-panel-header > span:nth-child(2) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pc-handoff-header-mark { display: grid; place-items: center; margin-inline-end: 4px; }
+.pc-handoff-panel button, .pc-handoff-panel a { appearance: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 27px; padding: 3px 9px; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.pc-handoff-panel button.pc-handoff-emphasis { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); font-weight: 600; }
+.pc-handoff-panel button.pc-handoff-back { width: 26px; min-height: 26px; padding: 5px; }
+.pc-handoff-back svg, .pc-handoff-stage-icon svg { width: 14px; height: 14px; }
+@media (hover: hover) {
+  .pc-handoff-panel button:hover:not(:disabled), .pc-handoff-panel a:hover, .pc-handoff-menu-footer button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+  .pc-handoff-panel button.pc-handoff-emphasis:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-active); }
+}
+.pc-handoff-panel button:active:not(:disabled), .pc-handoff-panel a:active { background: var(--dsw-alias-interactive-bg-active); }
+.pc-handoff-panel button:disabled, .pc-handoff-menu-footer button:disabled { opacity: .5; cursor: not-allowed; }
+.pc-handoff-panel p { margin: 0; overflow-wrap: anywhere; }
+.pc-handoff-progress { display: flex; align-items: center; min-height: 32px; gap: 8px; padding: 2px 9px; color: var(--dsw-alias-label-secondary); }
+.pc-handoff-spinner { box-sizing: border-box; flex: none; }
+.pc-handoff-menu .pc-handoff-notice { margin: 6px 3px; padding: 7px 9px; border-radius: var(--dsw-radius-md, 10px); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.pc-handoff-stage { padding: 7px 3px 4px; }
+.pc-handoff-stage + .pc-handoff-stage { border-top: .5px solid var(--dsw-alias-border-l2); }
+.pc-handoff-stage-heading { display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: 8px; align-items: start; margin: 0 2px 5px; }
+.pc-handoff-stage-icon { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.pc-handoff-stage h3 { margin: 0; color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 600; line-height: 18px; overflow-wrap: anywhere; }
+.pc-handoff-stage p { margin-top: 2px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
+.pc-handoff-actions, .pc-handoff-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+.pc-handoff-stage .pc-handoff-actions, .pc-handoff-details { margin-inline-start: 28px; }
+.pc-handoff-stop { justify-content: end; padding-inline: 3px; }
+.pc-handoff-details { margin-top: 4px; }
+.pc-handoff-panel summary { width: fit-content; padding: 2px 5px; border-radius: 999px; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; }
+.pc-handoff-details[open] { padding-bottom: 4px; }
+.pc-handoff-details .pc-handoff-actions { margin-inline-start: 0; }
+.pc-handoff-panel label { display: grid; gap: 3px; }
+.pc-handoff-fields { display: grid; gap: 7px; padding: 7px 4px 4px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.pc-handoff-panel textarea, .pc-handoff-panel select { box-sizing: border-box; width: 100%; padding: 5px 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: .5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md, 10px); font: inherit; }
+.pc-handoff-panel textarea { min-height: 43px; resize: vertical; }
+.pc-handoff-fields .pc-handoff-actions { margin-inline-start: 0; }
+.pc-handoff-diagnostic-row { display: flex; align-items: center; gap: 8px; padding: 7px 4px; border-bottom: .5px solid var(--dsw-alias-border-l2); }
+.pc-handoff-diagnostic-row:last-child, .pc-handoff-history-item:last-child { border-bottom: 0; }
+.pc-handoff-row-content { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.pc-handoff-row-title { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.pc-handoff-row-meta { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.pc-handoff-row-meta.pc-handoff-break, .pc-handoff-diagnostic-status { white-space: normal; overflow-wrap: anywhere; }
+.pc-handoff-diagnostic-status { display: flex; align-items: center; min-height: 16px; }
+.pc-handoff-history-item { padding: 7px 4px; border-bottom: .5px solid var(--dsw-alias-border-l2); }
+.pc-handoff-history-actions { margin-top: 3px; }
+.pc-handoff-panel .pc-handoff-empty { margin: 0; padding: 16px 4px; color: var(--dsw-alias-label-secondary); text-align: center; }
+`;
+
+//#endregion
 //#region src/ui/client.tsx
 const LocaleContext = (0, react.createContext)("zh-CN");
 function useText() {
@@ -1379,29 +2851,6 @@ function useText() {
 }
 const STYLE_ID = "powercontext-dsh-status-styles";
 const inject = ["slots"];
-function PowerContextMark({ size = 20 }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-		className: "pc-brand-icon",
-		style: {
-			width: size,
-			height: size
-		},
-		"aria-hidden": "true",
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
-			className: "pc-brand-icon-color",
-			src: "/plugins/powercontext-dsh/assets/powercontext.svg",
-			width: size,
-			height: size,
-			alt: ""
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
-			className: "pc-brand-icon-reverse",
-			src: "/plugins/powercontext-dsh/assets/powercontext-reverse.svg",
-			width: size,
-			height: size,
-			alt: ""
-		})]
-	});
-}
 function Dot({ state }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 		className: `pc-dot pc-dot-${state}`,
@@ -2136,7 +3585,7 @@ function installStyles(ctx) {
 		document.getElementById(STYLE_ID)?.remove();
 		const style = document.createElement("style");
 		style.id = STYLE_ID;
-		style.textContent = STATUS_STYLES;
+		style.textContent = STATUS_STYLES + HANDOFF_STYLES;
 		document.head.append(style);
 		return () => {
 			style.remove();
@@ -2150,6 +3599,14 @@ function installStyles(ctx) {
 */
 function apply(ctx) {
 	installStyles(ctx);
+	const handoffPorts = new HandoffHttp();
+	const handoffSlots = ctx.slots;
+	handoffSlots.inject("conversation.chat.assistant-actions", () => handoffSlots.register({
+		name: "conversation.chat.assistant-actions",
+		id: "powercontext-handoff",
+		order: 40,
+		inject: () => ({ ports: handoffPorts })
+	}, HandoffAction));
 	const controller = new StatusController();
 	ctx.effect(() => () => controller.dispose(), "powercontext: status controller disposal");
 	ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({

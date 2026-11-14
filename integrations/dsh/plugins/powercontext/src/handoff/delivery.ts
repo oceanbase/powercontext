@@ -21,6 +21,7 @@ import type { CallContext, DeliveryErrorCode, DeliveryService, DeliveryView, Lau
   PreflightGate, PrepareDeliveryInput, VerifiedPreflight } from './contracts.ts'
 import { deliveryIdPattern, receiptIdentity, verifiedBinding } from './identity.ts'
 import { boundary, inspectedWork, sameBoundary } from './materials.ts'
+import { isHandoffLocale } from './locale.ts'
 import type { BoundaryReader } from './materials.ts'
 import { knownPreparationFailure, prepareCarrier, validateCarrier } from './prepare.ts'
 import type { Carrier, PreparationConnectionResolver } from './prepare.ts'
@@ -48,8 +49,9 @@ export interface DeliveryOptions {
 }
 
 function normalize(input: PrepareDeliveryInput) {
-  const fields = ['requestId', 'preflightId', 'expectedRevision', 'source', 'workInput', 'revision', 'supersedesDeliveryId']
+  const fields = ['requestId', 'preflightId', 'expectedRevision', 'source', 'workInput', 'revision', 'supersedesDeliveryId', 'locale']
   if (!object(input) || Object.keys(input).some(field => !fields.includes(field)) || !trimmed(input.requestId, 128) || !trimmed(input.preflightId, 256)
+    || (input.locale !== undefined && !isHandoffLocale(input.locale))
     || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1
     || (input.supersedesDeliveryId !== undefined && !deliveryIdPattern.test(input.supersedesDeliveryId))) invalid()
   const revision = input.revision === undefined ? undefined : wire('ArtifactReference', input.revision)
@@ -59,6 +61,7 @@ function normalize(input: PrepareDeliveryInput) {
     preflightId: input.preflightId,
     expectedRevision: input.expectedRevision,
     source: boundary(input.source),
+    ...(input.locale === undefined ? {} : { locale: input.locale }),
     workInput: input.workInput === undefined ? undefined : inspectedWork(input.workInput),
     revision,
     supersedesDeliveryId: input.supersedesDeliveryId,

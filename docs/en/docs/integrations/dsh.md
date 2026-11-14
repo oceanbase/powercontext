@@ -265,8 +265,8 @@ Or set the environment variable before starting `dsh web`:
 POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 ```
 
-Do not set this for a remote, shared, container, or SSH-forwarded host. The bridge does not add launch, install,
-or target routes.
+Do not set this for a remote, shared, container, or SSH-forwarded host. The status route only reports the connection;
+handoff uses separate owner-local actions and preflight checks.
 
 While the page is visible, the client refreshes every ten seconds. It pauses while hidden, re-verifies immediately
 on return, backs off from two to thirty seconds after a failure, and marks a success older than thirty seconds as
@@ -277,7 +277,7 @@ session and invalidates responses from the previous selection. With no conversat
 not create one.
 
 Updating and restarting the plugin preserves the existing profile and connection settings. Uninstalling it removes
-the browser entry, the `/powercontext/status`, `/powercontext/dashboard`, and `/powercontext/updates` routes,
+the browser entry, the `/powercontext/status`, `/powercontext/dashboard`, `/powercontext/updates`, and handoff routes,
 subscriptions, and timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
 
 ### Check for PowerContext updates
@@ -330,44 +330,84 @@ error separately from Browser loading. This plugin neither enables Dashboard nor
 The browser entry has been exercised on the official DSH 0.2.2-rc.1 Web and Desktop release; other host releases
 need their own container acceptance.
 
-## Cross-agent handoff Host foundation
+## Hand off current work to another agent
 
-The plugin owns the authenticated `/powercontext/targets`, `/powercontext/preflights` and
-`/powercontext/deliveries` routes described in [RFC 2528](../../rfcs/2528-dsh-plugin-ui-and-agent-handoff.md).
-They require the owner's DSH authentication and a local Desktop or explicitly owner-local Web Host
-bound to loopback. Shared, proxied, remote, SSH and unverified deployments cannot use these routes.
-Handoff availability is separate from the sidebar's Server connection status.
+The toolbar below the latest assistant reply includes a handoff icon with the tooltip **Hand off to another agent**.
+Select it to open the target menu on its right. Choosing an available agent starts preflight and, once it passes,
+prepares the handoff and opens a new session. Progress and any required confirmations stay in the same menu.
+The source conversation is preserved. Review and send the draft in the destination. Click outside or press Escape
+to close the menu.
 
-A preflight checks the exact selected reply, effective directory, target runtime and PowerContext
-integration, Server identity, connection configuration and Scope. A missing application requires
-manual setup. Installing or repairing its PowerContext integration requires explicit consent for
-the observed configuration, followed by verification in that destination. If the source reply
-changes during installation, choose the original reply explicitly or start a new preflight.
-Cancelling stops continuation and preserves installation changes that already took effect.
-Preflight checks wait for any shared installation in progress. Preparation and launch must retry
-their checks after it settles.
+Open **Installation checks** to check the listed agents automatically. Each row shows the installed version or
+why the agent could not be detected as soon as its check finishes.
 
-When the preflight store reaches capacity, a new preflight can reclaim failed or cancelled records
-that have no delivery reference, and unused ready records at least 30 days old. Pending and
-unknown work, and preflights still referenced by a delivery, are kept. Once a preflight is
-reclaimed, start a new check; a replay no longer returns the old preflight.
+### Availability and current status
 
-Launch requires an existing complete delivery and checks its saved binding and package again. The Host checks the draft and directory for likely credentials before building the native link.
-A `secret_rejected` response means it did not attempt to open the target. The Host persists the
-attempt before calling the fixed macOS opener. `opened` means the OS accepted
-the request. The receiving draft, user send and PowerContext acknowledgement are separate events.
-An interrupted or ambiguous attempt appears as `unknown`. Check the destination before explicitly
-retrying with a new request ID that names the previous attempt. A retry reuses the same saved package
-and receipt identity. The Host never reopens automatically after a restart.
+The reply entry, target checks, preparation, launch attempts, history, and receipt handling are implemented.
+All three receivers have completed real handoffs in isolated acceptance builds. Claude Desktop used a restricted test
+configuration: a working Code session does not establish the effective connection and package permissions of a future
+session. The default plugin does not yet enable native launch for these targets. Listing a target, detecting an
+application, or connecting to the Server does not establish
+that the target is ready. Targets whose exact versions have not passed acceptance are limited to read-only environment
+and version inspection. If the panel says a target is unavailable, it cannot proceed with integration installation,
+preparation, or one-click launch. The following steps apply only when that target, version, and complete receiving
+workflow have passed acceptance and have been enabled.
 
-The Host uses PowerContext's existing Handoff service. An inspected current-work input or exact
-Handoff Revision goes through the verified connection; the complete saved package can then be
-read or exported by the owning session. Without inspected input or an exact Revision, this Host
-returns `needs_input`. Automatic drafting needs a trusted session evidence reader and a configured
-generation path.
+Native handoff currently requires macOS, whether using a verified **owner-local** DSH Desktop or an explicitly
+owner-local DSH Web Host bound to loopback. Shared or remote hosts, SSH, forwarded proxies, and hosts whose location cannot be
+verified are not supported. Connection status and handoff eligibility are checked separately. When native handoff is
+unavailable, consult the [manual Codex handoff guide](../workflows/handoff-with-codex.md) and use the continuation
+capabilities available in your agent.
 
-The capability catalog only offers native preflight for registered, qualified adapters. Codex Desktop,
-Claude Desktop Code, and Claude Code CLI require individual adapters and actual host acceptance.
+### Hand off to a supported target
+
+1. Select the handoff icon below the reply and choose an available target from the menu on its right. Preflight
+   checks the selected reply, working directory, target application and its PowerContext integration, Server, and
+   Scope. Install a missing target application yourself.
+2. If the panel offers to install or repair PowerContext in the target, review the prompt and explicitly accept or
+   decline. Follow the instructions and check again afterward. Cancellation does not undo an installation that has
+   already completed. If a new reply appeared in the meantime, reselect the reply or explicitly continue with the
+   original.
+3. Once preflight passes, PowerContext prepares the handoff from the selected reply and its bounded context.
+   When generation is disabled, it can transfer the original objective, reply and available observations for review.
+   If the required context is missing or cannot be used safely, the menu offers a way to supply it.
+4. The prefilled draft contains a short request and the package path. Check the working directory, edit the request or
+   add instructions, keep the package path on its own line, and send the draft yourself. For example, add “Run the tests
+   first and leave the code unchanged.” The receiving PowerContext plugin must support this workflow: it checks the
+   delivery and workspace after submission. The agent continues and acknowledges through its configured PowerContext
+   connection. The target uses its own sign-in and model settings. Export a saved package from **Delivery details**.
+   If the draft or working directory appears to contain a credential, the launch stops with `secret_rejected`.
+
+`~/.powercontext-dsh-handoff/` is the DSH plugin's local delivery directory. It holds the complete native PowerContext
+Handoff or exact revision plus delivery and recovery information. PowerContext still handles continuation and
+acknowledgement, and an ordinary delivery does not commit a milestone.
+
+### Understand status and recovery
+
+- **Opened** means the operating system accepted the open request. It does not mean the draft appeared, the prompt
+  was sent, or the receiver accepted the handoff.
+- **Awaiting receipt** means no matching acknowledgement has been read. After checking the handoff, the receiver can
+  accept it, request clarification, or decline. A read failure, missing permission, or unavailable service is not a
+  decline. Acceptance does not mean the task is complete. A receiver self-report has no authenticated attribution;
+  an authenticated identity does not establish which application window received the handoff.
+- After five minutes without confirmation, refresh manually. A saved confirmation that has not been checked again is
+  marked as historical.
+- Use **Change target** to pick a different agent. This stops the current request if it is still running. Saved
+  deliveries and target sessions that have already opened are preserved.
+- Use **Handoff history** to inspect saved handoffs for this conversation. You can refresh, export an
+  available package, pin it, or explicitly delete it. Pinned and unconfirmed packages are not automatically removed
+  under the confirmed-package retention period; an unpinned confirmed package expires after seven days by default.
+- If preparation or opening has an unknown outcome, check the handoff history and destination first. The system does
+  not automatically prepare or open again after restart. Explicitly choose a retry if another open attempt is
+  needed; it reuses the saved package. Edit the draft to change what the receiver should do next. Create a new handoff
+  to update the historical facts in the package.
+
+New prefilled prompts and generated handoff notes use the plugin language. Original replies, cited evidence, and
+previously saved packages are preserved.
+
+When preflight storage reaches capacity, failed or cancelled records without delivery references and long-unused ready
+records can be reclaimed. Pending, unknown, and still-referenced records are retained. After a record is reclaimed,
+check the target again. See [RFC 2528](../../rfcs/2528-dsh-plugin-ui-and-agent-handoff.md) for the technical design.
 
 ## Diagnose the running configuration
 

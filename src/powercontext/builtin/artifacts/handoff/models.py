@@ -84,6 +84,7 @@ class PrepareHandoff(_HandoffValue):
     """Standard action for generating one bounded, inspectable Handoff."""
 
     objective: Annotated[str, Field(max_length=MAX_HANDOFF_TEXT_LENGTH)]
+    output_language: Literal["en", "zh-CN"] | None = None
     rollover_reasons: Annotated[
         tuple[HandoffRolloverReason, ...],
         Field(max_length=6),
@@ -177,6 +178,7 @@ class HandoffGenerationRequest(_HandoffValue):
     """Canonical bounded evidence offered to a Handoff generation pipeline."""
 
     objective: Annotated[str, Field(max_length=MAX_HANDOFF_TEXT_LENGTH)]
+    output_language: Literal["en", "zh-CN"] | None = None
     rollover_reasons: Annotated[
         tuple[HandoffRolloverReason, ...],
         Field(max_length=6),

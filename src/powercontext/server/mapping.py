@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -781,9 +781,12 @@ def handoff_activation_response(value: HandoffActivation) -> TransportHandoffAct
     )
 
 
-def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
+def prepare_handoff_request(
+    value: PrepareHandoffRequest, *, output_language: Literal["en", "zh-CN"] | None = None
+) -> PrepareHandoff:
     return PrepareHandoff(
         objective=value.objective,
+        output_language=output_language,
         rollover_reasons=tuple(reason.value for reason in value.rollover_reasons),
         evidence=tuple(runtime_handoff_citation(citation) for citation in value.evidence),
         max_bytes=value.max_bytes,

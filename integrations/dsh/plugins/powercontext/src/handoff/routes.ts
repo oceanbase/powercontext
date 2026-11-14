@@ -15,6 +15,7 @@
  */
 
 
+import { isHandoffLocale } from './locale.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAbsolute } from 'node:path'
 import { deploymentRejection, type DeploymentFacts } from '../status-bridge.ts'
@@ -23,13 +24,15 @@ import { HandoffError, handoffError } from './errors.ts'
 import type { LaunchService } from './launch.ts'
 import type { PreflightService } from './preflight.ts'
 import type { TargetCatalog } from './targets.ts'
+import type { ReceiptReader } from './receipt-contract.ts'
+import type { LocalDeliveryService } from './delivery.ts'
 
 const MAX_CONTROL_BYTES = 64 * 1024
 const MAX_EXPORT_BYTES = 2 * 1024 * 1024
 const BODY_TIMEOUT_MS = 10_000
 const PREFIX = '/powercontext'
 const TOKEN = /^[A-Za-z0-9._:-]{1,256}$/
-const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch))?)?$/
+const ROUTES = /^(targets|boundaries|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch|receipt|pin|delete|diagnose))?)?$/
 
 interface RouteOptions {
   facts: DeploymentFacts
@@ -39,10 +42,12 @@ interface RouteOptions {
   authenticatedOwner(request: IncomingMessage): string | undefined
   catalog: TargetCatalog
   signal: AbortSignal
+  resolveBoundary?(context: CallContext, sessionId: string, messageId: string): SourceBoundary
   services(): {
     preflight?: PreflightService
     launch?: LaunchService
-    delivery?: DeliveryService
+    delivery?: DeliveryService & Partial<Pick<LocalDeliveryService, 'list' | 'pin' | 'delete'>>
+    receipt?: ReceiptReader
   }
 }
 
@@ -166,18 +171,27 @@ export function createHandoffHandler(options: RouteOptions) {
       const route = ROUTES.exec(path.slice(PREFIX.length + 1))
       if (!route) throw new HandoffError('not_found')
       const [, resource, id, action] = route
-      if ((resource === 'targets' && id) || (resource === 'preflights' && action && !['install', 'cancel'].includes(action))
+      if ((resource === 'boundaries' && id) || (resource === 'targets' && id && action !== 'diagnose') ||
+        (action === 'diagnose' && resource !== 'targets') || (resource === 'preflights' && action && !['install', 'cancel'].includes(action))
         || (resource === 'deliveries' && action === 'install')) throw new HandoffError('not_found')
-      const method = resource === 'targets' || action === 'export' || (id && !action) ? 'GET' : 'POST'
+      const listing = resource === 'deliveries' && !id && request.method === 'GET'
+      const method = listing || ['targets', 'boundaries'].includes(resource) || ['export', 'receipt'].includes(action) || (id && !action) ? 'GET' : 'POST'
       if (request.method !== method) {
         response.setHeader('allow', method)
         return json(response, 405, { code: 'method_not_allowed' })
       }
       if (resource === 'targets') {
         if (question !== -1) return fail()
+        signal.throwIfAborted()
+        if (id) return json(response, 200, { targetId: id, ...await options.catalog.diagnose(id, signal) })
         return json(response, 200, { targets: options.catalog.list() })
       }
       const query = new URLSearchParams(question === -1 ? '' : raw.slice(question + 1))
+      if (resource === 'boundaries') {
+        if (query.size !== 2) return fail()
+        return json(response, 200, { source: requireService(options.resolveBoundary)(context,
+          token(query.get('sessionId')), token(query.get('messageId'))) })
+      }
       if (method === 'POST' && question !== -1) return fail()
       const querySession = () => {
         if (query.size !== 1) return fail()
@@ -217,11 +231,19 @@ export function createHandoffHandler(options: RouteOptions) {
           launchAttempts: services.launch?.list(context, item.deliveryId, item.source.sessionId) ?? [],
         }
       }
+      if (listing) {
+        const sessionId = querySession()
+        const delivery = requireService(options.services().delivery)
+        const items = await requireService(delivery.list).call(delivery, context)
+        return json(response, 200, { deliveries: items.filter(item => item.source.sessionId === sessionId) })
+      }
       if (!id) {
         const body = object(value, ['requestId', 'preflightId', 'expectedRevision', 'source', 'workInput', 'revision',
-          'supersedesDeliveryId'])
+          'supersedesDeliveryId', 'locale'])
+        if (body.locale !== undefined && !isHandoffLocale(body.locale)) throw new HandoffError('payload_invalid')
         const input: PrepareDeliveryInput = { requestId: token(body.requestId), preflightId: token(body.preflightId),
           expectedRevision: int(body.expectedRevision, 1), source: source(body.source),
+          ...(body.locale === undefined ? {} : { locale: body.locale }),
           // The delivery service owns Handoff field and exact reference validation.
           ...(body.workInput === undefined ? {} : { workInput: body.workInput }),
           ...(body.revision === undefined ? {} : { revision: body.revision as PrepareDeliveryInput['revision'] }),
@@ -231,15 +253,35 @@ export function createHandoffHandler(options: RouteOptions) {
         return json(response, 200, aggregate(await requireService(services.delivery).prepare(context, input), services))
       }
       if (action === 'launch') {
-        const body = object(value, ['sessionId', 'requestId', 'targetId', 'retryOf'])
+        const body = object(value, ['sessionId', 'requestId', 'targetId', 'retryOf', 'locale'])
+        if (body.locale !== undefined && !isHandoffLocale(body.locale)) throw new HandoffError('payload_invalid')
         const input = { sessionId: token(body.sessionId), requestId: token(body.requestId), targetId: token(body.targetId),
+          ...(body.locale === undefined ? {} : { locale: body.locale }),
           ...(body.retryOf === undefined ? {} : { retryOf: token(body.retryOf) }) }
         return json(response, 200, await requireService(options.services().launch).launch(context, id, input))
       }
-      const sessionId = method === 'GET' ? querySession() : token(object(value, ['sessionId']).sessionId)
+      const mutation = method === 'GET' ? undefined : object(value, action === 'pin' ? ['sessionId', 'pinned'] : ['sessionId'])
+      const sessionId = method === 'GET' ? querySession() : token(mutation?.sessionId)
       const services = options.services()
       const delivery = requireService(services.delivery)
       const item = sameSession(await delivery.get(context, id), sessionId)
+      if (action === 'pin') {
+        if (typeof mutation?.pinned !== 'boolean') return fail()
+        return json(response, 200, await requireService(delivery.pin).call(delivery, context, id, mutation.pinned))
+      }
+      if (action === 'delete') {
+        await requireService(delivery.delete).call(delivery, context, id)
+        return json(response, 200, { deleted: true })
+      }
+      if (action === 'receipt') {
+        if (item.expired) {
+          return json(response, 200, await requireService(services.receipt).saved(context, item) ?? {
+            deliveryId: id, state: 'awaiting', readState: 'stale', observedAt: new Date().toISOString(),
+          })
+        }
+        const bundle = await delivery.getForLaunch(context, id)
+        return json(response, 200, await requireService(services.receipt).read(context, bundle))
+      }
       if (action === 'cancel') {
         const [prepared, launch] = await Promise.allSettled([
           Promise.resolve().then(() => delivery.cancelPreparation(context, id)),
