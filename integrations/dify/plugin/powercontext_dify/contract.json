@@ -425,17 +425,7 @@
           "in": "path",
           "required": true,
           "schema": {
-            "type": "string",
-            "enum": [
-              "memory",
-              "atomic-memory",
-              "experience",
-              "skill",
-              "handoff",
-              "prompt",
-              "topic-memory",
-              "profile"
-            ]
+            "$ref": "#/components/schemas/ArtifactReadFamily"
           }
         },
         {
@@ -991,17 +981,6 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[\\x21-\\x7E]+$"
-          },
-          "schema_version": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "Persisted schema version for a custom Artifact family."
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "revision": {
             "type": "integer",
@@ -1935,15 +1914,6 @@
           }
         }
       },
-      "ContextAssemblyFamily": {
-        "type": "string",
-        "enum": [
-          "memory",
-          "experience",
-          "profile",
-          "topic-memory"
-        ]
-      },
       "ContextAssemblyFormat": {
         "type": "string",
         "enum": [
@@ -1966,7 +1936,16 @@
         ],
         "properties": {
           "family": {
-            "$ref": "#/components/schemas/ContextAssemblyFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "A built-in family (memory, experience, profile, topic-memory) or a loaded plugin family that implements search. A plugin family's entries come from the plugin's search with the request query and this limit; a family that is neither returns HTTP 422."
+          },
+          "search": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Additional generic search fields passed to the plugin's search unchanged, such as mode, filters, fusion, or rerank. Only plugin families accept it; the query and limit come from the request and this section."
           },
           "limit": {
             "type": "integer",
@@ -3452,16 +3431,6 @@
           }
         }
       },
-      "PreparedContextFamily": {
-        "type": "string",
-        "enum": [
-          "atomic-memory",
-          "topic-memory",
-          "experience",
-          "profile",
-          "code"
-        ]
-      },
       "PreparedContextOmittedGroup": {
         "type": "object",
         "additionalProperties": false,
@@ -3472,7 +3441,11 @@
         ],
         "properties": {
           "family": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "reason": {
             "type": "string",
@@ -3867,7 +3840,11 @@
             "maximum": 2
           },
           "family": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "mode": {
             "type": "string",
@@ -3913,7 +3890,11 @@
         ],
         "properties": {
           "kind": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "artifact_address": {
             "$ref": "#/components/schemas/ArtifactAddress"
@@ -4294,6 +4275,9 @@
           },
           {
             "$ref": "#/components/schemas/ReplaceProfileArtifactRequest"
+          },
+          {
+            "$ref": "#/components/schemas/ReplacePluginArtifactRequest"
           }
         ]
       },
@@ -4444,6 +4428,20 @@
         "properties": {
           "content": {
             "$ref": "#/components/schemas/ReplaceMemoryArtifactContent"
+          }
+        }
+      },
+      "ReplacePluginArtifactRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content"
+        ],
+        "description": "Complete content of a plugin Artifact; core stores it unchanged and indexes the declared fields.",
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5227,17 +5225,10 @@
       },
       "TaggableArtifactFamily": {
         "type": "string",
-        "description": "All readable Artifact families support logical tags on persisted Artifacts.",
-        "enum": [
-          "memory",
-          "atomic-memory",
-          "experience",
-          "skill",
-          "handoff",
-          "profile",
-          "prompt",
-          "topic-memory"
-        ]
+        "description": "A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9-]*$"
       },
       "TopicMemoryDreamProposal": {
         "type": "object",

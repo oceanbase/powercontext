@@ -142,11 +142,7 @@ export type ArtifactFamilyAccessCapability = { family: string, enabled: boolean,
 export type ArtifactInventoryStatistics = { total: number, by_family: Array<FamilyCount>, };
 export type ArtifactReadFamily = string;
 export type ArtifactReference = { family: string, artifact_id: string, revision: number, };
-export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string,
-/**
- * Persisted schema version for a custom Artifact family.
- */
-schema_version?: string | null, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
+export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
 /**
  * When this revision was committed. Absent for revisions stored before this field existed.
  */
@@ -186,7 +182,7 @@ export type BuiltinProfile = "coding" | "conversation";
 export type CandidateFamily = "experience" | "skill" | "profile" | "atomic-memory" | "topic-memory" | "handoff" | "prompt";
 export type CandidateFamilyCount = { family: CandidateFamily, total: number, pending: number, approved: number, rejected: number, };
 export type CandidateInventoryStatistics = { total: number, pending: number, approved: number, rejected: number, by_family: Array<CandidateFamilyCount>, };
-export type Capabilities = { custom_artifact_schemas?: Array<CustomArtifactFamilySchema>, prompts?: { [key in string]: PromptCapability },
+export type Capabilities = { prompts?: { [key in string]: PromptCapability },
 /**
  * Whether asynchronous Artifact Dream execution is configured.
  */
@@ -221,15 +217,6 @@ export type ConnectionIdentity = { server_id: string, authentication: Connection
 export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
 export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
 export type ContractVersion = { major: number, minor: number, };
-export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
-/**
- * Legacy persisted text fields; new plugins use search.
- */
-search_fields: Array<string>,
-/**
- * Persistent declarative indexes and supported search modes.
- */
-search?: Record<string, unknown>, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
 export type ExactScopeSelection = { mode: ExactScopeSelectionMode, scope_ids: Array<string>, };
