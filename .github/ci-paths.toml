@@ -75,6 +75,11 @@ opencode = [
   "integrations/opencode/**", "tests/*opencode*", "tests/e2e/zcode_acceptance/protocol.py",
   "tests/e2e/zcode_acceptance/runner.py",
 ]
+# The Bub service chain runs Bub from the harness environment and reuses the ZCode acceptance wire fixtures.
+bub = [
+  "integrations/bub/**", "e2e/bub/pyproject.toml", "e2e/bub/uv.lock", "tests/e2e/test_bub_service_chain.py",
+  "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 # The Codex service chain reuses the ZCode acceptance wire fixtures.
 codex = [
@@ -201,9 +206,9 @@ suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 [shared.runtime]
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
-  "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "codex", "opendal",
-  "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
-  "managed_resources",
+  "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "bub", "openclaw", "codex",
+  "opendal", "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability",
+  "packaging", "desktop", "managed_resources",
 ]
 
 [shared.openapi_guidance]
@@ -243,6 +248,7 @@ dsh = ["dsh-package"]
 cindy = ["cindy-package"]
 pi = ["pi-package"]
 opencode = ["opencode-package"]
+bub = ["bub-host"]
 openclaw = ["openclaw-package"]
 codex = ["codex-host"]
 opendal = ["opendal-package"]

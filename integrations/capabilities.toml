@@ -1116,7 +1116,7 @@ toolsets = ["bub-tools", "bub-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
 documentation = ["integrations/bub/README.md"]
-tests = ["e2e/bub/tests/test_workload_catalog.py"]
+tests = ["e2e/bub/tests/test_workload_catalog.py", "tests/e2e/test_bub_service_chain.py"]
 
 [[integrations]]
 id = "dify"
