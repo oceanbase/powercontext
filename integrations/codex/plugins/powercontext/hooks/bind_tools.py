@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import sys
-from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 
@@ -28,18 +27,38 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from scope_binding import (  # noqa: E402
-    ScopeBindingError,
-    ScopeBindingRejectedError,
-    ScopeBindingStatusError,
-    binding_keys,
-    resolve_scope_id,
-    session_binding_key,
-)
-from settings import CodexPluginSettings  # noqa: E402
-
 _PREFIX = "mcp__powercontext__"
 _BINDING_FAILURE_REASON = "PowerContext could not resolve the current Scope binding."
+
+
+def _deny(reason: str = _BINDING_FAILURE_REASON) -> None:
+    _decide({"permissionDecision": "deny", "permissionDecisionReason": reason})
+
+
+def _decide(decision: dict[str, object]) -> None:
+    # Encode before writing: a partial decision is not JSON, and Codex would run the call unbound.
+    output = json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", **decision}}, separators=(",", ":"))
+    sys.stdout.write(output + "\n")
+
+
+# Codex runs a PowerContext tool call with the Agent's own arguments when this hook exits without a decision, so
+# every failure the hook can observe, including failing to load, must end in a denial.
+try:
+    from scope_binding import (
+        ScopeBindingRejectedError,
+        ScopeBindingStatusError,
+        binding_keys,
+        resolve_scope_id,
+        session_binding_key,
+    )
+    from settings import CodexPluginSettings
+except Exception:
+    if __name__ != "__main__":
+        raise
+    sys.stdin.read()
+    _deny()
+    raise SystemExit(0) from None
+
 _AUTHENTICATION_FAILURE_REASON = (
     "PowerContext authentication failed (HTTP 401): the configured credential was rejected. "
     "Re-run powercontext setup codex or set POWERCONTEXT_CODEX_AUTHORIZATION."
@@ -127,18 +146,16 @@ def main(settings: CodexPluginSettings | None = None) -> int:
     try:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
+            _deny()
             return 0
         tool_name = payload.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name.startswith(_PREFIX):
+            return 0
         tool_input = payload.get("tool_input")
         session_id = payload.get("session_id")
         cwd = payload.get("cwd")
-        if (
-            not isinstance(tool_name, str)
-            or not tool_name.startswith(_PREFIX)
-            or not isinstance(tool_input, dict)
-            or not isinstance(session_id, str)
-            or not isinstance(cwd, str)
-        ):
+        if not isinstance(tool_input, dict) or not isinstance(session_id, str) or not isinstance(cwd, str):
+            _deny()
             return 0
         operation = tool_name.removeprefix(_PREFIX)
         if operation in _CONTROL_OPERATIONS:
@@ -156,7 +173,12 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if operation in _HOST_OPERATIONS:
             _allow(dict(tool_input))
             return 0
-        if operation not in _CURRENT_OPERATIONS and operation not in _SELECTION_OPERATIONS:
+        # An operation outside the contract's current and selection modes may still take a Scope argument; bind any
+        # Scope the Agent names rather than letting it pick one.
+        selection = operation in _SELECTION_OPERATIONS or (
+            operation not in _CURRENT_OPERATIONS and "selection" in tool_input
+        )
+        if not selection and operation not in _CURRENT_OPERATIONS and "scope_id" not in tool_input:
             return 0
         settings = CodexPluginSettings() if settings is None else settings
         scope_id = resolve_scope_id(
@@ -166,34 +188,18 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             deadline=monotonic() + settings.http_budget_seconds,
         )
         updated = dict(tool_input)
-        if operation in _SELECTION_OPERATIONS:
+        if selection:
             updated["selection"] = {"mode": "exact", "scope_ids": [scope_id]}
         else:
             updated["scope_id"] = scope_id
         _allow(updated)
-    except (
-        ScopeBindingError,
-        HTTPException,
-        ValueError,
-        OSError,
-    ) as error:
+    except Exception as error:  # Any failure denies; an exit without a decision would run the call unbound.
         _deny(_denial_reason(error))
     return 0
 
 
 def _allow(updated_input: dict[str, object]) -> None:
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "updatedInput": updated_input,
-            }
-        },
-        sys.stdout,
-        separators=(",", ":"),
-    )
-    sys.stdout.write("\n")
+    _decide({"permissionDecision": "allow", "updatedInput": updated_input})
 
 
 def _denial_reason(error: Exception) -> str:
@@ -205,21 +211,6 @@ def _denial_reason(error: Exception) -> str:
         if error.status == 403:
             return _AUTHORIZATION_DENIED_REASON
     return _BINDING_FAILURE_REASON
-
-
-def _deny(reason: str = _BINDING_FAILURE_REASON) -> None:
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }
-        },
-        sys.stdout,
-        separators=(",", ":"),
-    )
-    sys.stdout.write("\n")
 
 
 if __name__ == "__main__":

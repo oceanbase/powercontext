@@ -138,6 +138,12 @@ Repository and directory identities are lookup inputs only; they never generate 
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
 
+The hook binds every PowerContext tool call that names a Scope. When it cannot, it denies the call: the binding
+cannot be resolved, the call payload is incomplete, the hook fails unexpectedly, or the plugin's modules cannot load.
+Codex runs such a call with the Agent's own arguments only when the hook produces no decision at all: when its process
+cannot start, exits with an error before the hook's code runs, or exceeds the hook's 10-second timeout. The call can
+then still reach only the Scopes that the saved credential is authorized for.
+
 To keep later sessions in one Git root on an existing Scope, bind that checkout:
 
 ```bash
