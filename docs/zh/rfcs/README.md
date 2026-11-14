@@ -62,11 +62,13 @@ RFC 是长期保留的公开设计记录。它的动机和每一条引用都必�
 - **只引用公开来源。** 引用公开的 GitHub issue、PR、RFC 或上游公开文档。若底层需求尚未公开，应在两个语种的「摘要 / 动机」中概括相关部分，而不是给出链接。
 - **头部字段遵循模板。** 只使用 [`0000_example.md`](0000_example.md) 中的字段（`Proposal Name`、`Start Date`、`RFC PR`）以及上文允许的可选 `Tracking Issue`。不要为需求来源或「业务目录」自创头部字段；补充溯源信息放在正文或所链接的公开 issue 中。
 
-真实的内网 URL 可以机械检查（上面作为反例引用的裸域名不是链接），外部名称需要人工通读两个语种：
+真实的内网 URL 会被自动拦截：`make check` 通过 prek 运行 `scripts/check_public_content.py`，也可以直接对全部已跟踪文件执行同一检查（上面作为反例引用的裸域名不是链接）：
 
 ```bash
-git grep -n -E 'https?://[^ ]*(antfin|yuque)[^ ]*' -- docs/en docs/zh
+uv run python scripts/check_public_content.py --all
 ```
+
+检查脚本只在可读文本文件中匹配 `scripts/check_public_content.py::INTERNAL_HOST_SUFFIXES` 里固定的内网主机后缀清单（`antfin.com`、`alibaba-inc.com`、`alipay-inc.com`、`aliyun-inc.com`）与 `http(s)://` URL，因此 `*.internal.example`、`host.docker.internal` 这类合法的本地示例不会误报。裸域名、协议相对链接、二进制文件、超大文件、其它内网域名、私有文档 ID、公开域名上的 SSO 私有空间无法机械识别（被跳过的文件会在输出中计数）；这些以及所有外部名称仍需人工通读两个语种。
 
 以上规则适用于整个仓库，参见 [CONTRIBUTING.md](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md) 的 "Write Documentation" 章节。
 
