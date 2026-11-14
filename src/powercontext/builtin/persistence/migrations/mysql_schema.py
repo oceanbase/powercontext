@@ -94,19 +94,17 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
             key=lambda row: str(row.get("Trigger", "")),
         )
         inventory["views"].sort()
-        if "pc_artifact_vector_spaces" in inventory["tables"]:
-            from sqlalchemy import select
-
-            from powercontext.builtin.persistence.tables import ARTIFACT_VECTOR_SPACES_TABLE
-
-            declarations = (
-                connection
-                .execute(select(ARTIFACT_VECTOR_SPACES_TABLE).order_by(ARTIFACT_VECTOR_SPACES_TABLE.c.space_id))
-                .mappings()
-                .all()
+        # Native tables of the removed Artifact plugin framework are named per registered space and have no
+        # registered layout here; v1_5_0_005 drops the framework only when nothing was registered.
+        if (
+            "pc_artifact_vector_spaces" in inventory["tables"]
+            and connection.exec_driver_sql("SELECT 1 FROM pc_artifact_vector_spaces LIMIT 1").first()
+        ):
+            raise MigrationError(
+                "unsupported_plugin_data",
+                "Plugins of the removed Artifact plugin framework still hold data; export it and remove those"
+                " plugins on the previous version before upgrading.",
             )
-            if declarations:
-                inventory["artifact_spaces"] = [dict(space) for space in declarations]
     except DBAPIError as error:
         raise MigrationError(
             "schema_reflection_failed", "Complete database schema reflection is unavailable."
@@ -156,9 +154,8 @@ class MySQLSchema:
     """Validate source, intermediate and post-DDL shapes from frozen resources."""
 
     def __init__(  # noqa: C901 -- Keep ordered admission checks with their operation.
-        self, bundle: MigrationBundle, *, embedded_code: bool = False, allow_declared_spaces: bool = False
+        self, bundle: MigrationBundle, *, embedded_code: bool = False
     ) -> None:
-        self.allow_declared_spaces = allow_declared_spaces
         self.bundle = bundle
         self.revisions = bundle.revisions
         manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
@@ -399,24 +396,6 @@ class MySQLSchema:
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
         actual = {**inventory, "tables": dict(inventory["tables"])}
-        declarations = actual.pop("artifact_spaces", [])
-        if declarations:
-            from powercontext.builtin.persistence.artifact_vector_space import registered_native_layouts
-
-            if "pc_artifact_vector_spaces" not in expected["tables"]:
-                return False
-            try:
-                layouts = registered_native_layouts(
-                    declarations, actual["tables"], allow_declared=self.allow_declared_spaces
-                )
-            except (ValueError, TypeError, KeyError) as error:
-                raise MigrationError(
-                    "incompatible_schema", "A registered native vector space is incomplete or incompatible."
-                ) from error
-            expected = {**expected, "tables": dict(expected["tables"])}
-            expected["tables"].update(layouts)
-            self.affected_objects = tuple(dict.fromkeys((*self.affected_objects, *sorted(layouts))))
-        # Compare table sets after adding the exactly validated registered spaces.
         if actual.keys() != expected.keys() or (
             self.bundle.readiness_scope != "server" and actual["tables"].keys() != expected["tables"].keys()
         ):

@@ -463,7 +463,7 @@ def _production_entries(case: Case) -> dict[tuple[str, str], _PreparedContextEnt
     else:
         groups = [
             builder._section_entries(
-                section.family,
+                section,
                 case.current_scope_id,
                 case.memory,
                 case.experience,

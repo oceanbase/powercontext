@@ -161,6 +161,12 @@ they are not per-request allocations or simultaneous process-tree totals, and mu
 Failed code stages retain the diagnostic `error_code` and, for domain errors, `status_code`; logs and spans use these
 values to distinguish timeouts, conflicts, and invalid requests from internal failures.
 
+Plugin directory changes are recorded as `plugin.changed` events: `plugin_name` is the plugin, `plugin_event` is
+`loaded`, `updated`, `removed`, `check_failed`, or `upgrade_failed`, and `version_digest` and `declaration_digest` are
+the content and declaration digests of the version that took effect (or that stays in use after a failed check). Failed
+checks record only a known failure category, never the exception message. With reloading on, each scan records a
+`DEBUG` `plugin.scanned` event whose `scan_ms` is the scan's duration in milliseconds.
+
 Server-created workers use the configured log level and format. Importing or running the Runtime as an SDK does not
 configure global logging; an embedding application owns its logging configuration. Logging bootstrap failure does not
 fail processing. The Server handler emits at most one content-free `observability.log_failed` notification to stderr

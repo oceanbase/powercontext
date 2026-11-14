@@ -423,6 +423,17 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     assert settings.inference.embedding_dimension == 1536
 
 
+def test_server_settings_read_both_plugin_host_process_limits(monkeypatch) -> None:
+    # The per-plugin map and the total are separate variables, though "_" also nests settings.
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES", '{"knowledge-base": 4}')
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES", "6")
+
+    settings = ServerSettings()
+
+    assert settings.plugin_host_processes == {"knowledge-base": 4}
+    assert settings.plugin_total_host_processes == 6
+
+
 def test_server_settings_select_oceanbase(monkeypatch) -> None:
     url = "mysql+aoceanbase://root:test@127.0.0.1:2881/powercontext?charset=utf8mb4"
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")

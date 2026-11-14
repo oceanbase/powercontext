@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from contextvars import ContextVar
 from copy import deepcopy
@@ -28,6 +29,7 @@ from fastapi import FastAPI
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.server.providers import Provider
 from fastmcp.server.providers.openapi import (
     MCPType,
     OpenAPIProvider,
@@ -35,6 +37,7 @@ from fastmcp.server.providers.openapi import (
     OpenAPIResourceTemplate,
     OpenAPITool,
 )
+from fastmcp.tools import Tool
 from fastmcp.tools.base import ToolResult
 from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
@@ -567,7 +570,11 @@ def create_mcp_server(
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,
     )
-    server = FastMCP(name=MCP_SERVER_NAME, instructions=MCP_GUIDANCE, providers=[provider])
+    server = FastMCP(
+        name=MCP_SERVER_NAME,
+        instructions=MCP_GUIDANCE,
+        providers=[provider, _PluginToolProvider(server_app, client)],
+    )
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())
@@ -577,6 +584,107 @@ def create_mcp_server(
     # after the content adapter has converted a real conditional HTTP 304.
     server.add_middleware(_ArtifactContentEtagMiddleware())
     return server
+
+
+class _PluginToolProvider(Provider):
+    """Plugin routes declared with ``mcp=True``, read from the plugins loaded now.
+
+    Tools follow plugin reloads at the next ``tools/list``. A call is the same HTTP request
+    as calling the route, so authentication, access, time limits, and errors match it.
+    """
+
+    def __init__(self, server_app: FastAPI, client: httpx.AsyncClient) -> None:
+        super().__init__()
+        self._app = server_app
+        self._client = client
+
+    @override
+    async def _list_tools(self) -> list[Tool]:
+        from powercontext.builtin.plugins.manifest import mcp_tool_name
+
+        manager = getattr(self._app.state, "plugin_manager", None)
+        if manager is None:
+            return []
+        tools: list[Tool] = []
+        for name in sorted(manager.plugins):
+            manifest = manager.loaded_manifest(name)
+            api = None if manifest is None else manifest.spec.api
+            for route in () if api is None else api.routes:
+                if route.mcp:
+                    tools.append(
+                        _PluginRouteTool.for_route(mcp_tool_name(name, route.handler), name, route, self._client)
+                    )
+        return tools
+
+
+class _PluginRouteTool(Tool):
+    plugin: str
+    method: str
+    path: str
+    path_parameters: tuple[str, ...]
+    has_body: bool
+    client: Any
+
+    @classmethod
+    def for_route(cls, tool_name: str, plugin: str, route: Any, client: httpx.AsyncClient) -> _PluginRouteTool:
+        import re
+
+        path_parameters = tuple(re.findall(r"{([A-Za-z_][A-Za-z0-9_]*)}", route.path))
+        properties: dict[str, Any] = {name: {"type": "string"} for name in path_parameters}
+        properties["query"] = {"type": "object", "additionalProperties": {"type": "string"}}
+        required = list(path_parameters)
+        definitions: dict[str, Any] = {}
+        has_body = route.body == "json"
+        if has_body:
+            body: dict[str, Any] = dict(route.request_schema or {"type": "object"})
+            # Keep the model's references resolvable from the top of the tool's input schema.
+            definitions = body.pop("$defs", {})
+            properties["body"] = body
+            required.append("body")
+        parameters = {"type": "object", "properties": properties, "required": required}
+        if definitions:
+            parameters["$defs"] = definitions
+        read_only = route.method == "GET" and route.access in {"scope.read", "authenticated"}
+        response = route.response_schema
+        return cls(
+            name=tool_name,
+            description=route.description,
+            parameters=parameters,
+            output_schema=response if response is not None and response.get("type") == "object" else None,
+            annotations=ToolAnnotations(readOnlyHint=read_only, idempotentHint=read_only, openWorldHint=False),
+            plugin=plugin,
+            method=route.method,
+            path=route.path,
+            path_parameters=path_parameters,
+            has_body=has_body,
+            client=client,
+        )
+
+    @override
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        from urllib.parse import quote
+
+        path = self.path
+        for name in self.path_parameters:
+            path = path.replace("{" + name + "}", quote(str(arguments[name]), safe=""))
+        response = await self.client.request(
+            self.method,
+            f"/v1/plugins/{self.plugin}/api{path}",
+            params=arguments.get("query") or None,
+            json=arguments.get("body") if self.has_body else None,
+        )
+        if response.status_code == 204:
+            return ToolResult(content=[])
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ToolError(f"HTTP {response.status_code}: the plugin returned a non-JSON response") from None  # noqa: TRY003
+        if response.status_code >= 400:
+            error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            raise ToolError(f"HTTP {response.status_code} {error.get('code', '')}: {error.get('message', '')}")  # noqa: TRY003
+        if self.output_schema is not None and isinstance(payload, dict):
+            return ToolResult(structured_content=payload)
+        return ToolResult(content=json.dumps(payload, ensure_ascii=False))
 
 
 class _InternalBridgeTransport(httpx.ASGITransport):

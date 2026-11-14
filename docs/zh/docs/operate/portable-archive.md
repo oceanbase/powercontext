@@ -190,7 +190,9 @@ record type。producer version 仅用于诊断，不能替代 archive schema ver
 writer 只生成版本 `1`，不支持降级到格式 `0`。遇到未知 archive 或 record schema
 version 时，reader 会在目标写入前拒绝。跨 PowerContext 大版本升级时，应保留旧二进制，直到恢复演练通过。
 
-`artifact_revision`、`artifact_head`、`artifact_lineage_artifact` 和 `candidate_head` 要求 record schema version `2`。
+`artifact_revision` 使用 record schema version `3`，比版本 `2` 多出 `metadata`，记录写入该 revision 的插件及其版本。
+reader 也接受此前版本导出的 schema version `2` 记录，恢复时 `metadata` 为 null，重复恢复不会把它们视为冲突。
+`artifact_head`、`artifact_lineage_artifact` 和 `candidate_head` 要求 record schema version `2`。
 reader 会拒绝这些记录不完整的 schema version `1` 表示，而不是丢弃 revision 元数据或补上默认合并状态、Candidate 类型。
 旧数据库中 revision 元数据为空时，归档保留显式 null，不会编造 actor、时间戳或回滚历史。目标缺少归档所需列时，
 应先用当前 Runtime 升级；dry-run 会报告不兼容，不会修改目标数据库。

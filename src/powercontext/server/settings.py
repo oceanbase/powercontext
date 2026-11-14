@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
@@ -266,7 +266,15 @@ class ServerSettings(BaseSettings):
     handoff_generation_verification_secrets: tuple[SecretStr, ...] = Field(default=(), max_length=8, repr=False)
     code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
-    artifact_plugins_dir: Path | None = None
+    plugins_dir: Path | None = None
+    # How often each Server process rescans plugins_dir for added, changed, and removed plugins; 0 turns it off.
+    plugins_rescan_seconds: float = Field(default=60, ge=0)
+    # Ceiling on plugin route request and response bodies; a route may declare a lower limit.
+    plugin_api_max_body_bytes: int = Field(default=32 * 1024 * 1024, ge=1024)
+    # Per-plugin ceilings on host processes, by plugin name, replacing the plugin's declared host_processes.
+    plugin_host_processes: dict[str, Annotated[int, Field(ge=1)]] = Field(default_factory=dict)
+    # Ceiling on host processes of all plugins; each plugin's first process starts regardless.
+    plugin_total_host_processes: int | None = Field(default=None, ge=1)
     source_plugins_dir: Path | None = None
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)

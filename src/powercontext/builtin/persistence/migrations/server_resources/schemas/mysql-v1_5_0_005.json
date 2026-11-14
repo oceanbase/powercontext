@@ -1,0 +1,302 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_5_0_005": {
+      "statements": [
+        "DROP TABLE pc_artifact_search_text",
+        "DROP TABLE pc_artifact_index_changes",
+        "DROP TABLE pc_artifact_index_coverage",
+        "DROP TABLE pc_artifact_search_states",
+        "DROP TABLE pc_artifact_vector_indexes",
+        "DROP TABLE pc_artifact_vector_spaces",
+        "DROP TABLE pc_artifact_family_schemas",
+        "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN plugin_id, DROP COLUMN plugin_family, DROP COLUMN plugin_spec, DROP COLUMN binding_generation, DROP COLUMN desired_state, DROP COLUMN phase, DROP COLUMN last_error",
+        "ALTER TABLE pc_artifacts ADD COLUMN metadata MEDIUMBLOB"
+      ],
+      "changes": [
+        {
+          "pc_artifact_search_text": null
+        },
+        {
+          "pc_artifact_index_changes": null
+        },
+        {
+          "pc_artifact_index_coverage": null
+        },
+        {
+          "pc_artifact_search_states": null
+        },
+        {
+          "pc_artifact_vector_indexes": null
+        },
+        {
+          "pc_artifact_vector_spaces": null
+        },
+        {
+          "pc_artifact_family_schemas": null
+        },
+        {
+          "pc_artifact_processing_binding_states": {
+            "columns": {
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_auto_wave_completed_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_schedule_checkpoint_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": [
+                  "number",
+                  0
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_in_progress": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": [
+                  "literal",
+                  "0"
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_upper_pending_sequence": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "binding_name",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_processing_scan_generation": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "scan_generation"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_artifacts": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "content": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "created_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "created_by": {
+                "type": [
+                  "varchar",
+                  [
+                    "2048"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "restored_from_revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "rollback_reason": {
+                "type": [
+                  "varchar",
+                  [
+                    "1024"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "metadata": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}

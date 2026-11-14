@@ -906,8 +906,8 @@ name = "httpcore2"
 version = "2.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
+    { name = "h11", marker = "sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
 wheels = [
@@ -1790,6 +1790,11 @@ requires-dist = [
     { name = "tzdata", marker = "extra == 'ops'", specifier = ">=2026.3" },
     { name = "tzdata", marker = "extra == 'seekdb'", specifier = ">=2026.3" },
     { name = "tzdata", marker = "extra == 'server'", specifier = ">=2026.3" },
+    { name = "tzlocal", marker = "extra == 'builtin'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'cli'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'ops'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'seekdb'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'server'", specifier = ">=5.2,<6" },
     { name = "uvicorn", marker = "extra == 'ops'", specifier = ">=0.34,<1" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]

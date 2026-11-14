@@ -12,6 +12,7 @@ description: 通过 HTTP API、Python Client 或 Core SDK 接入应用。
 Core SDK 支持进程内组合。MCP 向 Agent 暴露经过选择的工具子集。
 
 - [HTTP 行为](http-api.md)：认证、请求 ID、错误与并发。
+- [编写插件](plugins.md)：用插件生成自己的 Artifact、定义 Source 类型、提供接口和 Dashboard 页面。
 - [HTTP API](/api)：生成的端点与结构。
 - [Python API](/zh/modules)：生成的 Python 文档。
 - [Python Agent 框架](../integrations/index.md#python-agent-框架)：遵循各自生命周期的社区适配器。

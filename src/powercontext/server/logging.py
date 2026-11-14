@@ -151,6 +151,13 @@ _CODE_FIELDS = (
     "limitations",
     "reason",
 )
+_PLUGIN_FIELDS = (
+    "plugin_name",
+    "plugin_event",
+    "version_digest",
+    "declaration_digest",
+    "scan_ms",
+)
 _MISSING_OTLP_LOG_EXPORTER = (
     "OpenTelemetry log export requires the 'tracing-otlp' extra; "
     "install 'powercontext[server,tracing-otlp]' before enabling OTLP logs"
@@ -168,8 +175,13 @@ def _operational_payload(record: logging.LogRecord) -> dict[str, Any]:
     """Return only the documented structured fields, never arbitrary record extras."""
 
     payload = {field: value for field in _OPERATIONAL_FIELDS if (value := getattr(record, field, None)) is not None}
-    if str(getattr(record, "event", "")).startswith("code."):
+    event = str(getattr(record, "event", ""))
+    if event.startswith("code."):
         payload.update((field, value) for field in _CODE_FIELDS if (value := getattr(record, field, None)) is not None)
+    elif event.startswith("plugin."):
+        payload.update(
+            (field, value) for field in _PLUGIN_FIELDS if (value := getattr(record, field, None)) is not None
+        )
     return payload
 
 

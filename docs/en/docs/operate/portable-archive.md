@@ -220,7 +220,10 @@ does not replace the archive schema version or record-type compatibility checks.
 format `0` downgrade. A reader rejects unknown archive or record schema versions before target writes. Keep the old
 binary available until a restore drill succeeds when upgrading across a PowerContext major release.
 
-`artifact_revision`, `artifact_head`, `artifact_lineage_artifact` and `candidate_head` require record schema version `2`.
+`artifact_revision` uses record schema version `3`, which adds `metadata` naming the plugin and plugin version that
+wrote the revision. Readers also accept schema version `2` records exported by earlier releases and restore them with
+null `metadata`; restoring such an archive again does not report them as conflicts. `artifact_head`,
+`artifact_lineage_artifact` and `candidate_head` require record schema version `2`.
 Incomplete schema version `1` representations of these records are rejected rather than discarding revision metadata
 or assigning default merge state or Candidate kind. Legacy database revisions retain explicit null metadata; restore
 does not invent an actor, timestamp or rollback history. A target missing required archive columns must first be

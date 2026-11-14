@@ -38,6 +38,7 @@ from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -275,6 +276,8 @@ class _Record:
     identity: Mapping[str, str | int]
     payload: Mapping[str, Any]
     digest: str
+    # The digest an earlier-schema archive wrote, which its total digest covers; ``digest`` is the current schema's.
+    archived_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,6 +297,8 @@ class _RecordSpec:
     payload: tuple[str, ...]
     scope_field: str | None = "scope_id"
     schema_version: int = 1
+    # Payload fields of earlier schema versions still accepted on restore; fields they lack restore as null.
+    earlier_payloads: dict[int, tuple[str, ...]] = dataclass_field(default_factory=dict)
 
 
 _SPECS: dict[RecordType, _RecordSpec] = {
@@ -341,8 +346,9 @@ _SPECS: dict[RecordType, _RecordSpec] = {
     "artifact_revision": _RecordSpec(
         ARTIFACTS_TABLE,
         ("scope_id", "family", "artifact_id", "revision"),
-        ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason"),
-        schema_version=2,
+        ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason", "metadata"),
+        schema_version=3,
+        earlier_payloads={2: ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason")},
     ),
     "artifact_handle": _RecordSpec(
         ARTIFACT_HANDLES_TABLE,
@@ -1220,7 +1226,7 @@ def _parse_bundle(
             scope_ids.append(str(record.identity["scope_id"]))
         count += 1
         counts[record.record_type] += 1
-        digest.add(record.digest)
+        digest.add(record.archived_digest or record.digest)
         _report_progress(progress, phase, count, manifest["record_count"])
     expected_count = manifest["record_count"]
     if count != expected_count:
@@ -1420,7 +1426,10 @@ def _parse_record(value: object) -> _Record:
         not isinstance(record_type, str)
         or record_type not in _SPECS
         or type(value.get("schema_version")) is not int
-        or value["schema_version"] != _SPECS[cast(RecordType, record_type)].schema_version
+        or (
+            value["schema_version"] != _SPECS[cast(RecordType, record_type)].schema_version
+            and value["schema_version"] not in _SPECS[cast(RecordType, record_type)].earlier_payloads
+        )
     ):
         raise BundleFormatError("unsupported record type or schema")
     identity = value.get("identity")
@@ -1432,22 +1441,32 @@ def _parse_record(value: object) -> _Record:
     payload = cast(dict[str, Any], payload)
     typed = cast(RecordType, record_type)
     spec = _SPECS[typed]
+    version = cast(int, value["schema_version"])
+    fields = spec.payload if version == spec.schema_version else spec.earlier_payloads[version]
     if (
         set(identity) != set(spec.identity)
-        or set(payload) != set(spec.payload)
+        or set(payload) != set(fields)
         or any(type(item) is not spec.table.c[field].type.python_type for field, item in identity.items())
         or not _valid_digest(digest)
     ):
         raise BundleFormatError("record has invalid identity or digest")
     canonical = {
         "record_type": typed,
-        "schema_version": spec.schema_version,
+        "schema_version": version,
         "identity": identity,
         "payload": payload,
     }
     if _digest(canonical) != digest:
         raise BundleFormatError("record digest does not match content")
-    record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    if version == spec.schema_version:
+        record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    else:
+        # Staging and target comparisons use the current schema, so the verified record is re-identified in it.
+        payload = {name: payload.get(name) for name in spec.payload}
+        current = {**canonical, "schema_version": spec.schema_version, "payload": payload}
+        record = _Record(
+            record_type=typed, identity=identity, payload=payload, digest=_digest(current), archived_digest=digest
+        )
     _validate_record_values(record)
     _validate_record_safe(record)
     return record
@@ -1569,6 +1588,7 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
             raise BundleFormatError("Skill package has invalid digest")
     elif kind == "artifact_revision":
         bytes_values("content")
+        bytes_values("metadata", nullable=("metadata",))
         strings("created_at", "created_by", "rollback_reason", nullable=("created_at", "created_by", "rollback_reason"))
         if payload["created_at"] is not None:
             _validate_datetime_text(payload["created_at"])

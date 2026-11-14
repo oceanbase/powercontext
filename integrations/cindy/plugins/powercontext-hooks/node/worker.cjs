@@ -266,83 +266,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_plugins: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	get_artifact_plugin: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins/{binding_name}",
-		location: null,
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	enable_all_artifact_plugins: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/enable-all",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	reload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	enable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	disable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	unload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
@@ -721,6 +644,106 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugins: {
+		method: "GET",
+		path: "/v1/plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin: {
+		method: "GET",
+		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugin_scopes: {
+		method: "GET",
+		path: "/v1/plugins/{name}/scopes",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: ["cursor", "limit"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	merge_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/merges",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_governance: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance",
+		location: null,
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	forget_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	restore_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1510,6 +1533,21 @@ const OPERATIONS = {
 			"revision"
 		],
 		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_rendering: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["revision"],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []

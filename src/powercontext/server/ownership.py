@@ -156,7 +156,7 @@ async def plan_ownership_migration(
         raise AccessUnavailableError("relationship_management_unavailable")
     scopes: list[ScopeOwnershipPlan] = []
     selected = tuple(dict.fromkeys(scope_ids))
-    families = await _owned_artifact_families(application)
+    families = frozenset(OWNED_ARTIFACT_FAMILIES)
     for scope_id in selected:
         scopes.append(
             ScopeOwnershipPlan(
@@ -232,7 +232,7 @@ async def apply_ownership_migration(
     context = migration_context(MIGRATION_OPERATION, transport=transport, context=context)
     items: list[ArtifactOwnershipGap | CandidateOwnershipGap] = []
     conflicts: list[OwnershipDisposition] = []
-    families = await _owned_artifact_families(application)
+    families = frozenset(OWNED_ARTIFACT_FAMILIES)
     for scope_id in dict.fromkeys(scope_ids):
         inventory = (
             *await _artifact_gaps(application, None, scope_id, families),
@@ -400,18 +400,6 @@ def _validate_migration_owner(owner: PrincipalRef) -> None:
         raise AccessInvalidRequestError("principal")
     if not owner.id or owner.id != owner.id.strip() or len(owner.id) > 256:
         raise AccessInvalidRequestError("principal")
-
-
-async def _owned_artifact_families(application: Application) -> frozenset[str]:
-    """Families whose Artifact lifecycle Access enforces, including saved plugins."""
-
-    from powercontext.server.artifact_plugins import read_artifact_declarations
-
-    families = set(OWNED_ARTIFACT_FAMILIES)
-    database = getattr(application, "primary_database", None)
-    if database is not None:
-        families.update(declaration["family"] for declaration in await read_artifact_declarations(database))
-    return frozenset(families)
 
 
 async def _artifact_gaps(

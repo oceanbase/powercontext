@@ -207,22 +207,12 @@ class ManagedMaintenanceRunner:
                     backup_state="pending",
                 )
                 journal.write(evidence)
-            backup_objects = self.bundle.affected_objects
-            if identity.product != "sqlite":
-                from .mysql_schema import mysql_inventory
-
-                backup_objects = tuple(
-                    dict.fromkeys((
-                        *backup_objects,
-                        *(space["physical_table"] for space in mysql_inventory(connection).get("artifact_spaces", [])),
-                    ))
-                )
             context = BackupContext(
                 database_id=identity.database_id,
                 source_revision=self.bundle.head,
                 bundle_checksum=self.checksum,
                 maintenance_window_id=evidence.maintenance_window_id,
-                objects=backup_objects,
+                objects=self.bundle.affected_objects,
                 writers_stopped=True,
             )
             provider = self._provider(connection, identity)
