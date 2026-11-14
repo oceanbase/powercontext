@@ -1150,6 +1150,9 @@ def recording_codex_cmd(codex_cmd_shim: Path, monkeypatch) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     codex_cmd_shim.write_text('@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\record.py" %*\n', encoding="ascii")
+    # Setup requires uv on PATH, which here holds only this directory. The autouse fixture stubs the environment
+    # build, so this placeholder is found but never run; `.exe` matches every PATHEXT these tests set.
+    (codex_cmd_shim.parent / "uv.exe").touch()
     monkeypatch.setenv("CODEX_TEST_VALUE", "expanded")
     monkeypatch.delenv("CODEX_TEST_MARKETPLACE", raising=False)
     return codex_cmd_shim, received
