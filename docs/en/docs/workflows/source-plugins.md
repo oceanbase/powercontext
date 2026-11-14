@@ -173,3 +173,74 @@ An ongoing collector maintains its own loop in `apply`. After `apply` exits, new
 The repository's `examples/source_plugins` groups examples by source: tickets, ticket/chat and images. Each directory contains its code and loading configuration. The tickets example shares one Definition and Projection implementation across write and collect: use `write.yml` for Server-local synchronous writes or `powercontext.yml` for managed collection. Loading and MCP usage are documented in `examples/source_plugins/README.zh.md`.
 
 Keep generated credentials, databases, logs, and process state on the deployment machine. Commit plugin code, configuration templates without sensitive values, and synthetic example data.
+
+## Plugin responsibilities for agent clients
+
+Agent clients use two plugin layers; domain behavior remains owned by the Server:
+
+| Plugin | Responsibility | Interface |
+| --- | --- | --- |
+| Agent Plugin | Native host configuration, authentication, skills, live hooks and user feedback | Public Server MCP and existing client interfaces |
+| Source plugin | History decoding, external collection, Source identity, submission and progress | SourceDefinition, Connector, PluginContext and public Source MCP |
+
+New clients should reuse the [shared Agent Plugin](../integrations/agent-plugin.md). Where a host needs native hooks or a different
+manifest, provide a thin adapter under `integrations/<host>/`. Keep historical format parsing in an adjacent Source plugin;
+do not add host-specific import branches to the core CLI. Agent Plugins use `pc_source_capabilities`, `pc_source_instances`,
+`pc_source_add`, status and enablement tools to access Source capabilities. They do not start collector processes or duplicate
+Memory, Handoff or persistence logic. A reusable protocol does not establish compatibility with every host.
+
+The built-in `content` Definition can be reused by collect plugins. Registration accepts only its exact built-in manifest; submitted payloads and projections must match an ordinary Content capture reconstructed by the Server. Worker-supplied system flags and working-note captures are rejected. Other active Definitions cannot be replaced through registration.
+
+## Codex session history
+
+The Codex collect plugin lives in `integrations/codex/source_plugin/`, with `__init__.py` as its entry point.
+An administrator prepares the checkout, PowerContext Python environment and independent management service on the Linux machine
+holding the history files, then follows the local or remote collect deployment steps above. macOS and Windows cannot currently
+start managed collect Runtimes locally; explicitly selected files can instead be placed in the configured directory on a Linux Runtime.
+
+Edit the adjacent `powercontext.yml`, replacing `SCOPE_ID` and `config.codex_home` (the Codex home on the execution machine), then run:
+
+```sh
+powercontext source load --config /path/to/powercontext/integrations/codex/source_plugin/powercontext.yml \
+  --env-file /path/to/pc.env
+```
+
+The manifest has no initial targets; loading the instance does not read history. Explicitly select a JSONL path relative to
+`codex_home/sessions/` and a destination Scope:
+
+```javascript
+pc_source_capabilities({"scope_id":"SCOPE_ID"})
+pc_source_instances({"scope_id":"SCOPE_ID"})
+pc_source_add({
+  "scope_id":"SCOPE_ID","instance_id":"codex-history",
+  "capability":"codex.session-history","capability_version":"1",
+  "input":{"session_file":"2026/09/13/rollout.jsonl"}
+})
+```
+
+The target Scope is the explicitly authorized destination. The plugin does not infer a default Scope or traverse other sessions.
+Absolute paths, paths outside the configured directory and symlinks pointing outside it are rejected. While enabled, the target
+rereads its selected file at `poll_interval` and also collects newly appended prompts. For a one-time import, disable it with
+`pc_source_target_set_enabled` after confirming submission.
+
+Only real user prompts are saved. Assistant replies, AGENTS/environment messages, internal execution notifications and Page context
+are excluded. Secrets are redacted using the execution environment and the configured Codex home's `auth.json`. Empty text and
+text exceeding 200,000 characters are omitted. Sources retain the built-in `content` type and the identity and metadata used by
+the live Codex hook. Identical identity and content reuse the existing Source. Different content under the same identity conflicts,
+including redacted history overlapping an existing raw capture; the plugin neither overwrites evidence nor treats a conflict as success. Source conflicts and invalid-observation refusals remain visible as rejected batch items. Collection continues with later prompts and subsequent polls; rejected batches retain their previous checkpoint and safely resubmit accepted items.
+
+The framework stores progress in an instance/Scope checkpoint on the destination Server and advances it only after a complete
+successful batch. Retrying can resubmit already saved items, which the Server deduplicates by Source identity. A malformed file
+submits none of that file's partially decoded prompts. Each poll fully decodes the selected files and retains accepted Source IDs
+for the instance/Scope. Read cost grows with selected file size and checkpoint size with cumulative prompt count; this is not an
+append-byte incremental reader.
+
+The historical `powercontext import-sessions` CLI is removed. Existing Content Sources remain readable and reusable.
+The old Codex home `.powercontext/session-import/codex.json` file is not migrated into framework checkpoints; initial collection
+relies on Server idempotency. Automatic session/workspace Scope resolution and `--dry-run` from the old CLI are not part of this
+collect capability: each target requires an explicitly selected Scope. Successful collection means Sources are saved;
+Memory extraction still follows the Server's independent processing configuration.
+
+## Existing Codex Memory
+
+`.codex/memories` uses the separate `codex.memory-history` capability to retain derived files and version evidence. It supports one-shot import on macOS/Linux and managed collection on Linux. See [Import existing Codex Memory](import-codex-memory.md).

@@ -83,3 +83,10 @@ Do not put bearer tokens in `mcp.json`.
 Use the package when an agent supports Agent Plugin skills and MCP
 configuration, and you want explicit Memory and Handoff operations without an
 agent-specific integration.
+
+## Working with Source plugins
+
+Agent Plugins own client integration; [Source plugins](../workflows/source-plugins.md#plugin-responsibilities-for-agent-clients)
+own historical data acquisition. Hosts use public MCP to discover capabilities, explicitly select material and a Scope, add targets,
+and inspect or control them. Administrators load trusted code and deploy Runtimes. New agent clients follow this division, reusing
+this package's skills and MCP configuration where possible; native hooks, authentication and manifest differences stay in host adapters.

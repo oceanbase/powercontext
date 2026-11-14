@@ -299,7 +299,7 @@ jobs:
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
-          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
+          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py -vv --durations=30
         run: make e2e-test
 
   isolated-installations:

@@ -22,6 +22,7 @@ from pydantic import JsonValue
 from typing_extensions import override
 
 from powercontext.client.client import PowerContextClient
+from powercontext.client.errors import ServerResponseError
 from powercontext.errors import ConnectorSubmissionRejectedError, InvalidConnectorRunError
 from powercontext.http import (
     CommitConnectorCheckpointRequest,
@@ -105,7 +106,17 @@ class _RemoteConnectorSourceSink(ConnectorSourceSink):
             )
         if self._observer is not None:
             await self._observer.materialized(binding, item_id, observation)
-        source_ref = await submit_materialized_observation(self._client, binding, observation)
+        try:
+            source_ref = await submit_materialized_observation(self._client, binding, observation)
+        except ServerResponseError as error:
+            # These are durable per-item refusals. Authentication, deployment and
+            # transport failures retain their normal failure semantics.
+            if error.code is not None and (error.status_code, error.code) in {
+                (409, "source_conflict"),
+                (422, "invalid_source_ingestion"),
+            }:
+                raise ConnectorSubmissionRejectedError(error.code) from None
+            raise
         if self._observer is not None:
             await self._observer.accepted(item_id, source_ref)
         return source_ref

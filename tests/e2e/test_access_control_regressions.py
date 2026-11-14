@@ -1615,6 +1615,18 @@ def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):
             assert created.status_code == 422, created.text
             assert captured.status_code == 422, captured.text
 
+            from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
+            from powercontext.sources import SourceDefinitionRegistry, project_source_for_transport
+
+            registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
+            native = await registry.resolve(ContentCapture(source_id="forged-observation", content=json.dumps(marker)))
+            observation = project_source_for_transport(registry, native)
+            observed = await client.post(
+                "/v1/source-observations",
+                json={"scope_id": scope_id, "observation": observation.model_dump(mode="json")},
+            )
+            assert observed.status_code == 422, observed.text
+
             records = app.state.application.records.for_scope(scope_id)
             legacy = await records.create_source("content", marker)
             ordinary = await records.create_source("content", {"statement": "later source"})

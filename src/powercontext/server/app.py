@@ -418,6 +418,7 @@ from powercontext.builtin.sources import (
     ObservedValidation,
     SkillUsageCapture,
 )
+from powercontext.builtin.sources.content import is_handoff_receipt_content as _is_handoff_receipt_content
 from powercontext.builtin.tags import (
     ArtifactTagSet as RuntimeArtifactTagSet,
 )
@@ -3742,15 +3743,6 @@ def _receipt_identity_response(identity: HandoffReceiptIdentity) -> TransportHan
         principal=_access_principal_response(identity.principal),
         receiver_identity_matches=identity.receiver_identity_matches,
     )
-
-
-def _is_handoff_receipt_content(content: JsonValue) -> bool:
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except (ValueError, RecursionError):
-            return False
-    return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"
 
 
 def _reject_reserved_handoff_receipt_content(content: JsonValue) -> None:
