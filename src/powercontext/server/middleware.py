@@ -20,6 +20,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.authentication import (
     AuthenticationProvider,
@@ -28,7 +29,6 @@ from powercontext.server.authentication import (
     AuthenticationUnavailableError,
     StaticBearerAuthenticationProvider,
 )
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.context import bind_authentication, is_internal_bridge, reset_authentication
 from powercontext.server.dashboard.session import authentication_headers, login_response
 

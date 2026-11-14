@@ -221,7 +221,7 @@ def codex_stack(tmp_path: Path) -> Iterator[CodexStack]:
                 generation_headers={"Authorization": SecretStr("Bearer synthetic-generation-only")},
             ),
         )
-        app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler")
+        app = create_server_app(settings=settings)
         base_url = stack.enter_context(serve(ObserveServer(app, wire)))
         server = stack.enter_context(
             httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=15)

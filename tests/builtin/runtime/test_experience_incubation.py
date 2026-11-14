@@ -269,7 +269,6 @@ def test_scheduled_incubation_requires_a_configured_pipeline(tmp_path) -> None:
                     database=SQLiteConfig(),
                     runtime=RuntimeConfig(experience_schedule_seconds=60),
                 ),
-                scheduler_path=tmp_path / "scheduler.db",
             ):
                 pass
 

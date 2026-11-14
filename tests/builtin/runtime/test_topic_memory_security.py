@@ -33,6 +33,9 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryProbeOutput,
     TopicMemoryProposal,
 )
+from powercontext.builtin.authz import AccessAction, PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_AUDIT_EVENTS_TABLE, ACCESS_OWNERS_TABLE, ACCESS_TABLES
+from powercontext.builtin.authz.worker import WorkerSecuritySpec, open_worker_security
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
@@ -64,9 +67,6 @@ from powercontext.builtin.runtime.topic_memory_processing import (
 )
 from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
 from powercontext.builtin.sources import SourceCursor
-from powercontext.server.authz import AccessAction, PrincipalRef
-from powercontext.server.authz.repository import ACCESS_AUDIT_EVENTS_TABLE, ACCESS_OWNERS_TABLE, ACCESS_TABLES
-from powercontext.server.processing_security import WorkerSecuritySpec, open_worker_security
 from powercontext.sources import SourceMaterialization
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
 from tests.builtin.runtime.test_topic_memory_processing import _content, _stages

@@ -24,14 +24,14 @@ import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.cli.app import create_cli
 from powercontext.server import cli as server_cli
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.cli import app
 
 

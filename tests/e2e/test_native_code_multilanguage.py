@@ -51,15 +51,11 @@ def test_prepare_uses_each_language_and_drops_stale_code(tmp_path):
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'database.db'}")
 
     async def exercise():
-        bootstrap = create_server_app(
-            settings=ServerSettings(database=database), scheduler_path=tmp_path / "bootstrap-scheduler.db"
-        )
+        bootstrap = create_server_app(settings=ServerSettings(database=database))
         # Initialize Server-owned storage before seeding it through the SDK.
         async with bootstrap.router.lifespan_context(bootstrap):
             pass
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "scope.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Mixed repository", summary="Current source evidence", idempotency_key="mixed-code")

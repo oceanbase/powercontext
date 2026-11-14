@@ -336,14 +336,15 @@ def test_enforced_dream_writes_use_scope_config_and_entry_permissions(tmp_path):
     import pytest
 
     from powercontext.artifacts import ArtifactRef
+    from powercontext.builtin.authz import AccessRole, PrincipalRef, ResourceRef
+    from powercontext.builtin.authz.composition import open_builtin_access_control
+    from powercontext.builtin.authz.dream import principal_identity
+    from powercontext.builtin.authz.service import AccessAuditContext, CreateBinding
     from powercontext.builtin.catalog_changes.models import TagDreamTarget
     from powercontext.builtin.dream.models import DreamError
     from powercontext.builtin.tags import ArtifactTagTarget
-    from powercontext.server.authz import AccessRole, PrincipalRef, ResourceRef
-    from powercontext.server.authz.composition import open_builtin_access_control
-    from powercontext.server.authz.service import AccessAuditContext, CreateBinding
     from powercontext.server.context import bind_principal, reset_principal
-    from powercontext.server.dream_access import DreamAccess, principal_identity
+    from powercontext.server.dream_access import DreamAccess
 
     async def scenario():
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/permissions.db")
@@ -485,7 +486,6 @@ def test_legacy_prompt_publication_preserves_business_json_that_resembles_protoc
             inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "prompt-compat-scheduler.db",
     )
 
     async def scenario():

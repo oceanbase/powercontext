@@ -20,14 +20,14 @@ import httpx
 import pytest
 from sqlalchemy import insert
 
+from powercontext.builtin.authz import AccessAuditContext, AccessRole, CreateBinding, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.profiles import ARTIFACT_FAMILY_PROFILES
 from powercontext.builtin.persistence.artifacts import RepositoryArtifactDraft
 from powercontext.builtin.persistence.custom_artifacts import StoredArtifactContent, custom_artifact_repository
 from powercontext.builtin.persistence.tables import ARTIFACT_FAMILY_SCHEMAS_TABLE
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import AccessAuditContext, AccessRole, CreateBinding, PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, DashboardConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -63,7 +63,6 @@ def test_custom_artifact_authorization_survives_server_restart(tmp_path, monkeyp
                 def application(principal):
                     return create_server_app(
                         settings=settings,
-                        scheduler_path=tmp_path / "scheduler.db",
                         access_control=access,
                         authentication_provider=StaticBearerAuthenticationProvider("test-token", principal),
                     )
@@ -184,7 +183,6 @@ def test_live_family_discovery_and_access_query_budget(tmp_path, monkeypatch):
             async with open_builtin_access_control(database, bootstrap_administrators=(admin,)) as access:
                 app = create_server_app(
                     settings=settings,
-                    scheduler_path=tmp_path / "scheduler.db",
                     access_control=access,
                     authentication_provider=StaticBearerAuthenticationProvider("test-token", admin),
                 )
@@ -350,7 +348,7 @@ async def _request_family_operation(client, access, admin, entry, family, scope,
 async def _seed_retained_binding(access, admin, family, scope):
     from datetime import UTC, datetime
 
-    from powercontext.server.authz.models import AccessBinding, AccessBindingState
+    from powercontext.builtin.authz.models import AccessBinding, AccessBindingState
 
     # Exercise an existing relationship row; custom families still cannot grant direct roles through HTTP.
     await access.relationships.create_binding(
@@ -419,7 +417,6 @@ def test_first_search_loads_external_family_with_custom_provider(tmp_path, monke
                 access.provider = _FilteringProvider(access.provider)
                 app = create_server_app(
                     settings=settings,
-                    scheduler_path=tmp_path / "scheduler.db",
                     access_control=access,
                     authentication_provider=StaticBearerAuthenticationProvider("test-token", admin),
                 )

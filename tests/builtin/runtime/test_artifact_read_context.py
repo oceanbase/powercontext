@@ -28,6 +28,21 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.search import ArtifactSearchUnsupported
 from powercontext.builtin.artifacts.profile.models import Profile, ProfileContent, ProfileGeneration
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent
+from powercontext.builtin.authz import (
+    AccessAuditContext,
+    AccessControlService,
+    AccessDecision,
+    AccessDeniedError,
+    AccessRole,
+    BuiltinAuthorizationProvider,
+    CreateBinding,
+    PrincipalRef,
+    ResourceRef,
+)
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.profiles import register_custom_artifact_access_family
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.worker import WorkerSecurity
 from powercontext.builtin.persistence.artifact_indexes import ArtifactIndexBuilder
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
 from powercontext.builtin.persistence.custom_artifacts import (
@@ -47,21 +62,6 @@ from powercontext.builtin.runtime.artifact_reads import ArtifactReadSession
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
 from powercontext.builtin.runtime.processing_execution import ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
-from powercontext.server.authz import (
-    AccessAuditContext,
-    AccessControlService,
-    AccessDecision,
-    AccessDeniedError,
-    AccessRole,
-    BuiltinAuthorizationProvider,
-    CreateBinding,
-    PrincipalRef,
-    ResourceRef,
-)
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.profiles import register_custom_artifact_access_family
-from powercontext.server.authz.repository import RelationalAccessRepository
-from powercontext.server.processing_security import WorkerSecurity
 
 
 class FilteredProvider(BuiltinAuthorizationProvider):

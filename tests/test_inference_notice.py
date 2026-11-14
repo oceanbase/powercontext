@@ -14,7 +14,7 @@
 
 import pytest
 
-from powercontext.cli.inference_notice import write_inference_capability_notice
+from powercontext.server.inference_notice import write_inference_capability_notice
 
 
 @pytest.mark.parametrize("generation_model,embedding_model", [(None, None), ("test", None), (None, "test")])

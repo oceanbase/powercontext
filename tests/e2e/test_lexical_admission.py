@@ -57,7 +57,7 @@ def _lexical_app(backend: MigrationBackend):
         mcp=McpConfig(enabled=False),
     )
     prepare_server_database(settings, evidence_dir=backend.directory / "migration-evidence")
-    return create_server_app(settings=settings, scheduler_path=backend.directory / "lexical-scheduler.db")
+    return create_server_app(settings=settings)
 
 
 @pytest.mark.parametrize("family", ["experience", "skill"])

@@ -20,7 +20,7 @@ import pytest
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.skill import SkillContent
-from powercontext.server.authz import PrincipalRef
+from powercontext.builtin.authz import PrincipalRef
 from tests.test_dashboard import create_scope
 from tests.test_dashboard import dashboard as dashboard
 from tests.test_dashboard_scope_selection import _grant

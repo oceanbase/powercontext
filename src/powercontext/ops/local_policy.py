@@ -27,7 +27,7 @@ from typing import Literal
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-from powercontext.cli.env_file import environment_context
+from powercontext.env_file import environment_context
 from powercontext.ops.protocol import OpsError, digest
 from powercontext.paths import POWERCONTEXT_HOME_ENV, powercontext_data_dir, sqlite_url
 from powercontext.server.configuration import server_settings_context

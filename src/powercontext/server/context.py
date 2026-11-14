@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.server.authentication import AuthenticationResult
-from powercontext.server.authz import PrincipalRef
 
 _internal_bridge: ContextVar[bool] = ContextVar("powercontext_internal_bridge", default=False)
 _request_id: ContextVar[str | None] = ContextVar("powercontext_request_id", default=None)

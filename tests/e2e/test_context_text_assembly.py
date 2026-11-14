@@ -57,7 +57,6 @@ async def _server(tmp_path, *, database=None):
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     async with (
         app.router.lifespan_context(app),

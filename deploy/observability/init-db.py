@@ -20,10 +20,10 @@ import asyncio
 
 from sqlalchemy.engine import make_url
 
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.settings import ServerSettings
 
 
