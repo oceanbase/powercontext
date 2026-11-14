@@ -37,7 +37,7 @@ from pydantic_ai.settings import ModelSettings
 
 from powercontext.builtin.inference import request_accounting
 from powercontext.builtin.inference.budget import BudgetProvenance, EffectiveRequestBudget
-from powercontext.builtin.inference.errors import InferenceBudgetExceededError
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError, InferenceConfigurationError
 from powercontext.builtin.inference.pydantic_ai import (
     InferenceLimits,
     PydanticAIStructuredGenerator,
@@ -492,3 +492,14 @@ def test_supported_sdk_protocols_reject_before_transport(protocol: str) -> None:
             assert sent == []
 
     asyncio.run(scenario())
+
+
+def test_opaque_responses_reference_without_a_type_is_rejected() -> None:
+    """An item reference with a missing type is opaque and must be rejected before send."""
+
+    with pytest.raises(InferenceConfigurationError) as rejected:
+        request_accounting.estimate_http_request(
+            {"input": [{"id": "msg_previous", "type": None}]},
+            estimator=character_token_estimator(),
+        )
+    assert "budget-inline-context-required" in str(rejected.value)

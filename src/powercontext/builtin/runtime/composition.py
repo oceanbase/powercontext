@@ -1621,7 +1621,6 @@ async def _generation_pipelines(
         SkillGenerationOutput,
     )
     from powercontext.builtin.inference.pydantic_ai import (
-        InferenceLimits,
         PydanticAIStructuredGenerator,
         probe_pydantic_ai_model,
     )
@@ -1896,14 +1895,13 @@ async def _generation_pipelines(
                 prompt_demonstrators,
                 ("memory.rerank",),
                 rerank_model,
-                InferenceLimits(
-                    timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
-                    max_requests=settings.rerank_max_requests or settings.generation_max_requests,
-                ),
+                settings.generation_limits("prompt_demonstrations")
+                if inherits_generation
+                else settings.rerank_demonstration_limits(),
                 rerank_request_settings,
                 settings.generation_budget("prompt_demonstrations")
-                if settings.rerank_model is None
-                else settings.rerank_budget,
+                if inherits_generation
+                else settings.rerank_demonstration_budget,
             )
 
             if separate_rerank_model or settings.rerank_model_settings:

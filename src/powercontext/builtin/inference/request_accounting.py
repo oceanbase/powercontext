@@ -45,7 +45,7 @@ from powercontext.builtin.inference.budget import (
     raise_if_rejected,
 )
 from powercontext.builtin.inference.errors import InferenceBudgetExceededError, InferenceConfigurationError
-from powercontext.builtin.inference.model_payload import contains_opaque_content
+from powercontext.builtin.inference.model_payload import PrivacyProtocol, contains_opaque_content
 from powercontext.builtin.inference.tokens import TokenEstimator, resolve_token_estimator
 
 #: Request parameters that end up in the provider body.
@@ -213,7 +213,12 @@ def estimate_http_request(body: dict[str, Any], *, estimator: TokenEstimator) ->
     """Count the serialized input, after provider templates and schema transforms."""
 
     carrier = {key: body[key] for key in ("messages", "input", "system") if key in body}
-    if body.get("previous_response_id") or body.get("conversation") or contains_opaque_content(carrier):
+    protocol: PrivacyProtocol | None = "openai-responses" if "input" in body else None
+    if (
+        body.get("previous_response_id")
+        or body.get("conversation")
+        or contains_opaque_content(carrier, protocol=protocol)
+    ):
         raise InferenceConfigurationError("budget-inline-context-required")
     content = {key: value for key, value in body.items() if key not in _REQUEST_CONTROLS}
     return RequestEstimate(

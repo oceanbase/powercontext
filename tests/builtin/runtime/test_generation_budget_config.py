@@ -254,3 +254,52 @@ def test_rerank_capacity_follows_the_same_pair_rule() -> None:
         rerank_request_budget={"output_reserve_tokens": 256},
     )
     assert "requires rerank_model" in message
+
+
+def test_rerank_workload_and_demonstration_use_distinct_operation_allowances() -> None:
+    config = _config(
+        generation_model="test/model",
+        rerank_model="test/rerank",
+        rerank_context_window_tokens=32_000,
+        rerank_request_budget={"input_tokens_limit": 8_000},
+        generation_operation_budgets={
+            "memory.rerank": {"input_tokens_limit": 100},
+            "prompt_demonstrations": {"input_tokens_limit": 200},
+        },
+    )
+    assert config.rerank_budget is not None
+    assert config.rerank_demonstration_budget is not None
+    assert config.rerank_budget.allowed_input_tokens == 100
+    assert config.rerank_demonstration_budget.allowed_input_tokens == 200
+
+
+def test_operation_output_limit_narrows_the_deployment_reserve() -> None:
+    config = _config(
+        generation_model="test/model",
+        generation_request_budget={"output_reserve_tokens": 4_096},
+        generation_operation_budgets={"memory.write-gate": {"output_tokens_limit": 128}},
+    )
+    budget = config.generation_budget("memory.write-gate")
+    assert budget.output_reserve_tokens == 128
+
+
+def test_rerank_demonstration_limits_apply_the_prompt_allowance() -> None:
+    config = _config(
+        generation_model="test/model",
+        rerank_model="test/rerank",
+        rerank_context_window_tokens=4_000,
+        rerank_request_budget={"output_reserve_tokens": 256},
+        generation_operation_budgets={"prompt_demonstrations": {"max_requests": 1, "timeout_seconds": 10}},
+    )
+    limits = config.rerank_demonstration_limits()
+    assert limits.max_requests == 1
+    assert limits.timeout_seconds == 10
+
+
+def test_null_output_reserve_is_treated_as_unset() -> None:
+    config = _config(
+        generation_model="test/model",
+        generation_request_budget={"output_reserve_tokens": None},
+    )
+    budget = config.generation_budget("atomic_memory.extract")
+    assert budget.provenance.output_reserve == "default"

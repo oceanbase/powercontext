@@ -554,6 +554,24 @@ class InferenceConfig(BaseModel):
             timeout_seconds=(min(timeout, allowance.timeout_seconds or timeout) if allowance is not None else timeout),
         )
 
+    def rerank_demonstration_limits(self) -> InferenceLimits:
+        """Resolve execution limits for the rerank endpoint's demonstration prompt.
+
+        The demonstration runs on the rerank endpoint, so its request and timeout
+        ceilings start from that endpoint's defaults and are then narrowed by the
+        ``prompt_demonstrations`` operation allowance.
+        """
+
+        from powercontext.builtin.inference.pydantic_ai import InferenceLimits
+
+        allowance = self.generation_operation_budgets.get("prompt_demonstrations")
+        requests = self.rerank_max_requests or self.generation_max_requests
+        timeout = self.rerank_timeout_seconds or self.generation_timeout_seconds
+        return InferenceLimits(
+            max_requests=min(requests, allowance.max_requests or requests) if allowance is not None else requests,
+            timeout_seconds=(min(timeout, allowance.timeout_seconds or timeout) if allowance is not None else timeout),
+        )
+
     @property
     def decision_budget(self) -> EffectiveRequestBudget | None:
         """Resolve admission capacity for the memory write-gate workload.
@@ -575,10 +593,30 @@ class InferenceConfig(BaseModel):
 
     @property
     def rerank_budget(self) -> EffectiveRequestBudget | None:
-        """Resolve admission capacity for the rerank workload's demonstration prompt.
+        """Resolve admission capacity for the rerank workload.
 
         A separate rerank endpoint can have a different window, so its capacity is
-        declared independently; without it the demonstrations keep no budget.
+        declared independently; without it the workload keeps no budget instead of
+        borrowing the generation window, whose size may differ.
+        """
+
+        if self.rerank_request_budget is None:
+            return None
+        return self._resolve_generation_budget(
+            "memory.rerank",
+            self.generation_operation_budgets.get("memory.rerank"),
+            declared=self.rerank_request_budget,
+            context_window_tokens=self.rerank_context_window_tokens,
+            context_window_source="rerank_context_window_tokens",
+        )
+
+    @property
+    def rerank_demonstration_budget(self) -> EffectiveRequestBudget | None:
+        """Resolve admission capacity for the rerank endpoint's demonstration prompt.
+
+        Demonstrations run on the rerank endpoint but are metered by the
+        ``prompt_demonstrations`` operation allowance, so they are resolved
+        separately from the ``memory.rerank`` workload.
         """
 
         if self.rerank_request_budget is None:
@@ -643,10 +681,14 @@ class InferenceConfig(BaseModel):
             context_window=context_window_source,
             input_limit=_budget_source(operation, budget.input_tokens_limit, operation_input),
             output_limit=_budget_source(operation, budget.output_tokens_limit, operation_output),
-            output_reserve="generation_request_budget" if "output_reserve_tokens" in explicit else "default",
+            output_reserve="generation_request_budget" if budget.output_reserve_tokens is not None else "default",
             safety_margin=self._safety_margin_source(budget, explicit),
             estimator=f"{budget.estimator_id}@{budget.estimator_version}",
         )
+        output_tokens_limit = _narrowest(budget.output_tokens_limit, operation_output)
+        output_reserve_tokens = budget.output_reserve_tokens
+        if output_reserve_tokens is not None and output_tokens_limit is not None:
+            output_reserve_tokens = min(output_reserve_tokens, output_tokens_limit)
         return resolve_request_budget(
             estimator=budget.token_estimator,
             provenance=provenance,
@@ -655,8 +697,8 @@ class InferenceConfig(BaseModel):
                 self.generation_model_context_window_tokens if context_window_tokens is None else context_window_tokens
             ),
             input_tokens_limit=_narrowest(budget.input_tokens_limit, operation_input),
-            output_tokens_limit=_narrowest(budget.output_tokens_limit, operation_output),
-            output_reserve_tokens=budget.output_reserve_tokens,
+            output_tokens_limit=output_tokens_limit,
+            output_reserve_tokens=output_reserve_tokens,
             safety_margin_ratio=budget.safety_margin_ratio,
             safety_margin_tokens=budget.safety_margin_tokens,
         )
