@@ -260,13 +260,12 @@ _SERVER_WIDE_WITHOUT_CONTENT = frozenset({
     "set_scope_binding",
     "clear_scope_binding",
     "register_source_definition",
+    # Deletes a collection runner record that has no targets.
+    "delete_source_runner",
     # Plugin descriptors, and per-Scope processing positions of a plugin's Supervisor binding.
     "list_plugins",
     "get_plugin",
     "list_plugin_scopes",
-    "load_source_write_plugin",
-    "source_configure",
-    "pc_source_instance_set_enabled",
     "scan_external_skills",
     "list_external_skills",
     "resolve_external_skill",
