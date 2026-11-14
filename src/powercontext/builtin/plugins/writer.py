@@ -370,6 +370,12 @@ class PluginArtifactTransaction(_Reads):
             raise RepositoryNotFoundError("artifact", (self._owner.scope_id, self._owner.family, artifact_id))
         return record
 
+    async def _authorize_write(self, ref: ArtifactRef) -> None:
+        """Writes that bypass the governance engine still need the caller's ``artifact.write``."""
+
+        owner = self._owner
+        await owner.service.security.authorize(self._connection, owner.scope_id, owner.context, "write", ref)
+
     async def put(
         self,
         artifact_id: str,
@@ -475,6 +481,7 @@ class PluginArtifactTransaction(_Reads):
                 self._connection, owner.scope_id, artifact_id, owner.context, operation="restore"
             )
             return await self._commit_change(plan, artifact_id)
+        await self._authorize_write(current.artifact.as_ref())
         await owner.states.transition(
             self._connection,
             owner.scope_id,
@@ -558,6 +565,7 @@ class PluginArtifactTransaction(_Reads):
         owner = self._owner
         if ref.family != owner.family:
             raise PluginWriteError("handles must bind this plugin's family")  # noqa: TRY003
+        await self._authorize_write(ref)
         existing = await self.resolve_handle(handle_key)
         if existing is not None:
             if existing != ref:
@@ -579,11 +587,9 @@ class PluginArtifactTransaction(_Reads):
         self._admit()
         self._agree("tags", artifact_id)
         owner = self._owner
-        await owner.artifacts.lock_heads(
-            self._connection,
-            owner.scope_id,
-            ((await self._require(artifact_id)).artifact.as_ref(),),
-        )
+        ref = (await self._require(artifact_id)).artifact.as_ref()
+        await self._authorize_write(ref)
+        await owner.artifacts.lock_heads(self._connection, owner.scope_id, (ref,))
         desired = normalize_tags(tuple(tags))
         await self._connection.execute(
             delete(ARTIFACT_TAGS_TABLE).where(*_tag_identity(owner.scope_id, owner.family, artifact_id))

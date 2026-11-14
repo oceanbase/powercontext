@@ -33,7 +33,10 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 @asynccontextmanager
-async def running_server(directory: Path, plugins: Path | None = None, *, extra_env: dict[str, str] | None = None):
+async def running_server(
+    directory: Path, plugins: Path | None = None, *, extra_env: dict[str, str | None] | None = None
+):
+    """Start the Server; an ``extra_env`` value of ``None`` removes that default variable."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -53,8 +56,12 @@ async def running_server(directory: Path, plugins: Path | None = None, *, extra_
         "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "false",
         # Worker children import test-owned plugin helpers from the repository.
         "PYTHONPATH": os.pathsep.join(filter(None, (str(REPOSITORY), env.get("PYTHONPATH")))),
-        **(extra_env or {}),
     })
+    for key, value in (extra_env or {}).items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     if plugins is not None:
         env["POWERCONTEXT_SERVER_PLUGINS_DIR"] = str(plugins)
     entrypoint = Path(sys.executable).with_name("powercontext")
