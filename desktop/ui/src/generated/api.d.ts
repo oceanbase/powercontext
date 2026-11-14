@@ -5749,6 +5749,7 @@ export interface components {
             limit: number;
             cursor?: string | null;
         };
+        /** @description The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies. */
         ReplaceArtifactRequest: components["schemas"]["ReplaceAtomicMemoryArtifactRequest"] | components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"] | components["schemas"]["ReplacePluginArtifactRequest"];
         ReplacePromptArtifactRequest: {
             content: components["schemas"]["PromptContent"];
