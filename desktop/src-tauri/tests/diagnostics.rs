@@ -214,3 +214,24 @@ fn memory_protocol_checks_survive_projection_without_private_details() {
         assert!(!output.contains("secret-token"));
     }
 }
+
+#[test]
+fn codex_doctor_report_projects_every_check_it_emits() {
+    // Python's test_desktop_fixture_holds_every_codex_doctor_check keeps this fixture in step with Codex doctor.
+    let fixture = include_bytes!("fixtures/doctor-codex.json");
+    let report = project(DiagnosticKind::Integrations, fixture, 1).unwrap();
+    let source: serde_json::Value = serde_json::from_slice(fixture).unwrap();
+    let emitted = source["hosts"]["codex"]["checks"].as_object().unwrap();
+
+    assert_eq!(report.hosts.len(), 1);
+    let projected: Vec<_> = report.hosts[0]
+        .checks
+        .iter()
+        .map(|check| check.field.as_str())
+        .collect();
+    assert_eq!(projected.len(), emitted.len());
+    assert!(projected.contains(&"plugin_runtime"));
+    let output = serde_json::to_string(&report).unwrap();
+    assert!(!output.contains("plugin environment is ready"));
+    assert!(!output.contains("/usr/bin/codex"));
+}

@@ -33,8 +33,7 @@ limitations under the License.
       </button>
     </div>
     <div id="memory-body-{{ loop.index }}" class="accordion-collapse collapse {% if expanded %}show{% endif %}" data-bs-parent="#memory-accordion">
-      <div class="accordion-body">{% if expanded %}{% include 'components/memory-metadata.html' %}{% endif %}<p class="source-text mb-0">{{ item.text }}</p>
-        {% if expanded %}{% from 'components/record-references.html' import record_references with context %}{{ record_references(item, item.family) }}{% endif %}
+      <div class="accordion-body">{% if expanded %}{% include 'components/note-detail.html' %}{% else %}<p class="source-text mb-2">{{ item.text }}</p><a href="{{ link('notes', artifact=item.artifact_id, revision=item.revision, fragment='note-reading') }}">{{ t.note_open_detail }} →</a>{% endif %}
       </div>
     </div>
   </div>

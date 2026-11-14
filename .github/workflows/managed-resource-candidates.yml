@@ -7,14 +7,30 @@ on:
         description: Scope already selected by the Main orchestrator
         required: true
         type: string
+      targets:
+        description: JSON array of resource targets to qualify; empty selects every target
+        required: false
+        type: string
+        default: ''
+      concurrency_suffix:
+        description: Suffix that isolates independent callers of this reusable workflow
+        required: false
+        type: string
+        default: default
   workflow_dispatch:
+    inputs:
+      concurrency_suffix:
+        description: Suffix that isolates this manual run from other callers
+        required: false
+        type: string
+        default: manual
 
 permissions:
   actions: read
   contents: read
 
 concurrency:
-  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ inputs.concurrency_suffix || 'default' }}
   cancel-in-progress: true
 
 jobs:
@@ -24,21 +40,55 @@ jobs:
     with:
       baseline-workflow: managed-resource-candidates.yml
 
+  select-targets:
+    name: Select candidate targets
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          rows = [
+              {"target": "linux-x86_64", "runner": "ubuntu-24.04", "optional": True},
+              {"target": "windows-x86_64", "runner": "windows-2025", "optional": False},
+              {"target": "macos-arm64", "runner": "macos-15", "optional": False},
+              {"target": "macos-x86_64", "runner": "macos-15-intel", "optional": False},
+          ]
+          requested = os.environ["TARGETS"].strip()
+          selected = set(json.loads(requested)) if requested else {row["target"] for row in rows}
+          if not selected:
+              raise SystemExit("at least one managed-resource target must be selected")
+          known = {row["target"] for row in rows}
+          unknown = selected - known
+          if unknown:
+              raise SystemExit(f"unsupported managed-resource target(s): {sorted(unknown)}")
+          print("matrix=" + json.dumps(
+              {"include": [row for row in rows if row["target"] in selected]},
+              separators=(",", ":"),
+          ))
+          PY
+
   candidate:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
+    needs: [changes, select-targets]
+    if: >-
+      ${{ !cancelled() &&
+          ((inputs.suites == '' && needs.changes.result != 'success') ||
+           fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
     name: Candidate ${{ matrix.target }}
+    # Linux candidate qualification is optional for #2110. Keep its result and
+    # diagnostics visible without allowing it to fail the required Windows/macOS
+    # candidate aggregate.
+    continue-on-error: ${{ matrix.optional }}
     strategy:
       max-parallel: 2
       fail-fast: false
-      matrix:
-        include:
-          - target: windows-x86_64
-            runner: windows-2025
-          - target: macos-arm64
-            runner: macos-15
-          - target: macos-x86_64
-            runner: macos-15-intel
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:
@@ -91,6 +141,37 @@ jobs:
           PY
       - name: Produce twice, compare bytes, consume catalog, and run bundled launcher/Ops
         run: uv run --no-sync pytest -q tests/test_managed_resource_producer.py tests/test_ops_resources.py --junitxml build/resource-tests.xml
+      - name: Install Linux Desktop dependencies for native Ops acceptance
+        if: matrix.target == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            dbus-x11 \
+            gnome-keyring \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            libsecret-1-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            openjdk-17-jre-headless \
+            pkg-config
+      - name: Install pinned Rust toolchain for native Ops acceptance
+        if: matrix.target == 'linux-x86_64'
+        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Verify the real Linux Ops bundle through the native trust boundary
+        if: matrix.target == 'linux-x86_64'
+        run: |
+          mkdir -p build/resource-evidence
+          export POWERCONTEXT_OPS_TEST_BUNDLE="$GITHUB_WORKSPACE/build/resource-candidate/ops"
+          export POWERCONTEXT_OPS_TEST_BUNDLE_SHA256="$(sha256sum "$POWERCONTEXT_OPS_TEST_BUNDLE/bundle.json" | cut -d ' ' -f1)"
+          {
+            echo "bundle=$POWERCONTEXT_OPS_TEST_BUNDLE"
+            echo "bundle_manifest_sha256=$POWERCONTEXT_OPS_TEST_BUNDLE_SHA256"
+            CARGO_BUILD_JOBS=2 rustup run 1.95.0 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
+          } 2>&1 | tee build/resource-evidence/native-ops-bridge.txt
       - name: Retain unqualified candidate evidence
         if: success()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

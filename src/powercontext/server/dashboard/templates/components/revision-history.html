@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 {% if history %}
+<details class="supporting-details mt-4" {% if history.compare or history.compare_error or history.error %}open{% endif %}><summary>{{ t.note_history_short }}</summary>
 <section class="card mt-4">
   <div class="card-header"><h2 class="card-title mb-0">{{ t.revision_history }}</h2></div>
   <div class="list-group list-group-flush">
@@ -25,7 +26,7 @@ limitations under the License.
             {% if item.revision == history.head %}<span class="badge bg-blue-lt ms-2">{{ t.revision_current }}</span>{% endif %}
             {% if item.restored_from_revision %}<span class="badge bg-purple-lt ms-2">{{ t.revision_rollback_badge }}</span>{% endif %}
             <div class="text-secondary small">
-              {% if item.created_at %}{{ item.created_at }}{% else %}{{ t.revision_unknown_time }}{% endif %}
+              {% if item.created_at %}{{ item.created_at|display_time }}{% else %}{{ t.revision_unknown_time }}{% endif %}
               {% if item.restored_from_revision %} · {{ t.revision_from }} {{ item.restored_from_revision }}{% endif %}
               {% if item.created_by %} · {{ t.revision_actor }} {{ item.created_by.type }}:{{ item.created_by.id }}{% endif %}
             </div>
@@ -113,4 +114,5 @@ limitations under the License.
     <div class="card-body text-secondary">{{ t.revision_same }}</div>
   {% endif %}
 </section>
+</details>
 {% endif %}

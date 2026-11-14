@@ -1,0 +1,42 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="runtime-view">
+{% from 'components/page-heading.html' import page_heading %}
+{{ page_heading(t.runtime, t.runtime_subtitle) }}
+<div class="observation-toolbar"><span><strong>{{ t.runtime_all_services }}</strong> · {{ t.runtime_checked }} <time>{{ runtime_checked_at|display_time }}</time></span><a class="btn btn-sm" href="{{ link() }}">{{ t.runtime_refresh }} ↻</a></div>
+<div class="runtime-health-grid">
+  {% set live = runtime_health.get('live') %}{% set ready = runtime_health.get('ready') %}
+  <section class="card"><div class="card-body"><h2 class="card-title">{{ t.runtime_live }}</h2>
+    {% if errors.get('runtime_live') %}<p class="runtime-verdict">{{ t.runtime_unavailable }}</p>{{ read_error(errors.runtime_live, t.runtime_live) }}
+    {% else %}<p class="runtime-verdict {{ 'text-success' if live.status == 'ok' else 'text-warning' }}">{{ t.runtime_responding if live.status == 'ok' else t.runtime_unknown }}</p>{% endif %}
+    <a href="/health/live" hx-boost="false" target="_blank" rel="noopener">{{ t.runtime_view_probe }} →</a>
+  </div></section>
+  <section class="card"><div class="card-body"><h2 class="card-title">{{ t.runtime_readiness }}</h2>
+    {% if errors.get('runtime_ready') %}<p class="runtime-verdict">{{ t.runtime_unavailable }}</p>{{ read_error(errors.runtime_ready, t.runtime_readiness) }}
+    {% else %}<p class="runtime-verdict {{ 'text-success' if ready.status == 'ready' else 'text-warning' if ready.status == 'degraded' else 'text-danger' }}">{{ t.runtime_ready if ready.status == 'ready' else t.runtime_degraded if ready.status == 'degraded' else t.runtime_not_ready }}</p>{% endif %}
+    <a href="/health/ready" hx-boost="false" target="_blank" rel="noopener">{{ t.runtime_view_probe }} →</a>
+  </div></section>
+</div>
+{% include 'components/runtime-configuration.html' %}
+<section class="card mt-3"><div class="card-header"><h2 class="card-title">{{ t.runtime_dependencies }}</h2></div><div class="card-body">
+  {% if errors.get('runtime_ready') %}<p class="text-secondary mb-0">{{ t.runtime_unavailable }}</p>
+  {% elif ready.checks %}<dl class="runtime-checks mb-0">{% for name, state in ready.checks.items() if name not in ['access_mode', 'access_resource_kinds', 'access_artifact_families'] %}<div data-runtime-check="{{ name }}"><dt>{{ t.get('runtime_check_' ~ name, t.get(name, name)) }}</dt><dd><span class="runtime-state-dot {{ 'bg-success' if state in ['ready', 'leader'] else 'bg-danger' if state in ['not_ready', 'degraded', 'unavailable', 'timeout', 'misconfigured'] else 'bg-secondary' }}" aria-hidden="true"></span><span title="{{ state }}">{{ t.get('runtime_check_' ~ state, t.runtime_unknown) }}</span></dd></div>{% endfor %}</dl>
+  {% else %}<p class="text-secondary mb-0">{{ t.runtime_checks_empty }}</p>{% endif %}
+</div></section>
+{% if ready and ready.checks.get('access_mode') %}<section class="card mt-3"><div class="card-header"><h2 class="card-title">{{ t.runtime_access_details }}</h2></div><div class="card-body"><dl class="runtime-checks mb-0">{% for name in ['access_mode', 'access_resource_kinds', 'access_artifact_families'] if name in ready.checks %}<div><dt>{{ t['runtime_check_' ~ name] }}</dt><dd>{{ t.get('runtime_check_' ~ ready.checks[name], ready.checks[name]) }}</dd></div>{% endfor %}</dl></div></section>{% endif %}
+<p class="small text-secondary mt-3">{{ t.runtime_boundary }}</p>
+</div>
