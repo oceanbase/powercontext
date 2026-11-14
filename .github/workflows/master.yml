@@ -1145,6 +1145,44 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  bub-host:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').bub) }}
+    timeout-minutes: 20
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            e2e/bub/uv.lock
+
+      - name: Install the pinned Bub host
+        run: make harness-sync
+
+      - name: Run Bub with the PowerContext plugin against a real Server
+        env:
+          # Without the Bub environment the cases skip, so refuse to run without it.
+          POWERCONTEXT_TEST_BUB_HOST: "1"
+        run: uv run pytest tests/e2e/test_bub_service_chain.py --basetemp "$RUNNER_TEMP/bub-e2e"
+
+      - name: Upload Bub host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: bub-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          # Skip pytest's `*current` links to the same directories.
+          path: |
+            ${{ runner.temp }}/bub-e2e/*/bub.log
+            !${{ runner.temp }}/bub-e2e/*current/bub.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
@@ -1411,6 +1449,7 @@ jobs:
       - cindy-package
       - pi-package
       - opencode-package
+      - bub-host
       - openclaw-package
       - codex-host
       - opendal-package
