@@ -364,7 +364,12 @@ class _Host:
             await self._authorize(scope_id, "create", None)
             for item in inputs:
                 await self._precheck(scope_id, item.artifact_id, item.revision, item.state_version, "write")
-            change = UserChange("merge", target, tuple(item.artifact_id for item in inputs))
+            change = UserChange(
+                "merge",
+                target,
+                tuple(item.artifact_id for item in inputs),
+                {item.artifact_id: (item.revision, item.state_version) for item in inputs},
+            )
             plugin_request = MergeRequest(
                 scope_id=scope_id, inputs=inputs, into=target, content=payload["content"], caller=caller
             )
@@ -373,7 +378,7 @@ class _Host:
             await self._authorize(scope_id, "write", target)
             if operation == "update":
                 await self._precheck(scope_id, target, payload["expected_revision"], None, "precondition")
-                change = UserChange("update", target)
+                change = UserChange("update", target, expected={target: (payload["expected_revision"], None)})
                 plugin_request = UpdateRequest(
                     scope_id=scope_id,
                     artifact_id=target,
@@ -385,7 +390,11 @@ class _Host:
                 await self._precheck(
                     scope_id, target, payload["expected_revision"], payload["expected_state_version"], "write"
                 )
-                change = UserChange("forget", target)
+                change = UserChange(
+                    "forget",
+                    target,
+                    expected={target: (payload["expected_revision"], payload["expected_state_version"])},
+                )
                 plugin_request = ForgetRequest(
                     scope_id=scope_id,
                     artifact_id=target,
@@ -407,13 +416,14 @@ class _Host:
         await method(plugin_request, writer)
         if not writer.committed:
             raise PluginContractError(f"{request.method} returned without its agreed write")  # noqa: TRY003
-        snapshot = await self._writer(scope_id).get(target)
+        snapshot = writer.written if writer.written is not None else await self._writer(scope_id).get(target)
         restored, retired, undone = writer.outcome
         return HostResponse(
             request.id,
             "ok",
             result={
                 "artifact": None if snapshot is None else snapshot.model_dump(mode="json"),
+                "records": [record.model_dump(mode="json") for record in writer.records],
                 "restored": [ref.model_dump(mode="json") for ref in restored],
                 "retired": [ref.model_dump(mode="json") for ref in retired],
                 "undo_merge_results": list(undone),

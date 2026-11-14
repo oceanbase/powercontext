@@ -1945,7 +1945,7 @@ async def merge_artifacts(
         )
         inputs = [item.artifact_id for item in request.inputs]
         merged = result["artifact"]["ref"]["artifact_id"]
-        return await _plugin_governance(http_request, scope_id, family, [merged, *inputs])
+        return await _plugin_governance(http_request, scope_id, family, [merged, *inputs], result)
     scoped = _merge_scope(http_request, scope_id, family)
     content = _merge_content(http_request, family, request.content)
     inputs = tuple(
@@ -1980,7 +1980,7 @@ async def forget_artifact(
     found = _plugin_family_host(http_request, family)
     if found is not None:
         manifest, host = found
-        await _call_plugin_host(
+        result = await _call_plugin_host(
             http_request,
             host,
             "forget_artifact",
@@ -1993,7 +1993,7 @@ async def forget_artifact(
             timeout=manifest.spec.change_timeout_seconds,
             operation="forget_artifact",
         )
-        return await _plugin_governance(http_request, scope_id, family, [artifact_id])
+        return await _plugin_governance(http_request, scope_id, family, [artifact_id], result)
     result = await _merge_scope(http_request, scope_id, family).forget(
         artifact_id,
         expected_revision=request.revision,
@@ -3667,11 +3667,29 @@ def _plugin_family_host(http_request: Request, family: str) -> tuple[Any, Any] |
     return None if manager is None else manager.host_for_family(family)
 
 
-async def _plugin_governance(http_request: Request, scope_id: str, family: str, ids: Sequence[str]):
+async def _plugin_governance(
+    http_request: Request, scope_id: str, family: str, ids: Sequence[str], result: dict[str, Any]
+) -> ArtifactGovernanceResponse:
+    """Report the governance the plugin's change committed; a record it left unchanged is read as it is now."""
+
+    committed = {item["ref"]["artifact_id"]: item for item in result["records"]}
     scoped = _merge_scope(http_request, scope_id, family)
     context = _merge_execution_context(http_request, "get_artifact_governance")
-    records = [await scoped.get(artifact_id, context=context) for artifact_id in ids]
-    return ArtifactGovernanceResponse(changed=True, records=[_governance_record(record) for record in records])
+    records = []
+    for artifact_id in ids:
+        item = committed.get(artifact_id)
+        if item is None:
+            records.append(_governance_record(await scoped.get(artifact_id, context=context)))
+            continue
+        records.append(
+            ArtifactGovernanceRecord(
+                artifact=_artifact_reference(ArtifactRef.model_validate(item["ref"])),
+                lifecycle_state=TransportArtifactLifecycleState(item["lifecycle_state"]),
+                state_version=item["governance_generation"],
+                merged_into_id=item["merged_into_id"],
+            )
+        )
+    return ArtifactGovernanceResponse(changed=True, records=records)
 
 
 async def _replace_plugin_artifact(
@@ -3697,7 +3715,7 @@ async def _replace_plugin_artifact(
     if found is None:
         raise BaseValueNotFoundError("artifact_family", family)
     manifest, host = found
-    await _call_plugin_host(
+    written = await _call_plugin_host(
         http_request,
         host,
         "update_artifact",
@@ -3706,7 +3724,10 @@ async def _replace_plugin_artifact(
         timeout=manifest.spec.change_timeout_seconds,
         operation=REPLACE_ARTIFACT.operation_id,
     )
-    result = await application.records.for_scope(scope_id).get_artifact(family, artifact_id)
+    # The revision this change committed, not a head a later write may already have replaced.
+    result = await application.records.for_scope(scope_id).get_artifact_revision(
+        family, artifact_id, written["artifact"]["ref"]["revision"]
+    )
     response.headers["ETag"] = _artifact_etag(result.revision)
     return _artifact_revision_response(result)
 
@@ -3732,8 +3753,9 @@ async def _create_plugin_artifact(
         timeout=manifest.spec.change_timeout_seconds,
         operation=CREATE_ARTIFACT.operation_id,
     )
-    created = await application.records.for_scope(scope_id).get_artifact(
-        request.family, result["artifact"]["ref"]["artifact_id"]
+    ref = result["artifact"]["ref"]
+    created = await application.records.for_scope(scope_id).get_artifact_revision(
+        request.family, ref["artifact_id"], ref["revision"]
     )
     response.headers["Location"] = _artifact_location(created)
     response.headers["ETag"] = _artifact_etag(created.revision)

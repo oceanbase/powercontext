@@ -26,7 +26,7 @@ import asyncio
 import hashlib
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Literal, cast
@@ -59,6 +59,7 @@ from powercontext.builtin.plugins.families import (
     plugin_artifact_repository,
     record_revision_metadata,
 )
+from powercontext.builtin.records import ArtifactRevisionPreconditionError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
 from powercontext.builtin.sources.content import ContentSource, ContentSourceInternal, ContentSourceTarget
 from powercontext.builtin.tags import normalize_tags
@@ -85,6 +86,8 @@ class UserChange:
     operation: Literal["create", "update", "merge", "forget", "restore", "undo_merge"]
     artifact_id: str
     inputs: tuple[str, ...] = ()
+    # The caller's (revision, state_version) per Artifact, enforced against the rows the transaction writes.
+    expected: dict[str, tuple[int, int | None]] = field(default_factory=dict)
 
 
 _AGREED = {
@@ -349,15 +352,17 @@ class PluginArtifactTransaction(_Reads):
     async def _committed(self, plan, direct_source: SourceRef | None = None):
         owner = self._owner
         prepared = await owner.service.prepare_change(plan)
-        return await owner.service.commit(self._connection, prepared, owner.context, direct_source=direct_source)
+        result = await owner.service.commit(self._connection, prepared, owner.context, direct_source=direct_source)
+        owner.records = tuple(_snapshot(record) for record in result.records)
+        return result
 
     async def _commit(self, plan) -> ArtifactSnapshot:
-        return _snapshot((await self._committed(plan)).primary)
+        return self._written(_snapshot((await self._committed(plan)).primary))
 
     async def _commit_change(self, plan, artifact_id: str) -> ArtifactChange:
         result = await self._committed(plan)
         change = ArtifactChange(
-            artifact=_snapshot(result.primary),
+            artifact=self._written(_snapshot(result.primary)),
             restored=tuple(ref for ref in result.restored if ref.artifact_id != artifact_id),
             retired=tuple(ref for ref in result.retired if ref.artifact_id != artifact_id),
         )
@@ -370,11 +375,40 @@ class PluginArtifactTransaction(_Reads):
             raise RepositoryNotFoundError("artifact", (self._owner.scope_id, self._owner.family, artifact_id))
         return record
 
+    def _expect(self, record: ArtifactMergeRecord) -> None:
+        """A user change writes only the revision and governance state its caller read."""
+
+        change = self._owner.change
+        expected = None if change is None else change.expected.get(record.artifact.artifact_id)
+        if expected is None:
+            return
+        revision, state_version = expected
+        if record.artifact.revision != revision:
+            if change is not None and change.operation == "update":
+                raise ArtifactRevisionPreconditionError(f'"{revision}"', f'"{record.artifact.revision}"')
+            raise self._owner.service.errors.conflict("the Artifact changed after it was read")  # noqa: TRY003
+        if state_version is not None and record.state.governance_generation != state_version:
+            raise self._owner.service.errors.conflict("the Artifact governance changed after it was read")  # noqa: TRY003
+
+    def _put_revision(self, artifact_id: str, current: ArtifactMergeRecord | None, requested: int | None) -> int | None:
+        """The revision a put is decided against: the caller's in a user change, else the plugin's or its last read."""
+
+        change = self._owner.change
+        if current is not None:
+            self._expect(current)
+        if change is not None and artifact_id in change.expected:
+            return change.expected[artifact_id][0]
+        return self._owner.observed.get(artifact_id) if requested is None else requested
+
     async def _authorize_write(self, ref: ArtifactRef) -> None:
         """Writes that bypass the governance engine still need the caller's ``artifact.write``."""
 
         owner = self._owner
         await owner.service.security.authorize(self._connection, owner.scope_id, owner.context, "write", ref)
+
+    def _written(self, snapshot: ArtifactSnapshot) -> ArtifactSnapshot:
+        self._owner.written = snapshot
+        return snapshot
 
     async def put(
         self,
@@ -392,8 +426,7 @@ class PluginArtifactTransaction(_Reads):
         self._agree("put", artifact_id)
         body = owner.body(content)
         current = await self._record(self._connection, artifact_id)
-        if expected_revision is None:
-            expected_revision = owner.observed.get(artifact_id)
+        expected_revision = self._put_revision(artifact_id, current, expected_revision)
         if change is not None:
             if (change.operation == "create") != (current is None):
                 raise owner.service.errors.conflict(
@@ -435,7 +468,7 @@ class PluginArtifactTransaction(_Reads):
                 "artifact_create" if current is None else "artifact_replace",
                 1 if current is None else current.artifact.revision + 1,
             )
-        return _snapshot((await self._committed(plan, direct)).primary)
+        return self._written(_snapshot((await self._committed(plan, direct)).primary))
 
     async def revert(self, artifact_id: str, /, *, to_revision: int) -> ArtifactChange:
         self._admit()
@@ -461,10 +494,11 @@ class PluginArtifactTransaction(_Reads):
             artifact_id,
         )
         current = await self._require(artifact_id)
+        self._expect(current)
         if current.state.lifecycle_state is requested and current.state.replacement_artifact_id == (
             replacement_artifact_id
         ):
-            return ArtifactChange(artifact=_snapshot(current))
+            return ArtifactChange(artifact=self._written(_snapshot(current)))
         if requested is ArtifactLifecycleState.DEPRECATED and replacement_artifact_id is None:
             plan = await owner.service.inspect_forget(
                 self._connection,
@@ -510,9 +544,11 @@ class PluginArtifactTransaction(_Reads):
         if change is not None and tuple(inputs) != change.inputs:
             raise PluginContractError("merge_artifacts must merge exactly the requested inputs")  # noqa: TRY003
         records = [await self._require(identity) for identity in inputs]
+        for record in records:
+            self._expect(record)
         result = await self._record(self._connection, into)
         if result is not None and all(record.state.merged_into_id == into for record in records):
-            return _snapshot(result)
+            return self._written(_snapshot(result))
         reads = tuple(record.as_read() for record in records)
         lineage = ArtifactLineage(
             sources=tuple(source_refs),
@@ -554,6 +590,10 @@ class PluginArtifactTransaction(_Reads):
         owner = self._owner
         prepared = await owner.service.prepare_change(await self._undo_plan(artifact_id))
         result = await owner.service.commit(self._connection, prepared, owner.context)
+        owner.records = tuple(_snapshot(record) for record in result.records)
+        target = next((record for record in result.records if record.ref.artifact_id == artifact_id), None)
+        if target is not None:
+            self._written(_snapshot(target))
         owner.outcome = (result.restored, result.retired, result.undo_merge_results)
         return UndoMergePreview(
             restore=result.restored, retire=result.retired, undo_merge_results=result.undo_merge_results
@@ -662,6 +702,10 @@ class PluginArtifactWriter(_Reads):
         self.observed: dict[str, int] = {}
         # Restored and retired refs of the last lifecycle write, which user changes report back.
         self.outcome: tuple[tuple[ArtifactRef, ...], tuple[ArtifactRef, ...], tuple[str, ...]] = ((), (), ())
+        # The snapshot the agreed write committed, and every record it changed, which user changes return
+        # instead of a later head.
+        self.written: ArtifactSnapshot | None = None
+        self.records: tuple[ArtifactSnapshot, ...] = ()
         self.opened = False
         self.committed = False
 
