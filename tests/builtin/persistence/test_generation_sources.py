@@ -136,7 +136,8 @@ def test_legacy_metadata_only_working_note_marker_remains_ordinary_source() -> N
                     through=stored.journal_position,
                 )
 
-            assert window == (stored,)
+            # Historical envelopes do not record the server save time.
+            assert window == (stored.model_copy(update={"saved_at": None}),)
 
     asyncio.run(scenario())
 

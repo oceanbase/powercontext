@@ -35,12 +35,7 @@ import pytest
 from pydantic import SecretStr
 from typer.testing import CliRunner
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import RuntimeConfig
-from powercontext.builtin.scope import ScopeApplication, ScopeDraft
-from powercontext.cli.app import create_cli
-from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessConflictError,
@@ -49,7 +44,12 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.builtin.scope import ScopeApplication, ScopeDraft
+from powercontext.cli.app import create_cli
+from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
 from powercontext.server.factory import create_server_app
 from powercontext.server.ownership import ArtifactOwnershipGap, apply_ownership_migration
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, MetricsConfig, ServerSettings
@@ -143,7 +143,7 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
 ) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'static-background.db').as_posix()}")
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with app.router.lifespan_context(app):
             scopes = (
                 app.state.application.scopes
@@ -162,7 +162,7 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
         settings = _settings(database, "enforced").model_copy(
             update={"auth": BearerAuthConfig(token=SecretStr("static-test-token"))}
         )
-        app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=settings)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -249,7 +249,7 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
 def test_migration_inventories_published_handoff_identities(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'published.db').as_posix()}")
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -344,7 +344,7 @@ def test_offline_background_plan_uses_configured_static_preset_without_grants(
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'offline-static.db').as_posix()}")
 
     async def seed() -> str:
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with app.router.lifespan_context(app):
             scopes = (
                 app.state.application.scopes
@@ -403,7 +403,6 @@ def test_disabled_data_becomes_mutable_again_after_ownership_migration(tmp_path:
 
         app = create_server_app(
             settings=_settings(database, "disabled"),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -438,7 +437,6 @@ def test_disabled_data_becomes_mutable_again_after_ownership_migration(tmp_path:
                 settings=_settings(database, "enforced"),
                 authentication_provider=_Authentication(),
                 access_control=access,
-                scheduler_path=tmp_path / "scheduler.db",
             )
             async with (
                 app.router.lifespan_context(app),
@@ -571,7 +569,6 @@ async def _enforced_server(database: SQLiteConfig, tmp_path: Path):
             settings=_settings(database, "enforced"),
             authentication_provider=_Authentication(),
             access_control=access,
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -588,7 +585,7 @@ def test_long_scope_ownership_migration_matches_preview(tmp_path: Path, scope_le
         scope_id = "s" * scope_length
         artifacts: list[dict[str, Any]] = []
         candidate: dict[str, Any] | None = None
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -701,7 +698,7 @@ def test_migration_preserves_authority_to_undo_a_legacy_merge(
 ) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'merged.db'}")
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -787,7 +784,7 @@ def test_migration_preserves_authority_to_undo_a_legacy_merge(
 def test_existing_owner_and_attestation_conflicts_are_reported_in_preview_and_apply(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'existing-owners.db'}")
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -833,7 +830,7 @@ def test_existing_owner_and_attestation_conflicts_are_reported_in_preview_and_ap
 def test_background_checks_remain_after_migration_and_cover_profile_writes(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'background.db'}")
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -900,7 +897,7 @@ def test_offline_cli_checks_future_background_principal_before_enforcement(tmp_p
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'cli-background.db').as_posix()}")
 
     async def seed() -> str:
-        app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=_settings(database, "disabled"))
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -956,7 +953,6 @@ def test_offline_cli_migration_repairs_the_switch(tmp_path: Path) -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cli.db'}")
         app = create_server_app(
             settings=_settings(database, "disabled"),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -979,7 +975,6 @@ def test_offline_cli_migration_repairs_the_switch(tmp_path: Path) -> None:
                 settings=_settings(database, "enforced"),
                 authentication_provider=_Authentication(),
                 access_control=access,
-                scheduler_path=tmp_path / "scheduler.db",
             )
             async with (
                 app.router.lifespan_context(app),
@@ -1016,8 +1011,8 @@ def test_offline_cli_migration_repairs_the_switch(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("store", ["local", "external", "external-retry"])
 def test_migration_audit_preserves_request_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str) -> None:
+    from powercontext.builtin.authz import AccessUnavailableError
     from powercontext.builtin.records import ArtifactWrite
-    from powercontext.server.authz import AccessUnavailableError
 
     actor = PrincipalRef(type="service", id="trusted-delegate")
     owner = PrincipalRef(type="user", id="bob")
@@ -1034,7 +1029,7 @@ def test_migration_audit_preserves_request_context(tmp_path: Path, monkeypatch: 
             if store == "local"
             else SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'audit-access.db').as_posix()}")
         )
-        seed = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
+        seed = create_server_app(settings=_settings(database, "disabled"))
         async with (
             seed.router.lifespan_context(seed),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=seed), base_url="http://test") as client,
@@ -1056,7 +1051,6 @@ def test_migration_audit_preserves_request_context(tmp_path: Path, monkeypatch: 
                 settings=_settings(database, "enforced"),
                 authentication_provider=DelegatedAuthentication(),
                 access_control=access,
-                scheduler_path=tmp_path / "scheduler.db",
             )
             async with (
                 app.router.lifespan_context(app),
@@ -1106,7 +1100,6 @@ def test_apply_reports_conflicting_ownership_without_failing(tmp_path: Path, mon
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'conflict.db'}")
         app = create_server_app(
             settings=_settings(database, "disabled"),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -1122,7 +1115,6 @@ def test_apply_reports_conflicting_ownership_without_failing(tmp_path: Path, mon
                 settings=_settings(database, "enforced"),
                 authentication_provider=_Authentication(),
                 access_control=access,
-                scheduler_path=tmp_path / "scheduler.db",
             )
             async with (
                 app.router.lifespan_context(app),

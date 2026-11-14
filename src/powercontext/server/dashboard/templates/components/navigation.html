@@ -28,17 +28,23 @@ limitations under the License.
           hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
       <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
+      {% if page == 'processing' %}<input type="hidden" name="record_type" value="{{ processing_kind }}">{% endif %}
       {% if page == 'methods' or parent_page == 'methods' %}<input type="hidden" name="kind" value="{{ page if parent_page else method_kind }}">{% endif %}
       {% include 'components/scope-options.html' %}
       <noscript><button class="btn mt-2" type="submit">{{ t.apply }}</button></noscript>
       <p class="small mt-2" data-scope-error {% if not errors.get('scopes') %}hidden{% endif %}>{{ t.scope_list_unavailable }}</p>
     </form>
     <ul class="navbar-nav w-100" aria-label="{{ t.navigation }}">
-      {% for item in ['home', 'handoff', 'notes', 'methods', 'profile', 'topics', 'prompts', 'review', 'usage'] %}
-      {% set active = page == item or parent_page == item %}
-      <li class="nav-item {% if active %}active{% endif %}"><a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
-        {{ icon(item) }}<span class="nav-link-title">{{ t[item] }}</span>
+      {% for group, items in [('', ['home']), ('nav_runtime', ['source_records', 'dream_records']), ('nav_content', ['notes', 'topics', 'methods', 'profile']), ('nav_work', ['review', 'handoff']), ('nav_observation', ['usage_resources', 'runtime', 'observability']), ('nav_configuration', ['prompts'])] %}
+      {% if group %}<li class="nav-section" role="presentation">{{ t[group] }}</li>{% endif %}
+      {% for item in items %}
+      {% set processing_entry = {'source_records':'sources','dream_records':'dreams'}.get(item) %}
+      {% set active = (page == 'processing' and processing_kind == processing_entry) if processing_entry else page == ('usage' if item == 'usage_resources' else item) or parent_page == item %}
+      <li class="nav-item {% if not group %}nav-item-root{% endif %} {% if active %}active{% endif %}">
+        <a href="{{ link('usage', view='resources', lang=language) if item == 'usage_resources' else link('processing', record_type=processing_entry, source_id=none, artifact_family=none, processing_artifacts_cursor=none, processing_artifacts_history=none, run_id=none, run_status=none, processing_sources_cursor=none, processing_sources_history=none, processing_runs_cursor=none, processing_runs_history=none) if processing_entry else link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+        {{ icon(item) }}<span class="nav-link-title">{{ t.processing_dream_tab if item == 'dream_records' else t.processing_sources_title if item == 'source_records' else t[item] }}</span>
       </a></li>
+      {% endfor %}
       {% endfor %}
     </ul>
     </div>

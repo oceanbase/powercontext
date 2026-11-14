@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from powercontext._logging import log_safely
 from powercontext.builtin.artifact_plugin_validation import validate_plugin
+from powercontext.builtin.authz.profiles import ARTIFACT_FAMILY_PROFILES, register_custom_artifact_access_family
 from powercontext.builtin.dream.bindings import DREAM_BINDINGS
 from powercontext.builtin.persistence.artifact_indexes import ArtifactIndexBuilder
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -65,7 +66,6 @@ from powercontext.http._generated.models import (
     EnableArtifactPluginResult,
     ReloadArtifactPluginRequest,
 )
-from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES, register_custom_artifact_access_family
 
 _STABLE_PHASES = frozenset({"enabled", "disabled", "unloaded", "failed"})
 _STATES = ARTIFACT_PROCESSING_BINDING_STATES_TABLE

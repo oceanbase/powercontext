@@ -1816,7 +1816,7 @@ async def _process_topic_dream_if_pending(
         generator = await _dream_generator(spec.config.inference, record.run.budget, resources, instrumentation)
         security = None
         if spec.worker_security is not None:
-            from powercontext.server.processing_security import open_worker_security
+            from powercontext.builtin.authz.worker import open_worker_security
 
             security = await resources.enter_async_context(
                 open_worker_security(spec.worker_security, contexts.database)
@@ -2019,7 +2019,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         security = None
         if spec.worker_security is not None:
             # Runtime-only SDK workers do not require the optional Server adapter.
-            from powercontext.server.processing_security import open_worker_security
+            from powercontext.builtin.authz.worker import open_worker_security
 
             security = await resources.enter_async_context(
                 open_worker_security(spec.worker_security, contexts.database)

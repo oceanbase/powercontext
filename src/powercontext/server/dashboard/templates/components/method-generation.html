@@ -1,0 +1,42 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% from 'components/pagination.html' import pagination %}
+{% set dream_generation = generation_mode == 'dream' %}
+<section class="card mb-4 method-generation" aria-labelledby="method-generation-heading">
+  <div class="card-header"><h2 class="card-title" id="method-generation-heading">{{ (t.method_generate_experience if family == 'experience' else t.method_generate_skill) if dream_generation else (t.method_sync_experience if family == 'experience' else t.method_sync_skill) }}</h2><a class="ms-auto" href="{{ link(generate=none,generation_mode=none,evidence_type=none,generation_cursor=none,generation_history=none) }}">{{ t.method_generation_cancel }}</a></div>
+  <div class="card-body">
+    <p class="text-secondary small">{{ t.method_dream_selection_notice if dream_generation else t.method_sync_notice }}</p>
+    <form method="get" action="/dashboard/methods" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="kind" value="{{ family }}"><input type="hidden" name="lang" value="{{ language }}"><input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="generate" value="1"><input type="hidden" name="generation_mode" value="{{ generation_mode }}">
+      <label for="generation-evidence-type">{{ t.method_generation_evidence }}</label>
+      <select class="form-select w-auto" id="generation-evidence-type" name="evidence_type" onchange="this.form.requestSubmit()">{% for value,label in ([('experience','experience')] if dream_generation and family == 'skill' else [('atomic-memory','notes'),('experience','experience')] if dream_generation else [('source','processing_sources'),('experience','experience')] if family == 'skill' else [('source','processing_sources'),('atomic-memory','notes'),('experience','experience')]) %}<option value="{{ value }}" {% if generation_evidence_type == value %}selected{% endif %}>{{ t[label] }}</option>{% endfor %}</select>
+      <noscript><button class="btn" type="submit">{{ t.method_generation_load }}</button></noscript>
+    </form>
+    {% if errors.get('generation_evidence') %}{{ read_error(errors.generation_evidence, t.method_generation_evidence) }}{% endif %}
+    <form action="{{ link('methods/dream' if dream_generation else 'methods/generate',kind=family,lang=language,generate='1',evidence_type=generation_evidence_type,generation_cursor=none,generation_history=none) }}" method="post" hx-boost="false" onsubmit="if (!this.querySelector('[name=evidence]:checked')) { this.querySelector('[data-selection-error]').hidden=false; return false; } this.querySelector('button[type=submit]').disabled=true; this.querySelector('button[type=submit]').textContent=this.dataset.pending" data-pending="{{ t.method_dream_submitting if dream_generation else t.method_generation_pending }}" data-count-template="{{ t.method_selected_count }}" onchange="const count=this.querySelectorAll('[name=evidence]:checked').length; this.querySelector('[data-selected-count]').textContent=this.dataset.countTemplate.replace('{count}',count); this.querySelector('button[type=submit]').disabled=count===0; if(count) this.querySelector('[data-selection-error]').hidden=true">
+      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="kind" value="{{ family }}">{% if dream_generation %}<input type="hidden" name="idempotency_key" value="{{ generation_idempotency_key }}">{% endif %}<input type="hidden" name="evidence_type" value="{{ generation_evidence_type }}">
+      <fieldset class="mb-3"><legend class="fs-5">{{ t.method_generation_select }}</legend>
+        {% for item in generation_options %}<label class="method-evidence-option"><input class="form-check-input" type="checkbox" name="evidence" value="{{ item.ref|tojson|forceescape }}"><span><span class="method-evidence-text">{{ item.text|truncate(180,true) }}</span>{% if item.revision %}<small class="d-block text-secondary mt-1">{{ t.revision }} {{ item.revision }}</small>{% endif %}</span></label>
+        {% else %}<p class="text-secondary">{{ t.method_generation_empty }}</p>{% endfor %}
+      </fieldset>
+      {% if generation_pager and (generation_pager.previous or generation_pager.next) %}<p class="text-secondary small">{{ t.method_generation_page_notice }}</p>{{ pagination(generation_pager,t) }}{% endif %}
+      {% if not dream_generation %}<label class="form-label" for="generation-reason">{{ t.method_generation_reason }}</label><textarea class="form-control mb-3" id="generation-reason" name="reason" rows="2" maxlength="2000"></textarea>{% endif %}
+      <p class="text-danger small" role="alert" data-selection-error hidden>{{ t.method_generation_selection_required }}</p>
+      <div class="method-generation-actions d-flex align-items-center justify-content-between gap-3 border-top pt-3"><span class="text-secondary small" data-selected-count aria-live="polite">{{ t.method_selected_count.format(count=0) }}</span><button type="submit" class="btn btn-primary" disabled>{{ t.method_start_task if dream_generation else t.method_generate_experience if family == 'experience' else t.method_generate_skill }}</button></div>
+    </form>
+  </div>
+</section>

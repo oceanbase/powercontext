@@ -20,6 +20,7 @@ import logging
 from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Literal, cast
 
@@ -122,6 +123,8 @@ class _StoredSourcePayload(BaseModel):
     # Server-owned header permits historical reads without adapter code. Never hash it.
     source: Source | None = None
     source_keys: dict[str, str] | None = None
+    # Server write metadata; excluded from Source identity and material digests.
+    saved_at: datetime | None = None
 
 
 class StoredSource(BaseModel):
@@ -130,6 +133,7 @@ class StoredSource(BaseModel):
     ref: SourceRef
     value: Source
     journal_position: int
+    saved_at: datetime | None = None
 
     def validate_locator(self, ref: SourceRef, /) -> None:
         """Reject a position that names another journal entry instead of redirecting."""
@@ -207,7 +211,8 @@ class SourceRepository:
         if not sources:
             return ()
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-        prepared = tuple((source, *self._encode(source)) for source in sources)
+        saved_at = datetime.now(UTC)
+        prepared = tuple((source, *self._encode(source, saved_at=saved_at)) for source in sources)
 
         position = await _lock_journal_head(connection, scope_id)
         existing = await self._existing_many(connection, scope_id, tuple(ref for _, ref, _ in prepared))
@@ -226,9 +231,11 @@ class SourceRepository:
                     and not stored.value.handoff_receipt
                     and stored.value.model_copy(update={"handoff_receipt": True}) == source
                 ):
-                    stored = StoredSource(ref=ref, value=source, journal_position=stored.journal_position)
+                    stored = StoredSource(
+                        ref=ref, value=source, journal_position=stored.journal_position, saved_at=stored.saved_at
+                    )
                     existing[key] = stored
-                    upgrades[key] = payload
+                    upgrades[key] = self._encode(source, saved_at=stored.saved_at)[1]
                 elif stored.value != source:
                     raise StoredPayloadConflictError("source", (scope_id, ref))
                 else:
@@ -236,7 +243,7 @@ class SourceRepository:
                 results.append((stored, False))
                 continue
             position += 1
-            stored = StoredSource(ref=ref, value=source, journal_position=position)
+            stored = StoredSource(ref=ref, value=source, journal_position=position, saved_at=saved_at)
             existing[key] = stored
             new_sources[key] = (ref, source)
             new_rows.append({
@@ -278,7 +285,7 @@ class SourceRepository:
             await _mark_custom_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
         return tuple(results)
 
-    def _encode(self, source: Source) -> tuple[SourceRef, bytes]:
+    def _encode(self, source: Source, *, saved_at: datetime | None = None) -> tuple[SourceRef, bytes]:
         if isinstance(source, SourceObservation):
             ref = SourceRef(source_type=source.source_type, source_id=source.name)
             representation: Literal["native", "observation"] = "observation"
@@ -286,7 +293,7 @@ class SourceRepository:
             definition = self._registry.definition_for_source(source)
             ref = SourceRef(source_type=definition.name, source_id=source.name)
             representation = "native"
-        return ref, _dump_source(source, representation=representation, name=ref.source_type)
+        return ref, _dump_source(source, representation=representation, name=ref.source_type, saved_at=saved_at)
 
     async def get(
         self,
@@ -959,6 +966,7 @@ class SourceRepository:
         source_type = str(row["source_type"])
         source_id = str(row["source_id"])
         payload = stored_bytes(row["payload"], column="payload")
+        saved_at = None
         try:
             envelope = load_model(
                 _StoredSourcePayload,
@@ -970,6 +978,7 @@ class SourceRepository:
             source, decoded = self._decode_legacy_payload(source_type, payload)
         else:
             source, decoded = self._decode_envelope(source_type, envelope)
+            saved_at = envelope.saved_at
         indexed = SourceRef(source_type=source_type, source_id=source_id)
         if indexed != decoded:
             raise IdentityMismatchError("source", indexed, decoded)
@@ -977,6 +986,7 @@ class SourceRepository:
             ref=indexed,
             value=source,
             journal_position=int(row["journal_position"]),
+            saved_at=saved_at,
         )
 
     async def _retain_native_header(
@@ -1214,10 +1224,12 @@ def _dump_source(
     *,
     representation: Literal["native", "observation"],
     name: str,
+    saved_at: datetime | None = None,
 ) -> bytes:
     try:
         envelope = _StoredSourcePayload(
             encoding="powercontext-source-v1",
+            saved_at=saved_at,
             representation=representation,
             value=_JSON_OBJECT.validate_python(source.model_dump(mode="json", by_alias=True)),
             source=None if representation == "observation" else _source_header(source),

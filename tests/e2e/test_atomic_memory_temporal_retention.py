@@ -132,7 +132,7 @@ def test_extraction_corrects_an_omitted_effective_date_before_publication(monkey
     )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(_config(tmp_path), scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(_config(tmp_path)) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Port policy", summary="Effective database port", idempotency_key="policy")
@@ -182,7 +182,7 @@ def test_flush_accepts_effective_times_adjacent_to_chinese_words(monkeypatch, tm
     )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(_config(tmp_path), scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(_config(tmp_path)) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="星河项目", summary="生产数据库端口", idempotency_key="policy")
@@ -207,7 +207,7 @@ def test_unrepaired_effective_date_loss_leaves_the_source_unprocessed(monkeypatc
     )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(_config(tmp_path), scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(_config(tmp_path)) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Port policy", summary="Effective database port", idempotency_key="policy")
@@ -237,7 +237,7 @@ def test_temporal_reconciliation_keeps_dates_across_restart_then_accepts_newer_c
     config = _config(tmp_path, related_mode=related_mode)
 
     async def scenario() -> None:
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Port policy", summary="Effective database port", idempotency_key="policy")
@@ -257,7 +257,7 @@ def test_temporal_reconciliation_keeps_dates_across_restart_then_accepts_newer_c
             assert originals[1].ref.artifact_id == originals[0].ref.artifact_id
             assert originals[1].ref.revision == 2
 
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.atomic_memory is not None
             memory = runtime.atomic_memory.for_scope(scope.scope_id)
             assert (await memory.list()).items == (originals[-1],)
@@ -294,7 +294,7 @@ def test_unrepaired_reconciliation_date_loss_preserves_published_revision_and_cu
     )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(_config(tmp_path), scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(_config(tmp_path)) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Port policy", summary="Effective database port", idempotency_key="policy")
@@ -331,7 +331,7 @@ def test_newer_corrections_keep_current_content_compact_and_exact_history_readab
     )
 
     async def scenario() -> None:
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Port policy", summary="Effective database port", idempotency_key="policy")
@@ -352,7 +352,7 @@ def test_newer_corrections_keep_current_content_compact_and_exact_history_readab
                 originals.append(published)
             assert (await memory.cursor()).sequence == 12
 
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.atomic_memory is not None
             memory = runtime.atomic_memory.for_scope(scope.scope_id)
             assert (await memory.list()).items == (originals[-1],)

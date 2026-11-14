@@ -52,7 +52,6 @@ def test_exact_source_projection_and_memory_revision_re_evaluate_through_server(
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
     async def scenario() -> None:

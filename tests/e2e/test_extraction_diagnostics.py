@@ -103,9 +103,7 @@ def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_pa
             "memory",
             SpawnArtifactProcessingWorkerLauncher(partial(_memory_worker, config)),
         )
-        async with open_builtin_runtime(
-            config, scheduler_path=tmp_path / "scheduler.db", artifact_processing_bindings=(binding,)
-        ) as runtime:
+        async with open_builtin_runtime(config, artifact_processing_bindings=(binding,)) as runtime:
             initial = runtime.extraction_status()
             assert initial is not None
             assert initial.background.location == "local"
@@ -161,9 +159,7 @@ def test_other_family_worker_does_not_configure_memory_extraction(tmp_path, fami
         binding = ArtifactProcessingBinding(
             f"custom-{family}", family, SpawnArtifactProcessingWorkerLauncher(partial(_memory_worker, config))
         )
-        async with open_builtin_runtime(
-            config, scheduler_path=tmp_path / "scheduler.db", artifact_processing_bindings=(binding,)
-        ) as runtime:
+        async with open_builtin_runtime(config, artifact_processing_bindings=(binding,)) as runtime:
             snapshot = runtime.extraction_status()
             assert snapshot is not None
             assert snapshot.configuration == "unconfigured"

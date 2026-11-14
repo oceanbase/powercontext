@@ -26,6 +26,8 @@ from typing import Any, Literal
 import pytest
 from typer.testing import CliRunner
 
+from powercontext.builtin.authz import PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingBindingStateRepository,
@@ -35,8 +37,6 @@ from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, Runtime
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.cli.app import create_cli
-from powercontext.server.authz import PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.cli import app as server_cli
 
 

@@ -147,7 +147,7 @@ def reading_return(raw: str | None) -> str | None:
             if params.keys() - COMMON:
                 return None
             return path + "?" + urlencode(params)
-        if path not in {"/dashboard/profile", "/dashboard/handoff-detail"}:
+        if path not in {"/dashboard/profile", "/dashboard/handoff-detail", "/dashboard/notes"}:
             return None
         allowed = COMMON | {"revision", "return_to"}
         allowed |= _reading_fields(path, params)
@@ -185,14 +185,19 @@ def request_reading_return(request: Request) -> str | None:
                 return None
             path = "/dashboard/profile"
             keys = ("scope", "period", "lang", "theme", "revision", "return_to")
-        elif origin == "handoff-detail":
-            path = "/dashboard/handoff-detail"
+        elif origin in {"handoff-detail", "notes"}:
+            path = f"/dashboard/{origin}"
             keys = ("scope", "period", "lang", "theme", "artifact", "revision", "return_to")
         else:
             return None
         return reading_return(path + "?" + urlencode({key: query[key] for key in keys if key in query}))
     if path == "/dashboard/handoff-download":
         path = "/dashboard/handoff-detail"
+    if path == "/dashboard/notes":
+        keys = ("scope", "period", "lang", "theme", "artifact", "revision", "return_to")
+        return reading_return(
+            path + "?" + urlencode({key: request.query_params[key] for key in keys if key in request.query_params})
+        )
     return reading_return(path + "?" + str(request.query_params))
 
 

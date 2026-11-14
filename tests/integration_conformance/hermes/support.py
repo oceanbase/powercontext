@@ -132,7 +132,6 @@ def server(directory: Path, boundary: Boundary):
             access=AccessControlConfig(mode="enforced"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=directory / "scheduler.db",
         candidate_pipeline=atomic_memory_pipeline(EmptyExtractor()),
     )
     app.middleware("http")(boundary.dispatch)

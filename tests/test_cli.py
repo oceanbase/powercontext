@@ -29,11 +29,11 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
-from powercontext.builtin.code.cli import app as code_app
 from powercontext.builtin.persistence.bootstrap import DatabaseAccessError, DatabaseCreationError, creation_statement
 from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.cli.app import create_cli
+from powercontext.cli.code import app as code_app
 from powercontext.client import ServerResponseError
 from powercontext.client.receiver_service import ReceiverServiceInstallation
 from powercontext.client.settings import ClientSettings
@@ -641,7 +641,7 @@ def test_code_cli_reports_explicit_legacy_database_required(tmp_path, monkeypatc
     def refuse_implicit_database(_config, _database):
         raise LegacySeekDBDatabaseError(tmp_path / "seekdb")
 
-    monkeypatch.setattr("powercontext.builtin.code.cli.open_code_service", refuse_implicit_database)
+    monkeypatch.setattr("powercontext.cli.code.open_code_service", refuse_implicit_database)
     arguments = ["code", command, "--scope", "configured-scope"]
     if command == "query":
         arguments.extend(["--request-file", str(tmp_path / "request.json")])

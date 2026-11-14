@@ -54,7 +54,7 @@ def test_prepared_topic_recall_preserves_evidence_after_stopwords(migration_back
         config = BuiltinConfig(
             database=migration_backend.config, runtime=RuntimeConfig(artifact_processing_families=())
         )
-        async with open_builtin_runtime(config, scheduler_path=migration_backend.directory / "scheduler") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None
             scope = (
                 await runtime.scopes.create(
@@ -96,7 +96,6 @@ def test_public_word_recall_identifiers_and_prepare(migration_backend):
     async def scenario():
         app = create_server_app(
             settings=settings,
-            scheduler_path=migration_backend.directory / "scheduler",
         )
         async with (
             app.router.lifespan_context(app),

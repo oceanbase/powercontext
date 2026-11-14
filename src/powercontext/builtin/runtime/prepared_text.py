@@ -146,6 +146,12 @@ def fit_context_text_item(
     return FitOutcome(item=best)
 
 
+def display_body_bytes(content: str) -> int:
+    """Measure the complete display body of ``content``: normalized, escaped, and not yet truncated."""
+
+    return len("".join(_body_chunks(content)).encode("utf-8"))
+
+
 def _body_chunks(content: str) -> tuple[str, ...]:
     normalized = content.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028", "\n").replace("\u2029", "\n")
     return tuple(

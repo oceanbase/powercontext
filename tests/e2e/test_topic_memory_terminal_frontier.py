@@ -162,7 +162,6 @@ def test_http_recovery_preserves_blocks_across_restart_and_processing_mode_chang
                 await _disable_processing(database_config)
             app = create_server_app(
                 settings=settings,
-                scheduler_path=tmp_path / "scheduler.db",
             )
             warnings_before = len([
                 r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked"
