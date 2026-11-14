@@ -31,7 +31,19 @@ type RibbonRun = {
   strand: number;
 };
 
-export function SpiralVisual() {
+/** One helix turn spans this many radii along the axis. */
+const TURN_LENGTH = 3.4;
+const PAIRS_PER_TURN = 5.5;
+const SAMPLES_PER_TURN = 72;
+/** Milliseconds for the helix to close most of the gap to the cursor. */
+const FOLLOW_EASE = 90;
+
+/**
+ * The double helix from the previous landing page, laid along the footer.
+ * It idles in a slow spin; under a mouse it screws along with the cursor, so
+ * the strands keep pace with the pointer as it moves sideways.
+ */
+export function FooterHelix() {
   const fieldRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -46,28 +58,32 @@ export function SpiralVisual() {
     const field = fieldElement;
     const canvas = canvasElement;
     const context: CanvasRenderingContext2D = contextValue;
+    const sheet = field.closest('.pc-home')?.querySelector('.pc-home-sheet') ?? null;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let colors = readColors();
+    let exposed = false;
+    let follow: { anchorRotation: number; anchorX: number; target: number } | null = null;
     let frame = 0;
     let height = 0;
     let lastTime = 0;
-    let pairCount = 11;
-    let radius = 150;
+    let pairCount = 0;
+    let radius = 48;
     let rotation = -0.48;
-    let sampleCount = 144;
-    let visualHeight = 360;
+    let sampleCount = 0;
+    let scale = 1;
+    let turns = 1;
     let width = 0;
 
     function readColors() {
       const styles = getComputedStyle(field);
       return {
-        accent: styles.getPropertyValue('--spiral-accent').trim(),
-        accentDeep: styles.getPropertyValue('--spiral-accent-deep').trim(),
-        fill: styles.getPropertyValue('--spiral-fill').trim(),
-        fillMuted: styles.getPropertyValue('--spiral-fill-muted').trim(),
-        muted: styles.getPropertyValue('--spiral-muted').trim(),
-        surface: styles.getPropertyValue('--spiral-surface').trim(),
+        accent: styles.getPropertyValue('--helix-accent').trim(),
+        accentDeep: styles.getPropertyValue('--helix-accent-deep').trim(),
+        fill: styles.getPropertyValue('--helix-fill').trim(),
+        fillMuted: styles.getPropertyValue('--helix-fill-muted').trim(),
+        muted: styles.getPropertyValue('--helix-muted').trim(),
+        surface: styles.getPropertyValue('--helix-surface').trim(),
       };
     }
 
@@ -75,17 +91,23 @@ export function SpiralVisual() {
       return Math.max(min, Math.min(max, value));
     }
 
+    // The axis overshoots both edges by one radius so the strand ends stay off-canvas.
+    function axisLength() {
+      return width + radius * 2;
+    }
+
     function project(progress: number, strand: number, phase: number): Point {
-      const angle = progress * Math.PI * 4 + strand * Math.PI + phase;
-      const localX = Math.cos(angle) * radius;
+      const angle = progress * Math.PI * 2 * turns + strand * Math.PI + phase;
+      const localY = Math.cos(angle) * radius;
       const localZ = Math.sin(angle) * radius;
-      const perspective = 500 / (500 + localZ);
+      const focal = radius * 3.33;
+      const perspective = focal / (focal + localZ);
 
       return {
         depth: clamp((1 - localZ / (radius * 1.12)) / 2, 0, 1),
         progress,
-        x: width / 2 + (progress - 0.5) * 16 + localX * perspective,
-        y: height / 2 + (progress - 0.5) * visualHeight + localZ * 0.08,
+        x: -radius + progress * axisLength() + localZ * 0.08,
+        y: height / 2 + localY * perspective,
       };
     }
 
@@ -117,14 +139,14 @@ export function SpiralVisual() {
           x: (pair.first.x + pair.second.x) / 2,
           y: (pair.first.y + pair.second.y) / 2,
         };
-        const lineWidth = 6.2 + depth * 2.4;
+        const lineWidth = (6.2 + depth * 2.4) * scale;
 
         context.beginPath();
         context.moveTo(pair.first.x, pair.first.y);
         context.lineTo(pair.second.x, pair.second.y);
         context.globalAlpha = 0.52 + depth * 0.22;
         context.lineCap = 'round';
-        context.lineWidth = lineWidth + 1.8;
+        context.lineWidth = lineWidth + 1.8 * scale;
         context.strokeStyle = colors.surface;
         context.stroke();
 
@@ -181,7 +203,7 @@ export function SpiralVisual() {
     function drawRibbonRun(run: RibbonRun) {
       if (run.front) {
         const averageDepth = run.points.reduce((sum, point) => sum + point.depth, 0) / run.points.length;
-        const bandWidth = 15.5 + averageDepth * 5;
+        const bandWidth = (15.5 + averageDepth * 5) * scale;
         const drawCenterline = () => {
           context.beginPath();
           context.moveTo(run.points[0].x, run.points[0].y);
@@ -192,7 +214,7 @@ export function SpiralVisual() {
         context.globalAlpha = 0.96;
         context.lineCap = 'butt';
         context.lineJoin = 'round';
-        context.lineWidth = bandWidth + 2.6;
+        context.lineWidth = bandWidth + 2.6 * scale;
         context.strokeStyle = run.strand === 1 ? colors.accentDeep : colors.muted;
         context.stroke();
 
@@ -211,8 +233,7 @@ export function SpiralVisual() {
         const tangentLength = Math.hypot(tangentX, tangentY) || 1;
         const normalX = -tangentY / tangentLength;
         const normalY = tangentX / tangentLength;
-        const taper = clamp(Math.min(point.progress, 1 - point.progress) / 0.045, 0, 1);
-        const halfWidth = (6.5 + point.depth * 5) * taper;
+        const halfWidth = (6.5 + point.depth * 5) * scale;
 
         return {
           left: { x: point.x + normalX * halfWidth, y: point.y + normalY * halfWidth },
@@ -241,13 +262,8 @@ export function SpiralVisual() {
         .forEach(drawRibbonRun);
     }
 
-    function render(time: number, staticFrame = false) {
+    function draw() {
       if (!width || !height) return;
-
-      const elapsed = lastTime ? Math.min(32, time - lastTime) : 16;
-      lastTime = time;
-      if (!staticFrame) rotation += elapsed * 0.00015;
-
       const geometry = buildGeometry(rotation);
       const ribbons = buildRibbonRuns(geometry.strands);
       context.clearRect(0, 0, width, height);
@@ -255,8 +271,31 @@ export function SpiralVisual() {
       drawPairs(geometry.pairs);
       drawRibbons(ribbons, true);
       context.globalAlpha = 1;
+    }
 
-      if (!staticFrame) frame = requestAnimationFrame(render);
+    function tick(time: number) {
+      const elapsed = lastTime ? Math.min(32, time - lastTime) : 16;
+      lastTime = time;
+      if (follow) {
+        rotation += (follow.target - rotation) * (1 - Math.exp(-elapsed / FOLLOW_EASE));
+      } else {
+        rotation += elapsed * 0.00015;
+      }
+      draw();
+      frame = requestAnimationFrame(tick);
+    }
+
+    function stop() {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      lastTime = 0;
+    }
+
+    function start() {
+      stop();
+      draw();
+      if (reducedMotion.matches || document.hidden || !exposed) return;
+      frame = requestAnimationFrame(tick);
     }
 
     function resize() {
@@ -271,61 +310,74 @@ export function SpiralVisual() {
       canvas.width = Math.round(width * deviceScale);
       canvas.height = Math.round(height * deviceScale);
       context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
-      radius = Math.min(width * 0.31, 150);
-      visualHeight = Math.min(height * 0.76, 360);
-      pairCount = width < 360 ? 9 : 11;
-      sampleCount = width < 360 ? 112 : 144;
-      render(0, true);
+      radius = Math.min(height * 0.3, 56);
+      scale = clamp((radius / 150) * 1.4, 0.35, 1);
+      turns = axisLength() / (radius * TURN_LENGTH);
+      pairCount = Math.max(1, Math.round(turns * PAIRS_PER_TURN));
+      sampleCount = Math.max(2, Math.ceil(turns * SAMPLES_PER_TURN));
+      draw();
     }
 
-    function start() {
-      cancelAnimationFrame(frame);
-      frame = 0;
-      lastTime = 0;
-      if (reducedMotion.matches) {
-        render(0, true);
-        return;
-      }
-      frame = requestAnimationFrame(render);
+    // The footer is pinned under the page sheet, so it is in the viewport long before it is uncovered.
+    function updateExposure() {
+      const bounds = field.getBoundingClientRect();
+      const coveredTo = sheet ? sheet.getBoundingClientRect().bottom : 0;
+      const next = bounds.bottom > Math.max(0, coveredTo) && bounds.top < window.innerHeight;
+      if (next === exposed) return;
+      exposed = next;
+      start();
     }
 
-    function handleVisibility() {
-      if (document.hidden) {
-        cancelAnimationFrame(frame);
-        frame = 0;
-      } else {
-        start();
+    function handlePointerMove(event: PointerEvent) {
+      if (event.pointerType === 'touch') return;
+      if (!follow) follow = { anchorRotation: rotation, anchorX: event.clientX, target: rotation };
+      const travel = event.clientX - follow.anchorX;
+      follow.target = follow.anchorRotation - (travel / (radius * TURN_LENGTH)) * Math.PI * 2;
+      if (!frame) {
+        rotation = follow.target;
+        draw();
       }
+    }
+
+    function handlePointerLeave() {
+      follow = null;
     }
 
     const resizeObserver = new ResizeObserver(() => {
       resize();
-      start();
+      updateExposure();
     });
     const themeObserver = new MutationObserver(() => {
       colors = readColors();
-      render(0, true);
+      draw();
     });
 
     resize();
+    updateExposure();
     start();
     resizeObserver.observe(canvas);
     themeObserver.observe(document.documentElement, { attributeFilter: ['class'], attributes: true });
     reducedMotion.addEventListener('change', start);
-    document.addEventListener('visibilitychange', handleVisibility);
+    document.addEventListener('visibilitychange', start);
+    window.addEventListener('scroll', updateExposure, { passive: true });
+    field.addEventListener('pointermove', handlePointerMove);
+    field.addEventListener('pointerleave', handlePointerLeave);
 
     return () => {
-      cancelAnimationFrame(frame);
+      stop();
       resizeObserver.disconnect();
       themeObserver.disconnect();
       reducedMotion.removeEventListener('change', start);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('visibilitychange', start);
+      window.removeEventListener('scroll', updateExposure);
+      field.removeEventListener('pointermove', handlePointerMove);
+      field.removeEventListener('pointerleave', handlePointerLeave);
     };
   }, []);
 
   return (
-    <div aria-hidden="true" className="pc-spiral isolate aspect-square w-full max-w-lg" ref={fieldRef}>
-      <canvas className="block size-full" ref={canvasRef} />
+    <div aria-hidden="true" className="pc-footer-helix" ref={fieldRef}>
+      <canvas ref={canvasRef} />
     </div>
   );
 }
