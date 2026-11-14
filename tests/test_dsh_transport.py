@@ -1068,10 +1068,9 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
         "      config:\n        baseUrl: http://desktop.example\n",
     )
     source = plugin_source(tmp_path)
-    manifest = source / "package.json"
-    metadata = json.loads(manifest.read_text())
+    metadata = json.loads((source / "package.json").read_text())
     metadata["powercontext"] = {"memoryProtocol": "atomic-artifact-v1"}
-    manifest.write_text(json.dumps(metadata))
+    (source / "package.json").write_text(json.dumps(metadata))
     shutil.copytree(source, dsh_profile / "node_modules/powercontext-dsh")
     (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
     monkeypatch.setenv("DSH_PROFILE", "desktop")
@@ -1079,4 +1078,5 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
     assert result.exit_code == 0, result.output
     host = json.loads(result.stdout)["hosts"]["dsh"]
     assert host["ok"] is True
+    assert host["checks"]["plugin_memory_protocol"]["status"] == "ok"
     assert host["checks"]["plugin_memory_protocol"]["checks"]["memory_protocol"] == "atomic-artifact-v1"

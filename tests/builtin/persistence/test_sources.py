@@ -391,6 +391,12 @@ def test_repository_batch_reads_deduplicate_refs_and_bound_the_journal_window() 
                 assert loaded == (second, first)
                 assert window == (second,)
                 assert third.journal_position > second.journal_position
+                other_scope = await repositories.sources.add(
+                    connection, "scope-b", first_source.model_copy(update={"body": "other Scope"})
+                )
+                assert await repositories.sources.get_many(connection, "scope-b", (first.ref,)) == (other_scope,)
+                assert await repositories.sources.get_many(connection, "scope-a", (first.ref,)) == (first,)
+                assert other_scope.journal_position == 1
                 with pytest.raises(RepositoryNotFoundError):
                     await repositories.sources.get_many(
                         connection,
@@ -1072,5 +1078,39 @@ def test_nested_uppercase_source_aliases_survive_read_replay_and_restart(tmp_pat
             assert await repository.add(connection, "scope-a", source) == original
             evidence = await repository.historical_evidence(connection, "scope-a", (original.ref,))
             assert evidence[0].source_ref == original.ref
+
+    asyncio.run(scenario())
+
+
+def test_source_save_time_survives_replay_and_legacy_records_remain_unknown() -> None:
+    async def scenario() -> None:
+        from datetime import UTC, datetime
+
+        source = await CONTENT_SOURCE_ADAPTER.resolve(ContentCapture(source_id="save-time", content="Saved text"))
+        repository = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
+            before = datetime.now(UTC)
+            async with profile.database.transaction() as connection:
+                first = await repository.add(connection, "scope", source)
+            async with profile.database.transaction() as connection:
+                loaded = await repository.get(connection, "scope", first.ref)
+                assert loaded.saved_at is not None
+                assert before <= loaded.saved_at <= datetime.now(UTC)
+                assert loaded == first
+                replay = await repository.add(connection, "scope", source)
+                assert replay.saved_at == first.saved_at
+                attested = source.model_copy(update={"handoff_receipt": True})
+                upgraded = await repository.add(connection, "scope", attested)
+                assert upgraded.saved_at == first.saved_at
+                assert (await repository.get(connection, "scope", first.ref)).saved_at == first.saved_at
+                payload = await connection.scalar(select(SOURCES_TABLE.c.payload))
+                assert isinstance(payload, bytes)
+                envelope = json.loads(payload)
+                envelope.pop("saved_at")
+                await connection.execute(update(SOURCES_TABLE).values(payload=json.dumps(envelope).encode()))
+                legacy = await repository.get(connection, "scope", first.ref)
+                assert legacy.saved_at is None
+                assert (await repository.add(connection, "scope", attested)).saved_at is None
+                assert (await repository.get(connection, "scope", first.ref)).saved_at is None
 
     asyncio.run(scenario())

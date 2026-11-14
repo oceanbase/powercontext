@@ -1317,6 +1317,38 @@ def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) ->
         )
 
 
+def test_sign_in_returns_to_selected_scope(tmp_path: Path) -> None:
+    token = token_urlsafe(24)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/auth-scope.db"),
+            dashboard=DashboardConfig(enabled=True),
+            auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+    with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {token}"
+        scope = create_scope(client, "Embedded login scope")["scope_id"]
+        client.headers.pop("Authorization")
+        target = f"/dashboard/home?scope={scope}&lang=en&theme=dark"
+        login = client.get(target)
+        assert login.status_code == 401
+        next_field = re.search(r'name="next" value="([^"]+)"', login.text)
+        assert next_field is not None
+        destination = unescape(next_field[1])
+        assert destination == target
+        resumed = client.post(
+            "/dashboard/session", data={"token": token, "next": destination}, headers={"Origin": "http://testserver"}
+        )
+        assert resumed.status_code == 200
+        assert resumed.url.path == "/dashboard/home"
+        assert resumed.url.query.decode() == urlsplit(target).query
+        assert f'value="{scope}" selected' in resumed.text
+        assert token not in resumed.text
+
+
 def commit_handoff(dashboard: TestClient, scope: str) -> dict[str, Any]:
     source = dashboard.post(
         "/v1/sources/content",
@@ -1475,8 +1507,13 @@ def test_home_previews_are_independent_of_missing_or_corrupt_notes(
         dashboard.portal.call(corrupt_body)
     response = dashboard.get("/dashboard/home", params={"scope": scope})
     assert response.status_code == 200
-    assert (LABELS["error_503"] in response.text) is (broken_family is not None)
-    assert ("Healthy atomic preview." in response.text) is (broken_family not in {None, "atomic-memory"})
-    assert ("Review the HTTP contract" in response.text) is (broken_family != "handoff")
-    assert ("Healthy experience preview." in response.text) is (broken_family != "experience")
-    assert ("healthy-skill-preview" in response.text) is (broken_family != "skill")
+    saved = response.text.split('<section id="notes"', 1)[1].split("</section>", 1)[0]
+    if broken_family is None:
+        assert "Review the HTTP contract" in saved
+        assert "Healthy experience preview." in saved
+        assert "Read the report" in saved
+    else:
+        # One unreadable head is named in the overview and must not hide the other content.
+        expected = "Read the report" if broken_family == "handoff" else "Review the HTTP contract"
+        assert expected in saved
+        assert (LABELS["home_change_unreadable"] in saved) is (broken_family != "atomic-memory")

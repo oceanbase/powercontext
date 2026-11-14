@@ -279,9 +279,6 @@ def opencode_stack(tmp_path: Path) -> Iterator[OpenCodeStack]:
                 "autoupdate": False,
                 "share": "disabled",
                 "model": "fixture/fixture",
-                # OpenCode's default agents allow any permission they do not list, including the one the plugin
-                # requests before a durable mutation.
-                "permission": {"powercontext": "ask"},
                 "provider": {
                     "fixture": {
                         "npm": "@ai-sdk/openai-compatible",
@@ -440,6 +437,7 @@ def test_opencode_memory_writes_wait_for_permission(opencode_stack: OpenCodeStac
         session = host.session("Remember")["id"]
         opencode_stack.model.plan([remember])
         turn = host.start(session, "Remember for later that the release train leaves on Thursdays.")
+        # The configuration sets no permission, so only the plugin's default rule makes OpenCode ask.
         request = host.permission(turn)
         assert (request["permission"], request["patterns"]) == ("powercontext", ["remember_memory"])
         assert opencode_stack.records("/v1/memory/remember") == []

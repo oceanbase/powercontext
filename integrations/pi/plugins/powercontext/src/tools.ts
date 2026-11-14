@@ -190,6 +190,19 @@ const TASK_CHECK = Type.Object({
   basis: Type.Union([Type.Literal('declared'), Type.Literal('verified')]),
   evidence: Type.Array(HANDOFF_CITATION, { maxItems: 32 }),
 })
+const TASK_STOP_REASON = Type.Object({
+  kind: Type.Union([
+    Type.Literal('safety'), Type.Literal('authorization'), Type.Literal('capability'),
+    Type.Literal('missing_evidence'), Type.Literal('scope'),
+  ]),
+  condition: Type.String({ minLength: 1, maxLength: 8192, pattern: '.*\\S.*',
+    description: 'The circumstance under which continuing would have been wrong; must be trimmed.',
+  }),
+  basis: Type.Union([Type.Literal('declared'), Type.Literal('verified')]),
+  evidence: Type.Array(HANDOFF_CITATION, { maxItems: 31,
+    description: 'Use [] with declared. verified requires exact previously returned same-scope citations.',
+  }),
+}, { additionalProperties: false })
 const TASK_OUTCOME = Type.Object({
   schema: Type.Literal('powercontext.task-outcome.v1'),
   trust: Type.Literal('untrusted_observation'),
@@ -200,6 +213,9 @@ const TASK_OUTCOME = Type.Object({
   ]),
   summary: NON_EMPTY_STRING,
   handoff_receipt_ref: Type.Optional(Type.Union([SOURCE_REFERENCE, Type.Null()])),
+  stop_reason: Type.Optional(Type.Union([TASK_STOP_REASON, Type.Null()], {
+    description: 'Optional deliberate-stop reason, accepted only with blocked or cancelled status. Records a judgement without granting permission, approval, or retry budget.',
+  })),
   observations: Type.Array(WORK_CLAIM, { minItems: 1, maxItems: 64 }),
   checks: Type.Array(TASK_CHECK, { maxItems: 64 }),
   produced_artifacts: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
@@ -643,7 +659,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
   registerOperationTool(pi, runtime, {
     name: 'pc_task_outcome',
     label: 'PowerContext Task Outcome',
-    description: 'Record a structured outcome at an actual completion or interruption boundary.',
+    description: 'Record a structured outcome at an actual completion or interruption boundary. For blocked or cancelled, optionally record stop_reason with kind, condition, basis, and evidence; declared requires [], verified requires exact same-scope citations. A reason grants no authority.',
     parameters: Type.Object({
       source_id: ID_STRING,
       outcome: TASK_OUTCOME,

@@ -22,6 +22,8 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+import { UpdateDetails, useVersionUpdates, VersionFooter } from './update-panel.tsx'
+import { dashboardTextKey, hasMismatchedLoopbackSite, readDashboard } from './dashboard.ts'
 
 const LocaleContext = createContext<Locale>('zh-CN')
 function useText() {
@@ -40,6 +42,7 @@ interface StatusFace {
   hooks: { status: StatusController }
   setSession: (sessionId: string | undefined) => void
   refresh: () => void
+  openDashboard: (url: string) => boolean
 }
 
 interface FooterActionProps {
@@ -100,7 +103,10 @@ function SessionSection({ data }: { data: StatusPayload }) {
   </Section>
 }
 
-function TechnicalDetails({ data }: { data: StatusPayload }) {
+function TechnicalDetails({ data, updates, serverVersion }: {
+  data: StatusPayload; updates: ReturnType<typeof useVersionUpdates>; serverVersion: string | null | undefined
+}) {
+  const locale = useContext(LocaleContext)
   const t = useText()
   return <details className="pc-details"><summary>{t('details')}</summary>
     <Section title={t('connection')}><div className="pc-kv">
@@ -115,6 +121,7 @@ function TechnicalDetails({ data }: { data: StatusPayload }) {
       {(['liveness', 'readiness', 'capabilities'] as const).map(key => <div className="pc-detail-row" key={key}>
         <span className="pc-key">{t(key)}</span><span className="pc-value">{t(data.server[key].state)} {data.server[key].code}</span>
       </div>)}
+      <UpdateDetails locale={locale} serverVersion={serverVersion} updates={updates} />
       <span className="pc-key">{t('dependencies')}</span><span className="pc-value pc-mono">{Object.entries(data.server.readiness.dependencies ?? {}).map(([key, value]) => `${key}=${value}`).join(', ') || t('unknown')}</span>
       <span className="pc-key">{t('scopeSource')}</span><span className="pc-value">{data.configuration.scope_source}</span>
       <span className="pc-key">{t('schema')}</span><span className="pc-value pc-mono">{data.capabilities.context_versions.join(', ') || t('unknown')}</span>
@@ -155,10 +162,17 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const t = useText()
   const [languageOpen, setLanguageOpen] = useState(false)
   const languageRef = useRef<HTMLButtonElement>(null)
-  const { wide, useSessions, useStatus, setSession, refresh } = props
+  const { wide, useSessions, useStatus, setSession, refresh, openDashboard } = props
   const sessionId = useSessions(state => activeSessionId(state))
   const snapshot = useStatus(value => value)
   const [open, setOpen] = useState(false)
+  const updates = useVersionUpdates(open)
+  const [dashboardBusy, setDashboardBusy] = useState(false)
+  const [dashboardNotice, setDashboardNotice] = useState<TextKey | null>(null)
+  const [externalDashboard, setExternalDashboard] = useState<string | null>(null)
+  const dashboardRequest = useRef<AbortController | null>(null)
+  const currentSession = useRef(sessionId)
+  currentSession.current = sessionId
   const [clockTick, setClockTick] = useState(() => Date.now())
   const [anchor, setAnchor] = useState({ left: 12, bottom: 12 })
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -167,8 +181,54 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
   const now = Math.max(clockTick, snapshot.last_success_at ?? 0)
   const state = displayState(snapshot, now)
   const data = snapshot.data
+  const serverVersion = snapshot.error !== null || state === 'stale' || data?.server.liveness.state === 'failed'
+    ? null : data?.server.package_version
 
   useEffect(() => { setSession(sessionId) }, [sessionId, setSession])
+
+  useEffect(() => {
+    dashboardRequest.current?.abort()
+    dashboardRequest.current = null
+    setDashboardBusy(false)
+    setDashboardNotice(null)
+    setExternalDashboard(null)
+  }, [sessionId])
+
+  useEffect(() => () => { dashboardRequest.current?.abort() }, [])
+
+  const showDashboard = async (): Promise<void> => {
+    dashboardRequest.current?.abort()
+    const request = new AbortController()
+    dashboardRequest.current = request
+    const selected = sessionId
+    setDashboardBusy(true)
+    setDashboardNotice(null)
+    setExternalDashboard(null)
+    const result = await readDashboard(selected, fetch, request.signal)
+    if (request.signal.aborted || currentSession.current !== selected) return
+    dashboardRequest.current = null
+    setDashboardBusy(false)
+    if (result.state !== 'available' || result.url === undefined) {
+      setDashboardNotice(dashboardTextKey[result.state])
+      return
+    }
+    if (selected === undefined) {
+      setDashboardNotice('dashboardNoSession')
+      setExternalDashboard(result.url)
+      return
+    }
+    if (hasMismatchedLoopbackSite(window.location, result.url)) {
+      setDashboardNotice('dashboardLoopbackMismatch')
+      setExternalDashboard(result.url)
+      return
+    }
+    if (!openDashboard(result.url)) {
+      setDashboardNotice('dashboardContainerUnavailable')
+      setExternalDashboard(result.url)
+      return
+    }
+    setOpen(false)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -337,6 +397,16 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
           </fieldset>}
 
           <div className="pc-panel-body">
+            <section className="pc-dashboard-entry" aria-label={t('dashboard')}>
+              <div className="pc-dashboard-intro"><strong>{t('dashboard')}</strong><span>{t('dashboardIntro')}</span></div>
+              <button type="button" className="pc-dashboard-button" disabled={dashboardBusy} onClick={() => { void showDashboard() }}>
+                {dashboardBusy ? t('dashboardChecking') : t('dashboardOpen')}
+              </button>
+              {dashboardNotice !== null && <p className="pc-dashboard-notice" role="status">{t(dashboardNotice)}</p>}
+              {externalDashboard !== null && <a className="pc-text-button" href={externalDashboard} target="_blank" rel="noopener noreferrer">
+                {t('dashboardExternal')}
+              </a>}
+            </section>
             <div className={`pc-summary pc-summary-${state}`} role="status" aria-live="polite" aria-busy={snapshot.loading}>
               <Dot state={state} />
               <div className="pc-summary-copy">
@@ -359,7 +429,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
               <>
                 <Section title={t('server')}><div className="pc-kv"><span className="pc-key">{t('address')}</span><span className="pc-value pc-mono">{data.configuration.endpoint_origin || t('unknown')}</span></div></Section>
                 <SessionSection data={data} />
-                <TechnicalDetails data={data} />
+                <TechnicalDetails data={data} updates={updates} serverVersion={serverVersion} />
               </>
             )}
 
@@ -368,10 +438,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
             )}
           </div>
 
-          <footer className="pc-panel-foot">
-            <span>{t('serverVersion')}</span>
-            <span className="pc-mono">{snapshot.error !== null || state === 'stale' ? t('unknown') : data?.server.package_version ?? t('unknown')}</span>
-          </footer>
+          <VersionFooter locale={props.locale} pluginVersion={data?.plugin_version} updates={updates} />
         </div>
       )}
     </div>
@@ -407,6 +474,14 @@ export function apply(ctx: Context): void {
       hooks: { status: controller },
       setSession: sessionId => controller.setSession(sessionId),
       refresh: () => controller.refreshNow(),
+      openDashboard: url => {
+        const right = ctx.get('sidebarRight') as {
+          openTab: (kind: string, options: { params: { url: string } }) => void
+        } | undefined
+        const tabs = ctx.get('sidebarRightTabs') as { get: (kind: string) => unknown } | undefined
+        if (right === undefined || tabs?.get('browser') === undefined) return false
+        try { right.openTab('browser', { params: { url } }); return true } catch { return false }
+      },
     }),
   }, PowerContextStatus))
 }

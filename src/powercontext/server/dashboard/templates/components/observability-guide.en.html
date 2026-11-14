@@ -1,0 +1,61 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<p>Use this guide to investigate slow requests, model timeouts, background tasks and service errors. Grafana brings metrics, traces and structured logs together so you can follow an incident to a specific request.</p>
+<h2>1. Prepare the deployment environment</h2>
+<p>Use a machine with the PowerContext CLI installed. The PowerContext environment needs the <code>cli</code>, <code>server</code> and <code>tracing-otlp</code> extras. Install and start Docker, then check Docker Compose:</p>
+<pre><code>powercontext observability --help
+docker compose version</code></pre>
+<p>Replace <code>/path/to/existing.env</code> below with your existing Server configuration file. Keep the current database, model and authentication settings.</p>
+<h2>2. Start monitoring and connect the Server</h2>
+<p>Deploy the CLI-managed monitoring stack:</p>
+<pre><code>powercontext observability up --server-env /path/to/existing.env</code></pre>
+<p>The components run through Docker Compose and retain configuration and monitoring data locally. The command prints the configuration directory, access URLs, password file location and Server restart command. The first deployment downloads container images.</p>
+<p>Stop the original Server normally, then use the printed command to restart it with the same business configuration. Retain its existing host, port and other startup arguments:</p>
+<pre><code>powercontext server run --env-file /path/to/existing.env --observability</code></pre>
+<p><code>--observability</code> loads the generated telemetry settings. Running <code>up</code> alone does not connect an existing Server. If explicit OTLP settings conflict, use the full guide to choose one connection method.</p>
+<h2>3. Open the monitoring tools</h2>
+<pre><code>powercontext observability status</code></pre>
+<p>Use the Grafana and Phoenix URLs printed by <code>up</code> or <code>status</code>. The Grafana username is <code>admin</code>; read the password from the indicated password file. Ports are configurable, so use the actual command output.</p>
+<p>Default local URLs on first deployment are Grafana <code>http://127.0.0.1:13000</code> and Phoenix <code>http://127.0.0.1:6006</code>. Local means the machine hosting the monitoring stack. See the full guide for remote access.</p>
+<table><thead><tr><th>Tool</th><th>What to inspect</th></tr></thead><tbody>
+<tr><td>Grafana</td><td>Service health, background processing, API and model latency, with linked logs and traces.</td></tr>
+<tr><td>Prometheus</td><td>Metrics such as request volume, errors, latency and resources.</td></tr>
+<tr><td>Tempo</td><td>Trace steps and their duration within a request.</td></tr>
+<tr><td>Loki</td><td>Structured operational logs, filtered by time, Scope, error code and trace ID.</td></tr>
+<tr><td>Phoenix</td><td>A local trace viewer included in the managed stack.</td></tr>
+</tbody></table>
+<h2>4. Verify delivery, then investigate</h2>
+<pre><code>powercontext observability check
+powercontext observability check --exercise</code></pre>
+<p><code>check</code> queries the configured backends. <code>--exercise</code> sends a sampled read-only request to verify its trace, logs and metric correlation using the same trace ID; it does not create business Sources or Memories. Healthy containers alone do not prove data delivery.</p>
+<p>In Grafana, select the incident time range, find the error or slow request, then use its trace ID to inspect the trace and related logs. For model timeouts, inspect the specific model call duration and error before checking the model service. Without recent traffic, an empty panel alone does not prove collection failure.</p>
+<h2>5. Check and stop monitoring</h2>
+<pre><code>powercontext observability status
+powercontext observability down</code></pre>
+<p><code>down</code> stops only the CLI-managed monitoring stack. It retains monitoring volumes, configuration and credentials, and leaves the business Server running. Run <code>powercontext observability up</code> again with the same configuration directory to resume monitoring.</p>
+<details><summary>Existing platforms and other deployment layouts</summary>
+<p class="mt-3">If you already operate Prometheus, Collector, Tempo, Loki and Grafana, skip <code>up</code> and generate connection files with <code>connect</code>:</p>
+<pre><code>powercontext observability connect \
+  --otlp-endpoint http://existing-collector:4318 \
+  --server-env /path/to/existing.env \
+  --metrics-target powercontext.example.internal:8000 \
+  --prometheus-url https://monitoring.example/prometheus \
+  --tempo-url https://monitoring.example/tempo \
+  --loki-url https://monitoring.example/loki</code></pre>
+<p>Replace these example addresses with your platform endpoints. If a managed stack already exists, select a separate directory through <code>POWERCONTEXT_OBSERVABILITY_HOME</code>; managed and external configurations cannot share a directory. Follow <code>external/README.md</code> in the generated directory to merge scrape configuration, import Grafana dashboards and load the Server connection settings. <code>connect</code> does not modify the remote platform.</p>
+<p>Use the full guide for Docker-hosted Servers, split API/background deployments, remote access and authentication. The managed stack currently uses Docker Compose; there is no one-command Kubernetes deployment.</p>
+</details>
+<p class="mt-4"><a href="https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/operate/reference-observability-stack.md" target="_blank" rel="noopener" hx-boost="false">Full deployment and connection guide →</a></p>

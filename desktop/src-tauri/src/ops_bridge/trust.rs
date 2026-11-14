@@ -101,7 +101,7 @@ impl Trust {
         }
     }
     pub fn binding(&self) -> Result<Binding, Error> {
-        if !cfg!(any(windows, target_os = "macos")) {
+        if !cfg!(any(windows, target_os = "macos", target_os = "linux")) {
             return Err(Error::UnsupportedPlatform);
         }
         let p = self.provision.as_ref().map_err(|e| *e)?;
@@ -301,6 +301,13 @@ impl Trust {
             env.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
             env.insert("TMPDIR".into(), "/tmp".into());
         }
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(runtime_dir) = trusted_linux_runtime_dir() {
+                env.insert("XDG_RUNTIME_DIR".into(), runtime_dir);
+            }
+            env.extend(trusted_linux_xdg_environment()?);
+        }
         Ok(Launch {
             executable,
             args,
@@ -308,6 +315,84 @@ impl Trust {
             cwd: support.clone(),
         })
     }
+}
+#[cfg(target_os = "linux")]
+fn trusted_linux_runtime_dir() -> Option<String> {
+    trusted_linux_runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from))
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_runtime_dir_from(configured: Option<PathBuf>) -> Option<String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let uid = unsafe { libc::geteuid() };
+    let path = configured
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| Some(PathBuf::from(format!("/run/user/{uid}"))))?;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != uid
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return None;
+    }
+    path_string(&path).ok()
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_linux_xdg_environment() -> Result<BTreeMap<String, String>, Error> {
+    trusted_linux_xdg_environment_from(|name| std::env::var_os(name).map(PathBuf::from))
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_linux_xdg_path(configured: Option<PathBuf>) -> Option<PathBuf> {
+    let path = configured.filter(|path| !path.as_os_str().is_empty())?;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    Some(path)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_data_home_from(
+    home: Option<&Path>,
+    configured_data_home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let home = home?;
+    Some(trusted_linux_xdg_path(configured_data_home).unwrap_or_else(|| home.join(".local/share")))
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_xdg_environment_from(
+    configured: impl Fn(&str) -> Option<PathBuf>,
+) -> Result<BTreeMap<String, String>, Error> {
+    let mut environment = BTreeMap::new();
+    for name in [
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+    ] {
+        let Some(path) = trusted_linux_xdg_path(configured(name)) else {
+            // Ignore unusable XDG values and let the Python consumer use its
+            // platform default instead of disabling Local Server.
+            continue;
+        };
+        environment.insert(name.to_owned(), path_string(&path)?);
+    }
+    Ok(environment)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -427,6 +512,8 @@ fn verify_bundle(root: &Path, pin: &str) -> Result<PathBuf, Error> {
         "win32"
     } else if cfg!(target_os = "macos") {
         "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
     } else {
         "unsupported"
     };

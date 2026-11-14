@@ -11,15 +11,18 @@
 
 """Bounded Scope projections over authoritative Artifact heads."""
 
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import and_, func, literal, or_, select, union_all
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.artifacts import with_artifact_content
+from powercontext.builtin.persistence.records import _source_record
 from powercontext.builtin.persistence.statistics import daily_usage_statement
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACTS_TABLE,
     SCOPES_TABLE,
+    SOURCES_TABLE,
 )
 
 _HEAD_FIELDS = (
@@ -155,6 +158,66 @@ async def scope_header(connection, scope):
     )
 
 
+async def source_processing_directory(
+    connection: AsyncConnection, scope: str, source_repo, limit: int, after: int | None
+):
+    """Read a Source page and existing Artifact citations from authoritative tables.
+
+    A lineage row proves that an exact Artifact revision cites the Source. Its
+    absence does not establish that processing failed or never ran.
+    """
+    statement = select(SOURCES_TABLE).where(SOURCES_TABLE.c.scope_id == scope, SOURCES_TABLE.c.source_type == "content")
+    if after is not None:
+        statement = statement.where(SOURCES_TABLE.c.journal_position < after)
+    rows = (
+        (await connection.execute(statement.order_by(SOURCES_TABLE.c.journal_position.desc()).limit(limit + 1)))
+        .mappings()
+        .all()
+    )
+    page = rows[:limit]
+    source_ids = [str(row["source_id"]) for row in page]
+    lineage = ARTIFACT_LINEAGE_SOURCES_TABLE
+    representatives: dict[str, list[dict[str, str | int]]] = {}
+    if source_ids:
+        ranked = (
+            select(
+                lineage.c.source_id,
+                lineage.c.family,
+                lineage.c.artifact_id,
+                lineage.c.revision,
+                func
+                .row_number()
+                .over(
+                    partition_by=(lineage.c.source_id, lineage.c.family),
+                    order_by=(lineage.c.artifact_id, lineage.c.revision.desc()),
+                )
+                .label("rank"),
+            )
+            .where(
+                lineage.c.scope_id == scope,
+                lineage.c.source_type == "content",
+                lineage.c.source_id.in_(source_ids),
+            )
+            .subquery()
+        )
+        statement = select(ranked).where(ranked.c.rank == 1).order_by(ranked.c.source_id, ranked.c.family)
+        for row in (await connection.execute(statement)).mappings():
+            representatives.setdefault(str(row["source_id"]), []).append({
+                name: row[name] for name in ("family", "artifact_id", "revision")
+            })
+    items = []
+    for row in page:
+        stored = source_repo.decode_source(row)
+        item = _source_record(scope, stored).model_dump(mode="json")
+        item["saved_at"] = stored.saved_at.isoformat() if stored.saved_at else None
+        refs = representatives.get(str(row["source_id"]), [])
+        item["has_artifact"] = bool(refs)
+        item["artifact_families"] = [ref["family"] for ref in refs]
+        item["artifact_representatives"] = refs
+        items.append(item)
+    return {"items": items, "next_position": int(rows[limit - 1]["journal_position"]) if len(rows) > limit else None}
+
+
 async def revision_contents(connection, scope, family, artifact_id, revisions):
     if not revisions:
         return []
@@ -172,3 +235,33 @@ async def revision_contents(connection, scope, family, artifact_id, revisions):
         .mappings()
         .all()
     )
+
+
+async def source_artifacts(connection, scope, source_id, *, limit, family=None, after=None):
+    """Read bounded exact revision identities that directly cite one Content Source."""
+    sources = ARTIFACT_LINEAGE_SOURCES_TABLE
+    statement = (
+        select(sources.c.family, sources.c.artifact_id, sources.c.revision)
+        .where(
+            sources.c.scope_id == scope,
+            sources.c.source_type == "content",
+            sources.c.source_id == source_id,
+        )
+        .distinct()
+        .order_by(sources.c.family, sources.c.artifact_id, sources.c.revision.desc())
+        .limit(limit)
+    )
+    if family is not None:
+        statement = statement.where(sources.c.family == family)
+    if after is not None:
+        last_family, artifact_id, revision = after
+        statement = statement.where(
+            or_(
+                sources.c.family > last_family,
+                and_(sources.c.family == last_family, sources.c.artifact_id > artifact_id),
+                and_(
+                    sources.c.family == last_family, sources.c.artifact_id == artifact_id, sources.c.revision < revision
+                ),
+            )
+        )
+    return [dict(row) for row in (await connection.execute(statement)).mappings()]
