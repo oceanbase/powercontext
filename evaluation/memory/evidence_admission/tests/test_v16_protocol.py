@@ -250,10 +250,12 @@ def test_v16_isolates_cell_policy_from_instructions_and_output_schema():
 
 def test_original_unicode_manifest_rejects_multiple_requests_without_changing_evidence():
     async def scenario():
-        from powercontext_eval_evidence_admission.manifests import load_suite
+        from pathlib import Path
+
+        from powercontext_eval_evidence_admission.manifests import load_suite, read_json
         from powercontext_eval_evidence_admission.v15.admission import pack as old_pack
+        from powercontext_eval_evidence_admission.v16 import freeze
         from powercontext_eval_evidence_admission.v16.admission import pack
-        from powercontext_eval_evidence_admission.v16.freeze import identity
         from powercontext_eval_evidence_admission.v16.workflow import minimal_case_record
 
         case, sample, inputs = await prepared("unicode-boundaries")
@@ -261,7 +263,8 @@ def test_original_unicode_manifest_rejects_multiple_requests_without_changing_ev
         previous = old_pack(inputs, sample.supports, 4096, policy)
         plan = pack(inputs, sample.supports, 4096, policy)
         assert len(previous.requests) == 4
-        assert identity()["contract"]["online"]["per_case_requests"] == 1
+        contract = read_json(Path(freeze.__file__).with_name("contract.json"))
+        assert contract["online"]["per_case_requests"] == 1
         assert plan.accepted and 1 < len(plan.requests) < len(previous.requests)
         row = minimal_case_record(case, sample, plan)
         assert not row["one_request_gate_passed"]

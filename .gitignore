@@ -285,7 +285,6 @@ powercontext/gateway/
 # Repository-local test temporaries can contain databases and absolute symlinks.
 .pytest-tmp/
 
-# Regenerable evidence-admission preparation artifacts are reproduced from fixtures
-# and manifests by the evaluation CLI; historical live results and archived
-# comparison baselines are committed under results/.
-evaluation/memory/evidence_admission/results/**/preparation-results.jsonl
+# Evidence-admission reports, run records, and historical result bundles are
+# published as separately checksummed artifacts rather than committed with code.
+evaluation/memory/evidence_admission/results/

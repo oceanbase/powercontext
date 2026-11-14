@@ -19,6 +19,7 @@ import shutil
 
 import pytest
 
+from powercontext_eval_evidence_admission.historical_artifacts import RESULTS_ENV, historical_results_root
 from powercontext_eval_evidence_admission.manifests import (
     PACKAGE_ROOT,
     EvaluationError,
@@ -26,6 +27,19 @@ from powercontext_eval_evidence_admission.manifests import (
     load_private_suite,
     load_suite,
 )
+
+
+def test_historical_results_bundle_is_explicit_and_local(tmp_path, monkeypatch):
+    monkeypatch.delenv(RESULTS_ENV, raising=False)
+    with pytest.raises(EvaluationError, match="historical_results_bundle_required"):
+        historical_results_root()
+    monkeypatch.setenv(RESULTS_ENV, str(tmp_path / "missing"))
+    with pytest.raises(EvaluationError, match="historical_results_bundle_unavailable"):
+        historical_results_root()
+    results = tmp_path / "results"
+    results.mkdir()
+    monkeypatch.setenv(RESULTS_ENV, str(results))
+    assert historical_results_root() == results
 
 
 def test_frozen_suite_covers_declared_matrix(suite):

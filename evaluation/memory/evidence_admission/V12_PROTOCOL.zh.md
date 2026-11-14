@@ -55,11 +55,11 @@ Unicode 仍要求原始 UTF-8 字节，不能规范化组合字符、emoji 或 C
 
 ```bash
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v12 preflight \
-  --baseline-dir evaluation/memory/evidence_admission/results/v11-offline \
+  --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v11-offline" \
   --output-dir .artifacts/evidence-admission/v12-preflight
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v12 freeze
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v12 prepare \
-  --baseline-dir evaluation/memory/evidence_admission/results/v11-offline \
+  --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v11-offline" \
   --output-dir .artifacts/evidence-admission/v12-session --mode live \
   --preflight-dir .artifacts/evidence-admission/v12-preflight
 ```

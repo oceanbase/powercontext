@@ -44,11 +44,11 @@ v10 比较文件的原始 SHA-256 固定为
 
 ```bash
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v11 \
-  --baseline-dir evaluation/memory/evidence_admission/results/v10-offline \
+  --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v10-offline" \
   --v9-root .artifacts/evidence-admission/v9-offline \
   --output-dir .artifacts/evidence-admission/v11-minimal --minimal
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v11 \
-  --baseline-dir evaluation/memory/evidence_admission/results/v10-offline \
+  --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v10-offline" \
   --v9-root .artifacts/evidence-admission/v9-offline \
   --output-dir .artifacts/evidence-admission/v11-comparison
 ```

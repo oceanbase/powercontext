@@ -3,14 +3,18 @@
 本评测回答：超大或混合 Source 是否需要在 Atomic Memory 提取前增加有限预算的证据准入步骤。
 实现仅位于 evaluation 工程，不修改生产投影、注册表、Memory 发布、检索、生命周期或 API。
 
+生成报告、运行记录与历史结果包已移出代码 PR，独立证据包的执行修订、SHA-256、下载地址占位和解压命令见
+[RESULTS_ARTIFACT.md](RESULTS_ARTIFACT.md)。只有历史回放需要设置
+`POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`；默认测试不下载证据包，也不需要 provider 凭据。
+
 [v20 实际结果](V20_RESULTS.zh.md)已补跑剩余 351 次，全部有响应及用量，未新增未知调用。
 原 471 次清单现已全部尝试，未运行请求为 0；合并 469 个可用响应回放全部匹配，2 个历史缺失仍不可用。
 输出引用、结构化解析及 Unicode 字面量门槛存在失败，533 个候选语义未决，最终仍为 insufficient_evidence。
-[执行协议](V20_PROTOCOL.zh.md)和[公开交付](results/v20-live/README.zh.md)记录实际范围、累计 ¥20 保护及验证凭据。
+[执行协议](V20_PROTOCOL.zh.md)和独立证据包记录实际范围、累计 ¥20 保护及验证凭据。
 
 [v19 补跑](V19_RESULTS.zh.md)继承冻结的 v18 生成与准入条件，新增尝试 116 次：98 次有效 Pipeline 输出、
 17 次引用错误、1 次未知响应及用量。剩余 351 次未运行，合并两次未知费用预留后原 ¥5 不足以继续。
-原请求不重发，原失败不覆盖；[协议及显式命令](V19_PROTOCOL.zh.md)和[公开交付](results/v19-live/README.zh.md)记录范围与限制。
+原请求不重发，原失败不覆盖；[协议及显式命令](V19_PROTOCOL.zh.md)和独立证据包记录范围与限制。
 
 [v18 准入比较](V18_PROTOCOL.zh.md)固定原生生成指令与 schema，只比较完整投影、当前窗口和有界片段。
 三集、三预算、三重放共 972 行；预算拒绝、输出失败与语义未决分别报告。

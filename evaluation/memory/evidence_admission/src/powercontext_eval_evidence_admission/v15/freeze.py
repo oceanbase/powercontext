@@ -21,6 +21,7 @@ import subprocess
 from importlib.metadata import version
 from pathlib import Path
 
+from ..historical_artifacts import historical_results_root
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from ..v13.freeze import REPOSITORY
@@ -32,13 +33,15 @@ SUITE = ROOT.parents[2]
 
 
 def frozen_paths():
-    return sorted(set(previous_paths()) | {SUITE / "V15_PROTOCOL.zh.md", SUITE / "results/v15-history/summary.json"})
+    return sorted(set(previous_paths()) | {SUITE / "V15_PROTOCOL.zh.md"})
 
 
 def identity():
+    history = historical_results_root() / "v15-history/summary.json"
     return {
         "contract": read_json(ROOT / "contract.json"),
         "files": {str(p.relative_to(REPOSITORY)): file_hash(p) for p in frozen_paths()},
+        "historical_results": {"v15-history/summary.json": file_hash(history)},
         "instructions_hash": digest(INSTRUCTIONS),
         "schema_hash": digest(TemplateOutput.model_json_schema()),
         "sdk_versions": {p: version(p) for p in ("openai", "httpx", "pydantic-ai-slim")},

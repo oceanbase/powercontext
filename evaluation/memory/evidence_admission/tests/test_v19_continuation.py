@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import multiprocessing
+import os
 from decimal import Decimal
 
 import httpx
@@ -30,6 +32,22 @@ from powercontext_eval_evidence_admission.v18 import core
 from powercontext_eval_evidence_admission.v18.adapter import extract
 from powercontext_eval_evidence_admission.v18.workflow import calls_for, recorder, reservation
 from powercontext_eval_evidence_admission.v19 import workflow
+
+
+def _terminate_v19_before_scoring(directory):
+    def terminate(*_args, **_kwargs):
+        os._exit(91)
+
+    response = mock_response()
+    response["model"] = "deepseek-flash"
+    response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    workflow.score_output = terminate
+    asyncio.run(
+        workflow.run_next(
+            directory,
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=response)),
+        )
+    )
 
 
 def test_attempted_unknown_usage_is_excluded_from_remaining_plan():
@@ -213,25 +231,12 @@ def test_scoring_failure_preserves_received_usage_and_stops(continuation, monkey
     assert last["known_charge_cny"] is not None and last["provider_usage"] is not None
 
 
-def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation, monkeypatch):
+def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation):
     directory, _ = continuation
-    original_score_output = workflow.score_output
-    sent_requests = 0
-
-    def respond(_request):
-        nonlocal sent_requests
-        sent_requests += 1
-        response = mock_response()
-        response["model"] = "deepseek-flash"
-        response["choices"][0]["message"]["content"] = '{"candidates":[]}'
-        return httpx.Response(200, json=response)
-
-    def terminate_before_scoring(*_args, **_kwargs):
-        raise SystemExit("simulated termination before scoring")
-
-    monkeypatch.setattr(workflow, "score_output", terminate_before_scoring)
-    with pytest.raises(SystemExit, match="simulated termination before scoring"):
-        asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(respond)))
+    process = multiprocessing.get_context("spawn").Process(target=_terminate_v19_before_scoring, args=(directory,))
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
 
     pending = read_json(directory / "state.json")
     assert pending["state"] == "scoring_pending"
@@ -241,9 +246,6 @@ def test_scoring_interruption_resumes_without_resending_or_double_charging(conti
     assert pending["records"][-1]["scoring_state"] == "pending"
     assert pending["records"][-1]["score"] is None
     recorded_charge = pending["known_charge_cny"]
-    assert sent_requests == 1
-
-    monkeypatch.setattr(workflow, "score_output", original_score_output)
 
     def reject_resend(_request):
         pytest.fail("scoring recovery must not resend the provider request")
@@ -256,4 +258,3 @@ def test_scoring_interruption_resumes_without_resending_or_double_charging(conti
     assert len(recovered["records"]) == 2
     assert recovered["records"][-1]["scoring_state"] == "complete"
     assert recovered["records"][-1]["score"] is not None
-    assert sent_requests == 1

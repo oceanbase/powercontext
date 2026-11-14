@@ -1,9 +1,0 @@
-{
-  "uncompressed_sha256": "11d45a756d97b29f2da860b10f16530512453b8559aa6ee88b55cdf292e69836",
-  "compressed_sha256": "bd0dc72d44c5e9455fcf06e32030b15ed0bb1995cf5ba947fce55ba438948622",
-  "uncompressed_bytes": 20450565,
-  "compressed_bytes": 1151040,
-  "gzip_mtime": 0,
-  "gzip_filename": "",
-  "canonical_report_hash": "babfe2b12cbac0ed55ecad86f2ae7f38488427d7b7f65d1086f012b7a69000f9"
-}

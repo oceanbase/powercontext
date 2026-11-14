@@ -1,9 +1,0 @@
-{
-  "phase": "before_live_gate_implementation",
-  "created_at": "2026-10-26T14:12:07.365897+00:00",
-  "files": {
-    "manifests/live-policy-v1.json": "31cf973ca50fd2902dcdcca0775ad3dbe8574dfce2f82bdf9073e895d88719f5",
-    "LIVE_PROTOCOL.md": "3b561a101522bfbdd7e89518a6373a9c86898f3a37129a14bb5fbd0065d01778"
-  },
-  "baseline_archive_sha256": "23236e78ba2625cc2091497f73952347080ab5f3865b2eff6a068d7cbb8691e9"
-}

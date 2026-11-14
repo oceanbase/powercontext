@@ -22,6 +22,7 @@ import unicodedata
 from importlib.metadata import version
 from pathlib import Path
 
+from ..historical_artifacts import historical_results_root
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from ..v13.freeze import REPOSITORY
@@ -37,7 +38,7 @@ def contract():
 def inherited():
     """Never recompute historical identity with the new files, or overwrite old outcomes."""
     policy = contract()
-    results = SUITE / "results/v16-offline"
+    results = historical_results_root() / "v16-offline"
     for name, key in (
         ("freeze", "baseline_freeze_sha256"),
         ("result", "baseline_result_sha256"),
@@ -71,11 +72,14 @@ def identity():
     paths = {REPOSITORY / name for name in baseline["files"]}
     paths.update(p for p in ROOT.iterdir() if p.suffix in {".py", ".json"})
     paths.update({SUITE / "V17_PROTOCOL.zh.md", SUITE / "tests/test_v17_live.py"})
-    paths.update((SUITE / "results/v16-offline").glob("*.json"))
+    results = historical_results_root()
     return {
         "contract": contract(),
         "baseline_identity": digest(baseline),
         "files": {p.relative_to(REPOSITORY).as_posix(): file_hash(p) for p in sorted(paths)},
+        "historical_results": {
+            str(p.relative_to(results)): file_hash(p) for p in sorted((results / "v16-offline").glob("*.json"))
+        },
         "sdk_versions": baseline["sdk_versions"],
         "production_authorized": False,
     }
@@ -101,7 +105,8 @@ def committed_freeze():
 
 def verify_comparisons(run_root):
     inherited()
-    results = read_json(SUITE / "results/v16-offline/result.json")
+    results_root = historical_results_root() / "v16-offline"
+    results = read_json(results_root / "result.json")
     for label, receipt in zip(("primary", "validation", "additional"), results["artifact_integrity"], strict=True):
         directory = run_root / f"comparison-{label}"
         comparison = read_json(directory / "comparison.json")
@@ -114,4 +119,4 @@ def verify_comparisons(run_root):
             or digest(comparison["v16_identity"]) != contract()["baseline_identity"]
         ):
             raise EvaluationError("v17_baseline_comparison_changed")
-    return read_json(SUITE / "results/v16-offline/minimal-readiness.json")
+    return read_json(results_root / "minimal-readiness.json")

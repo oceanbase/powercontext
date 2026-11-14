@@ -34,7 +34,7 @@ from .test_v14_codec import supplied
 
 
 def test_historical_policy_rejects_the_changed_runtime_without_rewriting_its_identity():
-    with pytest.raises(EvaluationError, match="inherited_dependency_changed"):
+    with pytest.raises(EvaluationError, match="historical_results_bundle_required|inherited_dependency_changed"):
         inherited()
 
 

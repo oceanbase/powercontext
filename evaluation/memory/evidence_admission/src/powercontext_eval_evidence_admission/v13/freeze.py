@@ -23,6 +23,7 @@ from pathlib import Path
 
 import powercontext
 
+from ..historical_artifacts import historical_results_root
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from ..v11.window import identity as window_identity
@@ -41,14 +42,14 @@ def frozen_paths():
     paths += [
         suite / n for n in ("V10_PROTOCOL.zh.md", "V11_PROTOCOL.zh.md", "V12_PROTOCOL.zh.md", "V13_PROTOCOL.zh.md")
     ]
-    paths += [suite / "ruff.toml", suite / "results/v12-live/summary.json", suite.parent / "longmemeval_v2/ruff.toml"]
+    paths += [suite / "ruff.toml", suite.parent / "longmemeval_v2/ruff.toml"]
     paths += list((suite / "tests").glob("*.py"))
     return sorted(set(paths))
 
 
 def identity():
     contract = read_json(ROOT / "contract.json")
-    previous = ROOT.parents[2] / "results/v12-live/summary.json"
+    previous = historical_results_root() / "v12-live/summary.json"
     if (
         file_hash(previous) != contract["historical_v12_result_sha256"]
         or contract["thinking"] != {"type": "disabled"}
@@ -63,6 +64,7 @@ def identity():
     return {
         "contract": read_json(ROOT / "contract.json"),
         "window_dependency": window_identity(),
+        "historical_results": {"v12-live/summary.json": file_hash(previous)},
         "files": {str(p.relative_to(REPOSITORY)): file_hash(p) for p in frozen_paths()},
         "sdk_versions": {p: version(p) for p in ("openai", "httpx", "pydantic-ai-slim")},
     }

@@ -15,15 +15,20 @@
 """Historical content checks remain strict when execution commit metadata changes."""
 
 import copy
-from pathlib import Path
 
 import pytest
 
+from powercontext_eval_evidence_admission.historical_artifacts import historical_results_root
 from powercontext_eval_evidence_admission.manifests import EvaluationError, read_json
 from powercontext_eval_evidence_admission.v11 import workflow
 from powercontext_eval_evidence_admission.v11.lineage import content_identity
 
-BASELINE = Path(__file__).resolve().parents[1] / "results/v10-offline"
+
+def baseline():
+    try:
+        return historical_results_root() / "v10-offline"
+    except EvaluationError as error:
+        pytest.skip(str(error))
 
 
 def with_execution_change(value):
@@ -57,16 +62,18 @@ def test_content_identity_preserves_contract_revision_and_every_code_hash():
 
 
 def test_archived_baseline_accepts_execution_metadata_changes_without_rewriting_history(monkeypatch):
-    historical = read_json(BASELINE / "comparison.json")
-    original_hash = workflow.file_hash(BASELINE / "comparison.json")
+    directory = baseline()
+    historical = read_json(directory / "comparison.json")
+    original_hash = workflow.file_hash(directory / "comparison.json")
     monkeypatch.setattr(workflow, "v10_identity", lambda: with_execution_change(historical["identity"]))
-    assert workflow.baseline(BASELINE) == historical
-    assert workflow.file_hash(BASELINE / "comparison.json") == original_hash
+    assert workflow.baseline(directory) == historical
+    assert workflow.file_hash(directory / "comparison.json") == original_hash
 
 
 def test_archived_baseline_rejects_current_source_changes_even_when_metadata_is_ignored(monkeypatch):
-    changed = with_execution_change(read_json(BASELINE / "comparison.json")["identity"])
+    directory = baseline()
+    changed = with_execution_change(read_json(directory / "comparison.json")["identity"])
     changed["files"]["protocol.py"] = "different-source-hash"
     monkeypatch.setattr(workflow, "v10_identity", lambda: changed)
     with pytest.raises(EvaluationError, match="v11_baseline_identity_or_sample_set_changed"):
-        workflow.baseline(BASELINE)
+        workflow.baseline(directory)

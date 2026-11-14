@@ -22,12 +22,13 @@ from pathlib import Path
 import httpx
 from powercontext.builtin.inference import InferenceError
 
+from ..historical_artifacts import historical_results_root
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from ..v7.workflow import write_result
 from ..v9_preflight.adapter import Config
 from .adapter import ResumableJournal, extract
-from .freeze import ROOT, identity
+from .freeze import identity
 from .session import call_request, load_session, prepare_session
 
 
@@ -35,7 +36,7 @@ async def replay(baseline_dir, historical_session, output_dir):
     if output_dir.exists():
         raise EvaluationError("v13_replay_output_exists")
     frozen = identity()
-    history = read_json(ROOT.parents[2] / "results/v12-live/summary.json")
+    history = read_json(historical_results_root() / "v12-live/summary.json")
     old_plan = read_json(historical_session / "plan.json")
     old_private = Path(old_plan["private_root"])
     rows = [json.loads(line) for line in (old_private / "audit/attempts.jsonl").read_bytes().splitlines()]

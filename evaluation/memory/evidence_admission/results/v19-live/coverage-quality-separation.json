@@ -1,9 +1,0 @@
-{
-  "schema": "evidence-admission.v19.coverage-quality-separation.v1",
-  "frozen_report_candidate_known_quality_failure_rows": 18,
-  "confirmed_candidate_pipeline_rejection_calls": 17,
-  "candidate_unavailable_response_calls": 1,
-  "compatibility_field_warning": "frozen_known_quality_failure_rows_also_flags_unavailable_output; do_not_call_every_flag_a_confirmed_model_error",
-  "pairs_require_additional_response_coverage_check": true,
-  "missing_response_must_not_be_interpreted_as_semantic_loss": true
-}

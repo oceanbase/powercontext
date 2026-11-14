@@ -1,50 +1,83 @@
 # Which issue or RFC does this PR close?
 
-Refs oceanbase/powercontext#2074. The evaluation concludes `insufficient_evidence`; it does not claim every acceptance
-item has passed. Issue closure remains a maintainer decision based on the reported limitations.
+Refs oceanbase/powercontext#2074.
+
+The frozen decision is `insufficient_evidence`. The evaluation found input-coverage gains from bounded admission, but
+the fixed native-generation comparison also recorded citation, structured-output, literal-preservation, and unresolved
+semantic failures. This PR does not authorize a production behavior change.
 
 # Rationale for this change
 
-Current Source-count reduction cannot admit an oversized single Source. This evaluation measures bounded admission
-against complete projection and current window reduction using persisted, re-read Sources and the actual
-`AtomicMemoryGenerationPipeline`, with native generation instructions held fixed across the formal comparison.
+Current Source-count reduction cannot admit an oversized single Source. This evaluation compares complete projection,
+current window reduction, and bounded fragments after persisting and re-reading real Sources and constructing the
+production `AtomicMemoryExtractionInput`. All arms use the same frozen native generation instructions, output schema,
+model settings, and per-call budget.
 
-# What changes are included in this PR?
+# What changes are included?
 
-- Add the versioned evaluation CLI, synthetic fixtures, admission arms, deterministic preparation, scoring,
-  cancellation/failure handling, opt-in live execution, privacy-safe reports and replay receipts.
-- Preserve historical protocols and their failed outcomes. The fixed native comparison attempted all 471 planned calls:
-  291 returned valid Pipeline outputs, 178 had known output failures, and two historical responses remain unavailable.
-- Record 177 candidate citation rejections, one output-length failure and six accepted Unicode outputs missing required
-  byte literals. Input coverage gains do not override those failures. The frozen result remains `insufficient_evidence`.
-- Add the requesting user's reported human-check feedback with explicitly unenumerated coverage, a failure lookup index and
-  a queue of all 533 unresolved candidates. This is not independent review or completed semantic adjudication.
-- Register evaluation packaging, tests and types. Keep historical v14 contract bytes protected by a dedicated check.
-  Supporting validation fixes cover optional LongMemEval evidence capability, SWE-bench counter type compatibility,
-  test-process import setup and isolated tox environments.
+- A versioned `evaluation/memory/evidence_admission/` CLI, synthetic manifests, deterministic preparation and replay,
+  admission arms, scoring, cancellation/failure handling, opt-in live execution, and privacy-safe reporting.
+- Model-free coverage for single- and multi-Source overflow, mixed and oversized fields, positional facts, exact
+  literals, CJK/UTF-8 boundaries, impossible completeness, replay, faults, cancellation, and Scope isolation.
+- Crash-safe v19/v20 scoring continuation. A returned response and its usage are durably recorded as
+  `scoring_pending` before scoring. Resume scores the captured response without resending the provider request or
+  charging it twice. A required response with no score is a formal `scoring_incomplete` blocker and cannot produce
+  `no_production_change`.
+- Rebased-runtime expectations for the six evaluation tests reported in review. Historical budget tests explicitly use
+  their recorded public instruction context; current-runtime tests keep the newly observed losses and resource-budget
+  rejection visible instead of rewriting historical outcomes.
+- Generated reports, run records, and historical result bundles are removed from the code diff. Historical commands
+  accept a separately extracted result bundle through `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`.
 
-# Are there any user-facing changes?
+# External evidence archive
 
-The new commands and reports are evaluation-only. Production Source capture/projection, Memory processing,
-reconciliation, search, lifecycle, public APIs and persisted production formats are unchanged.
-No production follow-up is authorized. Private prompts, responses, credentials and local audit paths are excluded.
+The separately prepared archive preserves the former `results/` layout.
 
-# How was this change tested?
+- Code snapshot used to assemble it: `8bf9c58d428995c97858b6764d4563c3cfe9ea44`
+- File: `powercontext-2074-evidence-8bf9c58d.tar.gz`
+- SHA-256: `ff529bf0875c2441835bc5f35af3fe60df0c62c8722370f410aec73e499c0d65`
+- Download: `TO_BE_ADDED_AFTER_ARTIFACT_UPLOAD`
 
-Review-preparation checks and their exact results are recorded in `results/v20-review/validation.json`.
-Historical execution receipts in `results/v20-live/validation.json` separately document 556 model-free passing tests,
-four-version v20 focused checks, repository checks, types, builds and 469 matching recorded-response replays.
-Two unavailable responses are not counted as replay passes. No new provider requests are made for review preparation.
+Per-run execution revisions and content hashes remain inside the archive manifests. The archive contains the previously
+committed public, sanitized evidence only; it does not contain credentials, raw private Source text, prompts, private
+model responses, sensitive paths, or cross-Scope identifiers.
 
-The requesting user's human-check feedback is preserved as reported, with no per-call coverage or semantic judgments
-invented. The 226 unresolved candidates from accepted outputs and 307 from rejected outputs remain unresolved.
+# Recorded result and limitations
 
-Local `upstream/master` merge preflight found nine conflicts. No upstream merge or history rewrite was performed,
-so this branch is not yet ready to merge against that ref. The ref was not refreshed from the network.
-Full runtime tests and full multi-version tox were not rerun for this documentation-only preparation.
+The 471-call fixed comparison attempted every planned call. It recorded 291 valid Pipeline outputs, 178 known output
+failures, and two historical responses that remain unavailable. The historical preparation result retained 495/495
+parent facts and 531/531 atomic facts for the candidate arm, but generation failures remain part of the decision:
+
+- 177 candidate outputs cited evidence IDs absent from the request and were rejected by the actual Pipeline.
+- One candidate output hit the common output limit without producing valid structured output.
+- Six accepted Unicode outputs missed required byte literals.
+- 533 candidates remain semantically unresolved.
+
+These results support `insufficient_evidence`: the candidate did not pass the production follow-up gates, while the
+available evidence is also insufficient to claim that every bounded-admission strategy lacks value. Input coverage is
+reported separately from generation quality and cannot mask a severe output failure.
+
+# User-facing and production changes
+
+There are no production behavior or API changes. Source capture/projection, Memory publication, reconciliation, search,
+lifecycle, authorization, CAS, and cancellation semantics are unchanged. Default tests require neither network access
+nor provider credentials.
+
+# Validation
+
+Completed locally on the review-fix branch:
+
+- commit hooks for the crash-safe continuation change: conflict checks, Ruff lint/format, frozen-contract byte check,
+  and `ty check` all passed;
+- focused Ruff lint/format and Python compilation passed for the changed workflows and tests.
+
+Before updating the PR, the remaining required validation is to run the full evidence-admission non-live suite after the
+result-bundle split and rerun the repository-required checks. The artifact download URL must also replace the placeholder
+above. Historical bundle-dependent tests skip by default and can be opted in by setting
+`POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to the verified extracted archive.
 
 # AI usage statement
 
-OpenAI Codex assisted evaluation implementation, tests, execution bookkeeping, analysis and documentation.
-The human review feedback was supplied by the requesting user; Codex organized it without attributing model-generated
-judgments to a human. Unresolved semantic judgments and unavailable responses remain explicit.
+OpenAI Codex assisted with evaluation implementation, test construction, execution bookkeeping, analysis, and
+documentation. Human review feedback was supplied by the requesting user and was not expanded into unrecorded
+per-candidate judgments. Unresolved semantics, unavailable responses, and validation limits remain explicit.

@@ -79,8 +79,8 @@ def test_content_or_provider_dependencies_cannot_be_ignored(field):
 def test_live_session_keeps_exact_execution_identity_gate(tmp_path, monkeypatch, protocol):
     import asyncio
     import importlib
-    from pathlib import Path
 
+    from powercontext_eval_evidence_admission.historical_artifacts import historical_results_root
     from powercontext_eval_evidence_admission.manifests import EvaluationError
 
     session = importlib.import_module(f"powercontext_eval_evidence_admission.{protocol}.session")
@@ -101,7 +101,10 @@ def test_live_session_keeps_exact_execution_identity_gate(tmp_path, monkeypatch,
         return identity
 
     monkeypatch.setattr(session, "window_identity", changed_environment)
-    baseline_dir = Path(__file__).parents[1] / "results/v11-offline"
+    try:
+        baseline_dir = historical_results_root() / "v11-offline"
+    except EvaluationError as error:
+        pytest.skip(str(error))
     with pytest.raises(EvaluationError, match="baseline_not_verified"):
         asyncio.run(session.prepare_session(baseline_dir, tmp_path / "session", mode="live"))
     assert not (tmp_path / "session").exists()

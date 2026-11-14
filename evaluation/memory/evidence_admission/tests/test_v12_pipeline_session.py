@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 
 import httpx
 import pytest
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryCandidate
 from powercontext.builtin.inference import InferenceError
 
+from powercontext_eval_evidence_admission.historical_artifacts import historical_results_root
 from powercontext_eval_evidence_admission.manifests import EvaluationError, read_json
 from powercontext_eval_evidence_admission.v9_live.ledger import Ledger, write_private
 from powercontext_eval_evidence_admission.v9_preflight.workflow import mock_response
@@ -33,14 +33,19 @@ from powercontext_eval_evidence_admission.v12.preflight import controlled_output
 from powercontext_eval_evidence_admission.v12.runner import import_review, run_next, status
 from powercontext_eval_evidence_admission.v12.session import load_session, prepare_session
 
-BASELINE = Path(__file__).parents[1] / "results/v11-offline"
+
+def baseline():
+    try:
+        return historical_results_root() / "v11-offline"
+    except EvaluationError as error:
+        pytest.skip(str(error))
 
 
 async def session(tmp_path):
     if "description" in AtomicMemoryCandidate.model_fields:
         pytest.skip("frozen v11 baseline requires its recorded runtime; current description schema rejects it")
     directory = tmp_path / "session"
-    await prepare_session(BASELINE, directory)
+    await prepare_session(baseline(), directory)
     public, data, private = load_session(directory)
     approval = read_json(directory / "approval-template.json")
     approval.update(
@@ -55,7 +60,7 @@ async def session(tmp_path):
 def test_current_runtime_rejects_archived_baseline_before_session_publication(tmp_path):
     async def scenario():
         with pytest.raises(EvaluationError, match="baseline_not_verified"):
-            await prepare_session(BASELINE, tmp_path / "rejected-session")
+            await prepare_session(baseline(), tmp_path / "rejected-session")
         assert not (tmp_path / "rejected-session").exists()
 
     asyncio.run(scenario())

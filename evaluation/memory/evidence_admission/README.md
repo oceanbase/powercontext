@@ -5,17 +5,21 @@ extraction. It creates real, disposable SQLite Scopes and Sources, closes and re
 `project_atomic_memory_evidence()`, and constructs the production `AtomicMemoryExtractionInput` shape.
 It never publishes Atomic Memory, runs reconciliation, changes a production registry, or advances a production cursor.
 
-[中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
+[中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md) · [External result archive](RESULTS_ARTIFACT.md)
+
+Generated reports, run records, and historical result bundles are distributed through the separately checksummed
+archive documented above. Set `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to its extracted `results` directory only when
+running historical replay commands; default tests remain offline and self-contained.
 
 [v20 results](V20_RESULTS.zh.md): all 351 remaining requests were attempted with responses and usage, with no new
 unknown usage. The original 471-call plan has zero unrun calls; all 469 available responses replayed identically,
 while two historical responses remain unavailable. Citation, structured-output and literal failures plus unresolved
-semantics retain `insufficient_evidence`. See the [protocol](V20_PROTOCOL.zh.md) and [receipts](results/v20-live/README.zh.md).
+semantics retain `insufficient_evidence`. See the [protocol](V20_PROTOCOL.zh.md) and external result archive.
 
 [v19 continuation](V19_RESULTS.zh.md) preserves v18 generation and admission settings. It attempted 116 additional
 calls: 98 Pipeline outputs, 17 citation rejections and one missing response/usage. There are 351 calls still unrun.
 Two unknown-call reservations leave the original cumulative CNY 5 cap unable to fund another full-context reservation.
-Original attempts and failures remain immutable; see the [protocol](V19_PROTOCOL.zh.md) and [receipts](results/v19-live/README.zh.md).
+Original attempts and failures remain immutable; see the [protocol](V19_PROTOCOL.zh.md) and external result archive.
 
 [v18 admission comparison](V18_PROTOCOL.zh.md) fixes native generation instructions and output schema across complete
 projection, current window reduction and bounded fragments: 972 rows across three datasets, budgets and replays.

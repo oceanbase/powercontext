@@ -22,6 +22,7 @@ import unicodedata
 from importlib.metadata import version
 from pathlib import Path
 
+from ..historical_artifacts import historical_results_root
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from ..v13.freeze import REPOSITORY
@@ -36,16 +37,20 @@ def frozen_paths():
     paths = set(previous_paths()) | {
         SUITE / "V16_PROTOCOL.zh.md",
         SUITE / "V15_PROTOCOL.zh.md",
-        SUITE / "results/v15-history/summary.json",
-        *list((SUITE / "results/engineering-readiness").glob("*.json")),
     }
     return sorted(paths)
 
 
 def identity():
+    results = historical_results_root()
+    historical = [
+        results / "v15-history/summary.json",
+        *sorted((results / "engineering-readiness").glob("*.json")),
+    ]
     return {
         "contract": read_json(ROOT / "contract.json"),
         "files": {str(p.relative_to(REPOSITORY)): file_hash(p) for p in frozen_paths()},
+        "historical_results": {str(p.relative_to(results)): file_hash(p) for p in historical},
         "instructions_hash": digest(INSTRUCTIONS),
         "schema_hash": digest(TemplateOutput.model_json_schema()),
         "sdk_versions": {p: version(p) for p in ("openai", "httpx", "pydantic-ai-slim")},

@@ -52,10 +52,10 @@ copy 与独立原子性是额外实验门槛，不将其表述为 issue 原文�
 以下输出目录须不存在，默认步骤不读取 DEEPSEEK_API_KEY。
 
 ```bash
-uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 preflight --baseline-dir evaluation/memory/evidence_admission/results/v11-offline --output-dir .artifacts/evidence-admission/v13-preflight
-uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 replay --baseline-dir evaluation/memory/evidence_admission/results/v11-offline --historical-session .artifacts/evidence-admission/v12-readiness/live-session --output-dir .artifacts/evidence-admission/v13-failure-replay
+uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 preflight --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v11-offline" --output-dir .artifacts/evidence-admission/v13-preflight
+uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 replay --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v11-offline" --historical-session .artifacts/evidence-admission/v12-readiness/live-session --output-dir .artifacts/evidence-admission/v13-failure-replay
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 freeze
-uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 prepare --baseline-dir evaluation/memory/evidence_admission/results/v11-offline --output-dir .artifacts/evidence-admission/v13-session --mode live --preflight-dir .artifacts/evidence-admission/v13-preflight
+uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 prepare --baseline-dir "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v11-offline" --output-dir .artifacts/evidence-admission/v13-session --mode live --preflight-dir .artifacts/evidence-admission/v13-preflight
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 run --session .artifacts/evidence-admission/v13-session --approval /outside-the-repository/approved-plan.json --execute-live
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 review --session .artifacts/evidence-admission/v13-session --review-file /outside-the-repository/review.json
 uv run --project evaluation python -m powercontext_eval_evidence_admission.v13 status --session .artifacts/evidence-admission/v13-session
