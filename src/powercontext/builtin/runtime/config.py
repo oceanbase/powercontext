@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
@@ -38,14 +39,24 @@ from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoo
 from powercontext.builtin.artifacts.topic_memory import MAX_TOPIC_MEMORY_SEARCH_LIMIT
 from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryGenerationError,
+    narrow_stage_budget,
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
 from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
+from powercontext.builtin.inference.budget import (
+    GENERATION_OPERATIONS,
+    TOPIC_MEMORY_STAGES,
+    BudgetProvenance,
+    EffectiveRequestBudget,
+    EmbeddingBudget,
+    resolve_request_budget,
+)
 from powercontext.builtin.inference.input_encoding import InputEncodingMode
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig
+from powercontext.builtin.inference.tokens import TokenEstimatorProfile, resolve_token_estimator
 from powercontext.builtin.persistence.atomic_memory_index import DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -74,6 +85,10 @@ def _equal_numeric_aliases(left: Any, right: Any) -> bool:
         return float(left) == float(right)
     except (ValueError, TypeError, OverflowError):
         return False
+
+
+if TYPE_CHECKING:
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits
 
 
 class RuntimeConfig(BaseModel):
@@ -318,6 +333,96 @@ class HandoffReportConfig(BaseModel):
     enabled: bool = True
 
 
+def _reject_boolean_count(value: Any) -> Any:
+    """Reject booleans, which Pydantic would otherwise coerce to ``1``."""
+
+    if isinstance(value, bool):
+        # Pydantic only converts ValueError into a validation error here.
+        raise ValueError("a count or token limit must be an integer, not a boolean")  # noqa: TRY003, TRY004
+    return value
+
+
+_PositiveCount = Annotated[int, BeforeValidator(_reject_boolean_count), Field(ge=1)]
+_OptionalPositiveCount = Annotated[int, BeforeValidator(_reject_boolean_count), Field(ge=1)] | None
+_NonNegativeCount = Annotated[int, BeforeValidator(_reject_boolean_count), Field(ge=0)]
+
+
+def _narrowest(*values: int | None) -> int | None:
+    present = [value for value in values if value is not None]
+    return min(present) if present else None
+
+
+def _budget_source(operation: str | None, deployment_value: Any, operation_value: Any) -> str:
+    if operation_value is not None:
+        return f"generation_operation_budgets.{operation}"
+    if deployment_value is not None:
+        return "generation_request_budget"
+    return "default"
+
+
+class GenerationRequestBudgetConfig(BaseModel):
+    """Deployment-declared capacity for the generation endpoint.
+
+    ``context_semantics`` says whether the endpoint shares one context window
+    between input and output or limits them separately. ``input_tokens_limit``
+    and ``output_tokens_limit`` describe the endpoint itself; per-operation
+    allowances live in ``generation_operation_budgets``.
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    context_semantics: Literal["joint_window", "separate_limits"] = "joint_window"
+    input_tokens_limit: _OptionalPositiveCount = None
+    output_tokens_limit: _OptionalPositiveCount = None
+    output_reserve_tokens: _OptionalPositiveCount = None
+    safety_margin_ratio: float = Field(default=0.05, ge=0, lt=1)
+    safety_margin_tokens: _NonNegativeCount = 0
+    estimator_id: str = Field(default="character:weighted", min_length=1, max_length=128)
+    estimator_version: str = Field(default="1", min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_estimator(self) -> Self:
+        resolve_token_estimator(self.token_estimator)
+        return self
+
+    @property
+    def token_estimator(self) -> TokenEstimatorProfile:
+        """Return the declared estimator identity this build can run."""
+
+        return TokenEstimatorProfile(estimator_id=self.estimator_id, version=self.estimator_version)
+
+
+class GenerationOperationBudgetConfig(BaseModel):
+    """Allowance one registered generation operation may use.
+
+    Every field is optional: an unset field simply does not narrow the resolved
+    deployment budget.
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    input_tokens_limit: _OptionalPositiveCount = None
+    output_tokens_limit: _OptionalPositiveCount = None
+    max_requests: _OptionalPositiveCount = None
+    timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+def _validate_endpoint_capacity(
+    label: str,
+    budget: GenerationRequestBudgetConfig | None,
+    context_window_tokens: int | None,
+    model: str | None,
+) -> None:
+    """Require both halves of a separate endpoint's declared capacity."""
+
+    if (budget is None) != (context_window_tokens is None):
+        raise ValueError(  # noqa: TRY003
+            f"{label}_request_budget and {label}_context_window_tokens must be declared together"
+        )
+    if budget is not None and model is None:
+        raise ValueError(f"{label}_request_budget requires {label}_model")  # noqa: TRY003
+
+
 class InferenceConfig(BaseModel):
     """Optional generation, embedding, and LLM reranking configuration."""
 
@@ -336,6 +441,8 @@ class InferenceConfig(BaseModel):
     generation_streaming: Literal["auto", "disabled"] = "disabled"
     generation_stream_idle_timeout_seconds: float = Field(default=60.0, gt=0)
     generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
+    generation_request_budget: GenerationRequestBudgetConfig = Field(default_factory=GenerationRequestBudgetConfig)
+    generation_operation_budgets: dict[str, GenerationOperationBudgetConfig] = Field(default_factory=dict)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -346,6 +453,10 @@ class InferenceConfig(BaseModel):
     embedding_normalization: Literal["none", "unit"] = "unit"
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
     embedding_batch_size: int = Field(default=10, ge=1)
+    embedding_input_tokens_per_text_limit: _OptionalPositiveCount = None
+    embedding_input_tokens_per_batch_limit: _OptionalPositiveCount = None
+    embedding_batch_items_limit: _OptionalPositiveCount = None
+    embedding_estimator: str = "character:weighted"
     rerank_model: str | None = None
     rerank_base_url: AnyHttpUrl | None = None
     rerank_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -357,6 +468,10 @@ class InferenceConfig(BaseModel):
     decision_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
     decision_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     decision_timeout_seconds: float | None = Field(default=None, gt=0)
+    decision_context_window_tokens: int | None = Field(default=None, ge=1)
+    decision_request_budget: GenerationRequestBudgetConfig | None = None
+    rerank_context_window_tokens: int | None = Field(default=None, ge=1)
+    rerank_request_budget: GenerationRequestBudgetConfig | None = None
     decision_max_requests: int | None = Field(default=None, ge=1)
 
     def input_encoding_mode(self, operation: InputEncodingOperation) -> InputEncodingMode:
@@ -366,6 +481,234 @@ class InferenceConfig(BaseModel):
         if operation in {"atomic_memory.extract", "atomic_memory.reconcile"}:
             return self.atomic_memory_input_encoding
         return "off"
+
+    @model_validator(mode="after")
+    def _validate_generation_budgets(self) -> Self:
+        budget = self.generation_request_budget
+        for operation, allowance in self.generation_operation_budgets.items():
+            if operation not in GENERATION_OPERATIONS:
+                raise ValueError(  # noqa: TRY003
+                    f"generation_operation_budgets has an unknown generation operation: {operation}"
+                )
+            self._reject_widening(operation, allowance)
+        settings_max_tokens = self.generation_model_settings.get("max_tokens")
+        if isinstance(settings_max_tokens, int) and not isinstance(settings_max_tokens, bool):
+            declared = budget.output_tokens_limit
+            if declared is not None and settings_max_tokens != declared:
+                raise ValueError(  # noqa: TRY003
+                    "generation_model_settings.max_tokens must match generation_request_budget.output_tokens_limit"
+                )
+        # Resolve the deployment capacity once so an unexecutable configuration
+        # fails at startup rather than on the first request.
+        self._resolve_generation_budget(None, None)
+        return self
+
+    def _reject_widening(self, label: str, allowance: GenerationOperationBudgetConfig) -> None:
+        budget = self.generation_request_budget
+        if (
+            allowance.input_tokens_limit is not None
+            and budget.input_tokens_limit is not None
+            and allowance.input_tokens_limit > budget.input_tokens_limit
+        ):
+            raise ValueError(  # noqa: TRY003
+                f"{label}.input_tokens_limit must not exceed generation_request_budget.input_tokens_limit"
+            )
+        if (
+            allowance.output_tokens_limit is not None
+            and budget.output_tokens_limit is not None
+            and allowance.output_tokens_limit > budget.output_tokens_limit
+        ):
+            raise ValueError(  # noqa: TRY003
+                f"{label}.output_tokens_limit must not exceed generation_request_budget.output_tokens_limit"
+            )
+        if allowance.max_requests is not None and allowance.max_requests > self.generation_max_requests:
+            raise ValueError(f"{label}.max_requests must not exceed generation_max_requests")  # noqa: TRY003
+        if allowance.timeout_seconds is not None and allowance.timeout_seconds > self.generation_timeout_seconds:
+            raise ValueError(f"{label}.timeout_seconds must not exceed generation_timeout_seconds")  # noqa: TRY003
+
+    def generation_budget(self, operation: str) -> EffectiveRequestBudget:
+        """Resolve deployment capacity and one operation allowance into a budget."""
+
+        if operation not in GENERATION_OPERATIONS:
+            raise ValueError(f"unknown generation operation: {operation}")  # noqa: TRY003
+        return self._resolve_generation_budget(operation, self.generation_operation_budgets.get(operation))
+
+    def generation_limits(self, operation: str) -> InferenceLimits:
+        """Resolve execution limits in the units used by one Agent run."""
+
+        from powercontext.builtin.inference.pydantic_ai import InferenceLimits
+
+        if operation not in GENERATION_OPERATIONS:
+            raise ValueError(f"unknown generation operation: {operation}")  # noqa: TRY003
+        allowance = self.generation_operation_budgets.get(operation)
+        requests = self.generation_max_requests
+        timeout = self.generation_timeout_seconds
+        if operation == "memory.rerank":
+            requests = self.rerank_max_requests or requests
+            timeout = self.rerank_timeout_seconds or timeout
+        elif operation == "memory.write-gate":
+            requests = self.decision_max_requests or requests
+            timeout = self.decision_timeout_seconds or timeout
+        return InferenceLimits(
+            max_requests=min(requests, allowance.max_requests or requests) if allowance is not None else requests,
+            timeout_seconds=(min(timeout, allowance.timeout_seconds or timeout) if allowance is not None else timeout),
+        )
+
+    def rerank_demonstration_limits(self) -> InferenceLimits:
+        """Resolve execution limits for the rerank endpoint's demonstration prompt.
+
+        The demonstration runs on the rerank endpoint, so its request and timeout
+        ceilings start from that endpoint's defaults and are then narrowed by the
+        ``prompt_demonstrations`` operation allowance.
+        """
+
+        from powercontext.builtin.inference.pydantic_ai import InferenceLimits
+
+        allowance = self.generation_operation_budgets.get("prompt_demonstrations")
+        requests = self.rerank_max_requests or self.generation_max_requests
+        timeout = self.rerank_timeout_seconds or self.generation_timeout_seconds
+        return InferenceLimits(
+            max_requests=min(requests, allowance.max_requests or requests) if allowance is not None else requests,
+            timeout_seconds=(min(timeout, allowance.timeout_seconds or timeout) if allowance is not None else timeout),
+        )
+
+    @property
+    def decision_budget(self) -> EffectiveRequestBudget | None:
+        """Resolve admission capacity for the memory write-gate workload.
+
+        The gate can run on its own endpoint. When the deployment declares that
+        endpoint's capacity, the gate admits against it; otherwise the workload keeps
+        no budget instead of borrowing the generation window, whose size may differ.
+        """
+
+        if self.decision_request_budget is None:
+            return None
+        return self._resolve_generation_budget(
+            "memory.write-gate",
+            self.generation_operation_budgets.get("memory.write-gate"),
+            declared=self.decision_request_budget,
+            context_window_tokens=self.decision_context_window_tokens,
+            context_window_source="decision_context_window_tokens",
+        )
+
+    @property
+    def rerank_budget(self) -> EffectiveRequestBudget | None:
+        """Resolve admission capacity for the rerank workload.
+
+        A separate rerank endpoint can have a different window, so its capacity is
+        declared independently; without it the workload keeps no budget instead of
+        borrowing the generation window, whose size may differ.
+        """
+
+        if self.rerank_request_budget is None:
+            return None
+        return self._resolve_generation_budget(
+            "memory.rerank",
+            self.generation_operation_budgets.get("memory.rerank"),
+            declared=self.rerank_request_budget,
+            context_window_tokens=self.rerank_context_window_tokens,
+            context_window_source="rerank_context_window_tokens",
+        )
+
+    @property
+    def rerank_demonstration_budget(self) -> EffectiveRequestBudget | None:
+        """Resolve admission capacity for the rerank endpoint's demonstration prompt.
+
+        Demonstrations run on the rerank endpoint but are metered by the
+        ``prompt_demonstrations`` operation allowance, so they are resolved
+        separately from the ``memory.rerank`` workload.
+        """
+
+        if self.rerank_request_budget is None:
+            return None
+        return self._resolve_generation_budget(
+            "prompt_demonstrations",
+            self.generation_operation_budgets.get("prompt_demonstrations"),
+            declared=self.rerank_request_budget,
+            context_window_tokens=self.rerank_context_window_tokens,
+            context_window_source="rerank_context_window_tokens",
+        )
+
+    @property
+    def generation_deployment_budget(self) -> EffectiveRequestBudget:
+        """Resolve deployment capacity for workloads bounded per run, not per operation.
+
+        Dream runs are metered by ``DreamBudget`` (calls, output tokens, deadline) rather
+        than by a per-operation allowance, so they admit against the deployment capacity
+        only.
+        """
+
+        return self._resolve_generation_budget(None, None)
+
+    @field_validator("embedding_estimator")
+    @classmethod
+    def validate_embedding_estimator(cls, value: str) -> str:
+        """Reject an estimator identity this build cannot run before any request."""
+
+        resolve_token_estimator(TokenEstimatorProfile(estimator_id=value, version="1"))
+        return value
+
+    @property
+    def embedding_budget(self) -> EmbeddingBudget:
+        """Resolve the capacity one embedding batch must fit into.
+
+        An unset dimension stays unset: the deployment declares only the limits it
+        knows, and the adapter keeps its item-count batching as the baseline.
+        """
+
+        estimator = resolve_token_estimator(TokenEstimatorProfile(estimator_id=self.embedding_estimator, version="1"))
+        return EmbeddingBudget(
+            max_input_tokens_per_text=self.embedding_input_tokens_per_text_limit,
+            max_input_tokens_per_batch=self.embedding_input_tokens_per_batch_limit,
+            max_batch_items=self.embedding_batch_items_limit,
+            estimator=estimator.profile,
+        )
+
+    def _resolve_generation_budget(
+        self,
+        operation: str | None,
+        allowance: GenerationOperationBudgetConfig | None,
+        *,
+        declared: GenerationRequestBudgetConfig | None = None,
+        context_window_tokens: int | None = None,
+        context_window_source: str = "generation_model_context_window_tokens",
+    ) -> EffectiveRequestBudget:
+        budget = self.generation_request_budget if declared is None else declared
+        operation_input = allowance.input_tokens_limit if allowance is not None else None
+        operation_output = allowance.output_tokens_limit if allowance is not None else None
+        explicit = budget.model_fields_set
+        provenance = BudgetProvenance(
+            context_window=context_window_source,
+            input_limit=_budget_source(operation, budget.input_tokens_limit, operation_input),
+            output_limit=_budget_source(operation, budget.output_tokens_limit, operation_output),
+            output_reserve="generation_request_budget" if budget.output_reserve_tokens is not None else "default",
+            safety_margin=self._safety_margin_source(budget, explicit),
+            estimator=f"{budget.estimator_id}@{budget.estimator_version}",
+        )
+        output_tokens_limit = _narrowest(budget.output_tokens_limit, operation_output)
+        output_reserve_tokens = budget.output_reserve_tokens
+        if output_reserve_tokens is not None and output_tokens_limit is not None:
+            output_reserve_tokens = min(output_reserve_tokens, output_tokens_limit)
+        return resolve_request_budget(
+            estimator=budget.token_estimator,
+            provenance=provenance,
+            context_semantics=budget.context_semantics,
+            context_window_tokens=(
+                self.generation_model_context_window_tokens if context_window_tokens is None else context_window_tokens
+            ),
+            input_tokens_limit=_narrowest(budget.input_tokens_limit, operation_input),
+            output_tokens_limit=output_tokens_limit,
+            output_reserve_tokens=output_reserve_tokens,
+            safety_margin_ratio=budget.safety_margin_ratio,
+            safety_margin_tokens=budget.safety_margin_tokens,
+        )
+
+    def _safety_margin_source(self, budget: GenerationRequestBudgetConfig, explicit: set[str]) -> str:
+        if "safety_margin_tokens" in explicit and budget.safety_margin_tokens > 0:
+            return "generation_request_budget.absolute"
+        if "safety_margin_ratio" in explicit:
+            return "generation_request_budget.ratio"
+        return "default"
 
     @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model", "decision_model")
     @classmethod
@@ -457,6 +800,8 @@ class InferenceConfig(BaseModel):
                     model_settings=self.generation_model_settings,
                 )
                 validate_topic_memory_stage_capacity(budget, character_token_estimator())
+                for stage in TOPIC_MEMORY_STAGES:
+                    narrow_stage_budget(budget, self.generation_budget(f"topic_memory.{stage}"))
             except TopicMemoryGenerationError as error:
                 raise ValueError(  # noqa: TRY003
                     f"Topic Memory generation budget is invalid: {error.error_code}"
@@ -465,6 +810,19 @@ class InferenceConfig(BaseModel):
 
     def _validate_decision_overrides(self) -> None:
         """Keep the decision workload's endpoint overrides consistent with its model."""
+
+        _validate_endpoint_capacity(
+            "decision",
+            self.decision_request_budget,
+            self.decision_context_window_tokens,
+            self.decision_model,
+        )
+        _validate_endpoint_capacity(
+            "rerank",
+            self.rerank_request_budget,
+            self.rerank_context_window_tokens,
+            self.rerank_model,
+        )
 
         if self.decision_base_url is not None and self.decision_model is None:
             raise ValueError("decision_base_url requires decision_model")  # noqa: TRY003

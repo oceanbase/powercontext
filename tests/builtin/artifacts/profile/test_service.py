@@ -22,6 +22,8 @@ from powercontext.builtin.artifacts.profile.models import ProfileContent, Profil
 from powercontext.builtin.artifacts.prompt import PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import current_prompt
+from powercontext.builtin.inference.budget import hard_limit_decision
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SCOPES_TABLE, SOURCES_TABLE
 from powercontext.builtin.records import ArtifactWrite, BaseValueConflictError, InvalidBaseAccessRequestError
@@ -477,5 +479,89 @@ def test_failed_generation_owner_write_preserves_window():
             result = await ctx.profiles.flush(sid)
             assert result.status == "updated" and result.previous_cursor == 0
             assert result.artifact is not None and result.artifact.revision == 1
+
+    asyncio.run(run())
+
+
+class _ShrinkingGenerator(Generator):
+    """Rejects the full window once, then accepts whatever the service retries with."""
+
+    def __init__(self):
+        super().__init__()
+        self.sizes = []
+
+    async def generate(self, value):
+        self.sizes.append(len(value.sources))
+        if len(self.sizes) == 1:
+            raise InferenceBudgetExceededError(_rejection())
+        return await super().generate(value)
+
+
+class _RejectingGenerator(Generator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sizes: list[int] = []
+
+    async def generate(self, value):
+        self.sizes.append(len(value.sources))
+        raise InferenceBudgetExceededError(_rejection())
+
+
+def _rejection():
+    return hard_limit_decision(
+        operation="profile.generate",
+        dimension="input_tokens",
+        estimated_value=64_001,
+        limit_value=64_000,
+        unit="tokens",
+    )
+
+
+async def _cursor_sequence(contexts, scope_id):
+    from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
+    from powercontext.builtin.persistence.cursors import SourceCursorRepository
+
+    async with contexts.database.transaction() as connection:
+        cursor = await SourceCursorRepository().load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
+    return None if cursor is None else cursor.cursor.sequence
+
+
+def test_profile_shrink_commits_only_the_admitted_prefix():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            ctx.profiles.max_sources = 8
+            for index in range(4):
+                await ctx.records.create_source(sid, "content", f"Prefers option {index}")
+            generator = _ShrinkingGenerator()
+            ctx.profiles.generator = generator
+
+            result = await ctx.profiles.flush(sid)
+
+            assert generator.sizes == [4, 2]
+            assert result.status == "updated"
+            assert result.current_cursor == 2
+            assert await _cursor_sequence(ctx, sid) == 2
+
+    asyncio.run(run())
+
+
+def test_profile_rejection_leaves_the_cursor_and_artifact_untouched():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await ctx.records.create_source(sid, "content", "Prefers Chinese")
+            generator = _RejectingGenerator()
+            ctx.profiles.generator = generator
+
+            with pytest.raises(InferenceBudgetExceededError):
+                await ctx.profiles.flush(sid)
+
+            assert generator.sizes == [1]
+            assert await _cursor_sequence(ctx, sid) is None
 
     asyncio.run(run())

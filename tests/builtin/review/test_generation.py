@@ -20,8 +20,9 @@ from typing import cast
 import pytest
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
-from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
+from powercontext.builtin.artifacts.generation import MAX_GENERATION_EVIDENCE_CHARS, ArtifactGenerationInput
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.review import InvalidCandidateError
@@ -348,5 +349,34 @@ def test_managed_skill_generation_enforces_origin_specific_lineage() -> None:
                     )
                 )
             assert len(skill_generator.inputs) == 2
+
+    asyncio.run(scenario())
+
+
+def test_oversized_explicit_generation_evidence_never_becomes_a_candidate() -> None:
+    async def scenario() -> None:
+        generator = _ExperienceGenerator(_experience())
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            experience_generator=generator,
+        ) as runtime:
+            scope_id = await _create_scope(runtime)
+            oversized = "x" * (MAX_GENERATION_EVIDENCE_CHARS + 1)
+            captured = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="huge", content=oversized, metadata={})
+            )
+
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await runtime.experience.for_scope(scope_id).generate(
+                    GenerateExperienceRequest(sources=(captured.source_ref,))
+                )
+
+            decision = rejected.value.decision
+            assert decision.operation == "experience.generate"
+            assert decision.dimension == "input_bytes"
+            assert decision.unit == "characters"
+            assert generator.inputs == []
+            inbox = await runtime.review.for_scope(scope_id).list(ListCandidatesRequest())
+            assert inbox.candidates == ()
 
     asyncio.run(scenario())

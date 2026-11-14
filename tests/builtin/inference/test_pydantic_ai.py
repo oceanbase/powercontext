@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -836,7 +836,14 @@ def test_invalid_structured_output_maps_to_stable_error() -> None:
     asyncio.run(scenario())
 
 
-def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
+@pytest.mark.parametrize("budget_binding", ["none", "generator", "exchange"])
+@pytest.mark.parametrize("allow_continuations", [False, True])
+def test_instrumented_generation_spans_exclude_schema_retry_content(
+    budget_binding: str, allow_continuations: bool
+) -> None:
+    from powercontext.builtin.inference.request_accounting import BudgetedModel, budgeted_exchange
+    from powercontext.builtin.runtime.config import InferenceConfig
+
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -857,14 +864,24 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
         return ModelResponse(parts=[TextPart(pending.pop(0))])
 
     async def scenario() -> None:
+        budget = InferenceConfig().generation_budget("skill.generate")
+        model = InstrumentedModel(FunctionModel(reply), instrumentation)
         generator = PydanticAIStructuredGenerator(
-            model=InstrumentedModel(FunctionModel(reply), instrumentation),
+            model=BudgetedModel.wrap(model) if budget_binding == "exchange" else model,
             instructions="Propose candidates.",
             input_type=Question,
             output_type=Proposal,
+            limits=InferenceLimits(allow_continuations=allow_continuations),
+            budget=budget if budget_binding == "generator" else None,
+            operation="skill.generate" if budget_binding == "generator" else None,
+            name="instrumented_generation",
         )
 
-        result = await generator.generate(Question("bounded evidence"))
+        exchange = (
+            budgeted_exchange(budget, operation="skill.generate") if budget_binding == "exchange" else nullcontext()
+        )
+        with exchange:
+            result = await generator.generate(Question("bounded evidence"))
 
         assert result.output.candidates[0].intent == "add"
 
@@ -874,6 +891,13 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
     # Both responses consumed and two chat spans recorded prove the retry path ran.
     assert not pending
     assert len([span for span in spans if span.name.startswith("chat ")]) == 2
+    agent_spans = [span for span in spans if span.name == "invoke_agent instrumented_generation"]
+    assert len(agent_spans) == 1
+    agent_span = agent_spans[0]
+    for span in spans:
+        if span.name.startswith("chat "):
+            assert span.parent is not None
+            assert span.parent.span_id == agent_span.context.span_id
     for span in spans:
         assert "traveler prefers aisle seats" not in str(span.attributes)
 
@@ -1267,5 +1291,43 @@ def test_embedding_public_path_reports_usage_limit_in_embedding_stage() -> None:
         assert diagnostics.stage is ProcessingStage.EMBEDDING
         assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
         assert diagnostics.cause_exception_type == "UsageLimitExceeded"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("query", [False, True])
+def test_embedding_budget_checks_later_items_before_sending_any_batch(query: bool) -> None:
+    from powercontext.builtin.inference.budget import EmbeddingBudget
+    from powercontext.builtin.inference.errors import InferenceBudgetExceededError
+
+    async def scenario():
+        recording = RecordingEmbeddingModel()
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(recording),
+            profile=TEST_PROFILE,
+            batch_size=1,
+            budget=EmbeddingBudget(max_input_tokens_per_text=2),
+        )
+        with pytest.raises(InferenceBudgetExceededError):
+            await (adapter.embed_query(("ok", "X" * 100)) if query else adapter.embed(("ok", "X" * 100)))
+        assert recording.calls == []
+
+    asyncio.run(scenario())
+
+
+def test_embedding_failure_retains_usage_from_the_previous_batch() -> None:
+    async def scenario():
+        class FailingEmbedding(RecordingEmbeddingModel):
+            async def embed(self, inputs, *, input_type, settings=None):
+                if self.calls:
+                    raise InferenceUnavailableError("embed")
+                return await super().embed(inputs, input_type=input_type, settings=settings)
+
+        adapter = PydanticAIEmbeddingModel(embedder=Embedder(FailingEmbedding()), profile=TEST_PROFILE, batch_size=1)
+        with pytest.raises(InferenceUnavailableError) as rejected:
+            await adapter.embed(("first", "second"))
+        assert rejected.value.usage is not None
+        assert rejected.value.usage.requests == 1
+        assert rejected.value.usage.input_tokens == 1
 
     asyncio.run(scenario())

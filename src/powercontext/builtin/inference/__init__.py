@@ -18,7 +18,22 @@ Pydantic AI remains optional and is imported only from
 ``powercontext.builtin.inference.pydantic_ai``.
 """
 
+from powercontext.builtin.inference.budget import (
+    GENERATION_OPERATIONS,
+    AdmissionDecision,
+    AdmissionPhase,
+    BudgetDimension,
+    BudgetProvenance,
+    BudgetUnit,
+    ContextSemantics,
+    EffectiveRequestBudget,
+    RequestEstimate,
+    admit_request,
+    raise_if_rejected,
+    resolve_request_budget,
+)
 from powercontext.builtin.inference.errors import (
+    InferenceBudgetExceededError,
     InferenceConfigurationError,
     InferenceError,
     InferencePrivacyError,
@@ -38,13 +53,27 @@ from powercontext.builtin.inference.protocols import (
     StructuredGenerator,
     embed_query,
 )
-from powercontext.builtin.inference.tokens import TokenEstimator, TokenEstimatorProfile, character_token_estimator
+from powercontext.builtin.inference.tokens import (
+    TokenEstimator,
+    TokenEstimatorProfile,
+    character_token_estimator,
+    resolve_token_estimator,
+)
 
 __all__ = [
+    "GENERATION_OPERATIONS",
+    "AdmissionDecision",
+    "AdmissionPhase",
+    "BudgetDimension",
+    "BudgetProvenance",
+    "BudgetUnit",
+    "ContextSemantics",
+    "EffectiveRequestBudget",
     "EmbeddingModel",
     "EmbeddingResult",
     "EmbeddingVector",
     "GenerationResult",
+    "InferenceBudgetExceededError",
     "InferenceConfigurationError",
     "InferenceError",
     "InferencePrivacyError",
@@ -53,9 +82,14 @@ __all__ = [
     "InferenceUsage",
     "InvalidInferenceOutputError",
     "QueryEmbeddingModel",
+    "RequestEstimate",
     "StructuredGenerator",
     "TokenEstimator",
     "TokenEstimatorProfile",
+    "admit_request",
     "character_token_estimator",
     "embed_query",
+    "raise_if_rejected",
+    "resolve_request_budget",
+    "resolve_token_estimator",
 ]

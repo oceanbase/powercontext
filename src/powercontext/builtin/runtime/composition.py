@@ -98,6 +98,7 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.input_encoding import INPUT_ENCODING_SCHEMA_V2
 from powercontext.builtin.inference.observability import (
     ProviderObservationReport,
@@ -1477,12 +1478,19 @@ def _register_prompt_demonstrators(
     model: Model,
     limits: InferenceLimits,
     settings: ModelSettings | None,
+    budget: EffectiveRequestBudget | None,
 ) -> None:
     if target is None:
         return
     from powercontext.builtin.inference.prompt_demonstrations import PromptDemonstrationGenerator
 
-    generator = PromptDemonstrationGenerator(model, limits=limits, model_settings=settings)
+    generator = PromptDemonstrationGenerator(
+        model,
+        limits=limits,
+        model_settings=settings,
+        budget=budget,
+        operation="prompt_demonstrations",
+    )
     target.update(dict.fromkeys(keys, generator))
 
 
@@ -1506,6 +1514,7 @@ async def _dream_generator(
     from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+    from powercontext.builtin.inference.request_accounting import BudgetedModel
 
     provider_model, model = await _open_pydantic_ai_model(
         settings.generation_model,
@@ -1519,7 +1528,10 @@ async def _dream_generator(
         protection=settings.protection,
     )
     model_settings = cast(ModelSettings, dict(settings.generation_model_settings))
-    model_settings["max_tokens"] = min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
+    request_budget = settings.generation_deployment_budget.with_output_limit(
+        min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
+    )
+    model_settings["max_tokens"] = request_budget.output_reserve_tokens
     identity = settings.model_dump_json(
         include={
             "generation_model",
@@ -1529,12 +1541,12 @@ async def _dream_generator(
         }
     )
     identity = json.dumps(
-        [identity, getattr(provider_model, "base_url", None), model_settings],
+        [identity, getattr(provider_model, "base_url", None), model_settings, request_budget.model_dump()],
         sort_keys=True,
         default=str,
     )
     generator = PydanticAIStructuredGenerator(
-        model=model,
+        model=BudgetedModel.wrap(model),
         instructions=DREAM_INSTRUCTIONS,
         input_type=DreamGenerationInput,
         output_type=DreamPlan,
@@ -1547,6 +1559,7 @@ async def _dream_generator(
     return LLMDreamGenerator(
         UsageReportingStructuredGenerator(generator),
         config_id=content_digest(identity.encode()),
+        budget=request_budget,
     )
 
 
@@ -1611,7 +1624,6 @@ async def _generation_pipelines(
         SkillGenerationOutput,
     )
     from powercontext.builtin.inference.pydantic_ai import (
-        InferenceLimits,
         PydanticAIStructuredGenerator,
         probe_pydantic_ai_model,
     )
@@ -1641,10 +1653,6 @@ async def _generation_pipelines(
             protection=settings.protection,
         )
         generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
-        generation_limits = InferenceLimits(
-            timeout_seconds=settings.generation_timeout_seconds,
-            max_requests=settings.generation_max_requests,
-        )
         _register_prompt_demonstrators(
             prompt_demonstrators,
             (
@@ -1661,8 +1669,9 @@ async def _generation_pipelines(
                 ),
             ),
             generation_model,
-            generation_limits,
+            settings.generation_limits("prompt_demonstrations"),
             generation_request_settings,
+            settings.generation_budget("prompt_demonstrations"),
         )
         generated_profile = LLMProfileGenerator(
             UsageReportingStructuredGenerator(
@@ -1671,12 +1680,15 @@ async def _generation_pipelines(
                     instructions=PROFILE_INSTRUCTIONS,
                     input_type=ProfileGenerationInput,
                     output_type=ProfileGenerationOutput,
-                    limits=generation_limits,
+                    limits=settings.generation_limits("profile.generate"),
                     model_settings=generation_request_settings,
                     name="profile_generation",
                     prompt_key="profile.generate",
+                    budget=settings.generation_budget("profile.generate"),
+                    operation="profile.generate",
                 )
-            )
+            ),
+            timeout_seconds=settings.generation_limits("profile.generate").timeout_seconds,
         )
         memory_estimator = character_token_estimator()
         input_policy = PrivacyPolicy(settings.protection)
@@ -1699,10 +1711,12 @@ async def _generation_pipelines(
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("atomic_memory.extract"),
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            budget=settings.generation_budget("atomic_memory.extract"),
+            operation="atomic_memory.extract",
             output_check=validate_extraction_output,
             input_renderer=memory_send_renderer,
         )
@@ -1711,10 +1725,12 @@ async def _generation_pipelines(
             instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
             input_type=AtomicMemoryReconciliationInput,
             output_type=AtomicMemoryReconciliationOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("atomic_memory.reconcile"),
             model_settings=generation_request_settings,
             name="atomic_memory_reconciliation",
             prompt_key="atomic_memory.reconcile",
+            budget=settings.generation_budget("atomic_memory.reconcile"),
+            operation="atomic_memory.reconcile",
             output_check=validate_reconciliation_decision,
             input_renderer=memory_send_renderer,
         )
@@ -1723,10 +1739,12 @@ async def _generation_pipelines(
             instructions=EXPERIENCE_INCUBATION_INSTRUCTIONS,
             input_type=ExperienceIncubationInput,
             output_type=ExperienceIncubationOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("experience.incubate"),
             model_settings=generation_request_settings,
             name="experience_incubation",
             prompt_key="experience.incubate",
+            budget=settings.generation_budget("experience.incubate"),
+            operation="experience.incubate",
             input_renderer=(
                 partial(
                     render_input,
@@ -1746,10 +1764,12 @@ async def _generation_pipelines(
             instructions=EXPERIENCE_GENERATION_INSTRUCTIONS,
             input_type=ArtifactGenerationInput,
             output_type=ExperienceGenerationOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("experience.generate"),
             model_settings=generation_request_settings,
             name="experience_generation",
             prompt_key="experience.generate",
+            budget=settings.generation_budget("experience.generate"),
+            operation="experience.generate",
             input_renderer=(
                 partial(
                     render_input,
@@ -1769,20 +1789,24 @@ async def _generation_pipelines(
             instructions=SKILL_GENERATION_INSTRUCTIONS,
             input_type=ArtifactGenerationInput,
             output_type=SkillGenerationOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("skill.generate"),
             model_settings=generation_request_settings,
             name="skill_generation",
             prompt_key="skill.generate",
+            budget=settings.generation_budget("skill.generate"),
+            operation="skill.generate",
         )
         handoff_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=HANDOFF_GENERATION_INSTRUCTIONS,
             input_type=HandoffGenerationInput,
             output_type=HandoffGenerationOutput,
-            limits=generation_limits,
+            limits=settings.generation_limits("handoff.generate"),
             model_settings=generation_request_settings,
             name="handoff_generation",
             prompt_key="handoff.generate",
+            budget=settings.generation_budget("handoff.generate"),
+            operation="handoff.generate",
         )
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
@@ -1790,6 +1814,9 @@ async def _generation_pipelines(
             estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_renderer=memory_input_renderer,
+            request_budgets={
+                key: settings.generation_budget(key) for key in ("atomic_memory.extract", "atomic_memory.reconcile")
+            },
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
@@ -1848,29 +1875,36 @@ async def _generation_pipelines(
                 rerank_request_settings,
                 ModelSettings(temperature=0.0),
             )
+            # A rerank model on its own endpoint has its own context window. Without a
+            # declared capacity the workload keeps no budget instead of borrowing the
+            # generation window, and demonstrations follow the same rule as the call.
+            rerank_budget = (
+                settings.generation_budget("memory.rerank") if settings.rerank_model is None else settings.rerank_budget
+            )
             rerank_generator = PydanticAIStructuredGenerator(
                 model=rerank_model,
                 instructions=MEMORY_RERANK_INSTRUCTIONS,
                 input_type=MemoryRerankInput,
                 output_type=MemoryRerankOutput,
-                limits=InferenceLimits(
-                    timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
-                    max_requests=settings.rerank_max_requests or settings.generation_max_requests,
-                ),
+                limits=settings.generation_limits("memory.rerank"),
                 model_settings=rerank_request_settings,
                 name="memory_rerank",
                 prompt_key="memory.rerank",
+                budget=rerank_budget,
+                operation="memory.rerank" if rerank_budget is not None else None,
             )
             generated_reranker = LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))
             _register_prompt_demonstrators(
                 prompt_demonstrators,
                 ("memory.rerank",),
                 rerank_model,
-                InferenceLimits(
-                    timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
-                    max_requests=settings.rerank_max_requests or settings.generation_max_requests,
-                ),
+                settings.generation_limits("prompt_demonstrations")
+                if inherits_generation
+                else settings.rerank_demonstration_limits(),
                 rerank_request_settings,
+                settings.generation_budget("prompt_demonstrations")
+                if inherits_generation
+                else settings.rerank_demonstration_budget,
             )
 
             if separate_rerank_model or settings.rerank_model_settings:
@@ -1931,7 +1965,6 @@ async def _generation_decision(
     from pydantic_ai.settings import ModelSettings, merge_model_settings
 
     from powercontext.builtin.inference.pydantic_ai import (
-        InferenceLimits,
         PydanticAIStructuredGenerator,
         probe_pydantic_ai_model,
     )
@@ -1973,17 +2006,22 @@ async def _generation_decision(
         decision_request_settings,
         ModelSettings(temperature=0.0),
     )
+    # A separate decision model may have a different context window; the deployment
+    # declares that endpoint's capacity with decision_request_budget, and without it the
+    # gate keeps no budget instead of borrowing the generation window.
+    decision_budget = (
+        settings.generation_budget("memory.write-gate") if settings.decision_model is None else settings.decision_budget
+    )
     decision_generator = PydanticAIStructuredGenerator(
         model=decision_model,
         instructions=DECISION_INSTRUCTIONS,
         input_type=DecisionInput,
         output_type=DecisionOutput,
-        limits=InferenceLimits(
-            timeout_seconds=settings.decision_timeout_seconds or settings.generation_timeout_seconds,
-            max_requests=settings.decision_max_requests or settings.generation_max_requests,
-        ),
+        limits=settings.generation_limits("memory.write-gate"),
         model_settings=decision_request_settings,
         name="decision_evaluate",
+        budget=decision_budget,
+        operation="memory.write-gate" if decision_budget is not None else None,
     )
     generated_decision = LLMDecisionModel(
         UsageReportingStructuredGenerator(decision_generator),
@@ -2451,6 +2489,7 @@ async def _embedding_models(
             batch_size=settings.embedding_batch_size,
             profile=profile,
             limits=limits,
+            budget=settings.embedding_budget,
         )
 
     # Readiness runs outside an application operation, so use the same provider model
@@ -2493,6 +2532,7 @@ def _minimax_embedding_models(
             batch_size=settings.embedding_batch_size,
             timeout_seconds=settings.embedding_timeout_seconds,
             protection=settings.protection,
+            budget=settings.embedding_budget,
         )
         resources.push_async_callback(model.aclose)
         return model

@@ -46,7 +46,7 @@ from starlette.routing import Match
 from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
 
-from powercontext._logging import error_category, log_context, log_safely
+from powercontext._logging import current_log_context, error_category, log_context, log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, StableHandle
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
@@ -209,6 +209,7 @@ from powercontext.builtin.handoff_report import (
     HandoffReportTooLargeError,
 )
 from powercontext.builtin.inference.errors import (
+    InferenceBudgetExceededError,
     InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -6665,6 +6666,14 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
 
 
 def _map_context_inference_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InferenceBudgetExceededError):
+        _observe_inference_budget_rejection(error)
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "inference_budget_exceeded",
+            "The inference request does not fit the configured budget.",
+            error.details(),
+        )
     if isinstance(error, InferencePrivacyError):
         code = 403 if error.decision == "block" else 503
         return (
@@ -6680,6 +6689,39 @@ def _map_context_inference_error(error: Exception) -> tuple[int, str, str, dict[
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return None
+
+
+def _observe_inference_budget_rejection(error: InferenceBudgetExceededError) -> None:
+    """Record one budget rejection with its bounded, content-free facts."""
+
+    # The same exception is classified while building the response and while logging the
+    # request outcome, so one rejection must stay one record.
+    if getattr(error, "_budget_observed", False):
+        return
+    setattr(error, "_budget_observed", True)  # noqa: B010 - one exception must yield one record
+    decision = error.decision
+    log_safely(
+        logger,
+        logging.INFO,
+        "Inference request rejected by budget",
+        extra={
+            "event": "inference.budget.rejected",
+            "outcome": "rejected",
+            "operation": decision.operation,
+            "unit": "inference",
+            "budget_unit": decision.unit,
+            "output_reserve_tokens": decision.output_reserve_tokens,
+            "safety_margin_tokens": decision.safety_margin_tokens,
+            "scope": current_log_context().get("scope"),
+            "stage": decision.stage,
+            "budget_dimension": decision.dimension,
+            "budget_phase": decision.phase,
+            "estimated_value": decision.estimated_value,
+            "limit_value": decision.limit_value,
+            "estimator_id": decision.estimator_id,
+            "estimator_version": decision.estimator_version,
+        },
+    )
 
 
 def _map_memory_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

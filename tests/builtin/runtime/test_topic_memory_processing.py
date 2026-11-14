@@ -2073,6 +2073,47 @@ def test_topic_windows_exclude_lineage_only_sources_and_advance_the_full_journal
     asyncio.run(scenario())
 
 
+def test_selector_narrows_to_the_configured_probe_allowance() -> None:
+    async def scenario() -> None:
+        manager, profile, sources, _ = await _repositories()
+        try:
+            async with profile.database.transaction() as connection:
+                for index in range(3):
+                    await sources.add(
+                        connection,
+                        "scope-a",
+                        NoteSource(
+                            name=f"wide-{index}",
+                            materialization=SourceMaterialization.CAPTURED,
+                            body="x" * 1_000,
+                        ),
+                    )
+            estimator = TokenEstimator(character_token_estimator().profile, len)
+
+            derived = TopicMemoryWindowSelector(
+                profile.database,
+                sources,
+                estimator,
+                context_window_tokens=10_000,
+                probe_fixed_prompt="P",
+            )
+            narrowed = TopicMemoryWindowSelector(
+                profile.database,
+                sources,
+                estimator,
+                context_window_tokens=10_000,
+                input_tokens_limit=2_000,
+                probe_fixed_prompt="P",
+            )
+
+            assert await derived.select("scope-a", 0, 3) == 3
+            assert await narrowed.select("scope-a", 0, 3) == 1
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
 def test_selector_keeps_one_oversized_source_without_skipping_or_truncating() -> None:
     async def scenario() -> None:
         manager, profile, sources, _ = await _repositories()
