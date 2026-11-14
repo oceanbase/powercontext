@@ -5,16 +5,34 @@ description: Configure full memory, connect Codex, and verify Source capture, To
 
 # Quick Start
 
-Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic, then recover the decisions in a new session. These instructions use PowerContext 1.5.1, with the Agent plugin from the matching `powercontext-v1.5.1` tag.
+Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic, then recover the decisions in a new session. The installer selects the latest stable release; the plugin commands below select the tag matching your installed version.
 
-You need macOS or Linux, Python 3.11+, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and an installed Codex CLI. Full memory also needs working Generation and Embedding model APIs: prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves and recall; that does not enable automatic Topic Memory. To provision Python and uv automatically, use the [installation script](install-and-run.md#install-with-the-recommended-script).
+You need macOS, Linux, or Windows, Git, and an installed Codex CLI. The installer provisions Python and uv if needed. Full memory also needs working Generation and Embedding model APIs: prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves and recall; that does not enable automatic Topic Memory.
 
 ## 1. Install and open the wizard
 
-```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
-mkdir -p ~/powercontext-demo
-cd ~/powercontext-demo
+```bash tab="macOS / Linux"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+```powershell tab="Windows"
+irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Follow the installer's PATH instructions in your current terminal before continuing. For version selection, mirrors, or a remote-client-only installation, see [Install and run](install-and-run.md).
+
+Create a configuration directory and open the wizard:
+
+```bash tab="macOS / Linux"
+mkdir -p "$HOME/powercontext-demo"
+cd "$HOME/powercontext-demo"
+powercontext config init --language en --output .env
+```
+
+```powershell tab="Windows"
+New-Item -ItemType Directory -Force "$HOME/powercontext-demo" | Out-Null
+Set-Location "$HOME/powercontext-demo"
 powercontext config init --language en --output .env
 ```
 
@@ -39,7 +57,7 @@ The final screen shows the Dashboard URL and the SSH command when selected. If a
 
 ## 2. Start the Server
 
-Register a personal service so the Server keeps running after you close the terminal. Linux needs an available `systemd --user` manager. Run:
+Register a personal service so the Server keeps running after you close the terminal. Linux needs an available `systemd --user` manager. On Windows, answer the prompt about starting at your next login. These commands work on all three platforms:
 
 ```bash
 powercontext config validate --env-file .env
@@ -49,13 +67,22 @@ powercontext service status
 
 Open the Dashboard URL printed by the wizard, using the port saved as `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in with the **Server token**, not a model API key. An empty Dashboard is expected before you capture data. For development, debugging, temporary use, or systems without a native user-service manager, use `powercontext server run --env-file .env`; stop the personal service first if it is running. See [persistent personal services](../operate/deploy-server.md#run-a-persistent-personal-server).
 
-Load the client settings and check the running service:
+Load the client settings and check the running service. On Windows, set the URL to `POWERCONTEXT_CLIENT_SERVER_URL` from `.env` and enter the Server token when prompted; leave it empty if authentication is disabled. The token is used only by this terminal and its child processes.
 
-```bash
-cd ~/powercontext-demo
+```bash tab="macOS / Linux"
+cd "$HOME/powercontext-demo"
 set -a
 . ./.env
 set +a
+powercontext ready
+powercontext capabilities
+```
+
+```powershell tab="Windows"
+Set-Location "$HOME/powercontext-demo"
+$env:POWERCONTEXT_CLIENT_SERVER_URL = "http://127.0.0.1:17429"
+$serverToken = Read-Host "Server token (empty if disabled)" -AsSecureString
+$env:POWERCONTEXT_CLIENT_API_TOKEN = [System.Net.NetworkCredential]::new("", $serverToken).Password
 powercontext ready
 powercontext capabilities
 ```
@@ -64,7 +91,13 @@ Confirm readiness and the capabilities you selected. A `degraded` result means s
 
 ## 3. Create a Scope and install the Codex plugin
 
-Open `.env.next-steps.md` and run the request under “Create the planned isolated Scopes”. The Server returns the real `scope_id`. Add it to `.env`:
+Open `.env.next-steps.md` and run the request under “Create the planned isolated Scopes”. In PowerShell, you can instead create the Scope through the same Server-backed CLI:
+
+```powershell
+powercontext scope create --title "Aurora" --summary "Aurora quick-start project"
+```
+
+The Server returns the real `scope_id`. Add it to `.env`:
 
 ```dotenv
 POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
@@ -72,15 +105,24 @@ POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
 
 The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put the ID returned by its creation request in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one. Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
 
-After editing `.env`, apply the updated service settings, reload the client settings, and install the matching plugin:
+After editing `.env`, pass the Scope to the terminal that starts Codex. On macOS and Linux, reload the file. In PowerShell, set the returned ID explicitly; do not execute `.env` as a script:
+
+```bash tab="macOS / Linux"
+set -a
+. ./.env
+set +a
+```
+
+```powershell tab="Windows"
+$env:POWERCONTEXT_CODEX_SCOPE_ID = "replace-with-returned-scope-id"
+```
+
+Apply the updated service settings and install the matching plugin. `setup` reads its connection settings from `.env`:
 
 ```bash
 powercontext service install --env-file .env
 powercontext service status
-set -a
-. ./.env
-set +a
-powercontext setup codex --ref powercontext-v1.5.1
+powercontext setup codex --env-file .env --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 codex
 ```

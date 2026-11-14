@@ -22,22 +22,28 @@ home:
   onboarding:
     title: From installation to your first memory
     lead: Start with a Server, configure the capabilities you need, then connect your Agent. The guide covers local use and access from another device.
-    preview_label: Guided setup preview.
-    preview_note: These instructions use the official oceanbase/powercontext master branch.
-    repository_label: View this source branch
+    preview_label: Before you start.
+    preview_note: Follow the installer's PATH instructions. Agent integrations also require the Agent CLI and Git.
+    repository_label: View source
     guide_label: Follow the complete guide
     steps:
       - title: Install PowerContext
-        description: Use Python 3.11 or later, Git, and uv. Install this branch on the machine that will run the Server.
-        command: uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+        description: Install the latest stable release with local Server support. The installer sets up Python and uv if needed.
+        command_tabs:
+          - label: macOS / Linux
+            command: curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+          - label: Windows
+            command: |
+              irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+              powershell -ExecutionPolicy Bypass -File .\install.ps1
       - title: Follow the configuration wizard
         description: Choose your storage, access scenario, memory capabilities, Dashboard, and Agents. It writes configuration files and tailored next steps.
         command: powercontext config init
       - title: Start the Server
-        description: Run from the directory containing your generated .env. Open the Dashboard URL and use the token shown by the wizard, if enabled.
+        description: Run from the directory containing your generated .env and keep this terminal open. Use the Dashboard URL and token provided by the wizard, if enabled.
         command: powercontext server run --env-file .env
       - title: Connect your Agent and verify memory
-        description: Follow .env.next-steps.md to create or select a Scope and connect your Agent. Verify that a real conversation becomes a Source, then check memory processing if enabled.
+        description: Follow .env.next-steps.md to connect your Agent and select a Scope. Save a decision, then retrieve it with its citation in a new session using the same Scope.
   continuity:
     title: The session ends before the work does.
     lead: You make a decision, change the code, and stop before the task is complete. PowerContext keeps the useful context with the project so the next session can continue from the current state.

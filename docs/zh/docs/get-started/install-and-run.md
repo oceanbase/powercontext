@@ -1,6 +1,6 @@
 ---
 title: 安装和运行
-description: 安装 PowerContext 1.5.1，并运行本地 Server。
+description: 安装最新稳定版 PowerContext，并运行本地 Server。
 ---
 
 # 安装和运行
@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://pow
 
 使用 `wget` 时，执行 `wget -qO- https://powercontext.oceanbase.io/install.sh | bash`。
 
-先执行安装完成时打印的 PATH 命令，再在终端使用 `powercontext`。脚本会提示如何让终端找到已安装命令；shell 启动文件和 Windows 的持久 PATH 保持不变。
+先执行安装完成时打印的 PATH 命令，再在终端使用 `powercontext` 或启动 Agent。脚本会提示如何让终端找到已安装命令；shell 启动文件和 Windows 的持久 PATH 保持不变。
 
 默认安装最新稳定版及本地 Server 依赖。完成后继续配置个人服务。连接远程 Server 时，使用 `--profile client`，再按[远程连接指南](../operate/connect-remote-server.md)设置。
 
@@ -82,7 +82,7 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ## 选择脚本安装版本
 
-默认的 `--version latest` 安装或升级到所选索引中兼容的最新稳定版。安装 PowerContext 1.5.1 时，选择对应平台的命令：
+不传 `--version` 时，默认安装或升级到所选索引中兼容的最新稳定版，等同于 `--version latest`。只有需要固定版本时才指定版本号，例如安装 PowerContext 1.5.1：
 
 ```bash tab="macOS / Linux"
 curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.1
@@ -140,11 +140,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 
 ## 使用 uv 手动安装
 
-已有 Python 和 uv 时，可以直接安装固定发行版。先选择版本，再安装所需的包 extras。
+已有 Python 和 uv 时，可以直接安装或升级到最新稳定版，再安装与实际版本匹配的 Agent 集成：
+
+```bash
+uv tool install --upgrade --force "powercontext[cli,server]"
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
+```
 
 ### 选择版本
 
-本页使用 PowerContext 1.5.1。包与 Agent 集成保持版本一致：Python 包版本为 `1.5.1`，对应 Git tag 为 `powercontext-v1.5.1`。
+如需固定版本，以 PowerContext 1.5.1 为例，包与 Agent 集成保持版本一致：Python 包版本为 `1.5.1`，对应 Git tag 为 `powercontext-v1.5.1`。
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.5.1"
@@ -158,10 +163,10 @@ powercontext setup codex --ref powercontext-v1.5.1
 需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和 [`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
+uv tool install --upgrade --force "powercontext[cli,server]"
 ```
 
-如需从源码安装同一版本：
+如需从源码安装固定版本，以 PowerContext 1.5.1 为例：
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.1"

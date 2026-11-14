@@ -218,11 +218,22 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         system_path = os.defpath
     installer += ["--no-hosts", "--version", str(version)]
     if environment.startswith("bootstrap"):
+        env["UV_PYTHON_BIN_DIR"] = str(tmp_path / "python bin")
         if sys.platform == "win32":
             env["PATH"] = system_path
             env["UV_PYTHON_NO_REGISTRY"] = "1"
         else:
             env["PATH"] = str(utilities_without_python_or_uv(tmp_path, system_path))
+        if environment == "bootstrap-global":
+            # A discoverable executable need not be a runnable Python interpreter.
+            unusable_python = tmp_path / "unusable-python"
+            unusable_python.mkdir()
+            executable = "/usr/bin/false"
+            if sys.platform == "win32":
+                executable = os.path.join(os.environ["SYSTEMROOT"], "System32", "whoami.exe")
+            name = "python3.exe" if sys.platform == "win32" else "python3"
+            shutil.copy2(executable, unusable_python / name)
+            env["PATH"] = str(unusable_python) + os.pathsep + env["PATH"]
         env.update(TZ="Asia/Shanghai", LC_ALL="C", LANG="en_US.UTF-8")
         if environment == "bootstrap-global":
             env["POWERCONTEXT_INSTALL_REGION"] = "cn"
@@ -240,6 +251,14 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
         )
     run(installer, tmp_path, env, "install")
+    if environment.startswith("bootstrap"):
+        python3 = Path(env["UV_PYTHON_BIN_DIR"]) / ("python3.exe" if sys.platform == "win32" else "python3")
+        run(
+            [str(python3), "-c", "import sys; assert sys.version_info >= (3, 11)"],
+            tmp_path,
+            env,
+            "python3-hook-runtime",
+        )
     if environment == "existing":
         # A fresh tool/cache forces resolution; exact reinstallation may legitimately reuse the existing tool.
         failed_source_env = {

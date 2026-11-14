@@ -110,6 +110,7 @@ def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns th
     wheels = {version: build_wheel(version) for version in ("1.0.0", "1.1.0", "1.2.0rc1")}
 
     class Index(http.server.BaseHTTPRequestHandler):
+        base_url: ClassVar[str]
         mirror_status = 200
         mirror_versions: ClassVar[list[str]] = ["1.0.0", "1.1.0", "1.2.0rc1"]
         requests: ClassVar[list[str]] = []
@@ -160,6 +161,7 @@ def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns th
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()
     base = f"https://localhost:{server.server_port}"
+    Index.base_url = base
     utilities = tmp_path / "utilities"
     utilities.mkdir()
     # Translate only distribution endpoints to fixtures; run the real downloader and uv.
@@ -243,6 +245,49 @@ def test_latest_stable_and_explicit_prerelease(installation, region):
     assert version() == "1.1.0"
 
 
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("uv.toml", 'resolution = "lowest-direct"\n'),
+        ("pyproject.toml", '[tool.uv]\nresolution = "lowest-direct"\n'),
+    ],
+)
+@pytest.mark.parametrize("explicit_project", [False, True])
+def test_latest_ignores_calling_project_configuration(installation, filename, content, explicit_project):
+    install, version, _index, env = installation
+    project = Path(env["HOME"]).parent
+    config = project / filename
+    config.write_text(content, encoding="utf-8")
+
+    install("--region", "global", extra={"UV_PROJECT": str(project)} if explicit_project else {})
+
+    assert version() == "1.1.0"
+    assert config.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.parametrize("configuration", ["user", "explicit"])
+@pytest.mark.parametrize("generate_hashes", [False, True])
+def test_latest_preserves_configured_index_over_project_index(installation, configuration, generate_hashes):
+    install, version, index, env = installation
+    project = Path(env["HOME"]).parent
+    (project / "uv.toml").write_text(
+        f'[[index]]\nurl = "{index.base_url}/global/simple"\ndefault = true\n', encoding="utf-8"
+    )
+    index.mirror_versions = ["1.0.0"]
+    config = Path(env["XDG_CONFIG_HOME"]) / "uv/uv.toml" if configuration == "user" else project / "selected.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    content = f'[[index]]\nurl = "{index.base_url}/cn/simple"\ndefault = true\n'
+    if generate_hashes:
+        content += "\n[pip]\ngenerate-hashes = true\n"
+    config.write_text(content, encoding="utf-8")
+
+    install("--region", "global", extra={"UV_CONFIG_FILE": config.name} if configuration == "explicit" else {})
+
+    assert version() == "1.0.0"
+    assert not any(path.startswith("/global/") for path in index.requests)
+    assert config.read_text(encoding="utf-8") == content
+
+
 def test_latest_without_a_stable_release_preserves_installed_prerelease(installation):
     install, version, index, _env = installation
     install("--region", "cn", "--version", "1.2.0rc1")
@@ -250,7 +295,7 @@ def test_latest_without_a_stable_release_preserves_installed_prerelease(installa
 
     output = install("--region", "cn", success=False)
 
-    assert "Installation failed" in output
+    assert "Could not select the latest stable PowerContext release" in output
     assert version() == "1.2.0rc1"
 
 

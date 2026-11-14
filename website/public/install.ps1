@@ -25,6 +25,7 @@ $Hosts = @()
 $NoHosts = $false
 $EnvFile = ''
 $Uv = ''
+$PythonBinDir = ''
 $TempDir = $null
 
 function Show-Help {
@@ -327,17 +328,59 @@ try {
         $Python = & $Uv python find --system --no-project --no-python-downloads 3.12
         if ($LASTEXITCODE -ne 0 -or -not $Python) { throw 'Installed Python was not found.' }
     }
+    $Python3 = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $Python3Available = $false
+    if ($Python3) {
+        try {
+            & $Uv python find --no-project --no-python-downloads $Python3.Source *> $null
+            $Python3Available = $LASTEXITCODE -eq 0
+        }
+        catch { $Python3Available = $false }
+    }
+    if (-not $Python3Available) {
+        $ManagedPython = $null
+        try {
+            $ManagedPython = & $Uv python find --managed-python --no-project --no-python-downloads 3.12 2>$null
+            if ($LASTEXITCODE -ne 0) { $ManagedPython = $null }
+        }
+        catch { $ManagedPython = $null }
+        if ($ManagedPython) {
+            # uv normally exposes only python3.12; Claude Code hooks need python3.
+            & $Uv python install --default 3.12
+            if ($LASTEXITCODE -ne 0) { throw 'Could not expose the installed Python as python3.' }
+            $PythonBinDir = & $Uv python dir --bin
+            if ($LASTEXITCODE -ne 0 -or -not $PythonBinDir) { throw 'Could not locate Python executables.' }
+            $PythonBinDir = $PythonBinDir.Trim()
+            $env:PATH = "$PythonBinDir;$env:PATH"
+        }
+    }
     $IndexUrl = Select-Index
     $Requirement = 'powercontext[cli,server]'
     if ($RuntimeProfile -eq 'client') { $Requirement = 'powercontext[cli]' }
     $InstallArgs = @('tool', 'install', '--python', $Python.Trim(), '--no-python-downloads')
-    # Older uv retains installed prereleases unless it resolves a fresh tool environment.
-    if ($Version -eq 'latest') { $InstallArgs += @('--upgrade', '--force', '--prerelease', 'disallow') }
-    else { $Requirement += "==$Version" }
+    if ($Version -eq 'latest') {
+        # Restrict only PowerContext to stable releases; its dependencies may require betas.
+        $ReleaseInput = Join-Path $TempDir 'release.in'
+        $ReleaseOutput = Join-Path $TempDir 'release.txt'
+        [IO.File]::WriteAllText($ReleaseInput, "powercontext`n")
+        # Ignore the invoking project's settings while retaining user and explicit uv configuration.
+        [IO.File]::WriteAllText((Join-Path $TempDir 'uv.toml'), '')
+        $ResolveArgs = @('pip', 'compile', '--project', $TempDir, '--no-deps', '--upgrade', '--prerelease', 'disallow',
+            '--python', $Python.Trim(), '--no-python-downloads', '--no-header', '--no-annotate', '--no-generate-hashes',
+            '--output-file', $ReleaseOutput, $ReleaseInput)
+        if ($IndexUrl) { $ResolveArgs += @('--default-index', $IndexUrl) }
+        & $Uv @ResolveArgs | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not select the latest stable PowerContext release. Check uv indexes and Python compatibility.' }
+        $Release = @(Select-String -LiteralPath $ReleaseOutput -Pattern '^powercontext==([0-9]+\.[0-9]+\.[0-9]+)$')
+        if ($Release.Count -ne 1) { throw 'uv did not resolve a stable PowerContext release.' }
+        $Version = $Release[0].Matches[0].Groups[1].Value
+        # Older uv retains installed prereleases unless it resolves a fresh tool environment.
+        $InstallArgs += @('--upgrade', '--force')
+    }
+    $Requirement += "==$Version"
     if ($Hosts.Count -and $RuntimeProfile -eq 'client') {
         # Verify the selected client package supports setup before replacing the installed tool.
         $ProbeArgs = @('tool', 'run', '--isolated', '--python', $Python.Trim(), '--no-python-downloads', '--from', $Requirement)
-        if ($Version -eq 'latest') { $ProbeArgs += @('--prerelease', 'disallow') }
         if ($IndexUrl) { $ProbeArgs += @('--default-index', $IndexUrl) }
         & $Uv @ProbeArgs powercontext setup --help | Out-Null
         if ($LASTEXITCODE -ne 0) {
@@ -370,6 +413,7 @@ try {
     $Version = $InstalledVersion.Trim()
     Write-Host "Runtime installed: $Version ($RuntimeProfile)"
     $PathPrefix = ("$($ToolBin.Trim());$(Split-Path -Parent $Uv)").Replace("'", "''")
+    if ($PythonBinDir) { $PathPrefix = $PythonBinDir.Replace("'", "''") + ';' + $PathPrefix }
     Write-Host ('For a new terminal: $env:Path = ''' + $PathPrefix + ';'' + $env:Path')
     $SetupStatus = 0
     if ($Hosts.Count) {
