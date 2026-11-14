@@ -15,8 +15,15 @@
 """Installed Server and spawned generation Worker share text/vector/hybrid search."""
 
 import asyncio
+from pathlib import Path
+
+from sqlalchemy import create_engine, select, update
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_FAMILY_SCHEMAS_TABLE,
+    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
+)
 from tests.builtin.persistence.test_artifact_indexes import PROFILE, body
 from tests.e2e.test_artifact_plugin_search import _PIPELINE, _write_report
 from tests.e2e.test_artifact_plugins import (
@@ -56,6 +63,21 @@ families = (ArtifactFamily(
 ),)
 inputs = InputContract(projections=inputs.projections, artifact_families=("experience", "skill", "profile"))
 """
+
+# Existing registrations persisted this definition inside their content schema.
+_PERSISTED_EMBEDDING_PROFILE = {
+    "description": "The Memory embedding index contract for one deployment.",
+    "properties": {
+        "dimension": {"title": "Dimension", "type": "integer"},
+        "distance": {"const": "l2", "default": "l2", "title": "Distance", "type": "string"},
+        "model": {"title": "Model", "type": "string"},
+        "normalization": {"default": "unit", "enum": ["none", "unit"], "title": "Normalization", "type": "string"},
+        "profile_id": {"title": "Profile Id", "type": "string"},
+    },
+    "required": ["profile_id", "model", "dimension"],
+    "title": "EmbeddingProfile",
+    "type": "object",
+}
 
 
 def test_vector_search_through_http_and_spawned_worker(migration_backend):
@@ -127,5 +149,33 @@ def test_vector_search_through_http_and_spawned_worker(migration_backend):
             assert [item["artifact_id"] for item in response.json()["results"]] == ["b"]
             historical = await client.get(f"/v1/scopes/{scope}/artifacts/incident-report/a/revisions/1")
             assert historical.json()["content"] == first["content"]
+
+    asyncio.run(exercise())
+
+
+def test_reload_accepts_embedding_profile_schema_persisted_by_existing_registration(tmp_path: Path) -> None:
+    async def exercise():
+        async with running_server(tmp_path) as client:
+            scope = await create_scope(client, "vector-upgrade")
+            plugin = deploy_plugin(EXAMPLE, tmp_path / "vector-plugin", [scope])
+            entry = plugin / "plugin.py"
+            entry.write_text(entry.read_text() + _DECLARATION + _PIPELINE, encoding="utf-8")
+            await reload_plugin(client, tmp_path, plugin, 0)
+            # Rewrite the saved registration and family schema as the existing release persisted them.
+            schemas, states = ARTIFACT_FAMILY_SCHEMAS_TABLE, ARTIFACT_PROCESSING_BINDING_STATES_TABLE
+            family = schemas.c.family == "incident-report"
+            binding = states.c.binding_name == "incident-reports"
+            engine = create_engine(f"sqlite:///{tmp_path / 'server.db'}")
+            try:
+                with engine.begin() as connection:
+                    declaration = connection.execute(select(schemas.c.declaration).where(family)).scalar_one()
+                    declaration["content_schema"]["$defs"]["EmbeddingProfile"] = _PERSISTED_EMBEDDING_PROFILE
+                    connection.execute(update(schemas).where(family).values(declaration=declaration))
+                    spec = connection.execute(select(states.c.plugin_spec).where(binding)).scalar_one()
+                    spec["declaration"]["content_schema"]["$defs"]["EmbeddingProfile"] = _PERSISTED_EMBEDDING_PROFILE
+                    connection.execute(update(states).where(binding).values(plugin_spec=spec))
+            finally:
+                engine.dispose()
+            await reload_plugin(client, tmp_path, plugin, 1)
 
     asyncio.run(exercise())

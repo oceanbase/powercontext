@@ -109,11 +109,10 @@ def main() -> None:
         raise RuntimeError("Core public exports are unavailable")  # noqa: TRY003
     if not extras and importlib.util.find_spec("httpx") is not None:
         raise RuntimeError("Core installation unexpectedly includes httpx")  # noqa: TRY003
-    if extras:
-        from powercontext import artifact_plugins
+    from powercontext import artifact_plugins
 
-        if powercontext.artifact_plugins is not artifact_plugins or artifact_plugins.ArtifactFamily is None:
-            raise RuntimeError("Plugin public export is unavailable")  # noqa: TRY003
+    if powercontext.artifact_plugins is not artifact_plugins or artifact_plugins.ArtifactFamily is None:
+        raise RuntimeError("Plugin public export is unavailable")  # noqa: TRY003
     if "cli" in extras:
         extras.add("builtin")
     with tempfile.TemporaryDirectory(prefix="powercontext-role-") as temporary:
