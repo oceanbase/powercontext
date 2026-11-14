@@ -51,11 +51,11 @@ try:
         resolve_scope_id,
         session_binding_key,
     )
-    from settings import CodexPluginSettings
+    from settings import CodexPluginSettings, host_bounded_http_budget
 except Exception:
     if __name__ != "__main__":
         raise
-    sys.stdin.read()
+    sys.stdin.buffer.read()
     _deny()
     raise SystemExit(0) from None
 
@@ -185,7 +185,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             cwd,
             session_id=session_id,
             settings=settings,
-            deadline=monotonic() + settings.http_budget_seconds,
+            deadline=monotonic() + host_bounded_http_budget(settings.http_budget_seconds),
         )
         updated = dict(tool_input)
         if selection:

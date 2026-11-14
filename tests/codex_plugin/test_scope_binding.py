@@ -17,9 +17,11 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from http.client import BadStatusLine, HTTPMessage
 from pathlib import Path
 from types import ModuleType
@@ -523,22 +525,47 @@ def test_pre_tool_hook_denies_when_binding_fails_unexpectedly(
     assert result["permissionDecisionReason"] == bind_tools_module._BINDING_FAILURE_REASON
 
 
-def test_pre_tool_hook_denies_when_the_plugin_cannot_load(tmp_path: Path) -> None:
+# A non-ASCII call read under an ASCII locale must not turn the load failure into an undecided exit.
+@pytest.mark.parametrize("query", ["current state", "état courant"])
+def test_pre_tool_hook_denies_when_the_plugin_cannot_load(query: str, tmp_path: Path) -> None:
     plugin = tmp_path / "powercontext"
     shutil.copytree(PLUGIN_ROOT, plugin, ignore=shutil.ignore_patterns(".venv", "__pycache__"))
     (plugin / "scripts" / "scope_binding.py").write_text('raise ImportError("synthetic load failure")\n')
+    payload = {**json.loads(_hook_payload()), "tool_input": {"query": query}}
 
     completed = subprocess.run(
         [sys.executable, str(plugin / "hooks" / "bind_tools.py")],
-        input=_hook_payload(),
+        input=json.dumps(payload, ensure_ascii=False).encode(),
         capture_output=True,
-        text=True,
+        env={**os.environ, "PYTHONIOENCODING": "ascii"},
         timeout=60,
         check=False,
     )
 
-    assert completed.returncode == 0, completed.stderr
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")
     assert json.loads(completed.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_pre_tool_hook_resolves_within_the_host_timeout(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook still resolving at the host deadline is killed without a decision, and Codex runs the call unbound."""
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    host_timeout = configuration["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"]
+    monkeypatch.setenv("POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS", str(host_timeout * 3))
+    remaining: list[float] = []
+
+    def resolve(*_args: object, deadline: float, **_kwargs: object) -> str:
+        remaining.append(deadline - time.monotonic())
+        return "bound-scope"
+
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", resolve)
+    result = _run_hook(bind_tools_module, monkeypatch)
+
+    assert result["permissionDecision"] == "allow"
+    # The hook's process start-up and its output also have to fit inside the host timeout.
+    assert 0 < remaining[0] <= host_timeout - 2
 
 
 class _CliSettings:
