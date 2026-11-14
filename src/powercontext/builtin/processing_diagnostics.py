@@ -16,10 +16,26 @@
 
 from __future__ import annotations
 
+import logging
+from collections import deque
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from threading import Lock
+from time import monotonic
 from typing import Any, TypeVar
 
+from sqlalchemy.exc import DBAPIError
+
+from powercontext._logging import log_safely
+from powercontext.limits import MAX_SCOPE_ID_LENGTH
+
+_logger = logging.getLogger(__name__)
+_FAILURE_LOG_BURST = 16
+_FAILURE_LOG_WINDOW_SECONDS = 1
+_failure_log_lock = Lock()
+_failure_log_times: dict[tuple[str, str, str, str | None], deque[float]] = {}
 _ErrorT = TypeVar("_ErrorT", bound=BaseException)
 
 
@@ -220,6 +236,93 @@ def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
     return None
 
 
+def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
+    """Classify the bounded Dream and Evidence rejection vocabulary."""
+
+    value = code.lower()
+    if value == "capability_unavailable":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.CONFIGURATION,
+            failure_location=value,
+        )
+    if value == "budget_exceeded":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value == "capacity_exceeded":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.USAGE_LIMIT,
+            failure_location=value,
+        )
+    if value == "invalid_generation_output":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value in {
+        "unsupported_target",
+        "invalid_target",
+        "invalid_dream_operation",
+        "invalid_artifact_family",
+        "invalid_idempotency_key",
+        "evidence_unavailable",
+        "reference_not_found",
+        "invalid_memory_citation",
+        "policy_changed",
+        "evidence_limit_exceeded",
+        "memory_entry_inactive",
+        "source_not_eligible",
+        "scope_not_found",
+    }:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            failure_location=value,
+        )
+    if value in {"artifact_conflict", "attempt_conflict", "tag_precondition_failed"}:
+        return ProcessingDiagnostics(failure_location=value)
+    if value in {"access_revoked", "access_unavailable", "dream_request_unavailable", "generation_failed"}:
+        return ProcessingDiagnostics(failure_location=value)
+    if value in {"idempotency_conflict", "needs_evidence"}:
+        return ProcessingDiagnostics(failure_location=value)
+    return None
+
+
+def _handoff_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
+    """Classify the bounded Handoff generation rejection vocabulary."""
+
+    value = code.lower()
+    if value in {"output", "evidence"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value == "budget":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value == "objective":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    if value in {"rollover_next_action", "rollover_quality"}:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=value,
+        )
+    return None
+
+
 def safe_classify_processing_error(error: BaseException) -> ProcessingDiagnostics | None:
     """Never let classification itself change a processing outcome."""
 
@@ -235,7 +338,10 @@ def classify_block_code(stage: str | None, code: str | None) -> ProcessingDiagno
     if not isinstance(code, str) or not code:
         return None
     try:
-        return _topic_memory_diagnostics(code) if stage == "topic_memory" else None
+        if stage == "topic_memory":
+            return _topic_memory_diagnostics(code)
+        else:
+            return None
     except Exception:
         return None
 
@@ -251,13 +357,104 @@ def safe_log_fields(diagnostics: ProcessingDiagnostics | None) -> dict[str, str 
         return {}
 
 
+def processing_error_code(exception_type: type[BaseException] | str, error_code: str = "") -> str:
+    """Expose only known categories, never exception messages or custom codes."""
+
+    known_codes = {
+        "InferenceBudgetExceededError": "inference_budget_exceeded",
+        "InferenceConfigurationError": "model_configuration_error",
+        "PydanticAIConfigurationError": "model_configuration_error",
+        "InferenceTimeoutError": "model_timeout",
+        "InferenceUnavailableError": "model_unavailable",
+        "InvalidInferenceOutputError": "invalid_model_output",
+        "AccessDeniedError": "access_denied",
+        "AccessIdentityRequiredError": "access_identity_required",
+        "AccessUnavailableError": "access_unavailable",
+    }
+    names = (exception_type,) if isinstance(exception_type, str) else (base.__name__ for base in exception_type.__mro__)
+    for name in names:
+        if name in known_codes:
+            return known_codes[name]
+    if error_code in {
+        *known_codes.values(),
+        "worker_timeout",
+        "worker_crash",
+        "invalid_worker_result",
+        "missing_durable_acknowledgement",
+        "invalid_topic_placeholder",
+        "invalid_topic_coordination_content",
+    }:
+        return error_code
+    return "processing_failed"
+
+
+def _allow_failure_log(family: str, operation: str, code: str, reason: str | None) -> bool:
+    # The operation and family come from fixed call sites, and the code and reason are bounded.
+    key = (family, operation, code, reason)
+    with _failure_log_lock:
+        times = _failure_log_times.setdefault(key, deque(maxlen=_FAILURE_LOG_BURST))
+        now = monotonic()
+        if len(times) == _FAILURE_LOG_BURST and now - times[0] < _FAILURE_LOG_WINDOW_SECONDS:
+            return False
+        times.append(now)
+        return True
+
+
+@asynccontextmanager
+async def observe_processing_failure(
+    family: str,
+    operation: str,
+    scope_id: str,
+    /,
+    *,
+    input_item_count: int | None = None,
+    storage_location: str | None = None,
+) -> AsyncIterator[None]:
+    """Observe one failed Artifact operation without changing its outcome."""
+    try:
+        yield
+    except Exception as error:
+        with suppress(Exception):
+            diagnostics = safe_classify_processing_error(error)
+            if diagnostics is None and storage_location is not None and isinstance(error, DBAPIError):
+                with suppress(Exception):
+                    diagnostics = ProcessingDiagnostics(
+                        stage=ProcessingStage.PERSISTENCE,
+                        reason=ProcessingFailureReason.STORAGE_FAILURE,
+                        failure_location=storage_location,
+                        cause_exception_type=None if error.orig is None else type(error.orig).__name__,
+                    )
+            fields = safe_log_fields(diagnostics)
+            code = processing_error_code(type(error))
+            reason = diagnostics.reason if diagnostics is not None else None
+            if _allow_failure_log(family, operation, code, reason):
+                log_safely(
+                    _logger,
+                    logging.WARNING,
+                    "Artifact operation failed",
+                    extra={
+                        "event": "artifact.operation.failed",
+                        "operation": operation,
+                        "unit": "stage",
+                        "outcome": "failure",
+                        "family": family,
+                        "scope": scope_id if len(scope_id) <= MAX_SCOPE_ID_LENGTH and scope_id.isprintable() else None,
+                        "exception_type": _text(type(error).__name__, 128),
+                        "error_code": code,
+                        "input_item_count": _count(input_item_count),
+                        **fields,
+                    },
+                )
+        raise
+
+
 def stage_for_operation(operation: object) -> ProcessingStage | None:
     if not isinstance(operation, str) or not operation:
         return None
     value = operation.lower()
     if "embed" in value or "index" in value:
         return ProcessingStage.EMBEDDING
-    if "extract" in value or "generate" in value or "reconcile" in value or "incubate" in value:
+    if value == "generation" or any(term in value for term in ("extract", "generate", "reconcile", "incubate")):
         return ProcessingStage.GENERATION
     return None
 
@@ -302,7 +499,7 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
     if "InvalidInferenceOutputError" in names:
         detail = str(getattr(error, "detail", "") or "").lower()
         operation_value = operation.lower() if isinstance(operation, str) else ""
-        if "token budget" in detail or "budget" in operation_value:
+        if operation_value == "atomic-memory-input-budget":
             return ProcessingDiagnostics(
                 stage=ProcessingStage.BUSINESS_VALIDATION,
                 reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
@@ -412,6 +609,50 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
             reason=ProcessingFailureReason.CONFIGURATION,
             failure_location=capability or None,
         )
+    if "DreamError" in names:
+        return _dream_error_diagnostics(str(getattr(error, "code", "") or ""))
+    if "InvalidHandoffGenerationError" in names:
+        return _handoff_error_diagnostics(str(getattr(error, "code", "") or ""))
+    if "HandoffGenerationUnavailableError" in names:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.CONFIGURATION,
+        )
+    if "HandoffEvidenceUnavailableError" in names:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION, failure_location="handoff_evidence_unavailable"
+        )
+    if "HandoffScopeMismatchError" in names:
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION, failure_location="handoff_scope_mismatch"
+        )
+    if "PromptError" in names:
+        return _prompt_error_diagnostics(getattr(error, "code", None))
+    if "EvidenceResolutionError" in names:
+        code = str(getattr(error, "code", "") or "").lower()
+        return _dream_error_diagnostics(code)
+    return None
+
+
+def _prompt_error_diagnostics(code: object) -> ProcessingDiagnostics | None:
+    if not isinstance(code, str):
+        return None
+    if code == "prompt_customization_unavailable":
+        return ProcessingDiagnostics(reason=ProcessingFailureReason.CONFIGURATION, failure_location=code)
+    if code == "invalid_prompt_demonstrations":
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=code,
+        )
+    if code in {
+        "legacy_memory_prompt_unsupported",
+        "unknown_prompt_key",
+        "prompt_definition_incompatible",
+        "invalid_prompt_content",
+        "invalid_handoff_generation",
+    }:
+        return ProcessingDiagnostics(stage=ProcessingStage.BUSINESS_VALIDATION, failure_location=code)
     return None
 
 
@@ -423,6 +664,8 @@ __all__ = [
     "classify_block_code",
     "classify_processing_error",
     "diagnostics_of",
+    "observe_processing_failure",
+    "processing_error_code",
     "safe_classify_processing_error",
     "safe_log_fields",
     "stage_for_operation",

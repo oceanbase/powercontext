@@ -4,7 +4,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": [
-      "ES2022"
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
     ],
     "strict": true,
     "skipLibCheck": true,
@@ -13,10 +15,12 @@
     "erasableSyntaxOnly": true,
     "types": [
       "node"
-    ]
+    ],
+    "jsx": "react-jsx"
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "../dsh-pet/src"
   ]
 }

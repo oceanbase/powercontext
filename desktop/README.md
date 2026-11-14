@@ -47,19 +47,25 @@ Saving, checking and activating a profile are separate actions with distinct pro
 
 Opening the global Scope picker elsewhere keeps the current page after selection and restores focus to its selector. Cancelling draft confirmation preserves the current input. Confirming a successful Scope switch discards the old Memory or connection-editor draft. Native states rejected as stale cannot open the activation guide or finish Scope navigation. Empty results offer another title, an access request or another connection; loading, permission, authentication and compatibility failures remain separate.
 
-Reopening Desktop loads saved profiles without activating a private session. The local setup entry continues to point to Local Server guidance; approved installer results and default-Scope handoff remain owned with #2117.
+Reopening Desktop loads saved profiles without activating a private session. Local setup offers separately approved installation and service plans, followed by a native handoff into the public default Scope.
 
-## Local Server preparation
+## Local Server setup and management
 
-Overview remains the initial page. Its **Get started with PowerContext** guide offers **View local setup** and **Add connection**. Local setup opens and focuses the same **Settings & diagnostics → Local Server** preparation page; installation and recovery remain unavailable in this preview pending [#2306](https://github.com/oceanbase/powercontext/pull/2306). Adding a connection opens the existing editor. A saved-profile selector opens the exact selected profile for review, checking and explicit activation; reopening never restores a private connection or Scope.
+Overview remains the initial page. Its **Get started with PowerContext** guide offers **View local setup** and **Add connection**. Local setup opens and focuses the same **Settings & diagnostics → Local Server** management page; opening it only inspects local facts and retained operation references. Adding a connection opens the existing editor. A saved-profile selector opens the exact selected profile for review, checking and explicit activation; reopening never restores a private connection or Scope.
 
 After activation, the guide opens the shared exact-Scope picker and continues to Memories only after an explicit successful selection. With a selected Scope, it displays the actual connection and full `scope_id`, opens the existing save/search/exact-read/copy workspace, and explains unavailable operations. The three steps describe the journey; they do not track first-memory completion, usage counts or a complete inventory. **Dismiss guide** collapses the tutorial while preserving next actions and recovery; **Revisit guide** restores it. This preference lasts only until Desktop closes. Keyboard focus, existing draft-discard guards, English/Chinese and theme settings apply to these entries.
 
 In disconnected Memories, **Set up locally** opens and focuses **Settings & diagnostics → Local Server**; **Connect an existing Server** opens the existing connection editor. Selecting either path does not install software, activate a connection, run diagnostics or probe readiness.
 
-The Local Server guidance is also available by opening Settings directly, including when native state is loading or unavailable. It explicitly marks Desktop installation, recovery and service management as unavailable; that status makes no claim about an actual local installation or running service. Settings stays at the bottom of the sidebar.
+With distributor-provisioned trusted Installer/Ops resources, choose install, repair, start, stop, restart, login startup or service-registration removal. Review the actual program/configuration/data locations, endpoint, pinned Server version, space requirement and service effects, then explicitly approve the one-shot plan. Installation phases, configuration, registration, process state, liveness and readiness are shown separately. Missing resources leave local controls unavailable and preserve existing-Server access.
 
-Prepare a Server independently using [Install and run](../docs/en/docs/get-started/install-and-run.md) and [Deploy the Server](../docs/en/docs/operate/deploy-server.md), observing their platform limits. Confirm the actual address, authentication and a qualified Desktop compatibility profile, then save and explicitly activate the connection and select an exact Scope. A running Server alone does not establish Desktop compatibility. Existing independently running Servers do not need to be reinstalled. The in-app Usage help provides a copyable address for this guide.
+Operations retain native references across Desktop exit. Reopening queries the selected operation's authoritative Ops status without replay. An interrupted/failed attempt can offer a fresh approved recovery plan for the original action/options. An unknown live executor is query-only; cancellation is a request, not confirmation of rollback or completion. Records from older bridges remain queryable, but missing action metadata cannot authorize resume.
+
+After setup, explicitly choose **Connect and open default Scope**. Native code rechecks actual ownership, service/configuration/resource facts and the returned endpoint. A pinned managed catalog must name a bundled, current-contract Desktop qualification in `qualification_ref`; unqualified candidate references are rejected. The actual discovery package version must match the resource version. The ordinary connection manager then verifies identity/compatibility and resolves the public default Scope before opening Memory. This action discloses its readiness probe; application reopen never activates a session automatically.
+
+Registration removal preserves configuration and data and does not uninstall Desktop. The OS-managed Server survives Desktop exit. Unfinished installation is not promised to continue after Quit; query its durable result on reopen. Signed Windows/macOS packages, published qualified resources and clean-machine installed acceptance remain release responsibilities under #2108/#2109/#2112.
+
+See [the local setup contract](../docs/en/development/desktop-local-server.md) and [independent Server installation](../docs/en/docs/get-started/install-and-run.md).
 
 ## Run the installed preview
 
@@ -190,6 +196,16 @@ This explicit probe creates a uniquely named synthetic credential in the preview
 
 The Windows CI workflow runs on PRs and the preview branch, verifies native vault persistence, builds an unsigned internal installer, and tests Chinese-path installation/uninstallation on its disposable runner. It uploads the installer and a JSON smoke report. CI and mocked IPC tests do not prove clean-machine installation, notification activation, independent service login or Agent capture/recall.
 
+## Local service status
+
+On Linux, the Local Server settings page can inspect the PowerContext user service through the trusted Ops Bridge. This check is read-only: it reports supported, registration, ownership, manager, liveness, readiness and maintenance status, while keeping paths, commands, environment values and raw process output out of the UI.
+
+The bridge only addresses PowerContext's registered service target and rejects untrusted windows, remote origins and arbitrary renderer input. A missing or unavailable local service does not disable remote Server connections. The page uses `ops.inspect` for read-only status inspection; with a valid Linux binding, explicitly approved plans dispatched through `ops.apply` can install, repair, start, stop or restart the personal service. These lifecycle operations retain the same ownership and approval rules.
+
+The unit is written to the current user's `$XDG_CONFIG_HOME/systemd/user/` directory, or `~/.config/systemd/user/` when `XDG_CONFIG_HOME` is unset, and all manager calls use `systemctl --user`. Normal installation and recovery do not require `sudo`, never write a system unit under `/etc/systemd/system/`, and never call `loginctl enable-linger`. At login, the user's existing systemd manager may activate the enabled unit through `default.target`; at logout, the service follows that user manager's normal lifetime. If the account already has linger enabled by the user or administrator, PowerContext does not change that setting or silently create system-wide persistence.
+
+Linux validation combines the Desktop Rust IPC/Ops Bridge tests with the real systemd `--user` lifecycle suite in the [native personal service workflow](../.github/workflows/native-service.yml). The lifecycle suite covers installation, restart, uninstall, foreign registrations, unrelated user services, recovery after an external stop, an unavailable user manager, and the user-session boundary. It verifies that login activation is the user's `default.target`, explicit stop leaves that activation enabled, the pre-existing linger state is unchanged, and no system unit is created. The suite does not force a logout of the CI account; actual GNOME session logout/login qualification belongs to the Ubuntu Desktop package acceptance. The managed-resource candidate workflow also generates a real Linux Ops bundle from a pinned standalone Python runtime and runs it through the native manifest/digest trust boundary; that candidate check does not claim signed release qualification.
+
 ## Local CLI diagnostics
 
 Settings provides explicit local service and Agent integration checks. They remain separate from the active remote connection; a missing local CLI does not disable remote operations. Integration checks may start temporary Agent helpers and do not prove capture/recall.
@@ -267,4 +283,6 @@ launcher with an absolute interpreter path; launchers that locate dependencies r
 are unsuitable. The CLI must not depend on a shell profile or an interactive terminal.
 Diagnostics keep the existing output limits and deadlines and terminate their private process group
 on completion, timeout and cancellation. Before normal application exit, Desktop rejects new diagnostics,
-cancels active work and waits for process-group cleanup and launcher reaping. The app does not install or manage a LaunchAgent.
+cancels active work and waits for process-group cleanup and launcher reaping. Read-only diagnostics do not manage LaunchAgents; explicit Local Server actions use trusted independent Ops.
+
+A pending local connection handoff may update the observed connection state after navigation. It opens Memories only while the initiating UI intent remains current; later navigation or editing keeps the current page, input and discard guard intact.

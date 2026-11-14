@@ -29,9 +29,9 @@ limitations under the License.
     </div>{% endif %}
     <div class="col"><div class="input-group">
       <input class="form-control" type="search" id="content-query" name="q" value="{{ search_query or '' }}" maxlength="{{ limit }}">
-      <button class="btn" type="submit">{{ t.search }}</button>
+      <button class="btn btn-primary" type="submit">{{ t.search }}</button>
     </div></div>
-    <div class="col-auto text-end"><a class="btn btn-ghost-secondary {% if not search_query %}invisible{% endif %}" href="{{ link(q=none, notes_page=none, notes_cursor=none, notes_history=none, skill_page=none, experience_page=none, experience_cursor=none, artifact=none, revision=none) }}" {% if not search_query %}tabindex="-1" aria-hidden="true"{% endif %}>{{ t.clear_search }}</a></div>
+    {% if search_query %}<div class="col-auto text-end"><a class="btn btn-ghost-secondary" href="{{ link(q=none, notes_page=none, notes_cursor=none, notes_history=none, skill_page=none, experience_page=none, experience_cursor=none, artifact=none, revision=none) }}">{{ t.clear_search }}</a></div>{% endif %}
   </div>
 </form>
 {% endmacro %}

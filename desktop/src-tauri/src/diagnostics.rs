@@ -180,12 +180,14 @@ pub fn project(
                         "codex",
                         "claude_code",
                         "dsh",
+                        "dsh_pet_memory",
                         "openclaw",
                         "opencode",
                         "pi",
                         "hermes",
                         "hooks",
                         "plugin",
+                        "plugin_runtime",
                         "profile",
                         "package",
                         "skill",
@@ -220,6 +222,8 @@ pub fn project(
                         "service_manager",
                         "server_liveness",
                         "server_readiness",
+                        "server_memory_protocol",
+                        "plugin_memory_protocol",
                     ]
                     .contains(&field.as_str())
                     {

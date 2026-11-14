@@ -29,6 +29,10 @@ interface PluginConfig {
   capturePrompts?: boolean;
   flushOnCapture?: boolean;
   flushMaxCalls?: number;
+  /** Explicit owner assertion for an otherwise unverified local Web host. */
+  ownerLocal?: boolean;
+  updateChannel?: 'stable' | 'preview';
+  updateHold?: boolean;
 }
 //#endregion
 //#region src/index.d.ts

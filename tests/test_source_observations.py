@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import urllib.request
+from dataclasses import replace
 from decimal import Decimal
 from typing import Self
 
@@ -25,14 +27,16 @@ import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_serializer
 from pydantic.alias_generators import to_camel
 from referencing.exceptions import Unresolvable
+from sqlalchemy import update
 
 from powercontext import InvalidSourceObservationError
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import SHARED_TABLES
+from powercontext.builtin.persistence.tables import SHARED_TABLES, SOURCE_DEFINITION_MANIFESTS_TABLE
 from powercontext.builtin.runtime import SubmitSourceObservation
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
+from powercontext.builtin.sources.content import ContentSource, ContentSourceAdapter
 from powercontext.builtin.sources.observation_validation import json_schema_validator
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
@@ -65,6 +69,86 @@ def test_definition_manifest_has_a_stable_content_addressed_identity() -> None:
     assert first.fingerprint.startswith("sha256:")
     with pytest.raises(ValidationError, match="fingerprint does not match"):
         SourceDefinitionManifest.model_validate(first.model_dump(mode="json", by_alias=True) | {"version": "2"})
+
+
+def test_native_content_manifest_remains_isolated_and_checks_each_database() -> None:
+    class ChangedContentSource(ContentSource):
+        extra_evidence: str = "different schema"
+
+    class ChangedContentAdapter(ContentSourceAdapter):
+        source_class = ChangedContentSource
+
+    async def scenario() -> None:
+        repository = SourceDefinitionManifestRepository()
+        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as first:
+            async with first.database.transaction() as connection:
+                manifest = await repository.register_native(connection, CONTENT_SOURCE_DEFINITION)
+                assert manifest is not None
+                expected = manifest.model_copy(deep=True)
+                manifest.source_schema["description"] = "caller mutation"
+            async with first.database.transaction() as connection:
+                assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) == expected
+                # Historical equivalent JSON need not use today's byte encoding.
+                await connection.execute(
+                    update(SOURCE_DEFINITION_MANIFESTS_TABLE).values(
+                        manifest=json.dumps(expected.model_dump(mode="json", by_alias=True), indent=2).encode()
+                    )
+                )
+                loaded = await repository.register_native(connection, CONTENT_SOURCE_DEFINITION)
+                assert loaded == expected
+                assert loaded is not None
+                loaded.source_schema["description"] = "another caller mutation"
+                assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) == expected
+
+            async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as second:
+                changed = replace(CONTENT_SOURCE_DEFINITION, adapter=ChangedContentAdapter())
+                async with second.database.transaction() as connection:
+                    conflicting = await repository.register_native(connection, changed)
+                    assert conflicting is not None
+                    assert conflicting.fingerprint != expected.fingerprint
+                    assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) is None
+                    assert await repository.get(connection, conflicting.name, conflicting.version) == conflicting
+
+            async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as third:
+                with pytest.raises(RuntimeError, match="rollback"):
+                    async with third.database.transaction() as connection:
+                        assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) == expected
+                        raise RuntimeError("rollback")
+                async with third.database.transaction() as connection:
+                    assert await repository.find(connection, expected.name, expected.version) is None
+                    assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) == expected
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("damage", ["fingerprint_column", "version_payload", "schema_payload", "invalid_payload"])
+def test_native_content_registration_rechecks_stored_manifest_integrity(damage: str) -> None:
+    async def scenario() -> None:
+        repository = SourceDefinitionManifestRepository()
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            manifest = await repository.register_native(connection, CONTENT_SOURCE_DEFINITION)
+            assert manifest is not None
+            # Populate the read path before changing the stored row.
+            assert await repository.get(connection, manifest.name, manifest.version) == manifest
+            if damage == "fingerprint_column":
+                values = {"fingerprint": "sha256:" + "0" * 64}
+            elif damage == "version_payload":
+                payload = manifest.model_dump(mode="json", by_alias=True)
+                payload["version"] = "other"
+                values = {"manifest": json.dumps(payload).encode()}
+            elif damage == "schema_payload":
+                payload = manifest.model_dump(mode="json", by_alias=True)
+                payload["source_schema"]["description"] = "unverified replacement"
+                values = {"manifest": json.dumps(payload).encode()}
+            else:
+                values = {"manifest": b"not JSON"}
+            await connection.execute(update(SOURCE_DEFINITION_MANIFESTS_TABLE).values(**values))
+            assert await repository.register_native(connection, CONTENT_SOURCE_DEFINITION) is None
+
+    asyncio.run(scenario())
 
 
 def test_source_observation_remains_usable_without_worker_definition_code() -> None:

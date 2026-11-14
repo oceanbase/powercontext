@@ -29,7 +29,14 @@ CHECKER = Path(__file__).parents[1] / "scripts/check_atomic_memory_migration_sha
 def reports(tmp_path: Path) -> Path:
     root = tmp_path / "reports"
     for index in range(3):
-        for group in ("scope-search", "background-metrics", "clean-migration", "startup-snapshot", "long-query"):
+        for group in (
+            "scope-search",
+            "background-metrics",
+            "clean-migration",
+            "grant-migration",
+            "startup-snapshot",
+            "long-query",
+        ):
             count = {"background-metrics": 1, "startup-snapshot": 3}.get(group, 5)
             nodes = [f"test_{group}.py::test_oceanbase_case[{case}]" for case in range(count)]
             path = root / f"shard-{index}" / group / "summary.json"
@@ -63,6 +70,7 @@ def test_complete_coverage_including_empty_shards_passes(reports: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "background-metrics: all 1 OceanBase cases passed exactly once" in result.stdout
     assert "clean-migration: all 5 OceanBase cases passed exactly once" in result.stdout
+    assert "grant-migration: all 5 OceanBase cases passed exactly once" in result.stdout
     assert "startup-snapshot: all 3 OceanBase cases passed exactly once" in result.stdout
 
 

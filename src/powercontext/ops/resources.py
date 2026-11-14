@@ -120,7 +120,7 @@ class ResourceSpec(BaseModel):
     resource_id: StrictStr
     server_version: StrictStr = Field(min_length=1, max_length=128)
     python_version: StrictStr = Field(min_length=1, max_length=128)
-    platform: Literal["windows", "macos"]
+    platform: Literal["windows", "macos", "linux"]
     architecture: Literal["x86_64", "arm64"]
     archive_format: Literal["zip", "tar.gz"]
     url: StrictStr = Field(max_length=4096)
@@ -154,7 +154,7 @@ class ResourceSpec(BaseModel):
             raise ResourceError("resource_invalid")
         if any(not reference.strip() or len(reference) > 4096 for reference in (*self.source_refs, *self.license_refs)):
             raise ResourceError("resource_invalid")
-        _validate_file_paths(self.files)
+        _validate_file_paths(self.files, case_sensitive=self.platform == "linux")
         executable = next((file for file in self.files if file.path == self.python_relative), None)
         if executable is None or not executable.executable:
             raise ResourceError("resource_invalid")
@@ -193,8 +193,11 @@ class ResourceSpec(BaseModel):
         }
 
 
-def _validate_file_paths(manifest: tuple[ResourceFile, ...]) -> None:
-    files = {file.path.casefold(): file for file in manifest}
+def _validate_file_paths(manifest: tuple[ResourceFile, ...], *, case_sensitive: bool) -> None:
+    def key(name: str) -> str:
+        return name if case_sensitive else name.casefold()
+
+    files = {key(file.path): file for file in manifest}
     if len(files) != len(manifest):
         raise ResourceError("resource_invalid")
     directories: dict[str, str] = {}
@@ -203,10 +206,10 @@ def _validate_file_paths(manifest: tuple[ResourceFile, ...]) -> None:
             if parent == PurePosixPath("."):
                 continue
             name = str(parent)
-            key = name.casefold()
-            if key in files or (key in directories and directories[key] != name):
+            normalized = key(name)
+            if normalized in files or (normalized in directories and directories[normalized] != name):
                 raise ResourceError("resource_invalid")
-            directories[key] = name
+            directories[normalized] = name
 
 
 @dataclass(frozen=True)
@@ -267,7 +270,7 @@ class ResourceCatalog:
 
 
 def _current_platform() -> tuple[str, str]:
-    operating_system = {"win32": "windows", "darwin": "macos"}.get(sys.platform)
+    operating_system = {"win32": "windows", "darwin": "macos", "linux": "linux"}.get(sys.platform)
     architecture = {"amd64": "x86_64", "x86_64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}.get(
         platform.machine().lower()
     )
@@ -587,6 +590,7 @@ class _Extraction:
         self.expected = {file.path: file for file in spec.files}
         self.directories = {str(parent) for file in spec.files for parent in PurePosixPath(file.path).parents}
         self.seen: set[str] = set()
+        self.case_sensitive = spec.platform == "linux"
         self.stage = stage
         self.cancelled = cancelled
         # Include tar headers, padding and bounded producer metadata, without
@@ -596,9 +600,10 @@ class _Extraction:
     def entry(self, name: str, size: int, directory: bool) -> ResourceFile | None:
         _cancel(self.cancelled)
         name = _relative(name.removesuffix("/") if directory else name)
-        if len(self.seen) >= MAX_FILES * 2 or name.casefold() in self.seen:
+        key = name if self.case_sensitive else name.casefold()
+        if len(self.seen) >= MAX_FILES * 2 or key in self.seen:
             raise ResourceError("resource_archive_invalid")
-        self.seen.add(name.casefold())
+        self.seen.add(key)
         if directory:
             if name not in self.directories or size != 0:
                 raise ResourceError("resource_archive_invalid")

@@ -26,6 +26,7 @@ from evaluation.memory.locomo.metrics import percentile
 from evaluation.memory.locomo_plus.prompts import PARTIAL_CATEGORIES, category_name
 
 FAILURE_STAGES = ("dataset", "infrastructure", "retrieval", "generation", "judge")
+REFERENCE_SHAPE_POLICY = "reference-word-bins-v1 (1-2, 3-8, 9+)"
 _CONSTRAINT_TYPES = frozenset({"causal", "state", "goal", "value"})
 _ABSTENTION = re.compile(
     r"^(?:unknown\b|i (?:do not|don't) know\b|(?:the |this )?information is (?:unknown|unavailable)\b)"
@@ -65,6 +66,13 @@ def summarize_observations(
     categories = sorted({category_name(value["category"]) for value in values})
     cognitive = tuple(value for value in values if category_name(value["category"]) == "Cognitive")
     factual = tuple(value for value in values if category_name(value["category"]) != "Cognitive")
+    comparable = tuple(value for value in factual if category_name(value["category"]) != "adversarial")
+    reference_shapes: dict[str, list[Mapping[str, Any]]] = {"1-2": [], "3-8": [], "9+": []}
+    for value in comparable:
+        shape = _reference_shape(value.get("gold_answer"))
+        if shape is not None:
+            reference_shapes[shape].append(value)
+    labeled_count = sum(len(group) for group in reference_shapes.values())
     labels = sorted({_constraint_type(value) for value in cognitive} - {""})
     report: dict[str, Any] = {
         "scope": scope,
@@ -72,6 +80,7 @@ def summarize_observations(
         "aggregation": "micro average of released-category judge scores; completed-only and planned denominators",
         "overall": _summarize_group(values, planned),
         "factual": _summarize_group(factual, len(factual)),
+        "comparable_four": _summarize_group(comparable, len(comparable)),
         "cognitive": _summarize_group(cognitive, len(cognitive)),
         "by_qa_type": {
             category: _summarize_group(tuple(value for value in values if category_name(value["category"]) == category))
@@ -82,6 +91,17 @@ def summarize_observations(
             "unlabeled_count": sum(not _constraint_type(value) for value in cognitive),
             "source": "recorded dataset labels only; no inferred labels",
         },
+        "reference_shape_labels": {
+            "applicable_count": len(comparable),
+            "labeled_count": labeled_count,
+            "unlabeled_count": len(comparable) - labeled_count,
+            "not_applicable_count": len(values) - len(comparable),
+            "source": (
+                "recorded gold answers only, without inferred labels. LoCoMo-Plus combines the middle word bins "
+                "from LoCoMo Table 2 (arXiv:2611.09807v1), so per-bin scores are not directly comparable."
+            ),
+            "policy": REFERENCE_SHAPE_POLICY,
+        },
         "prepare_latency_ms": prepare_latency_ms,
         "usage": _summarize_usage(values, ingestion_usage),
     }
@@ -90,7 +110,24 @@ def summarize_observations(
             label: _summarize_group(tuple(value for value in cognitive if _constraint_type(value) == label))
             for label in labels
         }
+    if labeled_count:
+        report["by_reference_shape"] = {
+            shape: _summarize_group(group, len(group)) for shape, group in reference_shapes.items()
+        }
     return report
+
+
+def _reference_shape(answer: object) -> str | None:
+    if not isinstance(answer, str):
+        return None
+    words = len(answer.split())
+    if words == 0:
+        return None
+    if words <= 2:
+        return "1-2"
+    if words <= 8:
+        return "3-8"
+    return "9+"
 
 
 def _summarize_group(values: Sequence[Mapping[str, Any]], planned: int | None = None) -> dict[str, Any]:
@@ -277,6 +314,9 @@ def render_summary(summary: Mapping[str, Any]) -> str:
     groups: list[tuple[str, Mapping[str, Any]]] = [
         (name.title(), summary[name]) for name in ("overall", "factual", "cognitive")
     ]
+    if "comparable_four" in summary:
+        groups.append(("Comparable four", summary["comparable_four"]))
+    groups += [(f"Ref: {shape} words", group) for shape, group in summary.get("by_reference_shape", {}).items()]
     groups += [(f"QA: {name}", group) for name, group in summary.get("by_qa_type", {}).items()]
     groups += [(f"Cognitive: {name}", group) for name, group in summary.get("by_cognitive_constraint", {}).items()]
     for name, group in groups:
@@ -303,6 +343,18 @@ def render_summary(summary: Mapping[str, Any]) -> str:
         "",
         f"Cognitive labels: {_cell(labels.get('labeled_count'))} recorded, {_cell(labels.get('unlabeled_count'))} unavailable. "
         "Constraint labels are never inferred.",
+    ]
+    reference_labels = summary.get("reference_shape_labels")
+    if reference_labels is not None:
+        lines += [
+            "",
+            f"Reference shape labels: {_cell(reference_labels.get('labeled_count'))} recorded, "
+            f"{_cell(reference_labels.get('unlabeled_count'))} unavailable in categories 1 through 4. "
+            f"Policy `{_cell(reference_labels.get('policy'))}`. {_cell(reference_labels.get('source'))} "
+            "Ref rows subdivide the labeled cases in Comparable four. These groups use observed cases as their "
+            "planned counts. Overall uses the run's planned count, including unobserved cases.",
+        ]
+    lines += [
         "",
         "## Failures and abstention",
         "",

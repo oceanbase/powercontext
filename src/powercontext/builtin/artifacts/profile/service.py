@@ -53,6 +53,12 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.records import BaseValueConflictError, BaseValueNotFoundError
 from powercontext.builtin.scope.errors import ScopeNotFoundError
 from powercontext.builtin.scope.repository import ScopeRepository
@@ -313,7 +319,16 @@ class RelationalProfileService:
                 except ValueError as error:
                     from powercontext.builtin.inference import InvalidInferenceOutputError
 
-                    raise InvalidInferenceOutputError("profile-generate", "invalid Markdown") from error
+                    raise attach_diagnostics(
+                        InvalidInferenceOutputError("profile-generate", "invalid Markdown"),
+                        ProcessingDiagnostics(
+                            stage=ProcessingStage.BUSINESS_VALIDATION,
+                            reason=ProcessingFailureReason.INVALID_OUTPUT,
+                            input_item_count=len(evidence),
+                            failure_location="profile-generate-markdown",
+                            cause_exception_type=type(error).__name__,
+                        ),
+                    ) from error
                 if current is not None and current.content.content == markdown:
                     markdown = None
         try:

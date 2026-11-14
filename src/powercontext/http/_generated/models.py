@@ -1154,6 +1154,14 @@ class TaskCheckStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class TaskStopReasonKind(StrEnum):
+    SAFETY = "safety"
+    AUTHORIZATION = "authorization"
+    CAPABILITY = "capability"
+    MISSING_EVIDENCE = "missing_evidence"
+    SCOPE = "scope"
+
+
 class Schema3(StrEnum):
     POWERCONTEXT_TASK_OUTCOME_V1 = "powercontext.task-outcome.v1"
 
@@ -1650,6 +1658,15 @@ class ReasonCode(RootModel[StrictStr]):
     root: Annotated[StrictStr, Field(max_length=128)]
 
 
+class TargetProtocol(StrEnum):
+    OPENAI_CHAT = "openai-chat"
+    OPENAI_RESPONSES = "openai-responses"
+    ANTHROPIC_MESSAGES = "anthropic-messages"
+    OPENAI_EMBEDDINGS = "openai-embeddings"
+    MINIMAX_EMBEDDINGS = "minimax-embeddings"
+    JEV_RERANK = "jev-rerank"
+
+
 class ContextCheckResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1671,6 +1688,19 @@ class ContextCheckResult(BaseModel):
             description="Present only for allow, bound to this phase, identity, target, policy, and exact payload.",
             max_length=65536,
             min_length=1,
+        ),
+    ] = None
+    target_endpoint: Annotated[
+        StrictStr | None,
+        Field(
+            description="Exact Core-configured endpoint, present only on an allow for before_send when X-PowerContext-Resolve-Target was authorized for a service principal.",
+            max_length=2048,
+        ),
+    ] = None
+    target_protocol: Annotated[
+        TargetProtocol | None,
+        Field(
+            description="Protocol of the Core-configured endpoint; present under the same condition as target_endpoint."
         ),
     ] = None
 
@@ -3744,6 +3774,7 @@ class AccessAction(StrEnum):
     SCOPE_REVIEW = "scope.review"
     SCOPE_DELEGATE = "scope.delegate"
     SCOPE_ADMIN = "scope.admin"
+    GATEWAY_INVOKE = "gateway.invoke"
     ARTIFACT_READ = "artifact.read"
     ARTIFACT_WRITE = "artifact.write"
     ARTIFACT_SHARE = "artifact.share"
@@ -3888,6 +3919,7 @@ class AccessRole(StrEnum):
     SCOPE_REVIEWER = "scope.reviewer"
     SCOPE_DELEGATOR = "scope.delegator"
     SCOPE_ADMIN = "scope.admin"
+    GATEWAY_USER = "gateway.user"
     SERVER_OBSERVER = "server.observer"
     SERVER_ADMIN = "server.admin"
 
@@ -6175,6 +6207,30 @@ class TaskCheck(BaseModel):
     evidence: Annotated[list[HandoffCitation], Field(max_length=32)]
 
 
+class TaskStopReason(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: TaskStopReasonKind
+    condition: Annotated[
+        StrictStr,
+        Field(
+            description="The circumstance under which continuing would have been wrong; must be trimmed.",
+            max_length=8192,
+            min_length=1,
+            pattern=".*\\S.*",
+        ),
+    ]
+    basis: WorkClaimBasis
+    evidence: Annotated[
+        list[HandoffCitation],
+        Field(
+            description="Use [] with declared. verified requires exact previously returned same-scope citations.",
+            max_length=31,
+        ),
+    ]
+
+
 class TaskOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6185,6 +6241,10 @@ class TaskOutcome(BaseModel):
     status: TaskOutcomeStatus
     summary: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     handoff_receipt_ref: SourceReference | None = None
+    stop_reason: Annotated[
+        TaskStopReason | None,
+        Field(description="Optional deliberate-stop reason, accepted only with blocked or cancelled status."),
+    ] = None
     observations: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
     checks: Annotated[list[TaskCheck], Field(max_length=64)]
     produced_artifacts: Annotated[list[ArtifactReference], Field(max_length=32)]

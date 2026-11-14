@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from datetime import datetime
@@ -26,6 +27,7 @@ from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.artifacts.experience import ExperienceContent
@@ -85,10 +87,12 @@ from powercontext.builtin.persistence.errors import ArtifactProcessingLeadership
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, SCOPES_TABLE
+from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.generation import SkillGenerationOrigin, validate_skill_lineage
 from powercontext.builtin.review.models import Candidate, CandidateStatus
 from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.runtime.processing_contracts import processing_error_code
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.tags import TagPreconditionError
 
@@ -98,6 +102,7 @@ EvidenceFactory = Callable[[str, EvidenceAuthorizer], EvidenceResolver]
 ReviewFactory = Callable[[str, AsyncConnection | None], ReviewService]
 CandidateAttester = Callable[[AsyncConnection, DreamRecord, str, str], Awaitable[None]]
 CatalogFactory = Callable[[str, AsyncConnection | None], CatalogChangeService]
+logger = logging.getLogger(__name__)
 
 
 class DreamService:
@@ -294,20 +299,55 @@ class DreamService:
             if record.run.terminal:
                 await self._complete_invocation(connection)
                 return True
+        deadline: asyncio.Timeout | None = None
         try:
             async with self._transaction() as connection:
                 remaining = _remaining_seconds(record, await database_now(connection))
-            async with asyncio.timeout(max(remaining, 0)):
+            deadline = asyncio.timeout(max(remaining, 0))
+            async with deadline:
                 await self._execute(record)
         except (ArtifactProcessingLeadershipLostError, InvocationAlreadyHandled):
             raise
         except (InferenceTimeoutError, InferenceUnavailableError) as error:
+            self._log_attempt_failure(record, error)
             await self._fail_or_retry(record, _error_code(error), retry=True)
-        except TimeoutError:
-            await self._fail_or_retry(record, "budget_exceeded", retry=False)
         except Exception as error:
-            await self._fail_or_retry(record, _error_code(error), retry=False)
+            if isinstance(error, TimeoutError) and deadline is not None and deadline.expired():
+                self._log_attempt_failure(record, error, classification_error=DreamError("budget_exceeded"))
+                await self._fail_or_retry(record, "budget_exceeded", retry=False)
+            else:
+                self._log_attempt_failure(record, error)
+                await self._fail_or_retry(record, _error_code(error), retry=False)
         return True
+
+    def _log_attempt_failure(
+        self,
+        record: DreamRecord,
+        error: Exception,
+        *,
+        classification_error: Exception | None = None,
+    ) -> None:
+        work = self.processing
+        diagnostic_error = error if classification_error is None else classification_error
+        log_safely(
+            logger,
+            logging.WARNING,
+            "Dream processing attempt failed",
+            extra={
+                "event": "dream.attempt.failed",
+                "operation": record.run.operation,
+                "unit": "stage",
+                "outcome": "failure",
+                "family": operation_spec(record.run.operation).processing_family,
+                "scope": record.run.scope_id,
+                "binding": None if work is None else work.assignment.binding_name,
+                "worker_id": None if work is None else work.assignment.worker_id,
+                "request_generation": None if work is None else work.assignment.claimed_request_generation,
+                "exception_type": type(error).__name__,
+                "error_code": processing_error_code(type(error)),
+                **safe_log_fields(safe_classify_processing_error(diagnostic_error)),
+            },
+        )
 
     async def _complete_invocation(self, connection: AsyncConnection) -> None:
         if self.processing is None:

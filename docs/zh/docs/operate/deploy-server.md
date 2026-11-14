@@ -268,7 +268,7 @@ Responses steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数�
 Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。
 UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
 
-响应缓冲超限时丢弃响应，返回 HTTP 409 和 `response_buffer_limit_exceeded`。
+响应缓冲超限时丢弃响应，返回 HTTP 400 和 `response_buffer_limit_exceeded`。
 不会释放 provider 正文，也不会自动重发。执行观察保留 `PossiblySent` 与 `Withheld` 终态：
 provider 可能已经计费。这不代表收到了完整响应，也不承诺零费用。
 该观察仅在进程内可见；本阶段尚未导出含尝试次数、执行终态与发送状态的可读取调用记录。

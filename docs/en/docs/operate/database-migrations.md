@@ -15,7 +15,7 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.0 target (stored compatibility IDs shown below):
+1.5.1 target (stored compatibility IDs shown below):
 
 - **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
 - **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004` through a separate frozen source bridge.
@@ -145,7 +145,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.0**. Migration names use
+The target release is **PowerContext 1.5.1**. Migration names use
 `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
 Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
 
@@ -398,6 +398,21 @@ MySQL-mode user tenant; these commands do not create a cluster, tenant, or datab
 OceanBase maintenance must be able to read the tenant ID, cluster ID, and tenant creation metadata through
 `effective_tenant_id()`, `oceanbase.GV$OB_PARAMETERS`, and `oceanbase.DBA_OB_TENANTS`. Unavailable permissions or incomplete
 identity return `target_identity_unavailable`; a proxy hostname is not used as a substitute database identity.
+
+### Standalone seekdb server
+
+A standalone seekdb server is not a new storage kind. It connects through the existing `oceanbase` kind with a
+`mysql+aoceanbase://` URL, and maintenance recognizes it when `ob_compatibility_mode` is missing or empty and
+`VERSION()` contains `-OceanBase seekdb-`. Its identity comes from the connected database name and `@@server_uuid`;
+`effective_tenant_id()` and the `oceanbase.*` tenant tables are not queried, and neither `pylibseekdb` nor a local
+engine path is involved.
+
+The selected database must already exist. PowerContext does not create it and does not enable embedded seekDB Code
+storage for this target. As with every OceanBase target, all four commands require explicit `--evidence-dir <path>`
+and `--lock-coordination single-host` on one fixed maintenance host, and `powercontext server run` starts only after
+the explicit `db-migrate` sequence reports the database ready. A missing or empty database name or server UUID
+returns `target_identity_unavailable`; a MySQL server whose version does not carry the seekdb marker returns
+`unsupported_target`.
 
 seekdb inspection does not start an engine for a missing path or empty directory. A nonempty directory without a
 recognized engine layout returns `unsupported_target`. An unconfigured database name whose old `test` database still

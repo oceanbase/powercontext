@@ -117,8 +117,40 @@ A missing key is an error, not a skipped passing test. This run can incur model 
 repository. It verifies generated Memory and a fresh session's snapshot/model reply rather than interpreting an
 accepted Source response as successful Memory generation.
 
-For Web acceptance, use a separate DSH home and workspace, install the same built plugin, disable telemetry, and
-configure the test model through environment-backed credentials. Test the shipped Web profile through the browser:
+### P1/P2 browser acceptance harness
+
+The committed [`web-acceptance.mjs`](web-acceptance.mjs) drives an already installed, real DSH Web or Desktop
+bundled-runtime page through a local Chrome DevTools endpoint. It does not start a replacement Host. It creates
+its own page, exchanges the launch token, dismisses the shipped onboarding dialogs, then checks the real
+`/powercontext/status` response, sidebar states, pointer and keyboard activation, Escape/focus restoration,
+collapsed rail, dark palette tokens, and unauthenticated 401. It returns nonzero on a failed check and writes
+the evidence JSON given as its argument.
+
+```bash
+# Start Chrome separately with an isolated profile and --remote-debugging-port=9223.
+DSH_WEB_URL=http://127.0.0.1:13080 DSH_WEB_LOG=/tmp/dsh-host/web.log \
+  node tests/runtime/web-acceptance.mjs /tmp/dsh-web-acceptance.json
+```
+
+`DSH_WEB_TOKEN` may supply the launch token directly. The script never prints or persists it. Use an isolated
+`DSH_HOME`, user-data directory, workspace, and Server; do not point it at a personal running host.
+
+The test-only [`session-fixture`](session-fixture) Host plugin creates genuine DSH Sessions through
+`ctx.sessions.create`. Install it only in the isolated real Host, then set `DSH_SESSION_FIXTURE=1` plus
+`DSH_SESSION_CWD_A`/`DSH_SESSION_CWD_B` and optional `DSH_SESSION_SCOPE_A`/`DSH_SESSION_SCOPE_B`. The harness
+selects each session through the host's persisted current-session entry, reloads the real page, asserts the
+reported conversation and Scope, and checks that both exact `session_id` selectors reached the bridge. It restores
+the prior selection and closes only its own Chrome target.
+
+With a linked checkout installed, set `DSH_CHECK_UPDATES=1` to click the check icon or
+`DSH_CHECK_UPDATES=auto` to wait for the Host's automatic check. The harness checks the compact footer, the running
+Server version in Technical details, and the manual update path against published release metadata. For native
+install acceptance, use an eligible registry install in an isolated profile, verify the target in the panel,
+close and reopen it during installation, and read back the active version after reload or restart. Record
+whether the registry and packages were controlled fixtures or publicly published artifacts.
+
+For broader Web acceptance, use a separate DSH home and workspace, install the same built plugin, disable telemetry,
+and configure the test model through environment-backed credentials. Test the shipped Web profile through the browser:
 
 1. Submit a stable, non-sensitive project fact; with test-only `flushOnCapture`, verify Source acceptance and subsequent
    Memory generation. Open another session and ask for the fact.

@@ -43,19 +43,25 @@ Scope 选择也具有应用层等待状态。Escape、关闭按钮及遮罩可�
 
 从其他位置打开全局 Scope 选择器，选择后仍停留在当前页面，焦点返回选择器。取消草稿确认会保留当前输入；确认切换且选择成功后，会丢弃旧记忆草稿或连接编辑草稿。被判为过期的原生状态不能打开激活引导或触发后续 Scope 导航。空结果提供修改标题、申请访问权限或选择其他连接的恢复方向；加载、权限、认证及兼容性错误继续分别呈现。
 
-重新打开 Desktop 只加载已保存配置，不会激活私有会话。本地设置入口继续指向 Local Server 说明；经批准的安装结果与默认 Scope 交接仍需与 #2117 一起完成。
+重新打开 Desktop 只加载已保存配置，不会激活私有会话。本地设置提供独立批准的安装与服务计划，并通过原生交接进入公开默认 Scope。
 
-## Local Server 准备说明
+## Local Server 安装与管理
 
-默认启动页为总览。顶部“开始使用 PowerContext”引导提供“查看本机设置”和“添加连接”。前者打开并聚焦同一个“设置与诊断 → Local Server”准备说明页；当前预览尚未接入安装和恢复，相关集成仍由 [#2306](https://github.com/oceanbase/powercontext/pull/2306) 推进。后者进入现有连接编辑器。已保存配置可通过选择器精确打开，核对、检查后再明确启用；重新打开 Desktop 不会恢复私有连接或 Scope。
+默认启动页为总览。顶部“开始使用 PowerContext”引导提供“查看本机设置”和“添加连接”。前者打开并聚焦同一个“设置与诊断 → Local Server”管理页；打开页面只检查本机事实和保留的操作引用。后者进入现有连接编辑器。已保存配置可通过选择器精确打开，核对、检查后再明确启用；重新打开 Desktop 不会恢复私有连接或 Scope。
 
 连接激活后，引导打开共享的精确 Scope 选择器，只有明确选择成功才进入记忆页。已有 Scope 时，显示实际连接和完整 `scope_id`，提供现有保存、搜索、精确读取和复制流程的入口，并说明不可用操作。“连接之后”三步卡描述操作路径，不追踪首次记忆完成情况、使用次数或完整库存。“收起引导”会收起教程并保留下一步操作和恢复入口，“重新查看引导”可展开；该偏好仅保留到 Desktop 关闭。入口沿用键盘焦点、草稿丢弃确认、中英文和主题设置。
 
 记忆页未连接时，“本地设置”进入并聚焦“设置与诊断 → Local Server”；“连接已有 Server”进入现有连接编辑器。选择任一路径都不会安装软件、激活连接、执行诊断或探测就绪状态。
 
-也可直接进入设置查看 Local Server 说明；即使原生状态正在加载或不可用，说明仍可访问。区域明确标注 Desktop 安装、恢复及服务管理尚未接入，不据此判断本机是否已安装 Server 或服务是否运行。侧栏设置入口保持在底部。
+发行方提供可信 Installer/Ops 资源后，可选择安装、修复、启动、停止、重启、登录启动设置或移除服务注册。查看实际程序、配置和数据位置、地址、固定 Server 版本、空间需求及服务影响，再明确批准一次性计划。安装阶段、配置、注册、进程、存活和就绪状态分别显示。缺少资源时，本地控制不可用，已有 Server 连接仍可使用。
 
-请按[安装与运行](../docs/zh/docs/get-started/install-and-run.md)及[部署 Server](../docs/zh/docs/operate/deploy-server.md)独立准备 Server，并遵守文档中的平台适用范围。确认实际地址、认证方式和经过验证的 Desktop 兼容配置，再保存、显式激活连接并选择精确 Scope。Server 已运行不代表 Desktop 兼容性已验证；已有独立运行的 Server 无需重复安装。应用内“使用帮助”可复制本说明的文档地址。
+操作引用跨 Desktop 退出保留。重开后查询所选操作的权威 Ops 状态，不会重放。中断或失败的尝试可对原操作及选项重新预检并批准恢复计划；执行进程仍不确定时只能查询。取消只是请求，不代表回滚或操作已经结束。旧 bridge 的记录仍可查询，但没有操作描述时不能授权恢复。
+
+安装后明确选择“连接并进入默认 Scope”。原生代码重新检查实际归属、服务、配置、资源及返回的地址。固定 managed catalog 的 `qualification_ref` 必须指向内置且匹配当前契约的 Desktop 资格记录；未验证的候选引用会被拒绝。实际发现的 Server 版本须匹配资源版本。随后复用连接管理器检查身份和兼容性，通过公共接口解析默认 Scope 后进入记忆。此动作会说明就绪探测的影响；重开应用不会自动激活会话。
+
+移除注册保留配置和数据，也不卸载 Desktop。操作系统管理的 Server 独立于 Desktop 存活。不能保证尚未完成的安装在退出后继续，应在重开后查询持久结果。正式签名的 Windows/macOS 安装包、已发布的资格资源和干净机器安装验收仍由 #2108/#2109/#2112 负责。
+
+详见[本地设置契约](../docs/zh/development/desktop-local-server.md)及[独立安装 Server](../docs/zh/docs/get-started/install-and-run.md)。
 
 ## 直接运行安装版
 
@@ -138,9 +144,19 @@ pnpm --dir desktop desktop:dev
 - 连接超时 5 秒、完整请求超时 15 秒、响应上限 1 MiB、每个客户端最多 4 个并发读取；超限明确失败。
 - 主窗口可调用明确列出的连接、Scope、记忆和诊断命令；没有通用 fetch、shell、文件、数据库或读取秘密的 IPC。
 
-应用不启动 Server、不管理服务、不持久化正文或查询；关闭窗口即退出。当前语言和主题也仅保留于会话内。
+普通连接和 Memory 操作不会启动或管理 Server；本地服务修改必须通过明确批准的 Ops 计划。应用不持久化正文或查询，关闭窗口即退出。当前语言和主题也仅保留于会话内。
 
 [安全边界](SECURITY.md)记录具体约束；[验证说明](VALIDATION.md)列出测试范围和仍未满足的 P0 门槛。构建成功、Mock 测试和当前用户机器上的运行都不能代替标准用户、签名、通知冷启动激活、独立服务和 Agent 宿主验收。
+
+## 本地服务状态
+
+在 Linux 上，「本地 Server」设置页可以通过可信的 Ops Bridge 检查 PowerContext 的用户服务。这个检查是只读的：它只显示是否支持、是否注册、管理归属、管理器状态、存活状态、就绪状态和维护状态，不会把路径、命令、环境值或原始进程输出显示给界面。
+
+Ops Bridge 只处理已登记的 PowerContext 服务目标，并拒绝不可信窗口、远程来源和渲染器传入的任意输入。本地服务缺失或暂时不可用时，远程 Server 连接仍然可以使用。页面通过 `ops.inspect` 执行只读状态检查；在有效的 Linux binding 下，经过明确批准并通过 `ops.apply` 派发的计划可以安装、修复、启动、停止或重启个人服务。这些生命周期操作仍然必须遵守相同的归属和审批规则。
+
+服务单元写入当前用户的 `$XDG_CONFIG_HOME/systemd/user/`；未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/systemd/user/`，所有管理器调用都使用 `systemctl --user`。正常安装和恢复不需要 `sudo`，不会写入 `/etc/systemd/system/` 之类的系统级 unit，也不会调用 `loginctl enable-linger`。用户登录时，已有的用户级 systemd manager 可以通过 `default.target` 激活已启用的服务；用户注销时，服务遵循该用户 manager 的正常生命周期。如果账户本来已经由用户或管理员启用了 linger，PowerContext 不会修改它，也不会默默创建系统级持久化。
+
+Linux 验收由 Desktop Rust IPC/Ops Bridge 测试和真实 systemd `--user` 生命周期测试共同覆盖，后者位于 [native personal service workflow](../.github/workflows/native-service.yml)。生命周期测试覆盖安装、重启、卸载、外部登记、无关用户服务、外部停止后的恢复、用户服务管理器不可用，以及用户会话边界。测试验证登录激活使用当前用户的 `default.target`，显式停止不会取消该激活，已有 linger 状态保持不变，也不会创建系统级 unit。测试不会强制注销 CI 账户；真实 GNOME 会话的注销/重新登录资格由 Ubuntu Desktop 打包验收覆盖。managed-resource candidate workflow 还会使用固定 SHA-256 的独立 Python runtime 生成真实 Linux Ops bundle，并通过原生 manifest/摘要信任边界验收；该 candidate 检查不等同于已签名发布包资格。
 
 ## 本机 CLI 诊断
 
@@ -220,4 +236,6 @@ pnpm desktop:build
 
 构建产物是未签名的内部预览。Developer ID 签名、公证、干净机器上的 Gatekeeper、辅助功能权限、真实输入法输入以及安装版钥匙串弹窗仍需单独验收。macOS CI 任务会测试 Apple Silicon 和 Intel 构建，但任务本身的存在不代表运行已通过。
 
-macOS 本机诊断读取 `~/Library/Application Support/com.powercontext.desktop.preview/diagnostic-cli.json`。登记与 Windows 使用相同的 JSON 契约：绝对路径的 `powercontext` 可执行文件、经核对的 SHA-256 摘要和 `source: "explicit_local_installation"`。渲染进程无法提供可执行文件或参数。原生适配器只执行经过核验的 launcher 的私有只读副本。请使用自包含可执行文件，或解释器路径为绝对路径的 launcher；以自身位置查找依赖的 launcher 不适用。CLI 不能依赖 shell 配置或交互式终端。诊断沿用既有的输出上限与超时，并在完成、超时和取消时终止自己的私有进程组。应用正常退出前会拒绝新诊断、取消当前诊断，并等待进程组清理和 launcher 回收完成。应用不会安装或管理 LaunchAgent。
+macOS 本机诊断读取 `~/Library/Application Support/com.powercontext.desktop.preview/diagnostic-cli.json`。登记与 Windows 使用相同的 JSON 契约：绝对路径的 `powercontext` 可执行文件、经核对的 SHA-256 摘要和 `source: "explicit_local_installation"`。渲染进程无法提供可执行文件或参数。原生适配器只执行经过核验的 launcher 的私有只读副本。请使用自包含可执行文件，或解释器路径为绝对路径的 launcher；以自身位置查找依赖的 launcher 不适用。CLI 不能依赖 shell 配置或交互式终端。诊断沿用既有的输出上限与超时，并在完成、超时和取消时终止自己的私有进程组。应用正常退出前会拒绝新诊断、取消当前诊断，并等待进程组清理和 launcher 回收完成。只读诊断不管理 LaunchAgent；明确批准的 Local Server 操作通过可信的独立 Ops 执行。
+
+本地连接交接等待期间发生页面切换后，晚到结果仍可更新连接状态。只有发起交接时的界面意图仍然有效，才自动进入记忆页；后续导航或编辑会保留当前页面、输入及丢弃确认保护。

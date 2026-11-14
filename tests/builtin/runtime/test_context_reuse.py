@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any
 
 import pytest
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult
@@ -37,8 +39,19 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.runtime.context_bindings import BindingCodec, ContextBindingError
-from powercontext.builtin.runtime.context_reuse import ContextReuseError
+from powercontext.builtin.runtime.context_reuse import (
+    MAX_REUSE_EXPLANATION_BYTES,
+    MAX_REUSE_EXPLANATION_CHANGES,
+    ContextReuseChange,
+    ContextReuseError,
+    ContextReuseInvalidation,
+    prepare_reuse,
+    validate_reuse,
+)
+from powercontext.builtin.runtime.prepared_code import CodeEvidenceRef
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.limits import MAX_ARTIFACT_ID_LENGTH
 
 
 def _request(**changes):
@@ -142,6 +155,250 @@ def test_prepared_reuse_rejects_current_root_changes(change):
                 await scoped.validate_reuse(prepared.reuse.binding)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("change", "reported"),
+    [("revise", "revised"), ("forget", "forgotten"), ("merge", "merged"), ("undo_merge", "retired")],
+)
+def test_invalidated_root_is_named_without_blaming_the_unchanged_root(change, reported):
+    async def scenario():
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope = await _scope(runtime)
+            assert runtime.scopes is not None
+            assert runtime.atomic_memory is not None
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            steady = (await memory.create((AtomicMemoryContent(kind="fact", text="Alpha steady constraint."),))).primary
+            first = await memory.create((AtomicMemoryContent(kind="fact", text="Alpha first input."),))
+            second = await memory.create((AtomicMemoryContent(kind="fact", text="Alpha second input."),))
+            target = (
+                await memory.merge(
+                    (first.primary.as_read(), second.primary.as_read()),
+                    AtomicMemoryContent(kind="fact", text="Alpha combined constraint."),
+                )
+            ).primary
+            scoped = runtime.context.for_scope(scope.scope_id)
+            prepared = await scoped.prepare(_request())
+            assert isinstance(prepared, PreparedContextWithReuse)
+            roots = (await scoped.validate_reuse(prepared.reuse.binding)).ordered_roots
+            assert sorted(ref.artifact_id for ref in roots) == sorted((steady.ref.artifact_id, target.ref.artifact_id))
+            if change == "revise":
+                await runtime.records.for_scope(scope.scope_id).replace_artifact(
+                    "atomic-memory",
+                    target.ref.artifact_id,
+                    '"revision:1"',
+                    ArtifactWrite(content={"kind": "fact", "text": "Alpha combined replacement."}),
+                )
+            elif change == "forget":
+                await memory.forget(target.ref.artifact_id, expected_revision=1, expected_state_version=0)
+            elif change == "merge":
+                other = await memory.create((AtomicMemoryContent(kind="fact", text="Another constraint."),))
+                await memory.merge(
+                    (target.as_read(), other.primary.as_read()),
+                    AtomicMemoryContent(kind="fact", text="Alpha final constraint."),
+                )
+            else:
+                await memory.restore(target.ref.artifact_id, operation="undo_merge")
+            with pytest.raises(ContextReuseError) as rejected:
+                await scoped.validate_reuse(prepared.reuse.binding)
+            # The decision and its code are unchanged; the explanation names only the root that changed.
+            assert rejected.value.code == "context-reuse-source-changed"
+            assert rejected.value.invalidation == ContextReuseInvalidation(
+                attribution="partial",
+                changes=(ContextReuseChange(subject="root", change=reported, root=target.ref),),
+                truncated=False,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_denied_revalidation_reveals_nothing_about_changed_roots(tmp_path):
+    from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.server.authz import AccessDeniedError, PrincipalRef
+    from tests.e2e.test_access_control_regressions import AUDIT, _grant, _server
+    from tests.e2e.test_access_control_regressions import _scope as http_scope
+    from tests.e2e.test_atomic_memory_prepare_lifecycle import _change, _remember, _revoke
+
+    async def scenario():
+        async with _server(tmp_path) as (app, client, access):
+            scope_id = await http_scope(client)
+            changed = await _remember(client, scope_id, "Alpha private constraint.")
+            await _remember(client, scope_id, "Beta unrelated note.")
+            grant = await _grant(client, scope_id, "alice", "scope.viewer")
+            context = ArtifactSearchExecutionContext(
+                principal=PrincipalRef(type="user", id="alice"), access=access, audit=AUDIT
+            )
+            scoped = app.state.application.context.for_scope(scope_id)
+
+            async def prepare(query):
+                prepared = await scoped.prepare(_request(query=query), atomic_context=context, binding_identity="alice")
+                assert isinstance(prepared, PreparedContextWithReuse)
+                return prepared.reuse.binding
+
+            async def rejection(binding):
+                with pytest.raises((ContextReuseError, AccessDeniedError)) as rejected:
+                    await scoped.validate_reuse(binding, atomic_context=context, binding_identity="alice")
+                return rejected.value
+
+            stale, fresh = await prepare("alpha"), await prepare("beta")
+            await _change(client, scope_id, changed, "forget")
+            explained = await rejection(stale)
+            assert isinstance(explained, ContextReuseError)
+            assert explained.invalidation is not None
+            assert [item.change for item in explained.invalidation.changes] == ["forgotten"]
+            await scoped.validate_reuse(fresh, atomic_context=context, binding_identity="alice")
+
+            # Without current authority, a changed and an unchanged binding fail identically and explain nothing.
+            await _revoke(client, grant)
+            denied_stale, denied_fresh = await rejection(stale), await rejection(fresh)
+            assert type(denied_stale) is type(denied_fresh) is AccessDeniedError
+            assert denied_stale.args == denied_fresh.args
+            assert not hasattr(denied_stale, "invalidation")
+
+    asyncio.run(scenario())
+
+
+class _Evidence:
+    """One Atomic Memory dependency snapshot, as read when a binding is issued or revalidated."""
+
+    def __init__(self, snapshot: list[dict[str, Any]]) -> None:
+        self.snapshot = snapshot
+
+    async def read_dependency_snapshot(self, roots, *, context=None, selected=None):
+        return self.snapshot
+
+
+class _UnchangedFiles:
+    async def file_digests(self, paths):
+        return dict.fromkeys(paths, "0" * 64)
+
+
+def _root(artifact_id: str) -> ArtifactRef:
+    return ArtifactRef(family="atomic-memory", artifact_id=artifact_id, revision=1)
+
+
+def _artifact_node(ref: ArtifactRef, digest: str = "a") -> dict[str, Any]:
+    state = {"state": "active", "state_version": 0, "merged_into_id": None}
+    return {"kind": "artifact", "ref": ref.model_dump(mode="json"), "digest": digest * 64, "state": state}
+
+
+def _source_node(source_id: str, digest: str = "a") -> dict[str, Any]:
+    ref = {"source_type": "document", "source_id": source_id}
+    return {"kind": "source", "ref": ref, "digest": digest * 64, "journal_position": 1}
+
+
+def _revalidated(roots, recorded, current, *, cite_code=False) -> ContextReuseError:
+    """Issue a real binding over recorded evidence; return the rejection of revalidating it against current evidence."""
+    codec, now = BindingCodec(), datetime.now(UTC)
+    cited = CodeEvidenceRef(
+        scope_id="scope",
+        fingerprint="fingerprint",
+        path="src/private.py",
+        file_sha256="0" * 64,
+        start_line=1,
+        end_line=1,
+        snippet_sha256="1" * 64,
+    )
+    build = replace(
+        PreparedContextBuild(
+            context=PreparedContext(status="ready", content="Context", content_bytes=7), origins=roots
+        ),
+        code_origins=(cited,) if cite_code else (),
+    )
+
+    async def scenario():
+        prepared = await prepare_reuse(
+            _Evidence(recorded),  # ty: ignore[invalid-argument-type] only the dependency snapshot is read.
+            "scope",
+            build,
+            build.context,
+            codec=codec,
+            binding_identity="local",
+            now=now,
+            context=None,
+            code=_UnchangedFiles(),  # ty: ignore[invalid-argument-type] only cited file digests are read.
+        )
+        with pytest.raises(ContextReuseError) as rejected:
+            await validate_reuse(
+                _Evidence(current),  # ty: ignore[invalid-argument-type] only the dependency snapshot is read.
+                "scope",
+                prepared.reuse.binding,
+                codec=codec,
+                binding_identity="local",
+                now=now,
+                context=None,
+            )
+        return rejected.value
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(("cite_code", "attribution"), [(False, "complete"), (True, "partial")])
+def test_snapshot_changes_name_only_bound_roots_and_never_guess_ancestry(cite_code, attribution):
+    first, second = _root("root-a"), _root("root-b")
+    ancestor = ArtifactRef(family="atomic-memory", artifact_id="private-ancestor", revision=3)
+    recorded = [
+        _artifact_node(first),
+        _artifact_node(ancestor),
+        _source_node("private-kept"),
+        _source_node("private-gone"),
+        _artifact_node(second),
+    ]
+    current = [
+        _artifact_node(first),
+        _artifact_node(ancestor, "b"),
+        _source_node("private-kept"),
+        _artifact_node(second, "b"),
+        _source_node("private-new"),
+    ]
+    rejected = _revalidated((first, second), recorded, current, cite_code=cite_code)
+    assert rejected.code == "context-reuse-source-changed"
+    # Cited code is compared after Memory, so a Memory change cannot claim the files were unchanged.
+    assert rejected.invalidation == ContextReuseInvalidation(
+        attribution=attribution,
+        changes=(
+            ContextReuseChange("root", "changed", second),
+            ContextReuseChange("ancestor", "changed"),
+            ContextReuseChange("source", "removed"),
+            ContextReuseChange("source", "added"),
+        ),
+        truncated=False,
+    )
+    assert rejected.invalidation is not None
+    assert "private" not in rejected.invalidation.to_json()
+
+
+@pytest.mark.parametrize("identity", ["short", "long"])
+def test_explanation_keeps_a_deterministic_prefix_within_count_and_byte_bounds(identity):
+    def artifact_id(index: int) -> str:
+        return f"root-{index:02d}" if identity == "short" else f"{index:02d}" + "記" * (MAX_ARTIFACT_ID_LENGTH - 2)
+
+    roots = tuple(_root(artifact_id(index)) for index in range(MAX_REUSE_EXPLANATION_CHANGES + 4))
+    recorded, current = [_artifact_node(ref) for ref in roots], [_artifact_node(ref, "b") for ref in roots]
+    first, again = (_revalidated(roots, recorded, current) for _ in range(2))
+    assert first.code == again.code == "context-reuse-source-changed"
+    assert first.invalidation == again.invalidation
+    explanation = first.invalidation
+    assert explanation is not None
+    assert explanation.attribution == "partial"
+    assert explanation.truncated
+    kept = len(explanation.changes)
+    assert explanation.changes == tuple(ContextReuseChange("root", "changed", ref) for ref in roots[:kept])
+    assert len(explanation.to_json().encode("utf-8")) <= MAX_REUSE_EXPLANATION_BYTES
+    if identity == "short":
+        assert kept == MAX_REUSE_EXPLANATION_CHANGES
+    else:
+        assert 0 < kept < MAX_REUSE_EXPLANATION_CHANGES
+
+
+@pytest.mark.parametrize("current", ["malformed", "reordered"])
+def test_unexplainable_snapshot_change_stays_rejected_and_explains_nothing(current):
+    roots = (_root("root-a"), _root("root-b"))
+    recorded = [_artifact_node(ref) for ref in roots]
+    changed = [{"kind": "unknown"}, *recorded] if current == "malformed" else recorded[::-1]
+    rejected = _revalidated(roots, recorded, changed)
+    assert rejected.code == "context-reuse-source-changed"
+    assert rejected.invalidation == ContextReuseInvalidation("unavailable", (), truncated=False)
 
 
 def test_merged_memory_keeps_exact_inactive_ancestry_eligible():
@@ -478,7 +735,9 @@ def test_ineligible_persisted_source_cannot_be_authorized_by_an_old_artifact_bin
                 await connection.execute(
                     update(SOURCES_TABLE).where(where).values(payload=json.dumps(payload).encode("utf-8"))
                 )
-            with pytest.raises(ContextReuseError, match="evidence-unavailable"):
+            with pytest.raises(ContextReuseError, match="evidence-unavailable") as rejected:
                 await scoped.validate_reuse(prepared.reuse.binding)
+            # Unreadable or ineligible evidence is never explained, so it cannot distinguish missing from denied.
+            assert rejected.value.invalidation is None
 
     asyncio.run(scenario())

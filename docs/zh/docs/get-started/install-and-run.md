@@ -1,6 +1,6 @@
 ---
 title: 安装和运行
-description: 安装 PowerContext 1.5.0，并运行本地 Server。
+description: 安装 PowerContext 1.5.1，并运行本地 Server。
 ---
 
 # 安装和运行
@@ -82,15 +82,15 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ## 选择脚本安装版本
 
-默认的 `--version latest` 安装或升级到所选索引中兼容的最新稳定版。安装 PowerContext 1.5.0 时，选择对应平台的命令：
+默认的 `--version latest` 安装或升级到所选索引中兼容的最新稳定版。安装 PowerContext 1.5.1 时，选择对应平台的命令：
 
 ```bash tab="macOS / Linux"
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.0
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.1
 ```
 
 ```powershell tab="Windows"
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.0
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.1
 ```
 
 也可以指定预发布版，例如 `1.3.0rc1`。所选索引缺少该版本时，安装失败并保留原工具；`latest` 则排除预发布版。镜像同步可能滞后，其最新版本可能与 PyPI 不同。
@@ -144,11 +144,11 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 
 ### 选择版本
 
-本页使用 PowerContext 1.5.0。包与 Agent 集成保持版本一致：Python 包版本为 `1.5.0`，对应 Git tag 为 `powercontext-v1.5.0`。
+本页使用 PowerContext 1.5.1。包与 Agent 集成保持版本一致：Python 包版本为 `1.5.1`，对应 Git tag 为 `powercontext-v1.5.1`。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
-powercontext setup codex --ref powercontext-v1.5.0
+uv tool install --force "powercontext[cli,server]==1.5.1"
+powercontext setup codex --ref powercontext-v1.5.1
 ```
 
 宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。标为 `experimental` 的能力在此版本中仍属于试验性能力。
@@ -158,13 +158,13 @@ powercontext setup codex --ref powercontext-v1.5.0
 需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和 [`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 ```
 
 如需从源码安装同一版本：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.0"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.1"
 ```
 
 只连接远程 Server 的机器安装 `cli` extra 即可使用 `setup`、`doctor` 和远程内容命令。运行本地 Server 或使用 `service` 命令时，还需安装 `server`。如果命令 provider 缺少依赖，CLI 会报告 provider 和缺失模块，便于修复安装。
@@ -222,7 +222,7 @@ powercontext server run --env-file /path/to/powercontext.env
 在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.5.0"
+uv tool install --force "powercontext[cli,server,seekdb]==1.5.1"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的 SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：
@@ -287,6 +287,10 @@ CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
 
 完整 Server 接下来应按[数据库迁移](../operate/database-migrations.md)指南，显式指定证据目录和协调模式，对登记的 Server bundle 执行 plan、apply 和 verify。数据库就绪后再运行 `powercontext server run`。Server 启动检查就绪状态，不初始化 OceanBase 表结构，也不会自动升级已有库。SDK 调用方完成建库后可以使用原 URL 重试初始化。创建缺失表仍然需要建表权限；已有完整可用库不会新增建库权限要求。初始化不会删除或重建已有数据库，不会在失败后切换其他数据库，也不授权升级已有表结构。并发创建使用幂等建库、建表 DDL，并处理索引重名竞争；这不提供已有表结构迁移的协调能力，也不改变嵌入式 seekDB 对实例进程所有权的限制。
 
+### 独立 seekdb 服务器
+
+独立 seekdb 服务器使用同一 `oceanbase` kind 和 `mysql+aoceanbase://` URL 格式，不是新的存储 kind。当 `ob_compatibility_mode` 缺失或为空、且 `VERSION()` 包含 `-OceanBase seekdb-` 时，维护命令将其识别为独立 seekdb。不需要安装 `pylibseekdb`，也不使用本地引擎目录。所选数据库必须预先存在：PowerContext 不自动建库、不启用嵌入式 seekDB Code 存储；显式 `db-migrate` 命令带 `--evidence-dir <path>` 和 `--lock-coordination single-host` 确认数据库就绪后，才运行 `powercontext server run`。
+
 Python 调用方使用 `OceanBaseProfile.open()` 时可省略 URL 中的库名，并按需建库。`OceanBaseProfile.open_existing()` 只连接已准备好的数据库；`attach()` 要求调用方的 engine 已显式选择一个已有数据库。两者都不替换 engine 或改变连接目标。只读巡检（`plan`、`verify` 与 `db-migrate` 的检查类命令）不会创建缺失的 OceanBase 或内嵌 seekDB 库；显式的 seekDB 写入维护可以在应用迁移包前准备配置指定的数据库。
 
 只读 seekDB 巡检要求实例目录已初始化。路径缺失或目录为空时，会在启动 native 引擎前报错，不创建父目录或存储文件。路径为文件，或非空目录中没有可识别的 native 存储时，也会拒绝操作并保留原有内容。普通启动仍可初始化新实例。
@@ -306,7 +310,7 @@ powercontext capabilities
 ## 更新或替换安装
 
 <!-- upgrade-support:start -->
-1.3.0 和 1.4.0 升级必须通过 SQLite、seekDB 和 OceanBase 的完整 Server 验收。当前迁移路径尚未验证，请勿升级已有数据库。
+数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。
 <!-- upgrade-support:end -->
 
 已有部署应保持当前可用版本，等待来源版本及后端具备已验收的升级路径。试用新建部署时，请使用独立程序环境、数据库位置和端口。替换程序包不会完成数据库迁移；备份也不能使不受支持的迁移变为可用。
@@ -321,11 +325,11 @@ powercontext capabilities
 Python SDK 环境和 CLI 安装，使用匹配的发布版本或 Git ref，再恢复能力查询。此端点不会协商旧版响应格式；
 关闭保护不能恢复兼容性。客户端升级要求不能替代上述数据库升级门禁。
 
-安装 1.5.0 到独立环境以试用新建部署：
+安装 1.5.1 到独立环境以试用新建部署：
 
 ```bash
 uv venv /path/to/powercontext-preview
-uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.0"
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.1"
 ```
 
 在独立环境安装其他 Git ref：
@@ -341,7 +345,7 @@ uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[c
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client]==1.5.0"
+uv add "powercontext[client]==1.5.1"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用 `cli`。只安装在 `uv tool` 隔离环境中的 extra 不能被另一个 Python 项目直接导入。

@@ -62,6 +62,13 @@ def _config(**changes):
     return InferenceProtectionConfig.model_validate(value)
 
 
+def _config_with_endpoint(endpoint: str) -> InferenceProtectionConfig:
+    config = _config()
+    return config.model_copy(
+        update={"targets": {"test": config.targets["test"].model_copy(update={"endpoint": endpoint})}}
+    )
+
+
 def _payload(value):
     return ModelJsonPayload(headers={"content-type": "application/json"}, body=json.dumps(value))
 
@@ -95,7 +102,7 @@ async def _no_reuse(_binding):
 
 
 async def _check(request, codec, **changes):
-    arguments = {
+    arguments: dict[str, Any] = {
         "scope_id": "test:scope",
         "config": _config(),
         "codec": codec,
@@ -161,6 +168,7 @@ async def test_separate_send_deadline_and_response_correlation(mode):
         {"binding_identity": "user:bob"},
         {"scope_id": "other:scope"},
         {"config": _config(forbidden_values=(SecretStr("a different rule under the same version"),))},
+        {"config": _config_with_endpoint("https://replacement.example/v1/chat/completions")},
     ],
 )
 async def test_request_binding_cannot_cross_identity_scope_or_current_policy(changed):
@@ -346,3 +354,36 @@ def test_phase_dto_and_headers_do_not_accept_cross_phase_or_authority_override()
         CHECK_CONTEXT_REQUEST.validate_python(value)
     with pytest.raises(ValidationError):
         ModelJsonPayload(headers={"content-type": "application/json", "authorization": "arbitrary"}, body="{}")
+
+
+@pytest.mark.anyio
+async def test_gateway_target_is_issued_by_the_same_final_payload_admission():
+    codec = BindingCodec()
+    ordinary = await _check(_send(), codec)
+    assert ordinary.decision == "allow"
+    assert ordinary.target_endpoint is None
+    approved = await _check(_send(), codec, resolve_target=True)
+    assert approved.decision == "allow"
+    assert approved.target_endpoint == "https://model.example/v1/chat/completions"
+    assert approved.target_protocol == "openai-chat"
+    assert approved.binding
+
+    blocked = await _check(_send(text="synthetic-forbidden-value"), codec, resolve_target=True)
+    assert blocked.decision == "block"
+    assert blocked.target_endpoint is None
+    missing = await _check(_send(target_profile="missing"), codec, resolve_target=True)
+    assert missing.decision == "withhold"
+    assert missing.target_endpoint is None
+
+
+@pytest.mark.anyio
+async def test_new_admission_uses_changed_core_target_without_reusing_old_target():
+    codec = BindingCodec()
+    first = await _check(_send(), codec, resolve_target=True)
+    assert first.decision == "allow" and first.binding
+    revised = _config_with_endpoint("https://replacement.example/v1/chat/completions")
+    next_send = await _check(_send(), codec, resolve_target=True, config=revised)
+    assert next_send.decision == "allow"
+    assert next_send.target_endpoint == "https://replacement.example/v1/chat/completions"
+    old_release = await _check(_release(first.binding), codec, config=revised)
+    assert old_release.decision == "withhold"

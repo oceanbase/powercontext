@@ -214,7 +214,8 @@ def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
 
     recalled = provider.prefetch("What did we decide about the deployment?")
 
-    assert "remembered project context" in recalled
+    # The Server's prepared content carries the trust policy; the provider adds only its heading.
+    assert recalled == "## PowerContext recalled context\n\nremembered project context"
     assert client.calls[0] == (
         "prepare_context",
         ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
@@ -2133,3 +2134,66 @@ def test_registered_handoff_schema_explains_valid_work_arguments(hermes_modules,
     validate({"source_id": "aurora-boundary", "handoff": handoff}, schema)
     with pytest.raises(ValidationError):
         validate({"source_id": "aurora-boundary", "handoff": {**handoff, **invalid}}, schema)
+
+
+@pytest.mark.parametrize("entrypoint", ["tool", "command"])
+def test_legacy_memory_error_includes_code_and_safe_recovery(provider_and_client, entrypoint):
+    provider, client = provider_and_client
+    from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+    def reject(*args, **kwargs):
+        raise PowerContextHTTPError(
+            422, path="/v1/memory/search", code="legacy_memory_operation_unsupported", message="private-response-marker"
+        )
+
+    client.search_memory = reject
+    result = json.loads(
+        provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"})
+        if entrypoint == "tool"
+        else provider.handle_slash_command("search deployment")
+    )
+    assert result["code"] == "legacy_memory_operation_unsupported"
+    assert "powercontext setup hermes" in result["recovery"]
+    assert "Do not drop collection CAS" in result["recovery"]
+    assert "private-response-marker" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "version, ok", [(None, False), ({"major": 2, "minor": 0}, False), ({"major": 1, "minor": 3}, True)]
+)
+def test_hermes_status_checks_memory_contract_separately_from_health(provider_and_client, version, ok):
+    provider, client = provider_and_client
+    client.get_server_info = lambda: {"feature_contracts": {"memory.explicit": {"version": version}}}
+    result = json.loads(provider.handle_slash_command("status"))
+    assert result["memory_protocol"]["ok"] is ok
+    if not ok:
+        assert "powercontext setup hermes" in result["memory_protocol"]["recovery"]
+
+
+def test_automatic_hermes_memory_write_reports_legacy_protocol_recovery(provider_and_client, caplog):
+    provider, client = provider_and_client
+    from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+    attempts = []
+
+    def reject(*args, **kwargs):
+        attempts.append(args)
+        raise PowerContextHTTPError(
+            422,
+            path="/v1/memory/remember",
+            code="legacy_memory_operation_unsupported",
+            message="private-response-marker",
+        )
+
+    client.remember_memory = reject
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        provider.on_memory_write("add", "user", "The user prefers uv.")
+        provider._wait_for_background()
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert len(attempts) == 1
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["error_code"] == "legacy_memory_operation_unsupported"
+    assert "powercontext setup hermes" in diagnostics[0]["recovery"]
+    assert "private-response-marker" not in caplog.text

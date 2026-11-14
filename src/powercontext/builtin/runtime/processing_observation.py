@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -29,6 +30,46 @@ from powercontext.builtin.statistics.models import ProcessingObservation
 
 if TYPE_CHECKING:
     from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+
+
+def project_processing_observation(
+    row: Mapping[Any, Any], family: str | None, observed_at: datetime
+) -> ProcessingObservation:
+    requested, handled = row["requested_generation"], row["handled_generation"]
+    dirty, clean = row["dirty_generation"], row["clean_generation"]
+    return ProcessingObservation(
+        binding=row["binding_name"],
+        family=family,
+        state="pending" if requested > handled else "dirty" if dirty > clean else "acknowledged" if handled else "idle",
+        observed_at=observed_at,
+        requested_generation=requested,
+        handled_generation=handled,
+        dirty_generation=dirty,
+        clean_generation=clean,
+    )
+
+
+def merge_processing_observation(
+    durable: ProcessingObservation | None, local: ProcessingObservation
+) -> ProcessingObservation:
+    if durable is None:
+        return local
+    updates = local.model_dump(
+        exclude={
+            "requested_generation",
+            "handled_generation",
+            "dirty_generation",
+            "clean_generation",
+        }
+    )
+    if local.state == "idle":
+        updates["state"] = durable.state
+        if durable.state == "pending":
+            updates["reason"] = "waiting_dispatch"
+            updates["next_check_seconds"] = None
+        elif durable.state in {"idle", "acknowledged"}:
+            updates["reason"] = "idle"
+    return durable.model_copy(update=updates)
 
 
 async def observe_processing(
@@ -51,43 +92,12 @@ async def observe_processing(
     families = {binding: family for family, binding in FAMILY_BINDINGS.items()}
     families[TOPIC_MEMORY_SOURCE_WINDOW_BINDING] = "topic-memory"
     for row in rows:
-        requested, handled = row["requested_generation"], row["handled_generation"]
-        dirty, clean = row["dirty_generation"], row["clean_generation"]
-        state = (
-            "pending" if requested > handled else "dirty" if dirty > clean else "acknowledged" if handled else "idle"
-        )
-        values[row["scope_id"]][row["binding_name"]] = ProcessingObservation(
-            binding=row["binding_name"],
-            family=families.get(row["binding_name"]),
-            state=state,
-            observed_at=observed_at,
-            requested_generation=requested,
-            handled_generation=handled,
-            dirty_generation=dirty,
-            clean_generation=clean,
+        values[row["scope_id"]][row["binding_name"]] = project_processing_observation(
+            row, families.get(row["binding_name"]), observed_at
         )
     if supervisors is not None:
         for scope in scope_ids:
             for observation in supervisors.observe_scope(scope):
                 durable = values[scope].get(observation.binding)
-                if durable is None:
-                    values[scope][observation.binding] = observation
-                else:
-                    updates = observation.model_dump(
-                        exclude={
-                            "requested_generation",
-                            "handled_generation",
-                            "dirty_generation",
-                            "clean_generation",
-                        }
-                    )
-                    # An idle local scheduler does not override durable unhandled work.
-                    if observation.state == "idle":
-                        updates["state"] = durable.state
-                        if durable.state == "pending":
-                            updates["reason"] = "waiting_dispatch"
-                            updates["next_check_seconds"] = None
-                        elif durable.state in {"idle", "acknowledged"}:
-                            updates["reason"] = "idle"
-                    values[scope][observation.binding] = durable.model_copy(update=updates)
+                values[scope][observation.binding] = merge_processing_observation(durable, observation)
     return {scope: tuple(rows[key] for key in sorted(rows)) for scope, rows in values.items()}

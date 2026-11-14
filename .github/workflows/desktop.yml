@@ -82,7 +82,8 @@ jobs:
       - run: pnpm build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test Windows IPC and Desktop behavior
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
       - name: Verify diagnostic process containment
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example diagnostic_process_probe
@@ -201,68 +202,25 @@ jobs:
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
+      - name: Set up Python for product resource bundle regression
+        if: matrix.runner == 'macos-15'
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - name: Verify full-size product resources with the real Tauri CLI
+        if: matrix.runner == 'macos-15'
+        working-directory: .
+        env:
+          POWERCONTEXT_TEST_TAURI_PRODUCT_BUNDLE: '1'
+        run: |
+          uv sync --locked --no-dev --group resource-build --python 3.12
+          uv run --no-sync python -m pytest tests/test_desktop_product.py::test_tauri_cli_bundles_the_complete_helper_inventory -q
       - name: Verify native Keychain across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Build unsigned macOS app and DMG
         id: macos_build
-        shell: bash
-        run: |
-          mkdir -p .artifacts
-          set -euo pipefail
-          capture_macos_state() {
-            state_log="$1"
-            {
-              printf 'captured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              echo '## macOS'
-              sw_vers || true
-              uname -a || true
-              echo '## Xcode'
-              xcodebuild -version || true
-              echo '## toolchain'
-              node --version || true
-              pnpm --version || true
-              rustc --version || true
-              cargo --version || true
-              echo '## attached disk images'
-              hdiutil info || true
-              echo '## disks'
-              diskutil list || true
-              echo '## mounts'
-              mount || true
-              echo '## bundle files'
-              find src-tauri/target/release/bundle -maxdepth 4 -print || true
-            } >"$state_log" 2>&1
-          }
-          : > .artifacts/macos-build.log
-          for attempt in 1 2 3; do
-            attempt_log=".artifacts/macos-build-attempt-${attempt}.log"
-            if pnpm tauri build --ci --verbose -- --locked 2>&1 | tee "$attempt_log" | tee -a .artifacts/macos-build.log; then
-              break
-            else
-              build_status=$?
-            fi
-            capture_macos_state ".artifacts/macos-build-attempt-${attempt}-state.log"
-            # Both image creation and detach can encounter transient DiskImages locks.
-            if [ "$attempt" -eq 3 ] || ! grep -Eq "hdiutil: (create failed - Resource busy|couldn't eject .* - Resource busy)" "$attempt_log"; then
-              exit "$build_status"
-            fi
-            echo 'retried=true' >> "$GITHUB_OUTPUT"
-            echo "::warning::DMG creation or unmount found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
-            sleep "$((attempt * 5))"
-          done
-      - name: Collect macOS packaging diagnostics
-        if: ${{ always() && steps.macos_build.outcome == 'failure' }}
-        timeout-minutes: 2
-        shell: bash
-        run: |
-          mkdir -p .artifacts
-          {
-            sw_vers || true
-            uname -m || true
-            df -h . "$RUNNER_TEMP" || true
-            hdiutil info || true
-            diskutil list || true
-          } > .artifacts/macos-packaging-diagnostics.log 2>&1
+        run: python3 scripts/build_macos.py
       - name: Upload macOS build diagnostics
         if: ${{ failure() || steps.macos_build.outputs.retried == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -287,6 +245,9 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
+    # Ubuntu Desktop qualification is optional under #2112; required Windows
+    # and macOS validation must remain independent of a Linux failure.
+    continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:

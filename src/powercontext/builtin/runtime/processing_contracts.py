@@ -24,7 +24,7 @@ from typing import Protocol, runtime_checkable
 
 from powercontext.builtin.inference.observability import ProviderObservationReport
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
-from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics
+from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics, processing_error_code
 
 
 class ArtifactProcessingWorkerOutcome(StrEnum):
@@ -145,36 +145,6 @@ class WorkerInitializerPreparation(Protocol):
 
     def prepare(self) -> AbstractContextManager[Callable[[], None]]: ...
 
-
-def processing_error_code(exception_type: type[BaseException] | str, error_code: str = "") -> str:
-    """Expose only known categories, never exception messages or custom codes."""
-
-    known_codes = {
-        "InferenceBudgetExceededError": "inference_budget_exceeded",
-        "InferenceConfigurationError": "model_configuration_error",
-        "PydanticAIConfigurationError": "model_configuration_error",
-        "InferenceTimeoutError": "model_timeout",
-        "InferenceUnavailableError": "model_unavailable",
-        "InvalidInferenceOutputError": "invalid_model_output",
-        "AccessDeniedError": "access_denied",
-        "AccessIdentityRequiredError": "access_identity_required",
-        "AccessUnavailableError": "access_unavailable",
-    }
-    names = (exception_type,) if isinstance(exception_type, str) else (base.__name__ for base in exception_type.__mro__)
-    for name in names:
-        if name in known_codes:
-            return known_codes[name]
-    if error_code in {
-        *known_codes.values(),
-        "worker_timeout",
-        "worker_crash",
-        "invalid_worker_result",
-        "missing_durable_acknowledgement",
-        "invalid_topic_placeholder",
-        "invalid_topic_coordination_content",
-    }:
-        return error_code
-    return "processing_failed"
 
 
 __all__ = [
