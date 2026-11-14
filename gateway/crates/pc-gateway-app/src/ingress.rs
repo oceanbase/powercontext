@@ -208,15 +208,13 @@ async fn ingress_model(
     control: RequestControl,
 ) -> Response {
     // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
-    if let Some(expected) = &state.api_key {
-        if !crate::authentication::authenticate(expected, &headers) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, "Bearer")],
-                Json(serde_json::json!({ "error": "invalid_gateway_key" })),
-            )
-                .into_response();
-        }
+    if !crate::authentication::authenticate(&state.api_key, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+            Json(serde_json::json!({ "error": "invalid_gateway_key" })),
+        )
+            .into_response();
     }
 
     if state.max_body_bytes == 0 {
@@ -316,12 +314,12 @@ async fn ingress_model(
     };
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if let Format::Responses = format {
-        if state.upstream_responses.is_empty() {
+        if state.responses_profile_name.is_none() {
             return (
                 StatusCode::NOT_IMPLEMENTED,
                 Json(serde_json::json!({
                     "error": "responses_route_disabled",
-                    "hint": "set PC_GATEWAY_UPSTREAM_URL_RESPONSES to enable this route"
+                    "hint": "set PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES to enable this route"
                 })),
             )
                 .into_response();
@@ -335,22 +333,19 @@ async fn ingress_model(
     let conversation = conversation_id(&headers, &format);
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
-        target_profile: state.upstream_profile.clone(),
+        target_profile: match format {
+            Format::Chat => state.chat_profile_name.clone(),
+            Format::Responses => state.responses_profile_name.clone().unwrap_or_default(),
+        },
         request: canonical,
-        target_url: match format {
-            Format::Chat => state.upstream_chat.clone(),
-            Format::Responses => state.upstream_responses.clone(),
+        target_protocol: match format {
+            Format::Chat => "openai-chat".into(),
+            Format::Responses => "openai-responses".into(),
         },
         headers: bearer_headers(match format {
             Format::Chat => &state.upstream_chat_api_key,
             Format::Responses => &state.upstream_responses_api_key,
         }),
-        // P1-3：降级资格由启动时 capabilities 查询决定，环境变量只是运维申请。
-        degrade_policy: if state.degradation_allowed {
-            state.degrade
-        } else {
-            pc_gateway_core::DegradePolicy::Pause
-        },
         inject_context: injects(
             &format,
             state.injection,
@@ -391,17 +386,13 @@ async fn ingress_model(
     )
 }
 
-/// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
-/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不被包装成流；
-/// 降级直通的流保留 `x-pc-degraded` 头。
+/// 流式 Responses 客户端：只把过检释放后的完整响应重放为 SSE 事件。
+/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不包装成流。
 fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
-    let (body, degraded) = match &outcome {
+    let body = match &outcome {
         ManagedOutcome::Released {
             status: 200, body, ..
-        } => (body, false),
-        ManagedOutcome::Degraded {
-            status: 200, body, ..
-        } => (body, true),
+        } => body,
         _ => return respond(outcome, OutputProtocol::OpenAiResponses),
     };
     let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
@@ -420,12 +411,6 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
     response
         .extensions_mut()
         .insert(FirstContentOffset(first_content));
-    if degraded {
-        response.headers_mut().insert(
-            "x-pc-degraded",
-            header::HeaderValue::from_static("passthrough_without_memory"),
-        );
-    }
     response
 }
 
@@ -822,7 +807,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
     })
 }
 
-/// 结果映射：不存在静默成功；降级直通必须显式标记。
+/// 结果映射：只有获准释放的响应可以透传。
 fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
     let first_content = match &outcome {
         ManagedOutcome::Released {
@@ -830,11 +815,6 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             content_type,
             body,
             ..
-        }
-        | ManagedOutcome::Degraded {
-            status,
-            content_type,
-            body,
         } if (200..300).contains(status) => {
             let mime = content_type.split(';').next().unwrap_or("").trim();
             if mime.eq_ignore_ascii_case("application/json")
@@ -869,26 +849,6 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             response.extensions_mut().insert(ModelContent);
             response
         }
-        ManagedOutcome::Degraded {
-            status,
-            content_type,
-            body,
-        } => match Response::builder()
-            .status(StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
-            .header(header::CONTENT_TYPE, content_type.as_str())
-            .header("x-pc-degraded", "passthrough_without_memory")
-            .body(axum::body::Body::from(body.to_vec()))
-        {
-            Ok(mut response) => {
-                response.extensions_mut().insert(ModelContent);
-                response
-            }
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response(),
-        },
         ManagedOutcome::Blocked { reason_codes } => (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "decision": "block", "reason_codes": reason_codes })),
@@ -1027,10 +987,16 @@ pub(crate) mod tests {
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
         let received = Arc::new(Receivers::default());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let target_base = base.clone();
         let mock = axum::Router::new()
             .route(
                 "/v1/context/check",
-                post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
+                post(move |State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| {
+                    let target_base = target_base.clone();
+                    async move {
+                    let responses = matches!(&request, ContextCheckRequest::BeforeSend { target_profile, .. } if target_profile == "test-responses");
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
@@ -1051,8 +1017,14 @@ pub(crate) mod tests {
                         "coverage": {"profile": "text-and-tools.v1", "complete": true},
                         "policy_version": "test",
                         "valid_until": "2999-01-01T00:00:00Z",
-                        "binding": "test-binding"
+                        "binding": "test-binding",
+                        "target_endpoint": match phase {
+                            CheckPhase::BeforeSend => Some(format!("{target_base}{}", if responses { "/v1/responses" } else { "/v1/chat/completions" })),
+                            CheckPhase::BeforeRelease => None,
+                        },
+                        "target_protocol": if responses { "openai-responses" } else { "openai-chat" }
                     }))
+                    }
                 }),
             )
             .route(
@@ -1093,8 +1065,6 @@ pub(crate) mod tests {
                 }),
             );
         let mock = mock.with_state(received.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
         let state = Arc::new(AppState {
             executor: Arc::new(Executor::new(
@@ -1103,13 +1073,11 @@ pub(crate) mod tests {
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
             evidence,
-            upstream_profile: "test".into(),
-            upstream_chat: format!("{base}/v1/chat/completions"),
-            upstream_responses: format!("{base}/v1/responses"),
+            chat_profile_name: "test".into(),
+            responses_profile_name: Some("test-responses".into()),
             upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
             upstream_responses_api_key: String::new(),
-            api_key: Some("gateway-key".into()),
-            degrade: pc_gateway_core::DegradePolicy::Pause,
+            api_key: "gateway-key".into(),
             injection: Injection::Off,
             inject_responses: false,
             inject_code: false,
@@ -1117,7 +1085,6 @@ pub(crate) mod tests {
             steering: None,
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
-            degradation_allowed: false,
         });
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
@@ -1127,6 +1094,64 @@ pub(crate) mod tests {
             ],
         );
         (router, server, received)
+    }
+
+    #[tokio::test]
+    async fn real_listener_cannot_redirect_core_profile_a_to_client_target_b() {
+        use axum::routing::post;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let (gateway_router, core_server, _) = lifecycle_router().await;
+        let gateway_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway_url = format!("http://{}", gateway_listener.local_addr().unwrap());
+        let gateway_server =
+            tokio::spawn(
+                async move { axum::serve(gateway_listener, gateway_router).await.unwrap() },
+            );
+        let b_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let b_url = format!("http://{}", b_listener.local_addr().unwrap());
+        let b_hits = Arc::new(AtomicUsize::new(0));
+        let count = b_hits.clone();
+        let b_server = tokio::spawn(async move {
+            axum::serve(
+                b_listener,
+                axum::Router::new().route(
+                    "/v1/chat/completions",
+                    post(move || {
+                        let count = count.clone();
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            "wrong destination"
+                        }
+                    }),
+                ),
+            )
+            .await
+            .unwrap()
+        });
+        let response = reqwest::Client::new()
+            .post(format!("{gateway_url}/gateway/v1/chat/completions"))
+            .bearer_auth("gateway-key")
+            .header("x-upstream-url", format!("{b_url}/v1/chat/completions"))
+            .json(
+                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["choices"][0]["message"]["content"],
+            "checked"
+        );
+        assert_eq!(
+            b_hits.load(Ordering::SeqCst),
+            0,
+            "profile B received a request"
+        );
+        b_server.abort();
+        gateway_server.abort();
+        core_server.abort();
     }
 
     struct PendingBody {
@@ -1614,73 +1639,43 @@ pub(crate) mod tests {
                 ]
             }]
         });
-        for degraded in [false, true] {
-            let body = bytes::Bytes::from(serde_json::to_vec(&resp).unwrap());
-            let outcome = if degraded {
-                ManagedOutcome::Degraded {
-                    status: 200,
-                    content_type: "application/json".into(),
-                    body,
-                }
-            } else {
-                ManagedOutcome::Released {
-                    binding: None,
-                    status: 200,
-                    content_type: "application/json".into(),
-                    body,
-                }
-            };
-            let response = respond_responses_sse(outcome);
-            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            let events = sse_events(std::str::from_utf8(&body).unwrap());
-            let added = events
-                .iter()
-                .find(|e| e["type"] == "response.content_part.added" && e["content_index"] == 0)
-                .unwrap();
-            assert_eq!(added["part"]["logprobs"], serde_json::json!([]));
-            for (content_index, expected) in [
-                (0, logprobs.clone()),
-                (1, serde_json::json!([])),
-                (2, serde_json::json!([])),
-            ] {
-                for kind in ["response.output_text.delta", "response.output_text.done"] {
-                    let event = events
-                        .iter()
-                        .find(|e| e["type"] == kind && e["content_index"] == content_index)
-                        .unwrap();
-                    assert_eq!(event["logprobs"], expected);
-                }
-            }
-            let done = events
-                .iter()
-                .find(|e| e["type"] == "response.content_part.done" && e["content_index"] == 0)
-                .unwrap();
-            assert_eq!(done["part"], resp["output"][0]["content"][0]);
-            assert_eq!(events.last().unwrap()["response"], resp);
-        }
-    }
-
-    #[test]
-    fn degraded_responses_are_replayed_as_a_marked_stream() {
-        let outcome = ManagedOutcome::Degraded {
+        let body = bytes::Bytes::from(serde_json::to_vec(&resp).unwrap());
+        let outcome = ManagedOutcome::Released {
+            binding: None,
             status: 200,
             content_type: "application/json".into(),
-            body: bytes::Bytes::from_static(
-                br#"{"id":"resp_1","object":"response","status":"completed","output":[]}"#,
-            ),
+            body,
         };
         let response = respond_responses_sse(outcome);
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()[header::CONTENT_TYPE],
-            "text/event-stream"
-        );
-        assert_eq!(
-            response.headers()["x-pc-degraded"],
-            "passthrough_without_memory"
-        );
+        assert!(!response.headers().contains_key("x-pc-degraded"));
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let events = sse_events(std::str::from_utf8(&body).unwrap());
+        let added = events
+            .iter()
+            .find(|e| e["type"] == "response.content_part.added" && e["content_index"] == 0)
+            .unwrap();
+        assert_eq!(added["part"]["logprobs"], serde_json::json!([]));
+        for (content_index, expected) in [
+            (0, logprobs.clone()),
+            (1, serde_json::json!([])),
+            (2, serde_json::json!([])),
+        ] {
+            for kind in ["response.output_text.delta", "response.output_text.done"] {
+                let event = events
+                    .iter()
+                    .find(|e| e["type"] == kind && e["content_index"] == content_index)
+                    .unwrap();
+                assert_eq!(event["logprobs"], expected);
+            }
+        }
+        let done = events
+            .iter()
+            .find(|e| e["type"] == "response.content_part.done" && e["content_index"] == 0)
+            .unwrap();
+        assert_eq!(done["part"], resp["output"][0]["content"][0]);
+        assert_eq!(events.last().unwrap()["response"], resp);
     }
 
     #[test]

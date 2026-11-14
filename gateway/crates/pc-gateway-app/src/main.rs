@@ -20,9 +20,9 @@
 //! - 独立运行：`PC_GATEWAY_CORE_BASE` 直连远端 PowerContext（无代理）。
 //!
 //! 环境变量：PC_GATEWAY_LISTEN、PC_GATEWAY_CORE_UDS、PC_GATEWAY_CORE_BASE、
-//! PC_GATEWAY_API_KEY（网关密钥，替代服务商 key）、PC_GATEWAY_UPSTREAM_URL、
+//! PC_GATEWAY_API_KEY（网关密钥，替代服务商 key）、PC_GATEWAY_CORE_TOKEN、
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
-//! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
+//! PC_GATEWAY_MAX_ATTEMPTS。
 
 mod authentication;
 mod connection;
@@ -49,15 +49,11 @@ pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
     pub executor: Arc<Executor<CoreLink, ReqwestTransport>>,
     pub evidence: Arc<dyn EvidenceSink>,
-    pub upstream_profile: String,
-    /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
-    pub upstream_chat: String,
-    /// responses 上游。
-    pub upstream_responses: String,
+    pub chat_profile_name: String,
+    pub responses_profile_name: Option<String>,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
-    pub api_key: Option<String>,
-    pub degrade: pc_gateway_core::DegradePolicy,
+    pub api_key: String,
     /// 是否调 prepare 注入上下文（默认关）。
     pub injection: Injection,
     /// Responses 入口是否注入：默认跟随 injection，
@@ -73,8 +69,6 @@ pub struct AppState {
     pub default_scope: String,
     /// Confirmed model input intersection in bytes; zero pauses model routes.
     pub max_body_bytes: usize,
-    /// 启动时查 capabilities 确定降级资格：enforcing=true 或查询失败 → 不允许。
-    pub degradation_allowed: bool,
 }
 
 #[tokio::main]
@@ -86,11 +80,29 @@ async fn main() {
         )
         .init();
 
-    let (addr, api_key) = authentication::load().unwrap_or_else(|reason| {
+    let (addr, selected_key) = authentication::load().unwrap_or_else(|reason| {
         eprintln!("{reason}");
         std::process::exit(2);
     });
+    let api_key = gateway_credentials(selected_key, std::env::var("PC_GATEWAY_CORE_TOKEN").ok())
+        .unwrap_or_else(|reason| {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        });
 
+    if [
+        "PC_GATEWAY_UPSTREAM_URL",
+        "PC_GATEWAY_UPSTREAM_URL_CHAT",
+        "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some())
+    {
+        tracing::error!(
+            "Gateway upstream URLs are no longer accepted; configure Core target profiles"
+        );
+        std::process::exit(2);
+    }
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
 
@@ -107,10 +119,15 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .filter(|v| *v > 0)
         .unwrap_or(64);
-    let degrade = match std::env::var("PC_GATEWAY_DEGRADE").as_deref() {
-        Ok("passthrough") => pc_gateway_core::DegradePolicy::PassthroughWithoutMemory,
-        _ => pc_gateway_core::DegradePolicy::Pause,
-    };
+    if matches!(
+        std::env::var("PC_GATEWAY_DEGRADE").as_deref(),
+        Ok("passthrough")
+    ) {
+        tracing::error!(
+            "passthrough without a Core-issued destination is unsafe; remove PC_GATEWAY_DEGRADE"
+        );
+        std::process::exit(2);
+    }
 
     // 指令文件只在启动时读取；配置了但无效时拒绝启动，而不是不带指令运行。
     let steering = match steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref()) {
@@ -168,7 +185,6 @@ async fn main() {
         .and_then(|caps| caps.input_payload_limit())
         .map(|limit| limit.min(max_body_bytes))
         .unwrap_or(0);
-    let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
 
     let state = Arc::new(AppState {
         executor: Arc::new(
@@ -181,12 +197,11 @@ async fn main() {
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
-        upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
+        chat_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
-        upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
-            .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
-            .unwrap_or_else(|_| "http://127.0.0.1:9000/v1/chat/completions".into()),
-        upstream_responses: std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES").unwrap_or_default(),
+        responses_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES")
+            .ok()
+            .filter(|s| !s.is_empty()),
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
@@ -194,7 +209,6 @@ async fn main() {
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
         api_key,
-        degrade,
         injection: injection_mode(
             std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
             std::env::var("PC_GATEWAY_CORE_UDS").is_ok(),
@@ -212,7 +226,6 @@ async fn main() {
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
-        degradation_allowed,
     });
 
     let executor = state.executor.clone();
@@ -239,6 +252,22 @@ async fn main() {
     })
     .await
     .expect("serve");
+}
+
+fn gateway_credentials(
+    api_key: Option<String>,
+    core_token: Option<String>,
+) -> Result<String, &'static str> {
+    let api_key = api_key
+        .filter(|key| !key.is_empty())
+        .ok_or("PC_GATEWAY_API_KEY is required")?;
+    let core_token = core_token
+        .filter(|token| !token.is_empty())
+        .ok_or("PC_GATEWAY_CORE_TOKEN is required")?;
+    if api_key == core_token {
+        return Err("PC_GATEWAY_API_KEY must differ from PC_GATEWAY_CORE_TOKEN");
+    }
+    Ok(api_key)
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
@@ -313,7 +342,16 @@ fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
 
 #[cfg(test)]
 mod injection_default_tests {
-    use super::{injection_mode, Injection};
+    use super::{gateway_credentials, injection_mode, Injection};
+
+    #[test]
+    fn gateway_and_core_require_separate_credentials() {
+        assert!(gateway_credentials(None, Some("core".into())).is_err());
+        assert!(gateway_credentials(Some("gateway".into()), None).is_err());
+        assert!(gateway_credentials(Some(String::new()), Some("core".into())).is_err());
+        assert!(gateway_credentials(Some("same".into()), Some("same".into())).is_err());
+        assert!(gateway_credentials(Some("gateway".into()), Some("core".into())).is_ok());
+    }
 
     #[test]
     fn combined_deployments_inject_conversations_unless_set() {

@@ -62,6 +62,22 @@ def _config(**changes):
     return InferenceProtectionConfig.model_validate(value)
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:invalid/v1/chat/completions",
+        "https://example.invalid:99999/v1/chat/completions",
+        "http://127.0.0.1:0/v1/chat/completions",
+        "https://example.invalid/v1/chat/completions?",
+        "https://example.invalid/v1/chat/completions#",
+    ],
+)
+def test_profile_rejects_endpoint_gateway_cannot_use(endpoint: str) -> None:
+    # Core must reject an unusable target instead of granting a send that Gateway pauses.
+    with pytest.raises(ValidationError, match="profile endpoint"):
+        UpstreamProfile(endpoint=endpoint, model="test", protocol="openai-chat")
+
+
 def _config_with_endpoint(endpoint: str) -> InferenceProtectionConfig:
     config = _config()
     return config.model_copy(
@@ -374,6 +390,18 @@ async def test_gateway_target_is_issued_by_the_same_final_payload_admission():
     missing = await _check(_send(target_profile="missing"), codec, resolve_target=True)
     assert missing.decision == "withhold"
     assert missing.target_endpoint is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_gateway_target_never_authorizes_a_different_model_in_any_privacy_mode(mode):
+    request = _send(payload=_payload({"model": "other-model", "messages": [{"role": "user", "content": "safe"}]}))
+    result = await _check(request, BindingCodec(), config=_config(mode=mode), resolve_target=True)
+    assert result.decision == "withhold"
+    assert result.reason_codes == ("model_mismatch",)
+    assert result.binding is None
+    assert result.target_endpoint is None
+    assert result.target_protocol is None
 
 
 @pytest.mark.anyio

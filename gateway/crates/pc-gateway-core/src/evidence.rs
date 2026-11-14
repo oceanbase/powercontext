@@ -53,6 +53,12 @@ impl<'a> CallRecorder<'a> {
         }
     }
 
+    /// The authoritative endpoint is not known until Core admission. Record only the
+    /// destination selected for the latest transport attempt, never a client claim.
+    pub(crate) fn set_target(&mut self, endpoint: &str) {
+        self.call.target_fingerprint = fingerprint(endpoint);
+    }
+
     pub(crate) fn begin_attempt(&mut self) {
         self.call.attempts += 1;
         self.call.sending = Sending::PossiblySent;

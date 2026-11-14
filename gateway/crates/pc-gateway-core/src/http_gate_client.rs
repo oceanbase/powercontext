@@ -60,6 +60,7 @@ impl HttpGateClient {
         path: &str,
         body: Option<Vec<u8>>,
         replay_safe: bool,
+        resolve_target: bool,
     ) -> Result<R, GateError> {
         let url = format!("{}{}", self.base_url, path);
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -74,6 +75,9 @@ impl HttpGateClient {
                     .request(method.clone(), &url)
                     .header("x-powercontext-scope-mode", "current")
                     .bearer_auth(self.token.clone().unwrap_or_default());
+                if resolve_target {
+                    request = request.header("x-powercontext-resolve-target", "true");
+                }
                 if let Some(body) = &body {
                     request = request
                         .header("content-type", "application/json")
@@ -123,17 +127,33 @@ impl HttpGateClient {
 
 impl GateClient for HttpGateClient {
     async fn check(&self, request: ContextCheckRequest) -> Result<ContextCheckResult, GateError> {
+        let resolve_target = matches!(request, ContextCheckRequest::BeforeSend { .. });
+        if resolve_target {
+            let url = reqwest::Url::parse(&self.base_url)
+                .map_err(|_| GateError::Malformed("invalid Core URL".into()))?;
+            let local_http = url.scheme() == "http"
+                && url
+                    .host_str()
+                    .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+                    .is_some_and(|host| host.is_loopback());
+            if url.scheme() != "https" && !local_http {
+                return Err(GateError::Malformed(
+                    "privileged target resolution requires HTTPS or loopback Core".into(),
+                ));
+            }
+        }
         self.request(
             reqwest::Method::POST,
             "/v1/context/check",
             Some(serde_json::to_vec(&request).expect("serialize check")),
             true,
+            resolve_target,
         )
         .await
     }
 
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
-        self.request(reqwest::Method::GET, "/v1/capabilities", None, true)
+        self.request(reqwest::Method::GET, "/v1/capabilities", None, true, false)
             .await
     }
 
@@ -145,6 +165,7 @@ impl GateClient for HttpGateClient {
             reqwest::Method::POST,
             "/v1/context/prepare",
             Some(serde_json::to_vec(&request).expect("serialize prepare")),
+            false,
             false,
         )
         .await
@@ -159,6 +180,7 @@ impl GateClient for HttpGateClient {
             "/v1/sources/content",
             Some(serde_json::to_vec(&request).expect("serialize capture")),
             true,
+            false,
         )
         .await
     }
@@ -185,4 +207,29 @@ fn malformed_http(error: &reqwest::Error) -> bool {
         cause = error.source();
     }
     false
+}
+
+#[cfg(test)]
+mod target_security_tests {
+    use super::*;
+    use pc_gateway_types::ModelJsonPayload;
+    use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn remote_plain_http_cannot_receive_privileged_target_resolution_token() {
+        let client =
+            HttpGateClient::with_token("http://model.example", Some("private-token".into()));
+        let verdict = client
+            .check(ContextCheckRequest::BeforeSend {
+                scope_id: "test".into(),
+                target_profile: "test".into(),
+                payload: ModelJsonPayload::new(
+                    BTreeMap::from([("content-type".into(), "application/json".into())]),
+                    "{}".into(),
+                ),
+                prepared_contexts: vec![],
+            })
+            .await;
+        assert!(matches!(verdict, Err(GateError::Malformed(_))));
+    }
 }

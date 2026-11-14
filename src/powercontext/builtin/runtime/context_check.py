@@ -342,6 +342,27 @@ async def _correlate(
         await validate_reuse(binding)
 
 
+def _target_rejection(
+    request: CheckContextRequest,
+    config: InferenceProtectionConfig,
+    body: bytes,
+    *,
+    resolve_target: bool,
+) -> str | None:
+    profile = config.targets.get(request.target_profile)
+    if profile is None:
+        return "target_unsupported"
+    if resolve_target and isinstance(request, CheckContextBeforeSend):
+        # Target authority is mandatory even when privacy inspection is observational or disabled.
+        try:
+            model = parse_model_json(body, max_depth=config.max_json_depth).get("model")
+        except (ValueError, RecursionError):
+            raise InvalidRuntimeRequestError("context-payload-invalid") from None
+        if model != profile.model:
+            return "model_mismatch"
+    return None
+
+
 async def check_context(
     request: CheckContextRequest,
     *,
@@ -362,8 +383,8 @@ async def check_context(
     limit = config.max_payload_bytes if request.phase == "before_send" else config.max_response_bytes
     if len(body) > min(limit, MAX_CHECK_BODY_BYTES):
         raise ContextCheckTooLargeError
-    if request.target_profile not in config.targets:
-        return _withheld(request, config, now, "target_unsupported")
+    if target_rejection := _target_rejection(request, config, body, resolve_target=resolve_target):
+        return _withheld(request, config, now, target_rejection)
     policy = PrivacyPolicy(config)
     # Match the existing transport: observation modes do not inspect responses.
     assessed = (

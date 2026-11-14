@@ -15,8 +15,8 @@
 //! Real TCP Core/provider receivers through the public Executor. No paid provider or real Core claim.
 use axum::{extract::State, routing::post, Json, Router};
 use pc_gateway_core::{
-    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, HttpGateClient,
-    LifecycleStopReason, ManagedCall, ManagedOutcome, ModelSendState, RequestControl,
+    ExecutionState, ExecutionTerminal, Executor, HttpGateClient, LifecycleStopReason, ManagedCall,
+    ManagedOutcome, ModelSendState, RequestControl,
 };
 use pc_gateway_evidence::NoopEvidenceSink;
 use pc_gateway_protocol::{
@@ -36,6 +36,7 @@ use std::{
 struct Receiver {
     fault: AtomicUsize,
     sends: AtomicUsize,
+    target: std::sync::Mutex<Option<String>>,
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
@@ -47,14 +48,17 @@ async fn check(State(state): State<Arc<Receiver>>, Json(request): Json<Value>) -
         state.entered.notify_one();
         state.release.notified().await;
     }
+    let target = state.target.lock().unwrap().clone();
     Json(json!({
+        "target_endpoint": if phase == "before_send" { target } else { None },
+        "target_protocol": "openai-chat",
         "schema": "powercontext.context-check.v1", "phase": phase,
         "decision": "allow", "reason_codes": [], "coverage": {"profile": "test", "complete": true},
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z", "binding": "binding"
     }))
 }
 
-fn call(base: &str) -> ManagedCall {
+fn call() -> ManagedCall {
     ManagedCall {
         scope_id: "test".into(),
         target_profile: "test".into(),
@@ -83,9 +87,8 @@ fn call(base: &str) -> ManagedCall {
             conversation: None,
             passthrough_fields: None,
         },
-        target_url: format!("{base}/model"),
+        target_protocol: "openai-chat".into(),
         headers: vec![],
-        degrade_policy: DegradePolicy::PassthroughWithoutMemory,
         inject_context: true,
         include_code: false,
         conversation_id: None,
@@ -99,6 +102,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
     let state = Arc::new(Receiver {
         fault: AtomicUsize::new(0),
         sends: AtomicUsize::new(0),
+        target: std::sync::Mutex::new(None),
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
     });
@@ -126,6 +130,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
         .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+    *state.target.lock().unwrap() = Some(format!("{base}/model"));
     let (shutdown, stopped) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         axum::serve(listener, router)
@@ -151,7 +156,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
             );
             let observation = control.observation();
             let cancellation = control.cancellation();
-            let execute = executor.run(control, call(&base), &renderer, &NoopEvidenceSink);
+            let execute = executor.run(control, call(), &renderer, &NoopEvidenceSink);
             let stop = async {
                 // A real receiver must see entry into the fault before cancellation.
                 tokio::time::timeout(Duration::from_secs(2), state.entered.notified())
@@ -191,7 +196,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
                 RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(2), None);
             assert!(matches!(
                 executor
-                    .run(control, call(&base), &renderer, &NoopEvidenceSink)
+                    .run(control, call(), &renderer, &NoopEvidenceSink)
                     .await,
                 ManagedOutcome::Released { .. }
             ));
@@ -202,7 +207,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
     let before = state.sends.load(Ordering::SeqCst);
     let control = RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(180), None);
     let observation = control.observation();
-    let execute = executor.run(control, call(&base), &renderer, &NoopEvidenceSink);
+    let execute = executor.run(control, call(), &renderer, &NoopEvidenceSink);
     let advance = async {
         state.entered.notified().await;
         tokio::time::pause();
@@ -222,7 +227,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
     let control = RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(2), None);
     assert!(matches!(
         executor
-            .run(control, call(&base), &renderer, &NoopEvidenceSink)
+            .run(control, call(), &renderer, &NoopEvidenceSink)
             .await,
         ManagedOutcome::Released { .. }
     ));
@@ -307,7 +312,9 @@ async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
         let checks = admissions.clone();
         let entered = recheck_entered.clone();
         let release = release_recheck.clone();
+        let target_endpoint = format!("http://{provider_address}/model");
         let router = Router::new().route("/v1/context/check", post(move |Json(request): Json<Value>| {
+            let target_endpoint = target_endpoint.clone();
             let checks = checks.clone(); let entered = entered.clone(); let release = release.clone();
             async move {
                 let phase = request["phase"].as_str().unwrap();
@@ -322,6 +329,8 @@ async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
                 Json(json!({"schema":"powercontext.context-check.v1", "phase":phase, "decision":"allow",
                     "reason_codes":[], "coverage":{"profile":"test", "complete":true},
                     "policy_version":"test", "binding":binding,
+                    "target_endpoint": if phase == "before_send" { Some(target_endpoint) } else { None },
+                    "target_protocol": "openai-chat",
                     "valid_until": if mode == "expired" && binding == "binding-2" { "2000-01-01T00:00:00Z" } else { "2999-01-01T00:00:00Z" }}))
             }
         }));
@@ -341,7 +350,7 @@ async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
         );
         let cancellation = control.cancellation();
         let observation = control.observation();
-        let mut managed = call(&format!("http://{provider_address}"));
+        let mut managed = call();
         managed.inject_context = false;
         managed.sediment = false;
         let execute = executor.run(control, managed, &OpenAiChatRenderer, &NoopEvidenceSink);
@@ -441,6 +450,7 @@ async fn production_executor_never_replays_a_complete_request_after_provider_dis
     let state = Arc::new(Receiver {
         fault: AtomicUsize::new(0),
         sends: AtomicUsize::new(0),
+        target: std::sync::Mutex::new(None),
         entered: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
     });
@@ -448,13 +458,14 @@ async fn production_executor_never_replays_a_complete_request_after_provider_dis
     let core_url = format!("http://{}", core.local_addr().unwrap());
     let router = Router::new()
         .route("/v1/context/check", post(check))
-        .with_state(state);
+        .with_state(state.clone());
     let core_server = tokio::spawn(async move {
         axum::serve(core, router).await.unwrap();
     });
     for partial_response in [false, true] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
+        *state.target.lock().unwrap() = Some(format!("{base}/model"));
         let provider = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut head = Vec::new();
@@ -500,7 +511,7 @@ async fn production_executor_never_replays_a_complete_request_after_provider_dis
         let control =
             RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(2), None);
         let observation = control.observation();
-        let mut managed = call(&base);
+        let mut managed = call();
         managed.inject_context = false;
         managed.sediment = false;
         assert!(matches!(

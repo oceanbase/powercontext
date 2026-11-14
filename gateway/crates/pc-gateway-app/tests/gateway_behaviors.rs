@@ -81,8 +81,25 @@ async fn upstream(
         .into_response()
 }
 
-async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+async fn check(
+    State(peers): State<Arc<Peers>>,
+    headers: HeaderMap,
+    Json(request): Json<Value>,
+) -> Json<Value> {
     let phase = request["phase"].as_str().unwrap().to_owned();
+    let is_responses = request["target_profile"] == "responses";
+    let host = headers
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .unwrap();
+    let endpoint = format!(
+        "http://{host}/v1/{}",
+        if is_responses {
+            "responses"
+        } else {
+            "chat/completions"
+        }
+    );
     peers.checks.lock().unwrap().push(request);
     Json(json!({
         "schema": "powercontext.context-check.v1", "phase": phase,
@@ -96,7 +113,9 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
             vec![]
         }, "coverage": {"profile": "text-and-tools.v1", "complete": true},
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
-        "binding": format!("test-{phase}")
+        "binding": format!("test-{phase}"),
+        "target_endpoint": if phase == "before_send" { Some(endpoint) } else { None },
+        "target_protocol": if phase == "before_send" { Some(if is_responses { "openai-responses" } else { "openai-chat" }) } else { None }
     }))
 }
 
@@ -188,14 +207,9 @@ impl Gateway {
                 .env_clear()
                 .env("PC_GATEWAY_LISTEN", address.to_string())
                 .env("PC_GATEWAY_CORE_BASE", &peer_base)
-                .env(
-                    "PC_GATEWAY_UPSTREAM_URL_CHAT",
-                    format!("{peer_base}/v1/chat/completions"),
-                )
-                .env(
-                    "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
-                    format!("{peer_base}/v1/responses"),
-                )
+                .env("PC_GATEWAY_UPSTREAM_PROFILE", "chat")
+                .env("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES", "responses")
+                .env("PC_GATEWAY_CORE_TOKEN", "core-test-key")
                 .env("PC_GATEWAY_UPSTREAM_API_KEY", "provider-test-key")
                 .env("PC_GATEWAY_API_KEY", "gateway-test-key")
                 .env("PC_GATEWAY_INJECTION", "off")

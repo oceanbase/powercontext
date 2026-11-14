@@ -81,20 +81,22 @@ null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消
 通过 Server formatter 或当前 OTLP pipeline 转发不能保全此证据流。公共字段用于词汇兼容的查询，
 本实现不新增 Prometheus 指标、OTLP exporter 或重复监控栈；未验证该流在外部 Collector/Loki 中的存储与读回。
 
+当前 Gateway 模型入口必须先从 Core 获取获准目标，不能降级直通。证据枚举中的 `degraded` 为历史/其他调用方保留，当前执行器不产生该终态。
+
 ## 关联与覆盖范围
 
 `call_id` 标识一次执行，关联它的 `call`、编号 `attempt` 和 `delivery` 记录。
 它在请求控制中生成一次，贯穿执行完成与响应体生命周期。
 `request_id_fingerprint` 是已绑定请求 ID 的进程内带密钥指纹；没有宿主关联时为 null。
-`target_fingerprint` 是实际传输 URL 的指纹，不是客户端请求的模型或自报目标。重定向仍被禁用。
+`target_fingerprint` 是最后一次传输尝试中由 Core 批准的 URL 的指纹，不是客户端请求的模型或自报目标。零次尝试的调用使用固定 `no-upstream-send` 占位符的指纹，并不代表 URL。重定向仍被禁用。
 指纹密钥在进程内随机生成，不是可跨重启使用的身份，也不承诺密码学匿名化。
 不输出原始 URL、请求 ID、缓存键、会话 ID、Scope、provider 异常、模型名、凭据、prompt 或响应正文。
 记录不证明任务身份或 Source 投影覆盖；除非嵌入宿主另行提供关联，否则没有任务关联能力。
 
 覆盖从 `Executor::run` 被轮询时开始。认证、非法请求体、中间件拒绝以及其他执行前入口错误不在本证据流内。
-完整模型响应不代表释放成功。`attempts` 只统计实际交给 transport 的尝试，包含降级发送；
-准入过期而未发送时为零。重试沿用同一 `call_id`，只有重新准入后真实发送才增加尝试编号。
-不确定尝试不重发。演示接口 `record_not_sent(0, ...)` 的 prepare/capture/降级诊断不导出，
+完整模型响应不代表释放成功。`attempts` 只统计实际交给 transport 的尝试；
+准入过期而未发送时为零。重试沿用同一 `call_id`，目标指纹更新为重新获准的 endpoint；只有重新准入后真实发送才增加尝试编号。
+不确定尝试不重发。演示接口 `record_not_sent(0, ...)` 的 prepare/capture 诊断不导出，
 也不被当作模型未发送事实。
 
 ## 终态与发送事实
