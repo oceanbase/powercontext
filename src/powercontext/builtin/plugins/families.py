@@ -61,7 +61,7 @@ def register_plugin_family(family: str) -> None:
 def unregister_plugin_family(family: str) -> None:
     """A removed plugin's family is no longer readable: its content usually lives in the plugin's storage."""
 
-    from powercontext.server.authz.profiles import unregister_plugin_artifact_family
+    from powercontext.builtin.authz.profiles import unregister_plugin_artifact_family
 
     _PLUGIN_FAMILIES.discard(family)
     unregister_plugin_artifact_family(family)
