@@ -84,7 +84,10 @@ def run_manifest(manifest: Manifest, repo_root: Path, command: Sequence[str]) ->
         "definitions_sha256": manifest.definitions_sha256,
         "git_head": _git(repo_root, "rev-parse", "HEAD"),
         "git_worktree_dirty": bool(_git(repo_root, "status", "--porcelain", "--", "src", "evaluation/memory")),
-        "source_sha256": {source: hashlib.sha256((repo_root / source).read_bytes()).hexdigest() for source in _SOURCES},
+        "source_sha256": {
+            source: hashlib.sha256((repo_root / source).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            for source in _SOURCES
+        },
         "python": platform.python_version(),
         "platform": platform.platform(),
     }

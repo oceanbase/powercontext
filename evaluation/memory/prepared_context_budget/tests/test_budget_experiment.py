@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from functools import cache
@@ -23,6 +24,7 @@ import pytest
 
 from evaluation.memory.prepared_context_budget.experiment import CaseResult, decide, evaluate_case
 from evaluation.memory.prepared_context_budget.manifest import Manifest, ManifestError, load_manifest, materialize
+from evaluation.memory.prepared_context_budget.report import run_manifest
 from evaluation.memory.prepared_context_budget.run import main
 
 _SUITE = Path(__file__).resolve().parents[1]
@@ -94,6 +96,27 @@ def test_the_pinned_run_manifest_names_no_absolute_path() -> None:
     command = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))["command"]
 
     assert [argument for argument in command if Path(argument).is_absolute()] == []
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_source_hashes_identify_the_same_code_across_checkout_line_endings(tmp_path: Path, newline: str) -> None:
+    source = "answer = 42\n"
+    expected = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    sources = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))["source_sha256"]
+    for name in sources:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(source.replace("\n", newline).encode("utf-8"))
+
+    record = run_manifest(_manifest(), tmp_path, ["run.py"])
+
+    assert record["source_sha256"] == dict.fromkeys(sources, expected)
+
+    changed = next(iter(sources))
+    (tmp_path / changed).write_bytes(f"answer = 43{newline}".encode())
+    updated = run_manifest(_manifest(), tmp_path, ["run.py"])
+
+    assert updated["source_sha256"][changed] == hashlib.sha256(b"answer = 43\n").hexdigest()
 
 
 def test_the_reports_are_written_with_lf_on_every_platform(tmp_path: Path) -> None:
