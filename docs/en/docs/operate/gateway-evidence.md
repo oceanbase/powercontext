@@ -64,10 +64,10 @@ managed model execution, not a Core `context_check` application operation or a w
 `unit=call` counts logical executions, `attempt` counts real transport handoffs, and `delivery` describes local
 framework observations. Do not sum the three units or count delivery events as additional calls.
 
-| Evidence facts | Top-level operational `outcome` |
-| --- | --- |
 Current Gateway model routes cannot degrade: Core must authorize a target before sending. The `degraded` evidence enum remains for historical/other consumers, but the current executor does not emit it.
 
+| Evidence facts | Top-level operational `outcome` |
+| --- | --- |
 | Call `release_authorized` or `degraded`, observed upstream status < 400 | `success` |
 | Same terminals with observed upstream status >= 400 | `failure` |
 | Same terminals with missing upstream status | null |
