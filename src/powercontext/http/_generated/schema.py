@@ -1984,15 +1984,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["plugins"],
                 "summary": "List loaded plugins",
-                "description": "Lists the plugins checked at Server startup, "
-                "whether each loaded or failed, and what each "
-                "one declares. Plugins have no persisted "
-                "lifecycle state; change the plugin directory "
-                "and restart Server.",
+                "description": "Lists the plugins in the plugin directory as "
+                "this Server instance sees them: whether each "
+                "loaded or failed, the version in use, and what "
+                "it declares. Plugins have no persisted "
+                "lifecycle state. Each instance rescans the "
+                "directory on its own, so instances may briefly "
+                "differ after a plugin changes.",
                 "operationId": "list_plugins",
                 "responses": {
                     "200": {
-                        "description": "Plugins found in the plugin directory at startup.",
+                        "description": "Plugins found in the plugin directory by this instance.",
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginPage"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -2018,8 +2020,48 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 ],
                 "responses": {
                     "200": {
-                        "description": "The plugin's startup check result and declaration.",
+                        "description": "The plugin's check result, version in use, and declaration on this instance.",
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginState"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/plugins/{name}/openapi.json": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "Describe a plugin's own routes",
+                "description": "Returns an OpenAPI 3.1 "
+                "document that core "
+                "generates from the routes "
+                "the loaded plugin version "
+                "declares: paths, methods, "
+                "the access each route "
+                "requires, request and "
+                "response schemas, and the "
+                "shared error responses. The "
+                "plugin owns the "
+                "compatibility of its "
+                "routes.",
+                "operationId": "get_plugin_openapi",
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plugin's route description.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PluginOpenApiDocument"}}
+                        },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
@@ -8371,6 +8413,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "PluginKind": {"type": "string", "enum": ["artifact"]},
             "PluginLoadStatus": {"type": "string", "enum": ["loaded", "failed"]},
             "PluginTrigger": {"type": "string", "enum": ["schedule", "sources"]},
+            "PluginRoute": {
+                "properties": {
+                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]},
+                    "path": {"type": "string", "description": "Route template under /v1/plugins/{name}/api."},
+                    "access": {"type": "string", "enum": ["authenticated", "scope.read", "scope.contribute"]},
+                    "mcp": {"type": "boolean", "description": "The route is also an MCP tool."},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["method", "path", "access", "mcp"],
+            },
+            "PluginOpenApiDocument": {
+                "additionalProperties": True,
+                "type": "object",
+                "description": "An OpenAPI 3.1 document describing one plugin's routes.",
+            },
+            "PluginPagesState": {
+                "properties": {
+                    "title": {
+                        "additionalProperties": {"type": "string"},
+                        "type": "object",
+                        "description": "Navigation title by language.",
+                    },
+                    "path": {"type": "string", "description": "Dashboard path of the plugin's page."},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["title", "path"],
+            },
             "PluginState": {
                 "properties": {
                     "name": {"type": "string"},
@@ -8378,7 +8449,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "status": {"$ref": "#/components/schemas/PluginLoadStatus"},
                     "error": {
                         "type": "string",
-                        "description": "Safe failure category from the startup check.",
+                        "description": "Safe failure category when the plugin is not loaded.",
                         "nullable": True,
                     },
                     "family": {"type": "string", "nullable": True},
@@ -8391,6 +8462,64 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "nullable": True,
                     },
                     "triggers": {"items": {"$ref": "#/components/schemas/PluginTrigger"}, "type": "array"},
+                    "version_digest": {
+                        "type": "string",
+                        "description": "Content "
+                        "digest "
+                        "of "
+                        "the "
+                        "plugin "
+                        "version "
+                        "in "
+                        "use "
+                        "on "
+                        "this "
+                        "instance; "
+                        "null "
+                        "when "
+                        "none "
+                        "loaded.",
+                        "nullable": True,
+                    },
+                    "declaration_digest": {
+                        "type": "string",
+                        "description": "Digest of the declaration in use.",
+                        "nullable": True,
+                    },
+                    "activated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When this instance switched to the version in use.",
+                        "nullable": True,
+                    },
+                    "last_check_failure": {
+                        "type": "string",
+                        "description": "Safe "
+                        "category "
+                        "of "
+                        "the "
+                        "latest "
+                        "failed "
+                        "check "
+                        "of "
+                        "a "
+                        "newer "
+                        "version; "
+                        "the "
+                        "version "
+                        "in "
+                        "use "
+                        "stays "
+                        "active. "
+                        "Cleared "
+                        "when "
+                        "a "
+                        "version "
+                        "activates.",
+                        "nullable": True,
+                    },
+                    "routes": {"items": {"$ref": "#/components/schemas/PluginRoute"}, "type": "array"},
+                    "pages": {"allOf": [{"$ref": "#/components/schemas/PluginPagesState"}], "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8404,6 +8533,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scopes",
                     "source_types",
                     "triggers",
+                    "version_digest",
+                    "declaration_digest",
+                    "activated_at",
+                    "last_check_failure",
+                    "routes",
+                    "pages",
                 ],
             },
             "PluginPage": {

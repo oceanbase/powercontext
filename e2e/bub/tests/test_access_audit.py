@@ -274,6 +274,10 @@ _SERVER_WIDE_WITHOUT_CONTENT = frozenset({
 })
 
 
+# Authorized for any authenticated caller like the Access API, but returning only a plugin's route descriptions.
+_AUTHENTICATED_WITHOUT_CONTENT = frozenset({"get_plugin_openapi"})
+
+
 def test_every_server_wide_operation_is_classified_by_whether_it_returns_scope_content() -> None:
     contract = yaml.safe_load((_REPOSITORY / "openapi" / "powercontext.yaml").read_text(encoding="utf-8"))
     server_wide, access_api = set(), set()
@@ -291,7 +295,7 @@ def test_every_server_wide_operation_is_classified_by_whether_it_returns_scope_c
 
     assert server_wide == SERVER_WIDE_CONTENT_OPERATIONS | _SERVER_WIDE_WITHOUT_CONTENT
     # The Access API authorizes the caller itself and then decides about any resource it names, returning no content.
-    assert access_api == ACCESS_OPERATIONS
+    assert access_api == ACCESS_OPERATIONS | _AUTHENTICATED_WITHOUT_CONTENT
 
 
 class _AuditClient:
