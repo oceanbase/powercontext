@@ -34,7 +34,11 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 
 @asynccontextmanager
 async def running_server(
-    directory: Path, plugins: Path | None = None, *, extra_env: Mapping[str, str | None] | None = None
+    directory: Path,
+    plugins: Path | None = None,
+    *,
+    extra_env: Mapping[str, str | None] | None = None,
+    startup_seconds: float = 60,
 ):
     """Start the Server; an ``extra_env`` value of ``None`` removes that default variable."""
     with socket.socket() as sock:
@@ -87,7 +91,7 @@ async def running_server(
                 headers={"Authorization": f"Bearer {ADMIN_AUTHORIZATION_VALUE}"},
                 timeout=20,
             ) as client:
-                async with asyncio.timeout(60):
+                async with asyncio.timeout(startup_seconds):
                     while True:
                         assert process.returncode is None, (directory / "server.log").read_text()
                         try:

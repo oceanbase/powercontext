@@ -38,7 +38,7 @@ from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictError
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.plugins.executor import open_plugin_database
+from powercontext.builtin.plugins.executor import open_plugin_profile
 from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
 from powercontext.builtin.plugins.host_protocol import (
     HostCancel,
@@ -180,14 +180,20 @@ class _Host:
             register_plugin_family(family)
         for binding, scopes, source_types in spec.source_bindings:
             register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
-        self.database = await resources.enter_async_context(open_plugin_database(spec.database))
+        profile = await resources.enter_async_context(open_plugin_profile(spec.database))
+        self.database = profile.database
         from powercontext.builtin.authz.worker import build_host_access
 
         self.access = build_host_access(spec.security, self.database)
         if spec.security is not None:
             self.deployment_id = spec.security.get("deployment_id")
         storage, models = await open_plugin_resources(
-            spec.database, spec.storage_root, self.manifest.name, spec.inference, resources
+            spec.database,
+            spec.storage_root,
+            self.manifest.name,
+            spec.inference,
+            resources,
+            connection_options=getattr(profile, "connection_options", None),
         )
         if declaration.definitions:
             from powercontext.sources.definitions import SourceDefinitionRegistry

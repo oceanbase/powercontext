@@ -17,14 +17,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from powercontext.plugins import ChatMessage, ModelUnavailable
+from powercontext.plugins import ChatMessage, ModelUnavailable, PluginStorage
 
 
 class SQLitePluginStorage:
@@ -47,8 +47,75 @@ class SQLitePluginStorage:
             await self._engine.dispose()
 
 
+class SQLPluginStorage:
+    """A database of the plugin's own on the deployment's OceanBase tenant or seekdb instance."""
+
+    def __init__(
+        self,
+        backend: Literal["oceanbase", "seekdb"],
+        database: str,
+        engine: AsyncEngine | None,
+        error: Exception | None,
+    ) -> None:
+        self.backend = backend
+        self.database = database
+        self._engine = engine
+        self._error = error
+
+    def engine(self) -> AsyncEngine:
+        # A plugin that never uses its storage loads without the database; one that does gets the reason.
+        if self._engine is None:
+            raise RuntimeError(f"plugin storage database {self.database!r} is unavailable: {self._error}")  # noqa: TRY003
+        return self._engine
+
+    async def aclose(self) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+
+
+def plugin_database_name(name: str) -> str:
+    return "powercontext_plugin_" + name.replace("-", "_")
+
+
+async def sql_plugin_storage(
+    database: Any, connection_options: Mapping[str, object] | None, name: str
+) -> SQLPluginStorage | None:
+    """Open the plugin's database with the deployment's own connection settings, creating it when missing."""
+
+    from powercontext.builtin.persistence.bootstrap import ensure_database, validate_database_name
+    from powercontext.builtin.persistence.errors import PersistenceError
+    from powercontext.builtin.persistence.oceanbase import profile as oceanbase
+    from powercontext.builtin.persistence.seekdb import profile as seekdb
+
+    backend: Literal["oceanbase", "seekdb"]
+    if isinstance(database, oceanbase.OceanBaseConfig):
+        backend = "oceanbase"
+    elif isinstance(database, seekdb.SeekDBConfig) and connection_options is not None:
+        backend = "seekdb"
+    else:
+        return None
+    target = plugin_database_name(name)
+    try:
+        validate_database_name(target)
+    except ValueError as error:
+        # Plugin names may be 64 characters; the database name with its prefix may not.
+        return SQLPluginStorage(backend, target, None, error)
+    if backend == "oceanbase":
+        engine, instance_engine = oceanbase.sibling_database_engines(database, target)
+    else:
+        assert connection_options is not None  # noqa: S101 - checked with the backend above
+        engine, instance_engine = seekdb.sibling_database_engines(database, connection_options, target)
+    try:
+        await ensure_database(engine, instance_engine, name=target)
+    except PersistenceError as error:
+        # Typically the login cannot create databases and the deployer has not created this one yet.
+        await engine.dispose()
+        return SQLPluginStorage(backend, target, None, error)
+    return SQLPluginStorage(backend, target, engine, None)
+
+
 def plugin_storage(database: Any, root: str | None, name: str) -> SQLitePluginStorage | None:
-    """Allocate the plugin's area on the deployment backend; other backends are not served yet."""
+    """Allocate the plugin's SQLite file; OceanBase and seekdb storage is opened by ``sql_plugin_storage``."""
 
     from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig
 
@@ -142,9 +209,19 @@ async def plugin_models(inference: Any, resources: AsyncExitStack) -> ServerMode
 
 
 async def open_plugin_resources(
-    database: Any, root: str | None, name: str, inference: Any, resources: AsyncExitStack
-) -> tuple[SQLitePluginStorage | None, ServerModels | None]:
-    storage = plugin_storage(database, root, name)
+    database: Any,
+    root: str | None,
+    name: str,
+    inference: Any,
+    resources: AsyncExitStack,
+    *,
+    connection_options: Mapping[str, object] | None = None,
+) -> tuple[PluginStorage | None, ServerModels | None]:
+    """``connection_options`` are those of the open core seekdb instance, which the plugin's database shares."""
+
+    storage: PluginStorage | None = plugin_storage(database, root, name)
+    if storage is None:
+        storage = await sql_plugin_storage(database, connection_options, name)
     if storage is not None:
-        resources.push_async_callback(storage.aclose)
+        resources.push_async_callback(cast(Any, storage).aclose)
     return storage, await plugin_models(inference, resources)
