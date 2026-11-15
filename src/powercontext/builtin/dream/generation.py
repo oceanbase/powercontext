@@ -14,7 +14,6 @@
 
 """Fixed, tool-free Dream generation with one provider request per attempt."""
 
-from contextlib import nullcontext
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -26,7 +25,6 @@ from powercontext.builtin.evidence.models import EvidenceProjection
 from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.models import GenerationResult
 from powercontext.builtin.inference.protocols import StructuredGenerator
-from powercontext.builtin.inference.request_accounting import budgeted_exchange
 
 DREAM_INSTRUCTIONS = """
 You consolidate exact evidence into a single reviewed Artifact Candidate.
@@ -116,8 +114,13 @@ class LLMDreamGenerator:
         self._budget = budget
 
     async def generate(self, value: DreamGenerationInput, /) -> GenerationResult[DreamPlan]:
+        if self._budget is None:
+            return await self._generator.generate(value)
+
+        # Configuration and resource builders can load Dream without model SDKs.
+        from powercontext.builtin.inference.request_accounting import budgeted_exchange
+
         # A Dream run is metered per run, so the request is admitted against deployment
         # capacity before any provider call, with the operation named by the request.
-        exchange = nullcontext() if self._budget is None else budgeted_exchange(self._budget, operation=value.operation)
-        with exchange:
+        with budgeted_exchange(self._budget, operation=value.operation):
             return await self._generator.generate(value)
