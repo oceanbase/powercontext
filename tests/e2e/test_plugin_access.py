@@ -51,6 +51,10 @@ class Notes:
         async with writer.transaction() as tx:
             await tx.set_lifecycle(request.path_params["artifact_id"], "retired")
 
+    async def accept(self, request: ApiRequest):
+        # A route that accepts a replacement for later checks the caller's authority over the Artifact now.
+        await self.ctx.require("artifact.write", request.scope_id, artifact_id=request.path_params["artifact_id"])
+
     async def bind(self, request: ApiRequest):
         writer = self.ctx.writer(request.scope_id)
         current = await writer.get(request.path_params["artifact_id"])
@@ -75,7 +79,7 @@ def _route(name):
 plugin = ArtifactPlugin(
     family="notes",
     setup=setup,
-    api=PluginApi(routes=(_route("tag"), _route("retire"), _route("bind"))),
+    api=PluginApi(routes=(_route("accept"), _route("tag"), _route("retire"), _route("bind"))),
 )
 """
 
@@ -169,14 +173,14 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
 
                 # Another contributor cannot change Alice's note through a plugin route either.
                 routes = f"/v1/plugins/notes/api/scopes/{shared}/notes/{note}"
-                for action in ("tag", "retire", "bind"):
+                for action in ("accept", "tag", "retire", "bind"):
                     denied = await bob.post(f"{routes}/{action}")
                     assert denied.status_code == 403, (action, denied.text)
                 state = (await alice.get(f"{path}/governance")).json()
                 assert state["lifecycle_state"] == "active"
                 assert (await alice.get(f"{path}/tags")).json()["tags"] == []
 
-                for action in ("tag", "bind", "retire"):
+                for action in ("accept", "tag", "bind", "retire"):
                     allowed = await alice.post(f"{routes}/{action}")
                     assert allowed.status_code == 204, (action, allowed.text)
                 assert (await alice.get(f"{path}/governance")).json()["lifecycle_state"] == "retired"

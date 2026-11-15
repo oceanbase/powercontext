@@ -25,6 +25,7 @@ import asyncio
 import contextvars
 import logging
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -354,7 +355,7 @@ class _Host:
         if operation == "create":
             target = payload.get("artifact_id") or uuid4().hex
             await self._authorize(scope_id, "create", None)
-            change = UserChange("create", target)
+            change = UserChange("create", target, submitted_content=deepcopy(payload["content"]))
             plugin_request: BaseModel = CreateRequest(
                 scope_id=scope_id, artifact_id=target, content=payload["content"], caller=caller
             )
@@ -378,7 +379,12 @@ class _Host:
             await self._authorize(scope_id, "write", target)
             if operation == "update":
                 await self._precheck(scope_id, target, payload["expected_revision"], None, "precondition")
-                change = UserChange("update", target, expected={target: (payload["expected_revision"], None)})
+                change = UserChange(
+                    "update",
+                    target,
+                    expected={target: (payload["expected_revision"], None)},
+                    submitted_content=deepcopy(payload["content"]),
+                )
                 plugin_request = UpdateRequest(
                     scope_id=scope_id,
                     artifact_id=target,
@@ -480,10 +486,12 @@ class _Host:
         principal = _CURRENT.get().request.caller
         return Caller(principal_id="local" if principal is None else f"{principal.type}:{principal.id}")
 
-    async def require(self, action: str, scope_id: str | None) -> None:
+    async def require(self, action: str, scope_id: str | None, *, artifact_id: str | None = None) -> None:
         call = _CURRENT.get()
-        if action in {"scope.read", "scope.contribute"} and scope_id is None:
-            raise ValueError("Scope permissions need a scope_id")  # noqa: TRY003
+        if action in {"scope.read", "scope.contribute", "artifact.write"} and scope_id is None:
+            raise ValueError("Scope and Artifact permissions need a scope_id")  # noqa: TRY003
+        if (action == "artifact.write") != (artifact_id is not None):
+            raise ValueError("artifact.write needs an artifact_id, and only artifact.write takes one")  # noqa: TRY003
         if self.access is None or call.request.caller is None:
             if action == "scope.contribute" and scope_id is not None:
                 call.contribute_scopes.add(scope_id)
@@ -494,7 +502,12 @@ class _Host:
             resource = ResourceRef.server() if self.deployment_id is None else ResourceRef.server(self.deployment_id)
         else:
             assert scope_id is not None  # noqa: S101 - checked above for Scope actions
-            resource = ResourceRef.scope(scope_id)
+            # An Artifact check always names this plugin's family; a plugin cannot ask about another's.
+            resource = (
+                ResourceRef.scope(scope_id)
+                if artifact_id is None
+                else ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id)
+            )
             await self.access.bootstrap_static_scope(call.request.caller, scope_id, context=call.request.audit)
         try:
             await self.access.require(call.request.caller, AccessAction(action), resource, context=call.request.audit)
