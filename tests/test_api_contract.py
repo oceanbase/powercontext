@@ -1199,3 +1199,14 @@ def test_memory_capacity_contract_and_compact_change_are_public():
     assert EntryChangeOperation.COMPACT.value == "compact"
     with pytest.raises(ValidationError):
         GetMemoryCapacityRequest.model_validate({"scope_id": "scope", "budget": {}})
+
+
+def test_gateway_lifecycle_error_keeps_stop_decision_separate_from_sending_facts() -> None:
+    from powercontext.http import GatewayLifecycleError
+
+    response = GatewayLifecycleError.model_validate({"decision": "request_cancelled", "model_send": "possibly_sent"})
+    assert response.model_dump(mode="json") == {"decision": "request_cancelled", "model_send": "possibly_sent"}
+    with pytest.raises(ValidationError):
+        GatewayLifecycleError.model_validate({"decision": "allow", "model_send": "no_send"})
+    with pytest.raises(ValidationError):
+        GatewayLifecycleError.model_validate({"decision": "deadline_exceeded"})

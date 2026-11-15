@@ -23,6 +23,27 @@ from pydantic import (
 )
 
 
+class GatewayLifecycleDecision(StrEnum):
+    DEADLINE_EXCEEDED = "deadline_exceeded"
+    GATEWAY_SHUTDOWN = "gateway_shutdown"
+    REQUEST_CANCELLED = "request_cancelled"
+
+
+class GatewayModelSend(StrEnum):
+    NO_SEND = "no_send"
+    DEFINITELY_NOT_SENT = "definitely_not_sent"
+    POSSIBLY_SENT = "possibly_sent"
+    RESPONSE_RECEIVED = "response_received"
+
+
+class GatewayLifecycleError(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    decision: GatewayLifecycleDecision
+    model_send: GatewayModelSend
+
+
 class ContractVersion(BaseModel):
     major: Annotated[StrictInt, Field(ge=1)]
     minor: Annotated[StrictInt, Field(ge=0)]
