@@ -34,7 +34,9 @@ from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemory
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryDependencySelection, AtomicMemorySearchHit
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.models import (
+    BUILTIN_CONTEXT_FAMILIES,
     ContextAssembly,
+    ContextAssemblySection,
     PrepareContextRequest,
     PreparedContext,
     PreparedContextReason,
@@ -550,7 +552,7 @@ class PreparedContextBuilder:
                 else min(section.limit, self._text_entry_limit - len(included))
             )
             entries = self._section_entries(
-                section.family,
+                section,
                 current_scope_id,
                 memory_candidates,
                 experience_candidates,
@@ -635,7 +637,7 @@ class PreparedContextBuilder:
 
     def _section_entries(
         self,
-        family: str,
+        section: ContextAssemblySection,
         current_scope_id: str | None,
         memory_candidates: Sequence[PreparedMemoryCandidates],
         experience_candidates: Sequence[PreparedExperienceCandidates],
@@ -643,6 +645,9 @@ class PreparedContextBuilder:
         topic_memory_hits: Sequence[TopicMemorySearchHit],
         omitted: Counter[tuple[str, str]] | None,
     ) -> tuple[_PreparedContextEntry, ...]:
+        family = section.family
+        if family not in BUILTIN_CONTEXT_FAMILIES:
+            return self._plugin_entries(section, scope_id=current_scope_id)
         if family == "profile":
             return self._profile_entries(profile_candidates, omitted=omitted)
         if family == "topic-memory":
@@ -659,6 +664,25 @@ class PreparedContextBuilder:
             )
         )
         return tuple(chain.from_iterable(_interleave_groups(groups)))
+
+    def _plugin_entries(
+        self, section: ContextAssemblySection, *, scope_id: str | None
+    ) -> tuple[_PreparedContextEntry, ...]:
+        if scope_id is None:
+            raise PreparedContextInvariantError("plugin-scope-missing")
+        entries = []
+        for hit in section.hits:
+            origin = ArtifactAddress(scope_id=scope_id, artifact=hit.artifact)
+            entries.append(
+                _PreparedContextEntry(
+                    origin=origin,
+                    kind=section.family,
+                    citation={"artifact": origin.model_dump(mode="json")},
+                    content=hit.text,
+                    truncated=False,
+                )
+            )
+        return tuple(entries)
 
     def _profile_entries(
         self, candidates: Sequence[PreparedProfileCandidate], *, omitted: Counter[tuple[str, str]] | None = None

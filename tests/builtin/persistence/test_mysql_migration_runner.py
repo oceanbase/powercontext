@@ -437,6 +437,69 @@ def _full_server_runner(
     )
 
 
+def test_mysql_plugin_cleanup_resumes_without_removing_independent_storage(backend: _BackendTarget, tmp_path):
+    from tests.builtin.persistence.test_plugin_storage_migration import (
+        MYSQL_RETIRED_TABLES,
+        PREVIOUS,
+        RETIRED_COLUMNS,
+        configuration,
+        previous_bundle,
+    )
+
+    old = MySQLMigrationRunner(
+        backend.connections(),
+        previous_bundle(tmp_path / "previous"),
+        evidence_directory=backend.evidence_directory,
+        configuration=configuration(),
+    )
+    assert _apply(old, policy="skip").revision == PREVIOUS
+
+    def seed(connection, _identity, _guard):
+        connection.exec_driver_sql("CREATE TABLE plugin_owned (id INTEGER PRIMARY KEY, content VARCHAR(32))")
+        connection.exec_driver_sql("INSERT INTO plugin_owned VALUES (1, 'preserved')")
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN plugin_extension VARCHAR(32)"
+        )
+        connection.execute(
+            text(
+                "INSERT INTO pc_artifact_processing_binding_states (binding_name,plugin_extension) "
+                "VALUES (:binding,'preserved')"
+            ),
+            {"binding": next(iter(configuration()["processing_manifest"]["bindings"]))},
+        )
+        connection.commit()
+
+    backend.connections().run(seed, writable=True)
+    runner = _full_server_runner(backend)
+    _interrupt_after_ddl(runner, "DROP TABLE pc_artifact_search_text", policy="skip")
+    recovery = runner.plan(backup_policy="skip")
+    assert recovery.state == "recovery_required" and recovery.source_revision == PREVIOUS
+    token = (recovery.coordination or {}).get("pending_run_id")
+    resumed = _full_server_runner(backend, acknowledge_previous_run=token)
+    assert _apply(resumed, policy="skip").revision == "v1_5_0_005"
+    assert resumed.verify().state == "ready"
+
+    def inspect(connection, _identity, _guard):
+        tables = {row[0] for row in connection.exec_driver_sql("SHOW TABLES")}
+        assert not set(MYSQL_RETIRED_TABLES) & tables
+        columns = {
+            row[0] for row in connection.exec_driver_sql("SHOW COLUMNS FROM pc_artifact_processing_binding_states")
+        }
+        assert not RETIRED_COLUMNS & columns
+        assert "plugin_extension" in columns
+        assert connection.exec_driver_sql("SELECT content FROM plugin_owned").all() == [("preserved",)]
+        values = (
+            connection
+            .exec_driver_sql("SELECT plugin_extension FROM pc_artifact_processing_binding_states")
+            .scalars()
+            .all()
+        )
+        assert values and set(values) == {"preserved"}
+
+    backend.connections().run(inspect)
+    assert not _apply(_full_server_runner(backend), policy="skip").changed
+
+
 def _load_historical_memory(backend, encoding="utf8mb4"):
     fixture = "oceanbase-first-release.json" if encoding == "gbk" else "seekdb-memory-release.json"
     capture = json.loads((Path(__file__).parent / "fixtures/historical" / fixture).read_text())
