@@ -1,0 +1,129 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Knowledge base</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="/dashboard/plugins/_client.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>知识库</h1>
+        <p>导入 Markdown 与文字图片，按出处检索和维护文档。</p>
+      </div>
+      <button id="refresh">刷新</button>
+    </header>
+    <div id="notice" role="status"></div>
+    <section class="toolbar">
+      <label
+        >空间
+        <select id="spaces"></select></label
+      ><button id="set-default">设为默认空间</button
+      ><button id="new-space">新建空间</button
+      ><button id="new-kb">新建知识库</button><span id="default-label"></span>
+    </section>
+    <main>
+      <aside>
+        <h2>知识库</h2>
+        <p class="muted">勾选要跨库检索的知识库；点击名称浏览文档。</p>
+        <div id="libraries"></div>
+      </aside>
+      <div class="content">
+        <section>
+          <h2>跨库检索</h2>
+          <form id="search">
+            <input
+              id="query"
+              placeholder="输入问题或关键词"
+              required
+              maxlength="2000"
+            /><select id="mode">
+              <option value="hybrid">混合检索</option>
+              <option value="fts">全文检索</option>
+              <option value="vector">向量检索</option></select
+            ><button>检索</button>
+          </form>
+          <div id="hits"></div>
+        </section>
+        <section id="library" hidden>
+          <h2 id="library-title"></h2>
+          <div class="actions">
+            <label class="upload"
+              >上传文件<input
+                id="files"
+                type="file"
+                multiple
+                accept=".md,.markdown,.png,.jpg,.jpeg,.webp" /></label
+            ><button id="local-import">Server 目录导入</button
+            ><button id="settings">切块配置</button>
+          </div>
+          <div id="drop" tabindex="0">
+            可拖入 Markdown 或图片；图片通过 OCR 提取文字，Markdown
+            中的图片保留引用。
+          </div>
+          <h3>处理请求</h3>
+          <div id="requests"></div>
+          <h3>文档</h3>
+          <div id="documents"></div>
+          <button id="more-documents" hidden>下一页</button>
+        </section>
+        <section id="document" hidden>
+          <h2 id="document-title"></h2>
+          <div class="actions">
+            <label>版本 <input id="revision" type="number" min="1" /></label
+            ><button id="load-revision">查看版本</button
+            ><button id="reprocess">重新解析</button
+            ><button id="forget" class="danger">遗忘文档</button>
+          </div>
+          <p id="document-info" class="muted"></p>
+          <div id="chunks"></div>
+          <button id="more-chunks" hidden>更多分块</button>
+        </section>
+      </div>
+    </main>
+    <dialog id="question">
+      <form method="dialog">
+        <h2 id="question-label"></h2>
+        <textarea
+          id="question-input"
+          rows="4"
+          aria-labelledby="question-label"
+        ></textarea>
+        <div class="actions">
+          <button value="cancel">取消</button>
+          <button id="question-confirm" value="confirm">确认</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="editor">
+      <form method="dialog">
+        <h2>编辑分块</h2>
+        <p>保存将生成新的 document revision，并保留原文及编辑证据。</p>
+        <textarea id="chunk-text" rows="16"></textarea>
+        <div class="actions">
+          <button value="cancel">取消</button
+          ><button id="save-chunk" type="button">保存新版本</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

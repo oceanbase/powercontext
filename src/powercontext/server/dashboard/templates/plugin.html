@@ -80,6 +80,7 @@ limitations under the License.
           for (const item of [].concat(value)) url.searchParams.append(key, String(item));
         }
         const init = { method, credentials: 'same-origin', headers: {} };
+        if (data.ifMatch !== undefined) init.headers['If-Match'] = String(data.ifMatch);
         if (data.json !== undefined) {
           init.body = JSON.stringify(data.json);
           init.headers['Content-Type'] = 'application/json';

@@ -24,7 +24,7 @@ from typing import Any, Literal, cast
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from powercontext.plugins import ChatMessage, ModelUnavailable
+from powercontext.plugins import ChatMessage, ModelUnavailable, PluginStorage
 
 
 class SQLitePluginStorage:
@@ -48,7 +48,7 @@ class SQLitePluginStorage:
 
 
 def plugin_storage(database: Any, root: str | None, name: str) -> SQLitePluginStorage | None:
-    """Allocate the plugin's area on the deployment backend; other backends are not served yet."""
+    """Allocate the SQLite area; SQL backends are opened asynchronously by open_plugin_resources."""
 
     from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig
 
@@ -141,10 +141,65 @@ async def plugin_models(inference: Any, resources: AsyncExitStack) -> ServerMode
     return ServerModels(embedding, generation, inference)
 
 
+class SQLPluginStorage:
+    """Dedicated SQL database with deployment-owned connection settings."""
+
+    def __init__(self, backend: Literal["seekdb", "oceanbase"], engine: AsyncEngine) -> None:
+        self.backend = backend
+        self._engine = engine
+
+    def engine(self) -> AsyncEngine:
+        return self._engine
+
+
 async def open_plugin_resources(
     database: Any, root: str | None, name: str, inference: Any, resources: AsyncExitStack
-) -> tuple[SQLitePluginStorage | None, ServerModels | None]:
-    storage = plugin_storage(database, root, name)
+) -> tuple[PluginStorage | None, ServerModels | None]:
+    from powercontext.builtin.persistence.bootstrap import ensure_database
+    from powercontext.builtin.persistence.oceanbase.profile import (
+        OceanBaseConfig,
+        _register_official_dialect,
+        _validate_oceanbase_url,
+    )
+    from powercontext.builtin.persistence.oceanbase.profile import (
+        _create_engine as oceanbase_engine,
+    )
+    from powercontext.builtin.persistence.seekdb.profile import (
+        SeekDBConfig,
+        _load_binding,
+        _open_instance,
+    )
+    from powercontext.builtin.persistence.seekdb.profile import (
+        _create_engine as seekdb_engine,
+    )
+
+    storage: PluginStorage | None = plugin_storage(database, root, name)
     if storage is not None:
         resources.push_async_callback(storage.aclose)
+    elif isinstance(database, (OceanBaseConfig, SeekDBConfig)):
+        # Hashing avoids aliases between e.g. a-b and a_b, and bounds identifier length.
+        import hashlib
+
+        core_name = (
+            database.database
+            if isinstance(database, SeekDBConfig)
+            else (_validate_oceanbase_url(database.url.get_secret_value()).database or "powercontext")
+        )
+        database_name = "powercontext_plugin_" + hashlib.sha256(f"{core_name}/{name}".encode()).hexdigest()[:24]
+        if isinstance(database, OceanBaseConfig):
+            _register_official_dialect()
+            url = _validate_oceanbase_url(database.url.get_secret_value())
+            engine = oceanbase_engine(database, url.set(database=database_name))
+            instance_engine = lambda: oceanbase_engine(database, url.set(database=""))
+            backend = "oceanbase"
+        else:
+            instance = await _open_instance(_load_binding(), database.path.expanduser().resolve())
+            resources.callback(instance.close)
+            options = instance.connection_options()
+            engine = seekdb_engine(database, options, database=database_name)
+            instance_engine = lambda: seekdb_engine(database, options, database="")
+            backend = "seekdb"
+        resources.push_async_callback(engine.dispose)
+        await ensure_database(engine, instance_engine, name=database_name)
+        storage = SQLPluginStorage(backend, engine)
     return storage, await plugin_models(inference, resources)

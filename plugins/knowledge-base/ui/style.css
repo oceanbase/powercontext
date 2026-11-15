@@ -1,0 +1,226 @@
+/*
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  color: #202b38;
+  background: #f6f8fa;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  padding: 24px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+}
+h1 {
+  font-size: 26px;
+  margin: 0;
+}
+h2 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+h3 {
+  font-size: 14px;
+  margin-top: 24px;
+}
+p {
+  line-height: 1.6;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+.upload {
+  border: 1px solid #c9d2dc;
+  background: white;
+  color: #203040;
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button:hover {
+  background: #edf4ff;
+  border-color: #7fa7da;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+input,
+select,
+textarea {
+  border: 1px solid #c9d2dc;
+  border-radius: 4px;
+  padding: 8px;
+  background: white;
+  color: inherit;
+}
+input[type="checkbox"] {
+  margin-right: 8px;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #1769c2;
+  outline-offset: 2px;
+}
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.muted,
+#default-label {
+  color: #667788;
+  font-size: 13px;
+}
+main {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+}
+aside {
+  padding: 18px;
+  background: white;
+  border: 1px solid #e0e5eb;
+  border-radius: 4px;
+  align-self: start;
+}
+.content > section {
+  padding: 22px;
+  background: white;
+  border: 1px solid #e0e5eb;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+.library-row {
+  display: flex;
+  align-items: center;
+  margin: 8px 0;
+}
+.library-row button {
+  flex: 1;
+  text-align: left;
+}
+.library-row.active button {
+  border-color: #1769c2;
+  background: #edf4ff;
+}
+#search,
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#query {
+  flex: 1;
+  min-width: 180px;
+}
+#notice {
+  white-space: pre-wrap;
+  padding: 12px 0;
+  color: #205b2d;
+}
+#notice.error {
+  color: #a32626;
+}
+.upload input {
+  display: none;
+}
+#drop {
+  border: 1px dashed #b9c4d0;
+  padding: 18px;
+  margin-top: 14px;
+  color: #667788;
+}
+#drop.drag {
+  background: #edf4ff;
+}
+.row,
+.hit,
+.chunk {
+  border-bottom: 1px solid #e3e8ee;
+  padding: 14px 0;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.hit pre,
+.chunk pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.7;
+  max-height: 400px;
+  overflow: auto;
+}
+.hit small,
+.chunk small {
+  color: #667788;
+}
+.danger {
+  color: #a32626;
+}
+#revision {
+  width: 80px;
+}
+dialog {
+  width: min(760px, 95vw);
+  border: 1px solid #c9d2dc;
+  border-radius: 6px;
+  padding: 24px;
+}
+dialog::backdrop {
+  background: #10182070;
+}
+textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.6;
+}
+.empty {
+  color: #667788;
+  padding: 20px 0;
+}
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  body {
+    padding: 12px;
+  }
+}

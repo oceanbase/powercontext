@@ -25,6 +25,7 @@ import asyncio
 import contextvars
 import logging
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -352,7 +353,7 @@ class _Host:
         if operation == "create":
             target = payload.get("artifact_id") or uuid4().hex
             await self._authorize(scope_id, "create", None)
-            change = UserChange("create", target)
+            change = UserChange("create", target, submitted_content=deepcopy(payload["content"]))
             plugin_request: BaseModel = CreateRequest(
                 scope_id=scope_id, artifact_id=target, content=payload["content"], caller=caller
             )
@@ -376,7 +377,12 @@ class _Host:
             await self._authorize(scope_id, "write", target)
             if operation == "update":
                 await self._precheck(scope_id, target, payload["expected_revision"], None, "precondition")
-                change = UserChange("update", target, expected={target: (payload["expected_revision"], None)})
+                change = UserChange(
+                    "update",
+                    target,
+                    expected={target: (payload["expected_revision"], None)},
+                    submitted_content=deepcopy(payload["content"]),
+                )
                 plugin_request = UpdateRequest(
                     scope_id=scope_id,
                     artifact_id=target,

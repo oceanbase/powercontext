@@ -1,0 +1,31 @@
+name: Knowledge-base plugin
+on:
+  pull_request:
+    paths:
+      - 'plugins/knowledge-base/**'
+      - 'src/powercontext/builtin/plugins/**'
+      - 'src/powercontext/plugins.py'
+      - 'src/powercontext/server/dashboard/**'
+      - 'tests/knowledge_base/**'
+      - 'tests/e2e/test_knowledge_base.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/knowledge-base.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sqlite-and-ocr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+      - name: Install plugin dependencies
+        run: uv sync --locked --extra knowledge-base
+      - name: Exercise Server, Worker, revision lifecycle and real OCR
+        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base.py tests/e2e/test_plugin_pages.py

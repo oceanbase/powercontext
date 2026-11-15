@@ -199,6 +199,8 @@ class PluginPages(BaseModel):
     # Navigation title by language; English is required as the fallback.
     title: dict[str, Annotated[str, Field(min_length=1, max_length=64)]]
 
+    artifact_actions: tuple[Literal["read", "update", "forget"], ...] = ()
+
     @field_validator("directory")
     @classmethod
     def inside_plugin(cls, value: str) -> str:
