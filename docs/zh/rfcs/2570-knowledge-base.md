@@ -46,8 +46,10 @@ Markdown 内嵌图片 OCR、语义／LLM 切块和几万篇规模评测不在首
 
 遵循 [#2549](https://github.com/oceanbase/powercontext/pull/2549) 的单 family、Source 定义、writer、模型和存储契约，
 以及 [#2579](https://github.com/oceanbase/powercontext/pull/2579) 的插件路由和 Scope 管理方向。
-以 master 的公开能力为实现基线；三后端专属存储、原始编辑载荷证据及 Dashboard 通用操作转发需要必要的框架适配。
-初始化使用 setup，首期不依赖框架提供 upgrade 钩子。
+依赖 [#2659](https://github.com/oceanbase/powercontext/pull/2659) 的框架契约及
+[#2660](https://github.com/oceanbase/powercontext/pull/2660) 的实现；先合入框架依赖，再合入知识库实现，旧 master 不足以运行全部功能。
+三后端存储供应、原始编辑载荷证据、事务内鉴权、治理并发校验及 Dashboard 通用 Artifact 转发由框架 PR 提供，知识库 PR 不携带这些改动。
+插件只消费公开契约，管理自己的表与索引、快照、解析、检索、业务 API 和页面。初始化使用 setup，首期不依赖 upgrade 钩子。
 [#2617](https://github.com/oceanbase/powercontext/pull/2617) 仅是后续持续采集的接入方向，不是本地显式导入的前置条件。
 
 | 对象 | 模型 |
@@ -92,8 +94,10 @@ Workspace 可以是英文展示词，不是新增 Artifact family 或另一套 c
 显式空间创建／改名、知识库创建／改名沿用 server.admin；个人默认空间的自动登记与修改自己的默认映射不需要创建 core Scope 的权限。
 
 个人空间对所有者可见；有权读取其中知识库的用户可看到包含它的空间；管理员可以管理空空间。列表和计数仅包含调用者可读的知识库。
-归属不授予 Scope read／contribute 或 Artifact write，也不产生权限继承、租户隔离和级联删除。默认空间失去可见性时返回错误并要求
-重新选择；没有可读知识库时返回空结果，不回退全局搜索。首期不支持变更知识库所属空间或删除空间，避免隐含跨库数据迁移。
+归属不授予 Scope read／contribute 或 Artifact write，也不产生权限继承、租户隔离和级联删除。
+默认空间不可见时，隐式知识库列表和检索仍返回错误；GET /me/default-space 允许读取当前用户自己的已保存 ID／version，并返回 available=false，
+GET /spaces 独立列出其他可访问空间。用户显式选择有效空间，以已保存的 version 更新默认值；不自动选库或改变查询范围。
+没有可读知识库时返回空结果，不回退全局搜索。首期不支持变更知识库所属空间或删除空间，避免隐含跨库数据迁移。
 
 创建知识库的 POST 必须显式携带非空 space_scope_id；缺失或为空返回 422，服务端不在创建或重试时解析默认空间。
 Dashboard／其他调用者先读取默认空间（或使用用户选择），再固定空间 ID、请求键及创建参数；自动重试原样复用，默认空间切换不改变目标。
@@ -109,7 +113,9 @@ core 创建成功而插件事务失败时，使用固定空间和完整创建身
 ## 2. 本地存储、身份与请求接受
 
 OpenDAL fs 管理 Server、导入进程和 Worker 均可访问的本地快照目录。原路径只作出处，解析只读快照。
-拒绝根目录越界并固定符号链接策略；先写快照，对实际字节计算 SHA256，再登记 Source。mtime／size 不能代替 hash。
+先校验规范化根目录的包含关系，再从文件系统根开始，使用目录描述符和 O_NOFOLLOW 逐级打开所有目录，包括允许根目录的祖先，
+最后相对于已绑定目录打开文件。不能只 resolve 后重新打开完整根路径，否则校验后替换根目录或祖先为符号链接仍可越界。
+先写快照，对实际字节计算 SHA256，再登记 Source。mtime／size 不能代替 hash。
 
 ```text
 file_key    = (scope_id, collection_id, normalized_relative_path)
@@ -155,7 +161,8 @@ Markdown 使用 markdown-it-py 提取标题、段落及来源位置。独立图�
 
 ## 4. 插件存储与模型
 
-ctx.storage 使用与 Server 相同的后端：SQLite 为独立文件，SeekDB／OceanBase 为插件专属库。建库权限不足时由部署者预建。
+ctx.storage 遵循 #2660：SQLite 为独立文件，SeekDB／OceanBase 的插件专属库为 powercontext_plugin_knowledge_base，建库权限不足时由部署者预建。
+SQL 命名空间按插件名隔离，不按 core 数据库名隔离；同一 SQL tenant 中的独立部署必须隔离插件库／账号，仅更换 core 库名不足以隔离插件数据。
 插件通过 backend 选择迁移及全文／向量实现，不修改现有核心表。原文件仍在 OpenDAL 本地目录，不塞进 SQL 正文列。
 
 | 插件业务表 | 字段及约束 |
@@ -166,14 +173,14 @@ ctx.storage 使用与 Server 相同的后端：SQLite 为独立文件，SeekDB�
 | pc_knowledge_base_chunks | 主键 (scope_id, document_id, result_id, chunk_id)；ordinal 同结果唯一；text、text_length、content_digest、heading_path、source_locator、origin、edit_metadata |
 
 共四张插件业务表；空间与默认映射不伪造 core scope_id。空间引用在插件事务内验证；默认更新使用版本前置条件，个人空间／默认映射
-首次创建在一个插件事务内完成；已有默认映射不被初始化覆盖。显式空间创建键按创建者限定，同键不同参数冲突。
+初始化先幂等登记确定身份的个人空间，再登记默认映射；唯一键与重试补齐中断，已有默认映射不被初始化覆盖。显式空间创建键按创建者限定，同键不同参数冲突。
 知识库归属复用 resources 的 scope 行，不再增加关系表；不修改核心表。
 
 Resources 是固定用途登记，不是通用任务框架：scope 行保存配置／版本；document 行保存稳定文件身份；request 行保存不可变接受参数、
 幂等回执及最近尝试结果。它没有租约、执行 token、领取队列或清理 cursor，也不复制 Artifact 的发布指针与生命周期。
 请求结果可以引用精确 revision 供对账，成功事实仍以 core 为准。全文／向量辅助结构属于派生索引，不计入业务表数。
 
-Document content 只保存标题、原文 SourceRef、文件身份、result_id、chunk 数量／摘要、配置指纹、人工修改标记和 applied_request_ref。
+Document content 只保存标题、原文 SourceRef、文件身份、result_id、chunk 数量／摘要、配置指纹、人工修改标记和 applied_request_id。
 正文及无界 chunk ID 列表不进入 manifest。结果 ID 来自规范化完整结果，不能用尚未提交的 revision 号作为存储键。
 
 模型由插件独立配置和创建客户端，密钥来自部署配置，不存入 Source／Artifact。不自动跟随 ctx.models 或 Server 模型变化。
@@ -193,8 +200,12 @@ Document content 只保存标题、原文 SourceRef、文件身份、result_id�
 | 文件格式错误、无文字等确定输入错误 | 保存有界失败观察，跳过该输入；窗口正常确认后继续后续请求 |
 | 数据库、模型服务、索引持久化故障 | 抛出异常，core 回滚，cursor 不前进，由框架退避重试 |
 | 固定 base 已变化或文档已非 active | 记录冲突／跳过，不以新 base 自动覆盖；用户重新提交请求 |
-| core 发布完成 | 从 manifest／历史中的 applied_request_ref 判定已发布及精确 revision |
+| core 发布完成 | 从 manifest／历史中的 applied_request_id 判定已发布及精确 revision |
 | 发布成功但插件状态未更新 | 根据 core 对账，不能仅凭缺少状态把它判为失败或重复发布 |
+
+状态读取优先核对固定 base+1 revision 及当前 manifest 的 applied_request_id；没有本请求的发布证据，且当前 revision 已越过固定 base
+或文档已非 active 时，将 pending／processing 推导为 failed 并返回冲突原因。这样即使 cursor 已提交而随后的冲突观察写入失败，
+仍能在查询、同键重放及重启后恢复终态；不依赖重新投递，不新增表，也不自动换 base。
 
 文档当前可用 revision 与最新处理请求状态独立展示：重解析失败不会把旧有效版本改成不可用。
 资源表的失败是最近尝试观察，不等于 cursor 已确认；不能仅凭插件状态推进消费或跳过尚未证明完成的 core 写入。
@@ -203,7 +214,8 @@ Document content 只保存标题、原文 SourceRef、文件身份、result_id�
 
 首次发布前确认无 head；更新核对固定 base、原文、人工修改策略和生命周期。框架重试也不能改写请求中的 base 或丢弃策略。
 事务外准备后发生编辑／forget 时，发布使用框架的 revision／治理并发校验；不能自动恢复 deprecated 文档。
-若实现不能在竞争中保护生命周期，必须修复框架适配并通过测试，不能用插件内存锁代替或承诺已支持。
+框架跟踪 writer 读取时观察到的治理版本，并在发布时校验；插件向 put 传 expected_revision，不扩展 expected_state_version 参数，
+也不用插件内存锁替代框架保证。生命周期竞争保护属于 #2660 的验收前提。
 
 ## 6. 发布与索引一致性
 
@@ -245,7 +257,7 @@ Content Source，document revision 增加。修改保留逻辑 chunk ID 和原�
 | 操作 | 接口和返回 |
 | --- | --- |
 | 空间列表／创建／改名 | GET／POST `P/spaces`、PATCH `P/spaces/{space_scope_id}`；插件内逻辑空间，写入带幂等键或版本前置条件 |
-| 我的默认空间 | GET／PUT `P/me/default-space`；当前用户的 space_scope_id 和 version，不接受替他人设置的 principal_id |
+| 我的默认空间 | GET／PUT `P/me/default-space`；当前用户的 space_scope_id 和 version；GET 另返回 available；不接受替他人设置的 principal_id |
 | 知识库列表 | GET `P/knowledge-bases`，space_scope_id 可省略，使用当前默认空间 |
 | 创建知识库 | POST `P/knowledge-bases`，必填 space_scope_id 和 idempotency_key；按调用者＋空间＋请求键幂等创建，返回两类 ID |
 | 知识库改名／配置 | PATCH `P/scopes/{s}/settings`；名称／摘要复用 ctx.scopes.update，切块配置存插件；分别使用版本前置条件 |
@@ -328,12 +340,16 @@ Python／HTTP 复用相同业务语义。通用 search／Prepared Context 保持
 空间和知识库列表均权限过滤；创建／配置管理要求 server.admin，内容导入要求 scope.contribute，编辑／forget 保留 artifact.write。
 创建按钮提交前固定所选／默认空间，重试保留原 space_scope_id 和请求键；用户切换创建目标是新的操作。
 首次导入前就确定有效切块配置，不引入上传后的独立待配置任务队列。
+异步读取固定发起时的空间、知识库 Scope、document／revision 和页面代次；切换后丢弃旧响应及错误。
+状态请求不能改用新选中的 Scope，旧列表／chunk 也不能覆盖新页面。默认空间失效时仍可用选择器显式选择其他空间。
 
 文档页面同时展示“当前可用 revision”和“最近处理请求”；失败不隐藏旧有效内容。编辑成功显示新 revision，冲突要求重新读取，
 响应未知时先核实结果。移除最后一块允许零块版本。Forget 文案为“移出检索”，历史仍可查看；不展示取消、恢复、整库删除或问答入口。
 
-iframe 通过框架客户端调用本插件声明的路由，读取可由插件路由使用 ctx.reads 提供。通用 document PUT／forget 需要有限的框架
-转发适配：只允许已声明插件所属 family 的指定操作，保持当前用户鉴权，传递 If-Match／revision／state_version，校验知识库归属。
+iframe 通过框架客户端调用本插件声明的业务路由。通用 document GET／PUT／forget 使用 #2660 的
+`client.artifacts(method, path, {scopeId, ifMatch, json})`，由宿主 `/dashboard/plugins/{name}/artifacts/{scope_id}/{artifact_id}` 转发。
+PluginPages 不声明 artifact_actions，插件不增加 /api/_artifacts 代理。框架限制所属 family 的操作，保持当前用户鉴权及
+If-Match／revision／state_version；插件 hook 继续校验知识库归属。
 不提供任意 URL 转发或会话凭据。最终仍进入通用 Artifact 操作和同一事务证据路径，不能用普通插件 writer 或异步编辑 Source 替代。
 上传按框架二进制上限分文件处理，服务端限制路径和文件大小，前端不把文件数当作解析完成进度。
 
@@ -343,11 +359,15 @@ setup 调用插件自己的幂等初始化及 schema 版本检查；升级迁移
 历史 Artifact manifest 和旧 Source 定义仍需读取；版本不兼容时明确拒绝服务。首期重启部署，不依赖 upgrade(ctx) 钩子或热加载。
 备份必须同时包含 core、插件库和 OpenDAL 快照；core 的备份不自动覆盖插件数据。
 
-框架实现需满足三后端 ctx.storage、单 family writer、同步修改证据、治理并发校验、Source 定义及路由契约；
-三后端 ctx.storage、core 保存原始用户编辑载荷（而非生成后 manifest）、Dashboard 通用操作受限转发是明确的框架适配项。
-不另建知识库锁表、读取 guard 或独立队列；适配不得绕过 core 公共约束。
+#2659／#2660 提供存储供应、同步编辑证据、事务内鉴权、治理校验和 Dashboard Artifact 桥接。
+知识库 PR 不修改 core runtime／schema、框架 SDK、host、writer 或 Dashboard 桥接；仓库级集成仅包含插件目录、可选依赖、插件测试／CI 及使用文档。
+不另建知识库锁表、读取 guard 或独立队列。依赖未合入时，明确记录测试所用框架提交，不将隔离集成通过表述成当前 master 已兼容。
 
 在 SQLite、SeekDB、OceanBase 分别验证：
+
+- 默认空间失去权限后仍可读取自己的配置并显式切换；隐式查询不自动回退。
+- 校验后允许根目录／祖先被替换为符号链接时拒绝读取；Dashboard 切库后的旧列表／状态响应不污染新页面。
+- cursor 提交后冲突观察写入失败，查询、重放和重启均可恢复失败终态。
 
 - 插件内空间／默认映射并发初始化、默认修改冲突、唯一知识库归属、core 不记录空间父子关系。
 - 空间默认与显式查询、空列表、越权／空间外库拒绝、权限过滤计数、全局 top-k 及带 Scope 的精确引用。
@@ -394,7 +414,7 @@ setup 调用插件自己的幂等初始化及 schema 版本检查；升级迁移
 # 待解决问题
 
 实现时确定 SQL 类型与索引细节、OCR 模型版本、窗口和文件大小、同步编辑时限、API 字节上限；用真实后端验证框架的
-revision／生命周期竞争行为。三后端存储、编辑证据、Dashboard 转发在实际 master 上完成适配验收，不将提案当成已发布功能。
+revision／生命周期竞争行为。三后端存储、编辑证据、Dashboard 转发依照 #2659／#2660 在合入后的 master 上完成验收，不将提案当成已发布功能。
 这些实现选择不改变 Source 不删除、forget 不增加 revision、同步编辑、固定请求 base 及独立模型的契约。
 
 # 后续可能性
