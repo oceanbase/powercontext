@@ -18,12 +18,14 @@ import { createRequire } from "node:module";
 import { accessSync, closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
-import { spawn, spawnSync } from "node:child_process";
-import { isDeepStrictEqual } from "node:util";
+import { execFile, spawn, spawnSync } from "node:child_process";
+import { access, lstat, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
+import { isDeepStrictEqual, promisify } from "node:util";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -2846,11 +2848,11 @@ function nativeMcpCatalog(catalog, scope) {
 async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 	const config = configuration(runtime.config, cwd);
 	const checks = { configuration: !config.timeoutValid ? check("configuration", "invalid_timeout", "The plugin requestTimeoutMs is not a positive supported millisecond duration.", "Set requestTimeoutMs in the plugin patch to an integer between 1 and 4294967295, then restart DSH.") : config.valid ? check("configuration", "effective_configuration", "Using the running plugin resolved configuration.", void 0, "ok") : check("configuration", "invalid_endpoint", "The plugin base URL is not an HTTP(S) base URL without userinfo, query or fragment.", "Correct POWERCONTEXT_DSH_BASE_URL or plugin baseUrl. Put credentials in POWERCONTEXT_DSH_AUTHORIZATION and restart DSH.") };
-	async function probe(operation, run) {
+	async function probe(operation, run$1) {
 		if (!config.valid || !config.timeoutValid) return check(operation, "invalid_configuration", "Not checked because the plugin configuration is invalid.", "Correct the configuration check first.", "skipped");
 		try {
 			signal?.throwIfAborted();
-			const result$1 = await run();
+			const result$1 = await run$1();
 			signal?.throwIfAborted();
 			return result$1;
 		} catch (error) {
@@ -3033,17 +3035,17 @@ const SECRET_PATTERNS = [
 	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
 /** Return text with recognized credential-shaped values replaced. */
-function scrubSecrets(text, authorization) {
+function scrubSecrets(text$1, authorization) {
 	const credential = authorization?.replace(/^Bearer\s+/iu, "");
-	if (credential) text = text.replaceAll(credential, "[REDACTED]");
-	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+	if (credential) text$1 = text$1.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text$1);
 }
 /** Detect secrets without rejecting ordinary words that merely contain a marker. */
-function containsSecret(text, authorization) {
-	return scrubSecrets(text, authorization) !== text;
+function containsSecret(text$1, authorization) {
+	return scrubSecrets(text$1, authorization) !== text$1;
 }
-function containsSecretMarker(text) {
-	return SECRET_MARKERS.some((marker) => text.includes(marker));
+function containsSecretMarker(text$1) {
+	return SECRET_MARKERS.some((marker) => text$1.includes(marker));
 }
 function containsSecretValue(value) {
 	if (typeof value === "string") return containsSecretMarker(value);
@@ -3563,8 +3565,8 @@ function statusResult(runtime, scopeId, failure, sessionId, cwd) {
 }
 async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToolCatalog, toolScope) {
 	const tokens = rawInput.trim().split(/\s+/).filter(Boolean);
-	const command = tokens[0];
-	if (!command) try {
+	const command$1 = tokens[0];
+	if (!command$1) try {
 		const scopeId = await runtime.resolveScope(cwd, signal);
 		return statusResult(runtime, scopeId, scopeId ? void 0 : {
 			ok: false,
@@ -3574,7 +3576,7 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 	} catch (error) {
 		return statusResult(runtime, void 0, await reportDirectFailure(runtime, "command", error), sessionId, cwd);
 	}
-	if (command === "doctor") {
+	if (command$1 === "doctor") {
 		let toolCatalog;
 		try {
 			toolCatalog = getToolCatalog?.();
@@ -3585,7 +3587,7 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 			text: JSON.stringify(report, null, 2)
 		};
 	}
-	if (command === "search") {
+	if (command$1 === "search") {
 		const query = tokens.slice(1).join(" ");
 		if (!query) return {
 			kind: "error",
@@ -3597,28 +3599,28 @@ async function handlePcCommand(rawInput, runtime, cwd, signal, sessionId, getToo
 			mode: "auto"
 		}, signal);
 	}
-	if (command === "remember") {
-		const text = tokens.slice(1).join(" ");
-		if (!text) return {
+	if (command$1 === "remember") {
+		const text$1 = tokens.slice(1).join(" ");
+		if (!text$1) return {
 			kind: "error",
 			text: "Usage: /pc remember <text>"
 		};
 		return call(runtime, cwd, "remember_memory", {
 			kind: "agent-note",
-			text
+			text: text$1
 		}, signal);
 	}
-	if (command === "flush") return call(runtime, cwd, "flush_memory", {}, signal);
-	if (command === "review") return handleReview(tokens, runtime, cwd, signal);
-	if (command === "skills") {
+	if (command$1 === "flush") return call(runtime, cwd, "flush_memory", {}, signal);
+	if (command$1 === "review") return handleReview(tokens, runtime, cwd, signal);
+	if (command$1 === "skills") {
 		if (tokens[1] === "scan") return call(runtime, cwd, "scan_external_skills", {}, signal);
 		return {
 			kind: "error",
 			text: "Usage: /pc skills scan"
 		};
 	}
-	if (command === "stats") return call(runtime, cwd, "get_stats", {}, signal);
-	if (command === "capabilities") return asResult(await invokeOperation(runtime.client, "get_capabilities", {}, "", signal, (error) => reportDirectFailure(runtime, "command", error)));
+	if (command$1 === "stats") return call(runtime, cwd, "get_stats", {}, signal);
+	if (command$1 === "capabilities") return asResult(await invokeOperation(runtime.client, "get_capabilities", {}, "", signal, (error) => reportDirectFailure(runtime, "command", error)));
 	return {
 		kind: "error",
 		text: "Unknown /pc subcommand. Try doctor, search, remember, flush, review, stats, capabilities, skills scan."
@@ -5144,6 +5146,809 @@ var DeliveryError = class extends Error {
 };
 
 //#endregion
+//#region src/handoff/errors.ts
+const ERRORS = {
+	not_found: [404, "The requested record is unavailable."],
+	not_ready: [409, "The handoff is not ready for this action."],
+	stale_preflight: [409, "Preflight conditions changed. Check the selected response and run preflight again."],
+	binding_mismatch: [409, "The destination no longer matches the saved directory, Server, Scope, or target. Run preflight again."],
+	idempotency_conflict: [409, "The request conflicts with an existing operation. Read its state before continuing."],
+	integration_unavailable: [503, "The required handoff integration is unavailable."],
+	capacity_exceeded: [429, "Handoff bookkeeping reached its capacity."],
+	secret_rejected: [400, "The launch draft or directory may contain a credential. No launch was attempted."],
+	payload_invalid: [400, "The handoff request or package is invalid."],
+	outcome_unknown: [409, "The outcome is unknown. Check the target before choosing to retry."],
+	cancelled: [409, "The operation was cancelled."],
+	deployment_unsupported: [403, "Handoff requires a verified owner-local DSH deployment."]
+};
+var HandoffError = class extends Error {
+	code;
+	status;
+	constructor(code) {
+		super(ERRORS[code][1]);
+		this.code = code;
+		this.status = ERRORS[code][0];
+	}
+};
+function handoffError(error) {
+	return error instanceof HandoffError ? error : new HandoffError(error instanceof DeliveryError ? error.code : "integration_unavailable");
+}
+
+//#endregion
+//#region src/handoff/adapters/codex-desktop.ts
+const execFileAsync$1 = promisify(execFile);
+const DEFAULT_APP = "/Applications/ChatGPT.app";
+const CLI_PATH = "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+/** Inspect the current macOS URL handler without opening a Desktop window. */
+async function inspectCodexDesktopHandler(appPath, signal) {
+	signal.throwIfAborted();
+	if (process.platform !== "darwin") return "unknown";
+	try {
+		const { stdout } = await execFileAsync$1("/usr/bin/osascript", [
+			"-l",
+			"JavaScript",
+			"-e",
+			"ObjC.import(\"AppKit\"); const url=$.NSURL.URLWithString(\"codex://threads/new\"); const app=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL(url); app.isNil() ? \"__NO_HANDLER__\" : ObjC.unwrap(app.path);"
+		], {
+			signal,
+			timeout: 3e3,
+			maxBuffer: 16 * 1024,
+			encoding: "utf8",
+			env: {
+				PATH: "/usr/bin:/bin",
+				LANG: "C"
+			}
+		});
+		signal.throwIfAborted();
+		const path = stdout.trim();
+		if (path === "__NO_HANDLER__") return "missing";
+		if (!isAbsolute(path)) return "unknown";
+		return await realpath(path) === await realpath(appPath) ? "match" : "different";
+	} catch {
+		signal.throwIfAborted();
+		return "unknown";
+	}
+}
+async function run(executable, args, signal) {
+	const { stdout } = await execFileAsync$1(executable, args, {
+		signal,
+		timeout: 5e3,
+		maxBuffer: 1024 * 1024,
+		encoding: "utf8"
+	});
+	return stdout;
+}
+function bundleVersion(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const info = value;
+	const urls = info.CFBundleURLTypes;
+	const hasScheme = Array.isArray(urls) && urls.some((item) => item && typeof item === "object" && Array.isArray(item.CFBundleURLSchemes) && item.CFBundleURLSchemes.includes("codex"));
+	if (info.CFBundleIdentifier !== "com.openai.codex" || !hasScheme || typeof info.CFBundleShortVersionString !== "string" || !info.CFBundleShortVersionString.trim() || typeof info.CFBundleVersion !== "string" || !info.CFBundleVersion.trim()) return void 0;
+	return `${info.CFBundleShortVersionString} (${info.CFBundleVersion})`;
+}
+function validServerUrl$1(value) {
+	try {
+		const url = new URL(value);
+		return (url.protocol === "http:" || url.protocol === "https:") && !!url.hostname && !url.username && !url.password && !url.search && !url.hash;
+	} catch {
+		return false;
+	}
+}
+/** Qualification is supplied by the integrator; local probing alone is never qualification. */
+function createCodexDesktopAdapter(options) {
+	const app = options.appPath ?? DEFAULT_APP;
+	const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
+	const qualification = options.qualification && { ...options.qualification };
+	const buildReceiverPrompt = options.buildReceiverPrompt;
+	if (!isAbsolute(app) || options.qualification && (!options.qualification.evidence.trim() || !options.qualification.targetVersion.trim() || typeof options.buildReceiverPrompt !== "function") || !options.runtime && !isAbsolute(codexHome) || options.runtime && !options.runtime.configurationKey.trim() || options.buildReceiverPrompt !== void 0 && typeof options.buildReceiverPrompt !== "function" || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl$1(options.setup.serverUrl))) throw new Error("Codex Desktop requires valid application, qualification, configuration and receiver prompt");
+	const cli = join(app, CLI_PATH);
+	const configurationKey = options.runtime?.configurationKey ?? `codex:${codexHome}`;
+	const env = {
+		...process.env,
+		CODEX_HOME: codexHome,
+		PATH: `${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`
+	};
+	const requireTarget = (target) => {
+		if (!target.version.trim() || qualification && target.version !== qualification.targetVersion || target.configurationKey !== configurationKey) throw new HandoffError("binding_mismatch");
+	};
+	const inspectHandler = options.inspectHandler ?? inspectCodexDesktopHandler;
+	return {
+		id: "codex-desktop",
+		version: "1",
+		...qualification ? { qualification: {
+			platform: "darwin",
+			evidence: qualification.evidence
+		} } : {},
+		async detect(signal) {
+			signal.throwIfAborted();
+			if (process.platform !== "darwin") return { state: "unsupported" };
+			try {
+				await access(app, constants.F_OK);
+			} catch (error) {
+				signal.throwIfAborted();
+				return { state: error.code === "ENOENT" ? "missing" : "unknown" };
+			}
+			try {
+				const appVersion = bundleVersion(JSON.parse(await run("/usr/bin/plutil", [
+					"-convert",
+					"json",
+					"-o",
+					"-",
+					join(app, "Contents/Info.plist")
+				], signal)));
+				if (!appVersion) return { state: "unsupported" };
+				await access(cli, constants.X_OK);
+				const cliVersion = (await run(cli, ["--version"], signal)).trim();
+				if (!/^codex-cli [^\s]+$/u.test(cliVersion)) return { state: "unknown" };
+				const version = `${appVersion}; ${cliVersion}`;
+				if (qualification && version !== qualification.targetVersion) return { state: "unsupported" };
+				return {
+					state: "present",
+					version,
+					configurationKey
+				};
+			} catch {
+				signal.throwIfAborted();
+				return { state: "unknown" };
+			}
+		},
+		async checkIntegration(target, signal) {
+			signal.throwIfAborted();
+			if (!qualification) return {
+				state: "needs_user_action",
+				action: "configure_target"
+			};
+			requireTarget(target);
+			const handler = await inspectHandler(app, signal);
+			signal.throwIfAborted();
+			if (handler === "unknown") return { state: "unknown" };
+			if (handler !== "match") return {
+				state: "needs_user_action",
+				action: "configure_target"
+			};
+			if (options.runtime) return options.runtime.checkIntegration(target, signal);
+			try {
+				const { stdout } = await execFileAsync$1(cli, [
+					"plugin",
+					"list",
+					"--json"
+				], {
+					signal,
+					timeout: 1e4,
+					maxBuffer: 1024 * 1024,
+					encoding: "utf8",
+					env
+				});
+				const result$1 = JSON.parse(stdout);
+				if (!result$1 || typeof result$1 !== "object" || !Array.isArray(result$1.installed)) return { state: "unknown" };
+				return {
+					state: "needs_user_action",
+					action: "configure_target"
+				};
+			} catch {
+				signal.throwIfAborted();
+				return { state: "unknown" };
+			}
+		},
+		async installIntegration(target, signal) {
+			signal.throwIfAborted();
+			if (!qualification) return {
+				state: "needs_user_action",
+				action: "configure_target"
+			};
+			requireTarget(target);
+			if (options.runtime) return options.runtime.installIntegration(target, signal);
+			const setup = options.setup;
+			if (!setup) return {
+				state: "needs_user_action",
+				action: "configure_target"
+			};
+			return new Promise((resolve$1) => {
+				const child = spawn(setup.executable, [
+					"setup",
+					"codex",
+					...setup.source ? ["--source", setup.source] : [],
+					"--server-url",
+					setup.serverUrl,
+					"--json"
+				], {
+					env,
+					stdio: "ignore",
+					shell: false,
+					detached: true
+				});
+				let started = false;
+				let interrupted = false;
+				const stop = () => {
+					interrupted = true;
+					if (child.pid) try {
+						process.kill(-child.pid, "SIGKILL");
+					} catch {}
+				};
+				signal.addEventListener("abort", stop, { once: true });
+				const timer = setTimeout(stop, 12e4);
+				child.once("spawn", () => {
+					started = true;
+					if (signal.aborted) stop();
+				});
+				child.once("error", () => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", stop);
+					resolve$1({ state: started ? "unknown" : "failed" });
+				});
+				child.once("close", (code) => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", stop);
+					resolve$1(!interrupted && code === 0 ? {
+						state: "needs_user_action",
+						action: "configure_target"
+					} : { state: "unknown" });
+				});
+			});
+		},
+		async resolveEnvironment(target, cwd, signal) {
+			signal.throwIfAborted();
+			requireTarget(target);
+			if (!qualification || !options.runtime) throw new HandoffError("integration_unavailable");
+			return options.runtime.resolveEnvironment(target, cwd, signal);
+		},
+		async canReadPackage(target, bundle, signal) {
+			signal.throwIfAborted();
+			requireTarget(target);
+			if (!qualification || !options.runtime) return false;
+			if (await inspectHandler(app, signal) !== "match") {
+				signal.throwIfAborted();
+				return false;
+			}
+			signal.throwIfAborted();
+			return options.runtime.canReadPackage(target, bundle, signal);
+		},
+		launchIntent(target, bundle, locale) {
+			requireTarget(target);
+			if (!qualification || target.version !== qualification.targetVersion || !buildReceiverPrompt) throw new HandoffError("integration_unavailable");
+			if (bundle.binding.targetId !== "codex-desktop" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
+			const draft = buildReceiverPrompt(bundle, locale);
+			if (typeof draft !== "string" || !draft.trim()) throw new HandoffError("payload_invalid");
+			return { draft };
+		}
+	};
+}
+
+//#endregion
+//#region src/handoff/adapters/codex-desktop-runtime.ts
+const execFileAsync = promisify(execFile);
+const REQUIRED_TOOLS = [
+	"get_connection_identity",
+	"continue_handoff",
+	"acknowledge_handoff"
+];
+const SAFE_PART = /^[A-Za-z0-9._-]+$/u;
+const MAX_OUTPUT = 2 * 1024 * 1024;
+/** Compose detection and the runtime against the same app and Host profile. */
+function createHostCodexDesktopAdapter(options) {
+	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt, qualification, ...runtimeOptions } = options;
+	return createCodexDesktopAdapter({
+		appPath,
+		runtime: createCodexDesktopRuntime({
+			...runtimeOptions,
+			cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+		}),
+		buildReceiverPrompt,
+		qualification
+	});
+}
+function object$4(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Codex observation");
+	return value;
+}
+function text(value) {
+	if (typeof value !== "string" || !value.trim() || value !== value.trim()) throw new Error("Invalid Codex observation");
+	return value;
+}
+function configurationJson(value) {
+	return JSON.stringify(value, (_key, item) => {
+		if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+		const entries = Object.entries(item);
+		entries.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+		return Object.fromEntries(entries);
+	});
+}
+function validServerUrl(value) {
+	try {
+		const url = new URL(value);
+		return ["http:", "https:"].includes(url.protocol) && !!url.hostname && !url.username && !url.password && !url.search && !url.hash;
+	} catch {
+		return false;
+	}
+}
+function envFor(options) {
+	return {
+		...process.env,
+		CODEX_HOME: options.codexHome,
+		PATH: `${dirname(options.cliPath)}:${process.env.PATH ?? "/usr/bin:/bin"}`
+	};
+}
+async function command(file, args, cwd, env, signal) {
+	const { stdout } = await execFileAsync(file, args, {
+		cwd,
+		env,
+		signal,
+		timeout: 3e4,
+		maxBuffer: MAX_OUTPUT,
+		encoding: "utf8"
+	});
+	return stdout;
+}
+async function inspectAppServer(options, cwd, signal, mode) {
+	signal.throwIfAborted();
+	const child = spawn(options.cliPath, [
+		"app-server",
+		"--listen",
+		"stdio://"
+	], {
+		cwd,
+		env: envFor(options),
+		stdio: [
+			"pipe",
+			"pipe",
+			"ignore"
+		],
+		shell: false
+	});
+	const lines = createInterface({ input: child.stdout });
+	let sequence = 0;
+	let size = 0;
+	const pending = /* @__PURE__ */ new Map();
+	let failure;
+	const fail$2 = () => {
+		failure ??= /* @__PURE__ */ new Error("Codex runtime probe unavailable");
+		for (const request$2 of pending.values()) request$2.reject(failure);
+		pending.clear();
+	};
+	const abort = () => {
+		fail$2();
+		child.kill("SIGKILL");
+	};
+	const timer = setTimeout(abort, 3e4);
+	signal.addEventListener("abort", abort, { once: true });
+	child.once("error", fail$2);
+	child.once("exit", fail$2);
+	lines.on("line", (line) => {
+		size += Buffer.byteLength(line);
+		if (size > MAX_OUTPUT) {
+			abort();
+			return;
+		}
+		try {
+			const message = object$4(JSON.parse(line));
+			if (typeof message.id !== "number") return;
+			const request$2 = pending.get(message.id);
+			if (!request$2) return;
+			pending.delete(message.id);
+			if (message.error !== void 0) request$2.reject(/* @__PURE__ */ new Error("Codex runtime request failed"));
+			else request$2.resolve(message.result);
+		} catch {
+			abort();
+		}
+	});
+	const call$1 = (method, params) => {
+		if (failure || signal.aborted) return Promise.reject(failure ?? /* @__PURE__ */ new Error("Cancelled"));
+		const id = ++sequence;
+		return new Promise((resolve$1, reject) => {
+			pending.set(id, {
+				resolve: resolve$1,
+				reject
+			});
+			child.stdin.write(`${JSON.stringify({
+				id,
+				method,
+				params
+			})}\n`, (error) => {
+				if (error) fail$2();
+			});
+		});
+	};
+	try {
+		const initialized = object$4(await call$1("initialize", {
+			clientInfo: {
+				name: "powercontext_handoff",
+				version: "1"
+			},
+			capabilities: {
+				experimentalApi: true,
+				requestAttestation: false
+			}
+		}));
+		if (await realpath(text(initialized.codexHome)) !== await realpath(options.codexHome) || initialized.platformOs !== "macos") throw new Error("Codex runtime profile mismatch");
+		child.stdin.write("{\"method\":\"initialized\",\"params\":{}}\n");
+		if (mode === "requirements") return { requirements: object$4(await call$1("configRequirements/read", {})) };
+		const [hooks, config, mcp, requirements, plugins] = await Promise.all([
+			call$1("hooks/list", { cwds: [cwd] }),
+			call$1("config/read", {
+				cwd,
+				includeLayers: false
+			}),
+			call$1("mcpServerStatus/list", {
+				serverName: "powercontext",
+				limit: 100,
+				detail: "toolsAndAuthOnly"
+			}),
+			call$1("configRequirements/read", {}),
+			call$1("plugin/installed", { cwds: [cwd] })
+		]);
+		return {
+			hooks: object$4(hooks),
+			config: object$4(config),
+			mcp: object$4(mcp),
+			requirements: object$4(requirements),
+			plugins: object$4(plugins)
+		};
+	} finally {
+		clearTimeout(timer);
+		signal.removeEventListener("abort", abort);
+		lines.close();
+		child.stdin.destroy();
+		child.kill("SIGKILL");
+	}
+}
+/** Version-qualified Desktop stores its local composer selection separately from config.toml. */
+async function desktopPermission(options, requirements) {
+	const state = object$4(JSON.parse(await readFile(join(options.codexHome, ".codex-global-state.json"), "utf8")));
+	const selections = Object.entries(state).filter(([key$2]) => key$2.startsWith("electron-owner-atoms:")).map(([, value]) => object$4(value)["permission-selection-by-host-id:local"]).filter((value) => value != null);
+	if (selections.length !== 1) throw new Error("Desktop permission selection unavailable");
+	const selection = object$4(selections[0]);
+	if (selection.kind !== "agent-mode") throw new Error("Unqualified Desktop permission selection");
+	const mode = {
+		"read-only": {
+			profile: ":read-only",
+			sandbox: "read-only",
+			approval: "on-request",
+			reviewer: "user"
+		},
+		auto: {
+			profile: ":workspace",
+			sandbox: "workspace-write",
+			approval: "on-request",
+			reviewer: "user"
+		},
+		"guardian-approvals": {
+			profile: ":workspace",
+			sandbox: "workspace-write",
+			approval: "on-request",
+			reviewer: "guardian_subagent"
+		},
+		"full-access": {
+			profile: ":danger-full-access",
+			sandbox: "danger-full-access",
+			approval: "never",
+			reviewer: "user"
+		}
+	}[text(selection.agentMode)];
+	if (!mode) throw new Error("Desktop permission selection unavailable");
+	const configured = requirements.requirements === null ? null : object$4(requirements.requirements);
+	if (configured) {
+		if (configured.allowedPermissionProfiles != null && object$4(configured.allowedPermissionProfiles)[mode.profile] !== true) throw new Error("Desktop profile restricted");
+		for (const [name$1, value] of [
+			["allowedSandboxModes", mode.sandbox],
+			["allowedApprovalPolicies", mode.approval],
+			["allowedApprovalsReviewers", mode.reviewer]
+		]) if (configured[name$1] != null && (!Array.isArray(configured[name$1]) || !configured[name$1].includes(value))) throw new Error("Desktop permission restricted");
+	}
+	return {
+		profile: mode.profile,
+		selection: `${selection.kind}:${String(selection.agentMode)}:${mode.profile}`
+	};
+}
+function installedPlugin(result$1) {
+	if (!Array.isArray(result$1.marketplaces) || !Array.isArray(result$1.marketplaceLoadErrors) || result$1.marketplaceLoadErrors.length) throw new Error("Invalid Codex plugin inventory");
+	const found = result$1.marketplaces.map(object$4).flatMap((marketplace$1) => {
+		if (!Array.isArray(marketplace$1.plugins)) throw new Error("Invalid marketplace inventory");
+		return marketplace$1.plugins.map(object$4).filter((item$1) => item$1.name === "powercontext" && item$1.installed === true).map((item$1) => ({
+			...item$1,
+			marketplaceName: marketplace$1.name
+		}));
+	});
+	if (found.length > 1) throw new Error("Ambiguous PowerContext installation");
+	if (!found.length) return void 0;
+	const item = found[0];
+	const marketplace = text(item.marketplaceName), version = text(item.localVersion), pluginId = text(item.id);
+	if (!SAFE_PART.test(marketplace) || !SAFE_PART.test(version) || [".", ".."].includes(marketplace) || [".", ".."].includes(version) || pluginId !== `powercontext@${marketplace}` || typeof item.enabled !== "boolean") throw new Error("Invalid plugin identity");
+	return {
+		marketplace,
+		version,
+		pluginId,
+		enabled: item.enabled
+	};
+}
+function mcpReady(result$1, plugin) {
+	if (!Array.isArray(result$1.data) || result$1.nextCursor) return false;
+	const servers = result$1.data.map(object$4).filter((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
+	if (servers.length !== 1 || servers[0].toolsError) return false;
+	const tools = object$4(servers[0].tools);
+	return REQUIRED_TOOLS.every((name$1) => Object.hasOwn(tools, name$1));
+}
+async function hookEvidence(result$1, cwd, plugin, root) {
+	if (!Array.isArray(result$1.data) || result$1.data.length !== 1) throw new Error("Invalid hook inventory");
+	const entry = object$4(result$1.data[0]);
+	if (await realpath(text(entry.cwd)) !== await realpath(cwd) || !Array.isArray(entry.hooks) || !Array.isArray(entry.errors) || entry.errors.length) throw new Error("Hook inventory unavailable");
+	const hooks = entry.hooks.map(object$4);
+	const expected = [
+		{
+			event: "sessionStart",
+			file: "session_binding.py"
+		},
+		{
+			event: "preToolUse",
+			file: "bind_tools.py"
+		},
+		{
+			event: "userPromptSubmit",
+			file: "recall.py"
+		}
+	];
+	const hashes = [];
+	for (const wanted of expected) {
+		const matches = hooks.filter((hook$1) => hook$1.pluginId === plugin.pluginId && hook$1.eventName === wanted.event && hook$1.source === "plugin" && hook$1.handlerType === "command" && typeof hook$1.command === "string" && hook$1.command.includes(`/hooks/${wanted.file}`));
+		if (matches.length !== 1) throw new Error("PowerContext hook unavailable");
+		const hook = matches[0];
+		if (hook.enabled !== true || !["trusted", "managed"].includes(String(hook.trustStatus)) || await realpath(text(hook.sourcePath)) !== await realpath(join(root, "hooks/hooks.json")) || (wanted.event === "sessionStart" ? typeof hook.matcher !== "string" || !/^[a-z]+(?:\|[a-z]+)*$/u.test(hook.matcher) || !hook.matcher.split("|").includes("startup") : wanted.event === "preToolUse" ? hook.matcher !== "mcp__powercontext__.*" : hook.matcher != null && hook.matcher !== "")) throw new Error("PowerContext hook not trusted");
+		hashes.push(text(hook.currentHash));
+	}
+	return hashes;
+}
+const SCOPE_PROBE = String.raw`
+import hashlib,hmac,json,os,shlex,sys,time
+from pathlib import Path
+from urllib.request import Request
+sys.path.insert(0,sys.argv[1])
+from settings import CodexPluginSettings,_stored_authorization
+from scripts.scope_binding import resolve_scope_id,open_bounded,_read_bounded
+s=CodexPluginSettings()
+configuration=json.loads((Path(sys.argv[1])/'.mcp.json').read_text())['mcpServers']['powercontext']
+helper=configuration.get('http_headers_helper')
+if helper:
+ root=Path(sys.argv[1]).resolve()
+ credential=Path(os.environ['CODEX_HOME']).absolute()/'powercontext'/'credentials.json'
+ expected=['uv','run','--frozen','--quiet','--project',str(root),'python',str(root/'mcp_headers.py'),'--credential-file',str(credential)]
+ if shlex.split(helper)!=expected: raise ValueError('unqualified credential helper')
+ stored=_stored_authorization(s.server_url)
+ if stored and (s.authorization is None or s.authorization.get_secret_value()!=stored):
+  raise ValueError('MCP and hook credentials differ')
+deadline=time.monotonic()+s.http_budget_seconds
+scope=resolve_scope_id(sys.argv[2],session_id=None,settings=s,deadline=deadline)
+h={"Accept":"application/json"}
+if s.authorization is not None: h["Authorization"]=s.authorization.get_secret_value()
+req=Request(s.server_url+"/v1/connection/identity",headers=h,method="GET")
+with open_bounded(req,timeout=s.request_timeout_seconds) as r:
+ identity=json.loads(_read_bounded(r,deadline=deadline))
+credential=s.authorization.get_secret_value() if s.authorization else ""
+values=json.dumps([s.server_url,s.scope_id,s.allow_insecure_http,credential],separators=(",",":"),ensure_ascii=False)
+fingerprint=hmac.new(bytes.fromhex(os.environ["PC_HANDOFF_OBSERVATION_KEY"]),values.encode(),hashlib.sha256).hexdigest()
+print(json.dumps({"scope":scope,"identity":identity,"endpoint":s.server_url,"generation":fingerprint,"hasHelper":bool(helper)},separators=(",",":")))
+`;
+async function scopeObservation(options, cwd, root, key$2, signal) {
+	const python = join(root, ".venv/bin/python");
+	const env = {
+		...envFor(options),
+		PC_HANDOFF_OBSERVATION_KEY: key$2
+	};
+	const result$1 = object$4(JSON.parse(await command(python, [
+		"-c",
+		SCOPE_PROBE,
+		root,
+		cwd
+	], cwd, env, signal)));
+	const identity = object$4(result$1.identity);
+	const serverIdentity = text(identity.server_id);
+	const scopeId = text(result$1.scope);
+	const auth = identity.authentication, access$1 = identity.access_mode;
+	const principal = identity.principal === null ? null : object$4(identity.principal);
+	if (auth !== "disabled" && auth !== "authenticated" || access$1 !== "disabled" && access$1 !== "enforced" || auth === "disabled" && principal !== null || access$1 === "enforced" && auth !== "authenticated" || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || !text(principal.id))) throw new Error("Invalid target identity");
+	if (typeof result$1.hasHelper !== "boolean") throw new Error("Invalid helper state");
+	return {
+		serverIdentity,
+		scopeId,
+		identity,
+		endpoint: text(result$1.endpoint),
+		generation: text(result$1.generation),
+		hasHelper: result$1.hasHelper
+	};
+}
+async function sandboxHash(options, profile, cwd, path, signal) {
+	const hash = (await command(options.cliPath, [
+		"sandbox",
+		"-P",
+		profile,
+		"--include-managed-config",
+		"-C",
+		cwd,
+		"--",
+		"/usr/bin/shasum",
+		"-a",
+		"256",
+		"--",
+		path
+	], cwd, envFor(options), signal)).match(/^([a-f0-9]{64})\s/u)?.[1];
+	if (!hash) throw new Error("Sandbox read failed");
+	return hash;
+}
+function createCodexDesktopRuntime(options) {
+	if (![
+		options.cliPath,
+		options.codexHome,
+		options.deliveryRoot
+	].every(isAbsolute) || options.cliPath.includes(":") || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32 || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl(options.setup.serverUrl))) throw new Error("Invalid Codex runtime paths");
+	const key$2 = Buffer.from(options.generationKey).toString("hex");
+	return {
+		configurationKey: `codex:${options.codexHome}`,
+		async checkIntegration(_target, signal) {
+			try {
+				const observation = await inspectAppServer(options, options.codexHome, signal);
+				const plugin = installedPlugin(observation.plugins);
+				if (!plugin) return {
+					state: "missing",
+					repairable: !!options.setup
+				};
+				if (!plugin.enabled) return {
+					state: "disabled",
+					repairable: false
+				};
+				return mcpReady(observation.mcp, plugin) ? { state: "ready" } : {
+					state: "needs_user_action",
+					action: "configure_target"
+				};
+			} catch {
+				signal.throwIfAborted();
+				return { state: "unknown" };
+			}
+		},
+		async installIntegration(_target, signal) {
+			signal.throwIfAborted();
+			const setup = options.setup;
+			if (!setup) return {
+				state: "needs_user_action",
+				action: "configure_target"
+			};
+			return new Promise((resolve$1) => {
+				const args = [
+					"setup",
+					"codex",
+					...setup.source ? ["--source", setup.source] : [],
+					"--server-url",
+					setup.serverUrl,
+					"--json"
+				];
+				const child = spawn(setup.executable, args, {
+					env: envFor(options),
+					cwd: options.codexHome,
+					stdio: "ignore",
+					shell: false,
+					detached: true
+				});
+				let started = false, interrupted = false;
+				const stop = () => {
+					interrupted = true;
+					if (child.pid) try {
+						process.kill(-child.pid, "SIGKILL");
+					} catch {}
+				};
+				const timer = setTimeout(stop, 12e4);
+				signal.addEventListener("abort", stop, { once: true });
+				child.once("spawn", () => {
+					started = true;
+					if (signal.aborted) stop();
+				});
+				child.once("error", () => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", stop);
+					resolve$1({ state: started ? "unknown" : "failed" });
+				});
+				child.once("close", (code) => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", stop);
+					resolve$1(!interrupted && code === 0 ? {
+						state: "needs_user_action",
+						action: "restart_target"
+					} : { state: "unknown" });
+				});
+			});
+		},
+		async resolveEnvironment(_target, cwd, signal) {
+			try {
+				const observed$1 = await inspectAppServer(options, cwd, signal);
+				const plugin = installedPlugin(observed$1.plugins);
+				if (!plugin?.enabled) throw new Error("Plugin unavailable");
+				const root = join(options.codexHome, "plugins/cache", plugin.marketplace, "powercontext", plugin.version);
+				const [scope, rootPath] = await Promise.all([scopeObservation(options, cwd, root, key$2, signal), realpath(root)]);
+				if (!mcpReady(observed$1.mcp, plugin)) throw new Error("MCP unavailable");
+				const configuration$1 = object$4(observed$1.config.config);
+				if (configuration$1.mcp_servers != null && Object.hasOwn(object$4(configuration$1.mcp_servers), "powercontext")) throw new Error("PowerContext MCP override not qualified");
+				if (configuration$1.plugins != null) {
+					const settings = object$4(configuration$1.plugins)[plugin.pluginId];
+					if (settings != null && object$4(settings).mcp_servers != null) throw new Error("Plugin MCP override not qualified");
+				}
+				const mcpServer = observed$1.mcp.data.map(object$4).find((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
+				if (!mcpServer || mcpServer.httpOrigin !== new URL(scope.endpoint).origin) throw new Error("MCP origin differs");
+				const hooks = await hookEvidence(observed$1.hooks, cwd, plugin, rootPath);
+				const receiveHandler = join(rootPath, "hooks/dsh_handoff.py");
+				const receiverInfo = await lstat(receiveHandler);
+				if (!receiverInfo.isFile() || receiverInfo.size < 1 || receiverInfo.size > 64 * 1024) throw new Error("Handoff receiver unavailable");
+				const receiverHash = createHash("sha256").update(await readFile(receiveHandler, { signal })).digest("hex");
+				const permission = await desktopPermission(options, observed$1.requirements);
+				const inventory = JSON.parse(await command(options.cliPath, [
+					"mcp",
+					"list",
+					"--json"
+				], cwd, envFor(options), signal));
+				if (!Array.isArray(inventory)) throw new Error("Invalid MCP inventory");
+				const servers = inventory.map(object$4).filter((item) => item.name === "powercontext" && item.enabled === true);
+				if (servers.length !== 1) throw new Error("MCP configuration unavailable");
+				const transport = object$4(servers[0].transport);
+				const headers = object$4(transport.env_http_headers);
+				if (headers.Authorization !== "POWERCONTEXT_CODEX_AUTHORIZATION" || Object.keys(headers).length !== 1 || !!transport.http_headers_helper !== scope.hasHelper || transport.bearer_token_env_var || transport.http_headers && Object.keys(object$4(transport.http_headers)).length) throw new Error("MCP authorization configuration differs");
+				const url = new URL(text(transport.url));
+				const expected = new URL(`${scope.endpoint.replace(/\/$/u, "")}/mcp/`);
+				if (url.username || url.password || url.search || url.hash || url.href.replace(/\/$/u, "") !== expected.href.replace(/\/$/u, "")) throw new Error("MCP and hook endpoints differ");
+				const temporary = await mkdtemp(join(options.deliveryRoot, ".codex-probe-"));
+				let packageAccess = false;
+				try {
+					const path = join(temporary, "probe");
+					const contents = randomBytes(32);
+					await writeFile(path, contents, {
+						mode: 384,
+						flag: "wx"
+					});
+					packageAccess = await sandboxHash(options, permission.profile, cwd, path, signal) === createHash("sha256").update(contents).digest("hex");
+				} finally {
+					await rm(temporary, {
+						recursive: true,
+						force: true
+					});
+				}
+				const configurationGeneration = createHmac("sha256", Buffer.from(key$2, "hex")).update(configurationJson([
+					plugin,
+					hooks,
+					receiverHash,
+					scope.generation,
+					scope.endpoint,
+					scope.identity,
+					scope.serverIdentity,
+					scope.scopeId,
+					permission,
+					observed$1.config,
+					observed$1.requirements
+				])).digest("hex");
+				return {
+					effectiveCwd: await realpath(cwd),
+					serverIdentity: scope.serverIdentity,
+					scopeId: scope.scopeId,
+					configurationGeneration,
+					newSession: true,
+					unsentPrefill: true,
+					packageAccess
+				};
+			} catch {
+				signal.throwIfAborted();
+				throw new HandoffError("integration_unavailable");
+			}
+		},
+		async canReadPackage(_target, bundle, signal) {
+			try {
+				const root = await realpath(options.deliveryRoot);
+				const permission = await desktopPermission(options, (await inspectAppServer(options, bundle.binding.effectiveCwd, signal, "requirements")).requirements);
+				const path = await realpath(bundle.packagePath);
+				const rel = relative(root, path);
+				if (!rel || rel.startsWith("..") || isAbsolute(rel) || !/^[a-f0-9]{64}$/u.test(bundle.packageSha256)) return false;
+				return await sandboxHash(options, permission.profile, bundle.binding.effectiveCwd, path, signal) === bundle.packageSha256;
+			} catch {
+				signal.throwIfAborted();
+				return false;
+			}
+		}
+	};
+}
+
+//#endregion
 //#region src/handoff/http.generated.ts
 const HANDOFF_HTTP_SCHEMAS = {
 	ArtifactReference: {
@@ -5732,10 +6537,10 @@ async function collectMaterials(context, source$1, read, limit) {
 	const { selectedReply: selectedReply$1, objective } = evidence;
 	if (!sameBoundary(source$1, evidence.source) || selectedReply$1.messageId !== source$1.messageId || !Number.isSafeInteger(selectedReply$1.seq) || selectedReply$1.seq < 0 || selectedReply$1.seq > source$1.throughSeq) throw new DeliveryError("binding_mismatch");
 	const omissions = /* @__PURE__ */ new Set();
-	const note = (text) => {
-		omissions.add(text);
+	const note = (text$1) => {
+		omissions.add(text$1);
 	};
-	const available = (text, max) => typeof text === "string" && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !secret(text) && Buffer.byteLength(text) <= max;
+	const available = (text$1, max) => typeof text$1 === "string" && text$1.length <= max && !/[\uD800-\uDFFF]/u.test(text$1) && !secret(text$1) && Buffer.byteLength(text$1) <= max;
 	if (!trimmed(objective, 8192) || !available(objective, Math.min(8192, maxBytes / 4))) return;
 	const reply = {
 		messageId: selectedReply$1.messageId,
@@ -5784,7 +6589,7 @@ async function collectMaterials(context, source$1, read, limit) {
 		let item;
 		if (kind === "check") {
 			checksObserved = true;
-			const { command, status, details, exitCode, revision, workspaceObservedAt } = event;
+			const { command: command$1, status, details, exitCode, revision, workspaceObservedAt } = event;
 			if (![
 				"passed",
 				"failed",
@@ -5792,14 +6597,14 @@ async function collectMaterials(context, source$1, read, limit) {
 				"not_run",
 				"unknown"
 			].includes(status)) invalid();
-			if (!available(command, 8192)) {
+			if (!available(command$1, 8192)) {
 				note(status === "failed" ? "At least one observed check failed but its command could not be included." : "A check was observed but its command could not be included.");
 				continue;
 			}
 			item = {
 				...base,
 				kind,
-				command,
+				command: command$1,
 				status,
 				details: details && available(details, 8192) ? details : void 0,
 				revision: revision && available(revision, 256) ? revision : void 0,
@@ -5832,11 +6637,11 @@ async function collectMaterials(context, source$1, read, limit) {
 	const hostOmissions = evidence.omissions ?? [];
 	const maxHostOmissions = 16;
 	let hostOmissionsTruncated = hostOmissions.length > maxHostOmissions;
-	for (const text of hostOmissions.slice(0, maxHostOmissions)) {
-		const size = typeof text === "string" ? Buffer.byteLength(JSON.stringify(text)) + 1 : 0;
-		if (available(text, 256) && size <= remaining) {
+	for (const text$1 of hostOmissions.slice(0, maxHostOmissions)) {
+		const size = typeof text$1 === "string" ? Buffer.byteLength(JSON.stringify(text$1)) + 1 : 0;
+		if (available(text$1, 256) && size <= remaining) {
 			remaining -= size;
-			note(text);
+			note(text$1);
 		} else hostOmissionsTruncated = true;
 	}
 	if (hostOmissionsTruncated) note("Additional omissions reported by the Host could not be included.");
@@ -6727,35 +7532,6 @@ var LocalDeliveryService = class {
 		})();
 	}
 };
-
-//#endregion
-//#region src/handoff/errors.ts
-const ERRORS = {
-	not_found: [404, "The requested record is unavailable."],
-	not_ready: [409, "The handoff is not ready for this action."],
-	stale_preflight: [409, "Preflight conditions changed. Check the selected response and run preflight again."],
-	binding_mismatch: [409, "The destination no longer matches the saved directory, Server, Scope, or target. Run preflight again."],
-	idempotency_conflict: [409, "The request conflicts with an existing operation. Read its state before continuing."],
-	integration_unavailable: [503, "The required handoff integration is unavailable."],
-	capacity_exceeded: [429, "Handoff bookkeeping reached its capacity."],
-	secret_rejected: [400, "The launch draft or directory may contain a credential. No launch was attempted."],
-	payload_invalid: [400, "The handoff request or package is invalid."],
-	outcome_unknown: [409, "The outcome is unknown. Check the target before choosing to retry."],
-	cancelled: [409, "The operation was cancelled."],
-	deployment_unsupported: [403, "Handoff requires a verified owner-local DSH deployment."]
-};
-var HandoffError = class extends Error {
-	code;
-	status;
-	constructor(code) {
-		super(ERRORS[code][1]);
-		this.code = code;
-		this.status = ERRORS[code][0];
-	}
-};
-function handoffError(error) {
-	return error instanceof HandoffError ? error : new HandoffError(error instanceof DeliveryError ? error.code : "integration_unavailable");
-}
 
 //#endregion
 //#region src/handoff/records.ts
@@ -7831,7 +8607,7 @@ const MAX_EXPORT_BYTES = 2 * 1024 * 1024;
 const BODY_TIMEOUT_MS = 1e4;
 const PREFIX = "/powercontext";
 const TOKEN = /^[A-Za-z0-9._:-]{1,256}$/;
-const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch))?)?$/;
+const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch|diagnose))?)?$/;
 function json(response, status, value) {
 	if (response.destroyed || response.writableEnded) return;
 	response.statusCode = status;
@@ -7955,7 +8731,7 @@ function createHandoffHandler(options) {
 			const route = ROUTES.exec(path.slice(14));
 			if (!route) throw new HandoffError("not_found");
 			const [, resource, id, action] = route;
-			if (resource === "targets" && id || resource === "preflights" && action && !["install", "cancel"].includes(action) || resource === "deliveries" && action === "install") throw new HandoffError("not_found");
+			if (resource === "targets" && id && action !== "diagnose" || action === "diagnose" && resource !== "targets" || resource === "preflights" && action && !["install", "cancel"].includes(action) || resource === "deliveries" && action === "install") throw new HandoffError("not_found");
 			const method = resource === "targets" || action === "export" || id && !action ? "GET" : "POST";
 			if (request$2.method !== method) {
 				response.setHeader("allow", method);
@@ -7963,6 +8739,11 @@ function createHandoffHandler(options) {
 			}
 			if (resource === "targets") {
 				if (question !== -1) return fail();
+				signal.throwIfAborted();
+				if (id) return json(response, 200, {
+					targetId: id,
+					...await options.catalog.diagnose(id, signal)
+				});
 				return json(response, 200, { targets: options.catalog.list() });
 			}
 			const query = new URLSearchParams(question === -1 ? "" : raw.slice(question + 1));
@@ -8195,9 +8976,9 @@ function sourceConnection(host, runtime, key$2) {
 		const connection = object$1(identity.value);
 		const serverIdentity = identifier(connection.server_id);
 		const auth = connection.authentication;
-		const access = connection.access_mode;
+		const access$1 = connection.access_mode;
 		const principal = connection.principal === null ? null : object$1(connection.principal);
-		if (auth !== "disabled" && auth !== "authenticated" || access !== "disabled" && access !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access === "enforced" && auth !== "authenticated" || object$1(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
+		if (auth !== "disabled" && auth !== "authenticated" || access$1 !== "disabled" && access$1 !== "enforced" || auth === "disabled" && principal !== null || auth === "authenticated" && (!principal || !["user", "service"].includes(String(principal.type)) || typeof principal.id !== "string" || !principal.id) || access$1 === "enforced" && auth !== "authenticated" || object$1(readiness$1.value).status !== "ready") throw new HandoffError("integration_unavailable");
 		const sourceTypes = object$1(capabilities$1.value).source_types;
 		if (!Array.isArray(sourceTypes) || !sourceTypes.includes("content")) throw new HandoffError("integration_unavailable");
 		const generation = createHmac("sha256", key$2).update(JSON.stringify([
@@ -8207,7 +8988,7 @@ function sourceConnection(host, runtime, key$2) {
 			config.scopeId,
 			serverIdentity,
 			auth,
-			access,
+			access$1,
 			principal?.type,
 			principal?.id
 		])).digest("hex");
@@ -8220,23 +9001,61 @@ function sourceConnection(host, runtime, key$2) {
 	};
 }
 /** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
-function registerHandoffBridge(ctx, runtime, adapters = []) {
+function registerHandoffBridge(ctx, runtime, adapters) {
 	if (typeof ctx.inject !== "function") return;
 	ctx.inject(["webServer", "connection"], (host) => {
 		const ui = host;
 		const facts = localDeploymentFacts(ui, runtime.config.ownerLocal);
 		const profile = ui.get("profileContext");
 		const lifetime = new AbortController();
-		const catalog = new TargetCatalog(adapters);
+		let catalog;
 		const requireLocal = () => {
 			if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) throw new HandoffError("deployment_unsupported");
 		};
 		let services;
 		let release;
+		const ensureServices = () => {
+			lifetime.signal.throwIfAborted();
+			requireLocal();
+			if (services !== void 0) return services;
+			if (!profile || !isAbsolute(profile.home)) throw new HandoffError("integration_unavailable");
+			const ownerRoot = join(homedir(), ".powercontext-dsh-handoff");
+			const unlock = lockWriter(ownerRoot);
+			try {
+				const root = join(ownerRoot, keyFor(profile.home, profile.name));
+				privateDirectory(root);
+				const generationKey = connectionKey(root);
+				catalog = new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
+					codexHome: process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+					deliveryRoot: join(root, "deliveries"),
+					generationKey
+				})]);
+				services = createHandoffServices({
+					root,
+					catalog,
+					signal: lifetime.signal,
+					client: runtime.client,
+					authorization: runtime.config.authorization,
+					authority: {
+						requireLocal,
+						sourceConnection: sourceConnection(ui, runtime, generationKey),
+						verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
+					}
+				});
+				release = unlock;
+				return services;
+			} catch (error) {
+				unlock();
+				throw error;
+			}
+		};
 		const handler = createHandoffHandler({
 			facts,
 			requireLocal,
-			catalog,
+			get catalog() {
+				ensureServices();
+				return catalog;
+			},
 			signal: lifetime.signal,
 			requestRejection: (request$2) => ui.connection.requestRejection(request$2),
 			authenticatedOwner: (request$2) => {
@@ -8244,36 +9063,10 @@ function registerHandoffBridge(ctx, runtime, adapters = []) {
 				if (ui.connection.admit && admission?.peer?.principal?.kind !== "owner") return void 0;
 				return `local-owner:${process.getuid?.() ?? "host"}`;
 			},
-			services: () => {
-				if (services !== void 0) return services;
-				if (!profile || !isAbsolute(profile.home)) throw new HandoffError("integration_unavailable");
-				const ownerRoot = join(homedir(), ".powercontext-dsh-handoff");
-				const unlock = lockWriter(ownerRoot);
-				try {
-					const root = join(ownerRoot, keyFor(profile.home, profile.name));
-					privateDirectory(root);
-					services = createHandoffServices({
-						root,
-						catalog,
-						signal: lifetime.signal,
-						client: runtime.client,
-						authorization: runtime.config.authorization,
-						authority: {
-							requireLocal,
-							sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
-							verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
-						}
-					});
-					release = unlock;
-					return services;
-				} catch (error) {
-					unlock();
-					throw error;
-				}
-			}
+			services: ensureServices
 		});
 		for (const path of COLLECTIONS) host.effect(() => ui.webServer.register({
-			kind: path === COLLECTIONS[0] ? "exact" : "prefix",
+			kind: "prefix",
 			path,
 			handler
 		}), `powercontext: ${path}`);
@@ -8728,31 +9521,31 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 				cwd,
 				signal: signal ?? payload.signal
 			}),
-			wrapContent: (text) => createUserMessage({
+			wrapContent: (text$1) => createUserMessage({
 				content: [{
 					type: "text",
-					text
+					text: text$1
 				}],
 				source: {
 					kind: `plugin:${PLUGIN_NAME}`,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext",
-						text
+						text: text$1
 					}]
 				}
 			}),
-			wrapScope: (text) => createUserMessage({
+			wrapScope: (text$1) => createUserMessage({
 				content: [{
 					type: "text",
-					text
+					text: text$1
 				}],
 				source: {
 					kind: `plugin:${PLUGIN_NAME}`,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext Scope routing",
-						text
+						text: text$1
 					}]
 				}
 			}),
