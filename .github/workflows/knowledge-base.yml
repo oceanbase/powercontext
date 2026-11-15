@@ -8,6 +8,7 @@ on:
       - 'src/powercontext/server/dashboard/**'
       - 'tests/knowledge_base/**'
       - 'tests/e2e/test_knowledge_base.py'
+      - 'tests/e2e/test_knowledge_base_changes.py'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/knowledge-base.yml'
@@ -28,4 +29,4 @@ jobs:
       - name: Install plugin dependencies
         run: uv sync --locked --extra knowledge-base
       - name: Exercise Server, Worker, revision lifecycle and real OCR
-        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base.py tests/e2e/test_plugin_pages.py
+        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base.py tests/e2e/test_knowledge_base_changes.py tests/e2e/test_plugin_pages.py

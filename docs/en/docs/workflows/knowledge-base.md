@@ -32,6 +32,8 @@ uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 Use the deployment's normal authentication and authorization configuration. Open `/dashboard/plugins/knowledge-base`
 after signing in. Space creation/renaming, knowledge-base creation and processing configuration require `server.admin`;
 imports require Scope contribution and searches require Scope read. Editing and forgetting also enforce Artifact authority.
+New replacement requests for an existing document, including changed-file uploads, retries and explicit reprocessing, also
+require its Artifact write authority. Replaying an already accepted request retains its original fixed base and receipt.
 Plugin pages receive no session credentials; the Dashboard bridge forwards only declared plugin routes and explicitly
 enabled operations for this plugin's own Artifact family, preserving caller identity and version preconditions.
 
@@ -73,6 +75,7 @@ The Dashboard supports selecting or dragging files, and explicit Server-director
 remain references; independently imported PNG/JPEG/WebP images use RapidOCR with ONNX Runtime. OCR produces Markdown text blocks
 with original polygons, reading order and confidence. Both paths use heading-aware block packing followed by bounded sentence/line
 splits. Default limits are 360 characters and 40-character overlap; complete embedding input is checked against the tokenizer limit.
+Markdown HTML blocks, including HTML tables, retain their literal content and source lines in chunks.
 
 For browser uploads, send file bytes to:
 
@@ -101,6 +104,7 @@ infrastructure failures use the framework's window retry/backoff and can block t
 from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new** `idempotency_key` and creates a new request.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
 permits replacing manual edits; otherwise conflicting reprocessing fails. A concurrent edit or forget prevents stale publication.
+Synchronous chunk edits also check the governance version at publication, so forgetting during embedding preparation rejects the edit.
 
 `PATCH P/scopes/{s}/settings` accepts `{version,chunking:{max_chars,overlap}}`; existing documents change only after reprocessing.
 The deployment owns an independent, pinned `BAAI/bge-small-zh-v1.5` 512-dimensional embedding profile. It does not inherit core models.

@@ -434,15 +434,24 @@ class PluginContext:
         return self._request_host().caller()
 
     async def require(
-        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
+        self,
+        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
+        scope_id: str | None = None,
+        *,
+        artifact_id: str | None = None,
     ) -> None:
-        await self._request_host().require(action, scope_id)
+        """Authorize the caller; Artifact checks are limited to this plugin's family."""
+        await self._request_host().require(action, scope_id, artifact_id=artifact_id)
 
     async def allowed(
-        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
+        self,
+        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
+        scope_id: str | None = None,
+        *,
+        artifact_id: str | None = None,
     ) -> bool:
         try:
-            await self.require(action, scope_id)
+            await self.require(action, scope_id, artifact_id=artifact_id)
         except AccessDenied:
             return False
         return True
@@ -520,6 +529,7 @@ class ArtifactTransaction(ArtifactReads, Protocol):
         source_refs: Sequence[SourceRef] = (),
         artifact_refs: Sequence[ArtifactRef] = (),
         expected_revision: int | None = None,
+        expected_state_version: int | None = None,
     ) -> ArtifactSnapshot: ...
 
     async def revert(self, artifact_id: str, /, *, to_revision: int) -> ArtifactChange: ...

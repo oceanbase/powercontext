@@ -162,6 +162,9 @@ Listing, reading revisions and history, governance state, and tags call no plugi
   `source_refs`. Content identical to the current revision adds no revision, so repeated delivery never writes duplicate
   revisions. `writer.stable_id(...)` derives a stable ID from its inputs, so the same Source always writes to the same
   Artifact.
+- If a write depends on lifecycle state, pass the read snapshot's `governance_generation` as
+  `tx.put(..., expected_state_version=...)`, alongside `expected_revision`. A concurrent governance change then rejects
+  publication, including a forget that leaves the content revision unchanged.
 - Other operations include `tx.set_lifecycle`, `tx.merge`, `tx.revert`, and `tx.set_tags`; read current state with
   `writer.get`, `writer.list`, and `writer.by_source`.
   `tx.revert` and `tx.set_lifecycle` return `ArtifactChange`: `result.artifact` is the target snapshot,
@@ -364,6 +367,9 @@ plugin = ArtifactPlugin(
     `scope_param`.
 - In handlers, `ctx.require(action, scope_id)` checks further permissions and makes the API return 403 when the caller
   lacks them; `ctx.allowed(...)` only answers true or false.
+  Use `ctx.require("artifact.write", scope_id, artifact_id=...)` before accepting asynchronous replacement of an existing
+  Artifact; this check targets the current plugin's family. Background execution does not establish the submitter's
+  authority. The same target argument is supported by `ctx.allowed`.
 - Reading and writing core data: `ctx.reads(scope_id)` reads with the caller's permissions; `ctx.writer(scope_id)` and
   `ctx.sources.submit(...)` work only for Scopes whose `scope.contribute` was confirmed earlier in the request (by the
   route's `access` or a prior `ctx.require`). Changing an existing Artifact, including its tags, handles, and lifecycle,

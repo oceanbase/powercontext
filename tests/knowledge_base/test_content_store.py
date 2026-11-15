@@ -43,6 +43,15 @@ def test_markdown_blocks_keep_headings_and_cover_long_text():
         relative_path("/absolute.md")
 
 
+def test_markdown_html_tables_keep_content_and_source_lines():
+    body = "<table>\n<tr><td>Emergency shutdown procedure</td></tr>\n</table>\n"
+    blocks = parse(body.encode(), "runbook.md", {"max_chars": 360, "overlap": 40})
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == body.rstrip()
+    assert blocks[0]["locator"]["line_start"] == 1
+    assert blocks[0]["locator"]["line_end"] == 3
+
+
 def test_sqlite_indexes_preserve_old_chunks_and_isolate_scopes(tmp_path):
     async def scenario():
         storage = SQLitePluginStorage(tmp_path / "plugin.db")

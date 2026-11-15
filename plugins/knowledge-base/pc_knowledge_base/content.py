@@ -116,6 +116,7 @@ def markdown_blocks(text):
             "fence",
             "code_block",
             "table_open",
+            "html_block",
             "bullet_list_open",
             "ordered_list_open",
         }:

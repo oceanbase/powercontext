@@ -31,6 +31,8 @@ uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 空间创建／重命名、知识库创建和处理配置要求 `server.admin`；导入要求 Scope contribute，检索要求 Scope read；
 编辑与遗忘还检查 Artifact 权限。插件页面拿不到会话凭据；Dashboard 桥接仅转发已声明的插件路由，以及显式启用的本插件 family 操作，
 保留调用者身份和版本前置条件。
+针对已有文档的新替换请求，包括文件变化后重新上传、重试和显式重解析，还要求该文档的 Artifact write 权限。
+重放已经接受的请求时，保留原先固定的版本基准和回执。
 
 使用 SeekDB 时另安装 `--extra seekdb` 并配置核心 SeekDB 数据库。OceanBase 按 Server 部署指南准备 MySQL 用户租户与核心数据库。
 插件使用相同后端／账号的独立数据库，名称为 `powercontext_plugin_<核心数据库名和插件名的 24 位摘要>`。
@@ -66,6 +68,7 @@ Server／Worker 必须共享本地文件系统。本期不包含远端对象存�
 Dashboard 支持选择／拖拽上传，以及明确指定 Server 目录文件。Markdown 内图片保留引用；
 独立导入的 PNG／JPEG／WebP 图片使用 RapidOCR 和 ONNX Runtime，生成带原始文字框、阅读顺序、置信度的 Markdown 文本块。
 两条路径都按标题组织和合并块，再按句子／行及长度切分。默认最大 360 字符、重叠 40 字符；向量化前检查完整输入的 tokenizer 长度。
+Markdown 中的 HTML 块（包括 HTML 表格）在 chunk 中保留原始内容和出处行号。
 
 浏览器上传把文件字节提交到：
 
@@ -92,6 +95,7 @@ Content-Type: application/octet-stream
 `POST .../imports/{request_id}/retry` 接收**新的** `idempotency_key`，创建新处理请求。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
 否则冲突的重解析失败。并发编辑或遗忘会阻止过期处理结果发布。
+同步 chunk 编辑在发布时也检查治理版本；向量准备期间发生遗忘时，编辑会被拒绝。
 
 `PATCH P/scopes/{s}/settings` 接收 `{version,chunking:{max_chars,overlap}}`；已有文档只在重解析后改变。
 部署使用插件独立、固定版本的 `BAAI/bge-small-zh-v1.5` 512 维模型，不继承核心模型。

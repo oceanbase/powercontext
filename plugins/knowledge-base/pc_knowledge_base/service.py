@@ -193,9 +193,15 @@ class KnowledgeBase:
     async def accept(self, scope, key, data, path, collection, origin, original_path=None, replace=False, force=False):
         config = await self.settings(scope)
         path = relative_path(path)
-        snapshot, digest = await asyncio.to_thread(self.snapshots.save, data)
         document = identity("document-v1", scope, collection, path)
         current = await self.ctx.reads(scope).get(document)
+        request_key = identity("import-v1", self.ctx.caller.principal_id, scope, key)
+        existing = await self.store.resource(scope, "request", request_key)
+        if existing is None and current is not None:
+            # Source contribution cannot authorize replacing another caller's document.
+            # Replaying an accepted request retains its original authorization and fixed base.
+            await self.ctx.require("artifact.write", scope, artifact_id=document)
+        snapshot, digest = await asyncio.to_thread(self.snapshots.save, data)
         original = {
             "document_id": document,
             "snapshot": snapshot,
@@ -215,8 +221,6 @@ class KnowledgeBase:
         }
         # Implicit settings are pinned on first acceptance; a retry keeps them after configuration changes.
         digest_request = identity(original, pinned["manual_edits_policy"], force)
-        request_key = identity("import-v1", self.ctx.caller.principal_id, scope, key)
-        existing = await self.store.resource(scope, "request", request_key)
         if existing is None and current is not None and current.lifecycle_state != "active":
             fail("Document was forgotten and cannot be imported again")
         row = await self.store.add_resource(
@@ -442,6 +446,7 @@ class KnowledgeBase:
                     content=manifest,
                     source_refs=[source.ref],
                     expected_revision=pinned["base_revision"],
+                    expected_state_version=None if current is None else current.governance_generation,
                 )
         for key in skipped:
             await self.store.observation(
@@ -491,6 +496,7 @@ class KnowledgeBase:
                 # processing evidence; prior edit evidence remains in immutable Artifact history.
                 source_refs=[ref for ref in current.lineage.sources if ref.source_type == "knowledge-base-process"],
                 expected_revision=request.expected_revision,
+                expected_state_version=current.governance_generation,
             )
 
     async def forget_artifact(self, request, writer):

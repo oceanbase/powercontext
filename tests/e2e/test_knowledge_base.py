@@ -233,11 +233,29 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             )["hits"]
             assert (await call("GET", chunks + "/" + chunk["chunk_id"]))["text"] == content["text"]
 
+            html = await call(
+                "POST",
+                base + "/uploads",
+                params={"relative_path": "table.md", "idempotency_key": "html-table"},
+                content=b"<table>\n<tr><td>Emergency shutdown procedure</td></tr>\n</table>\n",
+            )
+
+            async def html_status():
+                return await call("GET", base + "/imports/" + html["request_id"])
+
+            outcome = await wait_for(
+                html_status, lambda result: result["state"] in {"completed", "failed"}, log=tmp_path / "server.log"
+            )
+            assert outcome["state"] == "completed", outcome
+            hits = (await call("POST", base + "/retrieve", json={"query": "Emergency", "mode": "fts"}))["hits"]
+            assert hits and "Emergency shutdown procedure" in hits[0]["text"]
+            assert hits[0]["document"]["artifact_id"] == html["document_id"]
+
     asyncio.run(scenario())
 
 
 # Deterministic embeddings belong only to the test plugin copy, never the installed plugin.
-FIXTURE_MODEL = """
+FIXTURE_EMBEDDING = """
 import pc_knowledge_base.service as _service
 class _FixtureEmbedding:
     dimension = 2
@@ -246,6 +264,11 @@ class _FixtureEmbedding:
     async def embed(self, values, query=False):
         return [[1.0, float(len(value)%7+1)/10] for value in values]
 _service.Embedding = _FixtureEmbedding
+"""
+
+FIXTURE_MODEL = (
+    FIXTURE_EMBEDDING
+    + """
 _original_add_resource = _service.Store.add_resource
 _registration_interrupted = False
 async def _interrupted_registration(self, scope, kind, key, value, space=None):
@@ -256,3 +279,4 @@ async def _interrupted_registration(self, scope, kind, key, value, space=None):
     return await _original_add_resource(self,scope,kind,key,value,space)
 _service.Store.add_resource = _interrupted_registration
 """
+)

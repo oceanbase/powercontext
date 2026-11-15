@@ -420,6 +420,7 @@ class PluginArtifactTransaction(_Reads):
         source_refs: Sequence[SourceRef] = (),
         artifact_refs: Sequence[ArtifactRef] = (),
         expected_revision: int | None = None,
+        expected_state_version: int | None = None,
     ) -> ArtifactSnapshot:
         self._admit(content, source_refs)
         owner = self._owner
@@ -428,6 +429,10 @@ class PluginArtifactTransaction(_Reads):
         body = owner.body(content)
         current = await self._record(self._connection, artifact_id)
         expected_revision = self._put_revision(artifact_id, current, expected_revision)
+        if expected_state_version is not None and (
+            current is None or current.state.governance_generation != expected_state_version
+        ):
+            raise owner.service.errors.conflict("the Artifact governance changed after it was read")  # noqa: TRY003
         if change is not None:
             if (change.operation == "create") != (current is None):
                 raise owner.service.errors.conflict(
@@ -456,6 +461,7 @@ class PluginArtifactTransaction(_Reads):
             expected_revision=None
             if current is None
             else (current.artifact.revision if expected_revision is None else expected_revision),
+            expected_state_version=expected_state_version,
             lineage=ArtifactLineage(sources=tuple(source_refs), artifacts=tuple(artifact_refs)),
         )
         direct = None
