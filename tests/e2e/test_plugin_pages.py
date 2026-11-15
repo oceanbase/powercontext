@@ -190,13 +190,13 @@ def test_plugin_page_is_sandboxed_and_forwards_only_same_origin_session_requests
                     assert labelled.status_code == 200, labelled.text
                 public = f"/v1/scopes/{scope}/artifacts/demo-notes"
                 for match, expected in (("all", {"both"}), ("any", {"both", "only-a", "only-b"})):
-                    query = [("tag", "a"), ("tag", "b"), ("tag_match", match)]
+                    query = (("tag", "a"), ("tag", "b"), ("tag_match", match))
                     forwarded = await browser.get(notes, params=query, headers=same_origin)
                     assert forwarded.status_code == 200, forwarded.text
                     assert {tagged[item["artifact_id"]] for item in forwarded.json()["items"]} == expected, match
                     assert forwarded.json() == (await client.get(public, params=query)).json()
                 # A repeated single-valued parameter is the public API's to judge, not silently reduced to one value.
-                repeated = [("limit", "1"), ("limit", "2")]
+                repeated = (("limit", "1"), ("limit", "2"))
                 direct = await client.get(public, params=repeated)
                 assert (
                     await browser.get(notes, params=repeated, headers=same_origin)
