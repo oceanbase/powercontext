@@ -790,8 +790,9 @@ class InvalidContent(Exception):          # the plugin rejects the content; the 
 - The write transaction in these calls allows only the matching write operation from the table, plus `set_tags` on the
   same Artifact; writing any other Artifact raises immediately. If the method returns normally without performing the
   required write, core rolls back and returns 502, meaning the plugin did not complete the contract.
-- The plugin may normalize the content (for example, by filling default fields); the written content is what the plugin
-  submits.
+- The plugin interprets the request's `content`. It may normalize the content (for example, by filling default fields),
+  or treat it as a description of one change and compute the content to write from it. The written content is what the
+  plugin passes to the writer.
 - `put` in `create_artifact` and `update_artifact` always appends a revision, even when the content equals the current
   revision. This matches edits to built-in families: every user edit has a new `lineage_only` Content Source (see 4.2),
   which needs a new revision to record it.
@@ -808,7 +809,9 @@ class InvalidContent(Exception):          # the plugin rejects the content; the 
 - **Provenance**: as for built-in families, on create, edit, restore, and undo merge core stores the submitted content as
   an internal Content Source in the same transaction (`lineage_only`, with operation `artifact_create`,
   `artifact_replace`, `artifact_restore`, or `artifact_undo_merge`) and records it in lineage as the new revision's
-  direct source. Core writes these Sources, and they never enter a plugin's input window.
+  direct source. On create and edit, core stores the request's `content` as submitted; when the plugin writes different
+  content, this Source is still what the caller submitted, and the content the plugin wrote is in the new revision. Core
+  writes these Sources, and they never enter a plugin's input window.
 - **Merge registry**: the generic merge, forget, and restoration APIs sit on the registry of the shared merge engine
   ([RFC #1859](1859_artifact_merge.md)) and work for every registered family. Experience and
   Atomic Memory are the registered built-in families and use their own adapters; a plugin family is registered at load

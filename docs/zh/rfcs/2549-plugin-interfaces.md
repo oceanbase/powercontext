@@ -689,7 +689,8 @@ class InvalidContent(Exception):          # 插件拒绝内容；接口返回 42
 
 - 这些调用中的写事务只允许上表对应的那一项写操作，以及对同一 Artifact 的 `set_tags`；写其他 Artifact 时立即抛出异常。
   方法正常返回但没有完成要求的写操作，core 回滚并返回 502，表示插件没有按约定完成。
-- 插件可以规范化内容（例如补全默认字段），写入的内容以插件提交的为准。
+- 请求中的 `content` 由插件解释。插件可以规范化内容（例如补全默认字段），也可以把它当作对一次修改的描述，据此算出要
+  写入的内容。写入的内容以插件交给写入器的为准。
 - `create_artifact`、`update_artifact` 中的 `put` 总是追加 revision，内容与当前 revision 相同时也一样。这与内置 family 的
   编辑一致：每次用户编辑都有一条新的 `lineage_only` Content Source（见 4.2），需要一个新 revision 记录它。
 - 插件应在写事务块中、拿到快照之后更新自己的存储，做法同 3.5。
@@ -702,7 +703,8 @@ class InvalidContent(Exception):          # 插件拒绝内容；接口返回 42
   在写事务中再次校验，期间被其他写入改变则回滚并返回 409。
 - **溯源**：与内置 family 相同，新建、编辑、恢复和撤销合并时，core 在同一事务中把调用方提交的内容另存为一条内部
   Content Source（`lineage_only`，操作分别为 `artifact_create`、`artifact_replace`、`artifact_restore`、`artifact_undo_merge`），
-  作为新 revision 的直接来源记入 lineage。这类 Source 由 core 写入，不进入任何插件的输入窗口。
+  作为新 revision 的直接来源记入 lineage。新建和编辑时保存的是请求中的 `content` 原文；插件写入的内容与它不同时，
+  这条 Source 仍是调用方提交的那一份，插件写入的内容在新 revision 中。这类 Source 由 core 写入，不进入任何插件的输入窗口。
 - **合并注册表**：通用的合并、遗忘、恢复接口建立在共享合并引擎（[RFC #1859](1859_artifact_merge.md)）的注册表之上，对所有登记过的 family 生效。内置 family 登记了 Experience 和 Atomic Memory，
   由各自的适配器处理；插件 family 在加载时登记，处理方式是转交给插件对应的方法。没有登记的 family 返回 422。
 - **不提供预览**：Atomic Memory 的专用接口支持先预览恢复影响、再凭签名 token 执行。通用接口不提供预览，也就不需要签名
