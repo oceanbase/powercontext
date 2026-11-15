@@ -135,6 +135,8 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "dsh-pet-powercontext-memory/dsh-settings.png",
         "dsh-pet-powercontext-memory/dsh-memory-service.png",
         "dsh-pet-powercontext-memory/reuse-cost.en.svg",
+        "dsh-pet-powercontext-memory/feiyu.png",
+        "dsh-pet-powercontext-memory/3475.jpeg",
     }
     han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
     for language in ("en", "zh"):

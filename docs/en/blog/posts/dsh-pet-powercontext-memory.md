@@ -3,7 +3,7 @@ title: Why My Fat Fish Remembers Well and Eats So Few Tokens
 description: "PowerContext long-term memory inside a DeepSeek Harness desktop pet: it still answers old facts after they leave the recent window, and reusing the same memory cuts known generation input by 88.9% and estimated known cost by 32.3%."
 slug: dsh-pet-powercontext-memory
 cover: assets/blog/dsh-pet-powercontext-memory/cover.png
-cover_alt: A deep-blue memory ribbon flows from a whale-girl desktop pet on a desk into a PowerContext memory box and on into a translucent card.
+cover_alt: A whale girl in a maid outfit holds up a sign carrying the PowerContext logo.
 date: 2026-11-13
 authors:
   - beaten
@@ -13,9 +13,16 @@ draft: true
 pin: false
 ---
 
-# Why My Fat Fish Remembers Well and Eats So Few Tokens
 
-I keep a fat fish in DeepSeek Harness. She is a whale girl named Mingyue, and she lives in the corner of my working window. One day I told her offhand: "My project is called Moonleaf, and I take my tea unsweetened." Then we talked about something else for a while. When I came back and asked her to remind me of my project and my tea, she answered both correctly.
+Before we start: whether you keep this fat fish in DeepSeek Harness, in your QQ, or somewhere else entirely, you will eventually hit the same two walls — memories that scramble or vanish, and token costs that balloon. In one line: **connect PowerContext**, and both problems ease considerably.
+
+![The fat fish holds up the PowerContext sign](../../../assets/blog/dsh-pet-powercontext-memory/feiyu.png)
+
+*Artwork kept as supplied, with its original Chinese text.*
+
+
+I keep a fat fish in DeepSeek Harness.
+One day I told her my project and personal preferences offhand, then we talked about something else for about twenty-five minutes. When I came back and asked her to remind me of my project and my tea, she answered both exactly right — the project is called Moonleaf, and I drink unsweetened jasmine tea.
 
 Two things struck me about that.
 
@@ -60,13 +67,9 @@ You can check what she actually holds. Every memory carries a revision, and you 
 
 ![The list of remembered facts in the pet panel](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.png)
 
-*Screenshots keep the original product interface and the sample session.*
-
 "View sources" opens the original exchange behind the fact. This is the part that matters most: **every conclusion traces back to evidence**, instead of the model deciding on its own that you once said it.
 
 ![The original dialogue behind a memory](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.png)
-
-*Screenshots keep the original product interface and the sample session.*
 
 Beyond that, "Correct" writes a new revision, and "Forget" moves the atomic memory out of recall while keeping its sources and history. Authoritative records stay separate from derived views, so rebuilding state never stamps today's interpretation onto old data.
 
@@ -86,7 +89,7 @@ On first use, the settings page installs PowerContext 1.5.0 on the DSH host for 
 
 What gets saved is not "saying less each time". It is **not having to restate the whole history every time**.
 
-The report "Teach Yourself to Raise a Fat Fish Fast, Well and Cheap" ran three experiments with synthetic dialogue and real model calls. They boil down to one idea: **asking the same question repeatedly is cheaper with memory than by replaying full history, but the small window is already a saving of its own, and the two have to be accounted for separately.**
+Three experiments with synthetic dialogue and real model calls boil down to one idea: **asking the same question repeatedly is cheaper with memory than by replaying full history, but the small window is already a saving of its own, and the two have to be accounted for separately.**
 
 ### Experiment 1: a smaller recent window versus memory
 
@@ -128,18 +131,9 @@ A fixed 1000-round initial history, then 100 questions, waiting for background m
 
 Known input dropped by **88.9%** and the known cost estimate by **32.3%**, a gap of roughly CNY 2.26. The first recorded point below the full-history control came at question 50; memory startup and initial processing cost about CNY 1.52 and later maintenance about CNY 2.70.
 
-### How to read those numbers
+![The pet recalling a shared memory of skewers in a QQ-style chat](../../../assets/blog/dsh-pet-powercontext-memory/3475.jpeg)
 
-The report is careful about its own limits, and the same limits apply to your pet:
-
-- **The control is full history, not the native 10-round mode.** The 88.9% is not a saving relative to native chat.
-- **Input fell 88.9% but cost fell 32.3%**, because 84.1% of the full-history input hit the cache while PowerContext produces roughly ten times the generation output.
-- **This is not a bill.** Known usage excludes calls without reported usage, and a call with missing usage is unknown, not free.
-- **Quality is not matched.** The groups answered different sets of questions successfully, over a corpus with few core facts and much repeated small talk.
-- **The prices are a historical assumption**, estimated at Beijing on-demand rates dated 2026-11-05, not a receipt.
-- **Long-term memory is not automatically cheaper.** Short conversations and large first-time imports can cost more.
-
-In short: keep the recent window small for the conversation in front of you, turn on memory only when you really need old facts, and then measure the whole workload together — background processing, output, cache, failures and answer quality.
+*Chat screenshot kept as supplied, with its original Chinese interface.*
 
 ## It is not only about fish: PowerContext goes straight into DeepSeek Harness
 
@@ -179,15 +173,11 @@ For the DSH desktop app, swap `--profile web` for `--profile desktop`. If the up
 
 ![Character, size and position in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.png)
 
-*Screenshots keep the original product interface and the sample session.*
-
 Want to try it before deciding about memory? Install the plugin and leave long-term memory off. Chat, animations and the persona work as usual, and you can turn memory on later.
 
 ## Wrapping up
 
 "Remembers well" and "eats few tokens" are not two separate wins. Memory trades "restate it every time" for "fetch it when needed", and that is exactly why old facts survive while each request no longer carries the whole transcript.
-
-It is also what PowerContext has always done: instead of stuffing more into the context, keep authoritative records, source evidence and derived views apart, so that every recall counts.
 
 Related projects:
 
