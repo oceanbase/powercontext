@@ -95,8 +95,22 @@ def load_client_settings(host: str) -> dict[str, Any]:
         if not isinstance(saved["allow_insecure_http"], bool):
             raise ValueError("Saved PowerContext allow_insecure_http must be a JSON boolean")  # noqa: TRY003
         result["allow_insecure_http"] = saved["allow_insecure_http"]
+    result.update(_host_target_settings(host, saved))
+    return result
+
+
+def _host_target_settings(host: str, saved: dict[str, Any]) -> dict[str, Any]:
+    """Keep saved target identity separate from connection and credential settings."""
     if host == "dsh" and "profile" in saved:
-        result.update(profile=saved["profile"], dsh_command=saved.get("dsh_command"))
+        return {"profile": saved["profile"], "dsh_command": saved.get("dsh_command")}
+    result = {}
+    if host == "minimax":
+        for name in ("minimax_data_dir", "minimax_command"):
+            value = saved.get(name)
+            if value is not None:
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("Saved MiniMax target paths must be non-empty strings")  # noqa: TRY003
+                result[name] = value
     return result
 
 

@@ -144,9 +144,7 @@ def test_vector_upgrade_preserves_history_shape_and_matches_fresh_storage(tmp_pa
     settings = ServerSettings(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"), mcp=McpConfig(enabled=False)
     )
-    app = create_server_app(
-        settings=settings, embedding_model=ControlledEmbedding(embedding), scheduler_path=tmp_path / "scheduler"
-    )
+    app = create_server_app(settings=settings, embedding_model=ControlledEmbedding(embedding))
     with TestClient(app) as client:
         remembered = client.post(
             "/v1/memory/remember",
@@ -237,9 +235,7 @@ def test_vector_readiness_rejects_incomplete_atomic_projections(tmp_path, damage
     settings = ServerSettings(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"), mcp=McpConfig(enabled=False)
     )
-    app = create_server_app(
-        settings=settings, embedding_model=ControlledEmbedding(embedding), scheduler_path=tmp_path / "scheduler"
-    )
+    app = create_server_app(settings=settings, embedding_model=ControlledEmbedding(embedding))
     with TestClient(app) as client:
         remembered = client.post(
             "/v1/memory/remember",
@@ -256,9 +252,7 @@ def test_vector_readiness_rejects_incomplete_atomic_projections(tmp_path, damage
     for inspect_state in (runner.plan, runner.verify):
         with pytest.raises(MigrationError, match="projection_verification_failed"):
             inspect_state()
-    app = create_server_app(
-        settings=settings, embedding_model=ControlledEmbedding(embedding), scheduler_path=tmp_path / "scheduler"
-    )
+    app = create_server_app(settings=settings, embedding_model=ControlledEmbedding(embedding))
     with pytest.raises(MigrationError, match="projection_verification_failed"), TestClient(app):
         pytest.fail("Incomplete projections must block vector Server startup")
     assert database.read_bytes() == original

@@ -86,6 +86,10 @@ def _cli_events(output: str, *, failed: bool) -> list[dict[str, Any]]:
     return events
 
 
+_SERVER_STARTUP_SECONDS = 45
+_SERVER_SHUTDOWN_WAIT_SECONDS = 15
+
+
 @contextmanager
 def serve(app: Any) -> Iterator[str]:
     """Own a pre-bound loopback socket and only stop this run's Server."""
@@ -96,7 +100,8 @@ def serve(app: Any) -> Iterator[str]:
     thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 15
+        # Match RestartableServer: a loaded host can stall a Server's startup, and a thread that exits fails at once.
+        deadline = time.monotonic() + _SERVER_STARTUP_SECONDS
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert server.started, "server_startup_failed"
@@ -123,7 +128,8 @@ class RestartableServer:
 
     def start(self) -> None:
         listener = socket.socket()
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name != "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("127.0.0.1", self.port))
         self.port = listener.getsockname()[1]
         self.server = uvicorn.Server(
@@ -132,10 +138,26 @@ class RestartableServer:
         server = self.server
         self.thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
         self.thread.start()
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + _SERVER_STARTUP_SECONDS
         while not self.server.started and self.thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert self.server.started, "server_restart_failed"
+        if self.server.started:
+            return
+        # A failed __enter__ never reaches __exit__, so this Server is stopped here. Uvicorn finishes lifespan
+        # startup before it honors should_exit, then adopts the listener and closes it on shutdown; closing the
+        # listener while the thread lives would make a late startup raise EBADF in a later test.
+        # error_code() keeps only [A-Za-z0-9_/] codes, so the failure kind is a code suffix.
+        if not self.thread.is_alive():
+            listener.close()
+            raise AssertionError("server_restart_failed/thread_exited")
+        self.server.should_exit = True
+        self.thread.join(timeout=_SERVER_SHUTDOWN_WAIT_SECONDS)
+        if not self.thread.is_alive():
+            listener.close()
+            raise AssertionError("server_restart_failed/startup_timeout")
+        thread = self.thread
+        threading.Thread(target=lambda: (thread.join(), listener.close()), daemon=True).start()
+        raise AssertionError("server_restart_failed/startup_still_running")
 
     @property
     def url(self) -> str:
@@ -285,6 +307,8 @@ class AcceptanceRun:
         if resume:
             args.extend(["--resume", resume])
         completed = self.process(args, environment=environment)
+        if self.model is not None and self.model.failure_code:
+            raise AssertionError(self.model.failure_code)
         events = _cli_events(completed.stdout, failed=completed.returncode != 0)
         self.last_events = events
         if self.live:
@@ -462,7 +486,7 @@ class AcceptanceRun:
         )
 
         def create_observed_server():
-            app = create_server_app(settings=server_settings, scheduler_path=self.root / "scheduler")
+            app = create_server_app(settings=server_settings)
             self.observer = ObserveServer(app, self.wire)
             return self.observer
 
@@ -628,7 +652,19 @@ class AcceptanceRun:
                     assert published["scope_id"] == self.scope_id
                     assert {key: published[key] for key in reference} == reference
                     assert published["content"]["text"] == generated["text"]
-                    if {"source_type": "content", "source_id": source["source_id"]} in published["sources"]:
+                    published_source = next(
+                        (
+                            item
+                            for item in published["sources"]
+                            if item["source_type"] == "content" and item["source_id"] == source["source_id"]
+                        ),
+                        None,
+                    )
+                    if published_source:
+                        assert published_source.get("locator") == {
+                            "kind": "sequence",
+                            "sequence": source["position"],
+                        }, "automatic_memory_source_position_mismatch"
                         break
                     generated = None
                 time.sleep(0.1)

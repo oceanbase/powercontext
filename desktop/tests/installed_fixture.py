@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import socket
@@ -85,17 +86,21 @@ def isolated_server(
     response_loss_counter: Path | None = None,
     response_gate: Path | None = None,
     statistics_usage_control: Path | None = None,
+    readiness_requests: Path | None = None,
 ) -> Iterator[tuple[httpx.Client, str, str]]:
     desktop = Path(__file__).resolve().parents[1]
     wheels = list((desktop / ".artifacts/server-wheel").glob("*.whl"))
     if len(wheels) != 1:
         raise HarnessFailure("installed_server_wheel_count")
     wheel = wheels[0]
-    wheel_digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    wheel_bytes = wheel.read_bytes()
+    wheel_digest = hashlib.sha256(wheel_bytes).hexdigest()
+    if wheel_digest != fixture_profile(desktop)["artifactSha256"]:
+        raise HarnessFailure("installed_server_qualification_mismatch")
     with tempfile.TemporaryDirectory(prefix="desktop-installed-server-") as directory:
         temp = Path(directory)
         wheel_root = temp / "wheel"
-        with zipfile.ZipFile(wheel) as archive:
+        with zipfile.ZipFile(io.BytesIO(wheel_bytes)) as archive:
             archive.extractall(wheel_root)
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
@@ -112,6 +117,7 @@ def isolated_server(
             "response_gate_path": str(response_gate) if response_gate else None,
             "response_loss_path": str(response_loss_counter) if response_loss_counter else None,
             "statistics_usage_path": str(statistics_usage_control) if statistics_usage_control else None,
+            "readiness_requests_path": str(readiness_requests) if readiness_requests else None,
         }
         config_path = temp / "server.json"
         config_path.write_text(json.dumps(config), encoding="utf-8")

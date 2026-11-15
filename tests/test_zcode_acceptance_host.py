@@ -14,16 +14,20 @@
 
 """Real subprocess regressions for safe acceptance-host shutdown evidence."""
 
+import asyncio
 import json
 import os
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 
+from tests.e2e.zcode_acceptance import runner
 from tests.e2e.zcode_acceptance.host import NativeHost
-from tests.e2e.zcode_acceptance.runner import AcceptanceRun
+from tests.e2e.zcode_acceptance.runner import AcceptanceRun, RestartableServer, error_code, serve
 
 
 def make_host(tmp_path, source: str) -> NativeHost:
@@ -169,3 +173,109 @@ def test_nonzero_cli_exit_stays_failed_and_retains_only_safe_diagnostics(
         "native_assertion": native_assertion,
     }
     assert "private" not in json.dumps(run.summary)
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_fixture_prerequisite_failure_survives_cli_exit(tmp_path, exit_code):
+    run = AcceptanceRun(tmp_path / "runs", live=False, model_config=None, generation_env=None)
+    run.workspace.mkdir(parents=True)
+    run.node = getattr(sys, "_base_executable", sys.executable)
+    run.cli = tmp_path / "host.py"
+    assert run.model is not None
+
+    def missing_result():
+        raise AssertionError("receiver_action_result_missing")
+
+    with serve(run.model.app) as endpoint:
+        run.cli.write_text(
+            "import json, sys, urllib.error, urllib.request\n"
+            "body = {'model': 'fixture', 'messages': [], "
+            "'tools': [{'type': 'function', 'function': {'name': 'Bash'}}]}\n"
+            f"request = urllib.request.Request({endpoint + '/v1/chat/completions'!r}, "
+            "data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})\n"
+            "try:\n"
+            "    urllib.request.urlopen(request, timeout=5)\n"
+            "except urllib.error.HTTPError as error:\n"
+            "    assert error.code == 400\n"
+            "print(json.dumps({'type': 'result', 'sessionId': 'fixture-session'}))\n"
+            f"sys.exit({exit_code})\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(AssertionError, match=r"^receiver_action_result_missing$"), run.scenario(1):
+            run.invoke("Verify the fixture.", actions=[("Bash", missing_result)])
+
+    assert run.summary["scenarios"][0]["status"] == "failed"
+    assert run.summary["scenarios"][0]["stable_error_code"] == "receiver_action_result_missing"
+
+
+@dataclass(frozen=True)
+class StartupScenario:
+    fail: bool
+    delay: float
+    deadline: float
+    shutdown_wait: float
+
+
+# A lifespan that crashes, one that misses the deadline but stops during the shutdown wait, and one that outlasts both.
+STARTUP_SCENARIOS = {
+    "crashes": StartupScenario(fail=True, delay=0.0, deadline=5.0, shutdown_wait=15.0),
+    "misses_deadline": StartupScenario(fail=False, delay=0.5, deadline=0.1, shutdown_wait=15.0),
+    "outlasts_shutdown_wait": StartupScenario(fail=False, delay=0.5, deadline=0.05, shutdown_wait=0.1),
+}
+
+
+def startup_app(*, fail: bool, delay: float, finished: threading.Event):
+    async def app(scope, receive, send):
+        assert scope["type"] == "lifespan"
+        await receive()
+        if fail:
+            await send({"type": "lifespan.startup.failed", "message": "fixture startup failure"})
+            return
+        await asyncio.sleep(delay)
+        finished.set()
+        await send({"type": "lifespan.startup.complete"})
+        await receive()
+        await send({"type": "lifespan.shutdown.complete"})
+
+    return app
+
+
+def wait_for_threads(threads_before: set[threading.Thread]) -> bool:
+    deadline = time.monotonic() + 10
+    while not set(threading.enumerate()) <= threads_before and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return set(threading.enumerate()) <= threads_before
+
+
+@pytest.mark.parametrize(
+    ("scenario", "code"),
+    [
+        ("crashes", "server_restart_failed/thread_exited"),
+        ("misses_deadline", "server_restart_failed/startup_timeout"),
+        ("outlasts_shutdown_wait", "server_restart_failed/startup_still_running"),
+    ],
+)
+def test_restartable_server_failed_startup_leaves_no_thread_or_late_socket_error(monkeypatch, scenario, code):
+    config = STARTUP_SCENARIOS[scenario]
+    finished = threading.Event()
+    app = startup_app(fail=config.fail, delay=config.delay, finished=finished)
+    thread_errors: list[BaseException | None] = []
+    # Uvicorn ends a failed lifespan with SystemExit, which the default hook ignores too.
+    monkeypatch.setattr(
+        threading,
+        "excepthook",
+        lambda failure: failure.exc_type is SystemExit or thread_errors.append(failure.exc_value),
+    )
+    monkeypatch.setattr(runner, "_SERVER_STARTUP_SECONDS", config.deadline)
+    monkeypatch.setattr(runner, "_SERVER_SHUTDOWN_WAIT_SECONDS", config.shutdown_wait)
+    threads_before = set(threading.enumerate())
+
+    with pytest.raises(AssertionError) as failure, RestartableServer(lambda: app):
+        pass
+
+    assert error_code(failure.value) == code
+    if scenario == "outlasts_shutdown_wait":
+        assert wait_for_threads(threads_before)
+    assert set(threading.enumerate()) <= threads_before
+    assert finished.is_set() is not config.fail
+    assert thread_errors == []

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY } from './memory-compatibility.ts'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { InvalidResponseError, ServerResponseError, TransportError } from './errors.ts'
@@ -46,6 +47,8 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
     event,
     outcome,
     http_status: error.statusCode,
+    ...(error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported'
+      ? { recovery: MEMORY_PROTOCOL_RECOVERY } : {}),
     ...(error.code ? { error_code: error.code } : {}),
   }
 }

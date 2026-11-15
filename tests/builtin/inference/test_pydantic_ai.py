@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
-import httpx
+import httpx2
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -41,22 +41,23 @@ from pydantic_ai.embeddings import (
     TestEmbeddingModel,
 )
 from pydantic_ai.embeddings.result import EmbedInputType
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import ModelContextWindowExceededError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     FinishReason,
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState, StreamedResponse
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
@@ -252,9 +253,9 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
 ) -> None:
     requests: list[dict[str, object]] = []
 
-    def respond(request: httpx.Request) -> httpx.Response:
+    def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(json.loads(request.content))
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "id": "receipt-settings",
@@ -273,7 +274,7 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
         )
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
             settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
             settings.update(overrides)
             generator = PydanticAIStructuredGenerator(
@@ -291,6 +292,58 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
                 assert (key in effective) == (key in sent)
                 assert effective.get(key) == sent.get(key)
             assert effective["max_tokens"] == sent["max_completion_tokens"] == 512
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("model_name", "sends_sampling"),
+    [("claude-sonnet-5-5", False), ("claude-sonnet-4-5", True)],
+)
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name: str, sends_sampling: bool) -> None:
+    # Use whichever HTTP library the installed Anthropic SDK builds its clients on
+    # (``httpx`` for 0.117, ``httpx2`` for newer releases); importability alone is
+    # not enough because other packages can pull in ``httpx2`` too.
+    import anthropic._base_client as _anthropic_client
+
+    _http = vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"]
+    requests: list[dict[str, object]] = []
+
+    def respond(request: _http.Request) -> _http.Response:
+        requests.append(json.loads(request.content))
+        return _http.Response(
+            200,
+            json={
+                "id": "msg_receipt",
+                "type": "message",
+                "role": "assistant",
+                "model": model_name,
+                "content": [{"type": "text", "text": '{"value":"stable"}'}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    async def scenario() -> None:
+        async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
+            generator = PydanticAIStructuredGenerator(
+                model=AnthropicModel(model_name, provider=AnthropicProvider(api_key="test", http_client=client)),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings={"temperature": 0.0, "top_p": 0.2, "max_tokens": 512},
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key in ("temperature", "top_p"):
+                assert (key in sent) == sends_sampling
+                assert (key in effective) == (key in sent)
+                assert effective.get(key) == sent.get(key)
+            assert effective["max_tokens"] == sent["max_tokens"] == 512
 
     asyncio.run(scenario())
 
@@ -336,9 +389,12 @@ def test_structured_generator_bounds_each_retry_and_cumulative_output() -> None:
         nonlocal calls
         calls += 1
         observed_max_tokens.append(None if info.model_settings is None else info.model_settings.get("max_tokens"))
-        retry_feedback.extend(
-            part.model_response() for message in messages for part in message.parts if isinstance(part, RetryPromptPart)
-        )
+        if calls > 1:
+            retry_feedback.extend(
+                part.content
+                for part in messages[-1].parts
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+            )
         text = (
             '{"candidates":[{"text":"candidate"}]}'
             if calls == 1
@@ -955,13 +1011,27 @@ def test_embedding_adapter_maps_a_rejected_request_to_a_stable_reason_without_le
     asyncio.run(scenario())
 
 
-def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body() -> None:
+@pytest.mark.parametrize("provider_error_kind", ["typed", "typed-http", "uncategorized-http"])
+def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body(
+    provider_error_kind: str,
+) -> None:
     async def scenario() -> None:
-        provider_error = ModelHTTPError(
-            400,
-            "result-model",
-            {"error": {"message": "maximum context length is 8192 tokens, body secret-provider-body"}},
-        )
+        provider_error = {
+            # A typed error names the limit directly; the HTTP variants carry it in the response body, which is
+            # the only signal an OpenAI-compatible endpoint that does not set a context-limit code provides.
+            "typed": lambda: ModelContextWindowExceededError("result-model", "secret-provider-body"),
+            "typed-http": lambda: ModelHTTPError.for_category(
+                ModelContextWindowExceededError,
+                status_code=400,
+                model_name="result-model",
+                body={"error": {"message": "secret-provider-body"}},
+            ),
+            "uncategorized-http": lambda: ModelHTTPError(
+                400,
+                "result-model",
+                {"error": {"message": "Input is too long for this model: secret-provider-body"}},
+            ),
+        }[provider_error_kind]()
         adapter = PydanticAIEmbeddingModel(
             embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
             profile=TEST_PROFILE,

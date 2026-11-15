@@ -79,7 +79,7 @@ _PROVIDERS = (
         "Anthropic",
         "anthropic",
         "https://api.anthropic.com",
-        "claude-sonnet-4-5",
+        "claude-sonnet-5-5",
     ),
     _Provider(
         "openrouter",

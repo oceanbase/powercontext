@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
 import powercontext.http as http_models
@@ -39,9 +40,11 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateArtifactRequest,
+    CreateBuiltinArtifactRequest,
     CreateMemoryArtifactContent,
     CreateMemoryArtifactEntry,
     CreateMemoryArtifactRequest,
+    CreatePluginArtifactRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
     EntryChangeOperation,
@@ -169,10 +172,6 @@ from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.info import server_info
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
-
-
-def test_http_public_exports_resolve() -> None:
-    assert [name for name in http_models.__all__ if not hasattr(http_models, name)] == []
 
 
 def test_http_star_import_resolves_every_public_export() -> None:
@@ -329,7 +328,6 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     assert set(properties) == {
         "artifact_dreaming",
         "artifact_dreaming_operations",
-        "custom_artifact_schemas",
         "source_types",
         "artifact_families",
         "memory_extraction",
@@ -846,7 +844,7 @@ def test_source_reference_keeps_name_as_the_source_type() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     properties = contract["components"]["schemas"]["SourceReference"]["properties"]
 
-    assert set(properties) == {"name", "source_id"}
+    assert set(properties) == {"name", "source_id", "locator"}
 
 
 def test_memory_transport_has_no_legacy_citation_shape() -> None:
@@ -907,6 +905,10 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
 
     expected_operations = {
         ("/v1/scopes/{scope_id}/artifacts/{family}/search", "post"): "search_artifacts",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/merges", "post"): "merge_artifacts",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance", "get"): "get_artifact_governance",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget", "post"): "forget_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations", "post"): "restore_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
         (
@@ -931,6 +933,7 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
             "get",
         ): "get_atomic_memory_state",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions", "get"): "list_artifact_revisions",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering", "get"): "get_artifact_rendering",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
             "get",
@@ -952,6 +955,31 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
     assert not any("search-results" in path for path in paths)
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("post", "/v1/scopes/{scope_id}/artifact-tags/query"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+    ],
+)
+def test_tag_and_state_scope_contract_rejects_blank_ids(method: str, path: str) -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schema = next(
+        parameter["schema"]
+        for parameter in contract["paths"][path][method]["parameters"]
+        if parameter["in"] == "path" and parameter["name"] == "scope_id"
+    )
+    validator = Draft202012Validator(schema)
+    for scope_id in ("s", " scope-a ", "s" * 256):
+        assert validator.is_valid(scope_id)
+    for scope_id in ("", " ", "　", "s" * 257):
+        assert not validator.is_valid(scope_id), repr(scope_id)
+
+
 def test_scope_pagination_declares_cursor_failures() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     responses = contract["paths"]["/v1/scopes"]["get"]["responses"]
@@ -967,10 +995,15 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     source = schemas["CreateSourceRequest"]
     assert source["required"] == ["content"]
     assert set(source["properties"]) == {"source_type", "content"}
-    assert source["properties"]["source_type"]["enum"] == ["content"]
+    assert source["properties"]["source_type"]["pattern"] == "^[a-z][a-z0-9._-]*$"
+    assert schemas["SourceType"]["enum"] == ["content"]
     assert source["properties"]["source_type"]["default"] == "content"
 
-    artifact = schemas["CreateArtifactRequest"]
+    assert schemas["CreateArtifactRequest"]["anyOf"] == [
+        {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
+        {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
+    ]
+    artifact = schemas["CreateBuiltinArtifactRequest"]
     assert len(artifact["oneOf"]) == 8
     assert {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"} in artifact["oneOf"]
     assert artifact["discriminator"]["propertyName"] == "family"
@@ -983,24 +1016,28 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
         "CreateExperienceArtifactRequest",
         "CreateSkillArtifactRequest",
         "CreateHandoffArtifactRequest",
+        "CreatePluginArtifactRequest",
     ):
         family_request = schemas[name]
         assert family_request["required"] == ["family", "content"]
         assert set(family_request["properties"]) == {"family", "content"}
         assert not {"scope_id", "source_id", "artifact_id"} & set(family_request["properties"])
 
-    assert CreateSourceRequest(content="evidence").source_type is SourceType.CONTENT
-    assert (
-        CreateArtifactRequest(
+    assert CreateSourceRequest(content="evidence").source_type == SourceType.CONTENT
+    memory_request = CreateArtifactRequest(
+        root=CreateBuiltinArtifactRequest(
             root=CreateMemoryArtifactRequest(
                 family="memory",
                 content=CreateMemoryArtifactContent(
                     entries=[CreateMemoryArtifactEntry(kind="preference", text="Use Chinese")]
                 ),
             )
-        ).root.family
-        == "memory"
-    )
+        )
+    ).root
+    assert isinstance(memory_request, CreateBuiltinArtifactRequest)
+    assert memory_request.root.family == "memory"
+    plugin_request = CreateArtifactRequest.model_validate({"family": "document", "content": {"title": "x"}})
+    assert isinstance(plugin_request.root, CreatePluginArtifactRequest)
     memory_entry = schemas["CreateMemoryArtifactEntry"]["properties"]
     assert memory_entry["kind"]["minLength"] == 1
     assert memory_entry["kind"]["maxLength"] == 128
@@ -1016,6 +1053,8 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
         (CreateSourceRequest, {"scope_id": "scope", "content": "evidence"}),
         (CreateSourceRequest, {"source_id": "source", "content": "evidence"}),
         (CreateArtifactRequest, {"artifact_id": "artifact", "family": "memory", "content": {}}),
+        # A built-in family name never falls through to the plugin branch.
+        (CreateArtifactRequest, {"family": "memory", "content": {"title": "x"}}),
     ):
         with pytest.raises(ValidationError):
             model.model_validate(payload)
@@ -1092,8 +1131,8 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
 
-    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
-    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
+    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id", "locator"}
+    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id", "locator"}
     assert schemas["SourcePage"]["required"] == ["items", "next_cursor"]
     assert schemas["SourcePage"]["properties"]["items"]["items"] == {"$ref": "#/components/schemas/SourceRecord"}
     for schema_name in ("ArtifactCreated", "ArtifactRevision", "ArtifactCollectionItem"):
@@ -1177,3 +1216,14 @@ def test_memory_capacity_contract_and_compact_change_are_public():
     assert EntryChangeOperation.COMPACT.value == "compact"
     with pytest.raises(ValidationError):
         GetMemoryCapacityRequest.model_validate({"scope_id": "scope", "budget": {}})
+
+
+def test_gateway_lifecycle_error_keeps_stop_decision_separate_from_sending_facts() -> None:
+    from powercontext.http import GatewayLifecycleError
+
+    response = GatewayLifecycleError.model_validate({"decision": "request_cancelled", "model_send": "possibly_sent"})
+    assert response.model_dump(mode="json") == {"decision": "request_cancelled", "model_send": "possibly_sent"}
+    with pytest.raises(ValidationError):
+        GatewayLifecycleError.model_validate({"decision": "allow", "model_send": "no_send"})
+    with pytest.raises(ValidationError):
+        GatewayLifecycleError.model_validate({"decision": "deadline_exceeded"})

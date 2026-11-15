@@ -1,0 +1,134 @@
+name: Desktop release publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Publish and verify a prerelease, or promote an already verified prerelease
+        type: choice
+        options: [prerelease, promote]
+        default: prerelease
+      release_tag:
+        description: Existing protected Desktop tag
+        type: string
+        required: true
+      source_sha:
+        description: Exact tagged source commit (40 lowercase hex characters)
+        type: string
+        required: true
+      candidate_run_id:
+        description: Successful 09-A candidate run at the tagged commit
+        type: string
+        required: true
+      candidate_artifact_id:
+        description: Immutable Actions artifact ID for the original 09-A candidate manifest
+        type: string
+        required: true
+      staging_run_id:
+        description: Successful upstream signing handoff run on master
+        type: string
+        required: true
+      staging_artifact_id:
+        description: Immutable Actions artifact ID for the signing handoff
+        type: string
+        required: true
+      release_manifest_sha256:
+        description: Approved SHA-256 of desktop-release.json
+        type: string
+        required: true
+      provisioning_evidence_sha256:
+        description: For promote only, approved SHA-256 of desktop-provisioning-evidence.json
+        type: string
+        required: false
+
+permissions: {}
+
+# Serialize all publication, including runs supplied with a different spelling or tag.
+concurrency:
+  group: desktop-release-publication
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'oceanbase/powercontext' &&
+      github.ref == 'refs/heads/master' && github.ref_protected &&
+      github.event.repository.default_branch == 'master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.gate.outputs.run_id }}
+      artifact_id: ${{ steps.gate.outputs.artifact_id }}
+      candidate_run_id: ${{ steps.gate.outputs.candidate_run_id }}
+      candidate_artifact_id: ${{ steps.gate.outputs.candidate_artifact_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check tag, staging provenance, and release environment
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_desktop_release.py gate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.gate.outputs.run_id }}
+          artifact-ids: ${{ steps.gate.outputs.artifact_id }}
+          path: ${{ runner.temp }}/desktop-staging
+          skip-decompress: true
+          digest-mismatch: error
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.gate.outputs.candidate_run_id }}
+          artifact-ids: ${{ steps.gate.outputs.candidate_artifact_id }}
+          path: ${{ runner.temp }}/desktop-candidate
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Validate exact bytes and display approval inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_desktop_release.py inspect
+
+  publish:
+    if: >-
+      github.repository == 'oceanbase/powercontext' &&
+      github.ref == 'refs/heads/master' && github.ref_protected &&
+      github.event.repository.default_branch == 'master'
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: desktop-release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.prepare.outputs.run_id }}
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: ${{ runner.temp }}/desktop-staging
+          skip-decompress: true
+          digest-mismatch: error
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.prepare.outputs.candidate_run_id }}
+          artifact-ids: ${{ needs.prepare.outputs.candidate_artifact_id }}
+          path: ${{ runner.temp }}/desktop-candidate
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Publish or promote the approved assets and verify public downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_desktop_release.py publish

@@ -26,10 +26,23 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, field_v
 
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.inference import GenerationResult, StructuredGenerator, TokenEstimator
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 
 MAX_TOPIC_MEMORY_STAGE_ITEMS = 20
 _OUTPUT_RESERVE_RATIO = 0.20
 _RETRY_FEEDBACK_TOKENS = 128
+
+
+def _estimator_id(estimator: TokenEstimator) -> str | None:
+    try:
+        return estimator.profile.estimator_id
+    except Exception:
+        return None
 
 
 class TopicMemoryGenerationError(RuntimeError):
@@ -137,8 +150,19 @@ class BudgetedTopicMemoryGenerator(Generic[InputT, OutputT]):
 
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         request = f"{self._fixed_prompt}\n{value.model_dump_json(exclude_none=False)}"
-        if self._estimator.estimate(request) > self._budget.input_tokens_limit:
-            raise TopicMemoryGenerationError("input_budget_exceeded")
+        estimate = self._estimator.estimate(request)
+        if estimate > self._budget.input_tokens_limit:
+            raise attach_diagnostics(
+                TopicMemoryGenerationError("input_budget_exceeded"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+                    estimated_input_tokens=estimate,
+                    token_estimator_id=_estimator_id(self._estimator),
+                    effective_budget=self._budget.input_tokens_limit,
+                    failure_location="generation",
+                ),
+            )
         return await self._delegate.generate(value)
 
 
@@ -461,8 +485,18 @@ def validate_topic_memory_stage_capacity(
     """Require every stage's real fixed prompt plus a minimal valid input to fit."""
 
     for request in _topic_memory_minimum_stage_requests():
-        if estimator.estimate(request) > budget.input_tokens_limit:
-            raise TopicMemoryGenerationError("input_budget_exceeded")
+        estimate = estimator.estimate(request)
+        if estimate > budget.input_tokens_limit:
+            raise attach_diagnostics(
+                TopicMemoryGenerationError("input_budget_exceeded"),
+                ProcessingDiagnostics(
+                    reason=ProcessingFailureReason.CONFIGURATION,
+                    estimated_input_tokens=estimate,
+                    token_estimator_id=_estimator_id(estimator),
+                    effective_budget=budget.input_tokens_limit,
+                    failure_location="stage-capacity",
+                ),
+            )
 
 
 __all__ = [

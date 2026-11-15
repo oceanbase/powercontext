@@ -21,6 +21,7 @@ import httpx
 import pytest
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
@@ -30,7 +31,6 @@ from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.client import PowerContextClient
 from powercontext.http import QueryArtifactTagsRequest, ReplaceArtifactTagsRequest
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, ServerSettings
 
@@ -40,6 +40,46 @@ class _EmbeddingModel:
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+@pytest.mark.parametrize("scope_id", ["%20", "%E3%80%80"], ids=["ascii-space", "ideographic-space"])
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("GET", "/artifacts/experience/a/tags", None),
+        ("PUT", "/artifacts/experience/a/tags", {"tags": ["x"]}),
+        ("POST", "/artifact-tags/query", {"tags": ["x"]}),
+        ("GET", "/artifacts/atomic-memory/a/state", None),
+        ("GET", "/artifacts/memory/a/entries/e/tags", None),
+        ("PUT", "/artifacts/memory/a/entries/e/tags", {"tags": ["x"]}),
+    ],
+)
+def test_tag_and_state_routes_reject_blank_scope(tmp_path: Path, scope_id, method, path, payload) -> None:
+    async def scenario() -> None:
+        app = create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'blank-scope.db'}"),
+                mcp=McpConfig(enabled=False),
+            )
+        )
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://testserver"
+            ) as client,
+        ):
+            response = await client.request(
+                method,
+                f"/v1/scopes/{scope_id}" + path,
+                json=payload,
+                headers={"If-Match": '"test-etag"'},
+            )
+        assert response.status_code == 422, response.text
+        error = response.json()["error"]
+        assert error["code"] == "invalid_request", response.text
+        assert any(detail["loc"] == ["path", "scope_id"] for detail in error["details"]["errors"])
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(
@@ -241,6 +281,15 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         )
         assert scope_response.status_code == 201, scope_response.text
         scope = scope_response.json()["scope_id"]
+        for method in ("GET", "PUT"):
+            unsupported = await http.request(
+                method,
+                f"/v1/scopes/{scope}/artifacts/memory/legacy/entries/entry/tags",
+                json={"tags": ["x"]} if method == "PUT" else None,
+                headers={"If-Match": '"legacy-revision"'},
+            )
+            assert unsupported.status_code == 422, unsupported.text
+            assert unsupported.json()["error"]["code"] == "legacy_memory_operation_unsupported"
         source = await http.post(
             f"/v1/scopes/{scope}/sources", json={"source_type": "content", "content": "Tag acceptance evidence"}
         )
@@ -347,7 +396,7 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         matches = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["RELEASE"]})
         )
-        assert {item.target.root.family.value for item in matches.items} == set(contents)
+        assert {item.target.root.model_dump(mode="json")["family"] for item in matches.items} == set(contents)
         selected = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["release"], "families": list(contents)})
         )

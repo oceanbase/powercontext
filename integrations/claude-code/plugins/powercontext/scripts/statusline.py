@@ -22,6 +22,7 @@ import json
 import os
 import sys
 from decimal import ROUND_HALF_UP, Decimal
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
@@ -39,7 +40,7 @@ from scope_binding_errors import (  # noqa: E402
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
+from workspace_scope import bind_response_deadline, complete_body, open_bounded, resolve_scope_id  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _USER_AGENT = "powercontext-claude-code-statusline/0.1.0"
@@ -187,7 +188,7 @@ def _read_response(response: _ReadableResponse, *, deadline: float) -> bytes:
         _set_response_timeout(response, _remaining_time(deadline))
         chunk = response.read(1)
         if not chunk:
-            return bytes(content)
+            return complete_body(response, bytes(content))
         content.extend(chunk)
         if len(content) > _MAX_RESPONSE_BYTES:
             raise ValueError("PowerContext statistics response is too large")  # noqa: TRY003
@@ -248,7 +249,7 @@ def failure_outcome(error: BaseException) -> str:
     if isinstance(error, ScopeBindingStatusError):
         return (
             "version_mismatch"
-            if error.status == 404 and error.path == "/v1/scope-bindings/resolve"
+            if error.status == 404 and error.path == "/v1/scope-bindings/resolve" and error.code is None
             else "invalid_response"
         )
     if isinstance(error, HTTPError):
@@ -257,7 +258,8 @@ def failure_outcome(error: BaseException) -> str:
         if error.code == 503:
             return "server_unavailable"
         return "invalid_response"
-    if isinstance(error, (OSError, TimeoutError)):
+    # http.client reports a truncated or malformed response as HTTPException, not OSError.
+    if isinstance(error, (OSError, TimeoutError, HTTPException)):
         return "server_unavailable"
     return "invalid_response"
 

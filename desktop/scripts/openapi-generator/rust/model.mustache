@@ -89,8 +89,9 @@ impl std::fmt::Display for {{{classname}}} {
 {{!-- for schemas that have a discriminator --}}
 {{#discriminator}}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "{{{propertyBaseName}}}")]
-pub enum {{{classname}}} {
+{{/discriminator}}{{#vendorExtensions.x-rust-untagged-discriminator}}#[serde(untagged)]
+{{/vendorExtensions.x-rust-untagged-discriminator}}{{^vendorExtensions.x-rust-untagged-discriminator}}{{#discriminator}}#[serde(tag = "{{{propertyBaseName}}}")]
+{{/discriminator}}{{/vendorExtensions.x-rust-untagged-discriminator}}{{#discriminator}}pub enum {{{classname}}} {
     {{^oneOf}}
     {{#mappedModels}}
     #[serde(rename="{{mappingName}}")]

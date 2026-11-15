@@ -38,6 +38,8 @@ pub enum AccessAction {
     ScopeDelegate,
     #[serde(rename = "scope.admin")]
     ScopeAdmin,
+    #[serde(rename = "gateway.invoke")]
+    GatewayInvoke,
     #[serde(rename = "artifact.read")]
     ArtifactRead,
     #[serde(rename = "artifact.write")]
@@ -62,6 +64,7 @@ impl std::fmt::Display for AccessAction {
             Self::ScopeReview => write!(f, "scope.review"),
             Self::ScopeDelegate => write!(f, "scope.delegate"),
             Self::ScopeAdmin => write!(f, "scope.admin"),
+            Self::GatewayInvoke => write!(f, "gateway.invoke"),
             Self::ArtifactRead => write!(f, "artifact.read"),
             Self::ArtifactWrite => write!(f, "artifact.write"),
             Self::ArtifactShare => write!(f, "artifact.share"),
@@ -251,6 +254,8 @@ pub enum AccessRole {
     ScopeDelegator,
     #[serde(rename = "scope.admin")]
     ScopeAdmin,
+    #[serde(rename = "gateway.user")]
+    GatewayUser,
     #[serde(rename = "server.observer")]
     ServerObserver,
     #[serde(rename = "server.admin")]
@@ -270,6 +275,7 @@ impl std::fmt::Display for AccessRole {
             Self::ScopeReviewer => write!(f, "scope.reviewer"),
             Self::ScopeDelegator => write!(f, "scope.delegator"),
             Self::ScopeAdmin => write!(f, "scope.admin"),
+            Self::GatewayUser => write!(f, "gateway.user"),
             Self::ServerObserver => write!(f, "server.observer"),
             Self::ServerAdmin => write!(f, "server.admin"),
         }
@@ -438,16 +444,6 @@ pub struct ArtifactRevision {
     pub family: String,
     #[serde(rename = "artifact_id")]
     pub artifact_id: String,
-    /// Persisted schema version for a custom Artifact family.
-    #[ts(optional)]
-    #[ts(type = "string | null")]
-    #[serde(
-        rename = "schema_version",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub schema_version: Option<Option<String>>,
     #[serde(rename = "revision")]
     pub revision: i64,
     #[ts(type = "Record<string, unknown>")]
@@ -517,7 +513,6 @@ impl ArtifactRevision {
             scope_id,
             family,
             artifact_id,
-            schema_version: None,
             revision,
             content,
             sources,
@@ -867,12 +862,6 @@ impl CandidateInventoryStatistics {
 #[serde(deny_unknown_fields)]
 pub struct Capabilities {
     #[ts(optional)]
-    #[serde(
-        rename = "custom_artifact_schemas",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub custom_artifact_schemas: Option<Vec<CustomArtifactFamilySchema>>,
-    #[ts(optional)]
     #[serde(rename = "prompts", skip_serializing_if = "Option::is_none")]
     pub prompts: Option<std::collections::HashMap<String, PromptCapability>>,
     /// Whether asynchronous Artifact Dream execution is configured.
@@ -940,7 +929,6 @@ impl Capabilities {
         context_versions: Vec<PreparedContextSchema>,
     ) -> Capabilities {
         Capabilities {
-            custom_artifact_schemas: None,
             prompts: None,
             artifact_dreaming: None,
             artifact_dreaming_operations: None,
@@ -955,6 +943,57 @@ impl Capabilities {
             search_modes,
             context_versions,
             context_protection: None,
+        }
+    }
+}
+
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ConnectionAuthentication {
+    #[serde(rename = "disabled")]
+    #[default]
+    Disabled,
+    #[serde(rename = "authenticated")]
+    Authenticated,
+}
+
+impl std::fmt::Display for ConnectionAuthentication {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Disabled => write!(f, "disabled"),
+            Self::Authenticated => write!(f, "authenticated"),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionIdentity {
+    #[serde(rename = "server_id")]
+    pub server_id: String,
+    #[serde(rename = "authentication")]
+    pub authentication: ConnectionAuthentication,
+    #[serde(rename = "access_mode")]
+    pub access_mode: AccessControlMode,
+    #[ts(type = "AccessPrincipal | null")]
+    #[serde(rename = "principal", deserialize_with = "Option::deserialize")]
+    pub principal: Option<AccessPrincipal>,
+}
+
+impl ConnectionIdentity {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        server_id: String,
+        authentication: ConnectionAuthentication,
+        access_mode: AccessControlMode,
+        principal: Option<AccessPrincipal>,
+    ) -> ConnectionIdentity {
+        ConnectionIdentity {
+            server_id,
+            authentication,
+            access_mode,
+            principal,
         }
     }
 }
@@ -1049,44 +1088,6 @@ impl ContractVersion {
     #[allow(clippy::too_many_arguments)]
     pub fn new(major: i64, minor: i64) -> ContractVersion {
         ContractVersion { major, minor }
-    }
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(deny_unknown_fields)]
-pub struct CustomArtifactFamilySchema {
-    #[serde(rename = "family")]
-    pub family: String,
-    #[serde(rename = "schema_version")]
-    pub schema_version: String,
-    #[ts(type = "Record<string, unknown>")]
-    #[serde(rename = "content_schema")]
-    pub content_schema: std::collections::HashMap<String, serde_json::Value>,
-    /// Legacy persisted text fields; new plugins use search.
-    #[serde(rename = "search_fields")]
-    pub search_fields: Vec<String>,
-    /// Persistent declarative indexes and supported search modes.
-    #[ts(type = "Record<string, unknown>")]
-    #[ts(optional)]
-    #[serde(rename = "search", skip_serializing_if = "Option::is_none")]
-    pub search: Option<std::collections::HashMap<String, serde_json::Value>>,
-}
-
-impl CustomArtifactFamilySchema {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        family: String,
-        schema_version: String,
-        content_schema: std::collections::HashMap<String, serde_json::Value>,
-        search_fields: Vec<String>,
-    ) -> CustomArtifactFamilySchema {
-        CustomArtifactFamilySchema {
-            family,
-            schema_version,
-            content_schema,
-            search_fields,
-            search: None,
-        }
     }
 }
 
@@ -2472,7 +2473,7 @@ impl std::fmt::Display for ScopeQueryField {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "mode")]
+#[serde(untagged)]
 pub enum ScopeSelection {
     #[serde(rename = "AllScopeSelection")]
     AllScopeSelection(AllScopeSelection),
@@ -2700,6 +2701,94 @@ impl SourceInventoryStatistics {
     }
 }
 
+/// SourceLineRangeLocator : Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SourceLineRangeLocator {
+    #[serde(rename = "kind")]
+    pub kind: SourceLineRangeLocatorKind,
+    #[serde(rename = "start_line")]
+    pub start_line: i64,
+    #[serde(rename = "end_line")]
+    pub end_line: i64,
+    /// Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "heading_path",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub heading_path: Option<Option<String>>,
+}
+
+impl SourceLineRangeLocator {
+    /// Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        kind: SourceLineRangeLocatorKind,
+        start_line: i64,
+        end_line: i64,
+    ) -> SourceLineRangeLocator {
+        SourceLineRangeLocator {
+            kind,
+            start_line,
+            end_line,
+            heading_path: None,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum SourceLineRangeLocatorKind {
+    #[serde(rename = "line_range")]
+    #[default]
+    LineRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum SourceLocator {
+    #[serde(rename = "sequence")]
+    Sequence(SourceSequenceLocator),
+    #[serde(rename = "line_range")]
+    LineRange(SourceLineRangeLocator),
+}
+
+impl Default for SourceLocator {
+    fn default() -> Self {
+        Self::Sequence(Default::default())
+    }
+}
+
+/// SourceSequenceLocator : Position of this exact Source in its scope journal; zero is distinct from absence.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SourceSequenceLocator {
+    #[serde(rename = "kind")]
+    pub kind: SourceSequenceLocatorKind,
+    #[serde(rename = "sequence")]
+    pub sequence: i64,
+}
+
+impl SourceSequenceLocator {
+    /// Position of this exact Source in its scope journal; zero is distinct from absence.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(kind: SourceSequenceLocatorKind, sequence: i64) -> SourceSequenceLocator {
+        SourceSequenceLocator { kind, sequence }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum SourceSequenceLocatorKind {
+    #[serde(rename = "sequence")]
+    #[default]
+    Sequence,
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTypeReference {
@@ -2709,6 +2798,9 @@ pub struct SourceTypeReference {
     /// Source identity as accepted at ingestion, including Unicode and interior spaces.
     #[serde(rename = "source_id")]
     pub source_id: String,
+    #[ts(optional)]
+    #[serde(rename = "locator", skip_serializing_if = "Option::is_none")]
+    pub locator: Option<SourceLocator>,
 }
 
 impl SourceTypeReference {
@@ -2717,6 +2809,7 @@ impl SourceTypeReference {
         SourceTypeReference {
             source_type,
             source_id,
+            locator: None,
         }
     }
 }
@@ -2892,10 +2985,11 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <CandidateInventoryStatistics as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <Configuration as ts_rs::TS>::decl(config),
+        <ConnectionAuthentication as ts_rs::TS>::decl(config),
+        <ConnectionIdentity as ts_rs::TS>::decl(config),
         <ContextProtectionCapabilities as ts_rs::TS>::decl(config),
         <ContextProtectionCapabilitiesLimits as ts_rs::TS>::decl(config),
         <ContractVersion as ts_rs::TS>::decl(config),
-        <CustomArtifactFamilySchema as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),
         <Effect as ts_rs::TS>::decl(config),
         <ExactScopeSelection as ts_rs::TS>::decl(config),
@@ -2952,6 +3046,11 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ServerInfo as ts_rs::TS>::decl(config),
         <ShareUnit as ts_rs::TS>::decl(config),
         <SourceInventoryStatistics as ts_rs::TS>::decl(config),
+        <SourceLineRangeLocator as ts_rs::TS>::decl(config),
+        <SourceLineRangeLocatorKind as ts_rs::TS>::decl(config),
+        <SourceLocator as ts_rs::TS>::decl(config),
+        <SourceSequenceLocator as ts_rs::TS>::decl(config),
+        <SourceSequenceLocatorKind as ts_rs::TS>::decl(config),
         <SourceTypeReference as ts_rs::TS>::decl(config),
         <Stage as ts_rs::TS>::decl(config),
         <State as ts_rs::TS>::decl(config),

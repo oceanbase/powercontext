@@ -48,6 +48,11 @@ from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import TOPIC_MEMORY_WORK_BUDGETS_TABLE
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingWorkerOutcome
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryAtomicPublisher,
@@ -220,8 +225,15 @@ async def _scenario(*, repeated=False, input_limit=100_000, characters=2_100_000
         )
         assignment = _assignment(term.fence("single-process"), through=selected)
         if failure:
-            with pytest.raises((TopicMemoryGenerationError, RuntimeError), match="reduction"):
+            with pytest.raises((TopicMemoryGenerationError, RuntimeError), match="reduction") as raised:
                 await processor.process(assignment)
+            if failure == "budget":
+                assert isinstance(raised.value, TopicMemoryGenerationError)
+                diagnostics = classify_processing_error(raised.value)
+                assert diagnostics is not None
+                assert diagnostics.token_estimator_id == estimator.profile.estimator_id
+                assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+                assert diagnostics.estimated_input_tokens is None
             async with profile.database.transaction() as connection:
                 assert (
                     await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
@@ -284,3 +296,53 @@ async def _scenario(*, repeated=False, input_limit=100_000, characters=2_100_000
             assert cursor is not None and cursor.cursor.sequence == tail.journal_position
     finally:
         await manager.__aexit__(None, None, None)
+
+
+def test_reduction_input_budget_diagnostics_include_the_fixed_prompt() -> None:
+    async def scenario():
+        manager, profile, _, topics = await _repositories()
+        sources = SourceRepository((*SOURCE_ADAPTERS, CONTENT_SOURCE_ADAPTER))
+        try:
+            estimator = character_token_estimator()
+            fixed = "R" * 10_000
+            stages = TopicMemoryStageSet(
+                probe=_QueueGenerator(),
+                global_evolver=_QueueGenerator(),
+                planner=_QueueGenerator(),
+                evolver=_QueueGenerator(),
+                temporary=_QueueGenerator(),
+                reconciler=_QueueGenerator(),
+                reducer=_QueueGenerator(),
+                estimator=estimator,
+                input_tokens_limit=250,
+                fixed_prompts={"reduce": fixed},
+            )
+            processor = TopicMemoryProcessor(
+                database=profile.database,
+                sources=sources,
+                topics=topics,
+                stages=stages,
+                publisher=TopicMemoryAtomicPublisher(profile.database, sources, topics),
+            )
+            values = (TopicMemoryProbe(query="observation", evidence_ids=("evidence-0001",)),)
+
+            with pytest.raises(TopicMemoryGenerationError, match="reduction_input_budget_exceeded") as raised:
+                await processor._compact_intermediates(values)
+
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+            assert diagnostics.reason is ProcessingFailureReason.CONTEXT_OVERFLOW
+            assert diagnostics.input_item_count == 1
+            assert diagnostics.token_estimator_id == estimator.profile.estimator_id
+            assert diagnostics.effective_budget == 250
+            assert diagnostics.failure_location == "reduce"
+            expected = estimator.estimate(
+                f"{fixed}\n{processor._reduction_input(values, temporary=False).model_dump_json(exclude_none=False)}"
+            )
+            assert diagnostics.estimated_input_tokens == expected
+            assert expected > diagnostics.effective_budget
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())

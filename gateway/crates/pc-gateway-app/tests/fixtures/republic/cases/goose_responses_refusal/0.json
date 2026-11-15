@@ -1,0 +1,21 @@
+{
+  "id": "resp_1",
+  "object": "response",
+  "created_at": 0,
+  "status": "completed",
+  "model": "gpt-5.5",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_1",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "refusal",
+          "refusal": "I cannot help with that request."
+        }
+      ]
+    }
+  ]
+}

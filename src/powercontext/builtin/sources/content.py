@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
-from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidence
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidenceV1
 from powercontext.sources.models import Source, SourceMaterialization
 
 CONTENT_SOURCE_NAME = "content"
@@ -161,10 +161,10 @@ class ContentTextEvidenceProjection:
     name = TEXT_EVIDENCE_PROJECTION_KEY.name
     version = TEXT_EVIDENCE_PROJECTION_KEY.version
     source_class = ContentSource
-    output_class: type[BaseModel] = TextEvidence
+    output_class: type[BaseModel] = TextEvidenceV1
 
-    def project(self, source: ContentSource, /) -> TextEvidence:
-        return TextEvidence(
+    def project(self, source: ContentSource, /) -> TextEvidenceV1:
+        return TextEvidenceV1(
             source_type=CONTENT_SOURCE_NAME,
             source_id=source.name,
             content=source.content,

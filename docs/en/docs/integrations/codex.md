@@ -21,8 +21,21 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data
-directory. It is safe to run again. Pass the same `--ref` used to install the PowerContext tool.
+The command adds the repository as a Codex marketplace, installs the PowerContext plugin, builds the plugin's Python
+environment, and creates the user data directory. It is safe to run again. Pass the same `--ref` used to install the
+PowerContext tool.
+
+The plugin's hooks and its MCP credential helper run through `uv` from `PATH`, so setup needs `uv` and, on a first
+install, access to the package index. Building the environment at setup keeps the first session from building it
+while Codex starts the hooks and MCP together. If the plugin is installed or updated by other means, `powercontext
+doctor codex` reports `plugin_runtime` as degraded until you rerun setup.
+
+PowerContext's MCP server is optional to Codex, so an unavailable Server never blocks a session. Codex waits for
+optional servers for one second by default (`mcp_optional_startup_grace_ms`) before it lists a session's first tools;
+on a slow or busy machine that first turn can run without PowerContext's MCP tools. For non-interactive runs such as
+`codex exec`, where the first turn may be the only one, set `mcp_optional_startup_grace_ms = 0` at the top level of
+Codex's `config.toml`, not under a server table, to wait up to the server's `startup_timeout_sec` (10 seconds by
+default) instead.
 
 When refreshing setup, client endpoint declarations in the setup `.env` file or process environment supersede saved
 client settings and the previously installed MCP URL. Without a new declaration, setup reuses saved endpoints.
@@ -77,6 +90,30 @@ The plugin has two paths to the same Server:
   user's prompt as Source evidence;
 - MCP gives Codex explicit tools to read and maintain Memory, plus an explicit Handoff workflow.
 
+### Approve MCP tools that change data
+
+Codex asks for approval before it runs an MCP tool that the server does not mark read-only. PowerContext marks its
+reading tools, such as `search_memory`, read-only; tools that change data, such as `remember_memory` and
+`handoff_current_work`, need approval. The plugin's `PreToolUse` hook answers `allow` only to bind each call to the
+session's Scope. In Codex that rewrites the call without approving it, so the approval is still asked for.
+
+In an interactive session, approve the call when Codex asks. A non-interactive run has no one to answer: under
+`codex exec` with `approval_policy = "never"`, the call fails with "MCP tool call requires approval, but approval
+policy is never" and nothing reaches the Server. For unattended runs, approve the tools the task needs in Codex's
+`config.toml`, one tool at a time:
+
+```toml
+[plugins."powercontext@powercontext".mcp_servers.powercontext.tools.remember_memory]
+approval_mode = "approve"
+```
+
+Use the plugin ID that `codex plugin list` reports, `powercontext@<marketplace>`. An approved tool runs whenever the
+model calls it, without asking, in every session that uses this Codex configuration, interactive ones included. The
+call still uses the saved credential, and while the plugin's hooks are trusted it stays in the session's bound Scope;
+approval does not let the model choose another Scope. Setting `default_tools_approval_mode = "approve"` in the
+server's table, `[plugins."powercontext@powercontext".mcp_servers.powercontext]`, instead approves every PowerContext
+MCP tool, including tools added by later plugin versions. Setup never grants either approval.
+
 ## Hand off the current work in one turn
 
 In a Codex session with the plugin installed and the PowerContext Server available, enter:
@@ -121,7 +158,7 @@ binding apply. The MCP `set_scope_binding` tool changes only the current Session
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is
-bounded before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent as submitted,
+credential-scrubbed and trimmed before bounding: text of at most 8,192 characters and 8,192 UTF-8 bytes is retained,
 while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192
 bytes. A long prompt therefore narrows the query instead of failing the recall; prompt capture is unaffected and keeps
 its own limit. The Runtime labels
@@ -209,7 +246,39 @@ Set `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` to a JSON assembly object before start
 readable text with configurable Memory/Experience sections, limits, and metadata. See
 [Prepare standard context text](../workflows/prepare-context-text.md) for a complete example and output rules.
 
-## Control prompt capture
+## Data flow and capture controls
+
+Automatic prompt operations require the hook to be enabled and trusted as described in
+[First-session Hook trust](#first-session-hook-trust). MCP connectivity alone does not enable them.
+
+| Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
+| --- | --- | --- | --- | --- | --- |
+| `UserPromptSubmit`: prepare | Credential-scrubbed, bounded query and bound Scope; returned prepared context is supplied to Codex | PowerContext Server; returned context goes to Codex | Enabled hook and a nonblank prompt | Disable this hook in the host | Stops both automatic prompt recall and capture; explicit MCP tools remain separate |
+| `UserPromptSubmit`: capture | Eligible original prompt plus working directory and available session/turn metadata, as a Source | PowerContext Server | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=true`; skip recognized credentials and prompts over 200,000 characters | Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` | Automatic recall and explicit MCP reads/writes remain available |
+| Flush after capture | Bound Scope and processing requests for the accepted Source position, not another transcript upload | PowerContext Server | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false`; opt in for tests | Set `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false` | Stops hook waiting; does not undo capture or disable Server scheduling |
+| `SessionStart`: bootstrap | Scope-bound bootstrap request and optional exact Handoff identity; returned historical context | PowerContext Server; returned context goes to Codex | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false`; see [bootstrap controls](#opt-in-to-session-bootstrap-context) | Set `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false` | Stops bootstrap injection, not prompt recall/capture or explicit tools |
+| Explicit MCP operations | Arguments of the selected read, write, or Handoff operation | PowerContext Server | Explicit tool invocation, subject to Scope binding and authorization | Do not invoke the operation | Automatic capture settings do not disable explicit writes |
+| Evaluation injection trace | Scrubbed prompt, exact injected context, Scope and available session/turn identifiers | Local trace file | On nonempty injection when `POWERCONTEXT_EVAL_TRACE_PATH` is set, or an `eval:` Scope has absolute `POWERCONTEXT_HOME` | Unset the trace path and avoid the evaluation-home fallback | Stops new evaluation traces; recall and capture remain independent |
+
+Trace files contain sensitive content despite credential scrubbing. Capture controls do not disable this separate trace path.
+Recognized credentials are replaced in the read-only query; when scrubbing changes the prompt, capture skips the entire
+event rather than persisting a rewritten Source. Query bounding follows scrubbing. Recognition covers specific patterns
+and the configured credential, not all sensitive information or complete DLP; see [automatic prompt privacy](index.md#automatic-prompt-privacy).
+
+There are three separate data directions: Codex sends queries, Sources or explicit operation arguments to the Server;
+the Server may send queries, candidates or evidence to configured embedding, rerank or generation backends; and Codex
+may include returned historical context in requests to its own model. Loopback describes only the first connection.
+Plugin code running locally does not itself imply that a third-party network service receives data.
+See [configuration](../operate/configuration.md), [inference protection](../operate/inference-protection.md) and
+[context protection](../operate/context-protection.md) for deployment and supported payload boundaries. Inference
+protection defaults to `disabled`; `shadow`/`advisory` do not stop delivery. Installing this plugin does not automatically
+place every Codex model request behind an enforcing protection boundary.
+
+Source acceptance is not Memory extraction; disabling generation does not disable capture. Changing these controls does
+not delete existing Sources, Memory, revisions, local traces or provider-held records. A prepared value, checkpoint,
+host injection, model use and a correct answer are distinct outcomes; HTTP success alone does not establish all of them.
+
+### Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Codex when the current work must not be recorded:
 
@@ -316,13 +385,15 @@ incorrect, the Hook fails open and emits an `authentication_failed` diagnostic; 
 blocking the Codex session.
 
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
-report that the service is unavailable.
+report that the service is unavailable. Recall and capture both need the current Scope, so when Scope resolution
+fails the Hook does neither and reports the failure as a `scope_resolve` event.
 
 For a normal empty result or recall failure, the Hook emits a content-free JSON diagnostic. Failure outcomes are
 returned through the top-level `systemMessage` in the successful stdout hook response; `empty` remains a local
 diagnostic. Outcomes include `empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and
-`invalid_response`. The event never contains the query, scope, prepared content, citation, response body, or
-authorization value.
+`invalid_response`. An `invalid_response` can carry the Server's `error_code`, such as `scope_not_found` when the
+configured Scope does not exist or no binding resolves. The event never contains the query, scope, prepared content,
+citation, response body, or authorization value.
 
 ## Use a generated environment file
 

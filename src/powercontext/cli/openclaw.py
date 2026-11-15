@@ -326,7 +326,15 @@ class OpenClawInstaller:
                     detail="plugin list is unavailable",
                 ),
             }
+        from powercontext.cli.memory_protocol import installed_memory_protocol, read_plugin_memory_protocol
+
+        try:
+            record = json.loads(run_openclaw(executable, "plugins", "inspect", OPENCLAW_PLUGIN_NAME, "--json").stdout)
+            protocol = read_plugin_memory_protocol(Path(record["install"]["installPath"]))
+        except (SetupError, OSError, ValueError, KeyError, TypeError, AttributeError):
+            protocol = None
         return {
+            "plugin_memory_protocol": installed_memory_protocol(protocol, "openclaw"),
             "openclaw": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
             "plugin": Diagnostic(
                 status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,

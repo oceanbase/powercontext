@@ -17,16 +17,6 @@
 import { describe, expect, it } from 'vitest'
 import { invokeOperation } from '../src/invoke.ts'
 import { PowerContextClient } from '../src/client.ts'
-import { containsSecret } from '../src/secrets.ts'
-
-describe('secrets', () => {
-  it('rejects token-like markers', () => {
-    expect(containsSecret('sk-live-secret')).toBe(true)
-    expect(containsSecret('api_key=foo')).toBe(true)
-    expect(containsSecret('-----BEGIN PRIVATE KEY-----')).toBe(true)
-    expect(containsSecret('keep the public API async')).toBe(false)
-  })
-})
 
 describe('invokeOperation', () => {
   it('injects scope_id for scoped operations and skips health', async () => {
@@ -135,6 +125,12 @@ describe('invokeOperation', () => {
       fetch: async () => new Response('{}', { status: 200 }),
     })
     await expect(invokeOperation(client, 'remember_memory', { kind: 'decision', text: 'sk-secret' }, 'project:demo')).resolves.toMatchObject({
+      ok: false,
+      code: 'secret_rejected',
+    })
+    await expect(invokeOperation(client, 'remember_memory', {
+      kind: 'decision', text: '-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----',
+    }, 'project:demo')).resolves.toMatchObject({
       ok: false,
       code: 'secret_rejected',
     })

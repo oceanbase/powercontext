@@ -43,11 +43,12 @@ describe('handlePcCommand', () => {
   })
 
   it('runs model-free Server diagnostics', async () => {
-    const fetchImpl = vi.fn(async () => Response.json({ status: 'ok' }))
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => Response.json(new URL(String(url)).pathname === '/v1/server-info'
+      ? { feature_contracts: { 'memory.explicit': { version: { major: 1, minor: 0 } } } } : { status: 'ok' }))
     const result = await handlePcCommand('doctor', runtime(fetchImpl), 'project:test')
 
     expect(result.kind).toBe('success')
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toContain('/v1/server-info')
     expect(result.text).toContain('"live"')
     expect(result.text).toContain('"ready"')
   })
@@ -60,4 +61,15 @@ describe('handlePcCommand', () => {
       text: 'Usage: /pc review approve <candidate_id> <expected_version>',
     })
   })
+})
+
+
+it.each([undefined, { version: { major: 2, minor: 0 } }])('OpenCode Doctor rejects incompatible Memory declarations %j', async memory => {
+  const fetchImpl = async (url: string | URL | Request) => Response.json(new URL(String(url)).pathname === '/v1/server-info'
+    ? { feature_contracts: { 'memory.explicit': memory } } : { status: 'ok' })
+  const result = await handlePcCommand('doctor', runtime(fetchImpl), 'project:test')
+  expect(result.kind).toBe('error')
+  expect(JSON.parse(result.text)).toMatchObject({ ok: false, data: { memory: {
+    code: 'memory_protocol_mismatch', recovery: expect.stringContaining('powercontext setup opencode'),
+  } } })
 })

@@ -1,0 +1,51 @@
+name: Nightly CI report
+
+on:
+  workflow_run:
+    workflows: [Main]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    name: Nightly and manual acceptance report
+    if: ${{ contains(fromJSON('["schedule","workflow_dispatch"]'), github.event.workflow_run.event) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the report implementation from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Generate the completed attempt's report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          python3 scripts/ci_nightly_report.py \
+            --repo "$GITHUB_REPOSITORY" --run-id "$SOURCE_RUN_ID" \
+            --attempt "$SOURCE_ATTEMPT" --output "$RUNNER_TEMP/nightly-report"
+
+      - name: Publish the report in the run summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/nightly-report/report.md" ]; then
+            cat "$RUNNER_TEMP/nightly-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'CI report generation failed before a report could be written. See this job’s logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Save the Markdown report and metadata
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: nightly-ci-report-${{ github.event.workflow_run.id }}-attempt-${{ github.event.workflow_run.run_attempt }}-report-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nightly-report/
+          if-no-files-found: error
+          retention-days: 30

@@ -22,7 +22,7 @@ from sqlalchemy.schema import CreateColumn
 
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
 
-_REVISION_METADATA_COLUMNS = ("created_at", "created_by", "restored_from_revision", "rollback_reason")
+_REVISION_METADATA_COLUMNS = ("created_at", "created_by", "restored_from_revision", "rollback_reason", "metadata")
 
 
 async def ensure_artifact_revision_metadata_schema(connection: AsyncConnection, /) -> None:

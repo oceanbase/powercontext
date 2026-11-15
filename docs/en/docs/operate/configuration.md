@@ -35,8 +35,8 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_KEY_ID` | `atomic-memory-v1` | Current key ID, 1–128 characters; deployment configuration loads only this one key |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_TTL_SECONDS` | `300` | Preview lifetime, 1–3600 seconds |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RESTORE_RETRY_BUDGET` | `3` | Re-read and preparation retries after `atomic_memory_changed` during restoration without a token, 0–10; the default permits the initial attempt plus 3 retries |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration, nonnegative; does not apply to ordinary searches with a limit |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing, also applied to earlier candidates of the same window under built-in Prompts: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration and for earlier candidates of the same window, nonnegative; does not apply to ordinary searches with a limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
@@ -59,8 +59,9 @@ changes authoritative history. For a hosted decision backend, set `MEMORY_WRITE_
 and explicitly select `MEMORY_WRITE_GATE_SANITIZER=known_secrets`. The sanitizer covers known sensitive environment/Codex
 values and a bounded set of provider-key prefixes; it is not a general PII or password detector. The sanitizer selection
 defaults to `none`, and hosted-redacted composition fails with a named configuration error until one is selected.
-The existing limit of 32 tags per Artifact still applies. If merged input tags exceed it, the whole merge fails;
-Source processing also retains the window without partial publication or cursor advancement.
+The existing limit of 32 tags per Artifact still applies to a merge result. When its inputs carry more than 32 distinct
+normalized labels, the result keeps a deterministic selection of 32, and the merge and its Source window commit
+normally. See [Organize with tags](../workflows/manage-artifact-tags.md#label-rules-and-storage) for the selection order.
 
 ## User data
 
@@ -117,6 +118,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
+| `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
+| `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | JSON object overriding plugins' declared `host_processes` by plugin name, such as `{"knowledge-base": 4}`; each value is the most host processes of that plugin in each Server process |
+| `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | unset | The most host processes of all plugins in each Server process; at the limit, no process is added for load and requests queue on existing ones. Each plugin's first, always-running process is exempt |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
@@ -178,7 +182,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code, ZCode, and DSH |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code and DSH; ZCode allows 3 seconds per request within its 4-second Hook budget |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -202,9 +206,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Total Profile Scope timeout |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Accepted model-usage records a Runtime holds in memory; further records are dropped with a diagnostic |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Budget for one usage record's own statistics transaction, spent in slices so a busy writer gets several attempts |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted usage at an operation-completion or statistics-read boundary |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per usage batch; only provably unapplied attempts may retry within it |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local usage at statistics reads and explicit flush boundaries; ordinary requests do not wait |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |
@@ -278,20 +282,33 @@ transaction's native cleanup before propagating, preserving a shared in-memory S
 databases gain the missing relation through the normal additive table-creation path.
 
 Model usage accounting is best-effort and never gates a model call. Each Runtime owns one bounded recorder that accepts a
-record without any I/O and writes it in an independent short transaction, so a statistics outage, a full queue, or a lock
-that outlives the record's own budget drops that record with a diagnostic instead of failing the operation that produced it.
-Already-accepted usage is drained within a bounded wait when an operation completes or statistics are read, and again at
-shutdown. Contended business writes fail by design once they have waited this long: SQLite admits one writer at a time, so a
-concurrent writer holding the lock for longer than the configured value makes the waiting business write report
-`database is locked`. That is why multi-scope deployments raise `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS`; the same
-lock pressure no longer reaches usage accounting, and usage records are dropped rather than failing the operation that
-produced them.
+record without I/O. Its consumer takes up to 32 already-queued records into one independent transaction, without delaying
+an idle queue to fill a batch. Matching Scope/date/purpose/operation records are coalesced while preserving known token
+subtotals and incomplete-usage flags. A statistics outage, a full queue, or an expired batch budget produces a safe diagnostic
+instead of failing the business operation. Failed or indeterminate batches are counted by their original record count;
+transactions whose commit outcome is unknown are not retried.
+OceanBase gives the initial transaction the full write budget because a deadline can lose the commit acknowledgement.
+SQLite starts with a shorter attempt and may retry a proven rollback within the remaining budget.
+
+Ordinary Scope operations, including HTTP queries and Source captures, return without waiting for usage persistence.
+Statistics reads drain the already-accepted local prefix within the flush budget before opening their read snapshot;
+explicit worker flushes and shutdown retain bounded draining. A timed-out flush can return incomplete statistics, and a
+read on one Server does not flush another Server's queue. Shutdown stops producers first and allows one write budget plus
+one flush budget to drain, then drops queued records and waits up to one more write budget for native cleanup. Queue
+gauges exclude the in-flight batch; drop and write-failure counters describe original records, not coalesced groups.
+
+Business writes still share database resources with the consumer. SQLite admits one writer at a time; a competing writer
+holding its lock past the business busy timeout can make that business write report `database is locked`. Configure
+`POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` for the deployment's contention budget independently of usage flushing.
 
 Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
 characters including metadata; nested input is also bounded. Exhaustion preserves Sources, Cursor, Pending, and the
 same-Scope tail, and stops further provider calls. Flush and restart do not reset it; inspect
-`pc_topic_memory_work_budgets` and structured errors for operator remediation.
+`pc_topic_memory_work_budgets` and structured errors for operator remediation. A head conflict, where a concurrent
+replace or Dream moves a Topic head after the Worker read it, does not spend an attempt: the Worker records
+`head_conflict` as that attempt's last error, rereads the head and recomputes. Its reserved requests and token capacity
+stay charged, so a head that keeps moving stops at `window_provider_budget_exceeded` instead of retrying indefinitely.
 
 Topic generation accepts `max_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `presence_penalty`, `frequency_penalty`,
 `timeout`, `openai_reasoning_effort`, `openai_text_verbosity`, `service_tier`, `openai_service_tier`,
@@ -628,6 +645,17 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 
 The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
 defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+Atomic Memory uses native `minimum_should_match` filtering when the connected OceanBase or seekDB engine supports it.
+Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
+permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
+query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
+Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
+OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
+Queries containing Analyzer terms omitted by the SPACE parser, such as `com`, also retain whole-word coverage
+for search, complete enumeration, and recovery. The threshold still counts every distinct Analyzer term.
+This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
 
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
 without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;

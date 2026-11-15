@@ -1,0 +1,311 @@
+{
+  "name": "content",
+  "version": "1",
+  "source_schema": {
+    "$defs": {
+      "ArtifactRef": {
+        "description": "A stable reference to one exact artifact revision.",
+        "properties": {
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "family",
+          "artifact_id",
+          "revision"
+        ],
+        "title": "ArtifactRef",
+        "type": "object"
+      },
+      "ArtifactRestorationOutcome": {
+        "additionalProperties": false,
+        "description": "One successful restoration group retained with its primary revision.",
+        "properties": {
+          "operation": {
+            "enum": [
+              "restore",
+              "undo_merge"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "writes": {
+            "items": {
+              "$ref": "#/$defs/ArtifactRestorationWrite"
+            },
+            "title": "Writes",
+            "type": "array"
+          },
+          "undo_merge_results": {
+            "items": {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            "title": "Undo Merge Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "target",
+          "writes",
+          "undo_merge_results"
+        ],
+        "title": "ArtifactRestorationOutcome",
+        "type": "object"
+      },
+      "ArtifactRestorationWrite": {
+        "additionalProperties": false,
+        "description": "Exact content source and committed result of one restoration write.",
+        "properties": {
+          "before_ref": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "content_from_ref": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "after_ref": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "lifecycle_state": {
+            "enum": [
+              "active",
+              "retired"
+            ],
+            "title": "Lifecycle State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before_ref",
+          "content_from_ref",
+          "after_ref",
+          "lifecycle_state"
+        ],
+        "title": "ArtifactRestorationWrite",
+        "type": "object"
+      },
+      "ContentSourceInternal": {
+        "description": "Server-owned Source purpose data never exposed by the base REST API.",
+        "properties": {
+          "role": {
+            "const": "lineage_only",
+            "title": "Role",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "artifact_create",
+              "artifact_replace",
+              "artifact_restore",
+              "artifact_undo_merge"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/$defs/ContentSourceTarget"
+          },
+          "restoration_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArtifactRestorationOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "role",
+          "operation",
+          "target"
+        ],
+        "title": "ContentSourceInternal",
+        "type": "object"
+      },
+      "ContentSourceTarget": {
+        "description": "Exact Artifact revision to which one system Source is bound.",
+        "properties": {
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "family": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Family",
+            "type": "string"
+          },
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "revision": {
+            "default": 1,
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope_id",
+          "family",
+          "artifact_id"
+        ],
+        "title": "ContentSourceTarget",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "SourceMaterialization": {
+        "description": "Describe where the value read for a Source comes from.",
+        "enum": [
+          "captured",
+          "referenced"
+        ],
+        "title": "SourceMaterialization",
+        "type": "string"
+      }
+    },
+    "description": "Captured content that can be used as Artifact evidence.",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "definition_version": {
+        "default": "1",
+        "title": "Definition Version",
+        "type": "string"
+      },
+      "materialization": {
+        "$ref": "#/$defs/SourceMaterialization"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "content": {
+        "title": "Content",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "title": "Metadata",
+        "type": "object"
+      },
+      "working_note": {
+        "default": false,
+        "title": "Working Note",
+        "type": "boolean"
+      },
+      "wire_content": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/JsonValue"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "wire_content_present": {
+        "default": false,
+        "title": "Wire Content Present",
+        "type": "boolean"
+      },
+      "internal": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ContentSourceInternal"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "handoff_receipt": {
+        "default": false,
+        "title": "Handoff Receipt",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "name",
+      "materialization",
+      "content"
+    ],
+    "title": "ContentSource",
+    "type": "object"
+  },
+  "projections": [
+    {
+      "key": {
+        "name": "powercontext.text-evidence",
+        "version": "1"
+      },
+      "schema": {
+        "$defs": {
+          "JsonValue": {}
+        },
+        "description": "Canonical JSON shape consumed as textual Artifact evidence.",
+        "properties": {
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "content"
+        ],
+        "title": "TextEvidence",
+        "type": "object"
+      }
+    }
+  ],
+  "fingerprint": "sha256:4baf43bbfbfe384d33ecb2c8bfb79fca303a065bf9a51545af1de3fb34a87c99"
+}

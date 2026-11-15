@@ -28,7 +28,7 @@ Static output is written to `website/out/`.
 
 - Bilingual content: `docs/en/` and `docs/zh/`.
 - API references: generated from `openapi/powercontext.yaml` and `src/powercontext/`.
-- Edit source files. Do not edit generated files in `website/content/docs/`, `website/.generated/`, or `website/out/`.
+- Edit source files. Do not edit generated files in `website/.generated/` or `website/out/`.
 
 ## Deployment
 

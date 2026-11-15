@@ -24,7 +24,7 @@ from pydantic import ValidationError
 
 from .models import EvaluationManifest
 
-DEFAULT_MANIFEST = Path(__file__).resolve().parent / "cases" / "atomic-extraction-v1.json"
+DEFAULT_MANIFEST = Path(__file__).resolve().parent / "cases" / "atomic-extraction-v2.json"
 
 
 @dataclass(frozen=True)

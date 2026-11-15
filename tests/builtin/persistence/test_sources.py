@@ -39,7 +39,6 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     SHARED_TABLES,
     SOURCES_TABLE,
 )
@@ -282,29 +281,15 @@ def test_source_batch_validates_each_capture_against_reused_manifest() -> None:
             assert [item.declaration for item in evidence] == [declaration, MemoryEvidenceDeclaration(), declaration]
 
 
-def test_source_batches_notify_matching_artifact_plugins_only_for_new_inputs() -> None:
+def test_source_batches_notify_matching_plugin_bindings_only_for_new_inputs() -> None:
+    from powercontext.builtin.plugins import families
+
     async def scenario() -> None:
         intents = ArtifactProcessingIntentRepository()
         async with (
             repository_profile() as (profile, repositories),
             profile.database.transaction() as connection,
         ):
-            await connection.execute(
-                insert(ARTIFACT_PROCESSING_BINDING_STATES_TABLE),
-                [
-                    {
-                        "binding_name": name,
-                        "plugin_spec": specification,
-                        "desired_state": "disabled",
-                    }
-                    for name, specification in (
-                        ("all-scopes", {"manifest": {"scope_ids": None}}),
-                        ("matching-scope", {"manifest": {"scope_ids": ["scope-a"]}}),
-                        ("other-scope", {"manifest": {"scope_ids": ["scope-b"]}}),
-                        ("unloaded", None),
-                    )
-                ],
-            )
             first, second, third = (
                 NoteSource(name=f"note-{number}", materialization=SourceMaterialization.CAPTURED, body="Input")
                 for number in range(3)
@@ -312,24 +297,31 @@ def test_source_batches_notify_matching_artifact_plugins_only_for_new_inputs() -
             batch = (first, first, second)
             created = await repositories.sources.add_many_with_status(connection, "scope-a", batch)
             assert [is_new for _, is_new in created] == [True, False, True]
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 2
 
             replay = await repositories.sources.add_many_with_status(connection, "scope-a", batch)
             assert all(not is_new for _, is_new in replay)
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 2
 
             await repositories.sources.add(connection, "scope-a", third)
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 3
-            for name in ("other-scope", "unloaded"):
-                assert await intents.load(connection, "scope-a", name) is None
+            assert await intents.load(connection, "scope-a", "plugin:other-scope") is None
 
-    asyncio.run(scenario())
+    saved = dict(families._SOURCE_BINDINGS)
+    families.register_source_binding("plugin:all-scopes", None, frozenset({"note"}))
+    families.register_source_binding("plugin:matching-scope", frozenset({"scope-a"}), frozenset({"note"}))
+    families.register_source_binding("plugin:other-scope", frozenset({"scope-b"}), frozenset({"note"}))
+    try:
+        asyncio.run(scenario())
+    finally:
+        families._SOURCE_BINDINGS.clear()
+        families._SOURCE_BINDINGS.update(saved)
 
 
 def test_reusing_a_stable_source_identity_with_different_payload_is_a_conflict() -> None:
@@ -391,6 +383,12 @@ def test_repository_batch_reads_deduplicate_refs_and_bound_the_journal_window() 
                 assert loaded == (second, first)
                 assert window == (second,)
                 assert third.journal_position > second.journal_position
+                other_scope = await repositories.sources.add(
+                    connection, "scope-b", first_source.model_copy(update={"body": "other Scope"})
+                )
+                assert await repositories.sources.get_many(connection, "scope-b", (first.ref,)) == (other_scope,)
+                assert await repositories.sources.get_many(connection, "scope-a", (first.ref,)) == (first,)
+                assert other_scope.journal_position == 1
                 with pytest.raises(RepositoryNotFoundError):
                     await repositories.sources.get_many(
                         connection,
@@ -1072,5 +1070,39 @@ def test_nested_uppercase_source_aliases_survive_read_replay_and_restart(tmp_pat
             assert await repository.add(connection, "scope-a", source) == original
             evidence = await repository.historical_evidence(connection, "scope-a", (original.ref,))
             assert evidence[0].source_ref == original.ref
+
+    asyncio.run(scenario())
+
+
+def test_source_save_time_survives_replay_and_legacy_records_remain_unknown() -> None:
+    async def scenario() -> None:
+        from datetime import UTC, datetime
+
+        source = await CONTENT_SOURCE_ADAPTER.resolve(ContentCapture(source_id="save-time", content="Saved text"))
+        repository = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
+            before = datetime.now(UTC)
+            async with profile.database.transaction() as connection:
+                first = await repository.add(connection, "scope", source)
+            async with profile.database.transaction() as connection:
+                loaded = await repository.get(connection, "scope", first.ref)
+                assert loaded.saved_at is not None
+                assert before <= loaded.saved_at <= datetime.now(UTC)
+                assert loaded == first
+                replay = await repository.add(connection, "scope", source)
+                assert replay.saved_at == first.saved_at
+                attested = source.model_copy(update={"handoff_receipt": True})
+                upgraded = await repository.add(connection, "scope", attested)
+                assert upgraded.saved_at == first.saved_at
+                assert (await repository.get(connection, "scope", first.ref)).saved_at == first.saved_at
+                payload = await connection.scalar(select(SOURCES_TABLE.c.payload))
+                assert isinstance(payload, bytes)
+                envelope = json.loads(payload)
+                envelope.pop("saved_at")
+                await connection.execute(update(SOURCES_TABLE).values(payload=json.dumps(envelope).encode()))
+                legacy = await repository.get(connection, "scope", first.ref)
+                assert legacy.saved_at is None
+                assert (await repository.add(connection, "scope", attested)).saved_at is None
+                assert (await repository.get(connection, "scope", first.ref)).saved_at is None
 
     asyncio.run(scenario())

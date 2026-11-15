@@ -15,7 +15,7 @@
  */
 
 const MAX_RESPONSE_BYTES = 1_048_576
-export const REQUEST_TIMEOUT_MS = 1_000
+export const REQUEST_TIMEOUT_MS = 3_000
 export const HOOK_BUDGET_MS = 4_000
 
 export function serverOrigin(settings) {

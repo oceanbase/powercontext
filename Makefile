@@ -1,7 +1,7 @@
 .PHONY: install
 install: ## Install the virtual environment and install the prek hooks
 	@echo "🚀 Creating virtual environment using uv"
-	@uv sync
+	@uv sync --locked --python 3.12
 	@uv run prek install
 
 .PHONY: skills-install
@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check ## Run code quality tools.
+check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Copy shared Skills into native packages.
@@ -27,6 +27,13 @@ integration-guidance: ## Copy shared Skills into native packages.
 
 integration-guidance-check: ## Check native Skill copies without modifying files or calling models.
 	@uv run python scripts/integration_guidance_skills.py --check
+
+.PHONY: integration-lifecycle integration-lifecycle-check
+integration-lifecycle: ## Write the lifecycle helper copies that Python and TypeScript plugins ship.
+	@uv run python scripts/generate_integration_lifecycle.py
+
+integration-lifecycle-check: ## Reject a lifecycle helper copy that has drifted from its source.
+	@uv run python scripts/generate_integration_lifecycle.py --check
 
 .PHONY: workflow-actions-check
 workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
@@ -42,13 +49,17 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 	@echo "🚀 Static type checking: Running ty for the Pydantic AI integration"
 	@uv run ty check integrations/pydantic-ai/src
 
-# pytest-xdist worker count; set PYTEST_WORKERS=0 to run tests in a single process.
+# pytest-xdist worker count; set PYTEST_WORKERS=0 to disable parallel workers.
 PYTEST_WORKERS ?= auto
+
+# Fixed Hook deadlines must not compete with unrelated xdist CPU and disk work.
+SERIAL_E2E_TESTS := tests/e2e/test_zcode_service_chain.py
 
 .PHONY: test
 test: ## Test the code with pytest
 	@echo "🚀 Testing code: Running pytest"
-	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules
+	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+	@uv run python -m pytest -n 0 --doctest-modules $(SERIAL_E2E_TESTS)
 
 .PHONY: unit-test
 unit-test: ## Run tests that do not cross the Server boundary end to end.
@@ -56,7 +67,14 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e
+	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
+
+.PHONY: gateway-tck
+gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.
+	@npm ci --prefix gateway/tck --no-audit --no-fund
+	@cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+	@uv run --no-project --python 3.11 python tests/e2e/gateway_tck.py $(ARGS)
 
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
@@ -67,8 +85,8 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests \
 		evaluation/memory/capture_ownership/tests -m "not live" -q
-	@# Agent tool recovery drives the real Server package, so it runs in the root project environment.
-	@uv run --frozen pytest evaluation/agent_tool_recovery/tests -q
+	@# Agent tool recovery and prepared-context budgets use the runtime in the root project environment.
+	@uv run --frozen pytest evaluation/agent_tool_recovery/tests evaluation/memory/prepared_context_budget/tests -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
@@ -109,9 +127,15 @@ opendal-test: ## Validate the standalone OpenDAL Connector against this checkout
 	@$(OPENDAL_TEST_RUN) powercontext-connector-opendal --help >/dev/null
 
 .PHONY: harness-check
-harness-check: ## Validate the Bub replay harness and committed scenarios.
+harness-check: harness-lint harness-test ## Validate the Bub replay harness and committed scenarios.
+
+.PHONY: harness-lint
+harness-lint: ## Check harness formatting (also covered by Main's preflight).
 	@uv run ruff check e2e/bub
 	@uv run ruff format --check e2e/bub
+
+.PHONY: harness-test
+harness-test: ## Check harness types, scenarios and CLI without repeating formatting.
 	@uv run ty check --project e2e/bub --python e2e/bub/.venv --python-version 3.12 e2e/bub/src integrations/bub/src
 	@uv run --project e2e/bub python -m pytest e2e/bub/tests
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null
@@ -172,9 +196,15 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 	@pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
 		integrations/dsh/plugins/powercontext/src/operations.generated.ts \
-		integrations/dsh/plugins/powercontext/lib
+		integrations/dsh/plugins/powercontext/lib \
+		integrations/dsh/plugins/dsh-pet/lib
+	@node --test integrations/dsh/plugins/dsh-pet/tests/adapter.test.mjs integrations/dsh/plugins/dsh-pet/tests/package.test.mjs
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
+
+.PHONY: dsh-pet-runtime-test
+dsh-pet-runtime-test: ## Exercise the packed pet adapter in pinned DSH Web (or set DSH_PET_TEST_DESKTOP_APP).
+	@DSH_PET_TEST_BIN="$${DSH_PET_TEST_BIN:-$$(command -v dsh)}" node --test integrations/dsh/plugins/dsh-pet/tests/runtime.test.mjs
 
 .PHONY: dsh-runtime-test
 dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.

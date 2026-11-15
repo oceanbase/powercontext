@@ -21,7 +21,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -120,6 +120,7 @@ def installers():
     from powercontext.cli.dsh import DshInstaller
     from powercontext.cli.hermes import HermesInstaller
     from powercontext.cli.kimi_code import KimiInstaller
+    from powercontext.cli.minimax import MiniMaxInstaller
     from powercontext.cli.openclaw import OpenClawInstaller
     from powercontext.cli.opencode import OpenCodeInstaller
     from powercontext.cli.pi import PiInstaller
@@ -133,6 +134,7 @@ def installers():
         "dsh": DshInstaller,
         "hermes": HermesInstaller,
         "kimi-code": KimiInstaller,
+        "minimax": MiniMaxInstaller,
         "openclaw": OpenClawInstaller,
         "opencode": OpenCodeInstaller,
         "pi": PiInstaller,
@@ -149,6 +151,8 @@ def setup(
     server_url: str | None = None,
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
+    dsh_pet_bindings: dict[str, str] | None = None,
+    dsh_pet_interactive: bool = False,
     **options: Any,
 ) -> dict[str, Any]:
     from powercontext.cli.authorization import validate_setup_authorization
@@ -156,15 +160,25 @@ def setup(
 
     try:
         validate_setup_authorization(host)
-        connection = prepare_setup_transport(
-            host,
-            server_url=server_url,
-            allow_insecure_http=allow_insecure_http,
-            json_output=json_output,
-            dsh_target=options.get("dsh_target"),
-        )
-        installer = installers()[host](**options)
-        report = installer.install(PluginSource(source, ref))
+        installer = installers()[host](**options) if host == "minimax" else None
+        source_package = PluginSource(source, ref)
+        with source_package.package(host) if host == "minimax" else nullcontext() as package:
+            native = {"native_endpoint": installer.native_endpoint(package)} if installer is not None else {}
+            connection = prepare_setup_transport(
+                host,
+                server_url=server_url,
+                allow_insecure_http=allow_insecure_http,
+                json_output=json_output,
+                dsh_target=options.get("dsh_target"),
+                **native,
+            )
+            if installer is None:
+                installer = installers()[host](**options)
+            report = (
+                installer.install(source_package, connection=connection, package=package)
+                if host == "minimax"
+                else installer.install(source_package)
+            )
         try:
             report.update(installer.configure(connection))
         except Exception as error:
@@ -177,6 +191,14 @@ def setup(
         except Exception as error:
             error.add_note("Plugin installation and connection configuration completed; native activation failed.")
             raise
+        if host == "dsh" and (dsh_pet_bindings is not None or (dsh_pet_interactive and not json_output)):
+            from powercontext.cli.dsh_pet import enable_pet_memory
+            from powercontext.cli.dsh_runtime import DshProfile, DshTarget
+
+            target = options.get("dsh_target") or DshTarget(DshProfile.WEB)
+            report["dsh_pet_memory"] = enable_pet_memory(
+                target, Path(report["plugin_path"]), connection, dsh_pet_bindings
+            )
         return report  # noqa: TRY300
     except (OSError, ValueError) as error:
         failure = SetupError(f"Could not set up {host}: {error}")

@@ -45,6 +45,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Python
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+
+      - name: Validate the ZCode Skill pin and behavior evaluation harness
+        run: |
+          uv run --locked --no-sync python -m evaluation.zcode_guidance.pin --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --locked --no-sync python -m evaluation.zcode_guidance.run --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --locked --no-sync python -m pytest evaluation/zcode_guidance/tests tests/test_zcode_acceptance_protocol.py tests/test_zcode_acceptance_host.py tests/test_zcode_acceptance_collection.py -q
+
       - name: Check out the supported ZCode host
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -52,11 +65,6 @@ jobs:
           ref: ${{ env.ZCODE_REF }}
           path: .powercontext/zcode-ci-source
           persist-credentials: false
-
-      - name: Set up Python
-        uses: ./.github/actions/setup-python-env
-        with:
-          python-version: '3.12'
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -67,13 +75,13 @@ jobs:
       - name: Install the host package manager
         run: npm install --global pnpm@10.33.2
 
-      - name: Validate the ZCode Skill pin and behavior evaluation harness
-        run: |
-          uv run --locked --no-sync python -m evaluation.zcode_guidance.pin --check
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --locked --no-sync python -m evaluation.zcode_guidance.run --help
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --locked --no-sync python -m pytest evaluation/zcode_guidance/tests tests/test_zcode_acceptance_protocol.py tests/test_zcode_acceptance_host.py -q
+      - name: Cache frozen host dependencies
+        uses: ./.github/actions/cache-pnpm
+        with:
+          working-directory: .powercontext/zcode-ci-source
+          cache-dependency-glob: |
+            .powercontext/zcode-ci-source/pnpm-lock.yaml
+            integrations/pi/plugins/powercontext/pnpm-lock.yaml
 
       - name: Record build provenance
         run: |
@@ -98,6 +106,7 @@ jobs:
           install --frozen-lockfile --ignore-scripts
 
       - name: Build the actual CLI
+        id: host-build
         run: |
           pnpm --dir .powercontext/zcode-ci-source exec turbo --skip-infer --cwd apps/zcode-cli run build --filter=@zcode/cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -109,15 +118,20 @@ jobs:
         run: node --test --test-concurrency=1 integrations/zcode/plugins/powercontext/tests/*.test.mjs
 
       - name: Run two independent controlled CLI acceptances
+        # An independent plugin-test failure must not suppress real-host evidence.
+        if: ${{ !cancelled() && steps.host-build.outcome == 'success' }}
         run: >-
           uv run --locked --no-sync pytest tests/e2e/test_zcode_host_acceptance.py
           -m 'zcode_host_acceptance and not zcode_live_model'
           --zcode-acceptance-output "$env:RUNNER_TEMP/zcode-acceptance" -q
 
       - name: Install the frozen Pi host and plugin dependencies
+        id: pi-dependencies
+        if: ${{ !cancelled() && steps.host-build.outcome == 'success' }}
         run: pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile --ignore-scripts
 
       - name: Verify actual Pi to ZCode Work Continuity
+        if: ${{ !cancelled() && steps.pi-dependencies.outcome == 'success' }}
         run: >-
           uv run --locked --no-sync pytest tests/e2e/test_cross_host_work_continuity.py
           -m cross_host_acceptance

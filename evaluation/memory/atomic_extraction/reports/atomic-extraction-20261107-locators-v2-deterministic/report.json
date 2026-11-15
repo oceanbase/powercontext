@@ -1,0 +1,80 @@
+{
+  "content_policy": "aggregate_only_no_evidence_or_generated_candidate_text",
+  "dataset": {
+    "case_count": 9,
+    "dataset_version": "powercontext.atomic-memory-extraction.synthetic.v2",
+    "manifest_sha256": "853d22abc12ede5ccdd46e380cb935b9746c8003fc484d0934366bb8f5df22c6",
+    "schema_version": "powercontext.atomic-memory-extraction-cases.v1"
+  },
+  "dispositions": {
+    "atomic_memory": {
+      "failed": 0,
+      "passed": 6,
+      "total": 6
+    },
+    "experience_or_skill": {
+      "failed": 0,
+      "passed": 1,
+      "total": 1
+    },
+    "reject": {
+      "failed": 0,
+      "passed": 2,
+      "total": 2
+    }
+  },
+  "factual_retention": {
+    "failed": 0,
+    "false_rejections": 0,
+    "passed": 6,
+    "total": 6,
+    "unobserved": 0
+  },
+  "failure_classes": {},
+  "instruction_leakage": {
+    "leaks": 0,
+    "passed": 9,
+    "total": 9,
+    "unobserved": 0
+  },
+  "overall": {
+    "failed": 0,
+    "passed": 9,
+    "total": 9
+  },
+  "prompts": {
+    "coding": {
+      "builtin_version": "powercontext.atomic-memory.extract.coding.v4",
+      "compiled_digest": "5545efec2f457d908a2717dca85157db3faab320a378837bd1eea3ecbbaf0d51",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "da5de7be4ac0e23f5e718076dc51b5f1825f376bfe2f071278ff5be2dc096a97",
+      "key": "atomic_memory.extract"
+    },
+    "conversation": {
+      "builtin_version": "powercontext.atomic-memory.extract.conversation.v4",
+      "compiled_digest": "cbfaf95eb4ffa83531b9f0b84864fda33b9a83f102acdbad2e7466c44aa2759d",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "503f212db750b5d0db4b5e84d6c88ad42f90e8c51bbd0af3d1a9a50e7bb6afc4",
+      "key": "atomic_memory.extract"
+    }
+  },
+  "provider": {
+    "base_url_configured": true,
+    "base_url_sha256": "0413b53d28826c51b400bc9ebc578639bf6a4ff94d3e43fbcbc468bd51945602",
+    "header_names": [
+      "Authorization"
+    ],
+    "max_requests": 2,
+    "model": "openai-chat:glm-5.3",
+    "model_settings": {
+      "temperature": 0
+    },
+    "model_settings_sha256": "e4ff491169b8a9ea78518a7972422b5a24d5e3790e0d9a9e5cbfb384d9b621e0",
+    "provider": "openai-chat",
+    "timeout_seconds": 120.0
+  },
+  "run_id": "atomic-extraction-20261107-locators-v2-deterministic",
+  "run_manifest_sha256": "377d036c3a3fe1d29158cc3eef2b8d2ada2674a363e9e8c87cec73ce1edccc5a",
+  "schema_version": "powercontext.atomic-memory-extraction-report.v1",
+  "status": "passed"
+}

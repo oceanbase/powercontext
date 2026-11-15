@@ -260,8 +260,8 @@ so the previous database remains available for recovery:
    exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
    `pc_skill_publications`), the Profile tables, `pc_topic_memory_work_budgets`, `pc_topic_memory_work_blocks`,
-   `pc_recall_effort_daily`, `pc_receipt_migration_review`, `pc_context_bootstrap_receipts`, or
-   `pc_decision_observations`, remove the absent tables from their respective layers.
+   `pc_recall_effort_daily`, `pc_receipt_migration_review`, `pc_context_bootstrap_receipts`,
+   `pc_decision_observations`, or `pc_artifact_source_locators`, remove the absent tables from their respective layers.
    When a work-budget table exists, restore it together with Cursors so failure allowances survive the migration.
    Restore work-attempt records as well to preserve block identities, diagnostics and accepted retry receipts.
 
@@ -269,7 +269,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions,pc_artifact_family_schemas,pc_artifact_vector_spaces,pc_artifact_search_states' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions' \
      -f <export-directory>
    ```
 
@@ -277,7 +277,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_dream_runs,pc_context_bootstrap_receipts,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_handles,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions,pc_artifact_vector_indexes,pc_artifact_index_changes' \
+     --table 'pc_dream_runs,pc_context_bootstrap_receipts,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_handles,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -285,7 +285,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
+      --table 'pc_artifact_source_locators,pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 
@@ -293,17 +293,13 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_profile_policies,pc_artifact_index_coverage,pc_artifact_search_text' \
+     --table 'pc_profile_policies' \
      -f <export-directory>
    ```
 
    Wait for each invocation to complete successfully before starting the next. Treat any OBLoader error, bad record,
    or conflict record as a failed restore. Order within a layer is irrelevant because no table in a layer references
    another table in the same layer.
-   `pc_artifact_vectors` is SQLite-only. For OceanBase/seekDB, restore registered `pc_av_<space_id>` row data after Layer 4:
-   use database initialization to create and validate the restored registered spaces first. Preserve the exact
-   `space_id` and `build_id` identities; never regenerate them from restored content before importing vector rows.
-   Keep all writers stopped until the fixed schema, native spaces and restored index state are verified.
 6. If the installation has additional PowerContext-managed tables not listed above, these tested layers do not
    classify them. Inspect their foreign-key constraints and place each table after all of its parents; do not add
    them to an all-table invocation.
@@ -362,7 +358,9 @@ content-free JSON event such as:
 The stable outcomes remain distinct: `authentication_failed`, `version_mismatch`, `server_unavailable`, and
 `invalid_response`. Diagnostics never include prompts, recalled content, scopes, URLs, credentials, response bodies,
 or exception text. Repeated outcomes are deduplicated within one invocation and throttled for 60 seconds using local
-state shared across hook processes; a diagnostic failure never changes the host task result.
+state shared across hook processes; a diagnostic failure never changes the host task result. The Codex and Claude
+Code `SessionStart` hooks write their failures only to stderr for local debugging, so those failures do not count
+toward the throttle.
 
 Bub is not included in this first host-diagnostic slice. Its integration will be qualified separately when its host
 diagnostic channel and native lifecycle behavior are specified.
@@ -377,10 +375,12 @@ database is reopened automatically.
 
 For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON event. `empty` means the
 Runtime prepared no context for this turn and remains a local diagnostic rather than a host warning.
-`version_mismatch` means the installed plugin expects
-`POST /v1/context/prepare` but the Server does not provide it—reinstall the plugin and tool from the same ref, then
-restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
-events intentionally omit the query and prepared content.
+`version_mismatch` means the Server does not provide a route the installed plugin requires:
+`POST /v1/context/prepare` for a `context_prepare` event or `POST /v1/scope-bindings/resolve` for a `scope_resolve`
+event. Reinstall the plugin and tool from the same ref, then restart the Server. `server_unavailable` and
+`invalid_response` distinguish transport and contract failures; a `scope_resolve` event with
+`error_code: scope_not_found` means the configured Scope does not exist or no binding resolves. These events
+intentionally omit the query and prepared content.
 
 Run `powercontext capabilities` and confirm that `powercontext.prepared-context.v1` appears under Context
 versions.
@@ -405,10 +405,11 @@ contract as Codex, with component `powercontext.claude_code.recall`:
 | `authentication_failed` | Export the complete `POWERCONTEXT_CLAUDE_AUTHORIZATION` header before starting Claude Code |
 | `version_mismatch` | Install the package and plugin from the same ref, then restart both processes |
 | `server_unavailable` | Start the Server or correct `POWERCONTEXT_CLAUDE_SERVER_URL` |
-| `invalid_response` | Check for a proxy, redirect, incompatible schema, malformed JSON, or an oversized response |
+| `invalid_response` | Check for a proxy, redirect, incompatible schema, malformed JSON, or an oversized response; `error_code: scope_not_found` means the configured Scope does not exist or no binding resolves |
 
 The diagnostics never log the token, query, scope, prepared content, or response body. Prompt capture is independent
-of recall; a capture failure cannot suppress valid context, and a recall failure cannot suppress capture.
+of recall; a capture failure cannot suppress valid context, and a recall failure cannot suppress capture. Both need
+the current Scope, so a `scope_resolve` event means that the prompt was neither recalled nor captured.
 
 ## Claude Code MCP authentication fails
 

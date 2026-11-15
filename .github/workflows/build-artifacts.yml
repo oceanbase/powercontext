@@ -36,7 +36,7 @@ env:
 jobs:
   build:
     name: Build Linux x86_64 / Python ${{ inputs.python_version || '3.11' }} bundle
-    runs-on: ubuntu-24.04
+    runs-on: powercontext-ci-light
     timeout-minutes: 30
     env:
       PYTHON_VERSION: ${{ inputs.python_version || '3.11' }}
@@ -100,7 +100,7 @@ jobs:
         run: |
           mkdir -p build/artifact-input/distributions
           uv build --out-dir build/artifact-input/distributions
-          uvx --from twine twine check build/artifact-input/distributions/*
+          uvx --from 'twine>=7.0.0' twine check build/artifact-input/distributions/*
 
       - name: Export locked runtime dependencies
         run: |

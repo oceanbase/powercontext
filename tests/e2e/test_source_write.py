@@ -19,7 +19,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
+import os
 import shutil
+from pathlib import Path
 
 import httpx
 import pytest
@@ -27,10 +30,68 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from PIL import Image
 
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.server.settings import ServerSettings
 from tests.source_helpers import ROOT, TOKENS, call, create_scope, discover, grant, load_write_cli, read, running_server
 
 EXAMPLE = ROOT / "examples/source_plugins/tickets"
 LOAD = "/v1/source-management/write/load"
+
+
+def test_pre_locator_ticket_definition_keeps_write_and_collect_usable_after_restart(tmp_path):
+    """Reuse the declaration captured from the shipped plugin before locators existed."""
+
+    async def scenario():
+        deployment = tmp_path / "tickets"
+        shutil.copytree(EXAMPLE, deployment, ignore=shutil.ignore_patterns("__pycache__"))
+        manifest = json.loads((ROOT / "tests/fixtures/tickets_manifest_before_locators.json").read_text())
+        value = {
+            "namespace": "support",
+            "project": "powercontext",
+            "ticket_id": "PC-upgrade",
+            "title": "保留插件身份",
+            "body": "升级后继续写入。",
+            "labels": [],
+            "metadata": {},
+        }
+        baseline = os.environ.get("POWERCONTEXT_TEST_SOURCE_BASE_ROOT")
+        environment = {"PYTHONPATH": str(Path(baseline) / "src")} if baseline else None
+        async with running_server(tmp_path, environment=environment) as (admin, url, _process):
+            scope = await create_scope(admin, "ticket-upgrade")
+            await grant(admin, scope, "deployer", "scope.viewer")
+            await grant(admin, scope)
+            registered = await admin.post("/v1/source-definitions/register", json={"manifest": manifest})
+            assert registered.status_code == 200, registered.text
+            loaded = await load_write_cli(deployment / "write.yml", url)
+            async with Client(url + "/mcp", auth=TOKENS["host"]) as host:
+                args = {"scope_id": scope, "capability": "ticket.write", "capability_version": "1", "input": value}
+                captured = await call(host, "pc_source_add", args)
+        settings = ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'server.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=()),
+        )
+        runner = deployment_runner(settings)
+        plan = runner.plan()
+        if baseline:
+            assert plan.source_revision == "v1_5_0_003"
+            assert plan.revisions == ("v1_5_0_004",)
+        runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+        async with running_server(tmp_path) as (admin, url, _process):
+            assert await load_write_cli(deployment / "write.yml", url) == loaded
+            registered = await admin.post("/v1/source-definitions/register", json={"manifest": manifest})
+            assert registered.status_code == 200, registered.text
+            async with Client(url + "/mcp", auth=TOKENS["host"]) as host:
+                assert any(item["name"] == "ticket.write" for item in (await discover(host, scope))["capabilities"])
+                assert await call(host, "pc_source_add", args) == captured
+                updated = await call(host, "pc_source_add", {**args, "input": {**value, "body": "升级后的新快照。"}})
+            assert updated["result"]["source_refs"] != captured["result"]["source_refs"]
+            assert (await read(admin, scope, captured["result"]["source_refs"][0]))["content"]["payload"][
+                "capture"
+            ] == value
+
+    asyncio.run(scenario())
 
 
 def test_server_local_write_mcp_projection_and_restart(tmp_path):

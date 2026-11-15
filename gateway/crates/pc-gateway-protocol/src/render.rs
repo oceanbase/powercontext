@@ -91,6 +91,13 @@ impl WireRenderer for OpenAiChatRenderer {
             if let Some(tool_call_id) = &m.tool_call_id {
                 message["tool_call_id"] = serde_json::json!(tool_call_id);
             }
+            for (key, value) in &m.extra_fields {
+                message
+                    .as_object_mut()
+                    .expect("message is an object")
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
             messages.push(message);
         }
 
@@ -118,6 +125,14 @@ impl WireRenderer for OpenAiChatRenderer {
         }
         if let Some(prev_id) = &request.previous_response_id {
             body["previous_response_id"] = serde_json::json!(prev_id);
+        }
+        if let Some(fields) = &request.passthrough_fields {
+            for (key, value) in fields {
+                body.as_object_mut()
+                    .expect("body is an object")
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
         }
         if let Some(fields) = request.native_cache_fields.as_ref() {
             merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {

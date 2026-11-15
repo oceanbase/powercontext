@@ -31,6 +31,11 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, TOPIC_MEMORY_PROCESSING_TARGETS_TABLE
 from powercontext.builtin.persistence.topic_memory_recovery import observe_topic_memory_block
+from powercontext.builtin.processing_diagnostics import (
+    attach_diagnostics,
+    diagnostics_of,
+    safe_classify_processing_error,
+)
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
     ArtifactProcessingBlockedError,
@@ -165,7 +170,12 @@ class TopicMemoryScopeProcessor:
                 return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST)
             block = await topic_memory_processing_block(connection, assignment.scope_id, assignment.binding_name)
         if block is not None and block.error_code == error.code:
-            raise ArtifactProcessingBlockedError(block) from error
+            blocked = ArtifactProcessingBlockedError(block)
+            attach_diagnostics(
+                blocked,
+                diagnostics_of(error) or safe_classify_processing_error(error),
+            )
+            raise blocked from error
         raise error
 
     async def _target(self, assignment: ArtifactProcessingWorkAssignment) -> TopicMemoryProcessingTarget | None:

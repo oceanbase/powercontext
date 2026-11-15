@@ -318,6 +318,13 @@ test("saved records cannot open an unqualified exact read while saving remains a
 test("Overview shows availability and restriction for each feature", () => {
   render(
     <Overview
+      onOpenLocalServer={vi.fn()}
+      onOpenProfile={vi.fn()}
+      onOpenScopes={vi.fn()}
+      stateLoading={false}
+      contextPending={false}
+      guideDismissed={false}
+      onGuideDismissedChange={vi.fn()}
       state={restrictedState("remember_memory", "operation_missing")}
       language="en"
       onNavigate={vi.fn()}
@@ -430,6 +437,16 @@ test.each(["en", "zh"] as const)(
       screen.getByRole("button", {
         name: language === "en" ? "Connections" : "连接",
       }),
+    );
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      language === "en"
+        ? "Discard all retained submitted text and unsaved input?"
+        : "丢弃所有保留的提交文本和尚未保存的输入？",
+    );
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      language === "en"
+        ? "This does not undo submissions or change Server records."
+        : "这不会撤销提交或修改 Server 上的记录。",
     );
     await answerConfirmation(user, false);
     expect(original.value).toBe("preserve me");
@@ -1320,6 +1337,13 @@ test("overview refresh shows the latest readiness instead of the activation snap
   };
   render(
     <Overview
+      onOpenLocalServer={vi.fn()}
+      onOpenProfile={vi.fn()}
+      onOpenScopes={vi.fn()}
+      stateLoading={false}
+      contextPending={false}
+      guideDismissed={false}
+      onGuideDismissedChange={vi.fn()}
       state={{
         ...state,
         active: { ...active, report: ready },

@@ -93,6 +93,9 @@ manifest，并在恢复前校验 observation
 的身份和定义指纹。缺失定义或与目标定义冲突会阻止恢复；未引用的全局定义不会随包导出。
 Observation 的 payload 和每个 projection 还必须通过正常写入路径所使用的 manifest schema 校验。恢复不会请求远程 schema。
 
+对于 Server 部署，写恢复前须按 `powercontext server db-migrate` 文档流程初始化或迁移目标库。
+逻辑恢复不会初始化受管 Server schema，也不会迁移访问绑定；使用恢复的 Scope 前须配置目标端访问权限。
+
 要执行写恢复，必须显式确认：
 
 ```bash
@@ -118,6 +121,10 @@ powercontext archive restore ./backups/payments.pcb --yes
 | 托管 Skill 包的文件内容与 manifest；Artifact 标签 | 下载地址和主机本地 Skill 路径 |
 | Profile policy、Prompt revision 和 Topic Memory 发布元数据 | 目标环境的 embedding 配置 |
 | 作为 Source 保存的 Work contract、task outcome、Handoff boundary 和 receipt | Credential、bearer token、provider secret 和 host-local Skill 安装状态 |
+
+Source record 作为 evidence 原样保留，包括 capture metadata，例如 Agent 集成随每条 prompt 记录的绝对工作目录（`cwd`）。
+分享归档前，请把这些路径视为归档内容的一部分。
+导出和恢复会拒绝任何 record 中形似 credential 的字段，以及 Source 以外 record 中的主机绝对路径。
 
 归档包含带版本的 manifest（`format_version`、producer version、scope、数量、排除项和总 checksum）以及 NDJSON record。
 逐条 digest 用于比较 canonical 内容是否冲突，总 digest 用于校验 record 流。
@@ -177,6 +184,12 @@ powercontext archive restore ./payments.pcb --env-file ./oceanbase.env --yes
 
 ## 格式兼容窗口
 
+恢复包含插件 Artifact 的归档时，目标环境须通过 `POWERCONTEXT_SERVER_PLUGINS_DIR` 配置对应插件，
+`--dry-run` 也需要此配置。恢复命令在子进程中检查声明，不启动插件 host、不运行 `setup`，也不调度生成。
+Core 校验 Artifact 的不透明存储封装；插件 Source observation 根据归档内携带的不可变 Source 定义校验。
+恢复保留版本元数据、历史和出处。插件独立存储仍不包含在归档内。导出直接读取已存储的 core 记录，不加载插件，
+因此插件不可用时仍能创建备份。
+
 Bundle ID 必须使用带连字符、小写的标准 UUID 表示。完整归档文件连同 ZIP 前缀或尾随字节不得超过 512 MiB；manifest
 上限为 256 KiB，解压后的 record 流上限为 2 GiB，最多包含 2,000,000 条 record，每行 NDJSON 不超过 8 MiB。
 超限文件会在恢复复制前被拒绝；复制 snapshot 时也会执行相同上限，防止读取期间源文件变化绕过限制。
@@ -186,7 +199,9 @@ record type。producer version 仅用于诊断，不能替代 archive schema ver
 writer 只生成版本 `1`，不支持降级到格式 `0`。遇到未知 archive 或 record schema
 version 时，reader 会在目标写入前拒绝。跨 PowerContext 大版本升级时，应保留旧二进制，直到恢复演练通过。
 
-`artifact_revision`、`artifact_head`、`artifact_lineage_artifact` 和 `candidate_head` 要求 record schema version `2`。
+`artifact_revision` 使用 record schema version `3`，比版本 `2` 多出 `metadata`，记录写入该 revision 的插件及其版本。
+reader 也接受此前版本导出的 schema version `2` 记录，恢复时 `metadata` 为 null，重复恢复不会把它们视为冲突。
+`artifact_head`、`artifact_lineage_artifact` 和 `candidate_head` 要求 record schema version `2`。
 reader 会拒绝这些记录不完整的 schema version `1` 表示，而不是丢弃 revision 元数据或补上默认合并状态、Candidate 类型。
 旧数据库中 revision 元数据为空时，归档保留显式 null，不会编造 actor、时间戳或回滚历史。目标缺少归档所需列时，
 应先用当前 Runtime 升级；dry-run 会报告不兼容，不会修改目标数据库。

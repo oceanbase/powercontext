@@ -85,7 +85,7 @@ Profile 和凭据使用同一个 `DSH_HOME`；未设置、空值或纯空格均�
 独立 CLI 只能观察所选配置文件和自身环境，无法观察运行中 DSH 会话额外的 `--patch` 参数或环境；请在该会话内运行 `/pc doctor`。
 对无法解析的原生配置组合（包括其他宿主未支持的 JSON5/include），doctor 会报告未知/失败，不会假定连接安全。
 
-MiniMax 和通用 Agent Plugin 由宿主负责 MCP 传输，没有单独的 PowerContext HTTP Client 或 setup 子命令；
+MiniMax 和通用 Agent Plugin 由宿主负责 MCP 传输，没有单独的 PowerContext HTTP Client。MiniMax 支持 `powercontext setup minimax` 和 `doctor minimax`，安装器合并私有 MCP 配置；通用 Agent Plugin 没有 setup 子命令。
 本选项不能绕过宿主自己的限制。LangChain、LangGraph、Pydantic AI 及 Bub 评测适配器支持客户端显式同意，
 但不会因此增加 Agent 安装器。
 

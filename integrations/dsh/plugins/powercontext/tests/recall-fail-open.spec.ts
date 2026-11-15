@@ -240,8 +240,8 @@ describe('runRecallPreStep fail-open', () => {
     if (result.kind === 'enter') {
       expect(result.messages).toHaveLength(2)
       const wrapped = result.messages[1] as { content: Array<{ text: string }> }
-      expect(wrapped.content[0].text).toContain('untrusted historical evidence')
-      expect(wrapped.content[0].text).toContain(content)
+      expect(wrapped.content[0].text).toBe(
+        `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${content}`)
     }
   })
 

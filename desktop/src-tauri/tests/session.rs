@@ -73,8 +73,18 @@ async fn fixture() -> Fixture {
                 }
                 let text = String::from_utf8(request).unwrap();
                 let path = text.split_whitespace().nth(1).unwrap();
+                let discovery = common::discovery_document("fixture").to_string();
                 let (status, body) = if path.contains("/server-info") {
-                    (404, r#"{}"#)
+                    (200, discovery.as_str())
+                } else if path.contains("/connection/identity") {
+                    if changed.load(Ordering::Relaxed) {
+                        (401, r#"{}"#)
+                    } else {
+                        (
+                            200,
+                            r#"{"server_id":"fixture","authentication":"disabled","access_mode":"disabled","principal":null}"#,
+                        )
+                    }
                 } else if path.contains("/access/me") {
                     if changed.load(Ordering::Relaxed) {
                         (401, r#"{}"#)

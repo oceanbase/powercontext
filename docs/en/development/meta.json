@@ -9,6 +9,7 @@
     "core-protocol",
     "memory-layer",
     "plugin-contract",
+    "capture-coverage",
     "pydantic-ai-inference",
     "observability",
     "processing-failures",

@@ -18,7 +18,7 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryProbeOutput
@@ -32,7 +32,13 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_PROCESSING_TARGETS_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingBlockedError,
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerOutcome,
 )
@@ -361,6 +367,44 @@ def test_multi_window_noop_requires_every_window_to_be_noop(monkeypatch, first_n
             assert calls == 2
             assert result.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
             assert result.noop is first_noop
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+def test_blocked_conversion_keeps_generation_diagnostics():
+    async def scenario():
+        manager, profile, sources, topics = await _repositories()
+        try:
+            await _capture(profile, sources, 1)
+            async with profile.database.transaction() as connection:
+                await connection.execute(
+                    insert(TOPIC_MEMORY_WORK_BUDGETS_TABLE).values({
+                        "scope_id": "scope-a",
+                        "binding_name": BINDING,
+                        "source_after": 0,
+                        "source_through": 1,
+                        "attempt_id": "exhausted-attempt",
+                        "attempts": 3,
+                        "requests": 9,
+                        "tokens": 1000,
+                        "failure_code": "",
+                    })
+                )
+            processor = _processor(profile, sources, topics, _Probe())
+
+            with pytest.raises(ArtifactProcessingBlockedError) as raised:
+                await processor.process(await _assignment(profile))
+
+            assert raised.value.block.error_code == "window_attempt_limit"
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.GENERATION
+            assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert diagnostics.failure_location == "window_attempt_limit"
+            assert diagnostics.estimated_input_tokens is None
+            assert diagnostics.effective_budget is None
         finally:
             await manager.__aexit__(None, None, None)
 

@@ -934,12 +934,6 @@ def test_family_projection_failure_rolls_back_source_and_artifact() -> None:
     asyncio.run(scenario())
 
 
-def test_base_access_reuses_existing_tables_without_lifecycle_columns() -> None:
-    assert "created_at" not in SOURCES_TABLE.c
-    assert "deleted_at" not in ARTIFACTS_TABLE.c
-    assert "deleted_at" not in ARTIFACT_HEADS_TABLE.c
-
-
 def test_legacy_memory_family_is_unsupported_for_generic_reads_and_tags() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:

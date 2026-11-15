@@ -1,0 +1,11 @@
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Partial answer"
+      },
+      "finish_reason": "length"
+    }
+  ]
+}

@@ -182,3 +182,39 @@ def test_missing_native_config_preserves_shared_endpoint_and_consent(tmp_path):
 def test_openclaw_without_an_endpoint_is_unconfigured_instead_of_loopback():
     with pytest.raises(ValueError, match="not configured"):
         _resolve("openclaw")
+
+
+@pytest.mark.parametrize("private_enabled", [False, True], ids=["plugin", "private"])
+@pytest.mark.parametrize(
+    "host_consent,common_consent,saved_matches,expected",
+    [
+        (None, None, True, True),
+        (None, "false", True, False),
+        (None, "invalid", True, None),
+        ("false", None, True, False),
+        ("invalid", None, True, None),
+        ("true", "false", True, True),
+        ("false", "true", True, False),
+        (None, None, False, False),
+    ],
+)
+def test_minimax_consent_obeys_current_policy_without_replacing_native_endpoint(
+    tmp_path, monkeypatch, private_enabled, host_consent, common_consent, saved_matches, expected
+):
+    profile = tmp_path / "minimax"
+    endpoint = "http://native.example:8000"
+    entry = {"type": "streamable-http", "url": endpoint + "/mcp"}
+    _write(profile / "mcp.json", {"mcpServers": {"powercontext": {**entry, "enabled": private_enabled}}})
+    _write(profile / "plugins/powercontext/powercontext.mcp.json", {"mcpServers": {"powercontext": entry}})
+    monkeypatch.setenv("MINIMAX_DATA_DIR", str(profile))
+    _save_shared(tmp_path, "minimax", endpoint if saved_matches else "http://previous.example:8000", True)
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://unrelated.example")
+    if host_consent is not None:
+        monkeypatch.setenv("POWERCONTEXT_MINIMAX_ALLOW_INSECURE_HTTP", host_consent)
+    if common_consent is not None:
+        monkeypatch.setenv("POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP", common_consent)
+    if expected is None:
+        with pytest.raises(ValueError, match="boolean"):
+            _resolve("minimax")
+    else:
+        assert _resolve("minimax") == (endpoint, expected)

@@ -12,9 +12,10 @@ Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作
 画像的证据边界、人物归属、敏感属性禁止推断和输出契约仍由服务端固定。
 
 `atomic_memory.reconcile` 用于自定义提取出的 Memory 候选与相关记忆及同一窗口内先前候选的比较方式。
-`atomic_memory.extract` 与 `atomic_memory.reconcile` 都为 Auto 时，没有可比较对象的候选按提取结果保留，不发起
-reconcile 请求；任一 Prompt 为 Custom 时，每个候选都会经过 reconcile。哪些事实值得保留由提取决定。内置 reconcile
-也可能丢弃它认为不值得保留的候选，但只发生在比较过程中；因此窗口内第一个候选在没有相关记忆时不会经过这第二次判断。
+`atomic_memory.extract` 与 `atomic_memory.reconcile` 都为 Auto 时，先前候选只有满足选取已发布相关记忆的同一门槛时
+才进入比较，没有可比较对象的候选按提取结果保留，不发起 reconcile 请求；任一 Prompt 为 Custom 时，每个候选都会与同窗口
+的全部先前候选一起经过 reconcile。哪些事实值得保留由提取决定。内置 reconcile 也可能丢弃它认为不值得保留的候选，但只
+发生在比较过程中；因此没有相关记忆、也没有相关先前候选的候选不会经过这第二次判断。
 
 ## 编辑与验证
 

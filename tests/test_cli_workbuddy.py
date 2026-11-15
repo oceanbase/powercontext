@@ -104,6 +104,12 @@ def test_setup_and_doctor_workbuddy_reach_loopback_server_without_server_depende
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             payload = {"status": "ok"} if self.path == "/health/live" else {"status": "ready", "checks": {}}
+            if self.path == "/openapi.json":
+                payload = {
+                    "openapi": "3.0.3",
+                    "paths": {},
+                    "x-powercontext-feature-contracts": {"memory.explicit": {"major": 1, "minor": 0}},
+                }
             body = json.dumps(payload).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

@@ -1,0 +1,61 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<p>需要排查请求耗时、模型超时、后台任务或服务错误时，建议按下面的步骤接入监控。Grafana 将指标、调用链和结构化日志放在一起，帮助你从异常定位到具体请求。</p>
+<h2>1. 准备部署环境</h2>
+<p>在安装了 PowerContext CLI 的机器上操作。PowerContext 的运行环境需要包含 <code>cli</code>、<code>server</code> 和 <code>tracing-otlp</code> extras。安装并启动 Docker，确认 Docker Compose 可用：</p>
+<pre><code>powercontext observability --help
+docker compose version</code></pre>
+<p>下面的 <code>/path/to/existing.env</code> 指你现有的 Server 配置文件，请替换为实际路径。沿用当前数据库、模型和认证配置。</p>
+<h2>2. 启动监控并让 Server 接入</h2>
+<p>先部署由 CLI 管理的监控栈：</p>
+<pre><code>powercontext observability up --server-env /path/to/existing.env</code></pre>
+<p>监控组件通过 Docker Compose 启动，配置和监控数据会保存在本地。命令输出配置目录、访问地址、密码文件位置和 Server 重启命令。首次部署需要下载镜像。</p>
+<p>正常停止原 Server，再按输出的命令使用同一份业务配置重启，并保留原有的 host、port 等启动参数：</p>
+<pre><code>powercontext server run --env-file /path/to/existing.env --observability</code></pre>
+<p><code>--observability</code> 加载生成的遥测接入配置。只运行 <code>up</code> 不会让已有 Server 自动接入。若已有显式 OTLP 遥测配置发生冲突，请按完整指南选择一种接入方式。</p>
+<h2>3. 打开监控页面</h2>
+<pre><code>powercontext observability status</code></pre>
+<p>使用 <code>up</code> 或 <code>status</code> 输出的 Grafana、Phoenix 地址。Grafana 用户名为 <code>admin</code>，密码从输出指向的密码文件读取。端口可配置，请以实际输出为准。</p>
+<p>首次部署的默认本机入口为 Grafana <code>http://127.0.0.1:13000</code>、Phoenix <code>http://127.0.0.1:6006</code>。这里的本机指部署监控栈的机器；远程访问方式见完整指南。</p>
+<table><thead><tr><th>工具</th><th>查看什么</th></tr></thead><tbody>
+<tr><td>Grafana</td><td>服务概览、后台处理、接口与模型调用耗时，以及关联的日志和调用链。</td></tr>
+<tr><td>Prometheus</td><td>请求量、错误率、耗时和资源等指标。</td></tr>
+<tr><td>Tempo</td><td>同一请求中各步骤的调用链与耗时。</td></tr>
+<tr><td>Loki</td><td>结构化运行日志，可结合时间、Scope、错误码和 trace ID 排查。</td></tr>
+<tr><td>Phoenix</td><td>本地 trace 查看入口；托管监控栈会一并启动。</td></tr>
+</tbody></table>
+<h2>4. 验证采集，再排查问题</h2>
+<pre><code>powercontext observability check
+powercontext observability check --exercise</code></pre>
+<p><code>check</code> 查询已配置的监控后端。<code>--exercise</code> 会发送一条已采样的只读请求，验证同一 trace ID 对应的调用链、日志和指标关联；不会创建业务资料或记忆。容器启动成功不等于数据已送达。</p>
+<p>排查时，先在 Grafana 选择异常发生的时间范围，找到错误或慢请求，再用 trace ID 查看调用链和对应日志。例如模型超时，应核对具体模型调用的耗时与错误，再检查模型服务。没有近期流量时，空面板不能单独证明采集失败。</p>
+<h2>5. 日常查看与停止</h2>
+<pre><code>powercontext observability status
+powercontext observability down</code></pre>
+<p><code>down</code> 只停止 CLI 管理的监控栈，保留监控数据卷、配置和凭证，也不会停止业务 Server。需要恢复时，在同一配置目录再次执行 <code>powercontext observability up</code>。</p>
+<details><summary>已有监控平台或其他部署方式</summary>
+<p class="mt-3">已有 Prometheus、Collector、Tempo、Loki 和 Grafana 时，无需先执行 <code>up</code>，直接使用 <code>connect</code> 生成接入配置：</p>
+<pre><code>powercontext observability connect \
+  --otlp-endpoint http://existing-collector:4318 \
+  --server-env /path/to/existing.env \
+  --metrics-target powercontext.example.internal:8000 \
+  --prometheus-url https://monitoring.example/prometheus \
+  --tempo-url https://monitoring.example/tempo \
+  --loki-url https://monitoring.example/loki</code></pre>
+<p>将示例地址替换为现有平台地址。若已创建托管监控栈，先通过 <code>POWERCONTEXT_OBSERVABILITY_HOME</code> 为外部接入选择独立目录；同一目录不能混用两种方式。按生成目录中 <code>external/README.md</code> 的说明，合并抓取配置、导入 Grafana 面板，并让 Server 加载接入配置。<code>connect</code> 不修改远程平台。</p>
+<p>业务 Server 运行在 Docker 中、API 与后台拆分部署、远程访问和认证配置，请按完整指南操作。托管监控栈当前使用 Docker Compose；没有 Kubernetes 一键部署入口。</p>
+</details>
+<p class="mt-4"><a href="https://github.com/oceanbase/powercontext/blob/master/docs/zh/docs/operate/reference-observability-stack.md" target="_blank" rel="noopener" hx-boost="false">完整部署与接入指南 →</a></p>

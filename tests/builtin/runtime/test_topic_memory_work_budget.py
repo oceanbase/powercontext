@@ -24,14 +24,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 
-import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import select
 
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGenerationError, TopicMemoryProbeOutput
-from powercontext.builtin.inference import GenerationResult, character_token_estimator
+from powercontext.builtin.inference import GenerationResult, TokenEstimator, character_token_estimator
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
@@ -43,6 +43,11 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_ATTEMPTS,
     MAX_TOPIC_MEMORY_WORK_REQUESTS,
     MAX_TOPIC_MEMORY_WORK_TOKENS,
+)
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
 )
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingWorkerOutcome
 from powercontext.builtin.runtime.composition import (
@@ -62,7 +67,14 @@ from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
     _open_topic_memory_processor,
 )
-from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentCapture
+from powercontext.builtin.sources import (
+    CONTENT_SOURCE_ADAPTER,
+    ContentCapture,
+    ContentSource,
+    ContentSourceInternal,
+    ContentSourceTarget,
+)
+from powercontext.sources import SourceMaterialization
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS
 from tests.builtin.runtime.test_topic_memory_processing import _assignment, _repositories, _stages
 
@@ -102,26 +114,28 @@ def _processor(profile, sources, topics, fake, *, limit=100_000, requests=2, res
 
 
 async def _capture(profile, *, metadata=None, tail=True):
+    captures = [ContentCapture(source_id="first", content="body", metadata=metadata or {})]
+    if tail:
+        captures.append(ContentCapture(source_id="tail", content="ordinary tail"))
+    return await _capture_all(profile, captures)
+
+
+async def _capture_all(profile, items):
     sources = SourceRepository((*SOURCE_ADAPTERS, CONTENT_SOURCE_ADAPTER))
     async with profile.database.transaction() as connection:
-        await sources.add(
-            connection,
-            "scope-a",
-            await CONTENT_SOURCE_ADAPTER.resolve(
-                ContentCapture(source_id="first", content="body", metadata=metadata or {})
-            ),
-        )
-        if tail:
-            await sources.add(
-                connection,
-                "scope-a",
-                await CONTENT_SOURCE_ADAPTER.resolve(ContentCapture(source_id="tail", content="ordinary tail")),
-            )
+        for item in items:
+            source = await CONTENT_SOURCE_ADAPTER.resolve(item) if isinstance(item, ContentCapture) else item
+            await sources.add(connection, "scope-a", source)
         await ArtifactProcessingPendingRepository().raise_source(
-            connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 2 if tail else 1
+            connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, len(items)
         )
         term = await ArtifactProcessingLeaseRepository().start_single_process_term(connection, "holder")
     return sources, _assignment(term.fence("single-process"))
+
+
+async def _cursor(profile):
+    async with profile.database.transaction() as connection:
+        return await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
 
 
 async def _row(profile):
@@ -208,6 +222,93 @@ def test_metadata_complexity_rejection_is_durable_and_never_skips_tail(boundary)
     asyncio.run(scenario())
 
 
+def test_failing_source_ends_the_window_after_the_healthy_prefix():
+    async def scenario():
+        manager, profile, _, topics = await _repositories()
+        try:
+            healthy = [ContentCapture(source_id=f"healthy-{index}", content=f"note {index}") for index in range(3)]
+            lineage = ContentSource(
+                name="lineage",
+                materialization=SourceMaterialization.CAPTURED,
+                content="lineage only",
+                internal=ContentSourceInternal(
+                    role="lineage_only",
+                    operation="artifact_create",
+                    target=ContentSourceTarget(scope_id="scope-a", family="profile", artifact_id="profile", revision=1),
+                ),
+            )
+            failing = ContentCapture(source_id="oversized", content="x" * (MAX_TOPIC_MEMORY_SOURCE_CHARACTERS + 1))
+            sources, assignment = await _capture_all(profile, [*healthy, lineage, failing])
+            processor = _processor(profile, sources, topics, _FastProbe())
+            selector = TopicMemoryWindowSelector(
+                profile.database, sources, character_token_estimator(), context_window_tokens=125_000
+            )
+            # The Window keeps the lineage-only Source and ends just before the failing one.
+            assert await selector.select("scope-a", 0, 5) == 4
+            prefix = replace(assignment, source_through=4, wave_target=5)
+            assert (await processor.process(prefix)).outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+            cursor = await _cursor(profile)
+            assert cursor is not None and cursor.cursor.sequence == 4
+            # Only at the frontier does the failing Source form its own Window.
+            assert await selector.select("scope-a", 4, 5) == 5
+            frontier = replace(prefix, source_after=4, source_through=5, cursor_generation=cursor.generation)
+            with pytest.raises(TopicMemoryGenerationError, match="source_complexity_limit"):
+                await processor.process(frontier)
+            row = await _row(profile)
+            assert (row["source_after"], row["requests"], row["failure_code"]) == (4, 0, "source_complexity_limit")
+            with pytest.raises(TopicMemoryGenerationError, match="source_complexity_limit"):
+                await selector.select("scope-a", 4, 5)
+            assert await _cursor(profile) == cursor
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "characters,count,per_window",
+    [(80_000, 60, 3), (MAX_TOPIC_MEMORY_SOURCE_CHARACTERS // 2, 4, 2)],
+    ids=["probe-budget", "character-ceiling"],
+)
+def test_large_healthy_backlog_fills_each_window_to_its_budget(characters, count, per_window):
+    async def scenario():
+        manager, profile, _, topics = await _repositories()
+        try:
+            # Both backlogs exceed the Window character ceiling. Each Source has exactly `characters`
+            # canonical evidence characters and costs 30,000 of the 100,000-token Probe budget, so two
+            # half-ceiling Sources fill a Window exactly before the Probe budget would bind.
+            marker = "backlog-source"
+
+            def capture(index):
+                head = f"{marker} {index}\n"
+                overhead = len(json.dumps({"content": head, "metadata": {}}, separators=(",", ":")))
+                return ContentCapture(source_id=f"source-{index}", content=head + "x" * (characters - overhead))
+
+            sources, assignment = await _capture_all(profile, [capture(index) for index in range(count)])
+            processor = _processor(profile, sources, topics, _FastProbe())
+            estimator = TokenEstimator(character_token_estimator().profile, lambda text: text.count(marker) * 30_000)
+            selector = TopicMemoryWindowSelector(profile.database, sources, estimator, context_window_tokens=125_000)
+            windows = []
+            cursor = None
+            while (after := 0 if cursor is None else cursor.cursor.sequence) < count:
+                through = await selector.select("scope-a", after, count)
+                window = replace(
+                    assignment,
+                    source_after=after,
+                    source_through=through,
+                    wave_target=count,
+                    cursor_generation=None if cursor is None else cursor.generation,
+                )
+                assert (await processor.process(window)).outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+                windows.append((after, through))
+                cursor = await _cursor(profile)
+            assert windows == [(after, after + per_window) for after in range(0, count, per_window)]
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("ceiling,limit,requests", [("requests", 1_000, 2), ("tokens", 100_000, 2)])
 def test_fast_provider_stops_before_cumulative_request_or_token_ceiling(ceiling, limit, requests):
     async def scenario():
@@ -218,8 +319,21 @@ def test_fast_provider_stops_before_cumulative_request_or_token_ceiling(ceiling,
             reserve = 8_000_000 if ceiling == "tokens" else limit // 4
             capacity = limit + reserve
             processor = _processor(profile, sources, topics, fake, limit=limit, requests=requests, reserve=reserve)
-            with pytest.raises(TopicMemoryGenerationError, match="window_provider_budget_exceeded"):
+            with pytest.raises(TopicMemoryGenerationError, match="window_provider_budget_exceeded") as raised:
                 await processor.process(assignment)
+
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.GENERATION
+            assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert diagnostics.failure_location == "window_provider_budget_exceeded"
+            if ceiling == "requests":
+                # The request ceiling stopped the window; the token budget did not.
+                assert diagnostics.estimated_input_tokens is None
+                assert diagnostics.effective_budget is None
+            else:
+                assert diagnostics.estimated_input_tokens is not None
+                assert diagnostics.effective_budget == MAX_TOPIC_MEMORY_WORK_TOKENS
             before = await _row(profile)
             assert before["failure_code"] == "window_provider_budget_exceeded"
             assert before["requests"] == fake.calls * requests <= MAX_TOPIC_MEMORY_WORK_REQUESTS
@@ -355,7 +469,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
 
         async def fail(request):
             calls.append(request)
-            return httpx.Response(
+            return httpx2.Response(
                 429, headers={"retry-after": "0"}, json={"error": {"message": "busy", "type": "rate_limit_error"}}
             )
 
@@ -374,7 +488,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
             client = provider.client
             assert client.max_retries == 0
             # Preserve the SDK's real request/retry implementation; substitute transport only.
-            transport = await resources.enter_async_context(httpx.AsyncClient(transport=httpx.MockTransport(fail)))
+            transport = await resources.enter_async_context(httpx2.AsyncClient(transport=httpx2.MockTransport(fail)))
             client._client = transport
             with pytest.raises(Exception, match="busy"):
                 if provider_name == "openai":
@@ -551,10 +665,11 @@ def test_suspended_response_cannot_hide_multiple_provider_calls_in_one_request()
     asyncio.run(scenario())
 
 
-def test_unsupported_worker_provider_fails_when_binding_is_assembled():
+@pytest.mark.parametrize("provider", ["google", "openai-codex"])
+def test_unsupported_worker_provider_fails_when_binding_is_assembled(provider):
     config = BuiltinConfig(
         database=SQLiteConfig(url="sqlite+aiosqlite:///not-opened.sqlite3"),
-        inference=InferenceConfig(generation_model="google:test"),
+        inference=InferenceConfig(generation_model=f"{provider}:test"),
         runtime=RuntimeConfig(topic_memory_schedule_seconds=60, artifact_processing_families=("topic-memory",)),
     )
     with pytest.raises(BuiltinConfigurationError, match="bounded stateless"):
@@ -622,6 +737,72 @@ def test_embedding_shares_exhausted_generation_budget_and_other_scope_can_progre
                 cursor = await SourceCursorRepository().load(connection, "scope-b", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
                 assert cursor is not None and cursor.cursor.sequence == 1
             assert await _row(profile) == row
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("dimension", ["requests", "tokens", "both", "exact_requests"])
+def test_rejected_reservation_readback_does_not_invent_token_evidence(dimension):
+    from powercontext.builtin.persistence.topic_memory_budget import (
+        TopicMemoryWorkBudget,
+        require_topic_memory_work_available,
+    )
+
+    async def scenario():
+        manager, profile, _, _ = await _repositories()
+        try:
+            _, assignment = await _capture(profile)
+            budget = TopicMemoryWorkBudget(
+                profile.database,
+                scope_id="scope-a",
+                binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                source_after=0,
+                source_through=2,
+                cursor_generation=None,
+                fence=assignment.fence,
+            )
+            await budget.begin()
+            initial_requests = MAX_TOPIC_MEMORY_WORK_REQUESTS if dimension == "exact_requests" else 510
+            await budget.reserve(requests=initial_requests, tokens=1000)
+            requests = 3 if dimension in {"requests", "both"} else 1
+            tokens = MAX_TOPIC_MEMORY_WORK_TOKENS if dimension in {"tokens", "both"} else 10
+            with pytest.raises(TopicMemoryGenerationError) as rejected:
+                await budget.reserve(requests=requests, tokens=tokens)
+            original = classify_processing_error(rejected.value)
+            assert original is not None
+            assert original.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert original.effective_budget == (MAX_TOPIC_MEMORY_WORK_TOKENS if dimension == "tokens" else None)
+            before = await _row(profile)
+            assert before["requests"] == initial_requests and before["tokens"] == 1000
+
+            async def guard():
+                async with profile.database.transaction() as connection:
+                    await require_topic_memory_work_available(
+                        connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 0
+                    )
+
+            async def complete():
+                async with profile.database.transaction() as connection:
+                    await budget.complete(connection)
+
+            for readback in (guard, budget.begin, complete):
+                with pytest.raises(TopicMemoryGenerationError) as failure:
+                    await readback()
+                diagnostics = classify_processing_error(failure.value)
+                assert diagnostics is not None
+                assert diagnostics.reason is original.reason
+                assert diagnostics.failure_location == original.failure_location
+                assert diagnostics.estimated_input_tokens is None
+                assert diagnostics.effective_budget is None
+            # A new oversized proposal must not reinterpret the existing rejection.
+            with pytest.raises(TopicMemoryGenerationError) as repeated:
+                await budget.reserve(requests=1, tokens=MAX_TOPIC_MEMORY_WORK_TOKENS)
+            diagnostics = classify_processing_error(repeated.value)
+            assert diagnostics is not None
+            assert diagnostics.estimated_input_tokens is None
+            assert diagnostics.effective_budget is None
         finally:
             await manager.__aexit__(None, None, None)
 

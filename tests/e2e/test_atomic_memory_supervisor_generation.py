@@ -33,6 +33,7 @@ from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.sources import SourceSequenceLocator
 
 _MEMORY_TEXT = "The user prefers acceptance tests that exercise spawned workers."
 
@@ -147,7 +148,9 @@ def test_source_capture_is_generated_and_acknowledged_by_the_spawned_supervisor_
             assert record.artifact.family == "atomic-memory"
             assert record.artifact.content.kind == "preference"
             assert record.artifact.content.text == _MEMORY_TEXT
-            assert record.artifact.lineage.sources == (receipt.source_ref,)
+            assert record.artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
             assert record.state.state == "active" and record.state.state_version == 0
             assert await memory.get(record.ref.artifact_id, revision=record.ref.revision) == record
             found = await memory.search("spawned workers", mode="text")

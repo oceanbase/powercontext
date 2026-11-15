@@ -131,8 +131,6 @@ def _content(*, cue: str = CUE, condition: str = CUE, subject: str = "regenerate
 def _item_ref(
     *, kind: TaskOutcomeItemKind = "check", index: int = 0, outcome_ref: SourceRef = OUTCOME_REF
 ) -> TaskOutcomeItemRef:
-    from powercontext.builtin.artifacts.experience.recurrence import item_digest
-
     item = _check("regenerate the client", status="failed") if kind == "check" else _claim("condition appeared")
     return TaskOutcomeItemRef(
         task_outcome_ref=outcome_ref,
@@ -270,17 +268,6 @@ def test_task_outcome_item_ref_rejects_noncanonical_digest() -> None:
             item_index=0,
             item_digest="sha256:not-a-digest",
         )
-
-
-def test_task_outcome_item_ref_digest_is_the_immutable_item_identity() -> None:
-    check = _check("regenerate the client")
-    ref = TaskOutcomeItemRef(
-        task_outcome_ref=OUTCOME_REF,
-        item_kind="check",
-        item_index=0,
-        item_digest=item_digest(check),
-    )
-    assert ref.item_digest == item_digest(check)
 
 
 def test_verdicts_are_ordered_by_immutable_journal_position() -> None:

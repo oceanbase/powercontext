@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Generated from src/powercontext_integration_lifecycle/bootstrap_context.py; do not edit.
+# Edit the source and run `make integration-lifecycle` instead.
+
 """Strict dependency-free validation of the bootstrap HTTP contract."""
 
 from __future__ import annotations

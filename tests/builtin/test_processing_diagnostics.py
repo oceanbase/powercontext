@@ -32,7 +32,25 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionOutput,
     AtomicMemoryGenerationPipeline,
 )
+from powercontext.builtin.artifacts.experience.incubation import (
+    ExperienceIncubationCandidate,
+    ExperienceIncubationOutput,
+    LLMExperienceCandidatePipeline,
+)
+from powercontext.builtin.artifacts.experience.models import ExperienceContent
+from powercontext.builtin.artifacts.handoff.errors import (
+    HandoffGenerationUnavailableError,
+    InvalidHandoffGenerationError,
+)
 from powercontext.builtin.artifacts.memory.extraction import MemoryExtractionCandidate, _selected_evidence
+from powercontext.builtin.artifacts.topic_memory.errors import (
+    TopicMemoryCapabilityError,
+    TopicMemoryProjectionError,
+    TopicMemoryStorageInvariantError,
+)
+from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGenerationError
+from powercontext.builtin.dream.models import DreamError
+from powercontext.builtin.evidence.models import EvidenceResolutionError
 from powercontext.builtin.inference.errors import (
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -48,18 +66,24 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemorySearchRequest,
     RelationalAtomicMemoryIndex,
 )
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_block_code,
     classify_processing_error,
     safe_classify_processing_error,
 )
 from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemorySourceWindowProcessor
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkerFailure
+from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.sources import ContentSource
 from powercontext.server.logging import JsonFormatter
-from powercontext.sources import SourceRef
+from powercontext.sources import SourceMaterialization, SourceRef
 
 
 def test_diagnostics_bound_and_sanitize_every_field() -> None:
@@ -408,3 +432,311 @@ def test_console_filter_renders_the_new_processing_fields() -> None:
     assert 'processing_stage="generation"' in processing_context
     assert 'failure_reason="rate_limit"' in processing_context
     assert 'cause_exception_type="ModelHTTPError"' in processing_context
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("embedding_unavailable", ProcessingStage.EMBEDDING, ProcessingFailureReason.CONFIGURATION),
+        ("input_budget_exceeded", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.CONTEXT_OVERFLOW),
+        (
+            "reduction_input_budget_exceeded",
+            ProcessingStage.BUSINESS_VALIDATION,
+            ProcessingFailureReason.CONTEXT_OVERFLOW,
+        ),
+        ("window_provider_budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("window_attempt_limit", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("reduction_output_budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("invalid_plan", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_evidence", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_proposal", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_reconciliation", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_reduction", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_target", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_temporary", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_work_item", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("unsupported_evidence", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("reduction_did_not_progress", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("duplicate_target", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("identity_merge", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("proposal_limit", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("incomplete_target", ProcessingStage.PERSISTENCE, ProcessingFailureReason.STORAGE_FAILURE),
+        (
+            "source_complexity_limit",
+            ProcessingStage.BUSINESS_VALIDATION,
+            None,
+        ),
+        ("related_history_limit", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("source_window_changed", None, None),
+        ("invalid_window", None, None),
+        ("duplicate_operation", None, None),
+        ("window_attempt_superseded", None, None),
+        ("target_did_not_converge", None, None),
+        ("unaccepted_invocation", None, None),
+        ("invalid_invocation", None, None),
+        ("invalid_work_reservation", None, None),
+        ("invalid_stage_budget", None, ProcessingFailureReason.CONFIGURATION),
+        ("invalid_max_tokens", None, ProcessingFailureReason.CONFIGURATION),
+        ("output_budget_exceeded", None, ProcessingFailureReason.CONFIGURATION),
+    ],
+)
+def test_topic_memory_generation_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(TopicMemoryGenerationError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_topic_memory_code_keeps_unknown_classification() -> None:
+    assert classify_processing_error(TopicMemoryGenerationError("unknown_future_code")) is None
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("content", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("chunks", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("lexical", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("vector-incomplete", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("fts", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("vector-unconfigured", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("embedding-profile", ProcessingStage.PERSISTENCE, ProcessingFailureReason.CONFIGURATION),
+        ("embedding-values", ProcessingStage.EMBEDDING, ProcessingFailureReason.INVALID_OUTPUT),
+    ],
+)
+def test_topic_memory_projection_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(TopicMemoryProjectionError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_topic_memory_projection_code_keeps_reason_unknown() -> None:
+    diagnostics = classify_processing_error(TopicMemoryProjectionError("future-code"))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is None
+    assert diagnostics.failure_location == "future-code"
+
+
+def test_topic_memory_storage_invariant_errors_classify_as_persistence() -> None:
+    diagnostics = classify_processing_error(TopicMemoryStorageInvariantError("missing-publication", ("scope",)))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is ProcessingFailureReason.STORAGE_FAILURE
+    assert diagnostics.failure_location == "missing-publication"
+
+
+def test_topic_memory_capability_errors_classify_as_configuration() -> None:
+    diagnostics = classify_processing_error(TopicMemoryCapabilityError("vector"))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.PERSISTENCE
+    assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+    assert diagnostics.failure_location == "vector"
+
+
+def test_durable_blocks_classify_only_for_topic_memory() -> None:
+    diagnostics = classify_block_code("topic_memory", "window_attempt_limit")
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.GENERATION
+    assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+    assert diagnostics.failure_location == "window_attempt_limit"
+    assert classify_block_code("memory", "window_attempt_limit") is None
+    assert classify_block_code("dream", "budget_exceeded") is None
+    assert classify_block_code("topic_memory", "") is None
+
+
+# -- Dream, Handoff, and Evidence error classification --
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("capability_unavailable", ProcessingStage.GENERATION, ProcessingFailureReason.CONFIGURATION),
+        ("unsupported_target", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("budget_exceeded", ProcessingStage.GENERATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("capacity_exceeded", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.USAGE_LIMIT),
+        ("invalid_generation_output", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("invalid_target", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_dream_operation", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_artifact_family", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_idempotency_key", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("evidence_unavailable", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("reference_not_found", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("invalid_memory_citation", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("policy_changed", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("artifact_conflict", None, None),
+        ("attempt_conflict", None, None),
+        ("tag_precondition_failed", None, None),
+        ("scope_not_found", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("evidence_limit_exceeded", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("memory_entry_inactive", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("source_not_eligible", ProcessingStage.BUSINESS_VALIDATION, None),
+        ("access_revoked", None, None),
+        ("access_unavailable", None, None),
+        ("dream_request_unavailable", None, None),
+        ("generation_failed", None, None),
+        ("idempotency_conflict", None, None),
+        ("needs_evidence", None, None),
+    ],
+)
+def test_dream_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(DreamError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_dream_code_keeps_unknown_classification() -> None:
+    assert classify_processing_error(DreamError("future_dream_code")) is None
+
+
+@pytest.mark.parametrize(
+    ("code", "stage", "reason"),
+    [
+        ("output", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("evidence", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("budget", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("objective", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("rollover_next_action", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+        ("rollover_quality", ProcessingStage.BUSINESS_VALIDATION, ProcessingFailureReason.INVALID_OUTPUT),
+    ],
+)
+def test_handoff_generation_errors_classify_by_code(code, stage, reason) -> None:
+    diagnostics = classify_processing_error(InvalidHandoffGenerationError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is stage
+    assert diagnostics.reason is reason
+    assert diagnostics.failure_location == code
+
+
+def test_unknown_handoff_code_keeps_unknown_classification() -> None:
+    assert classify_processing_error(InvalidHandoffGenerationError("future_handoff_code")) is None
+
+
+def test_handoff_generation_unavailable_classifies_as_configuration() -> None:
+    diagnostics = classify_processing_error(HandoffGenerationUnavailableError())
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.GENERATION
+    assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+
+
+def test_evidence_resolution_error_classifies_by_code() -> None:
+    diagnostics = classify_processing_error(EvidenceResolutionError("reference_not_found"))
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+    assert diagnostics.reason is None
+    assert diagnostics.failure_location == "reference_not_found"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "invalid_generation_output",
+        "needs_evidence",
+        "evidence_limit_exceeded",
+        "reference_not_found",
+        "evidence_unavailable",
+        "memory_entry_inactive",
+        "source_not_eligible",
+    ],
+)
+def test_evidence_resolution_error_codes_classify(code) -> None:
+    diagnostics = classify_processing_error(EvidenceResolutionError(code))
+
+    assert diagnostics is not None
+    assert diagnostics.failure_location == code
+
+
+def test_dream_block_stage_is_not_supported() -> None:
+    assert classify_block_code("dream", "budget_exceeded") is None
+    assert classify_block_code("dream", "unknown_future_code") is None
+
+
+def test_unknown_evidence_resolution_error_code_is_unclassified() -> None:
+    assert classify_processing_error(EvidenceResolutionError("completely_unknown")) is None
+
+
+@pytest.mark.parametrize("outside_window", [False, True])
+def test_experience_incubation_validates_typed_output_before_citations(outside_window) -> None:
+    class Generator:
+        async def generate(self, value):
+            if not outside_window:
+                return GenerationResult(output={"candidates": "private-invalid-output"})
+            return GenerationResult(
+                output=ExperienceIncubationOutput(
+                    candidates=(
+                        ExperienceIncubationCandidate(
+                            proposal=ExperienceContent(
+                                situation="A write timed out.",
+                                action="Replayed the same request.",
+                                outcome="One row remained.",
+                                lesson="Reuse the idempotency key.",
+                            ),
+                            evidence_ids=("private-outside-window",),
+                        ),
+                    )
+                )
+            )
+
+    pipeline = LLMExperienceCandidatePipeline(cast(Any, Generator()))
+    source = ContentSource(
+        name="task-1",
+        materialization=SourceMaterialization.CAPTURED,
+        content="private-source",
+        metadata={"kind": "task-outcome"},
+    )
+    with pytest.raises(InvalidInferenceOutputError) as raised:
+        asyncio.run(pipeline.incubate((source,)))
+    diagnostics = classify_processing_error(raised.value)
+    assert diagnostics is not None
+    assert diagnostics.stage is (
+        ProcessingStage.BUSINESS_VALIDATION if outside_window else ProcessingStage.OUTPUT_PARSING
+    )
+    assert diagnostics.reason is (
+        ProcessingFailureReason.INVALID_OUTPUT if outside_window else ProcessingFailureReason.SCHEMA_INVALID
+    )
+    assert "private" not in json.dumps(diagnostics.log_fields())
+
+
+def test_profile_markdown_rejection_preserves_source_cursor_and_publication() -> None:
+    class Generator:
+        async def generate(self, value):
+            return " "
+
+    async def scenario():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            contexts = RelationalContexts(database=profile.database)
+            scope = await contexts.scopes.create(
+                ScopeDraft(title="Profile validation", summary="Safe output", idempotency_key="profile-validation")
+            )
+            await contexts.records.create_source(scope.scope_id, "content", "private-source")
+            await contexts.profiles.put_policy(scope.scope_id, generation_enabled=True, expected_version=0)
+            contexts.profiles.generator = Generator()
+            with pytest.raises(InvalidInferenceOutputError) as raised:
+                await contexts.profiles.flush(scope.scope_id)
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+            assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+            assert diagnostics.input_item_count == 1
+            assert diagnostics.cause_exception_type == "ValueError"
+            assert "private" not in json.dumps(diagnostics.log_fields())
+            async with profile.database.transaction() as connection:
+                assert await contexts.profiles.cursors.load(connection, scope.scope_id, "profile-source-window") is None
+                assert await contexts.profiles.latest(connection, scope.scope_id) is None
+
+    asyncio.run(scenario())

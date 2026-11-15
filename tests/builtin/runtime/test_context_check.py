@@ -62,6 +62,13 @@ def _config(**changes):
     return InferenceProtectionConfig.model_validate(value)
 
 
+def _config_with_endpoint(endpoint: str) -> InferenceProtectionConfig:
+    config = _config()
+    return config.model_copy(
+        update={"targets": {"test": config.targets["test"].model_copy(update={"endpoint": endpoint})}}
+    )
+
+
 def _payload(value):
     return ModelJsonPayload(headers={"content-type": "application/json"}, body=json.dumps(value))
 
@@ -95,7 +102,7 @@ async def _no_reuse(_binding):
 
 
 async def _check(request, codec, **changes):
-    arguments = {
+    arguments: dict[str, Any] = {
         "scope_id": "test:scope",
         "config": _config(),
         "codec": codec,
@@ -137,18 +144,20 @@ async def test_null_error_does_not_authorize_incomplete_output(protocol):
 
 
 @pytest.mark.anyio
-async def test_separate_send_deadline_and_response_correlation():
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_separate_send_deadline_and_response_correlation(mode):
     codec = BindingCodec()
-    send = await _check(_send(), codec)
+    config = _config(mode=mode)
+    send = await _check(_send(), codec, config=config)
     assert send.decision == "allow" and send.binding
     assert send.valid_until == NOW + timedelta(seconds=60)
     assert send.correlate_until == NOW + timedelta(seconds=300)
-    release = await _check(_release(send.binding), codec, now=NOW + timedelta(seconds=90))
+    release = await _check(_release(send.binding), codec, config=config, now=NOW + timedelta(seconds=90))
     assert release.decision == "allow" and release.binding
     assert release.correlate_until is None
-    wrong_phase = await _check(_release(release.binding), codec)
+    wrong_phase = await _check(_release(release.binding), codec, config=config)
     assert wrong_phase.decision == "withhold"
-    expired = await _check(_release(send.binding), codec, now=NOW + timedelta(seconds=301))
+    expired = await _check(_release(send.binding), codec, config=config, now=NOW + timedelta(seconds=301))
     assert expired.decision == "withhold"
 
 
@@ -159,6 +168,7 @@ async def test_separate_send_deadline_and_response_correlation():
         {"binding_identity": "user:bob"},
         {"scope_id": "other:scope"},
         {"config": _config(forbidden_values=(SecretStr("a different rule under the same version"),))},
+        {"config": _config_with_endpoint("https://replacement.example/v1/chat/completions")},
     ],
 )
 async def test_request_binding_cannot_cross_identity_scope_or_current_policy(changed):
@@ -182,13 +192,56 @@ async def test_raw_request_and_response_block_without_echoing_content():
 
 
 @pytest.mark.anyio
-async def test_shadow_never_issues_an_execution_binding():
-    result = await _check(_send(), BindingCodec(), config=_config(mode="shadow"))
-    assert result.decision == "withhold" and not result.coverage.complete and result.binding is None
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_send_and_release_honor_privacy_mode(mode):
+    codec = BindingCodec()
+    config = _config(mode=mode)
+    send = await _check(_send("synthetic-forbidden-value"), codec, config=config)
+    if mode == "enforcing":
+        assert send.decision == "block" and send.binding is None
+        send = await _check(_send(), codec, config=config)
+    assert send.decision == "allow" and send.binding
+    assert send.coverage.complete is (mode == "enforcing")
+    if mode in ("shadow", "advisory"):
+        assert send.reason_codes == ("forbidden_content",)
+    release = await _check(_release(send.binding, "synthetic-forbidden-value"), codec, config=config)
+    if mode == "enforcing":
+        assert release.decision == "block" and release.binding is None
+    else:
+        assert release.decision == "allow" and release.binding and not release.coverage.complete
+    assert "synthetic-forbidden-value" not in send.model_dump_json() + release.model_dump_json()
 
 
 @pytest.mark.anyio
-async def test_utf8_exact_block_requires_user_position_and_complete_binding():
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+async def test_non_enforcing_modes_allow_uninspected_content(mode):
+    codec = BindingCodec()
+    config = _config(mode=mode)
+    request = _send(
+        payload=_payload({
+            "model": "test",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "test-image"}}]}],
+        })
+    )
+    send = await _check(request, codec, config=config)
+    assert send.decision == "allow" and send.binding and not send.coverage.complete
+    release = _release(send.binding).model_copy(update={"payload": _payload({"image": "test-image"})})
+    result = await _check(release, codec, config=config)
+    assert result.decision == "allow" and result.binding and not result.coverage.complete
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_unknown_target_is_withheld(mode):
+    result = await _check(_send(target_profile="missing"), BindingCodec(), config=_config(mode=mode))
+    assert result.decision == "withhold" and result.reason_codes == ("target_unsupported",)
+    assert result.binding is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+async def test_utf8_exact_block_requires_user_position_and_complete_binding(mode):
     block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n历史资料\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1"
     prefix = "当前任务: \n"
 
@@ -210,10 +263,11 @@ async def test_utf8_exact_block_requires_user_position_and_complete_binding():
         },
     }
     request = _send(prefix + block, prepared_contexts=(location,))
-    result = await _check(request, BindingCodec(), validate_reuse=validate)
+    config = _config(mode=mode)
+    result = await _check(request, BindingCodec(), config=config, validate_reuse=validate)
     assert result.decision == "allow"
     with pytest.raises(InvalidRuntimeRequestError, match="binding-required"):
-        await _check(_send(prefix + block), BindingCodec())
+        await _check(_send(prefix + block), BindingCodec(), config=config)
     promoted = _send(
         payload=_payload({
             "model": "test",
@@ -223,10 +277,10 @@ async def test_utf8_exact_block_requires_user_position_and_complete_binding():
         prepared_contexts=(location,),
     )
     with pytest.raises(InvalidRuntimeRequestError, match="location-trust"):
-        await _check(promoted, BindingCodec(), validate_reuse=validate)
+        await _check(promoted, BindingCodec(), config=config, validate_reuse=validate)
     altered = _send(prefix + block.replace("资料", "伪造"), prepared_contexts=(location,))
     with pytest.raises(InvalidRuntimeRequestError, match="location-content"):
-        await _check(altered, BindingCodec(), validate_reuse=validate)
+        await _check(altered, BindingCodec(), config=config, validate_reuse=validate)
 
 
 @pytest.mark.anyio
@@ -300,3 +354,36 @@ def test_phase_dto_and_headers_do_not_accept_cross_phase_or_authority_override()
         CHECK_CONTEXT_REQUEST.validate_python(value)
     with pytest.raises(ValidationError):
         ModelJsonPayload(headers={"content-type": "application/json", "authorization": "arbitrary"}, body="{}")
+
+
+@pytest.mark.anyio
+async def test_gateway_target_is_issued_by_the_same_final_payload_admission():
+    codec = BindingCodec()
+    ordinary = await _check(_send(), codec)
+    assert ordinary.decision == "allow"
+    assert ordinary.target_endpoint is None
+    approved = await _check(_send(), codec, resolve_target=True)
+    assert approved.decision == "allow"
+    assert approved.target_endpoint == "https://model.example/v1/chat/completions"
+    assert approved.target_protocol == "openai-chat"
+    assert approved.binding
+
+    blocked = await _check(_send(text="synthetic-forbidden-value"), codec, resolve_target=True)
+    assert blocked.decision == "block"
+    assert blocked.target_endpoint is None
+    missing = await _check(_send(target_profile="missing"), codec, resolve_target=True)
+    assert missing.decision == "withhold"
+    assert missing.target_endpoint is None
+
+
+@pytest.mark.anyio
+async def test_new_admission_uses_changed_core_target_without_reusing_old_target():
+    codec = BindingCodec()
+    first = await _check(_send(), codec, resolve_target=True)
+    assert first.decision == "allow" and first.binding
+    revised = _config_with_endpoint("https://replacement.example/v1/chat/completions")
+    next_send = await _check(_send(), codec, resolve_target=True, config=revised)
+    assert next_send.decision == "allow"
+    assert next_send.target_endpoint == "https://replacement.example/v1/chat/completions"
+    old_release = await _check(_release(first.binding), codec, config=revised)
+    assert old_release.decision == "withhold"

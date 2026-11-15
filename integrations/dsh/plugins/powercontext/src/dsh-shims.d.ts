@@ -42,7 +42,7 @@ declare module '@deepseek-ai/dsh-llm' {
   export function createUserMessage(input: {
     content: Array<{ type: 'text'; text: string }>
     source: {
-      kind: 'plugin'; plugin: string; form: 'snapshot'
+      kind: `plugin:${string}`; form: 'snapshot'
       sections: Array<{ name: string; text: string }>
     }
   }): unknown

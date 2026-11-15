@@ -152,6 +152,15 @@ cleanup() {
     trap - EXIT INT TERM
     set +e
 
+    # CI opts in to snapshots while the failed replay's database still exists.
+    # Diagnostic failure must not hide the replay result or prevent teardown.
+    if [ "$status" -ne 0 ] && [ "$database" = oceanbase ] && [ -n "${POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS:-}" ]; then
+        container_id=$(timeout --kill-after=5s 10s docker compose $compose_files ps --all -q oceanbase)
+        timeout --kill-after=5s 40s python3 scripts/oceanbase_ci.py collect \
+            --container "${container_id:-missing-oceanbase}" --output "$POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS" ||
+            echo "OceanBase replay diagnostics could not be collected" >&2
+    fi
+
     docker compose $compose_files down --volumes --remove-orphans
     cleanup_status=$?
     if [ "$cleanup_status" -ne 0 ]; then

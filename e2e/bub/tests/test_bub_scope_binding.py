@@ -19,7 +19,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
-from bub.hooks.interception import LlmCallRequest
+import republic
+from bub.hooks.interception import LLMCallRequest
 from powercontext_bub import plugin as plugin_module
 from powercontext_bub import tools as tools_module
 from powercontext_bub.plugin import STATE_KEY, PowerContextPlugin, PowerContextSettings
@@ -96,10 +97,10 @@ def test_recall_and_capture_use_only_the_server_resolved_scope(monkeypatch, tmp_
     state = plugin.load_state(message=None, session_id="session-1")
     state["session_id"] = "session-1"
 
-    request = LlmCallRequest(
+    request = LLMCallRequest(
         run_id="run-1",
         model="test-model",
-        messages=[{"role": "user", "content": "What did we decide?"}],
+        messages=[republic.user("What did we decide?")],
     )
     result = asyncio.run(plugin.before_llm_call(request, state))
 

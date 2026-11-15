@@ -22,7 +22,7 @@ import re
 from collections.abc import Coroutine, Iterable
 from typing import Literal, Self
 
-import httpx
+import httpx2
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from powercontext.builtin.artifacts.memory.reranking import (
@@ -72,7 +72,7 @@ class JevRerankConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_endpoint_and_model(self) -> Self:
-        url = httpx.URL(self.endpoint)
+        url = httpx2.URL(self.endpoint)
         if (
             url.scheme not in {"http", "https"}
             or not url.host
@@ -112,7 +112,7 @@ class _JevResponse(BaseModel):
     usage: _JevUsage
 
 
-def _http_failure(error: httpx.HTTPStatusError, timeout_seconds: float) -> InferenceError:
+def _http_failure(error: httpx2.HTTPStatusError, timeout_seconds: float) -> InferenceError:
     status = error.response.status_code
     if status in {408, 504}:
         return InferenceTimeoutError("memory.rerank", timeout_seconds)
@@ -188,7 +188,7 @@ class JevMemoryReranker:
     def __init__(
         self,
         config: JevRerankConfig,
-        client: httpx.AsyncClient | None = None,
+        client: httpx2.AsyncClient | None = None,
         *,
         protection: InferenceProtectionConfig | None = None,
     ) -> None:
@@ -199,13 +199,13 @@ class JevMemoryReranker:
 
             if client is not None:
                 raise InferenceConfigurationError("protected Jev reranking requires an owned HTTP transport")  # noqa: TRY003
-            self._client = httpx.AsyncClient(
+            self._client = httpx2.AsyncClient(
                 transport=ProtectedAsyncTransport(protection),
                 follow_redirects=False,
                 headers={"Accept-Encoding": "identity"},
             )
         else:
-            self._client = client if client is not None else httpx.AsyncClient(follow_redirects=False)
+            self._client = client if client is not None else httpx2.AsyncClient(follow_redirects=False)
         self._semaphore = asyncio.Semaphore(config.max_concurrency)
         self.policy_id = f"{JEV_MEMORY_RERANK_POLICY}:{config.model}"
 
@@ -233,7 +233,7 @@ class JevMemoryReranker:
             if len(content) > self._config.max_request_bytes:
                 raise InferenceConfigurationError("Jev rerank request exceeds max_request_bytes")  # noqa: TRY003
             async with self._semaphore:
-                request = httpx.Request(
+                request = httpx2.Request(
                     "POST",
                     self._config.endpoint,
                     content=content,
@@ -241,7 +241,7 @@ class JevMemoryReranker:
                         "Content-Type": "application/json",
                         "Authorization": f"Bearer {self._config.api_key.get_secret_value()}",
                     },
-                    extensions={"timeout": httpx.Timeout(self._config.timeout_seconds).as_dict()},
+                    extensions={"timeout": httpx2.Timeout(self._config.timeout_seconds).as_dict()},
                 )
                 response = await self._client.send(request, auth=None, follow_redirects=False)
                 response.raise_for_status()
@@ -256,11 +256,11 @@ class JevMemoryReranker:
                 (score(candidate) for candidate in candidates), usages, self._config.timeout_seconds
             )
             ranks = tuple(sorted(range(1, len(candidates) + 1), key=lambda rank: (-scores[rank - 1], rank))[:limit])
-        except (TimeoutError, httpx.TimeoutException) as error:
+        except (TimeoutError, httpx2.TimeoutException) as error:
             raise InferenceTimeoutError("memory.rerank", self._config.timeout_seconds) from error
-        except httpx.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             raise _http_failure(error, self._config.timeout_seconds) from error
-        except (httpx.RequestError, OSError) as error:
+        except (httpx2.RequestError, OSError) as error:
             raise InferenceUnavailableError("memory.rerank") from error
         except (ValueError, KeyError, TypeError) as error:
             raise InvalidInferenceOutputError("memory.rerank", "Jev did not return a valid result") from error

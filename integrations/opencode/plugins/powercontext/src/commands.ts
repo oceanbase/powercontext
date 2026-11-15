@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY, memoryProtocolCheck } from './memory-compatibility.ts'
 import type { JsonObject, PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { invokeOperation, type ToolResult } from './invoke.ts'
@@ -91,8 +92,11 @@ async function handleDoctor(
 ): Promise<PcCommandResult> {
   const live = await invokeOperation(runtime.client, 'get_liveness', {}, scopeId, signal)
   const ready = await invokeOperation(runtime.client, 'get_readiness', {}, scopeId, signal)
-  const ok = live.ok && ready.ok
-  return { kind: ok ? 'success' : 'error', text: formatResult({ ok, data: { live, ready } }) }
+  const info = await invokeOperation(runtime.client, 'get_server_info', {}, scopeId, signal)
+  const memory = info.ok ? memoryProtocolCheck((info.data as { feature_contracts?: unknown })?.feature_contracts)
+        : { ...info, recovery: 'Memory compatibility is unverified. Check the discovery endpoint and its permissions. ' + MEMORY_PROTOCOL_RECOVERY }
+  const ok = live.ok && ready.ok && memory.ok
+  return { kind: ok ? 'success' : 'error', text: formatResult({ ok, data: { live, ready, memory } }) }
 }
 
 export async function handlePcCommand(

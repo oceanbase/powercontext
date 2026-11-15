@@ -156,6 +156,16 @@ impl DiscoveryResult {
                 (status, None, Some(error), Some(reason))
             }
         };
+        let qualified_denial = status == DiscoveryStatus::Denied
+            && error
+                .as_ref()
+                .is_some_and(|error| error.code == SafeError::Forbidden)
+            && qualification.is_some_and(|profile| {
+                profile
+                    .operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+            });
         let operations = requirements
             .operation_features
             .iter()
@@ -182,40 +192,45 @@ impl DiscoveryResult {
                 } else {
                     reason
                 };
-                let (status, reason) =
-                    if status == DiscoveryStatus::Missing && operation == "get_server_info" {
-                        (
-                            CompatibilityStatus::Unsupported,
-                            CompatibilityReason::DiscoveryMissing,
-                        )
-                    } else if status == DiscoveryStatus::Missing && known.is_some() {
-                        (
-                            CompatibilityStatus::Qualified,
-                            CompatibilityReason::QualifiedProfile,
-                        )
-                    } else if let Some(restriction) = restriction {
-                        (
-                            if matches!(
-                                status,
-                                DiscoveryStatus::Supported | DiscoveryStatus::Incompatible
-                            ) {
-                                CompatibilityStatus::Unsupported
-                            } else {
-                                CompatibilityStatus::Unverified
-                            },
-                            restriction,
-                        )
-                    } else if known.is_some() {
-                        (
-                            CompatibilityStatus::Qualified,
-                            CompatibilityReason::QualifiedProfile,
-                        )
-                    } else {
-                        (
-                            CompatibilityStatus::Unverified,
-                            CompatibilityReason::QualificationRequired,
-                        )
-                    };
+                let (status, reason) = if status == DiscoveryStatus::Missing
+                    && matches!(
+                        operation.as_str(),
+                        "get_server_info" | "get_connection_identity"
+                    ) {
+                    (
+                        CompatibilityStatus::Unsupported,
+                        CompatibilityReason::DiscoveryMissing,
+                    )
+                } else if (status == DiscoveryStatus::Missing || qualified_denial)
+                    && known.is_some()
+                {
+                    (
+                        CompatibilityStatus::Qualified,
+                        CompatibilityReason::QualifiedProfile,
+                    )
+                } else if let Some(restriction) = restriction {
+                    (
+                        if matches!(
+                            status,
+                            DiscoveryStatus::Supported | DiscoveryStatus::Incompatible
+                        ) {
+                            CompatibilityStatus::Unsupported
+                        } else {
+                            CompatibilityStatus::Unverified
+                        },
+                        restriction,
+                    )
+                } else if known.is_some() {
+                    (
+                        CompatibilityStatus::Qualified,
+                        CompatibilityReason::QualifiedProfile,
+                    )
+                } else {
+                    (
+                        CompatibilityStatus::Unverified,
+                        CompatibilityReason::QualificationRequired,
+                    )
+                };
                 (
                     operation.clone(),
                     OperationCompatibility {

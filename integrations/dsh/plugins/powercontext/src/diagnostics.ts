@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY } from './memory-compatibility.ts'
 import { authenticationRejection, bodyFailureDetails, InvalidResponseError, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
 
 export interface DiagnosticEvent {
@@ -56,7 +57,7 @@ const PUBLIC_ERROR_CODES = new Set([
   'handoff_report_unavailable', 'handoff_report_too_large', 'invalid_handoff_generation',
   'remote_skill_distribution_error', 'invalid_target_credential', 'invalid_enrollment',
   'invalid_target_state', 'publication_generation_conflict', 'invalid_skill_lifecycle',
-  'internal_error',
+  'internal_error', 'legacy_memory_operation_unsupported',
 ])
 
 export function publicErrorCode(code: unknown): string | undefined {
@@ -86,6 +87,8 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
     event,
     outcome,
     http_status: error.statusCode,
+    ...(error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported'
+      ? { recovery: MEMORY_PROTOCOL_RECOVERY } : {}),
     ...(error.requestId ? { request_id: error.requestId } : {}),
     ...(code ? { error_code: code } : {}),
     ...(error.statusCode === 409 && code === 'scope_binding_target_missing'

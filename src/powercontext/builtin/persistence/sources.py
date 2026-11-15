@@ -20,6 +20,7 @@ import logging
 from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Literal, cast
 
@@ -30,7 +31,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import AliasChoices, AliasGenerator, BaseModel, ConfigDict, JsonValue, TypeAdapter
 from referencing import Registry
 from referencing.exceptions import Unresolvable
-from sqlalchemy import func, insert, select, tuple_, update
+from sqlalchemy import bindparam, func, insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction
 
@@ -50,13 +51,12 @@ from powercontext.builtin.persistence.errors import (
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
 from powercontext.builtin.sources.content import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
-from powercontext.errors import SourceDefinitionNotFoundError
+from powercontext.errors import InvalidSourceReferenceError, SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 from powercontext.sources import (
     MemoryEvidenceDeclaration,
@@ -67,6 +67,7 @@ from powercontext.sources import (
     SourceEvidence,
     SourceObservation,
     SourceRef,
+    SourceSequenceLocator,
 )
 from powercontext.sources.evidence import log_evidence_neutralized
 
@@ -80,6 +81,23 @@ SOURCE_PROCESSING_BINDINGS = (
 )
 _SOURCE_LOOKUP_KEYS_PER_STATEMENT = 400  # Two bind values per key, including SQLite's 999-variable builds.
 _VALIDATORS: dict[str, Any] = {}
+
+# These statements retain structure only; every transaction supplies its own
+# Scope, exact identities and allocated position.
+_SOURCE_SELECTION = select(SOURCES_TABLE).where(
+    SOURCES_TABLE.c.scope_id == bindparam("requested_scope_id"),
+    tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(bindparam("source_keys", expanding=True)),
+)
+_JOURNAL_HEAD_LOCK = (
+    select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
+    .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == bindparam("requested_scope_id"))
+    .with_for_update()
+)
+_JOURNAL_HEAD_ADVANCE = (
+    update(SOURCE_JOURNAL_HEADS_TABLE)
+    .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == bindparam("requested_scope_id"))
+    .values(position=bindparam("next_position"))
+)
 
 
 def _source_validator(manifest: SourceDefinitionManifest) -> Any:
@@ -104,6 +122,8 @@ class _StoredSourcePayload(BaseModel):
     # Server-owned header permits historical reads without adapter code. Never hash it.
     source: Source | None = None
     source_keys: dict[str, str] | None = None
+    # Server write metadata; excluded from Source identity and material digests.
+    saved_at: datetime | None = None
 
 
 class StoredSource(BaseModel):
@@ -112,6 +132,13 @@ class StoredSource(BaseModel):
     ref: SourceRef
     value: Source
     journal_position: int
+    saved_at: datetime | None = None
+
+    def validate_locator(self, ref: SourceRef, /) -> None:
+        """Reject a position that names another journal entry instead of redirecting."""
+
+        if isinstance(ref.locator, SourceSequenceLocator) and ref.locator.sequence != self.journal_position:
+            raise InvalidSourceReferenceError("locator.sequence", "does not match the cited Source journal position")
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +210,8 @@ class SourceRepository:
         if not sources:
             return ()
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-        prepared = tuple((source, *self._encode(source)) for source in sources)
+        saved_at = datetime.now(UTC)
+        prepared = tuple((source, *self._encode(source, saved_at=saved_at)) for source in sources)
 
         position = await _lock_journal_head(connection, scope_id)
         existing = await self._existing_many(connection, scope_id, tuple(ref for _, ref, _ in prepared))
@@ -202,9 +230,11 @@ class SourceRepository:
                     and not stored.value.handoff_receipt
                     and stored.value.model_copy(update={"handoff_receipt": True}) == source
                 ):
-                    stored = StoredSource(ref=ref, value=source, journal_position=stored.journal_position)
+                    stored = StoredSource(
+                        ref=ref, value=source, journal_position=stored.journal_position, saved_at=stored.saved_at
+                    )
                     existing[key] = stored
-                    upgrades[key] = payload
+                    upgrades[key] = self._encode(source, saved_at=stored.saved_at)[1]
                 elif stored.value != source:
                     raise StoredPayloadConflictError("source", (scope_id, ref))
                 else:
@@ -212,7 +242,7 @@ class SourceRepository:
                 results.append((stored, False))
                 continue
             position += 1
-            stored = StoredSource(ref=ref, value=source, journal_position=position)
+            stored = StoredSource(ref=ref, value=source, journal_position=position, saved_at=saved_at)
             existing[key] = stored
             new_sources[key] = (ref, source)
             new_rows.append({
@@ -226,16 +256,18 @@ class SourceRepository:
 
         if new_rows:
             await connection.execute(
-                update(SOURCE_JOURNAL_HEADS_TABLE)
-                .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-                .values(position=position)
+                _JOURNAL_HEAD_ADVANCE,
+                {"requested_scope_id": scope_id, "next_position": position},
             )
             await connection.execute(insert(SOURCES_TABLE), new_rows)
             # Reuse only within this journal-locked batch; a rollback or later
             # registration must never inherit an earlier transaction's result.
             native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
-            for ref, source in new_sources.values():
-                await self._bind_memory_evidence(connection, scope_id, ref, source, native_manifests)
+            bindings = [
+                await self._memory_evidence_binding(connection, scope_id, ref, source, native_manifests)
+                for ref, source in new_sources.values()
+            ]
+            await connection.execute(insert(SOURCE_EVIDENCE_BINDINGS_TABLE), bindings)
         for (source_type, source_id), payload in upgrades.items():
             await connection.execute(
                 update(SOURCES_TABLE)
@@ -249,10 +281,10 @@ class SourceRepository:
         if new_rows:
             intents = ArtifactProcessingIntentRepository()
             await intents.mark_dirty_many(connection, scope_id, SOURCE_PROCESSING_BINDINGS, increment=len(new_rows))
-            await _mark_custom_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
+            await _mark_plugin_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
         return tuple(results)
 
-    def _encode(self, source: Source) -> tuple[SourceRef, bytes]:
+    def _encode(self, source: Source, *, saved_at: datetime | None = None) -> tuple[SourceRef, bytes]:
         if isinstance(source, SourceObservation):
             ref = SourceRef(source_type=source.source_type, source_id=source.name)
             representation: Literal["native", "observation"] = "observation"
@@ -260,7 +292,7 @@ class SourceRepository:
             definition = self._registry.definition_for_source(source)
             ref = SourceRef(source_type=definition.name, source_id=source.name)
             representation = "native"
-        return ref, _dump_source(source, representation=representation, name=ref.source_type)
+        return ref, _dump_source(source, representation=representation, name=ref.source_type, saved_at=saved_at)
 
     async def get(
         self,
@@ -275,7 +307,9 @@ class SourceRepository:
         row = await self._find_row(connection, scope_id, ref)
         if row is None:
             raise RepositoryNotFoundError("source", (scope_id, ref))
-        return self.decode_source(row)
+        stored = self.decode_source(row)
+        stored.validate_locator(ref)
+        return stored
 
     async def get_many(
         self,
@@ -301,6 +335,8 @@ class SourceRepository:
         for ref in ordered:
             if (ref.source_type, ref.source_id) not in decoded:
                 raise RepositoryNotFoundError("source", (scope_id, ref))
+        for ref in refs:
+            decoded[(ref.source_type, ref.source_id)].validate_locator(ref)
         return tuple(decoded[(ref.source_type, ref.source_id)] for ref in ordered)
 
     async def _existing_many(
@@ -312,12 +348,11 @@ class SourceRepository:
             rows = (
                 (
                     await connection.execute(
-                        select(SOURCES_TABLE).where(
-                            SOURCES_TABLE.c.scope_id == scope_id,
-                            tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(
-                                keys[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT]
-                            ),
-                        )
+                        _SOURCE_SELECTION,
+                        {
+                            "requested_scope_id": scope_id,
+                            "source_keys": keys[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT],
+                        },
                     )
                 )
                 .mappings()
@@ -739,15 +774,15 @@ class SourceRepository:
             )
         return tuple(evidence)
 
-    async def _bind_memory_evidence(
+    async def _memory_evidence_binding(
         self,
         connection: AsyncConnection,
         scope_id: str,
         ref: SourceRef,
         source: Source,
         native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None],
-    ) -> None:
-        """Freeze registration evidence only for a newly accepted Source row."""
+    ) -> dict[str, Any]:
+        """Prepare the immutable evidence binding within the accepting transaction."""
 
         if isinstance(source, SourceObservation):
             manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
@@ -773,18 +808,16 @@ class SourceRepository:
         declaration = (
             MemoryEvidenceDeclaration() if manifest is None else self._registry.memory_evidence_for_source(source)
         )
-        await connection.execute(
-            insert(SOURCE_EVIDENCE_BINDINGS_TABLE).values(
-                scope_id=scope_id,
-                source_type=ref.source_type,
-                source_id=ref.source_id,
-                material_digest=_source_material_digest(source),
-                definition_name=ref.source_type,
-                definition_version=source.definition_version,
-                manifest_fingerprint=None if manifest is None else manifest.fingerprint,
-                declaration=declaration.model_dump_json().encode("utf-8"),
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "source_type": ref.source_type,
+            "source_id": ref.source_id,
+            "material_digest": _source_material_digest(source),
+            "definition_name": ref.source_type,
+            "definition_version": source.definition_version,
+            "manifest_fingerprint": None if manifest is None else manifest.fingerprint,
+            "declaration": declaration.model_dump_json().encode("utf-8"),
+        }
 
     async def list(
         self,
@@ -932,6 +965,7 @@ class SourceRepository:
         source_type = str(row["source_type"])
         source_id = str(row["source_id"])
         payload = stored_bytes(row["payload"], column="payload")
+        saved_at = None
         try:
             envelope = load_model(
                 _StoredSourcePayload,
@@ -943,6 +977,7 @@ class SourceRepository:
             source, decoded = self._decode_legacy_payload(source_type, payload)
         else:
             source, decoded = self._decode_envelope(source_type, envelope)
+            saved_at = envelope.saved_at
         indexed = SourceRef(source_type=source_type, source_id=source_id)
         if indexed != decoded:
             raise IdentityMismatchError("source", indexed, decoded)
@@ -950,6 +985,7 @@ class SourceRepository:
             ref=indexed,
             value=source,
             journal_position=int(row["journal_position"]),
+            saved_at=saved_at,
         )
 
     async def _retain_native_header(
@@ -1187,10 +1223,12 @@ def _dump_source(
     *,
     representation: Literal["native", "observation"],
     name: str,
+    saved_at: datetime | None = None,
 ) -> bytes:
     try:
         envelope = _StoredSourcePayload(
             encoding="powercontext-source-v1",
+            saved_at=saved_at,
             representation=representation,
             value=_JSON_OBJECT.validate_python(source.model_dump(mode="json", by_alias=True)),
             source=None if representation == "observation" else _source_header(source),
@@ -1210,18 +1248,17 @@ def _dump_source(
 async def _lock_journal_head(connection: AsyncConnection, scope_id: str) -> int:
     """Create and lock one scope allocator before reading Source identity."""
 
-    # This no-op UPDATE is intentionally the operation's first database access.
-    # SQLite therefore acquires its write reservation before any read, while
-    # MySQL/OceanBase locks an existing allocator row.
-    await connection.execute(
-        update(SOURCE_JOURNAL_HEADS_TABLE)
-        .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-        .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
-    )
+    # SQLite ignores FOR UPDATE, so it must reserve the write transaction before
+    # reading. MySQL/OceanBase acquires the row lock in the current read below.
+    if connection.dialect.name == "sqlite":
+        await connection.execute(
+            update(SOURCE_JOURNAL_HEADS_TABLE)
+            .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+            .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
+        )
     position = await connection.scalar(
-        select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
-        .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-        .with_for_update()
+        _JOURNAL_HEAD_LOCK,
+        {"requested_scope_id": scope_id},
     )
     if position is None:
         with suppress(IntegrityError):
@@ -1232,9 +1269,8 @@ async def _lock_journal_head(connection: AsyncConnection, scope_id: str) -> int:
                 )
             )
         position = await connection.scalar(
-            select(SOURCE_JOURNAL_HEADS_TABLE.c.position)
-            .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-            .with_for_update()
+            _JOURNAL_HEAD_LOCK,
+            {"requested_scope_id": scope_id},
         )
     if not isinstance(position, int) or isinstance(position, bool) or position < 0:
         raise InvalidStoredColumnError("journal_position", "a non-negative scope head")
@@ -1248,22 +1284,13 @@ def _require_identity(field: str, value: object, maximum: int) -> None:
         raise InvalidRepositoryArgumentError(field, f"must not exceed {maximum} characters")
 
 
-async def _mark_custom_bindings_dirty(
+async def _mark_plugin_bindings_dirty(
     connection: AsyncConnection,
     scope_id: str,
     intents: ArtifactProcessingIntentRepository,
     *,
     increment: int,
 ) -> None:
-    plugins = (
-        await connection.execute(
-            select(
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name,
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec[("manifest", "scope_ids")].label("scope_ids"),
-            ).where(ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec.is_not(None))
-        )
-    ).all()
-    bindings = tuple(
-        plugin.binding_name for plugin in plugins if plugin.scope_ids is None or scope_id in plugin.scope_ids
-    )
-    await intents.mark_dirty_many(connection, scope_id, bindings, increment=increment)
+    from powercontext.builtin.plugins.families import source_bindings
+
+    await intents.mark_dirty_many(connection, scope_id, source_bindings(scope_id), increment=increment)

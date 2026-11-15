@@ -38,13 +38,14 @@ from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -93,6 +94,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_TAGS_TABLE,
     ARTIFACTS_TABLE,
     CANDIDATE_HEADS_TABLE,
@@ -121,7 +123,7 @@ from powercontext.builtin.sources.observation_validation import (
 )
 from powercontext.builtin.tags import normalize_tags
 from powercontext.errors import SourceError
-from powercontext.sources import SourceDefinitionManifest, SourceObservation
+from powercontext.sources import SourceDefinitionManifest, SourceLocator, SourceObservation, SourceRef
 from powercontext.sources.evidence import MemoryEvidenceDeclaration, SourceEvidence
 
 FORMAT_VERSION = 1
@@ -179,6 +181,7 @@ RecordType = Literal[
     "artifact_revision",
     "artifact_handle",
     "artifact_lineage_source",
+    "artifact_source_locator",
     "artifact_lineage_artifact",
     "artifact_publication",
     "artifact_head",
@@ -273,6 +276,8 @@ class _Record:
     identity: Mapping[str, str | int]
     payload: Mapping[str, Any]
     digest: str
+    # The digest an earlier-schema archive wrote, which its total digest covers; ``digest`` is the current schema's.
+    archived_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +297,8 @@ class _RecordSpec:
     payload: tuple[str, ...]
     scope_field: str | None = "scope_id"
     schema_version: int = 1
+    # Payload fields of earlier schema versions still accepted on restore; fields they lack restore as null.
+    earlier_payloads: dict[int, tuple[str, ...]] = dataclass_field(default_factory=dict)
 
 
 _SPECS: dict[RecordType, _RecordSpec] = {
@@ -339,8 +346,9 @@ _SPECS: dict[RecordType, _RecordSpec] = {
     "artifact_revision": _RecordSpec(
         ARTIFACTS_TABLE,
         ("scope_id", "family", "artifact_id", "revision"),
-        ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason"),
-        schema_version=2,
+        ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason", "metadata"),
+        schema_version=3,
+        earlier_payloads={2: ("content", "created_at", "created_by", "restored_from_revision", "rollback_reason")},
     ),
     "artifact_handle": _RecordSpec(
         ARTIFACT_HANDLES_TABLE,
@@ -351,6 +359,11 @@ _SPECS: dict[RecordType, _RecordSpec] = {
         ARTIFACT_LINEAGE_SOURCES_TABLE,
         ("scope_id", "family", "artifact_id", "revision", "ordinal"),
         ("source_type", "source_id"),
+    ),
+    "artifact_source_locator": _RecordSpec(
+        ARTIFACT_SOURCE_LOCATORS_TABLE,
+        ("scope_id", "family", "artifact_id", "revision", "ordinal"),
+        ("locator",),
     ),
     "artifact_lineage_artifact": _RecordSpec(
         ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
@@ -518,10 +531,18 @@ class PortableBundleService:
         self._artifact_content_decoder = artifact_content_decoder
         self._candidate_decoder = candidate_decoder
         self._source_decoder = source_decoder
+        self._family_decoders: dict[str, Callable[[Mapping[str, Any]], object]] = {}
         self._supported_source_types = None if supported_source_types is None else frozenset(supported_source_types)
         self._supported_artifact_families = (
             None if supported_artifact_families is None else frozenset(supported_artifact_families)
         )
+
+    def register_artifact_family(self, family: str, decoder: Callable[[Mapping[str, Any]], object]) -> None:
+        """Add a loaded family's storage decoder to validation and restoration."""
+
+        self._family_decoders[family] = decoder
+        if self._supported_artifact_families is not None:
+            self._supported_artifact_families = self._supported_artifact_families | {family}
 
     async def export(
         self,
@@ -862,13 +883,16 @@ class PortableBundleService:
             if self._candidate_decoder is None:
                 raise BundleFormatError("target cannot validate Candidate proposals")
             return
-        if record.record_type != "artifact_revision" or self._artifact_content_decoder is None:
+        if record.record_type != "artifact_revision":
             return
         family = str(record.identity["family"])
+        decoder = self._family_decoders.get(family, self._artifact_content_decoder)
+        if decoder is None:
+            return
         if self._supported_artifact_families is not None and family not in self._supported_artifact_families:
             return
         try:
-            self._artifact_content_decoder(_row_values(record))
+            decoder(_row_values(record))
         except InvalidStoredPayloadError as error:
             raise BundleFormatError("Artifact content does not match the target family decoder") from error
 
@@ -1213,7 +1237,7 @@ def _parse_bundle(
             scope_ids.append(str(record.identity["scope_id"]))
         count += 1
         counts[record.record_type] += 1
-        digest.add(record.digest)
+        digest.add(record.archived_digest or record.digest)
         _report_progress(progress, phase, count, manifest["record_count"])
     expected_count = manifest["record_count"]
     if count != expected_count:
@@ -1413,7 +1437,10 @@ def _parse_record(value: object) -> _Record:
         not isinstance(record_type, str)
         or record_type not in _SPECS
         or type(value.get("schema_version")) is not int
-        or value["schema_version"] != _SPECS[cast(RecordType, record_type)].schema_version
+        or (
+            value["schema_version"] != _SPECS[cast(RecordType, record_type)].schema_version
+            and value["schema_version"] not in _SPECS[cast(RecordType, record_type)].earlier_payloads
+        )
     ):
         raise BundleFormatError("unsupported record type or schema")
     identity = value.get("identity")
@@ -1425,22 +1452,32 @@ def _parse_record(value: object) -> _Record:
     payload = cast(dict[str, Any], payload)
     typed = cast(RecordType, record_type)
     spec = _SPECS[typed]
+    version = cast(int, value["schema_version"])
+    fields = spec.payload if version == spec.schema_version else spec.earlier_payloads[version]
     if (
         set(identity) != set(spec.identity)
-        or set(payload) != set(spec.payload)
+        or set(payload) != set(fields)
         or any(type(item) is not spec.table.c[field].type.python_type for field, item in identity.items())
         or not _valid_digest(digest)
     ):
         raise BundleFormatError("record has invalid identity or digest")
     canonical = {
         "record_type": typed,
-        "schema_version": spec.schema_version,
+        "schema_version": version,
         "identity": identity,
         "payload": payload,
     }
     if _digest(canonical) != digest:
         raise BundleFormatError("record digest does not match content")
-    record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    if version == spec.schema_version:
+        record = _Record(record_type=typed, identity=identity, payload=payload, digest=digest)
+    else:
+        # Staging and target comparisons use the current schema, so the verified record is re-identified in it.
+        payload = {name: payload.get(name) for name in spec.payload}
+        current = {**canonical, "schema_version": spec.schema_version, "payload": payload}
+        record = _Record(
+            record_type=typed, identity=identity, payload=payload, digest=_digest(current), archived_digest=digest
+        )
     _validate_record_values(record)
     _validate_record_safe(record)
     return record
@@ -1562,6 +1599,7 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
             raise BundleFormatError("Skill package has invalid digest")
     elif kind == "artifact_revision":
         bytes_values("content")
+        bytes_values("metadata", nullable=("metadata",))
         strings("created_at", "created_by", "rollback_reason", nullable=("created_at", "created_by", "rollback_reason"))
         if payload["created_at"] is not None:
             _validate_datetime_text(payload["created_at"])
@@ -1582,6 +1620,12 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
             raise BundleFormatError("artifact handle is invalid") from error
     elif kind == "artifact_lineage_source":
         strings("source_type", "source_id")
+    elif kind == "artifact_source_locator":
+        bytes_values("locator")
+        try:
+            TypeAdapter(SourceLocator).validate_python(_decoded_bytes_json(payload["locator"], "Source locator"))
+        except ValidationError as error:
+            raise BundleFormatError("Source locator has invalid domain values") from error
     elif kind == "artifact_lineage_artifact":
         strings("upstream_family", "upstream_artifact_id")
         integers("upstream_revision", positive=True)
@@ -1816,6 +1860,8 @@ async def _validate_selected_scopes(connection: AsyncConnection, scopes: tuple[s
 def _validate_record_safe(record: _Record, /) -> None:
     """Reject secret-shaped configuration and host paths without echoing content."""
 
+    # Source payloads are preserved evidence: capture metadata such as `cwd` is history, not host configuration.
+    host_paths = record.record_type != "source"
     for field, value in record.payload.items():
         encoded = cast(dict[str, object], value).get("base64") if isinstance(value, dict) else None
         if isinstance(encoded, str):
@@ -1825,12 +1871,12 @@ def _validate_record_safe(record: _Record, /) -> None:
                 raise
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            _validate_safe_value(decoded, field)
+            _validate_safe_value(decoded, field, host_paths=host_paths)
         else:
-            _validate_safe_value(value, field)
+            _validate_safe_value(value, field, host_paths=host_paths)
 
 
-def _validate_safe_value(value: object, key: str | None = None) -> None:
+def _validate_safe_value(value: object, key: str | None = None, *, host_paths: bool) -> None:
     normalized = "" if key is None else key.casefold().replace("-", "_")
     sensitive_suffixes = ("_api_key", "_credential", "_credentials", "_password", "_secret", "_token")
     if (normalized in _SENSITIVE_KEYS or normalized.endswith(sensitive_suffixes)) and value is not None and value != "":
@@ -1838,7 +1884,8 @@ def _validate_safe_value(value: object, key: str | None = None) -> None:
     if normalized == "authorization" and isinstance(value, str) and value.casefold().startswith(("bearer ", "basic ")):
         raise BundleFormatError("bundle contains a credential-shaped field")
     if (
-        isinstance(value, str)
+        host_paths
+        and isinstance(value, str)
         and (
             normalized.endswith(("_path", "_directory", "_home", "_root"))
             or normalized in {"cwd", "directory", "home", "path", "root", "working_directory", "workspace"}
@@ -1848,10 +1895,10 @@ def _validate_safe_value(value: object, key: str | None = None) -> None:
         raise BundleFormatError("bundle contains an absolute host path")
     if isinstance(value, dict):
         for child_key, child in value.items():
-            _validate_safe_value(child, str(child_key))
+            _validate_safe_value(child, str(child_key), host_paths=host_paths)
     elif isinstance(value, list):
         for child in value:
-            _validate_safe_value(child, key)
+            _validate_safe_value(child, key, host_paths=host_paths)
 
 
 @contextmanager
@@ -2193,6 +2240,9 @@ def _validate_record_dependencies(  # noqa: C901 - logical record kinds have dis
             {"scope_id": scope, "memory_artifact_id": identity["artifact_id"], "entry_id": identity["target_id"]},
         ):
             raise BundleFormatError("artifact tag references missing memory entry")
+    elif record.record_type == "artifact_source_locator":
+        if not contains("artifact_lineage_source", identity):
+            raise BundleFormatError("Source locator references missing lineage")
     elif record.record_type == "artifact_lineage_source":
         if not contains(
             "artifact_revision",
@@ -2605,6 +2655,15 @@ def _reference_items(value: object, kind: Literal["source", "artifact"], /) -> t
     fields = {"source_type", "source_id"} if kind == "source" else {"family", "artifact_id", "revision"}
     references: list[Mapping[str, object]] = []
     for item in decoded:
+        if kind == "source":
+            if not isinstance(item, dict) or set(item) not in (fields, fields | {"locator"}):
+                raise BundleFormatError("source reference has invalid fields")
+            try:
+                SourceRef.model_validate(item, strict=True)
+            except ValidationError as error:
+                raise BundleFormatError("source reference has invalid domain values") from error
+            references.append(cast(Mapping[str, object], item))
+            continue
         if (
             not isinstance(item, dict)
             or set(item) != fields
@@ -2624,6 +2683,7 @@ def _required_artifact_families(records: Iterable[_Record]) -> set[str]:
             "artifact_revision",
             "artifact_handle",
             "artifact_lineage_source",
+            "artifact_source_locator",
             "artifact_lineage_artifact",
             "artifact_head",
             "topic_memory_publication",

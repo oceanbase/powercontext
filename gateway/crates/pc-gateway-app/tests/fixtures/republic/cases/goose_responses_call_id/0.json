@@ -1,0 +1,17 @@
+{
+  "id": "resp_1",
+  "object": "response",
+  "created_at": 0,
+  "status": "completed",
+  "model": "gpt-5.3-codex",
+  "output": [
+    {
+      "type": "function_call",
+      "id": "fc_123",
+      "status": "completed",
+      "call_id": "call_abc",
+      "name": "test__get_person_zip_code",
+      "arguments": "{\"name\":\"Alice Burns\"}"
+    }
+  ]
+}

@@ -27,7 +27,7 @@ jobs:
   validate:
     needs: changes
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').skill_guidance) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -36,10 +36,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.11'
-          cache: pip
-          cache-dependency-path: evaluation/skills/skill-up/requirements-dev.txt
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.10.12"
       - name: Install validation dependencies
-        run: python -m pip install -r evaluation/skills/skill-up/requirements-dev.txt
+        run: |
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/skill-guidance"
+          uv pip sync --python "$RUNNER_TEMP/skill-guidance/bin/python" evaluation/skills/skill-up/requirements-dev.txt
+          echo "$RUNNER_TEMP/skill-guidance/bin" >> "$GITHUB_PATH"
       - name: Install checksum-pinned skill-up
         shell: bash
         run: |

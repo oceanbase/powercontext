@@ -22,9 +22,15 @@ use std::{
 };
 
 fn fixture_dir() -> tempfile::TempDir {
-    tempfile::Builder::new()
+    #[cfg(target_os = "macos")]
+    return tempfile::Builder::new()
         .prefix("ops-bridge-")
         .tempdir_in("/private/tmp")
+        .unwrap();
+    #[cfg(not(target_os = "macos"))]
+    tempfile::Builder::new()
+        .prefix("ops-bridge-")
+        .tempdir()
         .unwrap()
 }
 #[cfg(unix)]
@@ -78,7 +84,14 @@ impl Fixture {
             .keys()
             .map(|p| fs::metadata(support.join("bundle").join(p)).unwrap().len())
             .sum::<u64>();
-        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":if cfg!(windows){"win32"}else{"darwin"},"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
+        let platform = if cfg!(windows) {
+            "win32"
+        } else if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":platform,"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
         let bytes = serde_json::to_vec(&manifest).unwrap();
         fs::write(support.join("bundle/bundle.json"), &bytes).unwrap();
         fs::write(resources.join("ops-provision.json"),serde_json::to_vec(&json!({"format_version":1,"bundle_manifest_sha256":trust::sha256(&bytes),"binding_mode":"target_file"})).unwrap()).unwrap();
@@ -168,6 +181,7 @@ else:
 "#;
 
 #[test]
+#[cfg(target_os = "macos")]
 fn session_diagnostics_project_real_helper_failure_without_reading_its_journal() {
     let f = Fixture::new();
     let observations = SessionObservations::default();
@@ -208,7 +222,7 @@ fn session_diagnostics_project_real_helper_failure_without_reading_its_journal()
 }
 
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn independent_missing_target_inspection_and_unhealthy_result_are_preserved() {
     let f = Fixture::new();
     let host = f.host();
@@ -256,7 +270,7 @@ fn non_utf8_native_path_returns_unavailable_without_panicking() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     let f = Fixture::new();
     let host = f.host();
@@ -299,7 +313,7 @@ fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     assert!(host.references().unwrap().operations.is_empty());
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     let f = Fixture::new();
     f.behavior("await_cancel");
@@ -345,7 +359,7 @@ fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn lost_response_keeps_reference_and_helper_finishes_without_replay() {
     let f = Fixture::new();
     let host = f.host();
@@ -416,7 +430,7 @@ fn await_terminal_status(host: &OpsHost, operation_id: &str) -> OpsOperationRepl
     }
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_resume() {
     let f = Fixture::new();
     let host = f.host();
@@ -449,7 +463,7 @@ fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_re
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn bundle_and_packaged_pins_reject_tampering_and_extra_files() {
     let f = Fixture::new();
     fs::write(f.support.join("bundle/entry.py"), b"tampered").unwrap();
@@ -470,6 +484,81 @@ fn bundle_and_packaged_pins_reject_tampering_and_extra_files() {
         Some(OpsBridgeError::IntegrityFailure)
     );
 }
+
+#[test]
+fn packaged_ops_runs_without_a_user_provisioned_bundle_and_rejects_damage() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    assert!(!f.support.join("bundle").exists());
+    fs::write(f.resources.join("ops/entry.py"), b"corrupt").unwrap();
+    assert_eq!(
+        host.inspect().bridge_error,
+        Some(OpsBridgeError::IntegrityFailure)
+    );
+}
+
+#[test]
+fn damaged_packaged_ops_never_falls_back_to_a_user_bundle() {
+    let f = Fixture::new();
+    fs::create_dir(f.resources.join("ops")).unwrap();
+    assert!(f.host().inspect().bridge_error.is_some());
+    fs::remove_dir(f.resources.join("ops")).unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+}
+
+#[test]
+fn packaged_ops_repairs_only_its_cache_and_preserves_it_when_app_resources_are_removed() {
+    let f = Fixture::new();
+    let original = fs::read(f.support.join("bundle/entry.py")).unwrap();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let provision: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.resources.join("ops-provision.json")).unwrap()).unwrap();
+    let cache = f
+        .support
+        .join("bundles")
+        .join(provision["bundle_manifest_sha256"].as_str().unwrap());
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let journal = f.support.join("operator-journal");
+    fs::write(&journal, b"preserve").unwrap();
+    fs::write(cache.join("entry.py"), b"damaged").unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let damaged = fs::read_dir(f.support.join("bundles"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("damaged-")
+        })
+        .unwrap();
+    assert_eq!(fs::read(damaged.join("entry.py")).unwrap(), b"damaged");
+    fs::remove_dir_all(&f.resources).unwrap();
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    assert_eq!(fs::read(journal).unwrap(), b"preserve");
+}
+
+#[test]
+fn concurrent_packaged_provisioning_returns_busy_and_can_retry() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(f.support.join("bundles/provision.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    assert_eq!(host.inspect().bridge_error, Some(OpsBridgeError::Busy));
+    drop(lock);
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+}
+
 fn child(
     script: &str,
     deadline: Duration,
@@ -505,7 +594,7 @@ fn child(
     )
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_children_bound_streams_deadlines_and_inherited_pipe_descendants() {
     for stream in ["stdout", "stderr"] {
         let script = format!(
@@ -643,7 +732,7 @@ fn control_admission_remains_available_when_ordinary_helpers_are_reserved() {
 
 #[test]
 #[ignore = "requires a prepared local Python environment with Ops dependencies; read-only real subprocess"]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_current_ops_inspect_and_preflight_with_missing_server_runtime() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -865,6 +954,115 @@ fn managed_catalog_copy_is_private_immutable_and_pinned_across_launches() {
     ));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_runtime_environment_is_preserved_only_for_a_private_owned_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = fixture_dir();
+    private(dir.path());
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).as_deref(),
+        dir.path().to_str()
+    );
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(PathBuf::new())),
+        trust::trusted_linux_runtime_dir_from(None)
+    );
+
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_xdg_home_environment_preserves_a_non_default_layout() {
+    let dir = fixture_dir();
+    let values = [
+        ("XDG_CONFIG_HOME", dir.path().join("config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+        ("XDG_STATE_HOME", dir.path().join("state")),
+        ("XDG_CACHE_HOME", dir.path().join("cache")),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| values.get(name).cloned()).unwrap();
+    for (name, path) in values {
+        assert_eq!(environment.get(name).map(String::as_str), path.to_str());
+    }
+
+    let relative = std::collections::BTreeMap::from([
+        ("XDG_CONFIG_HOME", PathBuf::from("relative/config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+    ]);
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| relative.get(name).cloned()).unwrap();
+    assert!(!environment.contains_key("XDG_CONFIG_HOME"));
+    assert_eq!(
+        environment.get("XDG_DATA_HOME").map(String::as_str),
+        relative.get("XDG_DATA_HOME").and_then(|path| path.to_str())
+    );
+
+    let parent = std::collections::BTreeMap::from([
+        ("XDG_CONFIG_HOME", dir.path().join("config/../config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+    ]);
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| parent.get(name).cloned()).unwrap();
+    assert!(!environment.contains_key("XDG_CONFIG_HOME"));
+    assert_eq!(
+        environment.get("XDG_DATA_HOME").map(String::as_str),
+        parent.get("XDG_DATA_HOME").and_then(|path| path.to_str())
+    );
+
+    let empty = [
+        ("XDG_CONFIG_HOME", PathBuf::new()),
+        ("XDG_DATA_HOME", PathBuf::new()),
+        ("XDG_STATE_HOME", PathBuf::new()),
+        ("XDG_CACHE_HOME", PathBuf::new()),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    assert!(
+        trust::trusted_linux_xdg_environment_from(|name| empty.get(name).cloned())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_desktop_support_dir_uses_the_validated_xdg_data_base() {
+    let dir = fixture_dir();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    for configured in [
+        Some(dir.path().join("pc-xdg/child/../data")),
+        Some(PathBuf::from("relative-data")),
+        Some(PathBuf::new()),
+        None,
+    ] {
+        let data_home = super::resolve_local_data_dir_from(
+            Some(dir.path().join("tauri-local-data")),
+            Some(&home),
+            configured,
+        )
+        .unwrap();
+        let host = OpsHost::new(None, Some(data_home), Some(home.clone()));
+        let expected = home.join(".local/share/PowerContext/Ops");
+        assert_eq!(host.0.trust.support.as_deref(), Some(expected.as_path()));
+    }
+
+    let override_dir = dir.path().join("custom-data");
+    let data_home =
+        trust::trusted_linux_data_home_from(Some(&home), Some(override_dir.clone())).unwrap();
+    let host = OpsHost::new(None, Some(data_home), Some(home));
+    let expected = override_dir.join("PowerContext/Ops");
+    assert_eq!(host.0.trust.support.as_deref(), Some(expected.as_path()));
+}
+
 #[test]
 fn database_admission_v1_extensions_remain_bounded_and_actionable() {
     let r = request(OpsAction::Inspect, json!({}));
@@ -929,8 +1127,8 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         .expect("set externally approved manifest pin");
     assert!(trust::is_digest(&pin));
     let f = Fixture::new();
-    let bundle = f.support.join("bundle");
-    fs::remove_dir_all(&bundle).unwrap();
+    fs::remove_dir_all(f.support.join("bundle")).unwrap();
+    let bundle = f.resources.join("ops");
     copy(&source, &bundle);
     fs::write(
         f.resources.join("ops-provision.json"),
@@ -971,4 +1169,150 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         host.inspect().bridge_error,
         Some(OpsBridgeError::IntegrityFailure)
     );
+}
+
+#[test]
+fn reopening_preserves_approved_action_and_rejects_different_recovery_options() {
+    let f = Fixture::new();
+    let host = f.host();
+    let approval = f.approve(&host);
+    let approval_id = approval.approval_id.clone();
+    let (send, receive) = mpsc::channel();
+    let result = host
+        .apply(approval, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    let progress = receive.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(progress.approval_id.as_deref(), Some(approval_id.as_str()));
+    let reopened = f.host();
+    let references = reopened.references().unwrap();
+    let reference = &references.operations[0];
+    assert_eq!(reference.operation_id, result.operation_id);
+    assert_eq!(reference.operation, Some(OpsOperation::RemoveRegistration));
+    assert_eq!(reference.options.as_ref().unwrap().wire_value(), json!({}));
+    assert!(matches!(
+        reopened.preflight(OpsPreflightInput {
+            operation: OpsOperation::Register,
+            options: OpsOptions {
+                start_on_login: Some(false),
+                ..Default::default()
+            },
+            resume: Some(OpsResumeReference {
+                operation_id: result.operation_id,
+                expected_attempt: 1
+            })
+        }),
+        Err(OpsBridgeError::InvalidInput)
+    ));
+}
+
+#[test]
+fn legacy_operation_references_remain_queryable_without_inventing_an_action() {
+    let f = Fixture::new();
+    let host = f.host();
+    let result = host.apply(f.approve(&host), |_| {}).unwrap();
+    let path = f.support.join("bridge-operations.json");
+    let mut document: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for field in ["operation", "options"] {
+        document["operations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+    }
+    fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let reopened = f.host();
+    assert!(
+        reopened.references().unwrap().operations[0]
+            .operation
+            .is_none()
+    );
+    assert_eq!(
+        reopened
+            .operation_status(OpsStatusInput {
+                operation_id: result.operation_id
+            })
+            .unwrap()
+            .outcome,
+        OpsOutcome::Succeeded
+    );
+}
+
+#[test]
+fn local_handoff_requires_independent_positive_ownership_and_service_facts() {
+    let mut components: OpsComponents = serde_json::from_value(json!({
+        "managerOwnership":"owned", "manager":"active", "registration":"installed", "definition":"current",
+        "configuration":"valid", "liveness":"live", "resources":"present", "installationId":"personal-a",
+        "endpoint":"http://127.0.0.1:8123"
+    })).unwrap();
+    assert_eq!(
+        OpsHost::owned_endpoint(&components).unwrap(),
+        "http://127.0.0.1:8123"
+    );
+    components.manager_ownership = Some(OpsManagerOwnership::Foreign);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.manager_ownership = Some(OpsManagerOwnership::Owned);
+    components.resources = Some(OpsRuntimeResources::MissingExecutable);
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+    components.resources = Some(OpsRuntimeResources::Present);
+    components.installation_id = None;
+    assert!(OpsHost::owned_endpoint(&components).is_err());
+}
+
+#[test]
+fn local_qualification_is_bound_to_the_pinned_catalog_and_observed_resource_digest() {
+    let f = Fixture::new();
+    // This valid catalog omits ResourceFile.executable=false. Python's ResourceCatalog accepts it.
+    let catalog = include_bytes!("../../tests/fixtures/local-setup-catalog.json").to_vec();
+    let digest = "1a41e4f4b604815d6b6ed2a76679786a1f5795aed2549542aeeb643094f12c7e";
+    fs::create_dir_all(f.resources.join("server")).unwrap();
+    fs::write(f.resources.join("server/catalog.json"), &catalog).unwrap();
+    let provision = f.resources.join("ops-provision.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&provision).unwrap()).unwrap();
+    value["binding_mode"] = "managed_catalog".into();
+    value["catalog_sha256"] = trust::sha256(&catalog).into();
+    fs::write(provision, serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut components: OpsComponents =
+        serde_json::from_value(json!({"resourceId":"resource-a", "resourceDigest":digest}))
+            .unwrap();
+    let host = f.host();
+    let mut qualifications = vec![crate::connections::session::CompatibilityProfile {
+        authenticated_clients: None,
+        id: "qualified-profile-a".into(),
+        server_commit: "d".repeat(40),
+        artifact_sha256: "e".repeat(64),
+        contract_sha256: "synthetic-fixture".into(),
+        operations: vec![],
+        evidence: "Synthetic catalog identity only; not platform qualification".into(),
+    }];
+    assert_eq!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications)
+            .unwrap(),
+        ("qualified-profile-a".into(), "1.4.2".into())
+    );
+    qualifications[0].artifact_sha256 = "f".repeat(64);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].artifact_sha256 = "e".repeat(64);
+    qualifications[0].server_commit = "f".repeat(40);
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
+    qualifications[0].server_commit = "d".repeat(40);
+    components.resource_digest = Some("a".repeat(64));
+    assert!(matches!(
+        host.0
+            .trust
+            .connection_qualification(&components, &qualifications),
+        Err(OpsBridgeError::IntegrityFailure)
+    ));
 }

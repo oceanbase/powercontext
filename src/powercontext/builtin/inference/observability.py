@@ -27,7 +27,7 @@ from threading import Lock
 from time import perf_counter
 from typing import Literal
 
-import httpx
+import httpx2
 from typing_extensions import override
 
 from powercontext._logging import error_category, log_safely
@@ -180,7 +180,7 @@ class ProviderObservationSource:
                 "cancelled"
                 if isinstance(error, asyncio.CancelledError)
                 else "timeout"
-                if isinstance(error, (InferenceTimeoutError, TimeoutError, httpx.TimeoutException))
+                if isinstance(error, (InferenceTimeoutError, TimeoutError, httpx2.TimeoutException))
                 else "failure"
             )
             raise
@@ -225,12 +225,12 @@ def observe_business_error(code: object) -> None:
         source.emit("business", outcome="failure", business_code=code if type(code) is int else None)
 
 
-class _ObservedTransport(httpx.AsyncBaseTransport):
-    def __init__(self, delegate: httpx.AsyncBaseTransport) -> None:
+class _ObservedTransport(httpx2.AsyncBaseTransport):
+    def __init__(self, delegate: httpx2.AsyncBaseTransport) -> None:
         self.delegate = delegate
 
     @override
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         source = _ACTIVE.get()
         if source is None or _SUPPRESSED.get():
             return await self.delegate.handle_async_request(request)
@@ -250,10 +250,10 @@ class _ObservedTransport(httpx.AsyncBaseTransport):
         except asyncio.CancelledError:
             outcome = "cancelled"
             raise
-        except httpx.TimeoutException:
+        except httpx2.TimeoutException:
             outcome = "timeout"
             raise
-        except (httpx.ConnectError, httpx.NetworkError):
+        except (httpx2.ConnectError, httpx2.NetworkError):
             outcome = "failure"
             raise
         else:
@@ -268,7 +268,7 @@ class _ObservedTransport(httpx.AsyncBaseTransport):
         await self.delegate.aclose()
 
 
-def observe_http_client(client: httpx.AsyncClient) -> None:
+def observe_http_client(client: httpx2.AsyncClient) -> None:
     """Wrap a newly owned client's transports, preserving its configuration and proxies.
 
     HTTPX has no transport-observation setter. Keep these two private seams here;
@@ -276,9 +276,9 @@ def observe_http_client(client: httpx.AsyncClient) -> None:
     """
     from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
 
-    transports: dict[int, httpx.AsyncBaseTransport] = {}
+    transports: dict[int, httpx2.AsyncBaseTransport] = {}
 
-    def wrap(transport: httpx.AsyncBaseTransport) -> httpx.AsyncBaseTransport:
+    def wrap(transport: httpx2.AsyncBaseTransport) -> httpx2.AsyncBaseTransport:
         if isinstance(transport, _ObservedTransport):
             return transport
         if id(transport) not in transports:

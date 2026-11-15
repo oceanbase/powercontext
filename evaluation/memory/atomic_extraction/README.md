@@ -12,6 +12,11 @@ The three dispositions belong only to this evaluation:
 
 No disposition or routing field is added to the production `AtomicMemoryCandidate` schema.
 
+The current dataset is `cases/atomic-extraction-v2.json`. Its literal-retention case describes stored configuration
+state, so its strict `fact` expectation does not conflict with a requirement that could legitimately be classified as
+`constraint`. The separate system-constraint case checks requirements. Both retain exact kind, literal, subject and
+evidence checks. Earlier dataset files remain available for reproducing historical evaluations.
+
 ## Offline validation and tests
 
 From the repository root:

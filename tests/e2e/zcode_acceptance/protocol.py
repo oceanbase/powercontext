@@ -23,6 +23,7 @@ import threading
 from collections.abc import Callable
 from hashlib import sha256
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -206,6 +207,9 @@ class HostModelFixture:
     def __init__(self) -> None:
         self.actions: list[ToolAction] = []
         self.step = 0
+        self.call_prefix = uuid4().hex
+        self.pending: dict[str, Any] | None = None
+        self.failure_code: str | None = None
         self.requests: list[dict[str, Any]] = []
         self.generation_requests: list[dict[str, Any]] = []
         self.answer_from_context = False
@@ -215,6 +219,9 @@ class HostModelFixture:
     def plan(self, actions: list[ToolAction] | None = None, *, recall: bool = False) -> None:
         self.actions = actions or []
         self.step = 0
+        self.call_prefix = uuid4().hex
+        self.pending = None
+        self.failure_code = None
         self.answer_from_context = recall
 
     async def complete(self, request: Request) -> Response:
@@ -222,7 +229,18 @@ class HostModelFixture:
         if body["model"] == "memory-fixture":
             return self.generate_memory(body)
         self.requests.append(body)
-        if self.step < len(self.actions):
+        if self.failure_code:
+            return JSONResponse({"error": {"message": self.failure_code}}, status_code=400)
+        acknowledged = self.pending is not None and any(
+            message.get("role") == "tool" and message.get("tool_call_id") == self.pending["tool_calls"][0]["id"]
+            for message in body.get("messages", [])
+        )
+        # Replayed requests must not execute argument factories for the next action
+        # before the host delivers the previous result. Tool-free title requests
+        # are independent of the controlled conversation.
+        if body.get("tools") and self.pending is not None and not acknowledged:
+            delta = self.pending
+        elif body.get("tools") and self.step < len(self.actions):
             operation, arguments = self.actions[self.step]
             tool = next(
                 (
@@ -232,15 +250,22 @@ class HostModelFixture:
                 ),
                 None,
             )
-            assert tool is not None, f"host catalog lacks PowerContext {operation}"
-            encoded_arguments = json.dumps(arguments if isinstance(arguments, dict) else arguments())
+            try:
+                assert tool is not None, "fixture_tool_unavailable"
+                encoded_arguments = json.dumps(arguments if isinstance(arguments, dict) else arguments())
+            except Exception as error:
+                # A failed prerequisite is terminal, not a retryable provider outage.
+                # Preserve fixed assertion codes without leaking native tool output.
+                code = str(error) if isinstance(error, AssertionError) else ""
+                self.failure_code = code if re.fullmatch(r"[a-z][a-z0-9_]{0,95}", code) else "fixture_action_failed"
+                return JSONResponse({"error": {"message": self.failure_code}}, status_code=400)
             self.step += 1
             delta = {
                 "role": "assistant",
                 "tool_calls": [
                     {
                         "index": 0,
-                        "id": f"call-{self.step}",
+                        "id": f"call-{self.call_prefix}-{self.step}",
                         "type": "function",
                         "function": {
                             "name": tool,
@@ -249,7 +274,7 @@ class HostModelFixture:
                     }
                 ],
             }
-            finish = "tool_calls"
+            self.pending = delta
         else:
             answer = "Synthetic operation complete."
             if self.answer_from_context:
@@ -261,7 +286,7 @@ class HostModelFixture:
                 match = re.search(r"verification color is (\w+-\d+)", "\n".join(contexts))
                 answer = match[1] if match else "No prepared evidence received."
             delta = {"role": "assistant", "content": answer}
-            finish = "stop"
+        finish = "tool_calls" if "tool_calls" in delta else "stop"
 
         if not body.get("stream"):
             return JSONResponse({

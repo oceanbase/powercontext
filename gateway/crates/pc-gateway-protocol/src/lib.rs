@@ -19,9 +19,11 @@
 //! 不任意合并旧消息、不静默重映射目标。
 
 mod canonical;
+mod content;
 mod render;
 mod sse;
 
 pub use canonical::*;
+pub use content::{first_model_content_offset, OutputProtocol};
 pub use render::*;
 pub use sse::*;

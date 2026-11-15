@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import sys
 from decimal import ROUND_HALF_UP, Decimal
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
@@ -175,9 +176,14 @@ def _load_stats(settings: CodexPluginSettings, scope_id: str, period: str, *, de
         with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
             result = json.loads(_read_response(response, deadline=request_deadline, chunk_bytes=1))
     except HTTPError as error:
-        code = _decode_error_code(_read_response(error, deadline=request_deadline, chunk_bytes=1))
-        raise _HttpStatusError(error.code, "/v1/stats", code) from error
-    except (TimeoutError, OSError) as error:
+        try:
+            error_body = _read_response(error, deadline=request_deadline, chunk_bytes=1)
+        except (OSError, HTTPException) as failure:
+            # A stalled, reset, or truncated body is a transport failure, as it is for a successful response.
+            raise _ServerUnavailableError from failure
+        raise _HttpStatusError(error.code, "/v1/stats", _decode_error_code(error_body)) from error
+    except (OSError, HTTPException) as error:
+        # http.client reports a truncated or malformed response as HTTPException, not OSError.
         raise _ServerUnavailableError from error
     if not isinstance(result, dict) or token_reduction(result) is None:
         raise TypeError
@@ -213,27 +219,23 @@ def _emit_failure(error: BaseException, *, emitted: set[str], events: list[dict[
         _append_event("authentication_failed", {}, recovery=None, emitted=emitted, events=events)
         return
     if isinstance(error, ScopeBindingStatusError):
-        if error.status == 503:
-            _append_event(
-                "server_unavailable",
-                {"http_status": error.status},
-                recovery="powercontext doctor",
-                emitted=emitted,
-                events=events,
-            )
-        elif error.status == 404 and error.path == "/v1/scope-bindings/resolve":
+        if error.status == 404 and error.path == "/v1/scope-bindings/resolve" and error.code is None:
             _append_event(
                 "version_mismatch", {"http_status": error.status}, recovery=None, emitted=emitted, events=events
             )
         else:
-            _append_event(
-                "invalid_response", {"http_status": error.status}, recovery=None, emitted=emitted, events=events
-            )
+            fields: dict[str, object] = {"http_status": error.status}
+            if error.code is not None:
+                fields["error_code"] = error.code
+            _append_event("invalid_response", fields, recovery=None, emitted=emitted, events=events)
         return
     if isinstance(error, (ScopeBindingUnavailableError, _ServerUnavailableError, TimeoutError)):
+        status_fields: dict[str, object] = {}
+        if isinstance(error, ScopeBindingUnavailableError) and error.status is not None:
+            status_fields["http_status"] = error.status
         _append_event(
             "server_unavailable",
-            {},
+            status_fields,
             recovery="powercontext doctor",
             emitted=emitted,
             events=events,

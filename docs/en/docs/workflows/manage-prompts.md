@@ -14,11 +14,12 @@ future processing windows; evidence boundaries, person attribution, sensitive-at
 contract remain fixed by the server.
 
 `atomic_memory.reconcile` customizes how an extracted Memory candidate is compared with related memories and earlier
-candidates from the same window. When `atomic_memory.extract` and `atomic_memory.reconcile` both use Auto, a candidate
+candidates from the same window. When `atomic_memory.extract` and `atomic_memory.reconcile` both use Auto, an earlier
+candidate is compared only when it meets the related-memory threshold that selects published memories, and a candidate
 with nothing to compare is kept as extracted without a reconciliation request. When either Prompt is Custom, every
-candidate is reconciled. Extraction decides which facts are worth keeping. Built-in reconciliation can also drop a
-candidate it judges unworthy, but only while comparing it, so the first candidate of a window that has no related
-memory does not get that second check.
+candidate is reconciled against all earlier candidates of its window. Extraction decides which facts are worth keeping.
+Built-in reconciliation can also drop a candidate it judges unworthy, but only while comparing it, so a candidate with
+no related memory or related earlier candidate does not get that second check.
 
 ## Edit and verify
 

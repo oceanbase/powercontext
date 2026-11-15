@@ -16,6 +16,9 @@
 
 import hashlib
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -286,3 +289,153 @@ def test_markdown_report_discloses_full_profile_subset_and_unknown_cost() -> Non
     assert "generator-id" in rendered
     assert "judge-id" in rendered
     assert "| judge | 1 | unknown | unknown | unknown | unknown | unknown |" in rendered
+
+
+def _scored_observation(category: int, score: float, **fields: object) -> dict[str, object]:
+    return {"category": category, "status": "ok", "judge": {"score": score}, **fields}
+
+
+def test_reference_shape_bins_score_and_account_for_eligible_observations() -> None:
+    observations = [
+        _scored_observation(4, 1, gold_answer="Paris"),
+        _scored_observation(4, 0.5, gold_answer="the blue bicycle near the river"),
+        _scored_observation(4, 0, gold_answer="one two three four five six seven eight nine ten eleven twelve"),
+        _scored_observation(4, 1),
+        _scored_observation(4, 1, gold_answer=""),
+        _scored_observation(4, 1, gold_answer=" \t\n"),
+        _scored_observation(4, 1, gold_answer=42),
+        _scored_observation(5, 0, gold_answer="The conversation did not provide any evidence about that claim"),
+        _scored_observation(6, 1, gold_answer=""),
+        _scored_observation(6, 1),
+    ]
+
+    report = summarize_observations(observations)
+    groups = report["by_reference_shape"]
+    assert list(groups) == ["1-2", "3-8", "9+"]
+    for group, score in zip(groups.values(), (1.0, 0.5, 0.0), strict=True):
+        assert group["planned_count"] == group["observed_count"] == group["completed_count"] == 1
+        assert group["quality_rate_on_completed"] == score
+    assert report["by_qa_type"]["adversarial"]["observed_count"] == 1
+
+    labels = report["reference_shape_labels"]
+    assert labels["applicable_count"] == 7
+    assert labels["labeled_count"] == 3
+    assert labels["unlabeled_count"] == 4
+    assert labels["not_applicable_count"] == 3
+    assert labels["labeled_count"] + labels["unlabeled_count"] == labels["applicable_count"]
+    assert sum(group["observed_count"] for group in groups.values()) == labels["labeled_count"]
+    assert labels["applicable_count"] + labels["not_applicable_count"] == len(observations)
+    assert labels["policy"] == "reference-word-bins-v1 (1-2, 3-8, 9+)"
+    assert "without inferred labels" in labels["source"]
+    assert "LoCoMo-Plus" in labels["source"]
+    assert "LoCoMo Table 2" in labels["source"]
+
+
+@pytest.mark.parametrize(("words", "expected"), [(2, "1-2"), (3, "3-8"), (8, "3-8"), (9, "9+")])
+def test_reference_shape_keeps_empty_bins_at_boundaries(words: int, expected: str) -> None:
+    report = summarize_observations([_scored_observation(1, 1, gold_answer=" ".join(["word"] * words))])
+    groups = report["by_reference_shape"]
+
+    assert list(groups) == ["1-2", "3-8", "9+"]
+    assert groups[expected]["quality_rate_on_completed"] == 1.0
+    for shape, group in groups.items():
+        count = int(shape == expected)
+        assert group["planned_count"] == group["observed_count"] == group["completed_count"] == count
+        if not count:
+            assert group["quality_rate_on_completed"] is None
+            assert group["end_to_end_success_rate"] is None
+
+
+def test_reference_shape_is_omitted_without_any_labeled_comparable_observation() -> None:
+    report = summarize_observations([_scored_observation(1, 1), _scored_observation(5, 1, gold_answer="Unknown")])
+
+    assert "by_reference_shape" not in report
+    labels = report["reference_shape_labels"]
+    assert labels["applicable_count"] == labels["unlabeled_count"] == labels["not_applicable_count"] == 1
+    assert labels["labeled_count"] == 0
+
+
+def test_comparable_four_excludes_adversarial_and_cognitive() -> None:
+    observations = [_scored_observation(category, 1) for category in range(1, 5)]
+    observations += [_scored_observation(5, 0), _scored_observation(6, 0)]
+    report = summarize_observations(observations, planned_count=7)
+    comparable = report["comparable_four"]
+
+    assert comparable.keys() == report["overall"].keys()
+    assert comparable["planned_count"] == comparable["observed_count"] == comparable["completed_count"] == 4
+    assert comparable["quality_rate_on_completed"] == comparable["end_to_end_success_rate"] == 1.0
+    assert report["factual"]["quality_rate_on_completed"] == report["factual"]["end_to_end_success_rate"] == 0.8
+    assert report["overall"]["end_to_end_success_rate"] == 4 / 7
+
+
+def test_comparable_four_uses_case_weighted_micro_average() -> None:
+    observations = [
+        _scored_observation(category, score) for category, score in ((1, 1), (2, 1), (3, 0), (4, 1), (4, 1))
+    ]
+    report = summarize_observations(observations)
+
+    assert report["comparable_four"]["score_sum"] == 4
+    assert report["comparable_four"]["completed_count"] == 5
+    assert report["comparable_four"]["quality_rate_on_completed"] == 0.8
+    assert sum(group["quality_rate_on_completed"] for group in report["by_qa_type"].values()) / 4 == 0.75
+
+
+def test_reference_shape_replay_rebuilds_both_reports(tmp_path: Path) -> None:
+    observations = [
+        _scored_observation(4, 1, case_id="short", gold_answer="Paris"),
+        _scored_observation(4, 0.5, case_id="medium", gold_answer="the blue bicycle near the river"),
+        _scored_observation(5, 0, case_id="adversarial", gold_answer="This answer was not stated in the conversation"),
+    ]
+    manifest = {
+        "run_id": "synthetic-reference-shape",
+        "configuration": {},
+        "selection": {
+            "scope": "subset",
+            "case_ids": ["short", "medium", "adversarial"],
+            "selected_count": 3,
+            "excluded_count": 0,
+        },
+    }
+    observations_path = tmp_path / "observations.jsonl"
+    frozen_rows = "".join(json.dumps(value) + "\n" for value in observations)
+    observations_path.write_text(frozen_rows, encoding="utf-8")
+    (tmp_path / "run.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "evaluation.memory.locomo_plus", "replay", "--run-directory", str(tmp_path)],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert json.loads(result.stdout)["summary"] == summary
+    assert summary["comparable_four"]["quality_rate_on_completed"] == 0.75
+    assert set(summary["by_reference_shape"]) == {"1-2", "3-8", "9+"}
+    assert summary["reference_shape_labels"]["labeled_count"] == 2
+    assert summary["by_reference_shape"]["9+"]["quality_rate_on_completed"] is None
+    markdown = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert "| Comparable four | 2 | 2 | 1 | 1 | 0 | 0 | 75.00% | 75.00% |" in markdown
+    assert "| Ref: 1-2 words |" in markdown
+    assert "| Ref: 3-8 words |" in markdown
+    assert "| Ref: 9+ words | 0 | 0 | 0 | 0 | 0 | 0 | unknown | unknown |" in markdown
+    assert "Reference shape labels: 2 recorded, 0 unavailable" in markdown
+    assert summary["reference_shape_labels"]["policy"] in markdown
+    assert "LoCoMo Table 2" in markdown
+    assert observations_path.read_text(encoding="utf-8") == frozen_rows
+
+
+def test_markdown_can_still_render_a_summary_without_reference_shape_fields() -> None:
+    summary = summarize_observations([_scored_observation(4, 1)])
+    del summary["comparable_four"]
+    del summary["reference_shape_labels"]
+
+    rendered = render_summary(summary)
+
+    assert "| Overall | 1 | 1 | 1 | 0 | 0 | 0 | 100.00% | 100.00% |" in rendered
+    assert "Comparable four" not in rendered
+    assert "Reference shape labels" not in rendered

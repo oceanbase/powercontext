@@ -1,5 +1,5 @@
 {
-  "api_version": "1.5.0",
+  "api_version": "1.5.1",
   "operations": {
     "list_atomic_memories": {
       "method": "POST",
@@ -39,7 +39,8 @@
           "schema": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
           }
         },
         {
@@ -424,17 +425,7 @@
           "in": "path",
           "required": true,
           "schema": {
-            "type": "string",
-            "enum": [
-              "memory",
-              "atomic-memory",
-              "experience",
-              "skill",
-              "handoff",
-              "prompt",
-              "topic-memory",
-              "profile"
-            ]
+            "$ref": "#/components/schemas/ArtifactReadFamily"
           }
         },
         {
@@ -811,7 +802,8 @@
         "scope_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256
+          "maxLength": 256,
+          "pattern": ".*\\S.*"
         },
         "artifact_id": {
           "type": "string",
@@ -989,17 +981,6 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[\\x21-\\x7E]+$"
-          },
-          "schema_version": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "Persisted schema version for a custom Artifact family."
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "revision": {
             "type": "integer",
@@ -1933,15 +1914,6 @@
           }
         }
       },
-      "ContextAssemblyFamily": {
-        "type": "string",
-        "enum": [
-          "memory",
-          "experience",
-          "profile",
-          "topic-memory"
-        ]
-      },
       "ContextAssemblyFormat": {
         "type": "string",
         "enum": [
@@ -1964,7 +1936,16 @@
         ],
         "properties": {
           "family": {
-            "$ref": "#/components/schemas/ContextAssemblyFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "A built-in family (memory, experience, profile, topic-memory) or a loaded plugin family that implements search. A plugin family's entries come from the plugin's search with the request query and this limit; a family that is neither returns HTTP 422."
+          },
+          "search": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Additional generic search fields passed to the plugin's search unchanged, such as mode, filters, fusion, or rerank. Only plugin families accept it; the query and limit come from the request and this section."
           },
           "limit": {
             "type": "integer",
@@ -3450,16 +3431,6 @@
           }
         }
       },
-      "PreparedContextFamily": {
-        "type": "string",
-        "enum": [
-          "atomic-memory",
-          "topic-memory",
-          "experience",
-          "profile",
-          "code"
-        ]
-      },
       "PreparedContextOmittedGroup": {
         "type": "object",
         "additionalProperties": false,
@@ -3470,7 +3441,11 @@
         ],
         "properties": {
           "family": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "reason": {
             "type": "string",
@@ -3865,7 +3840,11 @@
             "maximum": 2
           },
           "family": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "mode": {
             "type": "string",
@@ -3911,7 +3890,11 @@
         ],
         "properties": {
           "kind": {
-            "$ref": "#/components/schemas/PreparedContextFamily"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family."
           },
           "artifact_address": {
             "$ref": "#/components/schemas/ArtifactAddress"
@@ -4268,7 +4251,8 @@
         ]
       },
       "ReplaceArtifactRequest": {
-        "oneOf": [
+        "description": "The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies.",
+        "anyOf": [
           {
             "$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"
           },
@@ -4292,6 +4276,9 @@
           },
           {
             "$ref": "#/components/schemas/ReplaceProfileArtifactRequest"
+          },
+          {
+            "$ref": "#/components/schemas/ReplacePluginArtifactRequest"
           }
         ]
       },
@@ -4442,6 +4429,20 @@
         "properties": {
           "content": {
             "$ref": "#/components/schemas/ReplaceMemoryArtifactContent"
+          }
+        }
+      },
+      "ReplacePluginArtifactRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content"
+        ],
+        "description": "Complete content of a plugin Artifact; core stores it unchanged and indexes the declared fields.",
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },
@@ -5038,6 +5039,62 @@
         "maxLength": 2000,
         "pattern": "^\\S(?:.*\\S)?$"
       },
+      "SourceLineRangeLocator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "start_line",
+          "end_line"
+        ],
+        "description": "Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.",
+        "x-powercontext-source-line-range": true,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "line_range"
+            ]
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "heading_path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024,
+                "description": "Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SourceLocator": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SourceSequenceLocator"
+          },
+          {
+            "$ref": "#/components/schemas/SourceLineRangeLocator"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "sequence": "#/components/schemas/SourceSequenceLocator",
+            "line_range": "#/components/schemas/SourceLineRangeLocator"
+          }
+        }
+      },
       "SourceReference": {
         "type": "object",
         "additionalProperties": false,
@@ -5052,6 +5109,37 @@
           },
           "source_id": {
             "type": "string"
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceLocator"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SourceSequenceLocator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "sequence"
+        ],
+        "description": "Position of this exact Source in its scope journal; zero is distinct from absence.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "sequence"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -5072,6 +5160,16 @@
             "minLength": 1,
             "maxLength": 256,
             "description": "Source identity as accepted at ingestion, including Unicode and interior spaces."
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceLocator"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -5128,17 +5226,10 @@
       },
       "TaggableArtifactFamily": {
         "type": "string",
-        "description": "All readable Artifact families support logical tags on persisted Artifacts.",
-        "enum": [
-          "memory",
-          "atomic-memory",
-          "experience",
-          "skill",
-          "handoff",
-          "profile",
-          "prompt",
-          "topic-memory"
-        ]
+        "description": "A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead.",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9-]*$"
       },
       "TopicMemoryDreamProposal": {
         "type": "object",

@@ -77,6 +77,8 @@ def test_pinned_reports_match_the_current_dataset_and_prompt_contract() -> None:
     pinned = sorted(path for path in reports.iterdir() if (path / "run-manifest.json").is_file())
 
     assert pinned
+    current_prompts = prompt_run_identities()
+    qualified_current_contract = False
     for directory in pinned:
         manifest = LiveRunManifest.model_validate_json((directory / "run-manifest.json").read_text(encoding="utf-8"))
         report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
@@ -84,8 +86,16 @@ def test_pinned_reports_match_the_current_dataset_and_prompt_contract() -> None:
         assert manifest.dataset.manifest_sha256 == loaded.sha256
         assert manifest.dataset.dataset_version == loaded.manifest.dataset_version
         assert manifest.dataset.case_count == len(loaded.manifest.cases)
-        assert manifest.prompts == prompt_run_identities()
         assert report["dataset"] == manifest.dataset.model_dump(mode="json")
+        assert report["prompts"] == {
+            profile.value: identity.model_dump(mode="json") for profile, identity in manifest.prompts.items()
+        }
+        assert report["status"] == "passed"
+        qualified_current_contract |= manifest.prompts == current_prompts
+
+    # Historical evidence keeps its original identities; it cannot qualify a
+    # changed contract in place of a complete, passing current live run.
+    assert qualified_current_contract
 
 
 def test_archived_reports_remain_bound_to_their_recorded_run() -> None:

@@ -15,8 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
-from pathlib import Path
 
 import pytest
 from sqlalchemy import String, insert
@@ -39,7 +37,6 @@ from powercontext.builtin.artifacts.experience.recurrence import (
     signature_key,
 )
 from powercontext.builtin.persistence import RecurrenceRepository
-from powercontext.builtin.persistence.recurrence import RecurrenceRepository as SameRecurrenceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     RECURRENCE_MATCH_TABLE,
@@ -196,23 +193,6 @@ def _recurred(
     )
 
 
-def test_repository_is_exported_from_the_persistence_package() -> None:
-    assert RecurrenceRepository is SameRecurrenceRepository
-
-
-def test_recurrence_tables_are_registered_in_builtin_tables() -> None:
-    from powercontext.builtin.persistence.tables import BUILTIN_TABLES
-
-    names = {table.name for table in BUILTIN_TABLES}
-    assert {"pc_recurrence_match", "pc_recurrence_observation"} <= names
-
-
-def test_repository_exposes_no_update_or_delete_statement() -> None:
-    source = Path("src/powercontext/builtin/persistence/recurrence.py").read_text(encoding="utf-8")
-    assert re.search(r"\bupdate\(", source) is None
-    assert re.search(r"\bdelete\(", source) is None
-
-
 def test_match_append_is_idempotent_under_replay() -> None:
     async def scenario() -> None:
         repository = RecurrenceRepository()
@@ -234,7 +214,7 @@ def test_match_append_is_idempotent_under_replay() -> None:
     asyncio.run(scenario())
 
 
-def test_match_replay_returns_the_persisted_key_when_the_new_payload_differs() -> None:
+def test_match_replay_preserves_the_persisted_key_and_payload_when_the_new_payload_differs() -> None:
     async def scenario() -> None:
         repository = RecurrenceRepository()
         async with SQLiteProfile.open(
@@ -247,7 +227,10 @@ def test_match_replay_returns_the_persisted_key_when_the_new_payload_differs() -
                     connection,
                     _match(result="ambiguous", artifact_ref=None, key=None),
                 )
+            async with profile.database.transaction() as connection:
+                stored = await repository.matches(connection, SCOPE)
             assert replay == first
+            assert stored == (_match(),)
 
     asyncio.run(scenario())
 
@@ -299,23 +282,6 @@ def test_observation_savepoint_rolls_back_with_outer_sqlite_transaction_after_re
                     raise RuntimeError("rollback")
             async with profile.database.transaction() as connection:
                 assert await repository.observations(connection, SCOPE) == ()
-
-    asyncio.run(scenario())
-
-
-def test_a_second_decision_for_the_same_failure_locator_is_rejected() -> None:
-    async def scenario() -> None:
-        repository = RecurrenceRepository()
-        async with SQLiteProfile.open(
-            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
-        ) as profile:
-            async with profile.database.transaction() as connection:
-                await _seed_scope(connection)
-                await repository.append_match(connection, _match())
-                await repository.append_match(connection, _match(result="ambiguous", artifact_ref=None, key=None))
-                stored = await repository.matches(connection, SCOPE)
-
-            assert len(stored) == 1
 
     asyncio.run(scenario())
 

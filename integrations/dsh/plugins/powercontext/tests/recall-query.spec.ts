@@ -54,6 +54,16 @@ describe('runtime context in recall queries', () => {
     expect(messagesToUserPrompt(messages)).toBe(question)
   })
 
+  it('excludes the host Skill catalog and invocation reminder from recall queries', () => {
+    const question = 'What was the release color?'
+    const messages = [
+      { content: [{ type: 'text', text: question }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'Skill instructions '.repeat(500) }], source: { kind: 'skill-catalog' } },
+      { content: [{ type: 'text', text: 'Use the loaded Skill.' }], source: { kind: 'skill-invocation' } },
+    ]
+    expect(messagesToQuery(messages)).toBe(question)
+  })
+
   it('retains other plugin context for recall without capturing it as user input', () => {
     const messages = [
       { content: [{ type: 'text', text: 'Question' }], source: { kind: 'user' } },

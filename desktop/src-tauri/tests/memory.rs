@@ -115,7 +115,11 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
                     .to_owned();
                 received.fetch_add(1, Ordering::Relaxed);
                 let (status, value) = match path.as_str() {
-                    "/v1/server-info" => (404, serde_json::json!({})),
+                    "/v1/server-info" => (200, common::discovery_document("fixture")),
+                    "/v1/connection/identity" => (
+                        200,
+                        serde_json::json!({"server_id":"fixture", "authentication":"disabled", "access_mode":"disabled", "principal":null}),
+                    ),
                     "/v1/access/me" => (
                         503,
                         serde_json::json!({"error":{"code":"runtime_not_ready"}}),
@@ -265,7 +269,7 @@ async fn dispatched_server_failure_is_unknown_and_is_never_replayed() {
         summary
             .recent
             .iter()
-            .any(|r| r.operation == ObservedOperation::GetAccessPrincipal
+            .any(|r| r.operation == ObservedOperation::GetConnectionIdentity
                 && r.unit == ObservationUnit::HttpRequest)
     );
     let text = fixture.manager.observations().diagnostic_text().unwrap();
@@ -486,6 +490,7 @@ async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
     )
     .await
     .unwrap();
+    let before_reset_requests = fixture.http_requests.load(Ordering::Relaxed);
     fixture.manager.observations().reset().unwrap();
     fixture.release.notify_one();
     let outcome = write.await.unwrap().unwrap();
@@ -504,6 +509,14 @@ async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
             .operations
             .iter()
             .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|record| record.unit == ObservationUnit::HttpRequest)
+            .count(),
+        fixture.http_requests.load(Ordering::Relaxed) - before_reset_requests
     );
     assert_eq!(summary.evicted, 0);
     // Both the HTTP request and its user operation completed outside their reset window.

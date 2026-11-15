@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Callable
 from contextlib import suppress
 
-import httpx
+import httpx2
 from typing_extensions import override
 
 from powercontext.builtin.inference.carrier_checks import inspect_sse
@@ -35,13 +35,13 @@ from powercontext.builtin.inference.privacy import (
 from powercontext.builtin.inference.usage import record_approved_usage
 
 
-def _relevant_headers(headers: httpx.Headers) -> dict[str, str]:
+def _relevant_headers(headers: httpx2.Headers) -> dict[str, str]:
     return {
         key: value for key, value in headers.items() if key in {"content-type", "anthropic-version", "anthropic-beta"}
     }
 
 
-class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
+class ProtectedAsyncTransport(httpx2.AsyncBaseTransport):
     """Check the actual HTTP request and buffer raw output before SDK access.
 
     An enforcing client must disable SDK retries. Observation modes preserve the
@@ -54,11 +54,11 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
         self,
         config: InferenceProtectionConfig,
         *,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
         observer: Callable[[PrivacyDecision], None] | None = None,
     ) -> None:
         self.policy = PrivacyPolicy(config)
-        self._transport = transport if transport is not None else httpx.AsyncHTTPTransport(retries=0)
+        self._transport = transport if transport is not None else httpx2.AsyncHTTPTransport(retries=0)
         self._slots = asyncio.Semaphore(config.max_concurrent_responses)
         self._observer = observer
 
@@ -70,14 +70,14 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
         if self.policy.enforcing and decision.decision != "allow":
             raise InferencePrivacyError(decision.phase, decision.decision, decision.reason_codes, usage=usage)
 
-    async def _request_body(self, request: httpx.Request) -> bytes | None:
+    async def _request_body(self, request: httpx2.Request) -> bytes | None:
         try:
             return request.content
-        except httpx.RequestNotRead:
+        except httpx2.RequestNotRead:
             if not self.policy.enforcing:
                 self._assess(self.policy.decision("before_send", "withhold", "request_stream_uninspected"))
                 return None
-        if not isinstance(request.stream, httpx.AsyncByteStream):
+        if not isinstance(request.stream, httpx2.AsyncByteStream):
             self._assess(self.policy.decision("before_send", "withhold", "request_stream_unsupported"))
             return None
         chunks: list[bytes] = []
@@ -91,11 +91,11 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
         finally:
             await request.stream.aclose()
         body = b"".join(chunks)
-        request.stream = httpx.ByteStream(body)
+        request.stream = httpx2.ByteStream(body)
         return body
 
     @override
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:  # noqa: C901 - send and release have distinct failure semantics
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:  # noqa: C901 - send and release have distinct failure semantics
         if self.policy.config.mode == "disabled":
             return await self._transport.handle_async_request(request)
         body = await self._request_body(request)
@@ -151,7 +151,7 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
                 raise
             except InferencePrivacyError:
                 raise
-            except (TimeoutError, httpx.TransportError) as error:
+            except (TimeoutError, httpx2.TransportError) as error:
                 raise InferencePrivacyError(
                     "before_release",
                     "withhold",
@@ -181,7 +181,7 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
         headers = response.headers.copy()
         for name in ("content-encoding", "content-length", "transfer-encoding"):
             headers.pop(name, None)
-        return httpx.Response(
+        return httpx2.Response(
             response.status_code,
             headers=headers,
             content=raw,

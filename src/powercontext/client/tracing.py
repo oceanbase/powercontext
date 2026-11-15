@@ -36,13 +36,21 @@ class ClientSpan:
     def start(cls, operation: str) -> ClientSpan:
         span: Span | None = None
         try:
+            attributes = {
+                "powercontext.operation.name": operation,
+                "powercontext.operation.unit": "dependency",
+            }
+            if otel_context.get_value("powercontext.genai_client") is True:
+                attributes["gen_ai.provider.name"] = "powercontext"
+                attributes["gen_ai.operation.name"] = (
+                    "retrieval" if operation == "prepare_context" else f"powercontext.{operation}"
+                )
+                if operation == "prepare_context":
+                    attributes["gen_ai.data_source.id"] = "powercontext"
             span = trace.get_tracer(_INSTRUMENTATION_NAME).start_span(
                 f"PowerContextClient {operation}",
                 kind=SpanKind.CLIENT,
-                attributes={
-                    "powercontext.operation.name": operation,
-                    "powercontext.operation.unit": "dependency",
-                },
+                attributes=attributes,
             )
             token = otel_context.attach(set_span_in_context(span))
         except Exception:

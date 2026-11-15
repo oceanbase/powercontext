@@ -34,6 +34,11 @@ class ScopedCodeApplication:
             with tracing_context(self._runtime._tracing):
                 return await asyncio.to_thread(self._service.query, self.scope_id, request)
 
+    async def file_digests(self, paths: tuple[str, ...], /) -> dict[str, str | None]:
+        """Current worktree digest of each repository path, read without re-capturing the repository."""
+        async with self._runtime._scope_operation(self.scope_id):
+            return await asyncio.to_thread(self._service.file_digests, self.scope_id, paths)
+
 
 class CodeApplication:
     def __init__(self, runtime: BuiltinRuntime, service: CodeService) -> None:

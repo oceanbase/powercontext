@@ -129,7 +129,9 @@ from the Scope API rather than inventing it locally.
 
 ## Treat recalled context as untrusted history
 
-`PowerContextRecall` injects the prepared content as a system message labelled as untrusted historical evidence.
+`PowerContextRecall` injects the prepared content as a system message that starts with
+`PowerContext host-supplied context`, followed by the Server's prepared content. The trust policy at the top of that
+content labels everything after it as untrusted historical evidence.
 Memory content originates from prior model output and user input; presenting it as authoritative system instruction
 would extend the prompt-injection surface to historical data. The model must still check current code, the current
 user request, and system instructions before acting on recalled content.

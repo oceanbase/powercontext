@@ -66,6 +66,8 @@ export const connectionMessages = {
       "Server 未提供发现接口；仅可使用明确选择的旧版兼容配置已验证的操作。",
     discovery_denied:
       "Server 拒绝访问发现接口。请核对凭据与访问权限，然后重新检查连接。",
+    discovery_denied_qualified:
+      "Server 发现观察被拒绝；已独立验证的操作仍按各自权限执行。",
     discovery_unavailable:
       "Server 发现暂时不可用。请检查服务和网络，然后重新检查连接；兼容性确认前业务操作不可用。",
     discovery_invalid:
@@ -109,6 +111,10 @@ export const connectionMessages = {
     cleanup: "部分旧凭据等待清理，重新启动后会再次尝试。",
     live: "服务可达性",
     readiness: "就绪状态",
+    probeReadiness: "探测就绪状态",
+    readinessExplanation:
+      "仅点击探测时才检查就绪状态，可能调用已配置的模型和依赖。此操作不会激活连接或授予权限。",
+    readinessTime: "就绪探测时间",
     identity: "服务返回的身份",
     access: "访问控制",
     capabilities: "服务声明的运行能力（不是授权列表）",
@@ -140,6 +146,10 @@ export const connectionMessages = {
     unauthorized: "Server 要求有效凭据。",
     forbidden: "当前身份无权执行此操作。",
     authentication_unavailable: "认证服务暂时不可用；不会改用匿名身份重试。",
+    integrity_failure:
+      "可信资源校验失败。请核对发行包和固定资源，不能跳过校验执行。",
+    process_failure:
+      "本机辅助进程未完成请求。请检查本机状态和持久操作结果，不会自动重放。",
     runtime_not_ready: "服务未提供此项运行能力。",
     tls: "证书或主机名验证失败。",
     redirect: "服务返回重定向，桌面未跟随。",
@@ -216,6 +226,8 @@ export const connectionMessages = {
       "The Server has no discovery endpoint; only operations verified by an explicitly selected legacy profile can be used.",
     discovery_denied:
       "Server discovery access was denied. Check credentials and access permissions, then check this connection again.",
+    discovery_denied_qualified:
+      "Server discovery observation was denied; independently qualified operations retain their own authorization.",
     discovery_unavailable:
       "Server discovery is temporarily unavailable. Check the service and network, then check this connection again; business operations remain unavailable until compatibility is verified.",
     discovery_invalid:
@@ -264,6 +276,10 @@ export const connectionMessages = {
     cleanup: "Some old credentials await cleanup. Restart to try again.",
     live: "Server reachability",
     readiness: "Readiness",
+    probeReadiness: "Probe readiness",
+    readinessExplanation:
+      "Only this explicit action probes readiness and may call configured models and dependencies. It does not activate a connection or grant permissions.",
+    readinessTime: "Readiness probed at",
     identity: "Server-reported identity",
     access: "Access control",
     capabilities: "Server-declared capabilities (not granted permissions)",
@@ -304,6 +320,10 @@ export const connectionMessages = {
     forbidden: "This identity cannot perform this operation.",
     authentication_unavailable:
       "Authentication is temporarily unavailable. No anonymous retry was attempted.",
+    integrity_failure:
+      "Trusted resource verification failed. Check the distribution package and pinned resources; verification cannot be bypassed.",
+    process_failure:
+      "The local helper did not complete the request. Inspect local state and durable operation results; work is not replayed automatically.",
     runtime_not_ready: "The Server does not provide this runtime capability.",
     tls: "Certificate or hostname verification failed.",
     redirect: "The Server returned a redirect; Desktop did not follow it.",
@@ -345,6 +365,13 @@ export function discoveryMessage(
 ): string {
   const text = connectionMessages[language];
   const reason = result.reason;
+  if (
+    result.status === "denied" &&
+    Object.values(result.operations).some(
+      (operation) => operation.status === "qualified",
+    )
+  )
+    return text.discovery_denied_qualified;
   const detail =
     reason === "product_mismatch" ||
     reason === "schema_version" ||

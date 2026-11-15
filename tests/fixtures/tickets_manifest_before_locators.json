@@ -1,0 +1,208 @@
+{
+  "name": "example-ticket",
+  "version": "1",
+  "fingerprint": "sha256:6c8a2da1eaa5d37193944e627160838339e28c0ecfd2cc84643c84f3e53604a7",
+  "source_schema": {
+    "$defs": {
+      "JsonValue": {},
+      "SourceMaterialization": {
+        "description": "Describe where the value read for a Source comes from.",
+        "enum": [
+          "captured",
+          "referenced"
+        ],
+        "title": "SourceMaterialization",
+        "type": "string"
+      },
+      "TicketCapture": {
+        "additionalProperties": false,
+        "properties": {
+          "namespace": {
+            "minLength": 1,
+            "title": "Namespace",
+            "type": "string"
+          },
+          "project": {
+            "minLength": 1,
+            "title": "Project",
+            "type": "string"
+          },
+          "ticket_id": {
+            "minLength": 1,
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "namespace",
+          "project",
+          "ticket_id",
+          "title",
+          "body"
+        ],
+        "title": "TicketCapture",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "definition_version": {
+        "default": "1",
+        "title": "Definition Version",
+        "type": "string"
+      },
+      "materialization": {
+        "$ref": "#/$defs/SourceMaterialization"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "capture": {
+        "$ref": "#/$defs/TicketCapture"
+      }
+    },
+    "required": [
+      "name",
+      "materialization",
+      "capture"
+    ],
+    "title": "TicketSource",
+    "type": "object"
+  },
+  "projections": [
+    {
+      "key": {
+        "name": "example.ticket-details",
+        "version": "1"
+      },
+      "schema": {
+        "$defs": {
+          "JsonValue": {}
+        },
+        "additionalProperties": false,
+        "properties": {
+          "namespace": {
+            "minLength": 1,
+            "title": "Namespace",
+            "type": "string"
+          },
+          "project": {
+            "minLength": 1,
+            "title": "Project",
+            "type": "string"
+          },
+          "ticket_id": {
+            "minLength": 1,
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "namespace",
+          "project",
+          "ticket_id",
+          "title",
+          "body"
+        ],
+        "title": "TicketCapture",
+        "type": "object"
+      }
+    },
+    {
+      "key": {
+        "name": "powercontext.text-evidence",
+        "version": "1"
+      },
+      "schema": {
+        "$defs": {
+          "JsonValue": {}
+        },
+        "description": "Canonical JSON shape consumed as textual Artifact evidence.",
+        "properties": {
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "content"
+        ],
+        "title": "TextEvidence",
+        "type": "object"
+      }
+    }
+  ]
+}

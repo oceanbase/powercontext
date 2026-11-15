@@ -137,6 +137,30 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "dsh-pet-powercontext-memory/reuse-cost.en.svg",
         "dsh-pet-powercontext-memory/feiyu.png",
         "dsh-pet-powercontext-memory/3475.jpeg",
+        # These supplied diagrams are intentionally shared by both locales.
+        "power-system-agent-memory/memory.svg",
+        "power-system-agent-memory/memory-validation.svg",
+        "power-system-agent-memory/task-lifecycle.svg",
+        "power-system-agent-memory/diagnosis-workflow.svg",
+        "power-system-agent-memory/task-recovery.svg",
+        "power-system-agent-memory/power-system-agent-architecture.png",
+        # Preserve the reviewed project screenshots, paired by interface language.
+        *(
+            f"magpie-gateway-powercontext-memory/{name}.{language}.png"
+            for name in ("magpie-agents", "magpie-routing", "powercontext-memory", "powercontext-handoff")
+            for language in ("en", "zh")
+        ),
+        # The Harbor article deliberately shares English architecture figures across editions.
+        "harbor-context-evaluation-harness/coding-verification.png",
+        "harbor-context-evaluation-harness/harbor-integration.png",
+        "harbor-context-evaluation-harness/history-continuation.png",
+        "harbor-context-evaluation-harness/task-batching.png",
+        # The competition article deliberately shares English architecture figures.
+        "three-days-four-thousand-evaluations/trial-and-submission.png",
+        "three-days-four-thousand-evaluations/submission-lifecycle.png",
+        "three-days-four-thousand-evaluations/preparation-and-verifiers.png",
+        "three-days-four-thousand-evaluations/shared-dependencies.png",
+        "three-days-four-thousand-evaluations/recovery-and-delivery.png",
     }
     han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
     for language in ("en", "zh"):
@@ -150,6 +174,10 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
             for image in re.findall(r"!\[[^\]]*\]\(\.\./\.\./\.\./assets/blog/([^\s)]+)\)", markdown):
                 if image in original_images:
                     assert (ROOT / "docs/assets/blog" / image).is_file()
+                    if image.startswith("magpie-gateway-powercontext-memory/"):
+                        assert image.endswith(f".{language}.png"), f"Wrong screenshot language: {source}: {image}"
+                        counterpart = image.replace(f".{language}.png", f".{other}.png")
+                        assert (ROOT / "docs/assets/blog" / counterpart).is_file()
                     continue
                 assert image.endswith(f".{language}.svg"), f"Unlocalized diagram: {source}: {image}"
                 asset = ROOT / "docs/assets/blog" / image
@@ -157,3 +185,16 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
                 assert asset.with_name(asset.name.replace(f".{language}.svg", f".{other}.svg")).is_file()
                 if language == "en":
                     assert not han.search(svg), f"Untranslated diagram text in {asset}"
+
+
+@pytest.mark.usefixtures("built_blog_site")
+@pytest.mark.parametrize("language", ("en", "zh"))
+def test_power_system_flowcharts_render_as_images(language: str) -> None:
+    """Keep the article's flowcharts visible without requiring a Mermaid renderer."""
+    output = WEBSITE / "out"
+    article = (output / language / "blog/power-system-agent-memory/index.html").read_text(encoding="utf-8")
+    assert "language-mermaid" not in article, "Flowcharts must render as images, not diagram source"
+    for figure in ("memory-validation", "task-lifecycle", "diagnosis-workflow"):
+        figure_url = f"/docs-assets/blog/power-system-agent-memory/{figure}.svg"
+        assert f'src="{figure_url}"' in article
+        assert (output / figure_url.lstrip("/")).is_file()

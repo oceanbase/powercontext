@@ -450,6 +450,99 @@ main {
 }
 
 /* ---------- Overview ---------- */
+.overview-guide .guide-status {
+  margin: 0;
+}
+.guide-intro {
+  font-size: 17px;
+}
+.guide-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.guide-path {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.guide-path.local-path {
+  background: var(--info-bg);
+  border-color: var(--selected);
+}
+.guide-path-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.guide-path-heading img {
+  width: 28px;
+  height: 28px;
+}
+.guide-path-heading h3,
+.guide-path p {
+  margin: 0;
+}
+.guide-path button {
+  margin-top: auto;
+}
+.guide-info {
+  margin: 20px 0 0;
+}
+.guide-info::before {
+  content: "ⓘ";
+  color: var(--accent);
+  margin-inline-end: 8px;
+}
+.guide-saved {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.guide-saved label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.guide-saved select {
+  min-width: 0;
+  max-width: 100%;
+}
+.guide-saved > button {
+  justify-self: start;
+}
+.guide-target {
+  display: flex;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.guide-target > * {
+  min-width: 0;
+}
+.guide-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  padding: 0;
+  margin: 20px 0;
+  list-style: none;
+}
+.guide-steps .step .step-no {
+  background: var(--disabled);
+  color: var(--muted);
+}
+.guide-steps [aria-current="step"] .step-no {
+  background: var(--selected);
+  color: var(--accent);
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1238,6 +1331,8 @@ footer {
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
   .overview-grid,
+  .guide-paths,
+  .guide-steps,
   .connection-grid,
   .memory-grid,
   .steps {
@@ -1412,4 +1507,24 @@ footer {
   display: block;
   overflow-wrap: anywhere;
   user-select: text;
+}
+
+.local-server {
+  min-width: 0;
+}
+.local-server dd,
+.local-server code,
+.local-server select {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.local-server fieldset {
+  min-width: 0;
+}
+.local-server .actions {
+  flex-wrap: wrap;
+}
+
+.local-server-plan dd {
+  overflow-wrap: anywhere;
 }

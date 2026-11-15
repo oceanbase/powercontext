@@ -635,6 +635,7 @@ impl Stream {
                     (Some(sequence), Some(phase))
                 };
                 Ok(Some(OpsProgress {
+                    approval_id: None,
                     request_id: id(&v["request_id"])?,
                     operation_id: id(&v["operation_id"])?,
                     attempt: number,

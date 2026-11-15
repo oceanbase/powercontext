@@ -71,6 +71,10 @@ def test_profile_history_is_exact_and_returns_to_its_page(dashboard):
     current = dashboard.get("/dashboard/profile", params={"scope": scope, "lang": "en"})
     assert current.status_code == 200
     assert "<h1>Profile 8</h1>" in current.text
+    exact_current = dashboard.get("/dashboard/profile", params={"scope": scope, "revision": "8", "lang": "en"})
+    assert exact_current.status_code == 200, exact_current.text
+    assert "Historical profile" not in exact_current.text
+    assert "<h1>Profile 8</h1>" in exact_current.text
     first = dashboard.get("/dashboard/profile", params={"scope": scope, "view": "history", "lang": "en"})
     next_url = next(url for url in _links(first.text, "/dashboard/profile") if "profile_cursor=" in url)
     second = dashboard.get(next_url)
@@ -178,7 +182,6 @@ def test_rollback_is_offered_when_access_control_is_disabled(tmp_path: Path) -> 
             dashboard=DashboardConfig(enabled=True),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         scope = create_scope(client, "Open rollback")["scope_id"]
@@ -208,7 +211,6 @@ def test_existing_database_without_revision_metadata_columns_keeps_working(tmp_p
     def open_app():
         return create_server_app(
             settings=settings,
-            scheduler_path=tmp_path / "scheduler.db",
         )
 
     # Use the registered release layout, then migrate before normal admission.
@@ -1007,3 +1009,31 @@ def test_login_body_limit_and_invalid_directory_return(dashboard):
         download = _links(page.text, "/dashboard/handoff-download")[0]
         assert "return_to" not in parse_qs(urlsplit(download).query)
         assert dashboard.get(download).status_code == 200
+
+
+def test_notes_selection_keeps_directory_and_replaces_detail_in_place(dashboard):
+    scope = create_scope(dashboard, "Notes split view")["scope_id"]
+    artifact_id = _revised_memory(dashboard, scope)
+    dashboard.post("/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Another saved note."})
+    listing = dashboard.get(
+        "/dashboard/notes", params={"scope": scope, "period": "30d", "note_state": "active", "lang": "en"}
+    )
+    selector = next(
+        unescape(tag)
+        for tag in re.findall(r'<a\b[^>]*class="[^"]*note-selector[^>]*>', listing.text)
+        if f"artifact={artifact_id}" in tag
+    )
+    html_match = re.search(r'href="([^"]+)"', selector)
+    assert html_match is not None
+    url = html_match[1]
+    selected = dashboard.get(url, headers={"HX-Request": "true", "HX-Boosted": "true"})
+    assert selected.status_code == 200
+    assert 'class="col-xl-4"' in selected.text
+    assert 'class="col-xl-8 d-none d-xl-block"' in selected.text
+    assert "Another saved note." in selected.text.split('id="note-reading"', 1)[0]
+    assert "Revised note." in _reading(selected.text)
+    assert 'hx-target="#notes-browser"' in selector
+    assert 'hx-select="#notes-browser"' in selector
+    assert "#note-reading" not in url
+    assert parse_qs(urlsplit(url).query)["note_state"] == ["active"]
+    assert parse_qs(urlsplit(url).query)["period"] == ["30d"]

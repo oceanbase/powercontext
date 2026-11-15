@@ -28,7 +28,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, TypeVar, cast
 
-import httpx
+import httpx2
 from dotenv import load_dotenv
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr
 from pydantic_ai.messages import ModelMessage, ModelResponse
@@ -614,7 +614,7 @@ async def evaluate_dataset(  # noqa: C901
         async with AsyncExitStack() as resources:
             reranker: MemoryReranker | None = None
             if rerank_mode == "jev":
-                jev_client = await resources.enter_async_context(httpx.AsyncClient())
+                jev_client = await resources.enter_async_context(httpx2.AsyncClient())
                 reranker = JevMemoryReranker(_jev_config(), jev_client)
             elif rerank_mode == MemoryRerankMode.LLM and answer_max_bytes is not None:
                 inference = settings.inference

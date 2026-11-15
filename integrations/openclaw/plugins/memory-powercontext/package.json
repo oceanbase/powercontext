@@ -63,5 +63,8 @@
     "build": {
       "openclawVersion": "2026.8.1"
     }
+  },
+  "powercontext": {
+    "memoryProtocol": "atomic-artifact-v1"
   }
 }

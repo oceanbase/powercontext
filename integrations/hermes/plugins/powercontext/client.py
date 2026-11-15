@@ -36,6 +36,14 @@ else:
         return method
 
 
+MEMORY_PROTOCOL_RECOVERY = (
+    "Update the PowerContext CLI/SDK and Hermes plugin to a release compatible with the Server; "
+    "run powercontext setup hermes, fully restart Hermes, and rerun powercontext doctor hermes. "
+    "Search again for an Atomic Memory artifact reference. Do not drop collection CAS preconditions "
+    "or automatically replay writes."
+)
+
+
 MAX_RESPONSE_BYTES = 1_048_576
 
 
@@ -267,6 +275,9 @@ class PowerContextClient:
 
     def get_liveness(self) -> dict[str, Any]:
         return self._request("/health/live", method="GET")
+
+    def get_server_info(self) -> dict[str, Any]:
+        return self._request("/v1/server-info", method="GET")
 
     def get_readiness(self) -> dict[str, Any]:
         return self._request("/health/ready", method="GET")

@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,14 @@ DEFAULT_TIMEOUT = 5.0
 MAX_TURN_CHARS = 50_000
 MAX_PRECOMPRESS_CHARS = 30_000
 PRECOMPRESS_ROLES = {"user", "assistant"}
+CAPTURE_COVERAGE_KEY = "powercontext_capture_coverage"
+CAPTURE_COVERAGE_SCHEMA = "powercontext.capture-coverage.v1"
+_CAPTURE_PROFILES = {
+    "hermes-turn-text.v1": "user_assistant_text_pair",
+    "hermes-precompress-text.v1": "new_user_assistant_window",
+    "gateway-turn-text.v1": "gateway_turn_projection",
+}
+_CAPTURE_REASONS = frozenset({"character_limit", "field_byte_limit", "transcript_byte_limit", "unmeasured_projection"})
 SCOPE_SAFE_RE = re.compile(r"[^\w:./@+-]+", re.UNICODE)
 SECRET_PATTERNS = (
     re.compile(
@@ -43,6 +52,50 @@ SECRET_PATTERNS = (
     re.compile(r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b"),
     re.compile(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", re.DOTALL),
 )
+
+
+def capture_coverage(projection: str, *, reasons: Iterable[str] = ()) -> dict[str, Any]:
+    """Declare observed losses relative to one supported projection, never authority."""
+    ordered = sorted(set(reasons))
+    if not set(ordered) <= _CAPTURE_REASONS:
+        raise ValueError("unsupported capture coverage reason")  # noqa: TRY003
+    status = "complete"
+    if any(reason != "unmeasured_projection" for reason in ordered):
+        status = "partial"
+    elif ordered:
+        status = "unknown"
+    return {
+        "schema": CAPTURE_COVERAGE_SCHEMA,
+        "projection": projection,
+        "unit": _CAPTURE_PROFILES[projection],
+        "status": status,
+        "reasons": ordered,
+    }
+
+
+def capture_coverage_status(metadata: Any) -> str:
+    """Interpret untrusted metadata conservatively without rewriting its payload."""
+    value = metadata.get(CAPTURE_COVERAGE_KEY) if isinstance(metadata, dict) else None
+    if not isinstance(value, dict) or set(value) != {"schema", "projection", "unit", "status", "reasons"}:
+        return "unknown"
+    projection = value["projection"]
+    if (
+        value["schema"] != CAPTURE_COVERAGE_SCHEMA
+        or not isinstance(projection, str)
+        or projection not in _CAPTURE_PROFILES
+        or value["unit"] != _CAPTURE_PROFILES[projection]
+    ):
+        return "unknown"
+    reasons = value["reasons"]
+    if (
+        not isinstance(reasons, list)
+        or not all(isinstance(reason, str) for reason in reasons)
+        or not set(reasons) <= _CAPTURE_REASONS
+        or reasons != sorted(set(reasons))
+    ):
+        return "unknown"
+    expected = capture_coverage(projection, reasons=reasons)
+    return expected["status"] if value == expected else "unknown"
 
 
 def as_bool(value: Any, default: bool = False) -> bool:

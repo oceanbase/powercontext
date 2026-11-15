@@ -52,7 +52,7 @@ def test_atomic_memory_profiles_share_the_subject_bound_description_contract() -
         instructions = atomic_memory_extraction_instructions(profile)
 
         assert atomic_memory_extraction_instructions_version(profile) == (
-            f"powercontext.atomic-memory.extract.{profile.value}.v3"
+            f"powercontext.atomic-memory.extract.{profile.value}.v4"
         )
         assert "subject-bound declarative proposition" in instructions
         assert "kind, text and description" in instructions

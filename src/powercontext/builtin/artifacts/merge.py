@@ -786,7 +786,7 @@ class ArtifactMergeService:
             )
             sources = system_sources[write.artifact_id]
             if sources:
-                unique = {(source.source_type, source.source_id): source for source in (*draft.sources, *sources)}
+                unique = {source.model_dump_json(): source for source in (*draft.sources, *sources)}
                 draft = draft.model_copy(update={"sources": tuple(unique.values())})
             validated = await self._validate_draft(
                 connection, scope_id, target, draft, context, system_sources=sources, source_read_set=source_read_set

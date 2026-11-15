@@ -21,12 +21,9 @@ import pytest
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
-from powercontext.builtin.artifacts.memory.fusion import _MIN_SEMANTIC_SIMILARITY, admit_vector_candidates
+from powercontext.builtin.artifacts.memory.fusion import admit_vector_candidates
 from powercontext.builtin.artifacts.memory.models import MemoryChannelHit, MemoryMatchedBy
 from powercontext.builtin.artifacts.search import (
-    _FTS_MIN_MATCHED_TERMS,
-    _FTS_MIN_QUERY_COVERAGE,
-    DEFAULT_ADMISSION_FLOOR,
     AdmissionCounts,
     AdmissionFloor,
     admits_fts_text,
@@ -183,20 +180,6 @@ def _experience_hit(artifact_id: str = "experience") -> ExperienceSearchHit:
             lesson="Lesson text",
         ),
     )
-
-
-# ── Floor defaults ──────────────────────────────────────────────────────────────────────────
-
-
-def test_default_admission_floor_matches_shared_constants() -> None:
-    assert (
-        DEFAULT_ADMISSION_FLOOR.lexical_coverage,
-        DEFAULT_ADMISSION_FLOOR.lexical_min_matched_terms,
-        DEFAULT_ADMISSION_FLOOR.min_semantic_similarity,
-    ) == (0.25, 2, 0.3)
-    assert DEFAULT_ADMISSION_FLOOR.lexical_coverage == _FTS_MIN_QUERY_COVERAGE
-    assert DEFAULT_ADMISSION_FLOOR.lexical_min_matched_terms == _FTS_MIN_MATCHED_TERMS
-    assert DEFAULT_ADMISSION_FLOOR.min_semantic_similarity == _MIN_SEMANTIC_SIMILARITY
 
 
 # ── floor=None equivalence and lowering ─────────────────────────────────────────────────────

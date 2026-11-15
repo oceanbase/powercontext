@@ -18,7 +18,19 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const SEMVER = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
+const NUMBER = '(?:0|[1-9][0-9]*)'
+const IDENTIFIER = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+const SEMVER = new RegExp(`^${NUMBER}\\.${NUMBER}\\.${NUMBER}(?:-${IDENTIFIER}(?:\\.${IDENTIFIER})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`)
+
+export function releaseMetadata(tag, prerelease = false) {
+  const match = new RegExp(`^(?:powercontext-v|v)?(${NUMBER}\\.${NUMBER}\\.${NUMBER})(?:(a|b|rc)(${NUMBER}))?$`).exec(tag)
+  if (!match) throw new Error('Invalid PowerContext Release tag')
+  const suffix = { a: 'alpha', b: 'beta', rc: 'rc' }[match[2]]
+  return {
+    version: match[1] + (suffix ? `-${suffix}.${match[3]}` : ''),
+    tag: suffix || prerelease ? 'next' : 'latest',
+  }
+}
 
 export function sanitizePublishManifest(manifest) {
   const packed = { ...manifest }

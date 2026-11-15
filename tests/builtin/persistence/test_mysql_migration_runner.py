@@ -437,6 +437,69 @@ def _full_server_runner(
     )
 
 
+def test_mysql_plugin_cleanup_resumes_without_removing_independent_storage(backend: _BackendTarget, tmp_path):
+    from tests.builtin.persistence.test_plugin_storage_migration import (
+        MYSQL_RETIRED_TABLES,
+        PREVIOUS,
+        RETIRED_COLUMNS,
+        configuration,
+        previous_bundle,
+    )
+
+    old = MySQLMigrationRunner(
+        backend.connections(),
+        previous_bundle(tmp_path / "previous"),
+        evidence_directory=backend.evidence_directory,
+        configuration=configuration(),
+    )
+    assert _apply(old, policy="skip").revision == PREVIOUS
+
+    def seed(connection, _identity, _guard):
+        connection.exec_driver_sql("CREATE TABLE plugin_owned (id INTEGER PRIMARY KEY, content VARCHAR(32))")
+        connection.exec_driver_sql("INSERT INTO plugin_owned VALUES (1, 'preserved')")
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_processing_binding_states ADD COLUMN plugin_extension VARCHAR(32)"
+        )
+        connection.execute(
+            text(
+                "INSERT INTO pc_artifact_processing_binding_states (binding_name,plugin_extension) "
+                "VALUES (:binding,'preserved')"
+            ),
+            {"binding": next(iter(configuration()["processing_manifest"]["bindings"]))},
+        )
+        connection.commit()
+
+    backend.connections().run(seed, writable=True)
+    runner = _full_server_runner(backend)
+    _interrupt_after_ddl(runner, "DROP TABLE pc_artifact_search_text", policy="skip")
+    recovery = runner.plan(backup_policy="skip")
+    assert recovery.state == "recovery_required" and recovery.source_revision == PREVIOUS
+    token = (recovery.coordination or {}).get("pending_run_id")
+    resumed = _full_server_runner(backend, acknowledge_previous_run=token)
+    assert _apply(resumed, policy="skip").revision == "v1_5_0_005"
+    assert resumed.verify().state == "ready"
+
+    def inspect(connection, _identity, _guard):
+        tables = {row[0] for row in connection.exec_driver_sql("SHOW TABLES")}
+        assert not set(MYSQL_RETIRED_TABLES) & tables
+        columns = {
+            row[0] for row in connection.exec_driver_sql("SHOW COLUMNS FROM pc_artifact_processing_binding_states")
+        }
+        assert not RETIRED_COLUMNS & columns
+        assert "plugin_extension" in columns
+        assert connection.exec_driver_sql("SELECT content FROM plugin_owned").all() == [("preserved",)]
+        values = (
+            connection
+            .exec_driver_sql("SELECT plugin_extension FROM pc_artifact_processing_binding_states")
+            .scalars()
+            .all()
+        )
+        assert values and set(values) == {"preserved"}
+
+    backend.connections().run(inspect)
+    assert not _apply(_full_server_runner(backend), policy="skip").changed
+
+
 def _load_historical_memory(backend, encoding="utf8mb4"):
     fixture = "oceanbase-first-release.json" if encoding == "gbk" else "seekdb-memory-release.json"
     capture = json.loads((Path(__file__).parent / "fixtures/historical" / fixture).read_text())
@@ -706,7 +769,7 @@ def test_oceanbase_server_upgrade_with_separate_code_cache_preserves_history(
     )
     assert runner.plan(backup_policy="manual").source_revision == "s1300"
     result = _apply(runner, policy="manual")
-    assert result.readiness_scope == "server" and result.revision == "v1_5_0_003"
+    assert result.readiness_scope == "server" and result.revision == "v1_5_0_005"
     assert runner.verify().state == "ready"
     prepare_server_storage(settings)
     assert not _apply(runner, policy="manual").changed
@@ -837,7 +900,7 @@ def test_mysql_registered_processing_mode_switch_preserves_revision_and_history(
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_history) == ("v1_5_0_003", "dedicated", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_005", "dedicated", b'{"history":"unchanged"}')
 
     (main_path,) = backend.evidence_directory.glob("*/maintenance.json")
     evidence = json.loads(main_path.read_text())
@@ -847,7 +910,7 @@ def test_mysql_registered_processing_mode_switch_preserves_revision_and_history(
     for inspect in (runner.plan, runner.verify, runner.apply):
         with pytest.raises(MigrationError, match="checksum_conflict"):
             inspect()
-    assert backend.connections().run(inspect_history) == ("v1_5_0_003", "dedicated", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_005", "dedicated", b'{"history":"unchanged"}')
     assert {
         path: path.read_bytes() for path in backend.evidence_directory.rglob("maintenance.json")
     } == original_evidence
@@ -914,7 +977,7 @@ def test_mysql_atomic_compatibility_command_uses_shared_server_upgrade(
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_history) == ("v1_5_0_003", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_005", b'{"history":"unchanged"}')
 
 
 def test_mysql_registered_projection_repair_preserves_authority_and_revision(backend: _BackendTarget) -> None:
@@ -982,7 +1045,7 @@ def test_mysql_registered_projection_repair_preserves_authority_and_revision(bac
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_content) == ("v1_5_0_003", content, "Preserve immutable nebula evidence.")
+    assert backend.connections().run(inspect_content) == ("v1_5_0_005", content, "Preserve immutable nebula evidence.")
 
 
 @pytest.mark.parametrize("origin", ("empty", "released"))
@@ -1146,7 +1209,7 @@ def test_mysql_full_server_interruption_preserves_history_and_original_maintenan
     _load_full_server_baseline(backend)
     runner = _full_server_runner(backend)
     original = runner.plan(backup_policy="manual")
-    assert original.source_revision == "s1300" and original.target_revision == "v1_5_0_003"
+    assert original.source_revision == "s1300" and original.target_revision == "v1_5_0_005"
     _interrupt_after_ddl(runner, interruption)
     journals = list(backend.evidence_directory.rglob("maintenance.json"))
     assert len(journals) == 1
@@ -1168,7 +1231,7 @@ def test_mysql_full_server_interruption_preserves_history_and_original_maintenan
 
     result = _apply(resumed, policy="manual")
 
-    assert result.readiness_scope == "server" and result.revision == "v1_5_0_003"
+    assert result.readiness_scope == "server" and result.revision == "v1_5_0_005"
     assert result.backup_state == "user_confirmed"
     assert result.backup_ref == interrupted["manual_ref"]
     assert resumed.verify().state == "ready"
@@ -1248,7 +1311,7 @@ def test_oceanbase_full_server_client_exit_requires_acknowledgement_and_preserve
     # interruption. An arbitrary remote failure cannot be acknowledged blindly.
     resumed = _full_server_runner(backend, acknowledge_previous_run=token)
     result = _apply(resumed, policy="manual")
-    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_003"
+    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_005"
     assert result.backup_state == "user_confirmed" and result.backup_ref == interrupted["manual_ref"]
     assert resumed.verify().state == "ready"
     completed = json.loads(journals[0].read_text(encoding="utf-8"))

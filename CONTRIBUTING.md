@@ -36,6 +36,15 @@ For release preparation, use the [version update and release guide](docs/en/deve
 
 powercontext could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
 
+This is a public repository, and merged content becomes a permanent public record. Documentation, RFCs, examples, code comments, and PR/issue descriptions must all be readable and meaningful to external contributors:
+
+- Do not name external customers, users, partners, or their internal projects. Describe the requirement in neutral terms instead, such as "a deployment that needs manual topic writes". Do not include such a name in one locale while omitting it from the other.
+- Do not link to Ant Group / Alibaba internal documents or any resource that requires corporate SSO, in particular links to `yuque.antfin.com/...`. Other intranet domains, private document IDs, and internal chat or ticket links follow the same rule.
+- Reference sources everyone can open: a public GitHub issue, PR, RFC, or upstream public documentation. If a requirement is not public, summarize the relevant part in the document instead of linking to it.
+- Keep `docs/en/` and `docs/zh/` in sync, including headings, field labels, and link text. Apply every redaction or wording change to both locales.
+
+RFC-specific rules (allowed header fields, reference handling, and a pre-submit check) are in the [RFC guidelines](docs/en/rfcs/README.md) ([中文](docs/zh/rfcs/README.md)).
+
 ## Submit Feedback
 
 The best way to send feedback is to file an issue at https://github.com/oceanbase/powercontext/issues.

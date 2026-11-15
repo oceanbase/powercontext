@@ -136,6 +136,14 @@ def diagnostics(root: Path, output: Path) -> None:
                         log.write(source.read(2 * 1024 * 1024).decode("utf-8", errors="replace"))
 
 
+def test_exit_code(return_code: int) -> int:
+    if return_code < 0:
+        signum = -return_code
+        print(f"seekdb pytest terminated by {signal.Signals(signum).name} ({signum})", flush=True)
+        return 128 + signum
+    return return_code
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", type=Path)
@@ -162,7 +170,10 @@ def main() -> int:
             "pytest",
             "-vv",
             "-o",
-            "faulthandler_timeout=120",
+            # Native CI crashes have ended inside timed Python stack dumps.
+            # Keep diagnostics out of the test process; this parent still
+            # captures database state and enforces the same hard deadline.
+            "faulthandler_timeout=0",
             "--durations=20",
             "--log-cli-level=INFO",
             args.node,
@@ -171,7 +182,7 @@ def main() -> int:
     )
     try:
         try:
-            return process.wait(timeout=args.diagnose_after)
+            return test_exit_code(process.wait(timeout=args.diagnose_after))
         except subprocess.TimeoutExpired:
             print(f"Capturing seekdb lock diagnostics for {args.node}", flush=True)
             try:
@@ -179,7 +190,7 @@ def main() -> int:
             except OSError as error:
                 print(f"Diagnostic capture failed: {type(error).__name__}", flush=True)
         try:
-            return process.wait(timeout=max(0, args.timeout - (time.monotonic() - started)))
+            return test_exit_code(process.wait(timeout=max(0, args.timeout - (time.monotonic() - started))))
         except subprocess.TimeoutExpired:
             print(f"seekdb test exceeded {args.timeout:g}s: {args.node}", flush=True)
             return 124

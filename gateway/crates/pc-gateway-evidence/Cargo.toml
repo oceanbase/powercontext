@@ -20,5 +20,6 @@ license.workspace = true
 description = "PowerContext Gateway: evidence normalization — usage completeness, cache read/write, latency; never bodies"
 
 [dependencies]
+pc-gateway-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

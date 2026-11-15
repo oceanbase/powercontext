@@ -31,6 +31,7 @@ because no reader of what the hooks write depends on their order.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -212,6 +213,7 @@ def _run_case(
     """Run the steps of one case in one isolated host home; return the observations and unscripted routes."""
 
     root = directory.resolve()
+    _detach_inherited_default_acl(root)
     home, state, config, workspace = (root / name for name in ("home", "state", "config", "workspace"))
     layout = case.get("workspace", {})
     cwd = workspace / layout.get("cwd", "")
@@ -297,6 +299,27 @@ def _run_case(
             observed.append(normalized)
             unscripted.extend(server.unscripted)
     return observed, unscripted
+
+
+def _detach_inherited_default_acl(directory: Path) -> None:
+    """Leave the case with the process umask as the only source of new file modes.
+
+    A temporary directory can carry a default POSIX ACL inherited from its parent. Such an entry
+    overrides the umask for everything created below it, so the hooks' own files and directories
+    would be recorded as 775/664 rather than the 755/644 the fixtures characterize. Only the case
+    root needs handling: it is created before any hook runs, and modes below it then follow the
+    umask that each hook process is started with.
+    """
+
+    # `system.posix_acl_default` is a Linux attribute; other hosts have their own ACL models, and
+    # this suite does not claim them. An unexpected failure is a real environment problem.
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        os.removexattr(directory, "system.posix_acl_default")
+    except OSError as error:
+        if error.errno not in {errno.ENODATA, errno.ENOTSUP, errno.EOPNOTSUPP}:
+            raise
 
 
 def _installed_plugin(host: str, target: Path, server_url: str) -> Path:

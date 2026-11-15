@@ -22,11 +22,12 @@ from sqlalchemy.exc import IntegrityError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemoryContent, TopicMemoryDraft
+from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
 )
 from powercontext.builtin.runtime.relational import RelationalContexts
-from powercontext.errors import RevisionConflictError
+from powercontext.errors import InvalidSourceReferenceError, RevisionConflictError
 from powercontext.sources import SourceDefinitionRegistry, SourceMaterialization, SourceRef
 from tests.builtin.persistence.contract import (
     SOURCE_ADAPTERS,
@@ -128,6 +129,112 @@ def test_bulk_create_preserves_existing_artifact_lineage() -> None:
             )
             assert all(artifact.lineage.sources == (source.ref,) for artifact in loaded)
             assert all(artifact.lineage.artifacts == (report.as_ref(),) for artifact in loaded)
+
+    asyncio.run(scenario())
+
+
+def test_lineage_reads_keep_scopes_revisions_and_selections_independent() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            expected = {}
+            for scope_id in ("scope-a", "scope-b"):
+                async with profile.database.transaction() as connection:
+                    source = await repositories.sources.add(
+                        connection,
+                        scope_id,
+                        NoteSource(name=scope_id, materialization=SourceMaterialization.CAPTURED, body=scope_id),
+                    )
+                    first = await repositories.artifacts.create(
+                        connection,
+                        scope_id,
+                        "shared-id",
+                        ReportDraft(content=ReportContent(status="first"), sources=(source.ref,)),
+                    )
+                    second = await repositories.artifacts.revise(
+                        connection,
+                        scope_id,
+                        first,
+                        ReportDraft(content=ReportContent(status="second")),
+                    )
+                    expected[scope_id] = first, second
+
+            async def read(scope_id, selected):
+                async with profile.database.transaction() as connection:
+                    wanted = tuple(expected[scope_id][index] for index in selected)
+                    actual = await repositories.artifacts.get_many(
+                        connection, scope_id, tuple(artifact.as_ref() for artifact in wanted)
+                    )
+                    assert actual == wanted
+
+            await asyncio.gather(
+                read("scope-a", (1, 0, 1)),
+                read("scope-b", (0,)),
+                read("scope-a", ()),
+                read("scope-b", (1, 0)),
+            )
+
+    asyncio.run(scenario())
+
+
+def test_source_citation_positions_survive_separate_transactions() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            async with profile.database.transaction() as connection:
+                stored = await repositories.sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(name="positioned", materialization=SourceMaterialization.CAPTURED, body="证据"),
+                )
+                refs = tuple(
+                    SourceRef.model_validate({
+                        **stored.ref.model_dump(),
+                        "locator": locator,
+                    })
+                    for locator in (
+                        {"kind": "sequence", "sequence": stored.journal_position},
+                        {"kind": "line_range", "start_line": 40, "end_line": 55, "heading_path": "设计"},
+                        {"kind": "line_range", "start_line": 60, "end_line": 65},
+                    )
+                )
+                await repositories.artifacts.create(
+                    connection,
+                    "scope-a",
+                    "positioned-report",
+                    ReportDraft(content=ReportContent(status="green"), sources=(*refs, stored.ref)),
+                )
+            async with profile.database.transaction() as connection:
+                loaded = await repositories.artifacts.revisions(connection, "scope-a", "report", "positioned-report")
+                assert loaded[0].lineage.sources == (*refs, stored.ref)
+                assert loaded[0].lineage.sources[-1].model_dump() == stored.ref.model_dump()
+
+    asyncio.run(scenario())
+
+
+def test_source_locator_cannot_redirect_to_another_journal_entry() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories), profile.database.transaction() as connection:
+            stored = await repositories.sources.add(
+                connection,
+                "scope-a",
+                NoteSource(name="first", materialization=SourceMaterialization.CAPTURED, body="first fact"),
+            )
+            other = await repositories.sources.add(
+                connection,
+                "scope-a",
+                NoteSource(name="second", materialization=SourceMaterialization.CAPTURED, body="unrelated fact"),
+            )
+            wrong = SourceRef.model_validate({
+                **stored.ref.model_dump(),
+                "locator": {"kind": "sequence", "sequence": other.journal_position},
+            })
+            with pytest.raises(InvalidSourceReferenceError, match=r"locator\.sequence"):
+                await ArtifactRepository((Report,), sources=repositories.sources).create(
+                    connection,
+                    "scope-a",
+                    "wrong-position",
+                    ReportDraft(content=ReportContent(status="green"), sources=(wrong,)),
+                )
+            assert await repositories.artifacts.revisions(connection, "scope-a", "report", "wrong-position") == ()
 
     asyncio.run(scenario())
 

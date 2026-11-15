@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
 from datetime import timedelta
@@ -42,6 +43,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
     require_atomic_memory_pipeline,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -120,7 +122,6 @@ from powercontext.builtin.persistence.atomic_memory_readiness import (
     ensure_supported_atomic_memory_schema,
 )
 from powercontext.builtin.persistence.bootstrap_receipts import BootstrapReceiptRepository
-from powercontext.builtin.persistence.custom_artifacts import ensure_artifact_plugin_schema
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
 from powercontext.builtin.persistence.lexical_projection import refresh_lexical_projections
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
@@ -159,8 +160,6 @@ from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import (
     BuiltinRuntime,
     RecallEffortSink,
-    ScheduledExperienceRunner,
-    ScheduledSourceRunner,
 )
 from powercontext.builtin.runtime.artifact_merge import (
     ArtifactMergeAccess,
@@ -239,6 +238,8 @@ from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNo
 from powercontext.sources import AdapterSourceDefinition, Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
+    import httpx2
+    from anthropic import AsyncAnthropic
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
@@ -527,10 +528,10 @@ def _validate_protected_inference(protection: InferenceProtectionConfig, *depend
 
 
 @asynccontextmanager
-async def open_builtin_runtime(
+async def open_builtin_runtime(  # noqa: C901
     config: BuiltinConfig,
     *,
-    scheduler_path: str | Path = "powercontext.scheduler.db",
+    scheduler_path: str | Path | None = None,
     candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
@@ -562,8 +563,6 @@ async def open_builtin_runtime(
     processing_observer: Callable[[str, str, float], None] | None = None,
     worker_initializer: Callable[[], None] | WorkerInitializerPreparation | None = None,
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
-    scheduled_source_runner: ScheduledSourceRunner | None = None,
-    scheduled_experience_runner: ScheduledExperienceRunner | None = None,
     scheduled_profile_runner: Any = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
@@ -587,7 +586,17 @@ async def open_builtin_runtime(
     a context manager yielding the picklable child bootstrap. Its resources remain
     open until spawn or cancellation cleanup finishes. Custom bindings own their
     launchers and initialization. The default does not configure process logging.
+
+    ``scheduler_path`` is deprecated and ignored.
     """
+
+    if scheduler_path is not None:
+        warnings.warn(
+            "scheduler_path is ignored and will be removed; automatic processing is scheduled by the "
+            "artifact processing supervisor",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
     async with AsyncExitStack() as resources:
         _validate_protected_inference(
@@ -866,8 +875,6 @@ async def open_builtin_runtime(
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,
                 scope_cache_observer=scope_cache_observer,
-                scope_ids=contexts.scope_ids,
-                source_scope_ids=contexts.unconsumed_source_scope_ids,
                 review_service=contexts.review,
                 catalog_change_service=contexts.catalog_changes,
                 profiles=contexts.profiles,
@@ -925,8 +932,6 @@ async def open_builtin_runtime(
                     disabled_dependencies=(name for name, probe in inference_readiness if probe is None),
                 ),
                 tracing=tracing,
-                scheduled_source_runner=scheduled_source_runner,
-                scheduled_experience_runner=scheduled_experience_runner,
                 remote_ingestion=contexts,
                 archive_service=contexts.portability,
             )
@@ -1180,12 +1185,8 @@ async def _open_artifact_processing_supervisor(
 
 def compose_artifact_search(contexts, embedding_model=None, *, observer=None):
     """Use the same Family-owned Searchers in Server, SDK and generation Workers."""
-    from powercontext.builtin.runtime.custom_artifact_search import CustomArtifactSearcher
-
-    artifact_search = ArtifactSearchService(
-        known_families=contexts.repositories.artifacts.families,
-        fallback=lambda family: CustomArtifactSearcher(contexts.database, family, embedding_model),
-    )
+    # Plugin families are searched by their plugins through the Server, not here.
+    artifact_search = ArtifactSearchService(known_families=contexts.repositories.artifacts.families)
     artifact_search.register(
         ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
     )
@@ -1272,7 +1273,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                         validate_only=True,
                     )
                 else:
-                    await ensure_artifact_plugin_schema(connection)
                     await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                     await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                     await ensure_skill_distribution_schema(connection)
@@ -1363,7 +1363,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                     connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery, validate_only=True
                 )
             else:
-                await ensure_artifact_plugin_schema(connection)
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await ensure_skill_distribution_schema(connection)
@@ -1697,6 +1696,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            output_check=validate_extraction_output,
             input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
@@ -2064,24 +2064,16 @@ async def _open_pydantic_ai_model(
 
     if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
-    inferred_model = (
-        infer_model(model_name)
-        if base_url is None
-        and not headers
-        and not disable_provider_retries
-        and (protection is None or protection.mode == "disabled")
-        and current_provider_observer() is None
-        else infer_model(
-            model_name,
-            provider_factory=_provider_factory(
-                base_url,
-                headers,
-                workload="generation",
-                resources=resources,
-                disable_retries=disable_provider_retries,
-                protection=protection,
-            ),
-        )
+    inferred_model = infer_model(
+        model_name,
+        provider_factory=_provider_factory(
+            base_url,
+            headers,
+            workload="generation",
+            resources=resources,
+            disable_retries=disable_provider_retries,
+            protection=protection,
+        ),
     )
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model
@@ -2136,14 +2128,14 @@ def _provider_factory(
         provider = create_provider(name)
         observer = current_provider_observer()
         if observer is not None:
-            import httpx
+            import httpx2
 
             client = getattr(provider, "_own_http_client", None)
             # Explicit SDK clients above are newly owned by this Runtime as well.
-            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic"}:
+            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic", "openai-codex"}:
                 client = getattr(provider.client, "_client", None)
             supported = False
-            if isinstance(client, httpx.AsyncClient):
+            if isinstance(client, httpx2.AsyncClient):
                 with suppress(Exception):
                     observe_http_client(client)
                     supported = True
@@ -2181,14 +2173,14 @@ def _protected_provider_factory(
 ) -> Callable[[str], Provider[Any]]:
     """Own the final transport, including SDK defaults and auxiliary models."""
 
-    import httpx
+    import httpx2
 
     from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
 
     def create(provider_name: str) -> Provider[Any]:
         # Explicit client injection avoids SDK cached clients, redirect behavior,
         # hidden transport retries and provider-side request inspection bypasses.
-        client = httpx.AsyncClient(
+        client = httpx2.AsyncClient(
             transport=ProtectedAsyncTransport(protection),
             follow_redirects=False,
             headers={"Accept-Encoding": "identity"},
@@ -2209,18 +2201,9 @@ def _protected_provider_factory(
             resources.push_async_callback(sdk.close)
             return OpenAIProvider(openai_client=sdk)
         if provider_name == "anthropic" and workload == "generation":
-            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            resolved = _resolve_headers(headers)
-            api_key = _pop_header(resolved, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
-            has_authorization = any(name.casefold() == "authorization" for name in resolved)
-            sdk = AsyncAnthropic(
-                base_url=None if base_url is None else str(base_url),
-                api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                default_headers=resolved,
-                http_client=client,
-            )
+            sdk = _anthropic_client(base_url, headers, http_client=client)
             if disable_retries:
                 sdk.max_retries = 0
             resources.push_async_callback(sdk.close)
@@ -2237,19 +2220,23 @@ def _unbounded_provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
 ) -> Callable[[str], Provider[Any]]:
+    import httpx2
     from pydantic_ai.providers import infer_provider
-
-    if base_url is None and not headers:
-        return infer_provider
-
     from pydantic_ai.providers.openai import OpenAIProvider
 
     def create_provider(provider_name: str) -> Provider[Any]:
+        if base_url is None and not headers:
+            if provider_name == "openai-codex" and workload == "generation":
+                from powercontext.builtin.inference.codex import codex_cli_provider
+
+                return codex_cli_provider(resources)
+            if provider_name != "anthropic" or not os.getenv("ANTHROPIC_BASE_URL"):
+                return infer_provider(provider_name)
         if provider_name in {"openai", "openai-chat", "openai-responses"}:
             if headers:
                 from openai import AsyncOpenAI
 
-                http_client = _endpoint_http_client(follow_redirects=False) if base_url is not None else None
+                http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
                 client = AsyncOpenAI(
                     base_url=None if base_url is None else str(base_url),
                     api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
@@ -2259,48 +2246,58 @@ def _unbounded_provider_factory(
                 resources.push_async_callback(client.close)
                 return OpenAIProvider(openai_client=client)
             if base_url is not None and _is_loopback_endpoint(base_url):
-                from openai import AsyncOpenAI
-
-                client = AsyncOpenAI(
-                    base_url=str(base_url),
-                    api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
-                    http_client=_endpoint_http_client(follow_redirects=False),
-                )
-                resources.push_async_callback(client.close)
-                return OpenAIProvider(openai_client=client)
+                http_client = httpx2.AsyncClient(follow_redirects=False)
+                resources.push_async_callback(http_client.aclose)
+                return OpenAIProvider(base_url=str(base_url), http_client=http_client)
             return OpenAIProvider(base_url=str(base_url))
         if provider_name == "anthropic" and workload == "generation":
-            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            if headers:
-                default_headers = _resolve_headers(headers)
-                api_key = _pop_header(default_headers, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
-                has_authorization = any(name.casefold() == "authorization" for name in default_headers)
-                client = AsyncAnthropic(
-                    base_url=None if base_url is None else str(base_url),
-                    # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
-                    api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                    default_headers=default_headers,
-                    http_client=_endpoint_http_client(follow_redirects=False) if base_url is not None else None,
-                )
-                resources.push_async_callback(client.close)
-                return AnthropicProvider(anthropic_client=client)
-            return AnthropicProvider(
-                base_url=str(base_url),
-                api_key=os.getenv("ANTHROPIC_API_KEY") or "api-key-not-set",
-            )
+            client = _anthropic_client(base_url, headers)
+            resources.push_async_callback(client.close)
+            return AnthropicProvider(anthropic_client=client)
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
 
 
-def _endpoint_http_client(*, follow_redirects: bool):
-    """Create the SDK transport with an explicit redirect policy for custom endpoints."""
+def _anthropic_client(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    http_client: httpx2.AsyncClient | None = None,
+) -> AsyncAnthropic:
+    import httpx2
+    from anthropic import AsyncAnthropic
 
-    import httpx
+    endpoint = str(base_url) if base_url is not None else os.getenv("ANTHROPIC_BASE_URL")
+    custom_endpoint = endpoint is not None and urlsplit(endpoint).hostname != "api.anthropic.com"
+    resolved = _resolve_headers(headers)
+    header_api_key = _pop_header(resolved, "x-api-key")
+    api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
+    has_authorization = any(name.casefold() == "authorization" for name in resolved)
+    if api_key and has_authorization:
+        resolved["X-Api-Key"] = api_key
+    if http_client is None and endpoint is not None:
+        http_client = httpx2.AsyncClient(follow_redirects=False)
+    if api_key and not has_authorization and (base_url is not None or custom_endpoint or header_api_key is not None):
+        http_client = http_client or httpx2.AsyncClient()
+        http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
+    return AsyncAnthropic(
+        base_url=endpoint,
+        api_key=api_key or (None if has_authorization else "api-key-not-set"),
+        default_headers=resolved,
+        http_client=http_client,
+    )
 
-    return httpx.AsyncClient(follow_redirects=follow_redirects)
+
+def _anthropic_api_key_header(request: httpx2.Request, *, api_key: str) -> httpx2.Request:
+    """Keep custom endpoints compatible with the pre-v2 Anthropic authentication header."""
+
+    if request.headers.get("Authorization") == f"Bearer {api_key}":
+        del request.headers["Authorization"]
+        request.headers["X-Api-Key"] = api_key
+    return request
 
 
 def _is_loopback_endpoint(endpoint: AnyHttpUrl | str | None) -> bool:
@@ -2538,8 +2535,8 @@ __all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_r
 
 async def _initialize_atomic_memory_authority(connection) -> None:
     """Create formal authority storage without importing legacy business data."""
+    from powercontext.builtin.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
     from powercontext.builtin.persistence.schema import create_tables
-    from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
 
     await create_tables(connection, ACCESS_TABLES)
     if connection.dialect.name == "sqlite":

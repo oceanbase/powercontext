@@ -36,8 +36,8 @@ from urllib.parse import urlsplit
 import typer
 from pydantic import ValidationError
 
-from powercontext.cli.env_file import EnvironmentFileError, parse_environment
-from powercontext.cli.inference_notice import write_inference_capability_notice
+from powercontext.env_file import EnvironmentFileError, parse_environment
+from powercontext.server.inference_notice import write_inference_capability_notice
 
 if TYPE_CHECKING:
     from powercontext.server.settings import ServerSettings
@@ -132,7 +132,7 @@ API_PROTOCOLS = (
         credential_name="ANTHROPIC_API_KEY",
         base_url_name="ANTHROPIC_BASE_URL",
         default_base_url="https://api.anthropic.com",
-        default_generation_model="claude-sonnet-4-5",
+        default_generation_model="claude-sonnet-5-5",
         default_embedding_model=None,
     ),
 )
@@ -337,14 +337,19 @@ def configure_agents(
             options["dsh_target"] = resolve_dsh_target(
                 DshProfile(profile) if profile is not None else None, dsh_command
             )
+        installer = installers()[host](**options) if host == "minimax" else None
+        native = {"native_endpoint": installer.native_endpoint()} if installer is not None else {}
         connection = prepare_setup_transport(
             host,
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
             dsh_target=options.get("dsh_target"),
+            **native,
         )
-        result = installers()[host](**options).configure(connection)
+        if installer is None:
+            installer = installers()[host](**options)
+        result = installer.configure(connection)
         return {"status": "configured", "result": result}
 
     report_agents(selected, configure, json_output=json_output)

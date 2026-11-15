@@ -21,8 +21,17 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
-`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
+该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，构建插件的 Python 环境，并创建用户数据目录。
+重复执行是安全的。`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
+
+插件的 Hook 和 MCP 凭据助手都通过 `PATH` 中的 `uv` 运行，因此 setup 需要 `uv`，首次安装时还需要能访问包索引。
+在 setup 时构建环境，可避免首次会话在 Codex 同时启动 Hook 和 MCP 时才去构建。如果插件通过其他方式安装或更新，
+在重新执行 setup 之前，`powercontext doctor codex` 会把 `plugin_runtime` 报告为 degraded。
+
+PowerContext 的 MCP server 对 Codex 是可选的，因此 Server 不可用时不会阻塞会话。Codex 默认只等待可选 server 一秒
+（`mcp_optional_startup_grace_ms`），然后列出会话首轮可用的工具；在较慢或负载较高的机器上，首轮可能没有 PowerContext
+的 MCP 工具。对 `codex exec` 等非交互运行，首轮可能就是唯一一轮，可在 Codex 的 `config.toml` 顶层（而非某个
+server 表下）设置 `mcp_optional_startup_grace_ms = 0`，改为最多等待该 server 的 `startup_timeout_sec`（默认 10 秒）。
 
 刷新安装时，setup `.env` 文件或进程环境中新声明的客户端地址会覆盖保存的客户端设置和之前安装的 MCP 地址。
 未提供新地址时，setup 复用保存的地址。文件与进程中声明的地址冲突时，仍需显式选择：使用 `--server-url`，
@@ -68,6 +77,27 @@ Setup 会分别报告安装完成和诊断结果；基础 Memory 支持仍可使
   Source 证据；
 - MCP 为 Codex 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
+### 批准会修改数据的 MCP 工具
+
+对于 server 未标记为只读的 MCP 工具，Codex 会在运行前请求批准。PowerContext 把 `search_memory` 等读取类工具标记为只读；
+`remember_memory`、`handoff_current_work` 等会修改数据的工具需要批准。插件的 `PreToolUse` Hook 返回 `allow`
+只是为了把每次调用绑定到会话的 Scope。在 Codex 中，这只会改写调用而不会批准它，因此仍会请求批准。
+
+在交互式会话中，Codex 询问时批准即可。非交互运行中无人应答：使用 `codex exec` 且 `approval_policy = "never"` 时，
+调用会以 "MCP tool call requires approval, but approval policy is never" 失败，且不会有任何请求到达 Server。
+对无人值守的运行，在 Codex 的 `config.toml` 中逐个批准任务需要的工具：
+
+```toml
+[plugins."powercontext@powercontext".mcp_servers.powercontext.tools.remember_memory]
+approval_mode = "approve"
+```
+
+插件 ID 使用 `codex plugin list` 报告的 `powercontext@<marketplace>`。被批准的工具在模型调用时直接运行、不再询问，
+适用于使用这份 Codex 配置的所有会话，包括交互式会话。调用仍使用保存的凭据；只要插件的 Hook 已被信任，调用就保持在会话绑定的
+Scope 内，批准不会让模型选择其他 Scope。若改为在 server 表 `[plugins."powercontext@powercontext".mcp_servers.powercontext]`
+中设置 `default_tools_approval_mode = "approve"`，则会批准 PowerContext 的全部 MCP 工具，包括后续插件版本新增的工具。
+setup 不会授予上述任何批准。
+
 ## 一句话交接当前工作
 
 在已经安装插件且 PowerContext Server 可用的 Codex 会话中，直接输入：
@@ -101,8 +131,8 @@ uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/sc
 `POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
-`powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 在构造请求前先定界：不超过 8192 个字符、
-也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的 prompt 改用最近的文本召回，先取末尾 8192 个字符、
+`powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 先做凭据脱敏并去掉首尾空白，再定界：不超过 8192 个字符、
+也不超过 8192 个 UTF-8 字节的文本保留；更长的 prompt 改用最近的文本召回，先取末尾 8192 个字符、
 再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让召回失败；prompt 采集不受影响，仍按自身上限执行。
 Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
@@ -176,7 +206,37 @@ Server 权限检查。Claude Code、WorkBuddy 共用该 MCP 工具集，因此�
 在启动 Codex 前，将 `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` 设置为 JSON 组装对象，即可选择 Memory/Experience
 的输出类别、顺序、条数和展示信息。完整示例与输出规则见[输出标准上下文文本](../workflows/prepare-context-text.md)。
 
-## 控制提示词采集
+## 数据流与捕获控制
+
+自动 prompt 操作要求 Hook 已启用并受信任，见[首次会话 Hook 信任](#首次会话-hook-信任)。
+MCP 连通本身不会启用这些操作。
+
+| 事件/入口 | 发送的数据 | 直接接收方 | 默认/触发条件 | 关闭方式 | 关闭后影响 |
+| --- | --- | --- | --- | --- | --- |
+| `UserPromptSubmit`：prepare | 凭据脱敏并定界后的 query 与绑定 Scope；返回的 prepared context 交给 Codex | PowerContext Server；返回上下文交给 Codex | Hook 已启用，prompt 非空 | 在宿主中禁用此 Hook | 同时停止自动 prompt 召回与捕获；显式 MCP 工具仍是独立路径 |
+| `UserPromptSubmit`：capture | 符合条件的原始 prompt、工作目录及可用的 session/turn 元数据，作为 Source | PowerContext Server | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=true`；跳过识别到凭据或超过 200,000 字符的 prompt | 设置 `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` | 自动召回与显式 MCP 读写仍可使用 |
+| 捕获后的 flush | 绑定 Scope 及针对已接受 Source position 的处理请求，不是再次上传 transcript | PowerContext Server | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false`；测试时选择启用 | 设置 `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false` | 停止 Hook 等待，不撤销捕获，也不禁用 Server 调度 |
+| `SessionStart`：bootstrap | 绑定 Scope 的启动请求及可选的精确 Handoff 身份；返回历史上下文 | PowerContext Server；返回上下文交给 Codex | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false`；见[启动上下文配置](#选择启用-session-启动上下文) | 设置 `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false` | 停止启动注入，不影响 prompt 召回、捕获或显式工具 |
+| 显式 MCP 操作 | 所选读取、写入或 Handoff 操作的参数 | PowerContext Server | 显式工具调用，受 Scope binding 与鉴权约束 | 不调用该操作 | 自动捕获设置不会禁用显式写入 |
+| Evaluation 注入 trace | 脱敏 prompt、实际注入上下文、Scope 及可用的 session/turn 标识 | 本地 trace 文件 | 有非空注入，且设置了 `POWERCONTEXT_EVAL_TRACE_PATH`；或 `eval:` Scope 配有绝对路径的 `POWERCONTEXT_HOME` | 取消 trace 路径设置，并避免 evaluation home 回退条件 | 停止新增 evaluation trace；召回与捕获仍独立运行 |
+
+即使已做凭据脱敏，trace 文件仍含敏感内容。捕获开关不会关闭这条独立 trace 路径。
+只读 query 中识别到的凭据会被替换；如果脱敏改变了 prompt，捕获会跳过整个事件，不会把改写后的内容存为 Source。
+query 在脱敏后再定界。识别仅覆盖具体模式和已配置凭据，不保证识别所有敏感信息，也不是完整 DLP；
+见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。
+
+这里有三个独立的数据方向：Codex 向 Server 发送 query、Source 或显式操作参数；Server 可能向配置的
+embedding、rerank 或 generation 后端发送 query、候选或证据；Codex 还可能把返回的历史上下文放入自己的模型请求。
+环回地址只描述第一段连接。本地执行第三方插件代码，本身不等于第三方网络服务收到了数据。
+部署与受支持载荷边界见[配置](../operate/configuration.md)、[推理保护](../operate/inference-protection.md)和
+[上下文保护](../operate/context-protection.md)。推理保护默认是 `disabled`，`shadow`/`advisory` 不阻止交付。
+安装本插件不会自动让所有 Codex 模型请求都经过 enforcing 保护边界。
+
+Source 被接受不等于 Memory 已提取；关闭 generation 不会关闭捕获。改变这些开关不会删除既有 Source、Memory、
+历史 revision、本地 trace 或供应商保留的记录。prepared、checkpoint、宿主注入、模型使用和回答正确是不同结果；
+仅有 HTTP 成功不能证明这些结果全部成立。
+
+### 控制提示词采集
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 Codex 前关闭：
 
@@ -276,12 +336,14 @@ header 的进程启动。
 鉴权，但有效凭据缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但
 不会阻塞 Codex 会话。
 
-Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
+Server 不可用时，Hook 的召回和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
+召回和采集都依赖当前 Scope，因此 Scope 解析失败时 Hook 两者都不执行，并以 `scope_resolve` 事件报告该失败。
 
 正常空结果或召回失败时，Hook 会输出不含正文的 JSON 诊断。故障 outcome 通过成功 stdout Hook 响应顶层的
 `systemMessage` 返回；`empty` 仍只作为本地诊断。outcome 包括 `empty`、`authentication_failed`、
-`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、scope、prepared content、
-`citation`、response body 或 authorization value。
+`version_mismatch`、`server_unavailable` 和 `invalid_response`。`invalid_response` 可能带有 Server 的
+`error_code`，例如配置的 Scope 不存在或没有可解析的绑定时为 `scope_not_found`。事件不会包含 query、scope、
+prepared content、`citation`、response body 或 authorization value。
 
 ## 使用生成的环境文件
 

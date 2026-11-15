@@ -26,18 +26,26 @@ use std::task::{Context, Poll};
 use tokio::sync::Semaphore;
 
 pub struct ResourceLimits {
-    max_body_bytes: usize,
-    max_concurrent: Arc<Semaphore>,
+    model_body_bytes: usize,
+    fallback_body_bytes: usize,
+    model_concurrent: Arc<Semaphore>,
+    fallback_concurrent: Arc<Semaphore>,
     /// 被拒计数（无正文证据）。
     rejected_body: AtomicU64,
     rejected_concurrency: AtomicU64,
 }
 
 impl ResourceLimits {
-    pub fn new(max_body_bytes: usize, max_concurrent: usize) -> Arc<Self> {
+    pub fn new(
+        model_body_bytes: usize,
+        fallback_body_bytes: usize,
+        max_concurrent: usize,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            max_body_bytes,
-            max_concurrent: Arc::new(Semaphore::new(max_concurrent)),
+            model_body_bytes,
+            fallback_body_bytes,
+            model_concurrent: Arc::new(Semaphore::new(max_concurrent)),
+            fallback_concurrent: Arc::new(Semaphore::new(max_concurrent)),
             rejected_body: AtomicU64::new(0),
             rejected_concurrency: AtomicU64::new(0),
         })
@@ -55,6 +63,23 @@ impl GatewayMiddleware for ResourceLimits {
         next: Next,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
         Box::pin(async move {
+            let model_route = crate::connection::is_model_route(req.uri().path());
+            let body_limit = if model_route {
+                self.model_body_bytes
+            } else {
+                self.fallback_body_bytes
+            };
+            if model_route && self.fallback_body_bytes == 0 {
+                return reject(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "input_capacity_disabled",
+                    "PC_GATEWAY_MAX_BODY_BYTES is zero; configure a positive limit and restart",
+                );
+            }
+            if model_route && body_limit == 0 {
+                return reject(StatusCode::SERVICE_UNAVAILABLE, "input_capacity_unconfirmed",
+                    "Core input capacity could not be confirmed; restart after restoring the contract");
+            }
             // 1) 请求体上限：优先用 Content-Length 预检（零拷贝拒绝）。
             if let Some(len) = req
                 .headers()
@@ -62,27 +87,28 @@ impl GatewayMiddleware for ResourceLimits {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<usize>().ok())
             {
-                if len > self.max_body_bytes {
+                if len > body_limit {
                     self.rejected_body.fetch_add(1, Ordering::Relaxed);
-                    tracing::warn!(
-                        bytes = len,
-                        limit = self.max_body_bytes,
-                        "request body rejected"
-                    );
+                    tracing::warn!(bytes = len, limit = body_limit, "request body rejected");
                     return reject(
                         StatusCode::PAYLOAD_TOO_LARGE,
                         "request_body_too_large",
-                        format!("body {len} bytes exceeds limit {}", self.max_body_bytes),
+                        format!("body {len} bytes exceeds limit {}", body_limit),
                     );
                 }
             }
 
             // 2) 并发上限：非阻塞获取；占满即拒（不排队——排队会把内存压力换成延迟压力）。
             let is_health = req.uri().path() == "/healthz";
-            let permit = if is_health {
+            let mut permit = if is_health {
                 None
             } else {
-                match self.max_concurrent.clone().try_acquire_owned() {
+                let semaphore = if model_route {
+                    &self.model_concurrent
+                } else {
+                    &self.fallback_concurrent
+                };
+                match semaphore.clone().try_acquire_owned() {
                     Ok(p) => Some(p),
                     Err(_) => {
                         self.rejected_concurrency.fetch_add(1, Ordering::Relaxed);
@@ -96,6 +122,15 @@ impl GatewayMiddleware for ResourceLimits {
                 }
             };
 
+            // Transfer before polling ingress; Hyper may consume/drop the body
+            // while it still owns pending writes. The connection is the owner.
+            if model_route {
+                if let Some(owner) = req.extensions().get::<crate::connection::ModelConnection>() {
+                    if let Some(permit) = permit.take() {
+                        owner.hold(permit);
+                    }
+                }
+            }
             let resp = next.run(req).await;
             // P2 review：许可必须绑定到响应 body 的生命周期，不能在头返回时释放。
             // 流式代理（MCP/SSE）的 body 在头之后仍在传输；在头返回时 drop 许可

@@ -220,7 +220,9 @@ def contains_opaque_content(value: object, *, protocol: PrivacyProtocol | None =
             and any(isinstance(item, dict) and "id" in item and item.get("type") is None for item in inputs)
         ):
             return True
-        if any(key in _OPAQUE_KEYS for key in value):
+        # A Responses root is an envelope: its content is in the input and output items, and its other fields are
+        # settings and metadata, such as the `image` options OpenAI echoes on every response.
+        if protocol != "openai-responses" and any(key in _OPAQUE_KEYS for key in value):
             return True
         content_type = value.get("type")
         if isinstance(content_type, str) and content_type in _OPAQUE_TYPES:

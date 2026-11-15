@@ -232,16 +232,16 @@ def test_stale_topic_runtime_rejects_reads_after_empty_store_reconfiguration(tmp
 def test_embedding_models_use_minimax_adapter_for_minimax_host(monkeypatch) -> None:
     import json
 
-    import httpx
+    import httpx2
     from pydantic import AnyHttpUrl, SecretStr
 
     from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
 
     captured: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         captured.append(json.loads(request.content))
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "vectors": [[0.1] * 1536],
@@ -250,13 +250,13 @@ def test_embedding_models_use_minimax_adapter_for_minimax_host(monkeypatch) -> N
             },
         )
 
-    original_async_client = httpx.AsyncClient
+    original_async_client = httpx2.AsyncClient
 
-    def make_client(*args, **kwargs) -> httpx.AsyncClient:
-        return original_async_client(transport=httpx.MockTransport(handler))
+    def make_client(*args, **kwargs) -> httpx2.AsyncClient:
+        return original_async_client(transport=httpx2.MockTransport(handler))
 
-    # MiniMaxEmbeddingModel builds its own httpx.AsyncClient; route it to the mock.
-    monkeypatch.setattr(httpx, "AsyncClient", make_client)
+    # MiniMaxEmbeddingModel builds its own httpx2.AsyncClient; route it to the mock.
+    monkeypatch.setattr(httpx2, "AsyncClient", make_client)
 
     async def scenario() -> None:
         config = InferenceConfig(
@@ -270,7 +270,7 @@ def test_embedding_models_use_minimax_adapter_for_minimax_host(monkeypatch) -> N
             operational, _readiness = await _embedding_models(config, resources, None)
             assert operational is not None
             assert isinstance(operational, MiniMaxEmbeddingModel)
-            # The embedding adapter owns an httpx client registered with the runtime
+            # The embedding adapter owns an httpx2 client registered with the runtime
             # stack, so it must be exercised before the stack closes it.
             result = await operational.embed(("hello",))
             assert len(result.vectors) == 1

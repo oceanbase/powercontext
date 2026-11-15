@@ -27,7 +27,7 @@ from pydantic import SecretStr, ValidationError
 from sqlalchemy import Column, MetaData, String, Table, select
 from sqlalchemy.dialects.mysql import dialect as mysql_dialect
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from powercontext.builtin.persistence.oceanbase import (
     IncompatibleOceanBaseSchemaError,
@@ -246,6 +246,38 @@ def test_profile_recognizes_mysql_only_seekdb_without_tenant_variable(version, m
                     pass
 
     asyncio.run(scenario())
+
+
+def test_profile_accepts_an_empty_compatibility_mode_on_a_seekdb_version() -> None:
+    class Connection(_Connection):
+        async def exec_driver_sql(self, statement, parameters=None):
+            if statement == "SELECT VERSION()":
+                return _Result((("5.7.25-OceanBase seekdb-v1.4.0.0",),))
+            return await super().exec_driver_sql(statement, parameters)
+
+    asyncio.run(
+        oceanbase_profile_module._require_mysql_tenant(
+            cast(AsyncConnection, Connection(row=("ob_compatibility_mode", "")))
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("row", "version", "expected"),
+    [
+        (("ob_compatibility_mode", "MYSQL"), "8.0.36", "mysql"),
+        (("ob_compatibility_mode", "mysql"), "5.7.25-OceanBase seekdb-v1.4.0.0", "mysql"),
+        (None, "5.7.25-OceanBase seekdb-v1.4.0.0", "seekdb"),
+        (("ob_compatibility_mode", ""), "5.7.25-OceanBase seekdb-v1.4.0.0", "seekdb"),
+        (("ob_compatibility_mode", None), "5.7.25-OceanBase seekdb-v1.4.0.0", "seekdb"),
+        (("ob_compatibility_mode", "ORACLE"), "5.7.25-OceanBase seekdb-v1.4.0.0", "unsupported"),
+        (None, "8.0.36", "unsupported"),
+        (None, None, "unsupported"),
+        (("ob_compatibility_mode", ""), "8.0.36", "unsupported"),
+    ],
+)
+def test_classify_compatibility_matrix(row, version, expected) -> None:
+    assert oceanbase_profile_module.classify_compatibility(row, version) == expected
 
 
 def test_profile_rejects_legacy_identity_column_collation(monkeypatch: pytest.MonkeyPatch) -> None:

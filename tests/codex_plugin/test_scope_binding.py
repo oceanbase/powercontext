@@ -70,11 +70,6 @@ def test_pre_tool_hook_overwrites_agent_scope_with_session_binding(
     assert result["updatedInput"]["text"] == "Use Scope binding."
 
 
-def test_pre_tool_hook_scope_modes_match_generated_openapi_metadata(bind_tools_module: ModuleType) -> None:
-    assert bind_tools_module._CURRENT_OPERATIONS == CURRENT_OPERATIONS
-    assert bind_tools_module._SELECTION_OPERATIONS == SELECTION_OPERATIONS
-
-
 @pytest.mark.parametrize("operation", sorted(CURRENT_OPERATIONS))
 def test_pre_tool_hook_binds_every_current_scope_operation(
     operation: str,

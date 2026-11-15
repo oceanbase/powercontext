@@ -261,131 +261,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/artifact-plugins": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Artifact plugin registrations */
-        get: operations["list_artifact_plugins"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get an Artifact plugin registration */
-        get: operations["get_artifact_plugin"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/enable-all": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enable the currently disabled Artifact plugins
-         * @description Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
-         */
-        post: operations["enable_all_artifact_plugins"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/reload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load or update a Worker-loaded Artifact plugin
-         * @description Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
-         */
-        post: operations["reload_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/enable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Enable an Artifact plugin */
-        post: operations["enable_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/disable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Disable an Artifact plugin */
-        post: operations["disable_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/artifact-plugins/{binding_name}/unload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Unload an Artifact plugin */
-        post: operations["unload_artifact_plugin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -997,6 +872,143 @@ export interface paths {
          * @description Persist a flush generation without waiting for background processing to complete. Request pending Topic Memory processing when the user explicitly asks for that processing. Processing depends on configured capabilities and can yield no changes. Do not use it as an explicit Memory save or infer success from Source acceptance alone.
          */
         post: operations["flush_topic_memory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List loaded plugins
+         * @description Lists the plugins checked at Server startup, whether each loaded or failed, and what each one declares. Plugins have no persisted lifecycle state; change the plugin directory and restart Server.
+         */
+        get: operations["list_plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one loaded plugin */
+        get: operations["get_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins/{name}/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a plugin's progress per Scope
+         * @description Reads the plugin's pending work and consumption cursor in each Scope from the database, so every Server role returns the same answer. Call outcomes are reported through logs and metrics, not here.
+         */
+        get: operations["list_plugin_scopes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/merges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge exact current Artifacts into a new Artifact
+         * @description Freezes every input into a new result Artifact in one transaction. Available for every Family registered with the shared merge service, including plugin families; other families return 422. The caller needs write access to each input.
+         */
+        post: operations["merge_artifacts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read an Artifact's current governance state
+         * @description Returns the lifecycle state, state version and merge target that forget, merge and restoration check. Available for every Family registered with the shared merge service.
+         */
+        get: operations["get_artifact_governance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forget one Artifact without changing its content revision
+         * @description Deprecates the exact current Artifact without a replacement so it leaves search; restoration brings it back. Available for every Family registered with the shared merge service.
+         */
+        post: operations["forget_artifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore an Artifact or undo the merge that produced it
+         * @description `restore` reactivates the Artifact, optionally at an earlier content revision, and undoes the merges that froze it. `undo_merge` restores a merge result's inputs and retires the result. Each runs as one group. Available for every Family registered with the shared merge service.
+         */
+        post: operations["restore_artifact"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2039,7 +2051,7 @@ export interface paths {
         put?: never;
         /**
          * Create a durable Source
-         * @description Persist one Source without synchronously deriving Artifacts. The Server generates source_id.
+         * @description Persist one Source without synchronously deriving Artifacts. The Server generates source_id. A Source type defined by a loaded plugin is resolved by that plugin from the submitted input; unknown types return 404.
          */
         post: operations["create_source"];
         delete?: never;
@@ -2076,7 +2088,7 @@ export interface paths {
         put?: never;
         /**
          * Create an Artifact
-         * @description Dispatch the family-specific creation command through the owning Family writer and atomically create revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton: Create returns 409 when it already exists and callers must use Replace to update it. Creating a Prompt requires scope.admin because its configuration affects the whole Scope; other families require scope.contribute. Topic Memory accepts complete title, summary, and detail text without semantic generation; its active head, chunks, and configured retrieval indexes are committed atomically.
+         * @description Dispatch the family-specific creation command through the owning Family writer and atomically create revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton: Create returns 409 when it already exists and callers must use Replace to update it. Creating a Prompt requires scope.admin because its configuration affects the whole Scope; other families require scope.contribute. Topic Memory accepts complete title, summary, and detail text without semantic generation; its active head, chunks, and configured retrieval indexes are committed atomically. A family provided by a loaded plugin takes the complete content object; core allocates the Artifact ID and the plugin's create_artifact method writes revision one.
          */
         post: operations["create_artifact"];
         delete?: never;
@@ -2140,7 +2152,7 @@ export interface paths {
         get: operations["get_artifact"];
         /**
          * Replace the current Artifact head
-         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow.
+         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow. Plugin families accept their own content unchanged; the plugin's next invocation sees the new revision.
          */
         put: operations["replace_artifact"];
         post?: never;
@@ -2235,6 +2247,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Present a plugin Artifact
+         * @description Returns the default presentation of one revision of a plugin family as the plugin renders it, in Markdown or plain text, for people and for agent context. The current revision is used unless revision is given. Built-in families have no rendering and return 422.
+         */
+        get: operations["get_artifact_rendering"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions": {
         parameters: {
             query?: never;
@@ -2289,6 +2321,26 @@ export interface paths {
          * @description Generate exactly the requested number of typed input/output suggestions for a supported built-in operation. The caller must explicitly create or replace a Prompt Artifact to save suggestions. Requires scope.admin, matching Prompt creation and replacement.
          */
         post: operations["generate_prompt_demonstrations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connection/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe the current connection identity without readiness probes
+         * @description Returns the actual deployment, access mode and request authentication identity. Does not invoke model, authentication-provider or access-provider readiness probes, require server.observe, or grant resource permissions. Anonymous identity is explicit only when authentication and access enforcement are disabled. Authentication errors and unavailable enforced access remain errors, never anonymous fallback.
+         */
+        get: operations["get_connection_identity"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2751,6 +2803,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        GatewayLifecycleDecision: "deadline_exceeded" | "gateway_shutdown" | "request_cancelled";
+        /**
+         * @description Sending facts known at the stop boundary. Possibly sent never means safe to resend; response received does not authorize release or establish client receipt.
+         * @enum {string}
+         */
+        GatewayModelSend: "no_send" | "definitely_not_sent" | "possibly_sent" | "response_received";
+        /** @description Lifecycle control result, independent of Core allow/block/withhold and local delivery. */
+        GatewayLifecycleError: {
+            decision: components["schemas"]["GatewayLifecycleDecision"];
+            model_send: components["schemas"]["GatewayModelSend"];
+        };
         /** @description A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields. */
         ContractVersion: {
             major: number;
@@ -3070,8 +3134,6 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
-            /** @description Persisted schema version for a custom Artifact family. */
-            schema_version?: string | null;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
             artifacts: components["schemas"]["ArtifactReference"][];
@@ -3095,7 +3157,7 @@ export interface components {
         };
         ArtifactCreated: {
             scope_id: string;
-            family: components["schemas"]["BaseArtifactFamily"];
+            family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
@@ -3113,8 +3175,6 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
-            /** @description Persisted schema version for a custom Artifact family. */
-            schema_version?: string | null;
             revision: number;
             content: {
                 [key: string]: unknown;
@@ -3279,6 +3339,7 @@ export interface components {
         DreamSourceReference: {
             source_type: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         ListDreamRunsRequest: {
             status?: components["schemas"]["DreamStatus"];
@@ -3448,58 +3509,105 @@ export interface components {
             /** @enum {string} */
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
-        CustomArtifactFamilySchema: {
-            family: string;
-            schema_version: string;
-            content_schema: {
+        /** @enum {string} */
+        PluginKind: "artifact";
+        /** @enum {string} */
+        PluginLoadStatus: "loaded" | "failed";
+        /** @enum {string} */
+        PluginTrigger: "schedule" | "sources";
+        PluginState: {
+            name: string;
+            kind: components["schemas"]["PluginKind"];
+            status: components["schemas"]["PluginLoadStatus"];
+            /** @description Safe failure category from the startup check. */
+            error: string | null;
+            family: string | null;
+            binding_name: string | null;
+            scopes: string[] | null;
+            /** @description Source types delivered to the plugin; null when it consumes no Sources. */
+            source_types: string[] | null;
+            triggers: components["schemas"]["PluginTrigger"][];
+        };
+        PluginPage: {
+            items: components["schemas"]["PluginState"][];
+        };
+        PluginScopeState: {
+            scope_id: string;
+            /** @description New Sources or a schedule request are waiting for an invocation. */
+            pending: boolean;
+            /** @description Source journal position the plugin has consumed through; null when it consumes no Sources. */
+            consumed_position: number | null;
+            /** @description Latest Source journal position in the Scope, of any Source type. */
+            source_position: number | null;
+        };
+        ListPluginScopesRequest: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+        };
+        PluginScopePage: {
+            items: components["schemas"]["PluginScopeState"][];
+            next_cursor: string | null;
+        };
+        /** @enum {string} */
+        ArtifactLifecycleState: "active" | "deprecated" | "retired";
+        /** @description An exact current Artifact the caller has read; a later change rejects the request. */
+        ArtifactGovernanceInput: {
+            artifact_id: string;
+            revision: number;
+            state_version: number;
+        };
+        MergeArtifactsRequest: {
+            inputs: components["schemas"]["ArtifactGovernanceInput"][];
+            /** @description Complete content of the result in the Family's content shape. */
+            content: {
                 [key: string]: unknown;
             };
-            /** @description Legacy persisted text fields; new plugins use search. */
-            search_fields: string[];
-            /** @description Persistent declarative indexes and supported search modes. */
-            search?: {
+            source_refs?: components["schemas"]["SourceReference"][];
+            artifact_refs?: components["schemas"]["ArtifactReference"][];
+        };
+        ForgetArtifactRequest: {
+            revision: number;
+            state_version: number;
+        };
+        /** @enum {string} */
+        ArtifactRestorationOperation: "restore" | "undo_merge";
+        RestoreArtifactRequest: {
+            /** @default restore */
+            operation: components["schemas"]["ArtifactRestorationOperation"];
+            /** @description Content revision to restore; omitted restores the current one. Not accepted with undo_merge. */
+            revision?: number | null;
+        };
+        ArtifactGovernanceRecord: {
+            artifact: components["schemas"]["ArtifactReference"];
+            lifecycle_state: components["schemas"]["ArtifactLifecycleState"];
+            state_version: number;
+            merged_into_id: string | null;
+        };
+        ArtifactGovernanceResponse: {
+            changed: boolean;
+            records: components["schemas"]["ArtifactGovernanceRecord"][];
+        };
+        ArtifactRestorationResult: {
+            changed: boolean;
+            restored: components["schemas"]["ArtifactReference"][];
+            retired: components["schemas"]["ArtifactReference"][];
+            undo_merge_results: string[];
+        };
+        /** @description Create an Artifact of a family a loaded plugin provides. The family must not be a built-in family name; core allocates the Artifact ID and stores the content the plugin writes. */
+        CreatePluginArtifactRequest: {
+            family: string;
+            content: {
                 [key: string]: unknown;
             };
         };
-        ReloadArtifactPluginRequest: {
-            expected_generation: number;
-        };
-        ChangeArtifactPluginStateRequest: {
-            expected_generation: number;
-        };
-        ArtifactPluginState: {
-            binding_name: string;
-            plugin_id: string;
-            family: string;
-            binding_generation: number;
-            /** @enum {string} */
-            desired_state: "enabled" | "disabled" | "unloaded";
-            /** @enum {string} */
-            phase: "activating" | "enabled" | "stopping" | "disabled" | "unloading" | "unloaded" | "failed";
-            last_error: string | null;
-        };
-        ArtifactPluginPage: {
-            items: components["schemas"]["ArtifactPluginState"][];
-        };
-        EnableArtifactPluginResult: {
-            binding_name: string;
-            /** @enum {string} */
-            outcome: "accepted" | "skipped" | "failed";
-            /** @description Registration status URL for the asynchronous result. */
-            status_url: string;
-            state: components["schemas"]["ArtifactPluginState"];
-            /**
-             * @description Safe per-plugin failure code; null for accepted or skipped entries.
-             * @enum {string|null}
-             */
-            error: "conflict" | "invalid_plugin" | "unavailable" | null;
-        };
-        EnableAllArtifactPluginsResponse: {
-            items: components["schemas"]["EnableArtifactPluginResult"][];
+        /** @description Complete content of a plugin Artifact; core stores it unchanged and indexes the declared fields. */
+        ReplacePluginArtifactRequest: {
+            content: {
+                [key: string]: unknown;
+            };
         };
         Capabilities: {
-            /** @default [] */
-            custom_artifact_schemas: components["schemas"]["CustomArtifactFamilySchema"][];
             /** @default {} */
             prompts: {
                 [key: string]: components["schemas"]["PromptCapability"];
@@ -3916,6 +4024,17 @@ export interface components {
             basis: components["schemas"]["WorkClaimBasis"];
             evidence: components["schemas"]["HandoffCitation"][];
         };
+        /** @enum {string} */
+        TaskStopReasonKind: "safety" | "authorization" | "capability" | "missing_evidence" | "scope";
+        /** @description A caller-recorded judgement about why continuing would have been wrong. It grants no permission, approval, or retry budget and is not success or failure evidence. */
+        TaskStopReason: {
+            kind: components["schemas"]["TaskStopReasonKind"];
+            /** @description The circumstance under which continuing would have been wrong; must be trimmed. */
+            condition: string;
+            basis: components["schemas"]["WorkClaimBasis"];
+            /** @description Use [] with declared. verified requires exact previously returned same-scope citations. */
+            evidence: components["schemas"]["HandoffCitation"][];
+        };
         TaskOutcome: {
             /** @enum {string} */
             schema: "powercontext.task-outcome.v1";
@@ -3925,6 +4044,8 @@ export interface components {
             status: components["schemas"]["TaskOutcomeStatus"];
             summary: string;
             handoff_receipt_ref?: components["schemas"]["SourceReference"];
+            /** @description Optional deliberate-stop reason, accepted only with blocked or cancelled status. */
+            stop_reason?: components["schemas"]["TaskStopReason"];
             observations: components["schemas"]["WorkClaim"][];
             checks: components["schemas"]["TaskCheck"][];
             produced_artifacts: components["schemas"]["ArtifactReference"][];
@@ -4209,7 +4330,8 @@ export interface components {
         };
         PreparedContextSearchGroup: {
             round: number;
-            family: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            family: string;
             /** @enum {string} */
             mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
             /** @enum {string} */
@@ -4255,8 +4377,6 @@ export interface components {
             fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
             count: number;
         };
-        /** @enum {string} */
-        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
         PreparedContextCodeEvidence: {
             scope_id: string;
             fingerprint: string;
@@ -4267,14 +4387,16 @@ export interface components {
             snippet_sha256: string;
         };
         PreparedContextSelectedItem: {
-            kind: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            kind: string;
             artifact_address?: components["schemas"]["ArtifactAddress"];
             code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
             rendered_bytes: number;
             truncated: boolean;
         };
         PreparedContextOmittedGroup: {
-            family: components["schemas"]["PreparedContextFamily"];
+            /** @description atomic-memory, topic-memory, experience, profile, code, or a loaded plugin family. */
+            family: string;
             /** @enum {string} */
             reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
             count: number;
@@ -4376,6 +4498,13 @@ export interface components {
             correlate_until?: string;
             /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
             binding?: string;
+            /** @description Exact Core-configured endpoint, present only on an allow for before_send when X-PowerContext-Resolve-Target was authorized for a service principal. */
+            target_endpoint?: string;
+            /**
+             * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
+             * @enum {string}
+             */
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];
@@ -5180,7 +5309,12 @@ export interface components {
             outcome: "injected" | "failed";
         };
         ContextAssemblySection: {
-            family: components["schemas"]["ContextAssemblyFamily"];
+            /** @description A built-in family (memory, experience, profile, topic-memory) or a loaded plugin family that implements search. A plugin family's entries come from the plugin's search with the request query and this limit; a family that is neither returns HTTP 422. */
+            family: string;
+            /** @description Additional generic search fields passed to the plugin's search unchanged, such as mode, filters, fusion, or rerank. Only plugin families accept it; the query and limit come from the request and this section. */
+            search?: {
+                [key: string]: unknown;
+            };
             /** @description Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count. */
             limit: number;
         };
@@ -5205,8 +5339,6 @@ export interface components {
             /** @default [] */
             show: components["schemas"]["ContextAssemblyMetadata"][];
         };
-        /** @enum {string} */
-        ContextAssemblyFamily: "memory" | "experience" | "profile" | "topic-memory";
         /** @enum {string} */
         ContextAssemblyFormat: "markdown";
         /** @enum {string} */
@@ -5386,6 +5518,14 @@ export interface components {
                 [key: string]: components["schemas"]["ArtifactChannelScore"];
             };
         };
+        ArtifactRendering: {
+            family: string;
+            artifact_id: string;
+            revision: number;
+            /** @enum {string} */
+            format: "markdown" | "text";
+            text: string;
+        };
         ArtifactSearchItem: {
             family: string;
             artifact_id: string;
@@ -5449,7 +5589,9 @@ export interface components {
             detail: string;
             source_refs: components["schemas"]["SourceReference"][];
         };
-        CreateArtifactRequest: components["schemas"]["CreateAtomicMemoryArtifactRequest"] | components["schemas"]["CreateTopicMemoryArtifactRequest"] | components["schemas"]["CreateMemoryArtifactRequest"] | components["schemas"]["CreateExperienceArtifactRequest"] | components["schemas"]["CreateSkillArtifactRequest"] | components["schemas"]["CreateHandoffArtifactRequest"] | components["schemas"]["CreatePromptArtifactRequest"] | components["schemas"]["CreateProfileArtifactRequest"];
+        /** @description A built-in family's creation request, or the complete content of an Artifact in a loaded plugin's family. The family name selects the branch: built-in names select the built-in branch. */
+        CreateArtifactRequest: components["schemas"]["CreateBuiltinArtifactRequest"] | components["schemas"]["CreatePluginArtifactRequest"];
+        CreateBuiltinArtifactRequest: components["schemas"]["CreateAtomicMemoryArtifactRequest"] | components["schemas"]["CreateTopicMemoryArtifactRequest"] | components["schemas"]["CreateMemoryArtifactRequest"] | components["schemas"]["CreateExperienceArtifactRequest"] | components["schemas"]["CreateSkillArtifactRequest"] | components["schemas"]["CreateHandoffArtifactRequest"] | components["schemas"]["CreatePromptArtifactRequest"] | components["schemas"]["CreateProfileArtifactRequest"];
         TopicMemoryWriteContent: {
             title: string;
             summary: string;
@@ -5518,20 +5660,22 @@ export interface components {
             /** @description Durable non-empty Memory entry text used to create the Entry Version and search projection. */
             text: string;
         };
-        CreateSourceRequest: {
-            /**
-             * @default content
-             * @enum {string}
-             */
-            source_type: "content";
-            /** @description JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
-            content: unknown;
-        };
         /**
-         * @description All readable Artifact families support logical tags on persisted Artifacts.
+         * @description The built-in Source type that create_source accepts.
          * @enum {string}
          */
-        TaggableArtifactFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+        SourceType: "content";
+        CreateSourceRequest: {
+            /**
+             * @description The built-in content type, or a Source type that a loaded plugin defines. A plugin type's content is that type's input; the plugin resolves it into the stored Source.
+             * @default content
+             */
+            source_type: string;
+            /** @description JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
+            content: unknown;
+        };
+        /** @description A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead. */
+        TaggableArtifactFamily: string;
         /** @enum {string} */
         TagMatch: "all" | "any";
         /** @enum {string} */
@@ -5605,11 +5749,15 @@ export interface components {
             limit: number;
             cursor?: string | null;
         };
-        ReplaceArtifactRequest: components["schemas"]["ReplaceAtomicMemoryArtifactRequest"] | components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"];
+        /** @description The complete content for the family in the path. A plugin family's content is any object, so a built-in family's request also matches the plugin branch; the path family selects the branch the Server applies. */
+        ReplaceArtifactRequest: components["schemas"]["ReplaceAtomicMemoryArtifactRequest"] | components["schemas"]["ReplaceTopicMemoryArtifactRequest"] | components["schemas"]["ReplaceMemoryArtifactRequest"] | components["schemas"]["ReplaceExperienceArtifactRequest"] | components["schemas"]["ReplaceSkillArtifactRequest"] | components["schemas"]["ReplaceHandoffArtifactRequest"] | components["schemas"]["ReplacePromptArtifactRequest"] | components["schemas"]["ReplaceProfileArtifactRequest"] | components["schemas"]["ReplacePluginArtifactRequest"];
         ReplacePromptArtifactRequest: {
             content: components["schemas"]["PromptContent"];
             restored_from_revision?: number | null;
             reason?: string | null;
+        };
+        GetArtifactRenderingRequest: {
+            revision?: number | null;
         };
         ListArtifactRevisionsRequest: {
             /** @default 50 */
@@ -5739,16 +5887,40 @@ export interface components {
             items: components["schemas"]["SourceRecord"][];
             next_cursor: string | null;
         };
+        /** @description Position of this exact Source in its scope journal; zero is distinct from absence. */
+        SourceSequenceLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sequence";
+            sequence: number;
+        };
+        /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
+        SourceLineRangeLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line_range";
+            start_line: number;
+            end_line: number;
+            /** @description Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes. */
+            heading_path?: string | null;
+        };
+        SourceLocator: components["schemas"]["SourceSequenceLocator"] | components["schemas"]["SourceLineRangeLocator"];
         SourceTypeReference: {
             /** @description Stable Source type, including dynamically registered Source names. */
             source_type: string;
             /** @description Source identity as accepted at ingestion, including Unicode and interior spaces. */
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         SourceReference: {
             /** @description Stable Source type. */
             name: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         /** @enum {string} */
         CaptureStatus: "accepted";
@@ -5852,6 +6024,14 @@ export interface components {
             actions: components["schemas"]["AccessAction"][];
             grantable_roles: components["schemas"]["AccessRole"][];
         };
+        /** @enum {string} */
+        ConnectionAuthentication: "disabled" | "authenticated";
+        ConnectionIdentity: {
+            server_id: string;
+            authentication: components["schemas"]["ConnectionAuthentication"];
+            access_mode: components["schemas"]["AccessControlMode"];
+            principal: components["schemas"]["AccessPrincipal"] | null;
+        };
         AccessMeResponse: {
             principal: components["schemas"]["AccessPrincipal"];
             mode: components["schemas"]["AccessControlMode"];
@@ -5860,7 +6040,7 @@ export interface components {
             artifact_families: components["schemas"]["ArtifactFamilyAccessCapability"][];
         };
         /** @enum {string} */
-        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
         /** @enum {string} */
         AccessResourceType: "server" | "scope" | "artifact";
         ServerAccessResource: {
@@ -5933,7 +6113,7 @@ export interface components {
             next_cursor: string | null;
         };
         /** @enum {string} */
-        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
         /** @enum {string} */
         AccessRoleCardinality: "many_per_resource" | "one_per_resource";
         ListAccessRolesRequest: {
@@ -6318,6 +6498,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description Total monotonic work deadline exceeded. Best effort only while HTTP status can still be sent; an expired deadline or unavailable connection may prevent delivery. Does not imply zero cost or permit retry. */
+        GatewayDeadlineExceeded: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
+        /** @description Gateway shutdown, or explicit in-process cancellation when a response channel remains available. No HTTP cancellation endpoint or nonstandard cancellation status is defined. Already started HTTP status and completed execution terminals are preserved. */
+        GatewayStopped: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
         /** @description This response requires a coordinated client supporting Dream contract 2. Upgrade the Python SDK, CLI or integration and send X-PowerContext-Dream-Contract: 2. Original operations and compatible candidate shapes remain available without the header. */
         ClientUpgradeRequired: {
             headers: {
@@ -6931,217 +7129,6 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
-    list_artifact_plugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Durable registration states. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginPage"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    get_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Durable registration state without plugin configuration secrets. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    enable_all_artifact_plugins: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Per-plugin acceptance, skip or failure results. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnableAllArtifactPluginsResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    reload_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReloadArtifactPluginRequest"];
-            };
-        };
-        responses: {
-            /** @description Definition saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    enable_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    disable_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    unload_artifact_plugin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                binding_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
-            };
-        };
-        responses: {
-            /** @description Target saved; poll its registration state until transition completes. */
-            202: {
-                headers: {
-                    /** @description Registration status URL. */
-                    Location?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactPluginState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["InvalidRequest"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
     get_capabilities: {
         parameters: {
             query?: never;
@@ -7744,7 +7731,10 @@ export interface operations {
     check_context: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Only for before_send by an authenticated service principal authorized for gateway.invoke on this Scope as well as scope.read. Neither scope.read nor server.admin implies invocation. */
+                "X-PowerContext-Resolve-Target"?: boolean;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8182,6 +8172,214 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugins found in the plugin directory at startup. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plugin's startup check result and declaration. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_plugin_scopes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scopes the plugin has been asked to process, ordered by Scope ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginScopePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    merge_artifacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeArtifactsRequest"];
+            };
+        };
+        responses: {
+            /** @description The merge result and the frozen inputs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_governance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current governance state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceRecord"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    forget_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgetArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description The Artifact's governance state after forgetting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactGovernanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    restore_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description The revisions restored and retired by the operation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRestorationResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -10116,7 +10314,7 @@ export interface operations {
             };
             path: {
                 scope_id: string;
-                family: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "prompt" | "topic-memory" | "profile";
+                family: components["schemas"]["ArtifactReadFamily"];
                 artifact_id: string;
             };
             cookie?: never;
@@ -10381,6 +10579,39 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    get_artifact_rendering: {
+        parameters: {
+            query?: {
+                revision?: number;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+                family: components["schemas"]["ArtifactReadFamily"];
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rendering of the exact revision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRendering"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     list_artifact_revisions: {
         parameters: {
             query?: {
@@ -10477,6 +10708,29 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_connection_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current request identity; not an operation authorization or binary attestation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             503: components["responses"]["Unavailable"];
         };
     };

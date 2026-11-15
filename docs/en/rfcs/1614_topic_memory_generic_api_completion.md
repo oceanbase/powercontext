@@ -11,7 +11,6 @@ description: A proposal for Topic Memory creation, replacement, tags, and cross-
 - Status: Proposed
 - Inspected code: `9ff03eedffe6e73a54bb3adf40d42badd7cacdf7`
 - Related implementation: [Standard Topic Memory reads #1550](https://github.com/oceanbase/powercontext/pull/1550)
-- Business requirements: [Memory requirements](https://yuque.antfin.com/obopensrc/knowledge_sharing/tccng2l0qzc6iuw0)
 
 ## 1. Summary
 

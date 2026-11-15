@@ -18,6 +18,7 @@ import asyncio
 import json
 
 import httpx
+import httpx2
 import pytest
 
 pytest.importorskip("openai")
@@ -56,22 +57,22 @@ def _completion(text: str) -> dict[str, object]:
     }
 
 
-def _run(prepared: dict[str, object]) -> tuple[list[httpx.Request], list[httpx.Request], str, str]:
+def _run(prepared: dict[str, object]) -> tuple[list[httpx.Request], list[httpx2.Request], str, str]:
     powercontext_requests: list[httpx.Request] = []
-    model_requests: list[httpx.Request] = []
+    model_requests: list[httpx2.Request] = []
 
     def powercontext_handler(request: httpx.Request) -> httpx.Response:
         powercontext_requests.append(request)
         return httpx.Response(200, json=prepared)
 
-    def model_handler(request: httpx.Request) -> httpx.Response:
+    def model_handler(request: httpx2.Request) -> httpx2.Response:
         model_requests.append(request)
-        return httpx.Response(200, json=_completion("Check eligibility first."))
+        return httpx2.Response(200, json=_completion("Check eligibility first."))
 
     async def scenario() -> tuple[str, str]:
         async with (
             httpx.AsyncClient(transport=httpx.MockTransport(powercontext_handler)) as powercontext_http,
-            httpx.AsyncClient(transport=httpx.MockTransport(model_handler)) as model_http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(model_handler)) as model_http,
         ):
             powercontext = PowerContextClient(
                 "http://127.0.0.1:8000", token=POWERCONTEXT_TOKEN, http_client=powercontext_http
@@ -86,7 +87,7 @@ def _run(prepared: dict[str, object]) -> tuple[list[httpx.Request], list[httpx.R
     return powercontext_requests, model_requests, status, reply
 
 
-def _messages(request: httpx.Request) -> list[dict[str, str]]:
+def _messages(request: httpx2.Request) -> list[dict[str, str]]:
     return json.loads(request.content)["messages"]
 
 

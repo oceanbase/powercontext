@@ -29,12 +29,12 @@ pub enum CoreLink {
 impl CoreLink {
     pub fn from_env() -> Self {
         if let Ok(sock) = std::env::var("PC_GATEWAY_CORE_UDS") {
-            tracing::info!(%sock, "core link: UDS (combined deployment)");
+            tracing::info!("core link: UDS (combined deployment)");
             Self::Uds(UdsGateClient::new(sock))
         } else {
             let base = std::env::var("PC_GATEWAY_CORE_BASE")
                 .unwrap_or_else(|_| "http://127.0.0.1:8000".into());
-            tracing::info!(%base, "core link: TCP (standalone deployment)");
+            tracing::info!("core link: TCP (standalone deployment)");
             Self::Http(HttpGateClient::new(base))
         }
     }

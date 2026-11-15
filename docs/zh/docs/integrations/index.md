@@ -55,6 +55,7 @@ powercontext setup
 | --- | --- | --- |
 | Claude Code | `UserPromptSubmit` 文本 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false` 或 setup `--no-capture-prompts` |
 | Codex | `UserPromptSubmit` 文本 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` |
+| DSH | 每轮模型调用前消息中的用户文本 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS=false` |
 | WorkBuddy | 宿主提交的拼接 prompt 文本 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS=false` |
 | OpenCode | 用户文本部分，排除 synthetic 部分 | `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` |
 | Pi | `before_agent_start` prompt | `POWERCONTEXT_PI_CAPTURE_PROMPTS=false` |

@@ -40,11 +40,15 @@ REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
 # Change ACP_SDK_REQUIREMENT together with this version: it repeats the server's own pin of the ACP SDK.
-BUB_ACP_SERVER_VERSION = "0.1.1"
-# bub-acp-server 0.1.1 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
+BUB_ACP_SERVER_VERSION = "0.1.3"
+# bub-acp-server 0.1.3 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
 # install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
 # conflicts with this requirement and fails to install.
 ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
+# Harbor 0.16's client uses text_block and set_session_model. Its runner venv
+# is separate from the Bub server, whose SDK pin follows bub-acp-server.
+HARBOR_ACP_SDK_REQUIREMENT = "agent-client-protocol==0.10.0"
+HARBOR_ACP_CONSTRAINT = "/tmp/powercontext-harbor-acp-constraints.txt"  # noqa: S108
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 # Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
 STEP_TESTS_DIR = "/tests"
@@ -101,10 +105,17 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
+        constraint = self.logs_dir / "harbor-acp-constraints.txt"
+        constraint.write_text(f"{HARBOR_ACP_SDK_REQUIREMENT}\n", encoding="utf-8")
+        await environment.upload_file(source_path=constraint, target_path=HARBOR_ACP_CONSTRAINT)
         await self.exec_as_root(
             environment,
             command=self._build_dependencies_command("uvx"),
-            env={"DEBIAN_FRONTEND": "noninteractive", "PIP_INDEX_URL": pip_index_url()},
+            env={
+                "DEBIAN_FRONTEND": "noninteractive",
+                "PIP_INDEX_URL": pip_index_url(),
+                "PIP_CONSTRAINT": HARBOR_ACP_CONSTRAINT,
+            },
         )
         await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())
@@ -176,7 +187,7 @@ def _install_bub_command(*, powercontext: bool = True) -> str:
         "fi; "
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
         f"{uv} tool install --force {plugin}"
-        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
+        f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
     )
 
 
@@ -189,5 +200,5 @@ def _install_acp_server_command() -> str:
         f"BUB_PROJECT={REMOTE_BUB_PROJECT} "
         f"{_tool_environment()} {REMOTE_BIN_DIR}/bub install "
         f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} {shlex.quote(ACP_SDK_REQUIREMENT)} "
-        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
+        f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
     )

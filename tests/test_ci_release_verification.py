@@ -137,7 +137,13 @@ def resolve_publication(tmp_path, monkeypatch):
     source = command.removeprefix("python - <<'PY'\n").removesuffix("PY\n")
     tag = "powercontext-v1.4.1"
     sha = "a" * 40
-    release = {"tag_name": tag, "draft": False, "published_at": "2026-10-26T10:00:00Z", "body": "Release notes"}
+    release = {
+        "tag_name": tag,
+        "draft": False,
+        "prerelease": False,
+        "published_at": "2026-10-26T10:00:00Z",
+        "body": "Release notes",
+    }
     output = tmp_path / "output"
     for key, value in {
         "RELEASE_TAG": tag,
@@ -172,8 +178,14 @@ def resolve_publication(tmp_path, monkeypatch):
 
 def test_manual_release_pins_tag_commit_and_freezes_current_notes(resolve_publication):
     run, release, root = resolve_publication
-    assert run() == {"tag": release["tag_name"], "source_sha": "a" * 40}
+    assert run() == {"tag": release["tag_name"], "source_sha": "a" * 40, "prerelease": "false"}
     assert json.loads((root / "release-metadata/event.json").read_text())["release"] == release
+
+
+def test_release_preserves_github_prerelease_for_npm_channel(resolve_publication):
+    run, release, _ = resolve_publication
+    release["prerelease"] = True
+    assert run()["prerelease"] == "true"
 
 
 def test_upgrade_bypass_requires_explicit_new_database_notice(resolve_publication, monkeypatch):

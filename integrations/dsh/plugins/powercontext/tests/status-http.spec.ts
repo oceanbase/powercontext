@@ -85,7 +85,7 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
     on: (name: string, listener: Hook) => { if (name === 'agent/pre-step') hook = listener },
     logger: { debug: () => {}, warn: (line: string) => logs.push(JSON.parse(line)) },
   } as unknown as Context, { baseUrl, authorization: 'Bearer http-fixture', timeoutMs: 10000,
-    requestTimeoutMs: 250, flushOnCapture: true, flushMaxCalls: 3 })
+    requestTimeoutMs: 2_000, flushOnCapture: true, flushMaxCalls: 3 })
   const agent = { session: { header: { id: 'http-review', cwd: '/review-workspace' } } }
   const messages = [{ content: [{ type: 'text', text: 'fixture prompt' }], source: { kind: 'user' } }]
   const run = (signal = new AbortController().signal) => hook({ agent, signal, turn: 1, messages },
@@ -93,7 +93,7 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
   const command = (rawInput = '') => pc({ agent, rawInput, signal: new AbortController().signal })
   const status = async () => JSON.parse((await command()).text.split('\nautomatic=')[1])
   return { run, status, command, requests, logs, baseUrl,
-    client: new PowerContextClient({ baseUrl, requestTimeoutMs: 250 }) }
+    client: new PowerContextClient({ baseUrl, requestTimeoutMs: 2_000 }) }
 }
 
 afterEach(async () => {

@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationOutput,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
+    RedundantAtomicMemoryRevisionError,
 )
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.protocols import (
@@ -53,6 +54,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
 )
 from powercontext.builtin.artifacts.prompt.errors import PromptError
 from powercontext.builtin.artifacts.prompt.service import PromptService, current_prompt
+from powercontext.builtin.artifacts.search import analyze_text, fts_query_requirements
 from powercontext.builtin.decision_observations import DecisionObservation
 from powercontext.builtin.inference import (
     InferencePrivacyError,
@@ -62,9 +64,11 @@ from powercontext.builtin.inference import (
     embed_query,
 )
 from powercontext.builtin.persistence.atomic_memory_index import (
+    DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
     AtomicMemoryRelatedRequest,
+    atomic_memory_embedding_input,
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
@@ -105,6 +109,7 @@ logger = logging.getLogger(__name__)
 class AtomicMemoryProcessingConfig:
     related_mode: Literal["auto", "fts", "vector", "hybrid"] = "auto"
     related_max_distance: float = 1.0
+    related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
     comparison_batch_size: int = 20
     input_tokens_limit: int = 24_000
@@ -114,16 +119,22 @@ class AtomicMemoryProcessingConfig:
             self.related_mode not in {"auto", "fts", "vector", "hybrid"}
             or not math.isfinite(self.related_max_distance)
             or self.related_max_distance < 0
+            or (
+                isinstance(self.related_page_size, bool)
+                or not isinstance(self.related_page_size, int)
+                or not 1 <= self.related_page_size <= 1000
+            )
             or self.comparison_batch_size < 1
             or self.input_tokens_limit < 1
         ):
-            raise ValueError("Atomic Memory processing requires a valid mode, threshold and positive input budgets")  # noqa: TRY003
+            raise ValueError("Atomic Memory processing requires a valid mode, threshold, page size and budgets")  # noqa: TRY003
 
     @classmethod
     def from_runtime(cls, runtime: RuntimeConfig) -> AtomicMemoryProcessingConfig:
         return cls(
             related_mode=runtime.atomic_memory_related_mode,
             related_max_distance=runtime.atomic_memory_related_max_distance,
+            related_page_size=runtime.atomic_memory_related_page_size,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
@@ -393,8 +404,8 @@ class AtomicMemorySourceWindowProcessor:
                     _conflict("Source generation eligibility changed during preparation")
                 local_policy = False
                 if context is not None and context.access is not None:
-                    from powercontext.server.authz import BuiltinAuthorizationProvider
-                    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+                    from powercontext.builtin.authz import BuiltinAuthorizationProvider
+                    from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
 
                     local_policy = (
                         type(context.access.provider) in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
@@ -455,9 +466,10 @@ class AtomicMemorySourceWindowProcessor:
                     await processing.complete(connection, remaining_work=action.through < high_watermark)
         return finalized
 
-    async def _prepare(self, scope_id, eligible, pipeline, context):
+    async def _prepare(self, scope_id, eligible, pipeline, context):  # noqa: C901 - keep recovery in the authorized window
         workset = AtomicMemoryWindowWorkset()
         artifacts: dict[tuple[str, str, int], ArtifactRef] = {}
+        compared_keys: set[str] = set()
         if pipeline is None:
             return workset, ()
         evidence = tuple([
@@ -503,6 +515,7 @@ class AtomicMemorySourceWindowProcessor:
             prompt is not None and prompt.selection == "built_in"
             for prompt in (extraction_prompt, current_prompt("atomic_memory.reconcile"))
         )
+        window_vectors: dict[str, tuple[float, ...]] = {}
         for ordinal, candidate in enumerate(candidates):
             selected = tuple(by_id[identifier] for identifier in dict.fromkeys(candidate.evidence_ids))
             key = workset.add(
@@ -518,49 +531,88 @@ class AtomicMemorySourceWindowProcessor:
                     changed=True,
                 )
             )
-            prior = tuple(
-                item.key for item in workset.items.values() if item.key != key and item.changed and item.retain
+            related_request = await self._related_request_for(
+                scope_id, candidate.text, context, local_policy=local_policy
             )
-            recalled = await self._recall_related_items(
-                scope_id, candidate.text, context, workset, artifacts, local_policy=local_policy
+            prior = await self._window_comparisons(
+                workset, key, related_request, window_vectors, related_only=skip_unrelated
             )
-            pending = list(dict.fromkeys((*prior, *recalled)))
-            # An unrelated candidate is kept as extracted rather than reconciled alone.
-            compared = skip_unrelated
-            while pending or not compared:
-                related = workset.related(key, pending[: self.config.comparison_batch_size])
-                selected_count = min(len(pending), self.config.comparison_batch_size)
-                while related and not self._fits(pipeline, workset.request(key, related), "atomic_memory.reconcile"):
-                    selected_count = max(1, selected_count // 2)
-                    related = workset.related(key, pending[:selected_count])
-                    if selected_count == 1:
-                        self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
-                value = workset.request(key, related)
-                self._require_budget(pipeline, value, "atomic_memory.reconcile")
-                reconciliation_prompt = current_prompt("atomic_memory.reconcile")
-                if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
-                    ref = reconciliation_prompt.artifact
-                    identity = (ref.family, ref.artifact_id, ref.revision)
-                    if identity not in admitted_prompts:
-                        await self._authorize_model_input(scope_id, context, (), (ref,))
-                        admitted_prompts.add(identity)
-                    prompt_refs = tuple(
-                        {
-                            (value.family, value.artifact_id, value.revision): value for value in (*prompt_refs, ref)
-                        }.values()
+
+            compared_keys.clear()
+
+            def pending_comparisons(pending: list[str], current: str) -> list[str]:
+                known = {workset.resolve(value) for value in compared_keys}
+                known.add(workset.resolve(current))
+                return [value for value in dict.fromkeys(pending) if workset.resolve(value) not in known]
+
+            async def compare_pending(pending: list[str], *, required: bool) -> bool:
+                nonlocal key, prompt_refs
+                reconciled = False
+                while True:
+                    pending = pending_comparisons(pending, key)
+                    if not pending and (reconciled or not required):
+                        return reconciled
+                    batch = pending[: self.config.comparison_batch_size]
+                    related = workset.related(key, batch)
+                    selected_count = len(batch)
+                    while related and not self._fits(
+                        pipeline, workset.request(key, related), "atomic_memory.reconcile"
+                    ):
+                        selected_count = max(1, selected_count // 2)
+                        related = workset.related(key, pending[:selected_count])
+                        if selected_count == 1:
+                            self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
+                    value = workset.request(key, related)
+                    self._require_budget(pipeline, value, "atomic_memory.reconcile")
+                    looked = pending[:selected_count]
+                    reconciliation_prompt = current_prompt("atomic_memory.reconcile")
+                    if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
+                        ref = reconciliation_prompt.artifact
+                        identity = (ref.family, ref.artifact_id, ref.revision)
+                        if identity not in admitted_prompts:
+                            await self._authorize_model_input(scope_id, context, (), (ref,))
+                            admitted_prompts.add(identity)
+                        prompt_refs = tuple(
+                            {
+                                (value.family, value.artifact_id, value.revision): value
+                                for value in (*prompt_refs, ref)
+                            }.values()
+                        )
+                        artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
+                    await self._authorize_comparison_basis(
+                        scope_id, context, (workset.items[workset.resolve(key)], *related)
                     )
-                    artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
-                result = await pipeline.reconciler.generate(value)
-                key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
-                del pending[:selected_count]
-                compared = True
+                    try:
+                        result = await pipeline.reconciler.generate(value)
+                        key = workset.apply(
+                            key, related, AtomicMemoryReconciliationOutput.model_validate(result.output)
+                        )
+                    except RedundantAtomicMemoryRevisionError as error:
+                        key = workset.recover_redundant_revision(key, related, error)
+                    del pending[:selected_count]
+                    compared_keys.update(workset.resolve(item) for item in looked)
+                    reconciled = True
+
+            compared = await compare_pending(list(prior), required=False) or skip_unrelated
+
+            async def compare_page(page_keys: tuple[str, ...]) -> str:
+                nonlocal compared
+                compared = await compare_pending(list(page_keys), required=False) or compared
+                return key  # noqa: B023 - the callback mutates the surrounding proposal key
+
+            await self._recall_related_items(
+                scope_id, context, workset, compare_page, request=related_request, local_policy=local_policy
+            )
+            if not compared:
+                await compare_pending([], required=True)
         for item in workset.changes():
             refs = {(ref.family, ref.artifact_id, ref.revision): ref for ref in (*item.artifacts, *prompt_refs)}
             workset.items[item.key] = replace(item, artifacts=tuple(refs.values()))
+            artifacts.update(refs)
         return workset, tuple(artifacts.values())
 
-    async def _load_related_items(self, connection, scope_id, hits, context, workset, artifacts, *, joined_heads):
-        from powercontext.server.authz import AccessDeniedError
+    async def _load_related_items(self, connection, scope_id, hits, context, workset, *, joined_heads):
+        from powercontext.builtin.authz import AccessDeniedError
 
         allowed = []
         for hit in hits:
@@ -570,7 +622,7 @@ class AtomicMemorySourceWindowProcessor:
                     scope_id,
                     context,
                     "read",
-                    ArtifactRef(family="atomic-memory", artifact_id=hit.artifact_ref.artifact_id, revision=1),
+                    hit.artifact_ref,
                 )
             except AccessDeniedError:
                 continue
@@ -598,7 +650,6 @@ class AtomicMemorySourceWindowProcessor:
                 artifact_ref=read.ref,
                 content=content,
             )
-            artifacts[(read.ref.family, read.ref.artifact_id, read.ref.revision)] = read.ref
             recalled.append(
                 workset.add(
                     AtomicMemoryWorkingItem(
@@ -612,7 +663,7 @@ class AtomicMemorySourceWindowProcessor:
             )
         return recalled
 
-    async def _recall_related_items(self, scope_id, query, context, workset, artifacts, *, local_policy=False):
+    async def _related_request_for(self, scope_id, query, context, *, local_policy):
         application = self.application
         if local_policy or context is None or (context.access is None and context.trusted_local):
             # Trusted local work needs no policy read. Local policy already checked
@@ -621,38 +672,92 @@ class AtomicMemorySourceWindowProcessor:
         else:
             async with application.database.transaction() as connection:
                 filters = await application.security.filters(connection, scope_id, context)
-        request = await self._related_request(query, filters)
-        mode = request.mode
-        # Built-in indexes join authority in one statement. Permissioned reads
-        # retain a short snapshot across retrieval and per-hit authorization.
-        # Embedding and reconciliation stay outside either transaction.
-        one_statement = (context is None or context.access is None) and (
-            mode == "fts" or not self.config.related_fts_fallback
-        )
-        connection_manager = (
-            application.database.engine.connect()
-            if one_statement
-            else application.database.transaction(consistent_snapshot=True)
-        )
-        async with deferred_decision_audit(context), connection_manager as connection:
-            try:
-                hits, joined_heads = await application.index.enumerate_related_with_heads(connection, scope_id, request)
-            except AtomicMemoryIndexError as error:
-                if error.code == "stale-recall":
-                    _conflict("Related channels returned different memory versions")
-                if not self.config.related_fts_fallback or error.code not in {"incomplete-vector", "embedding-profile"}:
-                    raise
-                hits, joined_heads = await application.index.enumerate_related_with_heads(
-                    connection, scope_id, replace(request, mode="fts")
-                )
-            async with self._prefetch_artifact_policy(
-                connection, scope_id, context, tuple(hit.artifact_ref for hit in hits), include_scope=local_policy
+        return await self._related_request(query, filters)
+
+    async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
+        application = self.application
+        cursor = None
+        while True:
+            async with (
+                deferred_decision_audit(context),
+                application.database.transaction(consistent_snapshot=True) as connection,
             ):
-                if local_policy:
-                    await application.security.authorize(connection, scope_id, context, "read")
-                return await self._load_related_items(
-                    connection, scope_id, hits, context, workset, artifacts, joined_heads=joined_heads
-                )
+                try:
+                    page = await application.index.related_page(connection, scope_id, request, cursor)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    cursor = None
+                    continue
+                if page is None:
+                    break
+                refs = tuple(hit.artifact_ref for hit in page.hits)
+                async with self._prefetch_artifact_policy(
+                    connection, scope_id, context, refs, include_scope=local_policy
+                ):
+                    if local_policy:
+                        await application.security.authorize(connection, scope_id, context, "read")
+                    loaded = await self._load_related_items(
+                        connection, scope_id, page.hits, context, workset, joined_heads=page.heads
+                    )
+            cursor = page.cursor
+            if loaded:
+                key = await compare_page(tuple(loaded))
+                workset.release(loaded, keep=key)
+            if cursor is None:
+                break
+
+    async def _window_comparisons(self, workset, key, request, vectors, *, related_only):
+        items = tuple(item for item in workset.items.values() if item.key != key and item.changed and item.retain)
+        if not related_only:
+            return tuple(item.key for item in items)
+        # Earlier window items are not indexed until publication. The threshold that selects published memories
+        # selects them too, so an unrelated sibling no longer forces a comparison of its own.
+        if items and request.mode in {"vector", "hybrid"}:
+            try:
+                await self._embed_window_items(items, vectors)
+            except (AtomicMemoryIndexError, InferenceUnavailableError, InferenceTimeoutError):
+                if not self.config.related_fts_fallback:
+                    raise
+                request = replace(request, mode="fts")
+        return tuple(
+            item.key
+            for item in items
+            if related_window_match(
+                request,
+                item.content.kind,
+                item.content.text,
+                vectors.get(atomic_memory_embedding_input(item.content.kind, item.content.text)),
+            )
+        )
+
+    async def _embed_window_items(self, items, vectors) -> None:
+        profile = self.application.index.capabilities.embedding_profile
+        model = self.application.embedding_model
+        if model is None or profile is None or model.profile != profile:
+            raise AtomicMemoryIndexError("embedding-profile", "Related-memory vector profile is unavailable")
+        inputs = tuple(
+            dict.fromkeys(
+                value
+                for item in items
+                if (value := atomic_memory_embedding_input(item.content.kind, item.content.text)) not in vectors
+            )
+        )
+        if not inputs:
+            return
+        result = await model.embed(inputs)
+        if len(result.vectors) != len(inputs):
+            raise AtomicMemoryIndexError("embedding-result", "Related window items require one vector each")
+        for value, vector in zip(inputs, result.vectors, strict=True):
+            vectors[value] = canonical_embedding(
+                vector, dimension=profile.dimension, normalization=profile.normalization
+            )
 
     async def _related_request(self, query, filters):
         application = self.application
@@ -675,6 +780,7 @@ class AtomicMemorySourceWindowProcessor:
             query_vector=vector,
             embedding_profile=profile,
             max_distance=self.config.related_max_distance,
+            page_size=self.config.related_page_size,
         )
 
     async def _query_vector(self, query):
@@ -686,6 +792,18 @@ class AtomicMemorySourceWindowProcessor:
         if len(result.vectors) != 1:
             raise AtomicMemoryIndexError("embedding-result", "Related query requires one vector")
         return canonical_embedding(result.vectors[0], dimension=profile.dimension, normalization=profile.normalization)
+
+    async def _authorize_comparison_basis(self, scope_id, context, items):
+        """Recheck one model batch's exact published basis and write authority."""
+        if context is None or (context.access is None and context.trusted_local):
+            return
+        async with self._read_transaction(context) as connection:
+            for read in (read for item in items for read in item.origins):
+                current = await self.application.service.get(connection, scope_id, read.ref.artifact_id, context)
+                if current.as_read() != read:
+                    _conflict("Memory basis changed before model comparison")
+                await self.application.security.authorize(connection, scope_id, context, "read", read.ref)
+                await self.application.security.authorize(connection, scope_id, context, "write", read.ref)
 
     async def _authorize_model_input(self, scope_id, context, generation_sources, artifact_refs=()):
         """Admit Source and Prompt content against current data and authority."""
@@ -729,7 +847,7 @@ class AtomicMemorySourceWindowProcessor:
         sources = tuple({(item.ref.source_type, item.ref.source_id): item for item in generation_sources}.values())
         policy = literal(None)
         if include_policy:
-            from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE
+            from powercontext.builtin.authz.repository import ACCESS_POLICY_HEADS_TABLE
 
             policy = func.coalesce(
                 select(ACCESS_POLICY_HEADS_TABLE.c.revision)
@@ -789,7 +907,7 @@ class AtomicMemorySourceWindowProcessor:
         if context is None or context.access is None or (not refs and not include_scope):
             yield True
             return
-        from powercontext.server.authz import ResourceRef
+        from powercontext.builtin.authz import ResourceRef
 
         access = context.access.for_read(connection)
         resources = tuple(
@@ -816,7 +934,7 @@ class AtomicMemorySourceWindowProcessor:
             access = None if context is None else context.access
             pins_with_policy = access is not None and access.supports_read_snapshot(connection.engine)
             if pins_with_policy and write_policy_first:
-                from powercontext.server.authz import BuiltinAuthorizationProvider
+                from powercontext.builtin.authz import BuiltinAuthorizationProvider
 
                 # Read-side Casbin binds to the business transaction; its write
                 # path does not. Builtin policy binds both when relationships
@@ -964,6 +1082,27 @@ class _PendingObservationSink:
 
     async def record(self, observation: DecisionObservation, /) -> None:
         self.observation = observation
+
+
+def related_window_match(
+    request: AtomicMemoryRelatedRequest, kind: str, body: str, vector: tuple[float, ...] | None, /
+) -> bool:
+    """Apply the related-enumeration threshold to one unindexed item, as the backends do for indexed rows.
+
+    Lexical coverage counts whole analyzed terms of the projection's searchable text; the vector channel compares the
+    item's document embedding by exact L2 distance. Hybrid admits an item that meets either channel.
+    """
+
+    if request.mode in {"fts", "hybrid"}:
+        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        searchable = f" {analyze_text(atomic_memory_embedding_input(kind, body))} "
+        if terms and sum(f" {term} " in searchable for term in terms) >= required:
+            return True
+    if request.mode in {"vector", "hybrid"}:
+        if request.query_vector is None or vector is None or request.max_distance is None:
+            raise AtomicMemoryIndexError("embedding-profile", "Related vector matching requires both vectors")
+        return math.dist(request.query_vector, vector) <= request.max_distance
+    return False
 
 
 def _gate_evidence_text(value) -> str:

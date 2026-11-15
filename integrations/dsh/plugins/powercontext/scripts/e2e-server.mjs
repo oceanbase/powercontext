@@ -126,7 +126,9 @@ export async function startPowerContextServer(options = {}) {
   child.stderr?.on('data', (chunk) => logs.push(String(chunk)))
   const baseUrl = `http://127.0.0.1:${port}`
   try {
-    await waitForUrl(`${baseUrl}/health/live`, 30000, () => {
+    // On a cold runner, Python and the Server can finish startup just after 30s.
+    // Leave time for the caller's first request inside its 60s setup hook.
+    await waitForUrl(`${baseUrl}/health/live`, 45000, () => {
       if (child.exitCode !== null) throw new Error(`Server exited with code ${child.exitCode}`)
     })
   } catch (error) {

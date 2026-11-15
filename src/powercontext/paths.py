@@ -45,12 +45,6 @@ def default_seekdb_path() -> Path:
     return powercontext_data_dir() / "seekdb"
 
 
-def default_scheduler_path() -> Path:
-    """Return the installed Server's default scheduler database path."""
-
-    return powercontext_data_dir() / "scheduler.db"
-
-
 def sqlite_url(path: Path) -> str:
     """Render an absolute path as an async SQLAlchemy SQLite URL."""
 
@@ -60,7 +54,6 @@ def sqlite_url(path: Path) -> str:
 __all__ = [
     "POWERCONTEXT_HOME_ENV",
     "default_database_path",
-    "default_scheduler_path",
     "default_seekdb_path",
     "powercontext_data_dir",
     "sqlite_url",

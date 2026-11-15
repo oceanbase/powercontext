@@ -256,7 +256,8 @@ def serving(app, *, startup_diagnostic: Path | None = None):
     failure = None
     try:
         started = time.monotonic()
-        deadline = started + 15
+        # Startup includes loading the inference client's CA bundle on the Windows runner.
+        deadline = started + 60
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         if not server.started:
@@ -326,7 +327,6 @@ def test_real_kimi_memory_capture_recall_and_fail_open(tmp_path: Path, monkeypat
                 generation_headers={"Authorization": SecretStr("Bearer synthetic-generation")},
             ),
         ),
-        scheduler_path=tmp_path / "scheduler",
     )
     with (
         serving(app, startup_diagnostic=tmp_path / "server-startup.json") as (server, endpoint, server_thread),

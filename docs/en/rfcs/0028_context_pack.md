@@ -432,6 +432,34 @@ Truncation rules:
 `content_bytes` equals `len(content.encode("utf-8"))` and must not exceed request `max_bytes`. Runtime may keep
 source-specific counts in internal metrics, but they are not part of the shared Context response.
 
+### Internal budget records
+
+An internal caller can attach a budget recorder to one Builder to explain where the byte budget went. Production
+does not attach one. With a recorder, a successful build reports one immutable trace with the request `max_bytes`,
+the final `content_bytes`, and one record, in fitting order, per candidate that budget fitting tried or that the entry
+limit stopped before it could be tried. A record binds the frozen candidate's exact origin, kind, 1-based fitting
+rank, and disposition:
+
+| Disposition | Meaning |
+| --- | --- |
+| `full` | the complete body was delivered |
+| `truncated` | a truncated body of at least 64 bytes was delivered |
+| `dropped_below_min_bytes` | the complete body did not fit and was too short to truncate |
+| `dropped_no_fitting_truncation` | no truncated form of at least 64 bytes fit |
+| `entry_limit` | the entry limit was reached before this candidate was tried |
+
+Records also carry byte sizes only: the source body, the display body that truncation and the 64-byte minimum
+measure, the delivered body including any ellipsis, and the rendered fragment counted by the Receipt. On this path the
+display body is the source text; JSON escaping belongs to rendering. Budget dispositions reconcile exactly with the
+Builder's omission counters. Candidates removed before fitting by deduplication, blank text, family caps, or policy
+exclusion have no record and are not budget failures. When code evidence shares the preparation, the trace covers
+only the history share: its `max_bytes` is the budget left for history and its `content_bytes` exclude code.
+
+Records contain no query, body, or citation text. They go only to the attached recorder: the Builder neither retains
+nor persists them, they never appear in Context responses, Receipts, logs, or metrics, budget probes do not report
+them, and a failing recorder is ignored without changing the build. `evaluation/memory/prepared_context_budget` uses
+them to compare allocations offline.
+
 ## Trust and safe rendering
 
 The Runtime owns a fixed trust policy; it is not free-form text supplied by Memory or a remote caller. The Builder must:

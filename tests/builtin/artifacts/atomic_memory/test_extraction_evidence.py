@@ -26,6 +26,7 @@ import asyncio
 import json
 from typing import Any, cast
 
+import pytest
 from pydantic import JsonValue
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import project_atomic_memory_evidence
@@ -34,11 +35,13 @@ from powercontext.builtin.persistence.sources import SourceRepository, StoredSou
 from powercontext.builtin.sources.content import CONTENT_SOURCE_NAME, ContentCapture, ContentSource
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
+    LocatedTextEvidence,
     SourceMaterialization,
     SourceObservation,
     SourceProjectionKey,
     SourceProjectionValue,
     SourceRef,
+    SourceSequenceLocator,
     TextEvidence,
 )
 
@@ -296,3 +299,50 @@ def test_another_projection_keeps_its_keys_but_not_a_repeated_body() -> None:
             "value": {"database": "OceanBase", "shards": 12},
         }
     ]
+
+
+def test_extraction_cites_the_recorded_journal_position() -> None:
+    evidence = asyncio.run(_evidence(_native_source()))
+    assert evidence.source_ref.model_dump(mode="json")["locator"] == {"kind": "sequence", "sequence": 1}
+
+
+def test_extraction_preserves_adapter_reported_text_position() -> None:
+    projection = _text_projection().model_dump(mode="json")
+    locator = {"kind": "line_range", "start_line": 40, "end_line": 55, "heading_path": "部署 / 决策"}
+    projection["value"]["locator"] = locator
+    evidence = asyncio.run(_evidence(_observation((SourceProjectionValue.model_validate(projection),))))
+    assert evidence.source_ref.model_dump(mode="json")["locator"] == locator
+
+
+@pytest.mark.parametrize("representation", ["native", "observation"])
+@pytest.mark.parametrize("sequence", [0, 1, 42])
+def test_extraction_uses_stored_journal_position_over_adapter_sequence(representation, sequence) -> None:
+    async def scenario() -> None:
+        text = LocatedTextEvidence(
+            source_type="tool-result",
+            source_id="observation-1",
+            content=_BODY,
+            locator=SourceSequenceLocator(sequence=sequence),
+        )
+        observation = _observation((
+            SourceProjectionValue(key=TEXT_EVIDENCE_PROJECTION_KEY, value=text.model_dump(mode="json")),
+        ))
+        value = observation if representation == "observation" else _native_source()
+        stored = StoredSource(
+            ref=SourceRef(source_type="tool-result", source_id=value.name),
+            value=value,
+            journal_position=1,
+        )
+
+        class AdapterRead:
+            async def read_value(self, source, /):
+                return text
+
+        evidence = await project_atomic_memory_evidence(
+            stored, cast("SourceRepository", AdapterRead()), evidence_id="source:1"
+        )
+        assert evidence.source_ref == stored.ref.model_copy(update={"locator": SourceSequenceLocator(sequence=1)})
+        stored.validate_locator(evidence.source_ref)
+        assert evidence.content == text.model_dump(mode="json")
+
+    asyncio.run(scenario())

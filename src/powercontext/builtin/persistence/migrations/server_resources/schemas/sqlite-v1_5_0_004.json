@@ -1,0 +1,3 @@
+{
+  "create": "CREATE TABLE pc_artifact_source_locators (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tlocator BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision, ordinal) REFERENCES pc_artifact_lineage_sources (scope_id, family, artifact_id, revision, ordinal) ON DELETE CASCADE\n)"
+}

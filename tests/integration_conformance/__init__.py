@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data-only integration lifecycle conformance cases."""
+"""Integration lifecycle and external-host conformance tests."""

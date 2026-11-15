@@ -21,6 +21,12 @@ is not qualification. The ZCode CI job builds the fixed host and runs all four c
 workspaces and transcripts are not uploaded. SQLite is the first deterministic slice; actual OceanBase qualification
 follows the existing E2E backend policy and requires its own run.
 
+The controlled model advances only after the host returns the matching tool result. Replayed model requests return
+the pending call, and each plan uses distinct call IDs even when the host resumes a previous session. The receiver's
+native Bash tool runs `verify.py` with the acceptance runner's Python executable, quoted for the host shell. A missing
+verification result fails with `receiver_action_result_missing`; a failed argument prerequisite returns a terminal
+model error rather than a retryable HTTP 500. These failures remain acceptance failures.
+
 ## Scenario and evidence
 
 Pi creates a Work Contract, implements `task.py`, captures its exact file digest, prepares a Handoff and commits the

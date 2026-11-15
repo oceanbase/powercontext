@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Literal
@@ -54,6 +54,40 @@ WHERE TABLE_SCHEMA = DATABASE()
 _SCHEMA_RECREATION_GUIDE = (
     "https://powercontext.oceanbase.io/en/docs/operate/troubleshoot/#oceanbase-startup-rejects-an-incompatible-schema"
 )
+
+
+def normalize_compatibility_mode(row: Sequence[object] | None) -> str | None:
+    """Reduce a ``SHOW VARIABLES`` row to an upper-cased tenant mode.
+
+    A missing row, a short row, and a NULL value all mean "no usable mode"
+    and normalize to ``None``; any other value is upper-cased.
+    """
+    if row is None or len(row) < 2:
+        return None
+    value = row[1]
+    if value is None:
+        return None
+    return str(value).upper()
+
+
+def is_standalone_seekdb_version(version: object) -> bool:
+    """Report whether a server banner identifies a standalone SeekDB server."""
+    return isinstance(version, str) and "-OceanBase seekdb-" in version
+
+
+def classify_compatibility(row: Sequence[object] | None, version: object) -> Literal["mysql", "seekdb", "unsupported"]:
+    """Classify a server from its tenant-mode row and version banner.
+
+    Shared by the server-run tenant gate and the maintenance identity probe so
+    both entries treat a missing, NULL or empty ``ob_compatibility_mode`` the
+    same way.
+    """
+    mode = normalize_compatibility_mode(row)
+    if mode == "MYSQL":
+        return "mysql"
+    if mode in (None, "") and is_standalone_seekdb_version(version):
+        return "seekdb"
+    return "unsupported"
 
 
 @dataclass(frozen=True)
@@ -239,16 +273,16 @@ async def _initialized_profile(
 async def _require_mysql_tenant(connection: AsyncConnection) -> None:
     # OceanBase documents this read-only variable as the authoritative tenant
     # mode marker and SHOW VARIABLES as its supported query surface.
-    result = await connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'")
-    row = result.first()
-    mode = None if row is None or len(row) < 2 else str(row[1]).upper()
-    if row is None:
-        # Standalone SeekDB 1.4 is MySQL-only and no longer exposes the
-        # multi-tenant compatibility variable. Keep unknown servers rejected.
-        version_row = (await connection.exec_driver_sql("SELECT VERSION()")).first()
-        if version_row and "-OceanBase seekdb-" in str(version_row[0]):
-            return
-    if mode != "MYSQL":
+    row = (await connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'")).first()
+    mode = normalize_compatibility_mode(row)
+    if mode == "MYSQL":
+        return
+    # Standalone SeekDB 1.4 is MySQL-only and no longer exposes the
+    # multi-tenant compatibility variable; a present-but-empty or NULL value
+    # means the same, so every non-MySQL mode falls back to the version banner.
+    version_row = (await connection.exec_driver_sql("SELECT VERSION()")).first()
+    version = version_row[0] if version_row is not None else None
+    if classify_compatibility(row, version) != "seekdb":
         raise UnsupportedOceanBaseTenantError(mode)
 
 

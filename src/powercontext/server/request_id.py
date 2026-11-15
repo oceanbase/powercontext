@@ -19,7 +19,7 @@ from __future__ import annotations
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from powercontext.server.context import bind_request_id, reset_request_id
+from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.tracing import request_id_from_span
 
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
@@ -28,15 +28,16 @@ REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 class HttpRequestIdMiddleware:
     """Bind one identity through the final outward send and application cleanup."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, reuse_bound_request_id: bool = False) -> None:
         self.app = app
+        self._reuse_bound_request_id = reuse_bound_request_id
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         state = scope.setdefault("state", {})
-        request_id = request_id_from_span()
+        request_id = (current_request_id() if self._reuse_bound_request_id else None) or request_id_from_span()
         state["request_id"] = request_id
         token = bind_request_id(request_id)
 

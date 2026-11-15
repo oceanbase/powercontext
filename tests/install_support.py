@@ -15,9 +15,11 @@
 
 """Native-operation substitutes for CLI routing tests; the shared driver still runs."""
 
+from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 
-from powercontext.cli.installation import installers
+from powercontext.cli.installation import PluginSource, installers
 
 
 def stub_installer(monkeypatch, host, callback):
@@ -26,14 +28,19 @@ def stub_installer(monkeypatch, host, callback):
     installer_type = type(installers()[host]())
     prepare = transport.prepare_setup_transport
     connection = None
+    if host == "minimax":
+        package = Path(__file__).parents[1] / "integrations/minimax/plugins/powercontext"
+        monkeypatch.setattr(PluginSource, "package", lambda self, selected_host: nullcontext(package))
 
     def prepare_connection(*args, **kwargs):
         nonlocal connection
         connection = prepare(*args, **kwargs)
         return connection
 
-    def install(self, source):
+    def install(self, source, **install_options):
         assert connection is not None
+        if host == "minimax":
+            assert install_options["connection"] is connection
         options = vars(self) | {
             "host": host,
             "source": source.location,

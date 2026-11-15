@@ -71,7 +71,6 @@ class _RunningServer:
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory-routing.db'}"),
                 mcp=McpConfig(enabled=True),
             ),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         self._server = uvicorn.Server(
             uvicorn.Config(

@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
+from installed_connections import exercise_connection_journey
 from installed_lifecycle import exercise_forced_exit, exercise_single_instance
 from installed_session import exercise_session
 from installed_workflow import exercise_memory
@@ -210,6 +211,8 @@ def run_ui(executable: Path, driver: Path, artifacts: Path, report: dict[str, ob
                 report["packagedUrl"] = wait_packaged_page(client, prefix)
                 report["stage"] = "single_instance"
                 report["singleInstance"] = exercise_single_instance(client, prefix, app)
+                report["stage"] = "connection_journey"
+                report["connectionJourney"] = exercise_connection_journey(client, prefix)
                 report["stage"] = "memory_workflow"
                 report["workflow"] = exercise_memory(client, prefix)
                 report["stage"] = "session_observations"

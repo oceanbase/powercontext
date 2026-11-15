@@ -1,0 +1,78 @@
+{
+  "content_policy": "aggregate_only_no_evidence_or_generated_candidate_text",
+  "dataset": {
+    "case_count": 9,
+    "dataset_version": "powercontext.atomic-memory-extraction.synthetic.v1",
+    "manifest_sha256": "47e6a9e731523b6b41295cf59f6eb4772e69b1afddfa1edebfbf1fe6db021ab4",
+    "schema_version": "powercontext.atomic-memory-extraction-cases.v1"
+  },
+  "dispositions": {
+    "atomic_memory": {
+      "failed": 0,
+      "passed": 6,
+      "total": 6
+    },
+    "experience_or_skill": {
+      "failed": 0,
+      "passed": 1,
+      "total": 1
+    },
+    "reject": {
+      "failed": 0,
+      "passed": 2,
+      "total": 2
+    }
+  },
+  "factual_retention": {
+    "failed": 0,
+    "false_rejections": 0,
+    "passed": 6,
+    "total": 6,
+    "unobserved": 0
+  },
+  "failure_classes": {},
+  "instruction_leakage": {
+    "leaks": 0,
+    "passed": 9,
+    "total": 9,
+    "unobserved": 0
+  },
+  "overall": {
+    "failed": 0,
+    "passed": 9,
+    "total": 9
+  },
+  "prompts": {
+    "coding": {
+      "builtin_version": "powercontext.atomic-memory.extract.coding.v3",
+      "compiled_digest": "53a0e4e506df5a7eabd03aa4829ccfc80bc8cee9d9e9e76a9dc50dd8f9593ba0",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "49f89a1a61e5f551780f934bf447b353a199545fa547ac6aee0a1e8c0e34aee8",
+      "key": "atomic_memory.extract"
+    },
+    "conversation": {
+      "builtin_version": "powercontext.atomic-memory.extract.conversation.v3",
+      "compiled_digest": "07dd039ca5c97790196e2e3c7d43a0124c257acb79559446df5272b9ea002243",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "44c6c4969c7c4b984d845af1c4e94270d556443e133e862650ad226a7f508475",
+      "key": "atomic_memory.extract"
+    }
+  },
+  "provider": {
+    "base_url_configured": true,
+    "base_url_sha256": "0413b53d28826c51b400bc9ebc578639bf6a4ff94d3e43fbcbc468bd51945602",
+    "header_names": [
+      "Authorization"
+    ],
+    "max_requests": 2,
+    "model": "openai-chat:glm-5.3",
+    "model_settings": {},
+    "model_settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "provider": "openai-chat",
+    "timeout_seconds": 120.0
+  },
+  "run_id": "atomic-extraction-20261030-merged-locators-120s",
+  "run_manifest_sha256": "20a1be4d0f9f138e2b2c7533b403a0003683e405076ea26f46f0e30e2349e731",
+  "schema_version": "powercontext.atomic-memory-extraction-report.v1",
+  "status": "passed"
+}

@@ -1,0 +1,24 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% macro review_value(value, name=none) %}
+{% if value is none or value == '' or value == [] or value == {} %}<span class="text-secondary">{{ t.review_no_tags if name == 'tags' else t.review_not_set }}</span>
+{% elif value is string and name in ['instructions','content','detail'] %}<div class="document-body">{{ value|markdown }}</div>
+{% elif value is string %}<div class="review-text">{{ t.get(value, value) if name in ['kind', 'disposition'] else value }}</div>
+{% elif value is boolean %}{{ t.review_yes if value else t.review_no }}
+{% elif value is mapping %}<dl class="review-value-map mb-0">{% for key, item in value.items() %}<dt>{{ t.get('review_field_' ~ key, key) }}</dt><dd>{{ review_value(item, key) }}</dd>{% endfor %}</dl>
+{% elif value is sequence %}<ul class="review-value-list mb-0">{% for item in value %}<li>{{ review_value(item) }}</li>{% endfor %}</ul>
+{% else %}{{ value }}{% endif %}
+{% endmacro %}

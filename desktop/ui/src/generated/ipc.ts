@@ -15,7 +15,7 @@
  */
 
 // Generated from Rust IPC types. Do not edit.
-export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
+export type SafeError = "unauthorized_window" | "invalid_endpoint" | "insecure_transport" | "invalid_certificate" | "credential_unavailable" | "credential_missing" | "invalid_credential" | "timeout" | "tls" | "network" | "redirect" | "unauthorized" | "forbidden" | "server" | "invalid_response" | "response_too_large" | "busy" | "invalid_input" | "not_found" | "cursor_expired" | "conflict" | "authentication_unavailable" | "runtime_not_ready" | "integrity_failure" | "process_failure" | "stale_context" | "compatibility_unverified" | "storage" | "profile_corrupt" | "duplicate_name" | "not_connected" | "scope_required";
 export type FoundationInfo = { version: string, phase: string, credentialBackend: string, serverConnected: boolean, };
 export type StorageChoice = "persistent" | "session_only";
 export type CredentialWriteRequest = { secret: string, storage: StorageChoice, };
@@ -31,9 +31,9 @@ export type OpsPreflightInput = { operation: OpsOperation, options: OpsOptions, 
 export type OpsApprovalInput = { approvalId: string, planId: string, };
 export type OpsStatusInput = { operationId: string, };
 export type OpsCancelInput = { operationId: string, attempt: number, };
-export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, };
+export type OpsOperationReference = { operationId: string, bindingStatus: OpsReferenceBindingStatus, operation?: OpsOperation, options?: OpsOptions, };
 export type OpsReferenceBindingStatus = "current" | "different" | "unavailable";
-export type OpsReferences = { bindingAvailable: boolean, operations: Array<OpsOperationReference>, };
+export type OpsReferences = { bindingAvailable: boolean, loginStartChoice: boolean, operations: Array<OpsOperationReference>, };
 export type OpsInspectionReply = { outcome: OpsOutcome, components?: OpsComponents, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsValidationReply = { outcome: OpsOutcome, configuration: OpsConfigurationState, error?: OpsErrorCode, bridgeError?: OpsBridgeError, exitCode?: number, };
 export type OpsConfigurationState = "valid" | "missing_or_invalid" | "unknown";
@@ -46,7 +46,7 @@ export type OpsInstallationClassification = "missing" | "owned_current" | "owned
 export type OpsInstallationResources = "missing" | "damaged" | "verified";
 export type OpsDatabaseClassification = "new" | "existing_unknown" | "existing_ready" | "incompatible" | "unknown";
 export type OpsComponents = { support?: OpsSupportState, registration?: OpsRegistrationState, definition?: OpsDefinitionState, managerOwnership?: OpsManagerOwnership, manager?: OpsManagerState, liveness?: OpsLivenessState, readiness?: OpsReadinessState, endpoint?: string, maintenance?: OpsMaintenancePhase, resources?: OpsRuntimeResources, configuration?: OpsConfigurationState, installationId?: string, resourceId?: string, resourceDigest?: string, database?: OpsDatabaseClassification, connectionCompatibility?: OpsConnectionCompatibility, installationStage?: OpsServicePhase, installationObservation?: OpsObservationState, };
-export type OpsProgress = { requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
+export type OpsProgress = { approvalId?: string, requestId: string, operationId: string, attempt: number, sequence: number | null, phase: OpsServicePhase | null, accepted: boolean, };
 export type OpsOperationReply = { operationId: string, outcome: OpsOutcome, attempt?: number, exitCode?: number, error?: OpsErrorCode, bridgeError?: OpsBridgeError, status?: OpsOperationStatus, };
 export type OpsOperationStatus = { operationId: string, attempt: number, phase: OpsAttemptPhase, executor: OpsExecutor, executionState: OpsExecutionState, outcome: OpsOutcome, cancelRequested?: boolean, result?: OpsStoredResult, observation: OpsObservation, history: Array<OpsAttemptSummary>, recoveryActions: Array<OpsRecoveryAction>, };
 export type OpsExecutor = { pid?: number, observation: OpsExecutorObservation, };
@@ -85,8 +85,12 @@ export type CompatibilityReason = "product_mismatch" | "schema_version" | "api_v
 export type CompatibilityStatus = "qualified" | "unsupported" | "unverified";
 export type OperationCompatibility = { status: CompatibilityStatus, reason: CompatibilityReason, qualificationId: string | null, };
 export type DiscoveryResult = { status: DiscoveryStatus, server: ServerInfo | null, error: ApiFailure | null, reason: CompatibilityReason | null, operations: { [key in string]: OperationCompatibility }, };
-export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, identity: Fact<AccessMeResponse>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
-export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string, };
+export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, readinessCheckedAt?: number, identity: Fact<AccessMeResponse>, connectionIdentity?: Fact<ConnectionIdentity>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
+export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string,
+/**
+ * Separate current-client evidence; the original Server qualification remains unchanged.
+ */
+authenticatedClients?: { [key in string]: string }, };
 export type ActiveView = { connectionId: string, generation: number, report: CheckReport, scope: ScopeDescriptor | null, };
 export type MemoryContext = { connectionId: string, endpoint: string, serverId: string | null, principal: AccessPrincipal | null, generation: number, scopeId: string, };
 export type WriteStatus = "pending" | "succeeded" | "failed" | "unknown";
@@ -106,7 +110,7 @@ export type ExactScopeStatistics = { selection: ExactScopeSelection, scope_ids: 
 export type ExactRecallTokenStatistics = { period: ResolvedUsagePeriod, estimator: TokenEstimatorProfile | null, totals: RecallTokenValue, daily: Array<RecallTokenDay>, };
 export type ExactScopeStatisticsItem = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, recurrence: RecurrenceStatistics, processing?: Array<ProcessingObservation>, bootstrap_delivery?: BootstrapDeliveryStatistics, };
 export type ObservationUnit = "http_request" | "user_operation";
-export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "list_scopes" | "get_scope" | "get_default_scope" | "get_stats" | "remember_memory" | "search_memory" | "get_artifact_revision";
+export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "get_connection_identity" | "list_scopes" | "get_scope" | "get_default_scope" | "get_stats" | "remember_memory" | "search_memory" | "get_artifact_revision";
 export type ObservationOutcome = "success" | "failure" | "cancelled" | "unknown";
 export type SessionObservation = { unit: ObservationUnit, operation: ObservedOperation, outcome: ObservationOutcome, completedAtMs: number, durationMs: number, httpStatus: number | null, errorCode: SafeError | null, };
 export type OutcomeCounts = { success: number, failure: number, cancelled: number, unknown: number, };
@@ -123,13 +127,13 @@ export type OpsSessionObservation = { action: OpsAction,
  */
 operationId: string, attempt: number | null, phase: OpsServicePhase | null, attemptPhase: OpsAttemptPhase | null, outcome: OpsOutcome, errorCode: OpsErrorCode | null, bridgeError: OpsBridgeError | null, observedAtMs: number, };
 export type OpsSessionSummary = { capacity: number, evicted: number, droppedSinceStart: number, recent: Array<OpsSessionObservation>, };
-export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
 export type AccessControlMode = "disabled" | "enforced";
 export type AccessMeResponse = { principal: AccessPrincipal, mode: AccessControlMode, resource_kinds: Array<AccessResourceType>, provider_capabilities: AccessProviderCapabilities, artifact_families: Array<ArtifactFamilyAccessCapability>, };
 export type AccessPrincipal = { type: Type, id: string, description?: string | null, };
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
-export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
 export type ActualAdoption = "unobserved";
 export type AllScopeSelection = { mode: AllScopeSelectionMode, };
 export type AllScopeSelectionMode = "all";
@@ -138,11 +142,7 @@ export type ArtifactFamilyAccessCapability = { family: string, enabled: boolean,
 export type ArtifactInventoryStatistics = { total: number, by_family: Array<FamilyCount>, };
 export type ArtifactReadFamily = string;
 export type ArtifactReference = { family: string, artifact_id: string, revision: number, };
-export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string,
-/**
- * Persisted schema version for a custom Artifact family.
- */
-schema_version?: string | null, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
+export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
 /**
  * When this revision was committed. Absent for revisions stored before this field existed.
  */
@@ -182,7 +182,7 @@ export type BuiltinProfile = "coding" | "conversation";
 export type CandidateFamily = "experience" | "skill" | "profile" | "atomic-memory" | "topic-memory" | "handoff" | "prompt";
 export type CandidateFamilyCount = { family: CandidateFamily, total: number, pending: number, approved: number, rejected: number, };
 export type CandidateInventoryStatistics = { total: number, pending: number, approved: number, rejected: number, by_family: Array<CandidateFamilyCount>, };
-export type Capabilities = { custom_artifact_schemas?: Array<CustomArtifactFamilySchema>, prompts?: { [key in string]: PromptCapability },
+export type Capabilities = { prompts?: { [key in string]: PromptCapability },
 /**
  * Whether asynchronous Artifact Dream execution is configured.
  */
@@ -212,18 +212,11 @@ external_skill_registry?: boolean,
  */
 handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, context_protection?: ContextProtectionCapabilities, };
 export type Configuration = "configured" | "unconfigured" | "unknown";
+export type ConnectionAuthentication = "disabled" | "authenticated";
+export type ConnectionIdentity = { server_id: string, authentication: ConnectionAuthentication, access_mode: AccessControlMode, principal: AccessPrincipal | null, };
 export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
 export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
 export type ContractVersion = { major: number, minor: number, };
-export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
-/**
- * Legacy persisted text fields; new plugins use search.
- */
-search_fields: Array<string>,
-/**
- * Persistent declarative indexes and supported search modes.
- */
-search?: Record<string, unknown>, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
 export type ExactScopeSelection = { mode: ExactScopeSelectionMode, scope_ids: Array<string>, };
@@ -356,7 +349,7 @@ export type ScopeDescriptor = { scope_id: string, title: string, summary: string
 export type ScopeExternalReference = { kind: string, value: string, };
 export type ScopePage = { items: Array<ScopeDescriptor>, next_cursor?: string | null, };
 export type ScopeQueryField = "scope_id" | "title" | "summary" | "external_reference_value" | "binding_external_id";
-export type ScopeSelection = { "mode": "AllScopeSelection" } & AllScopeSelection | { "mode": "ExactScopeSelection" } & ExactScopeSelection | { "mode": "SubtreeScopeSelection" } & SubtreeScopeSelection;
+export type ScopeSelection = AllScopeSelection | ExactScopeSelection | SubtreeScopeSelection;
 export type ScopeStats = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, recurrence: RecurrenceStatistics,
 /**
  * Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
@@ -384,6 +377,15 @@ api_contract_version: ContractVersion,
 feature_contracts: { [key in string]: FeatureContract }, };
 export type ShareUnit = "artifact" | "memory_entry";
 export type SourceInventoryStatistics = { total: number, memory_processed: number, memory_pending: number, };
+export type SourceLineRangeLocator = { kind: SourceLineRangeLocatorKind, start_line: number, end_line: number,
+/**
+ * Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+ */
+heading_path?: string | null, };
+export type SourceLineRangeLocatorKind = "line_range";
+export type SourceLocator = SourceSequenceLocator | SourceLineRangeLocator;
+export type SourceSequenceLocator = { kind: SourceSequenceLocatorKind, sequence: number, };
+export type SourceSequenceLocatorKind = "sequence";
 export type SourceTypeReference = {
 /**
  * Stable Source type, including dynamically registered Source names.
@@ -392,7 +394,7 @@ source_type: string,
 /**
  * Source identity as accepted at ingestion, including Unicode and interior spaces.
  */
-source_id: string, };
+source_id: string, locator?: SourceLocator, };
 export type Stage = "inference" | "flush" | "worker" | "supervisor" | "lease_renewal" | "scope_discovery";
 export type State = "running" | "degraded" | "stopped" | "unknown";
 export type StatsPeriod = "today" | "7d" | "30d";

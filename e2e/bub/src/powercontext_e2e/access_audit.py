@@ -50,6 +50,7 @@ CONTENTLESS_OPERATIONS = frozenset({"get_scope", "get_stats", "resolve_scope_sel
 # The Access API returns permission decisions, roles, Bindings, and audit records. Checking whether the caller may read
 # a Scope records that decision on the Scope, and listing its Bindings or audit records an administration check there.
 ACCESS_OPERATIONS = frozenset({
+    "get_connection_identity",
     "get_access_principal",
     "check_access",
     "list_access_resources",

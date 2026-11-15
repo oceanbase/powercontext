@@ -85,8 +85,8 @@ test('SessionStart restores only compact/resume and records readonly empty/failu
       const result = await invoke(source)
       assert.deepEqual(calls.map(call => call.path), ['/v1/scope-bindings/resolve', '/v1/context/prepare'])
       assert.equal(calls[1].body.query, 'Current project decisions, constraints, and outstanding work')
-      assert.match(result.output.hookSpecificOutput.additionalContext, /untrusted historical evidence/)
-      assert.match(result.output.hookSpecificOutput.additionalContext, /frost-917/)
+      assert.match(result.output.hookSpecificOutput.additionalContext,
+        /\}\n\nPowerContext context for this request\.\n\nHistorical project decision: validation uses frost-917\.$/)
       assert.equal(result.observation.stages.prepare.query_source, 'lifecycle_generic')
     }
     prepared = 'empty'

@@ -497,7 +497,7 @@ def test_comparison_billing_through_persisted_candidates(  # noqa: C901
 ):
     from contextlib import asynccontextmanager
 
-    import httpx
+    import httpx2
     from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
     from pydantic_ai.models.function import FunctionModel
 
@@ -521,7 +521,7 @@ def test_comparison_billing_through_persisted_candidates(  # noqa: C901
         async with open_builtin_runtime(config, embedding_model=Embedding(), **kwargs) as runtime:
             yield runtime
 
-    original_client = httpx.AsyncClient
+    original_client = httpx2.AsyncClient
 
     def respond_model(messages, _info):
         value = next(
@@ -538,14 +538,14 @@ def test_comparison_billing_through_persisted_candidates(  # noqa: C901
     def respond_native(request):
         model_requests.append(request)
         if provider_failure == "timeout" and len(model_requests) == 1:
-            raise httpx.ReadTimeout("response lost", request=request)  # noqa: TRY003
+            raise httpx2.ReadTimeout("response lost", request=request)  # noqa: TRY003
         body = json.loads(request.content)
         prompt = json.dumps(body["messages"][-1]["content"])
         is_judge = "gold_answer" in prompt
         is_rerank = "max_results" in prompt
         output = {"label": "CORRECT"} if is_judge else {"selected_ranks": [1]} if is_rerank else {"answer": "OceanBase"}
         if provider == "anthropic":
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "id": "msg-test",
@@ -566,7 +566,7 @@ def test_comparison_billing_through_persisted_candidates(  # noqa: C901
                     ),
                 },
             )
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "id": "chatcmpl-test",
@@ -605,17 +605,20 @@ def test_comparison_billing_through_persisted_candidates(  # noqa: C901
     else:
         monkeypatch.setenv("OPENAI_API_KEY" if provider == "openai-chat" else "ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setattr(
-            f"pydantic_ai.providers.{'openai' if provider == 'openai-chat' else 'anthropic'}.create_async_http_client",
-            lambda: original_client(transport=httpx.MockTransport(respond_native)),
+            f"pydantic_ai.providers.{'_openai_compatible' if provider == 'openai-chat' else 'anthropic'}.create_async_httpx2_client",
+            lambda: original_client(transport=httpx2.MockTransport(respond_native)),
         )
+        # The billing fixture returns JSON, independent of provider output defaults.
+        benchmark_settings = runner._benchmark_model_settings
+        monkeypatch.setattr(runner, "_benchmark_model_settings", lambda: benchmark_settings() | {"max_tokens": 256})
     monkeypatch.setattr(runner, "open_builtin_runtime", runtime_with_embedding)
     monkeypatch.setattr(
         runner,
-        "httpx",
+        "httpx2",
         SimpleNamespace(
             AsyncClient=lambda: original_client(
-                transport=httpx.MockTransport(
-                    lambda _: httpx.Response(
+                transport=httpx2.MockTransport(
+                    lambda _: httpx2.Response(
                         200,
                         json={
                             "model": "jev-1.13.0",

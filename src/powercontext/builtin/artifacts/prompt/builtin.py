@@ -119,7 +119,7 @@ def builtin_prompt_definitions(
             definition_version="powercontext.prompt.atomic-memory.reconcile.v2",
             input_type=AtomicMemoryReconciliationInput,
             output_type=AtomicMemoryReconciliationOutput,
-            builtin_version="powercontext.atomic-memory.reconcile.v2",
+            builtin_version="powercontext.atomic-memory.reconcile.v3",
             invariant_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
             default_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
         ),

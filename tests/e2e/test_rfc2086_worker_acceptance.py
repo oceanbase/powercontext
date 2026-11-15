@@ -45,6 +45,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.sources import SourceSequenceLocator
 
 _FORBIDDEN = "synthetic-worker-forbidden-value"
 _MEMORY = "The user prefers tests exercising spawned worker recovery."
@@ -224,7 +225,9 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
             records = (await reopened.atomic_memory.for_scope(scope.scope_id).list()).items
             assert len(records) == 1
             assert records[0].artifact.content.text == _MEMORY
-            assert records[0].artifact.lineage.sources == (receipt.source_ref,)
+            assert records[0].artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
         assert server.requests
         sent = [
             json.loads(item["content"])

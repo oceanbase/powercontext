@@ -57,7 +57,7 @@ test('Hook observations preserve latest-attempt order, unknown writes and conten
     else if (req.url === '/v1/context/prepare') {
       if (body.query === 'older private prompt') {
         slowStarted()
-        // Answer the older prompt only once the newer one is captured. The hook's own 1 s request timeout bounds
+        // Answer the older prompt only once the newer one is captured. The hook's own 3 s request timeout bounds
         // the wait: the older hook then captures anyway. The timer only keeps this handler from hanging.
         await new Promise(resolve => {
           const timer = setTimeout(resolve, 10_000)
@@ -71,7 +71,7 @@ test('Hook observations preserve latest-attempt order, unknown writes and conten
       const position = ++captures
       captureOrder.push(body.content)
       if (body.content === 'newer private prompt') newerCaptured()
-      if (body.content === 'unknown capture private prompt') await new Promise(resolve => setTimeout(resolve, 1300))
+      if (body.content === 'unknown capture private prompt') await new Promise(resolve => setTimeout(resolve, 3500))
       res.statusCode = captureStatus
       res.end(JSON.stringify({ status: 'accepted', source: { name: 'content', source_id: receiptValid ? body.source_id : 'incorrect' }, position }))
     } else { res.statusCode = 404; res.end('{}') }
@@ -119,7 +119,7 @@ test('Hook observations preserve latest-attempt order, unknown writes and conten
     assert.equal(latest.result.status, 'observed')
     const position = latest.result.observation.stages.capture.source_position
     if (position !== 1) {
-      // The newer hook still has to capture within the older prepare request's 1 s timeout, so report both attempts.
+      // The newer hook still has to capture within the older prepare request's 3 s timeout, so report both attempts.
       const runtime = join(data, 'runtime')
       const attempts = await Promise.all((await readdir(runtime)).filter(name => name.startsWith('attempt-')).map(async name => {
         const { attempt_id, started_at, completed_at, stages } = JSON.parse(await readFile(join(runtime, name), 'utf8'))

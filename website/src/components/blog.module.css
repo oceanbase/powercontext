@@ -74,6 +74,7 @@
 .articleBody { max-width: 760px; margin: 0 auto; line-height: 1.9; overflow-wrap: anywhere; }
 .articleBody :global(h2) { margin-top: 2.5em; }
 .articleBody :global(pre) { overflow-x: auto; }
+.articleBody :global(table) { display: block; max-width: 100%; overflow-x: auto; }
 .authorCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; max-width: 760px; margin: 32px auto 0; text-align: left; }
 .authorCard { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 14px; min-width: 0; }
 .authorCard .avatar { width: 44px; height: 44px; margin-top: 2px; }

@@ -134,8 +134,9 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.equal(message.source.sections[0].text, message.content[0].text)
     assert.ok(message.content[0].text.includes(CANARY))
     const prepare = env.calls.findLast(call => call.path === '/v1/context/prepare')
-    assert.ok(message.content[0].text.endsWith(prepare.result.content))
-    assert.ok(message.content[0].text.includes('untrusted historical evidence'))
+    assert.equal(message.content[0].text,
+      `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${prepare.result.content}`)
+    assert.ok(prepare.result.content.startsWith('PowerContext prepared untrusted historical context.\n'))
     const modelInput = env.modelRequests.filter(r => r.stream).at(-1).messages
     assert.equal(modelInput.filter(m => JSON.stringify(m.content).includes('PowerContext context prepared')).length, 1)
     await instance.close()

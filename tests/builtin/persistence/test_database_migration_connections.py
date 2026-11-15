@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.migrations.connections import BackendIdent
 from powercontext.builtin.persistence.migrations.locking import local_migration_lock
 from powercontext.builtin.persistence.migrations.models import MigrationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.oceanbase import profile as oceanbase_profile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
 
@@ -240,6 +241,202 @@ def test_oceanbase_routes_to_different_database_identity_before_write_are_reject
     assert error.value.code == "target_identity_unavailable"
     assert "private" not in str(error.value)
     operation.assert_not_called()
+
+
+def _fake_seekdb_identity_connection(*, compatibility: object, version: str, database: object, server_uuid: object):
+    """Identity double for a standalone seekdb server reached through the OceanBase URL."""
+    connection = Mock(spec=Connection)
+
+    def query(statement: str):
+        result = Mock()
+        if "ob_compatibility_mode" in statement:
+            result.first.return_value = compatibility
+        elif "SELECT VERSION()" in statement:
+            result.scalar_one.return_value = version
+        elif "@@server_uuid" in statement:
+            result.one.return_value = (database, server_uuid)
+        else:
+            pytest.fail(f"Unexpected identity query: {statement}")
+        return result
+
+    connection.exec_driver_sql.side_effect = query
+    return connection
+
+
+def _tenant_gate_connection(*, row: tuple[str, str] | None, version: str):
+    """AsyncConnection double answering the server-run tenant gate in oceanbase.profile."""
+
+    class Result:
+        def __init__(self, rows: tuple[tuple[str, ...], ...]) -> None:
+            self._rows = rows
+
+        def first(self) -> tuple[str, ...] | None:
+            return self._rows[0] if self._rows else None
+
+    class Connection:
+        async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> Result:
+            if "ob_compatibility_mode" in statement:
+                return Result(() if row is None else (row,))
+            if "SELECT VERSION()" in statement:
+                return Result(((version,),))
+            pytest.fail(f"Unexpected tenant gate query: {statement}")
+
+    return Connection()
+
+
+def test_standalone_seekdb_identity_uses_server_uuid_and_database_name() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    identity = connections._oceanbase_identity(connection)
+    assert identity.product == "seekdb"
+    assert identity.database_name == "pc_test"
+    assert len(identity.database_id) == 64
+
+
+def test_standalone_seekdb_identity_is_stable_and_unique_per_target() -> None:
+    def identity(**overrides: object) -> BackendIdentity:
+        kwargs: dict[str, object] = {
+            "compatibility": None,
+            "version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+            "database": "pc_test",
+            "server_uuid": "uuid-1",
+        }
+        kwargs.update(overrides)
+        return connections._oceanbase_identity(_fake_seekdb_identity_connection(**kwargs))
+
+    assert identity() == identity()
+    assert identity(server_uuid="uuid-2").database_id != identity().database_id
+    assert identity(database="other_context").database_id != identity().database_id
+
+
+def test_standalone_seekdb_identity_accepts_an_empty_compatibility_mode() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=("ob_compatibility_mode", ""),
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    assert connections._oceanbase_identity(connection).product == "seekdb"
+
+
+def test_empty_compatibility_seekdb_is_accepted_by_both_entry_points() -> None:
+    """One input, both entries: the db-migrate identity probe and the server-run
+    tenant gate (oceanbase.profile) must agree on a present-but-empty
+    ob_compatibility_mode with a standalone seekdb banner."""
+    compatibility = ("ob_compatibility_mode", "")
+    version = "5.7.25-OceanBase seekdb-v1.4.0.0"
+
+    identity = connections._oceanbase_identity(
+        _fake_seekdb_identity_connection(
+            compatibility=compatibility,
+            version=version,
+            database="pc_test",
+            server_uuid="uuid-1",
+        )
+    )
+    assert identity.product == "seekdb"
+    assert identity.database_name == "pc_test"
+
+    asyncio.run(oceanbase_profile._require_mysql_tenant(_tenant_gate_connection(row=compatibility, version=version)))
+
+
+@pytest.mark.parametrize(
+    ("database", "server_uuid"),
+    [
+        ("pc_test", ""),
+        ("pc_test", None),
+        ("", "uuid-1"),
+        (None, "uuid-1"),
+    ],
+)
+def test_standalone_seekdb_incomplete_identity_is_unavailable(database: object, server_uuid: object) -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database=database,
+        server_uuid=server_uuid,
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "target_identity_unavailable"
+
+
+def test_plain_mysql_server_without_seekdb_version_is_unsupported() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="8.0.36",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
+
+
+def test_seekdb_version_with_a_real_compatibility_mode_is_unsupported() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=("ob_compatibility_mode", "ORACLE"),
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
+
+
+def _fake_oceanbase_tenant_connection(
+    *, database: str, tenant_id: int, cluster_id: int, tenant_created: datetime, tenant_type: str
+):
+    connection = Mock(spec=Connection)
+
+    def query(statement: str):
+        result = Mock()
+        if "ob_compatibility_mode" in statement:
+            result.first.return_value = ("ob_compatibility_mode", "MYSQL")
+        elif "SELECT DATABASE()" in statement:
+            result.one.return_value = (database, tenant_id)
+        elif "GV$OB_PARAMETERS" in statement:
+            result.scalars.return_value.all.return_value = [str(cluster_id)]
+        elif "DBA_OB_TENANTS" in statement:
+            result.one.return_value = (tenant_created, tenant_type)
+        else:
+            pytest.fail(f"Unexpected identity query: {statement}")
+        return result
+
+    connection.exec_driver_sql.side_effect = query
+    return connection
+
+
+def test_oceanbase_mysql_tenant_identity_keeps_the_existing_shape() -> None:
+    connection = _fake_oceanbase_tenant_connection(
+        database="scratch",
+        tenant_id=1002,
+        cluster_id=7,
+        tenant_created=datetime(2026, 1, 1, tzinfo=UTC),
+        tenant_type="USER",
+    )
+    identity = connections._oceanbase_identity(connection)
+    assert identity.product == "oceanbase"
+    assert identity.database_name == "scratch"
+    assert len(identity.database_id) == 64
+
+
+def test_oceanbase_non_user_tenant_remains_unsupported() -> None:
+    connection = _fake_oceanbase_tenant_connection(
+        database="scratch",
+        tenant_id=1,
+        cluster_id=7,
+        tenant_created=datetime(2026, 1, 1, tzinfo=UTC),
+        tenant_type="SYSTEM",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
 
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")

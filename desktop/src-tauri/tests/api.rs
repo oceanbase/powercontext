@@ -447,3 +447,44 @@ async fn atomic_write_rejects_inconsistent_merge_state_without_losing_dispatch_u
         request.await.unwrap();
     }
 }
+
+#[test]
+fn source_locators_preserve_variant_fields_and_a_single_tag_on_roundtrip() {
+    use powercontext_desktop::transport::wire::SourceLocator;
+    for (wire, sequence) in [
+        (r#"{"kind":"sequence","sequence":0}"#, true),
+        (
+            r#"{"kind":"line_range","start_line":1,"end_line":3,"heading_path":"中文 / Heading"}"#,
+            false,
+        ),
+    ] {
+        let locator: SourceLocator = serde_json::from_str(wire).unwrap();
+        assert_eq!(matches!(&locator, SourceLocator::Sequence(_)), sequence);
+        let encoded = serde_json::to_string(&locator).unwrap();
+        assert_eq!(encoded.matches("\"kind\"").count(), 1);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&encoded).unwrap(),
+            serde_json::from_str::<serde_json::Value>(wire).unwrap()
+        );
+        assert_eq!(
+            serde_json::from_str::<SourceLocator>(&encoded).unwrap(),
+            locator
+        );
+    }
+}
+
+#[test]
+fn source_locators_reject_unknown_or_mismatched_tags() {
+    use powercontext_desktop::transport::wire::SourceLocator;
+    for wire in [
+        r#"{"kind":"future","sequence":0}"#,
+        r#"{"kind":"sequence","start_line":1,"end_line":3}"#,
+        r#"{"kind":"line_range","sequence":0}"#,
+        r#"{"sequence":0}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<SourceLocator>(wire).is_err(),
+            "{wire}"
+        );
+    }
+}

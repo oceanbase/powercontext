@@ -22,6 +22,6 @@ description = "PowerContext Gateway: canonical internal types + per-provider wir
 [dependencies]
 pc-gateway-types = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 bytes = { workspace = true }
 thiserror = { workspace = true }

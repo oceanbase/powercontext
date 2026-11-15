@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! PR #2264 契约值类型。
+//! Core HTTP DTOs and shared managed-call facts.
 //!
 //! 网关无策略：这里的类型只承载 Core 的输入/输出，
-//! 与 openapi/powercontext.yaml 对齐。
+//! HTTP DTOs 与 openapi/powercontext.yaml 对齐；进程内生命周期事实独立于 HTTP 契约。
 
 mod check;
+mod lifecycle;
 mod prepare;
 mod time;
 
 pub use check::*;
+pub use lifecycle::*;
 pub use prepare::*;
 pub use time::*;

@@ -1,0 +1,122 @@
+{
+  "id": "resp_0080d7ac46927739016a3c1210cb8481a08ebce3627ac5b681",
+  "object": "response",
+  "created_at": 1782321680,
+  "status": "completed",
+  "background": false,
+  "billing": {
+    "payer": "developer"
+  },
+  "completed_at": 1782321681,
+  "error": null,
+  "frequency_penalty": 0.0,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": 4000,
+  "max_tool_calls": null,
+  "model": "gpt-4o-mini-2024-07-18",
+  "moderation": null,
+  "output": [
+    {
+      "id": "fc_0080d7ac46927739016a3c1211ead881a0b79e8c154b90ea97",
+      "type": "function_call",
+      "status": "completed",
+      "arguments": "{\"a\":2,\"b\":3}",
+      "call_id": "call_4duuhyRqgE5yacjdB7N3qLs3",
+      "name": "add"
+    },
+    {
+      "id": "fc_0080d7ac46927739016a3c1211eae481a09556917026b86270",
+      "type": "function_call",
+      "status": "completed",
+      "arguments": "{\"a\":2,\"b\":3}",
+      "call_id": "call_R9NaXdicUFYsl6ROHrFdxe2A",
+      "name": "multiply"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "presence_penalty": 0.0,
+  "previous_response_id": null,
+  "prompt_cache_key": null,
+  "prompt_cache_retention": "in_memory",
+  "reasoning": {
+    "context": null,
+    "effort": null,
+    "summary": null
+  },
+  "safety_identifier": null,
+  "service_tier": "default",
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "function",
+      "description": "Add two numbers",
+      "name": "add",
+      "parameters": {
+        "properties": {
+          "a": {
+            "description": "first number",
+            "type": "integer"
+          },
+          "b": {
+            "description": "second number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "type": "object"
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "description": "Multiply two numbers",
+      "name": "multiply",
+      "parameters": {
+        "properties": {
+          "a": {
+            "description": "first number",
+            "type": "integer"
+          },
+          "b": {
+            "description": "second number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "type": "object"
+      },
+      "strict": false
+    }
+  ],
+  "top_logprobs": 0,
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 108,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 51,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 159
+  },
+  "user": null,
+  "metadata": {}
+}

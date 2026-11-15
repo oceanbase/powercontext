@@ -1,0 +1,31 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% if topic and topic.block %}
+{% set block = topic.block %}
+<div class="topic-diagnosis">
+  <p><strong>{{ t.home_issue_reason }}</strong> {{ t.home_topic_attempt_reason if block.error_code == 'window_attempt_limit' else t.home_topic_budget_reason if block.error_code == 'window_provider_budget_exceeded' else t.home_topic_recorded_reason }} <code>{{ block.error_code }}</code></p>
+  {% set last = block.last_error_code|default(none) %}
+  <p><strong>{{ t.home_issue_latest_error }}</strong>
+    {% if last %}{{ t.home_topic_model_timeout if last in ['inference_timeout','model_timeout'] else t.processing_error_generation_unavailable if last in ['inference_unavailable','generation_unavailable'] else t.get('processing_error_' ~ last, t.home_issue_code_only) }} <code>{{ last }}</code>
+    {% else %}{{ t.home_issue_reason_unknown }}{% endif %}
+  </p>
+  <p><strong>{{ t.home_issue_impact }}</strong> {{ t.home_topic_impact }}</p>
+  <p><strong>{{ t.home_issue_check }}</strong> {{ t.home_topic_check }}</p>
+  <p class="text-secondary small mb-0">{{ t.processing_topic_blocked_at }} {{ block.blocked_at|display_time }}{% if block.attempts is defined %} · {{ t.processing_topic_attempts }} {{ block.attempts }}{% endif %}</p>
+</div>
+{% include 'components/topic-retry-form.html' %}
+{% endif %}

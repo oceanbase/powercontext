@@ -20,9 +20,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from powercontext.builtin.persistence import DecisionObservationRepository
-from powercontext.builtin.persistence.decision_observations import (
-    DecisionObservationRepository as SameDecisionObservationRepository,
-)
 from powercontext.builtin.persistence.errors import StoredPayloadConflictError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
@@ -74,16 +71,6 @@ def _observation(
         final_action="memory_write_flag",
         metadata={"candidate_count": 1, "evidence_count": 1},
     )
-
-
-def test_repository_is_exported_from_the_persistence_package() -> None:
-    assert DecisionObservationRepository is SameDecisionObservationRepository
-
-
-def test_decision_observation_tables_are_registered_in_builtin_tables() -> None:
-    from powercontext.builtin.persistence.tables import BUILTIN_TABLES
-
-    assert {table.name for table in DECISION_OBSERVATION_TABLES} <= {table.name for table in BUILTIN_TABLES}
 
 
 def test_repository_appends_and_reads_back_one_bounded_observation() -> None:

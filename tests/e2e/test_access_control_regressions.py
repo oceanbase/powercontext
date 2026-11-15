@@ -26,11 +26,7 @@ from typing import cast
 import httpx
 import pytest
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.records import RecordService
-from powercontext.builtin.runtime import BuiltinRuntime, InferenceConfig, RuntimeCapabilities, RuntimeConfig
-from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessDecision,
@@ -39,7 +35,11 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import RecordService
+from powercontext.builtin.runtime import BuiltinRuntime, InferenceConfig, RuntimeCapabilities, RuntimeConfig
+from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -89,7 +89,6 @@ async def _server(tmp_path: Path, backend="builtin", *, inference: InferenceConf
             settings=settings,
             authentication_provider=_Authentication(),
             access_control=access,
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),
@@ -105,6 +104,39 @@ async def _scope(client):
     )
     assert result.status_code == 201, result.text
     return result.json()["scope_id"]
+
+
+def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with _server(tmp_path) as (app, client, _access):
+
+            async def forbidden_probe():
+                pytest.fail("Ordinary connection and Memory operations must not probe readiness")
+
+            app.state.readiness_probe = forbidden_probe
+            monkeypatch.setattr(app.state.authentication_provider, "readiness", forbidden_probe)
+            monkeypatch.setattr(_access, "readiness", forbidden_probe)
+            scope_id = await _scope(client)
+            await _grant(client, scope_id, "alice", "scope.contributor")
+            client.headers["Authorization"] = "Bearer alice"
+            denied = await client.get("/v1/capabilities")
+            assert denied.status_code == 403
+            identity = await client.get("/v1/connection/identity")
+            assert identity.status_code == 200, identity.text
+            assert identity.json()["principal"] == {"type": "user", "id": "alice", "description": None}
+            assert identity.json()["authentication"] == "authenticated"
+            assert identity.json()["access_mode"] == "enforced"
+            saved = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "note", "text": "Owned memory"}
+            )
+            assert saved.status_code == 200, saved.text
+            reference = saved.json()["records"][0]["artifact"]
+            read = await client.get(
+                f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{reference['artifact_id']}/revisions/{reference['revision']}"
+            )
+            assert read.status_code == 200, read.text
+
+    asyncio.run(scenario())
 
 
 def test_remember_memory_survives_concurrent_write_after_authorization(tmp_path: Path, monkeypatch) -> None:
@@ -815,9 +847,9 @@ def test_static_preset_initializes_only_needed_permissions_without_reviving_revo
 
 def test_static_preset_can_create_and_read_atomic_memories_in_a_cold_scope(tmp_path):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.builtin.authz import AccessControlService
+    from powercontext.builtin.authz.repository import RelationalAccessRepository
     from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-    from powercontext.server.authz import AccessControlService
-    from powercontext.server.authz.repository import RelationalAccessRepository
 
     async def scenario():
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cold-preset.db'}"))
@@ -920,7 +952,7 @@ def test_missing_owner_does_not_block_explicit_reads(tmp_path, backend):
             # A preexisting identity can be missing its Owner relation.
             from sqlalchemy import delete
 
-            from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE
+            from powercontext.builtin.authz.repository import ACCESS_OWNERS_TABLE
 
             async with access.relationships._database.transaction() as connection:
                 await connection.execute(
@@ -1193,7 +1225,7 @@ def test_owner_failure_rolls_back_handoff_and_publication(tmp_path, operation):
 
 
 def test_custom_relationship_writer_preserves_its_owner_failure_semantics(tmp_path):
-    from powercontext.server.authz.repository import RelationalAccessRepository
+    from powercontext.builtin.authz.repository import RelationalAccessRepository
 
     class CustomRelationships(RelationalAccessRepository):
         async def establish_artifact_owner(self, relation):
@@ -2156,9 +2188,9 @@ def test_static_preset_preserves_revoked_legacy_long_scope_receipts(tmp_path):
     from datetime import UTC, datetime
     from uuid import uuid4
 
+    from powercontext.builtin.authz import AccessBinding, AccessBindingState, AccessControlService, AccessRole
+    from powercontext.builtin.authz.repository import RelationalAccessRepository
     from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-    from powercontext.server.authz import AccessBinding, AccessBindingState, AccessControlService, AccessRole
-    from powercontext.server.authz.repository import RelationalAccessRepository
 
     async def scenario():
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'legacy-preset.db'}"))
