@@ -78,5 +78,5 @@ plugin = ArtifactPlugin(
             route("POST", "/scopes/{scope_id}/retrieve", "retrieve", Retrieve),
         )
     ),
-    pages=PluginPages(title={"en": "Knowledge base", "zh": "知识库"}, artifact_actions=("read", "update", "forget")),
+    pages=PluginPages(title={"en": "Knowledge base", "zh": "知识库"}),
 )

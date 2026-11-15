@@ -29,18 +29,40 @@ let state = {
   offset: 0,
   cursor: null,
 };
+let viewVersion = 0;
+let documentLoad = 0;
+let chunkLoad = 0;
+let searchLoad = 0;
 const key = () => crypto.randomUUID();
 const show = (message, error = false) => {
   $("notice").textContent = message;
   $("notice").classList.toggle("error", error);
 };
 async function api(method, path, options = {}) {
-  const r = await client.request(method, path, options);
+  return responseBody(await client.request(method, path, options));
+}
+function responseBody(r) {
   if (!r.ok)
     throw new Error(
       `${r.status}: ${r.json?.error?.message || JSON.stringify(r.json) || "请求失败"}`,
     );
   return r.json;
+}
+// Requests may finish after navigation. Ignore their results and errors in the new view.
+async function forView(request, current) {
+  try {
+    const result = await request;
+    return current() ? result : null;
+  } catch (error) {
+    if (current()) throw error;
+    return null;
+  }
+}
+function artifactTarget() {
+  return { scopeId: state.kb.scope_id, id: state.document.ref.artifact_id, revision: state.document.ref.revision };
+}
+async function artifactApi(method, target, suffix = "", options = {}) {
+  return responseBody(await client.artifacts(method, `/${target.id}${suffix}`, { ...options, scopeId: target.scopeId }));
 }
 function button(text, action) {
   const b = document.createElement("button");
@@ -89,35 +111,60 @@ function scopePath() {
 function chunksPath() {
   return `${scopePath()}/documents/${state.document.ref.artifact_id}/revisions/${$("revision").value}/chunks`;
 }
-function artifactPath() {
-  return `/_artifacts/${state.kb.scope_id}/${state.document.ref.artifact_id}`;
-}
 async function refresh() {
-  state.default = await api("GET", "/me/default-space");
-  const spaces = (await api("GET", "/spaces")).items;
-  state.space = state.space || state.default.space_scope_id;
-  $("spaces").replaceChildren(
-    ...spaces.map((s) => {
-      const o = document.createElement("option");
-      o.value = s.space_scope_id;
-      o.textContent = s.title;
-      return o;
-    }),
-  );
-  $("spaces").value = state.space;
-  $("default-label").textContent =
-    state.space === state.default.space_scope_id ? "当前默认空间" : "";
+  const version = ++viewVersion;
+  state.document = null;
+  $("document").hidden = true;
+  $("editor").close();
+  $("hits").replaceChildren();
+  const current = () => version === viewVersion;
+  const selected = await forView(api("GET", "/me/default-space"), current);
+  if (!selected) return;
+  const data = await forView(api("GET", "/spaces"), current);
+  if (!data) return;
+  const spaces = data.items;
+  state.default = selected;
+  const preferred = state.space || selected.space_scope_id;
+  state.space = spaces.some(s => s.space_scope_id === preferred) ? preferred : null;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "请选择可访问的空间";
+  placeholder.disabled = true;
+  $("spaces").replaceChildren(placeholder, ...spaces.map(s => {
+    const option = document.createElement("option");
+    option.value = s.space_scope_id;
+    option.textContent = s.title;
+    return option;
+  }));
+  $("spaces").value = state.space || "";
+  $("set-default").disabled = !state.space;
+  $("new-kb").disabled = !state.space;
+  $("default-label").textContent = state.space === selected.space_scope_id ? "当前默认空间" : "";
+  if (!state.space) {
+    state.kb = null;
+    state.document = null;
+    state.kbs = [];
+    state.selected.clear();
+    $("library").hidden = true;
+    $("document").hidden = true;
+    $("hits").replaceChildren();
+    renderLibraries();
+    show("默认空间不可访问，请选择其他空间并设置默认空间。", true);
+    return;
+  }
   await libraries();
 }
 async function libraries() {
-  const data = await api("GET", "/knowledge-bases", {
-    query: { space_scope_id: state.space },
-  });
+  const version = viewVersion;
+  const space = state.space;
+  const data = await forView(api("GET", "/knowledge-bases", {
+    query: { space_scope_id: space },
+  }), () => version === viewVersion && space === state.space);
+  if (!data) return;
   state.kbs = data.items;
-  state.selected = new Set(state.kbs.map((k) => k.scope_id));
+  state.selected = new Set(state.kbs.map(k => k.scope_id));
   renderLibraries();
-  if (state.kb && state.kbs.some((k) => k.scope_id === state.kb.scope_id))
-    await documents();
+  if (state.kb && state.kbs.some(k => k.scope_id === state.kb.scope_id)) await documents();
   else {
     $("library").hidden = true;
     $("document").hidden = true;
@@ -134,14 +181,21 @@ function renderLibraries() {
       c.type = "checkbox";
       c.checked = state.selected.has(k.scope_id);
       c.setAttribute("aria-label", "检索 " + k.value.title);
-      c.onchange = () =>
-        c.checked
-          ? state.selected.add(k.scope_id)
-          : state.selected.delete(k.scope_id);
+      c.onchange = () => {
+        searchLoad += 1;
+        $("hits").replaceChildren();
+        if (c.checked) state.selected.add(k.scope_id);
+        else state.selected.delete(k.scope_id);
+      };
       row.append(
         c,
         button(k.value.title, async () => {
+          viewVersion += 1;
           state.kb = k;
+          state.document = null;
+          $("library").hidden = true;
+          $("editor").close();
+          show("");
           state.cursor = null;
           $("document").hidden = true;
           renderLibraries();
@@ -154,11 +208,18 @@ function renderLibraries() {
   if (!state.kbs.length) $("libraries").textContent = "此空间尚无可见知识库。";
 }
 async function documents(nextPage = false) {
-  const data = await api("GET", scopePath() + "/documents", {
+  if (!state.kb) return;
+  const kb = state.kb;
+  const base = scopePath();
+  const version = viewVersion;
+  const load = ++documentLoad;
+  const current = () => version === viewVersion && load === documentLoad && state.kb?.scope_id === kb.scope_id;
+  const data = await forView(api("GET", base + "/documents", {
     query: nextPage && state.cursor ? { cursor: state.cursor } : {},
-  });
+  }), current);
+  if (!data) return;
   $("library").hidden = false;
-  $("library-title").textContent = state.kb.value.title;
+  $("library-title").textContent = kb.value.title;
   $("documents").replaceChildren(
     ...data.items.map((doc) => {
       const row = document.createElement("div");
@@ -178,10 +239,8 @@ async function documents(nextPage = false) {
   $("more-documents").hidden = !state.cursor;
   $("requests").replaceChildren();
   for (const request of data.requests.slice(0, 20)) {
-    const result = await api(
-      "GET",
-      `${scopePath()}/imports/${request.request_id}`,
-    );
+    const result = await forView(api("GET", `${base}/imports/${request.request_id}`), current);
+    if (!result) return;
     const line = document.createElement("p");
     line.className = "muted";
     line.textContent = `${request.document_id.slice(0, 10)} · ${result.state}${result.error ? " · " + result.error : ""}${result.current_revision ? " · 可用版本 " + result.current_revision : ""}`;
@@ -189,11 +248,13 @@ async function documents(nextPage = false) {
     if (result.state === "failed")
       $("requests").append(
         button("重新提交解析", async () => {
+          if (!current()) return;
           await api(
             "POST",
-            `${scopePath()}/imports/${request.request_id}/retry`,
+            `${base}/imports/${request.request_id}/retry`,
             { json: { idempotency_key: key() } },
           );
+          if (!current()) return;
           show("已创建新的处理请求");
           await documents();
         }),
@@ -201,6 +262,7 @@ async function documents(nextPage = false) {
   }
 }
 async function openDocument(doc) {
+  chunkLoad += 1;
   state.document = doc;
   $("document").hidden = false;
   $("document-title").textContent = doc.content.title;
@@ -213,9 +275,17 @@ async function openDocument(doc) {
   await chunks();
 }
 async function chunks() {
-  const data = await api("GET", chunksPath(), {
+  const path = chunksPath();
+  const version = viewVersion;
+  const documentId = state.document.ref.artifact_id;
+  const revision = $("revision").value;
+  const sameDocument = () => version === viewVersion && state.document?.ref.artifact_id === documentId && $("revision").value === revision;
+  const load = ++chunkLoad;
+  const current = () => sameDocument() && load === chunkLoad;
+  const data = await forView(api("GET", path, {
     query: { offset: state.offset },
-  });
+  }), current);
+  if (!data) return;
   if (!data.total) $("chunks").textContent = "此版本没有分块。";
   for (const item of data.items) {
     const box = document.createElement("div");
@@ -225,19 +295,21 @@ async function chunks() {
     box.append(
       label,
       button("展开正文", async () => {
-        const full = await api("GET", chunksPath() + "/" + item.chunk_id);
+        const full = await forView(api("GET", path + "/" + item.chunk_id), sameDocument);
+        if (!full) return;
         const pre = document.createElement("pre");
         pre.textContent = full.text;
         box.append(pre);
       }),
       button("编辑", async () => {
-        const full = await api("GET", chunksPath() + "/" + item.chunk_id);
+        const full = await forView(api("GET", path + "/" + item.chunk_id), sameDocument);
+        if (!full) return;
         state.chunk = full;
         $("chunk-text").value = full.text;
         $("editor").showModal();
       }),
       button("移除分块", async () => {
-        if (!(await ask("移除此分块并生成新版本？历史版本仍保留。"))) return;
+        if (!(await ask("移除此分块并生成新版本？历史版本仍保留。")) || !sameDocument()) return;
         await edit({ operation: "remove_chunk", chunk_id: item.chunk_id });
       }),
     );
@@ -249,12 +321,16 @@ async function chunks() {
 async function edit(content) {
   if (Number($("revision").value) !== state.document.ref.revision)
     throw new Error("历史版本不可直接编辑，请先刷新当前文档");
-  await api("PUT", artifactPath(), {
+  const target = artifactTarget();
+  const version = viewVersion;
+  await artifactApi("PUT", target, "", {
     json: { content },
     ifMatch: `"revision:${state.document.ref.revision}"`,
   });
+  if (version !== viewVersion || state.document?.ref.artifact_id !== target.id) return;
   show("已保存新版本");
-  const d = await api("GET", artifactPath());
+  const d = await forView(artifactApi("GET", target), () => version === viewVersion && state.document?.ref.artifact_id === target.id);
+  if (!d) return;
   await openDocument({
     ...state.document,
     ref: { ...state.document.ref, revision: d.revision },
@@ -283,6 +359,10 @@ $("spaces").onchange = () =>
   run(async () => {
     state.space = $("spaces").value;
     state.kb = null;
+    state.document = null;
+    $("editor").close();
+    $("hits").replaceChildren();
+    show("");
     await refresh();
   });
 $("set-default").onclick = () =>
@@ -364,18 +444,26 @@ $("settings").onclick = () =>
     if (!max) return;
     const overlap = await ask("重叠字符数", state.kb.value.chunking.overlap);
     if (overlap === null) return;
-    state.kb = await api("PATCH", scopePath() + "/settings", {
+    const kb = state.kb;
+    const version = viewVersion;
+    const updated = await forView(api("PATCH", scopePath() + "/settings", {
       json: {
-        version: state.kb.version,
+        version: kb.version,
         chunking: { max_chars: Number(max), overlap: Number(overlap) },
       },
-    });
+    }), () => version === viewVersion && state.kb?.scope_id === kb.scope_id);
+    if (!updated) return;
+    state.kb = updated;
     show("配置已保存。已有文档需显式重新解析。");
   });
 $("search").onsubmit = (e) => {
   e.preventDefault();
   run(async () => {
-    const result = await api("POST", "/retrieve", {
+    if (!state.space) throw new Error("请先选择可访问的空间");
+    const version = viewVersion;
+    const load = ++searchLoad;
+    const libraries = state.kbs;
+    const result = await forView(api("POST", "/retrieve", {
       json: {
         query: $("query").value,
         space_scope_id: state.space,
@@ -383,13 +471,14 @@ $("search").onsubmit = (e) => {
         mode: $("mode").value,
         limit: 10,
       },
-    });
+    }), () => version === viewVersion && load === searchLoad);
+    if (!result) return;
     $("hits").replaceChildren(
       ...result.hits.map((hit) => {
         const div = document.createElement("div");
         div.className = "hit";
         const label = document.createElement("small");
-        label.textContent = `${state.kbs.find((k) => k.scope_id === hit.scope_id)?.value.title || hit.scope_id} · ${hit.heading_path.join(" / ")} · v${hit.document.revision} · ${hit.chunk_id.slice(0, 10)}`;
+        label.textContent = `${libraries.find((k) => k.scope_id === hit.scope_id)?.value.title || hit.scope_id} · ${hit.heading_path.join(" / ")} · v${hit.document.revision} · ${hit.chunk_id.slice(0, 10)}`;
         const pre = document.createElement("pre");
         pre.textContent = hit.text;
         div.append(label, pre);
@@ -444,13 +533,16 @@ $("forget").onclick = () =>
   run(async () => {
     if (!(await ask("遗忘后将不再参与普通检索，原文与历史版本仍保留。继续？")))
       return;
-    const governance = await api("GET", artifactPath() + "/governance");
-    await api("POST", artifactPath() + "/forget", {
+    const target = artifactTarget();
+    const version = viewVersion;
+    const governance = await artifactApi("GET", target, "/governance");
+    await artifactApi("POST", target, "/forget", {
       json: {
-        revision: state.document.ref.revision,
+        revision: target.revision,
         state_version: governance.state_version,
       },
     });
+    if (version !== viewVersion || state.document?.ref.artifact_id !== target.id) return;
     show("文档已遗忘");
     $("document").hidden = true;
     await documents();

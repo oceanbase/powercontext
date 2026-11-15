@@ -392,3 +392,114 @@ def _gated_read(self, key, digest):
     return _original_read(self, key, digest)
 Snapshots.read = _gated_read
 """
+
+
+def test_conflict_status_survives_observation_failure_after_cursor_commit(tmp_path):
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING + LOST_CONFLICT_OBSERVATION)
+    environment = {"POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"), "KB_CONFLICT_GATE": str(tmp_path)}
+
+    async def scenario():
+        async with running_server(tmp_path, plugins, extra_env=environment) as client:
+
+            async def call(method, path, **kwargs):
+                response = await client.request(method, path, **kwargs)
+                assert response.is_success, response.text
+                return response.json()
+
+            space = await call("GET", P + "/me/default-space")
+            kb = await call(
+                "POST",
+                P + "/knowledge-bases",
+                json={"title": "Conflict recovery", "space_scope_id": space["space_scope_id"], "idempotency_key": "kb"},
+            )
+            base = P + "/scopes/" + kb["scope_id"]
+
+            async def settled(receipt):
+                return await wait_for(
+                    lambda: call("GET", base + "/imports/" + receipt["request_id"]),
+                    lambda result: result["state"] in {"completed", "failed"},
+                    log=tmp_path / "server.log",
+                )
+
+            first = await call(
+                "POST",
+                base + "/uploads",
+                params={"relative_path": "one.md", "idempotency_key": "one"},
+                content=b"ORIGINAL_GATE_TEXT",
+            )
+            assert (await settled(first))["state"] == "completed"
+            chunks = await call("GET", base + "/documents/" + first["document_id"] + "/revisions/1/chunks")
+            (tmp_path / "pause-embedding").touch()
+            command = {"idempotency_key": "reprocess"}
+            path = base + "/documents/" + first["document_id"] + "/reprocess"
+            pending = await call("POST", path, json=command)
+            try:
+                await wait_for(
+                    lambda: asyncio.sleep(0, (tmp_path / "waiting").exists()), bool, log=tmp_path / "server.log"
+                )
+                changed = await call(
+                    "PUT",
+                    f"/v1/scopes/{kb['scope_id']}/artifacts/document/{first['document_id']}",
+                    headers={"If-Match": '"revision:1"'},
+                    json={
+                        "content": {
+                            "operation": "edit_chunk",
+                            "chunk_id": chunks["items"][0]["chunk_id"],
+                            "text": "Human correction",
+                        }
+                    },
+                )
+                assert changed["revision"] == 2
+            finally:
+                (tmp_path / "release").touch()
+            await wait_for(
+                lambda: asyncio.sleep(0, (tmp_path / "observation-failed").exists()), bool, log=tmp_path / "server.log"
+            )
+            later = await call(
+                "POST",
+                base + "/uploads",
+                params={"relative_path": "later.md", "idempotency_key": "later"},
+                content=b"Later work completes",
+            )
+            assert (await settled(later))["state"] == "completed"
+            outcome = await settled(pending)
+            assert outcome["state"] == "failed" and "Document changed" in outcome["error"]
+            assert outcome["current_revision"] == 2
+            listing = await call("GET", base + "/documents")
+            listed = next(item for item in listing["requests"] if item["request_id"] == pending["request_id"])
+            assert listed["state"] == outcome["state"] and listed["error"] == outcome["error"]
+            assert await call("POST", path, json=command) == pending
+        async with running_server(tmp_path, plugins, extra_env=environment) as restarted:
+            response = await restarted.get(base + "/imports/" + pending["request_id"])
+            assert response.is_success, response.text
+            assert response.json()["state"] == "failed" and response.json()["current_revision"] == 2
+
+    asyncio.run(scenario())
+
+
+LOST_CONFLICT_OBSERVATION = """
+import asyncio, os
+from pathlib import Path
+from pc_knowledge_base.store import Store
+_previous_embed = _FixtureEmbedding.embed
+_previous_observation = Store.observation
+async def _pause_embedding(self, values, query=False):
+    gate = Path(os.environ['KB_CONFLICT_GATE'])
+    if (gate / 'pause-embedding').exists() and 'ORIGINAL_GATE_TEXT' in values:
+        (gate / 'pause-embedding').unlink()
+        (gate / 'waiting').touch()
+        async with asyncio.timeout(60):
+            while not (gate / 'release').exists():
+                await asyncio.sleep(0.02)
+    return await _previous_embed(self, values, query=query)
+async def _lose_conflict(self, scope, key, **fields):
+    if fields.get('error') == 'Document changed during processing':
+        (Path(os.environ['KB_CONFLICT_GATE']) / 'observation-failed').touch()
+        raise RuntimeError('injected failure after cursor commit')
+    return await _previous_observation(self, scope, key, **fields)
+_FixtureEmbedding.embed = _pause_embedding
+Store.observation = _lose_conflict
+"""

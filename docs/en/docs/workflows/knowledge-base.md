@@ -9,6 +9,10 @@ The `knowledge-base` plugin implements [RFC #2570](https://github.com/oceanbase/
 It owns the `document` Artifact family and supports SQLite, embedded SeekDB and OceanBase MySQL tenants.
 The plugin provides ingestion, parsing, immutable chunk results, hybrid retrieval and Dashboard pages.
 
+Requires framework RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659) and implementation
+[#2660](https://github.com/oceanbase/powercontext/pull/2660). Merge those dependencies before deploying this plugin;
+its PR contains no core/framework patches. Dashboard document operations use the framework `client.artifacts` bridge.
+
 ## Install and start
 
 Run from a repository checkout. These commands create a separate local instance, install optional model/OCR dependencies,
@@ -39,9 +43,10 @@ enabled operations for this plugin's own Artifact family, preserving caller iden
 
 For SeekDB, also install `--extra seekdb` and configure the core SeekDB database. For OceanBase, provision a MySQL user tenant
 and core database according to the Server deployment guide. The plugin uses the same backend/account but a separate database,
-`powercontext_plugin_<24-character digest of core database and plugin name>`. An administrator may pre-provision it if the
+`powercontext_plugin_knowledge_base`. An administrator may pre-provision it if the
 application account cannot create databases; the startup error reports the exact database. No core table columns are added.
-SQLite stores a separate plugin database in the framework-managed plugin storage directory.
+SQLite stores a separate plugin database in the framework-managed plugin storage directory. SQL namespaces depend on the plugin
+name, not the core database: isolate plugin databases/accounts for independent deployments sharing a SQL tenant.
 
 `POWERCONTEXT_KB_IMPORT_ROOTS` contains allowed local roots separated by the operating system's path separator. An empty value
 disables Server-directory imports, while browser uploads remain available. File size is limited to 16 MiB, images to 25 million
@@ -54,7 +59,9 @@ A space is a plugin-local organizational Scope, not a core parent Scope or an au
 belongs to one space. A personal space is initialized on first default resolution. Defaults are keyed by authenticated principal;
 changing a default requires its current version. Space visibility does not grant access to its knowledge bases.
 
-Let `P=/v1/plugins/knowledge-base/api`. The principal's default comes from `GET P/me/default-space`.
+Let `P=/v1/plugins/knowledge-base/api`. The principal's default comes from `GET P/me/default-space`. If access was revoked, this endpoint still returns the caller's
+saved ID/version with `available=false`, and `GET P/spaces` lists other visible spaces. Select a space explicitly and update the
+default with its saved version; implicit lists/searches fail until a visible default is selected, without automatic fallback.
 Create a knowledge base with an explicit space and a stable request key:
 
 ```json
@@ -94,7 +101,8 @@ Directory import returns one item per path. A deterministic file error, request 
 sets that item's `accepted` to false; conflicts and permission failures include `status` and `error`. Other files continue,
 and successful items retain their request/Source receipts. Infrastructure failures still fail the request.
 
-The local importer rejects traversal and file symlinks. OpenDAL manages immutable, content-addressed local snapshots; Workers
+The local importer rejects traversal and symlink replacement of the file, allowed root, or its ancestors; directory-descriptor
+traversal binds file access after validation. OpenDAL manages immutable, content-addressed local snapshots; Workers
 verify their digest before reading. Browser and directory collections have separate stable identities. Same collection/path means
 the same document, changed bytes create a new original Source, and renames create a new document. Unchanged bytes/configuration
 can reuse the published document without another parse. Reusing a request key with different bytes/explicit parameters is a conflict. A retry retains its initially pinned settings.

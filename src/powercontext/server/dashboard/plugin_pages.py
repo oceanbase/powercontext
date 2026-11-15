@@ -156,8 +156,7 @@ async def plugin_page(request: Request, name: str) -> HTMLResponse:
         "src": f"/dashboard/plugins/{name}/ui/{pages.entry}",
         "api": f"/dashboard/plugins/{name}/api",
         "sandbox": FRAME_SANDBOX,
-        "routes": [{"method": route.method, "path": route.path} for route in manifest.spec.api.routes]
-        + _artifact_routes(pages.artifact_actions),
+        "routes": [{"method": route.method, "path": route.path} for route in manifest.spec.api.routes],
     }
     return render(request, ctx)
 
@@ -178,64 +177,6 @@ async def plugin_forward(name: str, path: str, request: Request) -> Response:
     # A page in the sandboxed frame sends Origin: null and a cross-site fetch; neither is forwarded.
     if not _same_origin(request) or request.headers.get("origin") == "null":
         return Response(status_code=403)
-    loaded = _loaded(request, name)
-    if loaded is None:
+    if _loaded(request, name) is None:
         return Response(status_code=404)
-    if path.startswith("_artifacts/"):
-        return await _forward_artifact(request, loaded[1], path)
     return await call_plugin_api(name, path, request)
-
-
-def _artifact_routes(actions: tuple[str, ...]) -> list[dict[str, str]]:
-    routes = []
-    for action in actions:
-        method, suffix = {"read": ("GET", ""), "update": ("PUT", ""), "forget": ("POST", "/forget")}[action]
-        routes.append({"method": method, "path": "/_artifacts/{scope_id}/{artifact_id}" + suffix})
-        if action == "read":
-            routes.append({"method": "GET", "path": "/_artifacts/{scope_id}/{artifact_id}/governance"})
-    return routes
-
-
-async def _forward_artifact(request: Request, manifest: Any, path: str) -> Response:
-    import re
-
-    from powercontext.server.dashboard.api import DashboardAPI, segment
-
-    match = re.fullmatch(r"_artifacts/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)(/forget|/governance)?", path)
-    if match is None:
-        return Response(status_code=404)
-    scope_id, artifact_id, suffix = match.groups()
-    action = {
-        (None, "GET"): "read",
-        ("/governance", "GET"): "read",
-        (None, "PUT"): "update",
-        ("/forget", "POST"): "forget",
-    }.get((
-        suffix,
-        request.method,
-    ))
-    if action not in manifest.spec.pages.artifact_actions:
-        return Response(status_code=404)
-    # Re-enter the public API with this session's credentials. Core retains all authorization,
-    # family ownership, optimistic concurrency and evidence responsibilities.
-    api = DashboardAPI(request)
-    try:
-        body = bytearray()
-        async for block in request.stream():
-            body.extend(block)
-            if len(body) > 1024 * 1024:
-                return Response(status_code=413)
-        headers = {"Content-Type": "application/json"}
-        if "if-match" in request.headers:
-            headers["If-Match"] = request.headers["if-match"]
-        target = f"/v1/scopes/{segment(scope_id)}/artifacts/{segment(manifest.spec.family)}/{segment(artifact_id)}"
-        response = await api.client.request(
-            request.method, target + (suffix or ""), content=bytes(body), headers=headers
-        )
-        return Response(
-            response.content,
-            status_code=response.status_code,
-            headers={key: value for key, value in response.headers.items() if key in {"content-type", "etag"}},
-        )
-    finally:
-        await api.client.aclose()

@@ -64,9 +64,15 @@ class Snapshots:
         if not any(base == allowed or base.is_relative_to(allowed) for allowed in self.allowed_roots):
             raise ContentError("Directory is outside the configured import roots")  # noqa: TRY003
         path = relative_path(path)
-        # Open each component without following links, including races during import.
-        fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+        # Anchor at the filesystem root, then open every directory without following links.
+        # Opening `base` as one pathname would resolve it again after the containment check.
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fd = os.open(base.anchor, flags)
         try:
+            for part in base.parts[1:]:
+                next_fd = os.open(part, flags, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
             parts = path.split("/")
             for part in parts[:-1]:
                 next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)

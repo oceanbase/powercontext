@@ -26,7 +26,7 @@ import asyncio
 import hashlib
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Literal, cast
@@ -88,7 +88,6 @@ class UserChange:
     inputs: tuple[str, ...] = ()
     # The caller's (revision, state_version) per Artifact, enforced against the rows the transaction writes.
     expected: dict[str, tuple[int, int | None]] = field(default_factory=dict)
-    submitted_content: dict[str, JsonValue] | None = None
 
 
 _AGREED = {
@@ -420,7 +419,6 @@ class PluginArtifactTransaction(_Reads):
         source_refs: Sequence[SourceRef] = (),
         artifact_refs: Sequence[ArtifactRef] = (),
         expected_revision: int | None = None,
-        expected_state_version: int | None = None,
     ) -> ArtifactSnapshot:
         self._admit(content, source_refs)
         owner = self._owner
@@ -429,10 +427,6 @@ class PluginArtifactTransaction(_Reads):
         body = owner.body(content)
         current = await self._record(self._connection, artifact_id)
         expected_revision = self._put_revision(artifact_id, current, expected_revision)
-        if expected_state_version is not None and (
-            current is None or current.state.governance_generation != expected_state_version
-        ):
-            raise owner.service.errors.conflict("the Artifact governance changed after it was read")  # noqa: TRY003
         if change is not None:
             if (change.operation == "create") != (current is None):
                 raise owner.service.errors.conflict(
@@ -461,7 +455,6 @@ class PluginArtifactTransaction(_Reads):
             expected_revision=None
             if current is None
             else (current.artifact.revision if expected_revision is None else expected_revision),
-            expected_state_version=expected_state_version,
             lineage=ArtifactLineage(sources=tuple(source_refs), artifacts=tuple(artifact_refs)),
         )
         direct = None
@@ -471,7 +464,7 @@ class PluginArtifactTransaction(_Reads):
                 self._connection,
                 owner,
                 artifact_id,
-                content if change.submitted_content is None else change.submitted_content,
+                content,
                 "artifact_create" if current is None else "artifact_replace",
                 1 if current is None else current.artifact.revision + 1,
             )
@@ -750,15 +743,10 @@ class PluginArtifactWriter(_Reads):
         async with asyncio.timeout(self._timeout), self.database.transaction() as connection:
             await self._begin(connection)
             transaction = PluginArtifactTransaction(self, connection)
-            original_context = self.context
-            if original_context is not None and original_context.access is not None:
-                # Source-lineage authorization must share this write transaction's audit connection.
-                self.context = replace(original_context, access=original_context.access.with_connection(connection))
             try:
                 yield transaction
             finally:
                 transaction.closed = True
-                self.context = original_context
             if self.change is not None and transaction.agreed != 1:
                 raise PluginContractError(f"{self.change.operation} must complete its agreed write")  # noqa: TRY003
             await self._complete(connection)

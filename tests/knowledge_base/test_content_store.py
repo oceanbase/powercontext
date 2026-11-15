@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "knowledge-base"))
-from pc_knowledge_base.content import ContentError, parse, relative_path
+from pc_knowledge_base.content import ContentError, Snapshots, parse, relative_path
 from pc_knowledge_base.store import Store
 
 from powercontext.builtin.plugins.storage import SQLitePluginStorage
@@ -41,6 +42,37 @@ def test_markdown_blocks_keep_headings_and_cover_long_text():
         relative_path("../secret.md")
     with pytest.raises(ContentError):
         relative_path("/absolute.md")
+
+
+@pytest.mark.parametrize("replaced", ["allowed", "project"])
+def test_directory_replacement_cannot_redirect_import_outside_allowed_root(tmp_path, monkeypatch, replaced):
+    pytest.importorskip("opendal")
+    allowed = tmp_path / "allowed"
+    project = allowed / "project"
+    project.mkdir(parents=True)
+    (project / "file.md").write_bytes(b"Allowed content")
+    outside = tmp_path / "outside"
+    (outside / "project").mkdir(parents=True)
+    (outside / "file.md").write_bytes(b"Outside content")
+    (outside / "project" / "file.md").write_bytes(b"Outside content")
+    snapshots = Snapshots(tmp_path / "snapshots", [allowed])
+    original_open = os.open
+    swapped = False
+    target = allowed if replaced == "allowed" else project
+
+    def swap_before_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        # Interleave a real directory replacement after validation but before traversal.
+        if not swapped and (str(path) == str(project) or str(path) == replaced):
+            target.rename(tmp_path / "saved")
+            target.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", swap_before_open)
+    with pytest.raises(OSError):
+        snapshots.local(str(project), "file.md")
+    assert swapped
 
 
 def test_markdown_html_tables_keep_content_and_source_lines():

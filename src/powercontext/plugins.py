@@ -199,8 +199,6 @@ class PluginPages(BaseModel):
     # Navigation title by language; English is required as the fallback.
     title: dict[str, Annotated[str, Field(min_length=1, max_length=64)]]
 
-    artifact_actions: tuple[Literal["read", "update", "forget"], ...] = ()
-
     @field_validator("directory")
     @classmethod
     def inside_plugin(cls, value: str) -> str:
@@ -434,24 +432,15 @@ class PluginContext:
         return self._request_host().caller()
 
     async def require(
-        self,
-        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
-        scope_id: str | None = None,
-        *,
-        artifact_id: str | None = None,
+        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
     ) -> None:
-        """Authorize the caller; Artifact checks are limited to this plugin's family."""
-        await self._request_host().require(action, scope_id, artifact_id=artifact_id)
+        await self._request_host().require(action, scope_id)
 
     async def allowed(
-        self,
-        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
-        scope_id: str | None = None,
-        *,
-        artifact_id: str | None = None,
+        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
     ) -> bool:
         try:
-            await self.require(action, scope_id, artifact_id=artifact_id)
+            await self.require(action, scope_id)
         except AccessDenied:
             return False
         return True
@@ -529,7 +518,6 @@ class ArtifactTransaction(ArtifactReads, Protocol):
         source_refs: Sequence[SourceRef] = (),
         artifact_refs: Sequence[ArtifactRef] = (),
         expected_revision: int | None = None,
-        expected_state_version: int | None = None,
     ) -> ArtifactSnapshot: ...
 
     async def revert(self, artifact_id: str, /, *, to_revision: int) -> ArtifactChange: ...

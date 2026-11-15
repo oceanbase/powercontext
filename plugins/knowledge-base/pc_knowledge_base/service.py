@@ -62,7 +62,7 @@ class KnowledgeBase:
                 return row
         fail("Space not found", 404)
 
-    async def default(self):
+    async def default(self, *, require_visible=True):
         principal = self.ctx.caller.principal_id
         current = await self.store.one(defaults, principal_id=principal)
         if current is None:
@@ -86,11 +86,19 @@ class KnowledgeBase:
                 {"principal_id": principal},
             )
         # An inaccessible selected space is an error, never a fallback to another search universe.
-        await self.visible_space(current["space_scope_id"])
+        if require_visible:
+            await self.visible_space(current["space_scope_id"])
         return current
 
     async def default_get(self, request):
-        return await self.default()
+        current = await self.default(require_visible=False)
+        try:
+            await self.visible_space(current["space_scope_id"])
+        except ApiError as error:
+            if error.status != 404:
+                raise
+            return {**current, "available": False}
+        return {**current, "available": True}
 
     async def default_set(self, request):
         await self.visible_space(request.body.space_scope_id)
@@ -102,7 +110,7 @@ class KnowledgeBase:
         return await self.default()
 
     async def spaces_list(self, request):
-        await self.default()
+        await self.default(require_visible=False)
         result = []
         for row in await self.store.rows(spaces):
             try:
@@ -399,11 +407,22 @@ class KnowledgeBase:
         document = state["pinned"]["document_id"]
         published = await self.ctx.reads(scope).get(document, revision=state["pinned"]["base_revision"] + 1)
         completed = published is not None and published.content.get("applied_request_id") == key
+        current = await self.ctx.reads(scope).get(document)
+        # Publication may have committed between the history read and the head read.
+        completed = completed or (current is not None and current.content.get("applied_request_id") == key)
+        conflicted = (
+            not completed
+            and state["state"] in {"pending", "processing"}
+            and (
+                (0 if current is None else current.ref.revision) != state["pinned"]["base_revision"]
+                or (current is not None and current.lifecycle_state != "active")
+            )
+        )
         return {
             "request_id": key,
             "document_id": document,
-            "state": "completed" if completed else state["state"],
-            "error": None if completed else state.get("error"),
+            "state": "completed" if completed else "failed" if conflicted else state["state"],
+            "error": None if completed else "Document changed during processing" if conflicted else state.get("error"),
         }
 
     async def status(self, request):
@@ -512,7 +531,6 @@ class KnowledgeBase:
                     content=manifest,
                     source_refs=[source.ref],
                     expected_revision=pinned["base_revision"],
-                    expected_state_version=None if current is None else current.governance_generation,
                 )
         for key in skipped:
             await self.store.observation(
@@ -562,7 +580,6 @@ class KnowledgeBase:
                 # processing evidence; prior edit evidence remains in immutable Artifact history.
                 source_refs=[ref for ref in current.lineage.sources if ref.source_type == "knowledge-base-process"],
                 expected_revision=request.expected_revision,
-                expected_state_version=current.governance_generation,
             )
 
     async def forget_artifact(self, request, writer):

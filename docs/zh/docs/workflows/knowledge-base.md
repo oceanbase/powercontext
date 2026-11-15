@@ -8,6 +8,10 @@ description: 导入 Markdown 和图片，维护文档版本，并跨知识库 Sc
 `knowledge-base` 插件实现 [RFC #2570](https://github.com/oceanbase/powercontext/pull/2570)，拥有 `document` Artifact family，
 支持 SQLite、嵌入式 SeekDB 和 OceanBase MySQL 租户，提供导入、解析、不可变 chunk 结果、混合检索和 Dashboard 页面。
 
+依赖框架 RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659) 和实现
+[#2660](https://github.com/oceanbase/powercontext/pull/2660)，部署前先合入这些依赖；本插件 PR 不携带 core／框架补丁。
+Dashboard 文档操作使用框架 `client.artifacts` 桥接。
+
 ## 安装与启动
 
 从仓库检出目录执行。以下命令创建独立本地实例、安装可选模型／OCR 依赖，并仅监听本机。
@@ -35,7 +39,7 @@ uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 重放已经接受的请求时，保留原先固定的版本基准和回执。
 
 使用 SeekDB 时另安装 `--extra seekdb` 并配置核心 SeekDB 数据库。OceanBase 按 Server 部署指南准备 MySQL 用户租户与核心数据库。
-插件使用相同后端／账号的独立数据库，名称为 `powercontext_plugin_<核心数据库名和插件名的 24 位摘要>`。
+插件使用相同后端／账号的独立数据库，名称为 `powercontext_plugin_knowledge_base`。
 账号不能创建数据库时，管理员可预建，启动错误会给出准确名称。核心表不增加字段。
 SQLite 使用框架管理的插件存储目录中的独立数据库文件。
 
@@ -167,3 +171,8 @@ uv run --locked --extra knowledge-base pytest tests/knowledge_base tests/e2e/tes
 设置 `POWERCONTEXT_TEST_KB_MODELS` 为已准备模型的本地数据目录，可额外运行真实向量模型验收。
 设置 `POWERCONTEXT_TEST_KB_SQL` 为隔离的 OceanBase／SeekDB 配置以验证原生投影；
 设置 `POWERCONTEXT_TEST_KB_SERVER_DATABASE` 为隔离核心数据库配置以验证完整 Server／Worker 流程。
+
+默认空间失去访问权限后，`GET P/me/default-space` 仍返回自己的已保存 ID／version 和 `available=false`，
+`GET P/spaces` 仍能列出其他可见空间。显式选择空间并用保存的 version 更新默认值；隐式列表／检索不会自动换库。
+本地目录导入通过目录描述符逐级打开路径，拒绝校验后根目录、祖先或文件被替换为符号链接。
+SQL 插件库按插件名命名，不按 core 库名隔离；同一 SQL tenant 内独立部署需隔离插件库／账号。

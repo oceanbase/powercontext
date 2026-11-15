@@ -47,7 +47,6 @@ limitations under the License.
       json: options.json,
       body: options.body,
       contentType: options.contentType,
-      ifMatch: options.ifMatch,
     };
     return new Promise((resolve, reject) => {
       pending.set(id, reply => {

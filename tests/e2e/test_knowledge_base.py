@@ -27,6 +27,8 @@ import pytest
 
 from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, running_server, wait_for
 
+pytest.importorskip("opendal")
+
 P = "/v1/plugins/knowledge-base/api"
 PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "knowledge-base"
 
@@ -37,7 +39,6 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
         pytest.skip("requires downloaded local embedding model")
     if real_model:
         pytest.importorskip("fastembed")
-    pytest.importorskip("opendal")
     directory = tmp_path / "plugins"
     shutil.copytree(PLUGIN, directory / "knowledge-base")
     if not real_model:
@@ -171,7 +172,7 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             async with httpx.AsyncClient(
                 base_url=client.base_url, cookies={"powercontext_dashboard_token": ADMIN_AUTHORIZATION_VALUE}
             ) as browser:
-                bridge = f"/dashboard/plugins/knowledge-base/api/_artifacts/{scope}/{document}"
+                bridge = f"/dashboard/plugins/knowledge-base/artifacts/{scope}/{document}"
                 assert (await browser.get(bridge, headers={"Sec-Fetch-Site": "same-origin"})).status_code == 200
                 assert (await browser.get(bridge, headers={"Origin": "null"})).status_code == 403
                 denied = await browser.put(

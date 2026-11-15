@@ -153,8 +153,6 @@ Server 在一个独立的子进程中导入 `plugin.py` 并检查声明，导入
 - 调用模型、解析文件等慢操作放在事务之外，事务里只做写入。
 - `tx.put(artifact_id, content=..., source_refs=[...])` 写一个新版本，`source_refs` 记录出处。内容与当前版本相同时不产生新版本，
   所以重复交付不会写出重复的版本。`writer.stable_id(...)` 按输入生成稳定的 ID，便于同一条 Source 总是写到同一个 Artifact。
-- 写入依赖生命周期状态时，在 `expected_revision` 之外，把读取快照的 `governance_generation` 作为
-  `tx.put(..., expected_state_version=...)` 传入。并发治理变更会拒绝发布，包括不改变内容 revision 的 forget。
 - 还可以用 `tx.set_lifecycle`、`tx.merge`、`tx.revert`、`tx.set_tags` 等方法，以及 `writer.get`、`writer.list`、
   `writer.by_source` 读取当前状态。
   `tx.revert` 和 `tx.set_lifecycle` 返回 `ArtifactChange`：`result.artifact` 是目标快照，
@@ -342,8 +340,6 @@ plugin = ArtifactPlugin(
   - `authenticated`：只要求已登录；
   - `scope.read` / `scope.contribute`：要求调用者对 `scope_param` 指定的路径参数中的 Scope 具备该权限。
 - 处理函数里用 `ctx.require(action, scope_id)` 检查其他权限，不具备时接口返回 403；`ctx.allowed(...)` 只返回真假。
-  接受异步替换已有 Artifact 的请求前，使用 `ctx.require("artifact.write", scope_id, artifact_id=...)` 校验当前插件
-  family 下的目标。后台执行身份不能代替提交者的修改权限；`ctx.allowed` 也支持相同的目标参数。
 - 读写核心数据：`ctx.reads(scope_id)` 按调用者权限读取；`ctx.writer(scope_id)` 和 `ctx.sources.submit(...)` 只能用于本次
   请求中已经确认 `scope.contribute` 的 Scope（路由声明了该权限，或处理函数先调用了 `ctx.require`）。修改已有 Artifact
   （包括标签、handle 和生命周期）还需要调用者对该 Artifact 有 `artifact.write` 权限，与通用接口相同；没有权限时接口返回 403。
