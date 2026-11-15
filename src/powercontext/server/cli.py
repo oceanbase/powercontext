@@ -658,7 +658,7 @@ async def _topic_memory_reindex(
         opened = (
             SQLiteProfile.open_readonly(database, load_vector_extension=True)
             if dry_run
-            else SQLiteProfile.open(database, tables=(), load_vector_extension=True)
+            else SQLiteProfile.open_maintenance(database, load_vector_extension=True)
         )
         backend = SQLiteTopicMemoryReindexBackend(embedding_profile)
     elif isinstance(database, OceanBaseConfig):
@@ -705,8 +705,37 @@ async def _topic_memory_reindex(
                 rebuild_atomic_memory=rebuild_atomic_memory,
                 progress=progress,
             )
+        if not dry_run and report.ready and report.activated and isinstance(profile, SQLiteProfile):
+            # A managed profile switch changes every profile-bound revision
+            # checksum. Rebind the recorded release evidence before admission so
+            # a repeated apply and the next Server startup plan both accept the
+            # storage this command just activated.
+            _rebind_sqlite_profile_evidence(settings)
+            await _require_reindexed_server_admission(profile)
     typer.echo(report.model_dump_json())
     return report.ready
+
+
+def _rebind_sqlite_profile_evidence(settings: ServerSettings) -> None:
+    """Record a completed managed profile switch in the maintenance journal."""
+
+    from powercontext.builtin.persistence.migrations.deployment import deployment_runner
+    from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+
+    runner = deployment_runner(settings)
+    if isinstance(runner, SQLiteMigrationRunner) and runner.evidence_path.exists():
+        runner.record_vector_profile_transition()
+
+
+async def _require_reindexed_server_admission(profile: SQLiteProfile) -> None:
+    """Prove that a restarted Server admits the storage this command activated."""
+
+    from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
+
+    async with profile.database.transaction() as connection:
+        managed = await connection.run_sync(lambda sync: "pc_schema_revision" in inspect(sync).get_table_names())
+        if managed:
+            await connection.run_sync(lambda sync: check_server_schema(sync, _startup=True))
 
 
 @app.command("access-ownership-migrate")

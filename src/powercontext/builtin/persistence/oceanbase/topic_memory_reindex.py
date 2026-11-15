@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryStorageInvariantError,
 )
 from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
+    _CHUNK_VECTOR_INDEX,
     _TOPIC_VECTOR_INDEX,
     OceanBaseTopicMemoryVectorIndex,
 )
@@ -82,6 +83,10 @@ _PREVIOUS_TABLES = (
 _VECTOR_TYPE_SQL = text(
     "SELECT data_type FROM information_schema.columns "
     "WHERE table_schema=DATABASE() AND table_name=:table_name AND column_name='embedding'"
+)
+_INDEX_EXISTS_SQL = text(
+    "SELECT COUNT(*) FROM information_schema.statistics "
+    "WHERE table_schema = DATABASE() AND table_name = :table_name AND index_name = :index_name"
 )
 
 # MySQL-family CHECK names are schema-wide. Staging uses fixed temporary names;
@@ -170,6 +175,13 @@ class OceanBaseTopicMemoryReindexBackend:
             self.topic_table.c.embedding,
             params="distance=l2,type=hnsw",
         )
+        # The registered managed chunk table carries this VECTOR KEY. A staged
+        # chunk table without it would lose the registered index at activation.
+        self._chunk_index = VectorIndex(
+            _CHUNK_VECTOR_INDEX,
+            self.chunk_table.c.embedding,
+            params="distance=l2,type=hnsw",
+        )
 
     def _vector_table(self, metadata: MetaData, name: str, *, chunk: bool, constraint: str) -> Table:
         columns: list[Any] = [
@@ -206,12 +218,27 @@ class OceanBaseTopicMemoryReindexBackend:
         )
         if fingerprint == self.fingerprint:
             await self._require_vector_types(connection, self._active.tables)
+            await self._require_registered_indexes(
+                connection,
+                (
+                    (self._active.topic_table.name, _TOPIC_VECTOR_INDEX),
+                    (self._active.chunk_table.name, _CHUNK_VECTOR_INDEX),
+                ),
+            )
+            await self._require_managed_layout(connection)
 
     async def validate_staging(self, connection: AsyncConnection, /) -> None:
         if await staged_fingerprint(connection, self) != self.fingerprint:
             raise TopicMemoryStorageInvariantError("reindex-staging-shape", 1)
         await validate_staging_vectors(connection, self)
         await self._require_vector_types(connection, (self.topic_table, self.chunk_table))
+        await self._require_registered_indexes(
+            connection,
+            (
+                (self.topic_table.name, _TOPIC_VECTOR_INDEX),
+                (self.chunk_table.name, _CHUNK_VECTOR_INDEX),
+            ),
+        )
         if self.storage_profile_table.name in await _table_names(connection):
             await self._require_storage_profile(connection)
 
@@ -245,6 +272,7 @@ class OceanBaseTopicMemoryReindexBackend:
         await _create_table(connection, self.topic_table)
         await _create_table(connection, self.chunk_table)
         await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
+        await connection.run_sync(lambda sync: self._chunk_index.create(sync, checkfirst=True))
         if update_storage_profile:
             await _create_table(connection, self.storage_profile_table)
             await connection.execute(
@@ -420,6 +448,31 @@ class OceanBaseTopicMemoryReindexBackend:
             actual = await connection.scalar(_VECTOR_TYPE_SQL, {"table_name": table.name})
             if actual is None or str(actual).replace(" ", "").upper() != expected:
                 raise TopicMemoryStorageInvariantError("reindex-vector-schema", (table.name, actual))
+
+    @staticmethod
+    async def _require_registered_indexes(
+        connection: AsyncConnection,
+        expected: Sequence[tuple[str, str]],
+    ) -> None:
+        """Require every registered HNSW index on the generation being activated."""
+
+        for table_name, index_name in expected:
+            count = await connection.scalar(
+                _INDEX_EXISTS_SQL,
+                {"table_name": table_name, "index_name": index_name},
+            )
+            if not count:
+                raise TopicMemoryStorageInvariantError("reindex-vector-schema", (table_name, index_name))
+
+    @staticmethod
+    async def _require_managed_layout(connection: AsyncConnection) -> None:
+        """Validate the complete registered layout before retiring the old generation."""
+
+        if "pc_schema_revision" not in await _table_names(connection):
+            return
+        from powercontext.builtin.persistence.migrations.server_readiness import check_server_layout
+
+        await connection.run_sync(lambda sync: check_server_layout(sync))
 
     @staticmethod
     async def _read_shape_declaration(connection: AsyncConnection, table: Table) -> tuple[str, str | None] | None:

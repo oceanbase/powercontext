@@ -206,6 +206,7 @@ def test_prepare_resumes_matching_partial_ddl_without_touching_active_tables(
 
         monkeypatch.setattr(reindex_module, "_create_table", create_table)
         backend._topic_index = cast(VectorIndex, _Index(connection))
+        backend._chunk_index = cast(VectorIndex, _Index(connection))
 
         await backend.prepare(_async(connection), update_storage_profile=True)
 
@@ -215,7 +216,7 @@ def test_prepare_resumes_matching_partial_ddl_without_touching_active_tables(
             backend.chunk_table.name,
             backend.storage_profile_table.name,
         ]
-        assert connection.index_checks == [True]
+        assert connection.index_checks == [True, True]
         assert connection.storage_row == backend.profile.model_dump_json()
         touched = " ".join(str(statement) for statement, _ in connection.executed)
         assert backend._active.topic_table.name not in touched
@@ -266,6 +267,7 @@ def test_prepare_recreates_partial_tables_without_shape_declaration(
 
         monkeypatch.setattr(reindex_module, "_create_table", create_table)
         backend._topic_index = cast(VectorIndex, _Index(connection))
+        backend._chunk_index = cast(VectorIndex, _Index(connection))
 
         await backend.prepare(_async(connection), update_storage_profile=False)
 
@@ -275,7 +277,7 @@ def test_prepare_recreates_partial_tables_without_shape_declaration(
         ]
         assert created == [backend.shape_table.name, backend.topic_table.name, backend.chunk_table.name]
         assert connection.shape_rows[backend.shape_table.name] == ("hybrid", backend.fingerprint)
-        assert connection.index_checks == [True]
+        assert connection.index_checks == [True, True]
 
     asyncio.run(scenario())
 
@@ -387,9 +389,16 @@ def test_validate_staging_checks_declaration_shared_vectors_and_dimensions(
 
         fingerprint.assert_awaited_once_with(connection, backend)
         validate.assert_awaited_once_with(connection, backend)
-        assert [parameters["table_name"] for parameters in connection.scalar_parameters] == [
+        reads = connection.scalar_parameters
+        assert [parameters["table_name"] for parameters in reads[:2]] == [
             backend.topic_table.name,
             backend.chunk_table.name,
+        ]
+        # Declaring the target space is not enough: the staged generation must
+        # already carry the registered HNSW indexes before activation.
+        assert [parameters["index_name"] for parameters in reads[2:]] == [
+            "ix_pc_topic_memory_vector_topics_embedding",
+            "ix_pc_topic_memory_vector_chunks_embedding",
         ]
 
     asyncio.run(scenario())

@@ -17,10 +17,12 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.topic_memory import TopicMemoryStorageInvariantError
 from powercontext.builtin.persistence.oceanbase import topic_memory_reindex as reindex_module
 from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
 
@@ -126,5 +128,41 @@ def test_oceanbase_cleanup_restores_checks_before_dropping_recovery_generation(m
         assert release_old < restore_shape < drop_recovery
         assert any("ck_pc_topic_memory_retrieval_shape_profile" in sql for sql in statements)
         assert any("ck_pc_server_storage_profile_singleton" in sql for sql in statements)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "missing_index",
+    ["ix_pc_topic_memory_vector_topics_embedding", "ix_pc_topic_memory_vector_chunks_embedding"],
+)
+def test_oceanbase_activation_requires_every_registered_vector_index(monkeypatch, missing_index: str) -> None:
+    """Reflect the observed native layout failure without a real OceanBase server."""
+
+    async def scenario() -> None:
+        backend = OceanBaseTopicMemoryReindexBackend(_profile())
+        monkeypatch.setattr(reindex_module, "_table_names", AsyncMock(return_value=set()))
+        monkeypatch.setattr(reindex_module, "validate_current_topic_vectors", AsyncMock())
+        monkeypatch.setattr(reindex_module, "validate_staging_vectors", AsyncMock())
+        monkeypatch.setattr(reindex_module, "staged_fingerprint", AsyncMock(return_value=backend.fingerprint))
+        connection = MagicMock()
+
+        async def run_sync(callback):
+            return callback(None)
+
+        async def scalar(statement, parameters=None):
+            parameters = parameters or {}
+            if "information_schema.columns" in str(statement):
+                return f"VECTOR({backend.profile.dimension})"
+            return 0 if parameters.get("index_name") == missing_index else 1
+
+        connection.run_sync = AsyncMock(side_effect=run_sync)
+        connection.scalar = AsyncMock(side_effect=scalar)
+
+        with pytest.raises(TopicMemoryStorageInvariantError, match="reindex-vector-schema"):
+            await backend.validate_active(connection, backend.fingerprint)
+
+        with pytest.raises(TopicMemoryStorageInvariantError, match="reindex-vector-schema"):
+            await backend.validate_staging(connection)
 
     asyncio.run(scenario())

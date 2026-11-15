@@ -68,6 +68,7 @@ class _MaintenanceEvidence(BaseModel):
     retained_objects: tuple[str, ...] = ()
     backup_history: list[dict[str, Any]] = []
     compatibility_checksum: str | None = None
+    superseded_release_checksums: list[dict[str, str]] = []
 
     @model_validator(mode="after")
     def consistent_recovery_point(self) -> Self:
@@ -620,6 +621,31 @@ class SQLiteMigrationRunner:
 
     def _evidence(self) -> dict[str, Any] | None:
         return read_maintenance_evidence(self.evidence_path, self._database_id())
+
+    def record_vector_profile_transition(self) -> bool:
+        """Rebind recorded release evidence to a completed managed profile switch.
+
+        Revision checksums cover the configured EmbeddingProfile, so an accepted
+        profile transition legitimately changes every recorded checksum. Keeping
+        the old map as superseded evidence and adopting this bundle's map keeps
+        the historical record while letting the next startup plan admit the
+        database it just accepted. Returns whether the journal changed.
+        """
+
+        evidence = self._evidence()
+        if evidence is None:
+            return False
+        if evidence["state"] != "complete":
+            raise MigrationError("recovery_required", "Complete the recorded full Server maintenance first.")
+        recorded = dict(evidence["release_checksums"])
+        if recorded == dict(self.bundle.checksums):
+            return False
+        superseded = [*evidence.get("superseded_release_checksums", []), recorded]
+        evidence["superseded_release_checksums"] = superseded
+        evidence["release_checksums"] = dict(self.bundle.checksums)
+        _MaintenanceEvidence.model_validate(evidence)
+        self._write_evidence(evidence)
+        return True
 
     def _write_evidence(self, evidence: dict[str, Any]) -> None:
         directory = self.evidence_path.parent

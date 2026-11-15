@@ -517,10 +517,25 @@ async def _inspect_managed_storage(
     backend: TopicMemoryReindexBackend,
     declared: EmbeddingProfile | None,
     *,
+    managed_storage: bool,
     activated: bool,
     rebuild_requested: bool,
 ) -> tuple[bool, bool, tuple[str, ...]]:
     if declared is None:
+        if managed_storage:
+            # A Server-managed database without a shared vector declaration was
+            # initialized FTS-only. Activating vectors there would leave the
+            # registered Atomic projections, triggers and declaration missing,
+            # so the next startup plan could only fail. Refuse before writing
+            # anything rather than exit successfully with unusable storage.
+            return (
+                False,
+                False,
+                (
+                    "managed Server storage has no shared embedding declaration; "
+                    "initialize the configured profile with full Server maintenance first",
+                ),
+            )
         errors = ("explicit Atomic Memory rebuild requires managed Server storage",) if rebuild_requested else ()
         return False, False, errors
     update_storage_profile = declared != backend.profile
@@ -576,6 +591,7 @@ async def _inspect(
             connection,
             backend,
             declared,
+            managed_storage="pc_schema_revision" in names,
             activated=activated,
             rebuild_requested=rebuild_atomic_memory,
         )
