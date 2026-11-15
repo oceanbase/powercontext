@@ -544,7 +544,7 @@ class ArtifactTransaction(ArtifactReads):
 
 | 操作 | 语义 |
 | --- | --- |
-| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | 不存在则新建 revision 1；已存在则按当前 head 追加 revision。给出 `expected_revision` 时，当前 revision 不一致即冲突；不给出时，使用本次调用在事务外读到的 revision（见 3.5），没有读过则不校验。内容与当前 revision 相同时不写入，返回当前快照，本次传入的 `source_refs` 和 `artifact_refs` 不会被记录（见下方写入约束）。用户修改中的 `put` 例外，见 4.1 |
+| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | 不存在则新建 revision 1；已存在则按当前 head 追加 revision。给出 `expected_revision` 时，当前 revision 不一致即冲突；不给出时，使用本次调用在事务外读到的 revision（见 3.5），没有读过则不校验。事务外读过的 Artifact 还会按读到的治理状态版本校验（见 3.5）。内容与当前 revision 相同时不写入，返回当前快照，本次传入的 `source_refs` 和 `artifact_refs` 不会被记录（见下方写入约束）。用户修改中的 `put` 例外，见 4.1 |
 | `revert(artifact_id, *, to_revision)` | 以历史 revision 的内容追加新 revision，记录 `restored_from_revision`；目标已被遗忘或被合并冻结时一并恢复。返回 `ArtifactChange`：目标的新快照，以及一并恢复和退役的其他 Artifact 的精确引用 |
 | `set_lifecycle(artifact_id, state, *, replacement_artifact_id=None)` | `deprecated` 为遗忘，`active` 为恢复，`retired` 不可逆。恢复走共享恢复流程：记录一个内容相同的新 revision，被合并冻结的输入会撤销冻结它的合并，按组恢复。遗忘和退役不追加 revision。返回值同 `revert`，插件据此同步更新自有索引中受级联影响的条目 |
 | `merge(inputs, *, into, content, source_refs=(), artifact_refs=())` | 沿用公共合并方法（[RFC #1859](1859_artifact_merge.md)）：以 `inputs` 的当前 revision 为输入，新建 `into`，记录合并关系并冻结输入。`into` 必须是新 ID；同一组输入在撤销后再次合并时，插件应把输入 revision 纳入 `stable_id`，避免与已退役的结果撞号 |
@@ -617,6 +617,9 @@ class ArtifactReads(Protocol):
 - **事务外读取后写入**：插件在事务外读到某个 Artifact，又在写事务块中对它 `put` 而没有给出 `expected_revision` 时，core
   以事务外读到的 revision 作为期望值。读取后该 Artifact 被用户修改，写入即冲突，本次调用回滚后重新调度。这与内置
   Atomic Memory 在提交前核对所读记忆是否变化的做法一致，用户修改不会被插件基于旧内容的写入静默覆盖。
+  遗忘、恢复和合并不一定改变 revision，所以 core 同时核对事务外读到的治理状态版本（`governance_generation`）：读取后该
+  Artifact 被遗忘、恢复或合并，写入同样冲突。这项校验由 core 自动完成，插件不需要传入参数；给出 `expected_revision`
+  时也照常进行。改 tags 不改变治理状态版本，不会引起冲突。
 - **插件自有存储**：插件的索引和其他存储（core 分配的专属存储，或插件自己连接的任何数据库、对象存储、向量库）不在 core
   的事务中。插件用自己的客户端写入并提交自有存储，core 不参与，也不保证两者一致。core 的事务是核心数据的唯一提交点：
   自有存储中的数据只有被 core 中已提交的 revision 引用后才算生效。这不需要两阶段提交，按下面的做法即可保持一致：

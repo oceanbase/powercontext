@@ -450,7 +450,7 @@ in RFC #2549). Besides the RFC #2549 context (dedicated storage, models, logger)
 
 | Capability | Description |
 | --- | --- |
-| `ctx.require(action, scope_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), or `server.admin`, and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations |
+| `ctx.require(action, scope_id=None, *, artifact_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), `server.admin`, or `artifact.write` on an Artifact of this plugin's family (with `scope_id` and `artifact_id`), and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations; `artifact.write` is for APIs that accept a request and let `generate` change an existing Artifact later: that write happens in the background with no caller identity, so the check belongs at acceptance |
 | `ctx.reads(scope_id)` | A read-only Artifact view of the given Scope, checked against the caller's permissions before reading; `reads(...).reads(family)` reads other families |
 | `ctx.writer(scope_id)` | The Artifact plugin's writer, scoped to the given Scope and the plugin's family; usable only for a Scope whose `scope.contribute` was confirmed in this request |
 | `ctx.sources.submit(scope_id, definition, value)` | Submits one Source of a definition this plugin provides (a Source plugin, or an Artifact plugin that declares `definitions`), with the same validation, `resolve`, and Projections as the Source write APIs, and returns a `SourceRef`; usable only for a Scope whose `scope.contribute` was confirmed in this request |

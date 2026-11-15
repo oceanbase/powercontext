@@ -384,7 +384,7 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 
 | 能力 | 说明 |
 | --- | --- |
-| `ctx.require(action, scope_id=None)` | 检查调用者是否具备 `scope.read`、`scope.contribute`（需要 `scope_id`）或 `server.admin`，不具备时抛出异常，接口返回 403。用于 `authenticated` 路由和跨 Scope 的操作 |
+| `ctx.require(action, scope_id=None, *, artifact_id=None)` | 检查调用者是否具备 `scope.read`、`scope.contribute`（需要 `scope_id`）、`server.admin`，或对本插件 family 中某个 Artifact 的 `artifact.write`（需要 `scope_id` 和 `artifact_id`），不具备时抛出异常，接口返回 403。用于 `authenticated` 路由和跨 Scope 的操作；`artifact.write` 用于先接受请求、之后由 `generate` 修改已有 Artifact 的接口：写入发生在后台，那时没有调用者身份，所以要在接受请求时检查 |
 | `ctx.reads(scope_id)` | 指定 Scope 的 Artifact 只读视图，读取前按调用者权限检查；可用 `reads(...).reads(family)` 读取其他 family |
 | `ctx.writer(scope_id)` | Artifact 插件的写入器，范围为指定 Scope 和本插件的 family；只能用于本次请求中已确认 `scope.contribute` 的 Scope |
 | `ctx.sources.submit(scope_id, definition, value)` | 提交一条本插件定义的 Source（Source 插件，或声明了 `definitions` 的 Artifact 插件），执行与 Source 写入接口相同的校验、`resolve` 和 Projection，返回 `SourceRef`；只能用于本次请求中已确认 `scope.contribute` 的 Scope |

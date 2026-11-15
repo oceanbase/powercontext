@@ -616,7 +616,7 @@ validation and raises immediately when a rule is violated:
 
 | Operation | Semantics |
 | --- | --- |
-| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | Creates revision 1 if absent; otherwise appends a revision on the current head. With `expected_revision`, a different current revision is a conflict; without it, the revision this invocation read outside the transaction is used (see 3.5), and nothing is checked if it was not read. Identical content to the current revision writes nothing and returns the current snapshot, and the supplied `source_refs` and `artifact_refs` are not recorded (see the write constraints below). `put` in user changes is the exception, see 4.1 |
+| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | Creates revision 1 if absent; otherwise appends a revision on the current head. With `expected_revision`, a different current revision is a conflict; without it, the revision this invocation read outside the transaction is used (see 3.5), and nothing is checked if it was not read. An Artifact read outside the transaction is also checked against the governance state version that was read (see 3.5). Identical content to the current revision writes nothing and returns the current snapshot, and the supplied `source_refs` and `artifact_refs` are not recorded (see the write constraints below). `put` in user changes is the exception, see 4.1 |
 | `revert(artifact_id, *, to_revision)` | Appends a new revision with a historical revision's content and records `restored_from_revision`; a forgotten or merge-frozen target is restored as well. Returns an `ArtifactChange`: the target's new snapshot plus exact references to the other Artifacts restored and retired with it |
 | `set_lifecycle(artifact_id, state, *, replacement_artifact_id=None)` | `deprecated` forgets, `active` restores, and `retired` is irreversible. Restoring uses shared restoration: it records a new revision with the same content, and an input frozen by a merge undoes that merge as one group. Forgetting and retiring append no revision. Returns the same as `revert`, so the plugin can update entries in its own index affected by the cascade |
 | `merge(inputs, *, into, content, source_refs=(), artifact_refs=())` | Follows the shared merge method ([RFC #1859](1859_artifact_merge.md)): takes the current revisions of `inputs`, creates `into`, records the merge, and freezes the inputs. `into` must be a new ID; when the same inputs are merged again after an undo, the plugin should include the input revisions in `stable_id` to avoid colliding with the retired result |
@@ -704,6 +704,11 @@ class ArtifactReads(Protocol):
   transaction as the expected value. If a user changed the Artifact after the read, the write conflicts, the invocation
   rolls back, and it is rescheduled. This matches built-in Atomic Memory, which checks before committing whether the
   memories it read have changed, so a plugin write based on old content never silently overwrites a user change.
+  Forget, restore, and merge do not always change the revision, so core also checks the governance state version
+  (`governance_generation`) read outside the transaction: if the Artifact was forgotten, restored, or merged after the
+  read, the write conflicts in the same way. Core does this check automatically and the plugin passes no parameter; it
+  also applies when `expected_revision` is given. Changing tags does not change the governance state version and causes
+  no conflict.
 - **Plugin-owned storage**: the plugin's indexes and other storage (the dedicated storage core allocates, or any database,
   object store, or vector store the plugin connects to itself) are outside core's transaction. The plugin writes and
   commits owned storage with its own clients; core takes no part and does not guarantee their consistency. Core's
