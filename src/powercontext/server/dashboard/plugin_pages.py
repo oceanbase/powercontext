@@ -234,8 +234,9 @@ async def plugin_artifacts(name: str, scope_id: str, request: Request, path: str
         headers["If-Match"] = request.headers["if-match"]
     api = DashboardAPI(request)
     try:
+        # Every query pair is forwarded: a repeated key, such as several tags, is a list to the public API.
         response = await api.client.request(
-            request.method, target, params=request.query_params, content=content, headers=headers
+            request.method, target, params=request.query_params.multi_items(), content=content, headers=headers
         )
     finally:
         await api.client.aclose()
