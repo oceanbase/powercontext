@@ -24,7 +24,7 @@ import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { isDeepStrictEqual, promisify } from "node:util";
-import { access, lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
 //#region src/errors.ts
@@ -8445,6 +8445,19 @@ const REQUIRED_TOOLS = [
 ];
 const SAFE_PART = /^[A-Za-z0-9._-]+$/u;
 const MAX_OUTPUT = 2 * 1024 * 1024;
+/** Compose detection and the runtime against the same app and Host profile. */
+function createHostCodexDesktopAdapter(options) {
+	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt: buildReceiverPrompt$1, qualification, ...runtimeOptions } = options;
+	return createCodexDesktopAdapter({
+		appPath,
+		runtime: createCodexDesktopRuntime({
+			...runtimeOptions,
+			cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+		}),
+		buildReceiverPrompt: buildReceiverPrompt$1,
+		qualification
+	});
+}
 function object$4(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Codex observation");
 	return value;
@@ -9449,20 +9462,41 @@ async function installedClaudePowerContext(executable, env, signal, cwd) {
 	if (plugins.length > 1) throw new Error("Ambiguous Claude plugin inventory");
 	return plugins[0];
 }
-/**
-* The qualified CLI build uses the stored macOS terminal preference when present.
-* If it is missing or unsupported, don't assume which terminal Launch Services will open.
-*/
-async function observeClaudeTerminal(home) {
-	const terminal = (await readObject(join(home, ".claude.json"))).deepLinkTerminal;
-	if (terminal === "Terminal") {
-		await access("/System/Applications/Utilities/Terminal.app", constants.F_OK);
-		return terminal;
+const managed = "/Library/Application Support/ClaudeCode";
+const terminalApps = {
+	Terminal: "/System/Applications/Utilities/Terminal.app",
+	Ghostty: "/Applications/Ghostty.app",
+	iTerm: "/Applications/iTerm.app",
+	kitty: "/Applications/kitty.app",
+	Alacritty: "/Applications/Alacritty.app",
+	WezTerm: "/Applications/WezTerm.app"
+};
+/** Reject policy overrides rather than trying to reproduce Claude's Read and sandbox rules. */
+async function observeSettings(configDir, cwd, env, signal) {
+	const settings = await readObject(join(configDir, "settings.json"));
+	if (Object.hasOwn(settings, "permissions") || Object.hasOwn(settings, "sandbox")) return void 0;
+	let gitRoot = cwd;
+	try {
+		const root = (await command("git", ["rev-parse", "--show-toplevel"], env, signal, cwd)).trim();
+		if (isAbsolute(root)) gitRoot = await realpath(root);
+	} catch {
+		if (signal.aborted) signal.throwIfAborted();
 	}
-	if (terminal === "Ghostty") {
-		await access("/Applications/Ghostty.app/Contents/MacOS/ghostty", constants.X_OK);
-		return terminal;
+	for (const directory$1 of new Set([cwd, gitRoot])) {
+		for (const name$1 of ["settings.json", "settings.local.json"]) {
+			const value = await readObject(join(directory$1, ".claude", name$1));
+			if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || Object.hasOwn(value, "permissions") || Object.hasOwn(value, "sandbox") || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return void 0;
+		}
+		const mcp = await readObject(join(directory$1, ".mcp.json"));
+		if (mcp.mcpServers !== void 0 && !object$3(mcp.mcpServers) || mcp.mcpServers?.powercontext) return void 0;
 	}
+	for (const name$1 of ["managed-settings.json", "managed-mcp.json"]) if (Object.keys(await readObject(join(managed, name$1))).length) return void 0;
+	try {
+		if ((await readdir(join(managed, "managed-settings.d"))).some((name$1) => name$1.endsWith(".json"))) return void 0;
+	} catch (error) {
+		if (error.code !== "ENOENT") throw error;
+	}
+	return settings;
 }
 /** Check Launch Services' selected app and its actual executable, without opening the URL. */
 async function registeredHandler(executable, env, signal) {
@@ -9500,45 +9534,31 @@ function createClaudeCodeCliReceiver(options) {
 	if (options.generationKey.length < 32 || !options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) throw new Error("Verified terminal evidence and a persistent generation key are required");
 	const key$2 = Buffer.from(options.generationKey);
 	const env = { ...options.launchEnvironment };
-	const terminal = () => options.observeDefaultTerminal ? observeClaudeTerminal(env.HOME ?? homedir()) : Promise.resolve(options.environmentEvidence.terminal);
+	const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR ? join(options.configDir, ".claude.json") : join(env.HOME ?? homedir(), ".claude.json");
+	const qualifiedTerminal = options.environmentEvidence.terminal;
+	const observeTerminal = async () => {
+		const { deepLinkTerminal } = await readObject(terminalPreferenceFile);
+		if (!Object.hasOwn(terminalApps, qualifiedTerminal) || deepLinkTerminal !== qualifiedTerminal) return void 0;
+		if (process.platform === "darwin") try {
+			await access(terminalApps[qualifiedTerminal], constants.F_OK);
+		} catch (error) {
+			if (error.code === "ENOENT") return void 0;
+			throw error;
+		}
+		return qualifiedTerminal;
+	};
 	const inspect = async (executable, cwd, signal) => {
 		try {
-			const terminalPreference = await terminal();
-			if (!terminalPreference) return void 0;
+			const terminal = await observeTerminal();
+			if (!terminal) return void 0;
 			if (await realpath(cwd) !== cwd) return void 0;
 			if (await realpath(options.configDir) !== options.configDir) return void 0;
 			const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), ".claude");
 			if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return void 0;
-			const settings = await readObject(join(options.configDir, "settings.json"));
-			let gitRoot = cwd;
-			try {
-				const observedRoot = (await command("git", ["rev-parse", "--show-toplevel"], env, signal, cwd)).trim();
-				if (isAbsolute(observedRoot)) gitRoot = await realpath(observedRoot);
-			} catch {
-				if (signal.aborted) signal.throwIfAborted();
-			}
-			for (const path of [
-				join(cwd, ".claude", "settings.json"),
-				join(cwd, ".claude", "settings.local.json"),
-				join(gitRoot, ".claude", "settings.json"),
-				join(gitRoot, ".claude", "settings.local.json"),
-				"/Library/Application Support/ClaudeCode/managed-settings.json"
-			]) {
-				const value = await readObject(path);
-				if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || value.permissions || value.sandbox || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return void 0;
-			}
-			for (const path of [
-				join(cwd, ".mcp.json"),
-				join(gitRoot, ".mcp.json"),
-				"/Library/Application Support/ClaudeCode/managed-mcp.json"
-			]) {
-				const mcpConfig$1 = await readObject(path);
-				if (mcpConfig$1.mcpServers !== void 0 && !object$3(mcpConfig$1.mcpServers)) return void 0;
-				if (mcpConfig$1.mcpServers?.powercontext || path.endsWith("/managed-mcp.json") && Object.keys(mcpConfig$1).length) return void 0;
-			}
+			const settings = await observeSettings(options.configDir, cwd, env, signal);
+			if (!settings) return void 0;
 			if (settings.env !== void 0 && !object$3(settings.env) || settings.pluginConfigs !== void 0 && !object$3(settings.pluginConfigs) || settings.enabledPlugins !== void 0 && !object$3(settings.enabledPlugins) || settings.enabledPlugins?.["powercontext@powercontext"] === false || settings.mcpServers !== void 0 && !object$3(settings.mcpServers)) return void 0;
 			if (settings.mcpServers?.powercontext || settings.deniedMcpServers || settings.allowedMcpServers || settings.enabledMcpjsonServers || settings.disabledMcpjsonServers) return void 0;
-			if (options.observeDefaultTerminal && (settings.permissions || settings.sandbox)) return void 0;
 			const settingsEnv = object$3(settings.env) ?? {};
 			if (Object.hasOwn(settingsEnv, "CLAUDE_CONFIG_DIR")) return void 0;
 			const targetEnv = { ...env };
@@ -9593,7 +9613,7 @@ function createClaudeCodeCliReceiver(options) {
 				promptHooks,
 				receiverHash,
 				options.environmentEvidence,
-				terminalPreference
+				terminal
 			])).digest("hex");
 			return {
 				effectiveCwd: cwd,
@@ -9611,22 +9631,20 @@ function createClaudeCodeCliReceiver(options) {
 	};
 	return {
 		async handler(executable, _version, signal) {
-			const handler = await registeredHandler(executable, env, signal);
-			if (handler !== "ready") return handler;
 			try {
-				const observed$1 = await terminal();
 				signal.throwIfAborted();
-				return observed$1 ? "ready" : "needs_user_action";
+				if (!await observeTerminal()) return "needs_user_action";
+				return await registeredHandler(executable, env, signal);
 			} catch {
 				signal.throwIfAborted();
-				return "needs_user_action";
+				return "unknown";
 			}
 		},
 		environment: inspect,
 		async canReadPackage(_executable, bundle, signal) {
 			try {
 				signal.throwIfAborted();
-				if (!await terminal()) return false;
+				if (!await observeTerminal() || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false;
 				const path = await realpath(bundle.packagePath);
 				if (!(await Promise.all(options.qualifiedPackageRoots.map((root) => realpath(root)))).some((root) => {
 					const rel = relative(root, path);
@@ -9770,7 +9788,7 @@ async function findPowercontext(path) {
 async function createClaudeCodeCliTarget(options = {}) {
 	const { integrationOptions = {}, ...adapterOptions } = options;
 	const inherited = integrationOptions.environment ?? process.env;
-	const configDir = integrationOptions.configDir ?? inherited.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+	const configDir = integrationOptions.configDir ?? inherited.CLAUDE_CONFIG_DIR ?? join(inherited.HOME ?? homedir(), ".claude");
 	const path = adapterOptions.path ?? inherited.PATH ?? "";
 	const environment = {
 		...inherited,
@@ -9923,7 +9941,6 @@ function createDefaultTargetAdapters(options) {
 		"/bin"
 	].filter(isAbsolute).join(delimiter);
 	const executable = options.powercontextExecutable ?? installedExecutable("powercontext", path);
-	const appPath = options.codexAppPath ?? "/Applications/ChatGPT.app";
 	const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(home, ".codex");
 	const setup = executable && options.sourceServerUrl ? {
 		executable,
@@ -9932,13 +9949,6 @@ function createDefaultTargetAdapters(options) {
 		path
 	} : void 0;
 	const deliveryRoot = join(options.root, "deliveries");
-	const runtime = createCodexDesktopRuntime({
-		cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
-		codexHome,
-		deliveryRoot,
-		generationKey: options.generationKey,
-		setup
-	});
 	const configDir = join(home, ".claude");
 	const environment = {
 		HOME: home,
@@ -9950,16 +9960,18 @@ function createDefaultTargetAdapters(options) {
 		pythonExecutable: "/usr/bin/python3",
 		generationKey: options.generationKey,
 		environmentEvidence: {
-			terminal: "macOS",
+			terminal: "Terminal",
 			evidence: CLAUDE_CLI.evidence
 		},
-		qualifiedPackageRoots: [deliveryRoot],
-		observeDefaultTerminal: true
+		qualifiedPackageRoots: [deliveryRoot]
 	});
 	return [
-		createCodexDesktopAdapter({
-			appPath,
-			runtime,
+		createHostCodexDesktopAdapter({
+			appPath: options.codexAppPath,
+			codexHome,
+			deliveryRoot,
+			generationKey: options.generationKey,
+			setup,
 			buildReceiverPrompt,
 			qualification: CODEX
 		}),
@@ -10049,10 +10061,8 @@ function createBoundaryReader(host) {
 			}
 			if (event.type === "user/message" && event.data?.source?.kind === "user") {
 				const human = text$1(event.data, 8e3);
-				if (human) {
-					observe(event, label(`Human request or instruction: ${human}`, `用户请求或指令：${human}`));
-					objective = human;
-				}
+				objective = human ?? null;
+				if (human) observe(event, label(`Human request or instruction: ${human}`, `用户请求或指令：${human}`));
 			}
 			if (event.type === "tool/result") {
 				const id = event.data?.message?.toolCallId ?? event.data?.message?.source?.callId;

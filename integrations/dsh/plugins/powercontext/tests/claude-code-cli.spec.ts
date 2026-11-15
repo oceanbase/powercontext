@@ -131,6 +131,31 @@ describe('Claude Code CLI adapter', () => {
     }
   })
 
+  it('runs doctor and setup in the supplied HOME without selecting a custom Claude profile', async () => {
+    const { receiver } = fixture()
+    const home = await mkdtemp(join(tmpdir(), 'pc-claude-receiver-home-'))
+    try {
+      const installer = join(home, 'powercontext')
+      await writeFile(installer, `#!/bin/sh
+[ "$HOME" = "$EXPECTED_HOME" ] && [ "\${CLAUDE_CONFIG_DIR+set}" != set ] || exit 1
+case "$1" in
+  doctor) printf '%s' '{"hosts":{"claude-code":{"checks":{"claude_code":{"status":"ok"},"plugin":{"status":"ok"},"server_readiness":{"status":"ok"}}}}}' ;;
+  setup) printf '%s' '{"hosts":{"claude-code":{"setup":"complete"}}}' ;;
+esac
+`, { mode: 0o755 })
+      const adapter = await createClaudeCodeCliTarget({
+        receiver, buildReceiverPrompt: () => 'Review the handoff',
+        qualification: { targetVersion: target.version, evidence: 'fixture' },
+        integrationOptions: { environment: { HOME: home, EXPECTED_HOME: home, PATH: '/usr/bin:/bin' },
+          powercontextExecutable: installer },
+      })
+      const detected = await adapter.detect(signal)
+      if (detected.state !== 'present') throw new Error('fixture CLI not detected')
+      expect(await adapter.checkIntegration(detected, signal)).toEqual({ state: 'ready' })
+      expect(await adapter.installIntegration(detected, signal)).toEqual({ state: 'completed' })
+    } finally { await rm(home, { recursive: true, force: true }) }
+  })
+
   it('requires a detected, version-qualified CLI and the registered handler', async () => {
     const { adapter, receiver, integration } = fixture()
     expect(await adapter.detect(signal)).toEqual(target)

@@ -23,7 +23,7 @@ import { promisify } from 'node:util'
 import type { LaunchBundle } from '../contracts.ts'
 import { HandoffError } from '../errors.ts'
 import type { InstallationResult, IntegrationCheck, PresentTarget, TargetEnvironment } from '../targets.ts'
-import type { CodexDesktopRuntime } from './codex-desktop.ts'
+import { createCodexDesktopAdapter, type CodexDesktopAdapterOptions, type CodexDesktopRuntime } from './codex-desktop.ts'
 
 const execFileAsync = promisify(execFile)
 const REQUIRED_TOOLS = ['get_connection_identity', 'continue_handoff', 'acknowledge_handoff']
@@ -38,6 +38,19 @@ export interface CodexDesktopRuntimeOptions {
   /** Persistent Host key; never logged or persisted by this adapter. */
   readonly generationKey: Buffer
   readonly setup?: { readonly executable: string; readonly source?: string; readonly serverUrl: string; readonly path?: string }
+}
+
+/** Compose detection and the runtime against the same app and Host profile. */
+export function createHostCodexDesktopAdapter(
+  options: Pick<CodexDesktopAdapterOptions, 'appPath' | 'buildReceiverPrompt' | 'qualification'>
+    & Omit<CodexDesktopRuntimeOptions, 'cliPath'>,
+) {
+  const { appPath = '/Applications/ChatGPT.app', buildReceiverPrompt, qualification, ...runtimeOptions } = options
+  const runtime = createCodexDesktopRuntime({
+    ...runtimeOptions,
+    cliPath: join(appPath, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+  })
+  return createCodexDesktopAdapter({ appPath, runtime, buildReceiverPrompt, qualification })
 }
 
 type ObjectValue = Record<string, unknown>

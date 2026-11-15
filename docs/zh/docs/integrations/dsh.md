@@ -280,7 +280,7 @@ macOS 上默认可以对 **Codex Desktop** `26.1106.51428 (26605)`（内嵌 CLI 
 Scope 不一致、读包权限无法确认时，停止自动启动。**Claude Desktop (Code)** 可以检查安装状态；
 一键交接还需要能验证它实际新建的会话。
 
-Claude Code CLI 使用默认本机 Claude 配置，在 Terminal.app 或 Ghostty 中使用普通本地权限。如果系统还没注册链接，
+Claude Code CLI 使用默认本机 Claude 配置，在 Terminal.app 中使用普通本地权限。如果系统还没注册链接，
 或没有记录支持的终端，请在支持的终端里到已信任的目录交互打开 Claude Code，运行 `/help` 后再检查。
 目标缺少 PowerContext 时，自动安装需要本机有 `powercontext` 命令；没有该命令时，可手动安装接收端集成。
 接收端插件和 Server 需要提供交接接收钩子和连接身份工具。

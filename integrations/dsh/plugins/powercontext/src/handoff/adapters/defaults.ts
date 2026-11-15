@@ -19,8 +19,7 @@ import { homedir } from 'node:os'
 import { delimiter, isAbsolute, join } from 'node:path'
 import { buildReceiverPrompt } from '../receiver-prompt.ts'
 import type { TargetAdapter } from '../targets.ts'
-import { createCodexDesktopAdapter } from './codex-desktop.ts'
-import { createCodexDesktopRuntime } from './codex-desktop-runtime.ts'
+import { createHostCodexDesktopAdapter } from './codex-desktop-runtime.ts'
 import { createClaudeDesktopAdapter } from './claude-desktop.ts'
 import { createDeferredClaudeCodeCliTarget } from './claude-code-cli.ts'
 import { createClaudeCodeCliReceiver } from './claude-code-cli-runtime.ts'
@@ -64,29 +63,22 @@ export function createDefaultTargetAdapters(options: DefaultTargetAdaptersOption
   const path = [...(process.env.PATH ?? '').split(delimiter), join(home, '.local/bin'), '/opt/homebrew/bin',
     '/usr/local/bin', '/usr/bin', '/bin'].filter(isAbsolute).join(delimiter)
   const executable = options.powercontextExecutable ?? installedExecutable('powercontext', path)
-  const appPath = options.codexAppPath ?? '/Applications/ChatGPT.app'
   const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(home, '.codex')
   const setup = executable && options.sourceServerUrl
     ? { executable, serverUrl: options.sourceServerUrl, source: options.codexSource, path }
     : undefined
   const deliveryRoot = join(options.root, 'deliveries')
-  const runtime = createCodexDesktopRuntime({
-    cliPath: join(appPath, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
-    codexHome,
-    deliveryRoot,
-    generationKey: options.generationKey,
-    setup,
-  })
   // The macOS link starts the normal user profile, not a DSH-only CLAUDE_CONFIG_DIR or credential.
   const configDir = join(home, '.claude')
   const environment = { HOME: home, PATH: path }
   const receiver = createClaudeCodeCliReceiver({
     configDir, launchEnvironment: environment, pythonExecutable: '/usr/bin/python3',
-    generationKey: options.generationKey, environmentEvidence: { terminal: 'macOS', evidence: CLAUDE_CLI.evidence },
-    qualifiedPackageRoots: [deliveryRoot], observeDefaultTerminal: true,
+    generationKey: options.generationKey, environmentEvidence: { terminal: 'Terminal', evidence: CLAUDE_CLI.evidence },
+    qualifiedPackageRoots: [deliveryRoot],
   })
-  return [createCodexDesktopAdapter({
-    appPath, runtime, buildReceiverPrompt, qualification: CODEX,
+  return [createHostCodexDesktopAdapter({
+    appPath: options.codexAppPath, codexHome, deliveryRoot,
+    generationKey: options.generationKey, setup, buildReceiverPrompt, qualification: CODEX,
   }), createClaudeDesktopAdapter(), createDeferredClaudeCodeCliTarget({
     receiver, buildReceiverPrompt, path, qualification: CLAUDE_CLI,
     integrationOptions: { configDir, environment, powercontextExecutable: executable, serverUrl: options.sourceServerUrl },

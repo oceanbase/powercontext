@@ -1789,6 +1789,7 @@ const flowCopy = {
 		uncertain: "结果还未确认。先检查目标会话或在交接记录中查看，再决定是否重试。",
 		source: "回复已变化，请选择最新回复或明确继续原回复。",
 		missing: "还没有足够的可用上下文。可以换一条有任务背景的回复，或补充必要信息。",
+		invalidInput: "交接内容未通过校验。请检查并修改填写的内容后重试。",
 		unavailable: "无法继续交接。请检查目标环境后再试。",
 		details: "交付详情",
 		identifier: "交付编号",
@@ -1806,6 +1807,7 @@ const flowCopy = {
 		uncertain: "The outcome is unknown. Check the target session or handoff history before trying again.",
 		source: "The reply changed. Select the latest reply or confirm the original.",
 		missing: "There is not enough usable context. Choose a reply with task context or add the missing details.",
+		invalidInput: "The handoff details did not pass validation. Edit the fields and try again.",
 		unavailable: "Handoff could not continue. Check the target environment and try again.",
 		details: "Delivery details",
 		identifier: "Delivery ID",
@@ -2212,7 +2214,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		onClose();
 		trigger.current?.focus({ preventScroll: true });
 	};
-	const errorMessage = error === "outcome_unknown" || error === "idempotency_conflict" ? f.uncertain : error === "stale_preflight" || error === "binding_mismatch" ? f.source : f.unavailable;
+	const errorMessage = error === "outcome_unknown" || error === "idempotency_conflict" ? f.uncertain : error === "stale_preflight" || error === "binding_mismatch" ? f.source : error === "payload_invalid" ? f.invalidInput : f.unavailable;
 	const sourceAllowed = latest && source?.messageId === messageId || confirmedOriginal || recoveredFromHistory;
 	const targetName = nativeTargets.find((item) => item.id === (delivery?.delivery.binding.targetId ?? preflight?.targetId ?? target))?.name;
 	const busyLabel = view === "flow" ? f[phase] : t.processing;
@@ -2553,7 +2555,19 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 														input: workInput(objective, state, next, omissions, disposition, selectedLocale)
 													};
 													pendingPreparations.current.set(manualKey, pending$1);
-													acceptDelivery(await api.prepare(pending$1.preflight, pending$1.requestId, pending$1.input, delivery.delivery.deliveryId, signal, pending$1.locale));
+													try {
+														acceptDelivery(await api.prepare(pending$1.preflight, pending$1.requestId, pending$1.input, delivery.delivery.deliveryId, signal, pending$1.locale));
+													} catch (error$1) {
+														if (error$1 instanceof HandoffHttpError && error$1.status === 400 && error$1.message === "payload_invalid" && pending$1.input) {
+															pendingPreparations.current.delete(manualKey);
+															setDisposition(pending$1.input.disposition);
+															setObjective(pending$1.input.objective);
+															setState(pending$1.input.state[0]?.text ?? "");
+															setNext(pending$1.input.next_action?.text ?? "");
+															setOmissions(pending$1.input.omissions.join("\n"));
+														}
+														throw error$1;
+													}
 													pendingPreparations.current.delete(manualKey);
 												}
 											}),

@@ -18,7 +18,7 @@ import { execFile } from 'node:child_process'
 import { createHash, createHmac } from 'node:crypto'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
-import { access, lstat, readFile, realpath } from 'node:fs/promises'
+import { access, lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import type { ClaudeCliReceiver } from './claude-code-cli.ts'
@@ -100,15 +100,13 @@ export interface ClaudeCodeCliRuntimeOptions {
   /** Actual environment observed for the qualified handler-launched terminal. */
   readonly launchEnvironment: NodeJS.ProcessEnv
   readonly configDir: string
-  /** Identifies the real terminal and qualification evidence for this environment. */
+  /** Exact macOS deep-link terminal preference and evidence for this environment. */
   readonly environmentEvidence: { readonly terminal: string; readonly evidence: string }
   readonly pythonExecutable: string
   /** Persistent host-owned secret used only to fingerprint effective configuration. */
   readonly generationKey: Buffer
   /** Roots whose receiver Read access was actually tested for the qualified CLI/terminal. */
   readonly qualifiedPackageRoots: readonly string[]
-  /** Built-in macOS route: recheck Claude's preferred terminal instead of inheriting the DSH process's settings. */
-  readonly observeDefaultTerminal?: boolean
 }
 
 function object(value: unknown): Record<string, any> | undefined {
@@ -141,23 +139,45 @@ export async function installedClaudePowerContext(executable: string, env: NodeJ
   return plugins[0] as { enabled?: boolean; errors?: unknown[]; installPath?: string } | undefined
 }
 
-/**
- * The qualified CLI build uses the stored macOS terminal preference when present.
- * If it is missing or unsupported, don't assume which terminal Launch Services will open.
- */
-async function observeClaudeTerminal(home: string): Promise<'Terminal' | 'Ghostty' | undefined> {
-  const preferences = await readObject(join(home, '.claude.json'))
-  const terminal = preferences.deepLinkTerminal
-  if (terminal === 'Terminal') {
-    await access('/System/Applications/Utilities/Terminal.app', constants.F_OK)
-    return terminal
+const managed = '/Library/Application Support/ClaudeCode'
+const terminalApps: Readonly<Record<string, string>> = {
+  Terminal: '/System/Applications/Utilities/Terminal.app',
+  Ghostty: '/Applications/Ghostty.app',
+  iTerm: '/Applications/iTerm.app',
+  kitty: '/Applications/kitty.app',
+  Alacritty: '/Applications/Alacritty.app',
+  WezTerm: '/Applications/WezTerm.app',
+}
+
+/** Reject policy overrides rather than trying to reproduce Claude's Read and sandbox rules. */
+async function observeSettings(configDir: string, cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal) {
+  const settings = await readObject(join(configDir, 'settings.json'))
+  if (Object.hasOwn(settings, 'permissions') || Object.hasOwn(settings, 'sandbox')) return undefined
+  let gitRoot = cwd
+  try {
+    const root = (await command('git', ['rev-parse', '--show-toplevel'], env, signal, cwd)).trim()
+    if (isAbsolute(root)) gitRoot = await realpath(root)
+  } catch { if (signal.aborted) signal.throwIfAborted() }
+  for (const directory of new Set([cwd, gitRoot])) {
+    for (const name of ['settings.json', 'settings.local.json']) {
+      const value = await readObject(join(directory, '.claude', name))
+      if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks
+        || Object.hasOwn(value, 'permissions') || Object.hasOwn(value, 'sandbox')
+        || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers
+        || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return undefined
+    }
+    const mcp = await readObject(join(directory, '.mcp.json'))
+    if ((mcp.mcpServers !== undefined && !object(mcp.mcpServers)) || mcp.mcpServers?.powercontext) return undefined
   }
-  if (terminal === 'Ghostty') {
-    const app = '/Applications/Ghostty.app/Contents/MacOS/ghostty'
-    await access(app, constants.X_OK)
-    return terminal
+  for (const name of ['managed-settings.json', 'managed-mcp.json']) {
+    if (Object.keys(await readObject(join(managed, name))).length) return undefined
   }
-  return undefined
+  try {
+    if ((await readdir(join(managed, 'managed-settings.d'))).some(name => name.endsWith('.json'))) return undefined
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  return settings
 }
 
 /** Check Launch Services' selected app and its actual executable, without opening the URL. */
@@ -190,40 +210,33 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
     || !options.environmentEvidence.evidence.trim()) throw new Error('Verified terminal evidence and a persistent generation key are required')
   const key = Buffer.from(options.generationKey)
   const env = { ...options.launchEnvironment }
-  const terminal = () => options.observeDefaultTerminal
-    ? observeClaudeTerminal(env.HOME ?? homedir())
-    : Promise.resolve(options.environmentEvidence.terminal)
+  const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR
+    ? join(options.configDir, '.claude.json') : join(env.HOME ?? homedir(), '.claude.json')
+  const qualifiedTerminal = options.environmentEvidence.terminal
+  const observeTerminal = async () => {
+    const { deepLinkTerminal } = await readObject(terminalPreferenceFile)
+    // The CLI may otherwise fall back to a different installed emulator.
+    if (!Object.hasOwn(terminalApps, qualifiedTerminal) || deepLinkTerminal !== qualifiedTerminal) return undefined
+    if (process.platform === 'darwin') {
+      try { await access(terminalApps[qualifiedTerminal]!, constants.F_OK) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+        throw error
+      }
+    }
+    return qualifiedTerminal
+  }
   const inspect = async (executable: string, cwd: string, signal: AbortSignal): Promise<TargetEnvironment | undefined> => {
     try {
-      const terminalPreference = await terminal()
-      if (!terminalPreference) return undefined
+      const terminal = await observeTerminal()
+      if (!terminal) return undefined
       const info = await realpath(cwd)
       if (info !== cwd) return undefined
       if (await realpath(options.configDir) !== options.configDir) return undefined
       const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), '.claude')
       if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return undefined
-      const settings = await readObject(join(options.configDir, 'settings.json'))
-      // Claude can merge project settings and managed policy, so never silently
-      // predict the routing when they provide plugin or environment overrides.
-      let gitRoot = cwd
-      try {
-        const observedRoot = (await command('git', ['rev-parse', '--show-toplevel'], env, signal, cwd)).trim()
-        if (isAbsolute(observedRoot)) gitRoot = await realpath(observedRoot)
-      } catch { if (signal.aborted) signal.throwIfAborted() }
-      for (const path of [join(cwd, '.claude', 'settings.json'), join(cwd, '.claude', 'settings.local.json'),
-        join(gitRoot, '.claude', 'settings.json'), join(gitRoot, '.claude', 'settings.local.json'),
-        '/Library/Application Support/ClaudeCode/managed-settings.json']) {
-        const value = await readObject(path)
-        if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || value.permissions
-          || value.sandbox || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers
-          || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return undefined
-      }
-      for (const path of [join(cwd, '.mcp.json'), join(gitRoot, '.mcp.json'),
-        '/Library/Application Support/ClaudeCode/managed-mcp.json']) {
-        const mcpConfig = await readObject(path)
-        if (mcpConfig.mcpServers !== undefined && !object(mcpConfig.mcpServers)) return undefined
-        if (mcpConfig.mcpServers?.powercontext || path.endsWith('/managed-mcp.json') && Object.keys(mcpConfig).length) return undefined
-      }
+      const settings = await observeSettings(options.configDir, cwd, env, signal)
+      if (!settings) return undefined
       if (settings.env !== undefined && !object(settings.env)
         || settings.pluginConfigs !== undefined && !object(settings.pluginConfigs)
         || settings.enabledPlugins !== undefined && !object(settings.enabledPlugins)
@@ -231,9 +244,6 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
         || settings.mcpServers !== undefined && !object(settings.mcpServers)) return undefined
       if (settings.mcpServers?.powercontext || settings.deniedMcpServers || settings.allowedMcpServers
         || settings.enabledMcpjsonServers || settings.disabledMcpjsonServers) return undefined
-      // The built-in route covers ordinary local permissions only. A user rule may deny Read
-      // even though the Host (or a previous interactive session) can read the same directory.
-      if (options.observeDefaultTerminal && (settings.permissions || settings.sandbox)) return undefined
       const settingsEnv = object(settings.env) ?? {}
       // A profile override inside settings is not a proven startup route.
       if (Object.hasOwn(settingsEnv, 'CLAUDE_CONFIG_DIR')) return undefined
@@ -278,7 +288,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       const clients = await readObject(clientsFile)
       const generation = createHmac('sha256', key).update(JSON.stringify([await realpath(executable), pluginRoot,
         manifest, mcp, settings, Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
-        credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminalPreference])).digest('hex')
+        credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal])).digest('hex')
       return { effectiveCwd: cwd, serverIdentity: parsed.serverIdentity, scopeId: parsed.scopeId,
         configurationGeneration: generation, newSession: true, unsentPrefill: true, packageAccess: roots.length > 0 }
     } catch {
@@ -288,22 +298,21 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
   }
   return {
     async handler(executable, _version, signal) {
-      const handler = await registeredHandler(executable, env, signal)
-      if (handler !== 'ready') return handler
       try {
-        const observed = await terminal()
         signal.throwIfAborted()
-        return observed ? 'ready' : 'needs_user_action'
+        if (!await observeTerminal()) return 'needs_user_action'
+        return await registeredHandler(executable, env, signal)
       } catch {
         signal.throwIfAborted()
-        return 'needs_user_action'
+        return 'unknown'
       }
     },
     environment: inspect,
     async canReadPackage(_executable, bundle, signal) {
       try {
         signal.throwIfAborted()
-        if (!await terminal()) return false
+        if (!await observeTerminal()
+          || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false
         const path = await realpath(bundle.packagePath)
         const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
         if (!roots.some(root => { const rel = relative(root, path); return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) })) return false

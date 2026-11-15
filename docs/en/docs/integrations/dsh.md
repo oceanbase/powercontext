@@ -349,7 +349,7 @@ Preflight checks the receiver configuration each time. A different version, mism
 unverified package access stops automatic launch. **Claude Desktop (Code)** is available for installation checks;
 one-click handoff requires a way to verify its actual new session.
 
-For Claude Code CLI, use the default local Claude profile and ordinary local permissions in Terminal.app or Ghostty.
+For Claude Code CLI, use the default local Claude profile and ordinary local permissions in Terminal.app.
 If the link is not registered or no supported terminal is recorded, open Claude Code interactively in a trusted
 folder from a supported terminal and run `/help`, then check again. If PowerContext is missing in the target,
 automatic setup requires the local `powercontext` command; otherwise install the receiving integration yourself.
