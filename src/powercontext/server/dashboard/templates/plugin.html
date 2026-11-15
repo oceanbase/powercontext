@@ -47,7 +47,10 @@ limitations under the License.
         method: route.method,
         pattern: new RegExp('^' + escape(route.path).replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, '[^/]+') + '$'),
       }));
-      const safePath = path => /^\/[A-Za-z0-9._~%!$&'()*+,;=:@\/-]*$/.test(path) && !/(^|\/)\.\.?(\/|$)/.test(path);
+      // Dot segments are refused in their percent-encoded forms too: the URL parser resolves both.
+      const safePath = path => /^\/[A-Za-z0-9._~%!$&'()*+,;=:@\/-]*$/.test(path) && !/(^|\/)(\.|%2e){1,2}(\/|$)/i.test(path);
+      // The resolved destination must still lie under the endpoint it was built from.
+      const within = (url, base) => url.origin === location.origin && (url.pathname === base || url.pathname.startsWith(base + '/'));
       const declared = (method, path) => safePath(path) && routes.some(route => route.method === method && route.pattern.test(path));
       // The first load is the plugin page. Any later load may be another site, so forwarding stops.
       let loads = 0;
@@ -83,10 +86,13 @@ limitations under the License.
             reply({ status: 404, error: 'route_not_declared' });
             return;
           }
-          url = new URL(config.artifacts + '/' + encodeURIComponent(scopeId) + path, location.origin);
+          const base = config.artifacts + '/' + encodeURIComponent(scopeId);
+          url = new URL(base + path, location.origin);
+          if (!within(url, base)) { reply({ status: 404, error: 'route_not_declared' }); return; }
         } else {
           if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
           url = new URL(config.api + path, location.origin);
+          if (!within(url, config.api)) { reply({ status: 404, error: 'route_not_declared' }); return; }
         }
         for (const [key, value] of Object.entries(data.query || {})) {
           for (const item of [].concat(value)) url.searchParams.append(key, String(item));

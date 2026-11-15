@@ -16,8 +16,12 @@
 
 import asyncio
 import json
+import re
+import shutil
+import subprocess
 
 import httpx
+import pytest
 
 from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
 
@@ -180,3 +184,94 @@ def test_plugin_page_is_sandboxed_and_forwards_only_same_origin_session_requests
             assert completed.json()["answer"]
 
     asyncio.run(scenario())
+
+
+# Runs the host page's own script against a stub page: delivers the frame's messages and records what it fetches.
+HOST_PAGE_HARNESS = """
+const fs = require('node:fs');
+const [script, messages] = [fs.readFileSync(process.argv[2], 'utf8'), JSON.parse(process.argv[3])];
+const replies = [], fetched = [];
+const frame = {
+  contentWindow: { postMessage: message => replies.push(message) },
+  isConnected: true,
+  parentElement: { removeAttribute() {} },
+  addEventListener() {},
+};
+let listener;
+globalThis.me = selector =>
+  selector === undefined ? { run: body => body({}) } : selector === 'iframe' ? frame : { remove() {}, hidden: true };
+globalThis.document = { documentElement: { getAttribute: () => 'light' } };
+globalThis.location = new URL('http://dashboard.test/dashboard/plugins/demo');
+globalThis.window = { addEventListener: (type, handler) => { listener = handler; }, removeEventListener() {} };
+globalThis.fetch = async (url, init) => {
+  fetched.push([init.method, String(url)]);
+  return { status: 204, headers: { get: () => null } };
+};
+new Function(script)();
+(async () => {
+  for (const data of messages) await listener({ source: frame.contentWindow, data });
+  console.log(JSON.stringify({ fetched, replies }));
+})();
+"""
+
+
+def test_host_page_forwards_only_destinations_inside_its_plugin(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed to run the host page script")
+    plugins = tmp_path / "plugins"
+    (plugins / "demo" / "ui").mkdir(parents=True)
+    (plugins / "demo" / "plugin.py").write_text(PLUGIN, encoding="utf-8")
+    (plugins / "demo" / "ui" / "index.html").write_text(PAGE, encoding="utf-8")
+
+    async def host_page() -> str:
+        environment = {"POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true"}
+        async with running_server(tmp_path, plugins, extra_env=environment) as client:
+            session = {"powercontext_dashboard_token": ADMIN_AUTHORIZATION_VALUE}
+            async with httpx.AsyncClient(base_url=client.base_url, cookies=session, timeout=20) as browser:
+                page = await browser.get("/dashboard/plugins/demo", params={"lang": "en"})
+                assert page.status_code == 200, page.text
+                return page.text
+
+    (script,) = re.findall(r"<script>\s*(me\(\)\.run\(section => \{.*?)</script>", asyncio.run(host_page()), re.S)
+    (tmp_path / "host-page.js").write_text(script, encoding="utf-8")
+    (tmp_path / "harness.js").write_text(HOST_PAGE_HARNESS, encoding="utf-8")
+
+    def request(identity, **fields):
+        return {"type": "powercontext.request", "id": identity, **fields}
+
+    def artifacts(identity, path, scope="scope-a", method="GET"):
+        return request(identity, target="artifacts", method=method, path=path, scopeId=scope)
+
+    escapes = (
+        # The URL parser resolves encoded dot segments, here into another plugin's forwarding endpoint.
+        artifacts(10, "/%2e%2e/%2e%2e/%2e%2e/other/artifacts/scope-a"),
+        artifacts(11, "/%2E%2E/%2e./.%2e/other/api/echo"),
+        artifacts(12, "/../../other/artifacts/scope-a"),
+        artifacts(13, "/note", scope=".."),
+        artifacts(14, "/note", method="DELETE"),
+        request(15, method="POST", path="/%2e%2e/%2e%2e/other/api/echo"),
+        request(16, method="POST", path="/undeclared"),
+    )
+    allowed = (
+        artifacts(1, ""),
+        artifacts(2, "/note-1/forget", method="POST"),
+        request(3, method="POST", path="/echo", json={"text": "x"}),
+    )
+    completed = subprocess.run(
+        [node, str(tmp_path / "harness.js"), str(tmp_path / "host-page.js"), json.dumps([*escapes, *allowed])],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    base = "http://dashboard.test/dashboard/plugins/demo"
+    assert result["fetched"] == [
+        ["GET", f"{base}/artifacts/scope-a"],
+        ["POST", f"{base}/artifacts/scope-a/note-1/forget"],
+        ["POST", f"{base}/api/echo"],
+    ]
+    refused = {reply["id"]: reply.get("error") for reply in result["replies"] if reply.get("status") == 404}
+    assert refused == {message["id"]: "route_not_declared" for message in escapes}
