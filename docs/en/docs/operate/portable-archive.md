@@ -214,10 +214,11 @@ the Server configuration guide. Dry-run must report no unsupported families and 
 ## Format compatibility
 
 For bundles containing plugin Artifacts, configure `POWERCONTEXT_SERVER_PLUGINS_DIR` with the corresponding plugins
-on the restore target, including for `--dry-run`. Archive commands check declarations in child processes without
+on the restore target, including for `--dry-run`. Restore commands check declarations in child processes without
 starting plugin hosts, running `setup`, or dispatching generation. Core validates the opaque Artifact storage wrapper;
 plugin Source observations are validated against the immutable Source definitions carried in the bundle. Restoring
 preserves revision metadata, history, and provenance. Plugin-owned storage remains outside the archive.
+Export reads stored core records without loading plugins, so an unavailable plugin does not prevent creating a backup.
 
 Bundle IDs must use the canonical lowercase, hyphenated UUID representation. The entire archive file, including ZIP
 prefixes or trailing bytes, is limited to 512 MiB. The manifest limit is 256 KiB; uncompressed records are limited to

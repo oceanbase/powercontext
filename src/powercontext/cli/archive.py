@@ -143,7 +143,9 @@ async def _run_archive(
         async with open_builtin_runtime(config, _archive_recovery=recovery) as runtime:
             if runtime.archive is None:
                 raise RuntimeError("portable archive service is unavailable")  # noqa: TRY003
-            await _register_plugins(runtime.archive, settings.plugins_dir)
+            # Backups need only stored core records, even if a configured plugin cannot load.
+            if recovery:
+                await _register_plugins(runtime.archive, settings.plugins_dir)
             return await operation(runtime.archive)
 
 

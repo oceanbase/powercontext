@@ -185,9 +185,10 @@ powercontext archive restore ./payments.pcb --env-file ./oceanbase.env --yes
 ## 格式兼容窗口
 
 恢复包含插件 Artifact 的归档时，目标环境须通过 `POWERCONTEXT_SERVER_PLUGINS_DIR` 配置对应插件，
-`--dry-run` 也需要此配置。归档命令在子进程中检查声明，不启动插件 host、不运行 `setup`，也不调度生成。
+`--dry-run` 也需要此配置。恢复命令在子进程中检查声明，不启动插件 host、不运行 `setup`，也不调度生成。
 Core 校验 Artifact 的不透明存储封装；插件 Source observation 根据归档内携带的不可变 Source 定义校验。
-恢复保留版本元数据、历史和出处。插件独立存储仍不包含在归档内。
+恢复保留版本元数据、历史和出处。插件独立存储仍不包含在归档内。导出直接读取已存储的 core 记录，不加载插件，
+因此插件不可用时仍能创建备份。
 
 Bundle ID 必须使用带连字符、小写的标准 UUID 表示。完整归档文件连同 ZIP 前缀或尾随字节不得超过 512 MiB；manifest
 上限为 256 KiB，解压后的 record 流上限为 2 GiB，最多包含 2,000,000 条 record，每行 NDJSON 不超过 8 MiB。

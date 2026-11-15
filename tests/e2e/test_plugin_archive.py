@@ -105,7 +105,12 @@ def test_cli_restores_plugin_history_and_custom_sources_without_running_plugins(
             generated = await wait_for(lambda: items(client, scope, "tickets"), lambda value: len(value) == 1)
             generated_path = f"/v1/scopes/{scope}/artifacts/tickets/{generated[0]['artifact_id']}"
             generated_snapshot = (await client.get(generated_path)).json()
+        broken = plugins / "unavailable"
+        broken.mkdir()
+        (broken / "plugin.py").write_text('raise ImportError("fixture unavailable")\n', encoding="utf-8")
         await archive(source, "export", "--scope-id", scope, "--output", bundle)
+        (broken / "plugin.py").unlink()
+        broken.rmdir()
         rejected = await archive(target, "restore", bundle, "--dry-run", configured_plugins=False, expected=3)
         assert rejected["unsupported_artifact_families"] == ["notes", "tickets"]
         assert not (target / "server.db").exists()
