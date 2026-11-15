@@ -116,9 +116,28 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
     plugins = tmp_path / "plugins"
     (plugins / "notes").mkdir(parents=True)
     (plugins / "notes" / "plugin.py").write_text(PLUGIN, encoding="utf-8")
+    identities = _identities(tmp_path)
+
+    async def check_reads(viewer, shared, private, note, secret):
+        for scope, artifact, expected in ((shared, note, 200), (private, secret, 403)):
+            path = f"/v1/scopes/{scope}/artifacts/notes/{artifact}"
+            for url in (path, f"{path}/rendering", f"/v1/scopes/{scope}/artifacts/notes"):
+                response = await viewer.get(url)
+                assert response.status_code == expected, (url, response.text)
+            searched = await viewer.post(f"/v1/scopes/{scope}/artifacts/notes/search", json={"query": "note"})
+            assert searched.status_code == expected, searched.text
+            prepared = await viewer.post(
+                "/v1/context/prepare",
+                json={
+                    "scope_id": scope,
+                    "query": "note",
+                    "assembly": {"sections": [{"family": "notes", "limit": 2}]},
+                },
+            )
+            assert prepared.status_code == expected, prepared.text
 
     async def scenario():
-        async with running_server(tmp_path, plugins, extra_env=_identities(tmp_path)) as admin:
+        async with running_server(tmp_path, plugins, extra_env=identities) as admin:
             shared = await create_scope(admin, "plugin-access-shared")
             private = await create_scope(admin, "plugin-access-private")
             await _grant(admin, "alice", shared, "scope.contributor")
@@ -146,25 +165,7 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
 
                 # A Scope viewer reads plugin Artifacts only in the Scope it was granted.
                 path = f"/v1/scopes/{shared}/artifacts/notes/{note}"
-                for url in (path, f"{path}/rendering"):
-                    assert (await carol.get(url)).status_code == 200, url
-                found = await carol.post(f"/v1/scopes/{shared}/artifacts/notes/search", json={"query": "note"})
-                assert found.status_code == 200, found.text
-                hidden = f"/v1/scopes/{private}/artifacts/notes/{secret.json()['artifact_id']}"
-                for url in (hidden, f"{hidden}/rendering", f"/v1/scopes/{private}/artifacts/notes"):
-                    assert (await carol.get(url)).status_code == 403, url
-                searched = await carol.post(f"/v1/scopes/{private}/artifacts/notes/search", json={"query": "plan"})
-                assert searched.status_code == 403, searched.text
-                for scope, expected in ((shared, 200), (private, 403)):
-                    prepared = await carol.post(
-                        "/v1/context/prepare",
-                        json={
-                            "scope_id": scope,
-                            "query": "note",
-                            "assembly": {"sections": [{"family": "notes", "limit": 2}]},
-                        },
-                    )
-                    assert prepared.status_code == expected, prepared.text
+                await check_reads(carol, shared, private, note, secret.json()["artifact_id"])
 
                 # Another contributor cannot change Alice's note through a plugin route either.
                 routes = f"/v1/plugins/notes/api/scopes/{shared}/notes/{note}"
@@ -182,5 +183,14 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
             finally:
                 for client in users.values():
                     await client.aclose()
+
+        # Reopen the same database and identities in a new Server and plugin host.
+        async with (
+            running_server(tmp_path, plugins, extra_env=identities) as admin,
+            httpx.AsyncClient(
+                base_url=admin.base_url, headers={"Authorization": "Bearer carol-token"}, timeout=20
+            ) as carol,
+        ):
+            await check_reads(carol, shared, private, note, secret.json()["artifact_id"])
 
     asyncio.run(scenario())
