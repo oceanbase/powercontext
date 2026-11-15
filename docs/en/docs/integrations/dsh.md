@@ -634,3 +634,29 @@ Plain HTTP is allowed on loopback by default. For remote HTTP, explicitly set
 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled. The host URL aliases are
 checked in the order `BASE_URL`, `SERVER_URL`, then `ENDPOINT`, before `POWERCONTEXT_CLIENT_SERVER_URL`.
 See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
+
+
+## Read-only companion memory service
+
+The host plugin provides the optional Cordis service `powercontextCompanionMemory`, with protocol
+`powercontext.companion-memory.v1`. Trusted sibling plugins can soft-look it up with `ctx.get()`;
+it adds no Server HTTP endpoint and does not expose credentials or the raw client.
+
+`prepare({ sessionId, query?, maxBytes?, signal? })` resolves the actual host session working directory
+and uses the running plugin's client, authentication, transport policy and Scope override. A durable DSH
+workspace binding or explicit Scope is required (`allow_default: false`). Without a query it returns
+`connected`; with a query it prepares the Memory family and returns `ready` or `empty`. Successful
+results include `bindingId`, `scopeId`, `workspace`, and optional `content`. Consumers must isolate local
+history using `bindingId`; it changes with connection credentials, workspace or Scope. Equal Scope IDs
+at different connections are not the same memory identity.
+
+The service rejects missing sessions, workspace changes during a request, unresolved Scopes, malformed
+prepared context, cancellation and timeouts. Safe failure reasons are `session-required`,
+`workspace-unavailable`, `scope-unavailable`, and `connection-unavailable`. Plugin disposal cancels
+requests and unregisters the service. Callers should validate the protocol, enforce their own deadline,
+and keep normal operation available when the service is absent or fails.
+
+This service only reads project Memory. It does not capture companion dialogue, start another Server,
+merge pet memory into coding projects, or add implicit parent/user Scope recall. It is for trusted
+plugins in the same DSH process; it is not a browser-facing credential proxy or a new authorization
+boundary between mutually untrusted plugins.

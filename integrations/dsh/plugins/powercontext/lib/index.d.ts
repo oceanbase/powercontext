@@ -35,6 +35,32 @@ interface PluginConfig {
   updateHold?: boolean;
 }
 //#endregion
+//#region src/companion-memory.d.ts
+declare const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
+declare const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
+interface CompanionMemoryRequest {
+  sessionId: string;
+  /** Omit to inspect the binding without retrieving memory. */
+  query?: string;
+  maxBytes?: number;
+  signal?: AbortSignal;
+}
+type CompanionMemoryResult = {
+  status: 'connected' | 'ready' | 'empty';
+  /** Opaque connection + workspace + Scope identity; safe for local history partitioning. */
+  bindingId: string;
+  scopeId: string;
+  workspace: string;
+  content?: string;
+} | {
+  status: 'unavailable';
+  reason: 'session-required' | 'workspace-unavailable' | 'scope-unavailable' | 'connection-unavailable';
+};
+interface CompanionMemoryService {
+  readonly protocol: typeof COMPANION_MEMORY_PROTOCOL;
+  prepare(request: CompanionMemoryRequest): Promise<CompanionMemoryResult>;
+}
+//#endregion
 //#region src/index.d.ts
 declare const name = "powercontext-dsh";
 declare const inject: string[];
@@ -56,4 +82,4 @@ declare const Config: {
 };
 declare function apply(ctx: Context, config: Config): Promise<void>;
 //#endregion
-export { Config, apply, inject, name };
+export { COMPANION_MEMORY_PROTOCOL, COMPANION_MEMORY_SERVICE, type CompanionMemoryRequest, type CompanionMemoryResult, type CompanionMemoryService, Config, apply, inject, name };
