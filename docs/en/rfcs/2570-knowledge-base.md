@@ -31,8 +31,8 @@ holds bodies and indexes. Existing scheduling, revision preconditions, and lifec
 
 # Guide-level explanation
 
-1. Select a plugin-local space, defaulting to the caller's own default space. An administrator creates a knowledge-base Scope
-   in that space and saves parsing/chunking configuration.
+1. Select a plugin-local space; if the UI has no selection, read the caller's default first and pin space_scope_id for creation.
+   An administrator creates the knowledge-base Scope there and saves parsing/chunking configuration.
 2. Upload files through the Dashboard or import a Server-readable directory; select multiple knowledge bases within the space for retrieval.
 3. The plugin saves immutable snapshots, registers Sources, and submits processing-request Sources. Acceptance is not parsing success.
 4. Framework generate asynchronously processes Markdown/images, prepares complete chunks and indexes, then publishes a document.
@@ -83,7 +83,7 @@ flowchart TD
   D --> Q[Retrieval and exact chunk reads]
 ```
 
-Create through ctx.scopes.create with the existing server.admin requirement; the same idempotency key returns the same Scope.
+Create through ctx.scopes.create with server.admin; a key derived from the same full creation identity returns the same Scope.
 The framework's plugin external reference identifies creator ownership. Scope fields hold title/summary; plugin tables hold
 business configuration. Retry configuration after a successful Scope creation if its separate write fails; reject imports
 until configuration is ready. Reuse Scope read/contribute, Artifact write, and framework preconditions. Plugin routes must not
@@ -112,9 +112,19 @@ write, permission inheritance, tenant isolation, or cascade deletion. An inacces
 selection; a space without readable bases returns no hits, never a global fallback. Moving knowledge bases or deleting spaces
 is not supported initially, avoiding implicit data migrations.
 
-Creating a knowledge base resolves its space, idempotently creates the core Scope, then commits membership/configuration in
-plugin storage before reporting readiness. A creation key cannot rebind to another space. Retry incomplete registration using
-the same key; a Scope missing membership/configuration cannot receive imports or enter space queries.
+The knowledge-base creation POST requires an explicit nonempty space_scope_id; missing/empty values return 422. The server
+never resolves the default during creation or retry. Dashboard/other callers first read the default or use an explicit selection,
+then pin the space ID, request key, and creation parameters. Automatic retries preserve them even if the user's default changes.
+
+The full creation identity is (ctx.caller.principal_id, space_scope_id, idempotency_key). Derive a key using versioned canonical
+encoding and a digest of that tuple for ctx.scopes.create; core adds the plugin-name prefix itself. Never pass only the client's
+raw request key or put space membership into core Scope fields. The same full identity returns the same Scope and must match
+existing plugin membership. Different callers/spaces with the same raw key are different creations, never reuse or relocation.
+
+After validating the space and permissions, idempotently create the core Scope, then commit unique membership/configuration
+in plugin storage before reporting readiness. Retry incomplete registration using the pinned space and full creation identity;
+a Scope missing membership/configuration cannot receive imports or enter space queries. Queries and knowledge-base lists may
+still omit the space and resolve the current default; those read rules never change a creation's pinned target.
 
 ## 2. Local storage, identity, and request acceptance
 
@@ -290,7 +300,8 @@ default successful JSON responses may use 200.
 | --- | --- |
 | List/create/rename spaces | GET/POST `P/spaces`, PATCH `P/spaces/{space_scope_id}`; plugin-local spaces, writes require idempotency keys or version preconditions |
 | My default space | GET/PUT `P/me/default-space`; current caller's space_scope_id and version; no caller-supplied principal_id for other users |
-| List/create knowledge bases | GET/POST `P/knowledge-bases`; optional space_scope_id, otherwise resolve default; create core Scope and save membership/configuration, returning both IDs |
+| List knowledge bases | GET `P/knowledge-bases`; optional space_scope_id, otherwise use the current default |
+| Create knowledge base | POST `P/knowledge-bases`; required space_scope_id and idempotency_key; idempotency uses caller + space + request key, returning both IDs |
 | Rename/configure knowledge base | PATCH `P/scopes/{s}/settings`; ctx.scopes.update for title/summary, plugin storage for chunking, separate version preconditions |
 | Import files | POST `P/scopes/{s}/imports`, bounded paths and idempotency_key; per-file request SourceRefs |
 | Browser upload | POST `P/scopes/{s}/uploads`, binary body; collection, relative_path, idempotency_key in query; same acceptance path |
@@ -377,7 +388,9 @@ PluginPages provides space/default selection, knowledge-base management, Markdow
 local-directory import, document/request status, retry/reprocess, paginated chunk metadata/bodies, history viewing, synchronous
 edit/removal, document forget, and multi-base retrieval within a space. Filter lists by permissions and retain operation-specific
 access checks: creation/configuration management requires server.admin, imports require scope.contribute, and edit/forget retain
-artifact.write. Resolve valid chunking configuration before initial import; no separate post-upload pending-configuration queue.
+artifact.write. Pin the selected/default space before submitting creation; retries preserve space_scope_id and the request key.
+Changing the creation target is a new user operation. Resolve valid chunking configuration before initial import; no separate
+post-upload pending-configuration queue.
 
 Display the usable revision separately from the latest request. A failure does not hide previously committed content. Successful
 edits show the new revision; conflicts require re-reading, and uncertain responses require reconciliation. Removing the final
@@ -409,6 +422,7 @@ Validate on SQLite, SeekDB, and OceanBase:
 - Default/explicit space queries, empty selections, inaccessible/out-of-space rejection, filtered counts, global top-k, scoped citations.
 - Sandboxed Dashboard generic-operation forwarding, preserved If-Match, zero-chunk edits, separate statuses and usable old revisions.
 - Administrator-only Scope creation, membership/configuration retry, multi-Scope isolation, snapshots, stable identities/path bounds for both origins.
+- Missing creation space returns 422; after core success/plugin failure, changing the default does not redirect the retry; raw keys cannot collide across callers/spaces.
 - Retries across import acceptance boundaries, key conflicts, content deduplication, repeated handling, and deterministic failures
   that do not block later files.
 - Window rollback/redelivery, failure observations versus committed core success, and pinned-base conflicts without automatic rebasing.

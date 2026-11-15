@@ -27,7 +27,7 @@ Dashboard、浏览器上传和空间内跨知识库检索。空间是组织与�
 
 # 使用层说明
 
-1. 用户选择插件内空间，未指定则使用自己的默认空间。管理员在空间中创建知识库 Scope，并保存解析／切块配置。
+1. 用户选择插件内空间；界面未选择时先读取自己的默认空间，再固定 space_scope_id 发起创建。管理员创建知识库 Scope 并保存配置。
 2. 用户通过 Dashboard 上传文件，或导入 Server 可访问的本地目录；可在空间内选择多个知识库联合检索。
 3. 插件保存不可变原文快照、登记 Source，并提交处理请求 Source；导入接受不等于解析完成。
 4. 框架异步调用 generate，处理 Markdown／图片，准备完整 chunks 和索引，再发布 document。
@@ -74,7 +74,7 @@ flowchart TD
   D --> Q[Retrieval and exact chunk reads]
 ```
 
-通过 ctx.scopes.create 创建 Scope，沿用 server.admin 要求；同幂等键返回同一 Scope。框架的插件外部引用标识创建归属。
+通过 ctx.scopes.create 创建 Scope，沿用 server.admin 要求；同完整创建身份派生的幂等键返回同一 Scope。框架的插件外部引用标识创建归属。
 标题／摘要使用 Scope 字段，业务配置使用插件表。Scope 创建成功但配置失败时，重试补齐配置；配置未就绪时拒绝导入。
 授权沿用 Scope read／contribute、Artifact write 及框架版本校验，插件接口不得将 Scope 贡献权限等同于任意文档修改权限。
 
@@ -95,8 +95,16 @@ Workspace 可以是英文展示词，不是新增 Artifact family 或另一套 c
 归属不授予 Scope read／contribute 或 Artifact write，也不产生权限继承、租户隔离和级联删除。默认空间失去可见性时返回错误并要求
 重新选择；没有可读知识库时返回空结果，不回退全局搜索。首期不支持变更知识库所属空间或删除空间，避免隐含跨库数据迁移。
 
-创建知识库时先解析空间，随后幂等创建 core Scope，并在插件事务内保存唯一归属和配置；全部完成后才报告可用。
-相同创建键不得改绑到其他空间。core 创建成功而插件事务失败时，同键补齐；归属／配置不完整的 Scope 不参与空间查询，也不可导入。
+创建知识库的 POST 必须显式携带非空 space_scope_id；缺失或为空返回 422，服务端不在创建或重试时解析默认空间。
+Dashboard／其他调用者先读取默认空间（或使用用户选择），再固定空间 ID、请求键及创建参数；自动重试原样复用，默认空间切换不改变目标。
+
+完整创建身份为 (ctx.caller.principal_id, space_scope_id, idempotency_key)。插件对该元组做带版本的规范化编码和摘要，作为
+ctx.scopes.create 的幂等键；core 自己添加插件名前缀。不能只把客户端裸请求键传给 core，也不把空间关系写入 core Scope 字段。
+同完整身份返回同一 Scope，插件已有归属必须匹配；不同调用者或空间即使裸键相同也是不同创建，不得复用或迁移已有 Scope。
+
+验证空间及权限后，幂等创建 core Scope，再在插件事务内保存唯一归属和配置；全部完成后才报告可用。
+core 创建成功而插件事务失败时，使用固定空间和完整创建身份补齐；归属／配置不完整的 Scope 不参与空间查询，也不可导入。
+查询和知识库列表仍允许省略空间并使用当前默认值；创建的固定目标不随这些读取规则变化。
 
 ## 2. 本地存储、身份与请求接受
 
@@ -238,7 +246,8 @@ Content Source，document revision 增加。修改保留逻辑 chunk ID 和原�
 | --- | --- |
 | 空间列表／创建／改名 | GET／POST `P/spaces`、PATCH `P/spaces/{space_scope_id}`；插件内逻辑空间，写入带幂等键或版本前置条件 |
 | 我的默认空间 | GET／PUT `P/me/default-space`；当前用户的 space_scope_id 和 version，不接受替他人设置的 principal_id |
-| 知识库列表／创建 | GET／POST `P/knowledge-bases`，可指定 space_scope_id，否则解析默认空间；创建 core Scope 并保存归属／配置，返回两类 ID |
+| 知识库列表 | GET `P/knowledge-bases`，space_scope_id 可省略，使用当前默认空间 |
+| 创建知识库 | POST `P/knowledge-bases`，必填 space_scope_id 和 idempotency_key；按调用者＋空间＋请求键幂等创建，返回两类 ID |
 | 知识库改名／配置 | PATCH `P/scopes/{s}/settings`；名称／摘要复用 ctx.scopes.update，切块配置存插件；分别使用版本前置条件 |
 | 导入文件 | POST `P/scopes/{s}/imports`，有界 paths、idempotency_key；返回逐文件请求 SourceRef |
 | 浏览器上传 | POST `P/scopes/{s}/uploads`，二进制正文，query 携带 collection、relative_path、idempotency_key；复用同一接受流程 |
@@ -317,6 +326,7 @@ Python／HTTP 复用相同业务语义。通用 search／Prepared Context 保持
 通过 PluginPages 提供知识库页面。界面包含空间／默认空间选择、知识库管理、Markdown／独立图片拖拽上传和本地目录导入、
 文档与请求状态、重试／重解析、分页 chunk 目录与正文、历史查看、同步编辑／移除、文档遗忘及空间内多库检索。
 空间和知识库列表均权限过滤；创建／配置管理要求 server.admin，内容导入要求 scope.contribute，编辑／forget 保留 artifact.write。
+创建按钮提交前固定所选／默认空间，重试保留原 space_scope_id 和请求键；用户切换创建目标是新的操作。
 首次导入前就确定有效切块配置，不引入上传后的独立待配置任务队列。
 
 文档页面同时展示“当前可用 revision”和“最近处理请求”；失败不隐藏旧有效内容。编辑成功显示新 revision，冲突要求重新读取，
@@ -343,6 +353,7 @@ setup 调用插件自己的幂等初始化及 schema 版本检查；升级迁移
 - 空间默认与显式查询、空列表、越权／空间外库拒绝、权限过滤计数、全局 top-k 及带 Scope 的精确引用。
 - Dashboard 沙箱通用操作转发、If-Match 保留、零 chunk 编辑、双状态展示和失败后的旧版本可用性。
 - 创建 Scope 的管理员权限、归属／配置补写、多 Scope 隔离和固定原文快照；两种导入来源的稳定身份及路径约束。
+- 创建缺少空间返回 422；core 成功／插件失败后切换默认空间，重试仍完成原空间归属；不同调用者／空间的裸键不碰撞。
 - 导入请求各提交边界的重试、同键冲突、内容去重、重复处理及确定失败不阻塞后续文件。
 - 框架窗口回滚／重新投递、失败观察与 core 成功对账；固定 base 冲突不能自动换基准。
 - Markdown、真实 RapidOCR、超长块、完整 embedding 输入预算、原文溯源与人工标记。
