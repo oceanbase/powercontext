@@ -559,7 +559,7 @@ CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-m
 `powercontext.companion-memory.v1`。同一宿主内受信任的插件可以通过 `ctx.get()` 软查询，
 不增加 Server HTTP 路由，也不暴露凭据或原始客户端。
 
-`prepare({ sessionId, query?, maxBytes?, signal? })` 从真实宿主会话读取工作目录，复用运行中插件的
+`prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` 从真实宿主会话读取工作目录，复用运行中插件的
 客户端、认证、传输策略和 Scope 覆盖设置。必须有持久的 DSH 工作区绑定或显式 Scope，
 解析时使用 `allow_default: false`。省略 query 时返回 `connected`；给定 query 时仅准备 Memory
 类型，返回 `ready` 或 `empty`。成功结果包含 `bindingId`、`scopeId`、`workspace` 以及可选的
@@ -574,3 +574,9 @@ CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-m
 该接口只读取项目 Memory，不采集桌宠对话、不启动另一个 Server、不将桌宠私有记忆合并进代码项目，
 也不隐式跨父级或用户 Scope 召回。它服务于同一 DSH 进程内受信任的插件，不是浏览器凭据代理，
 也不是互不信任插件之间新增的授权边界。
+
+可选追踪字段 `traceContext: { traceparent }` 接受有效的 W3C version-00 父级，trace ID 和 span ID
+不能全为零。客户端只在本次 `prepare_context` HTTP 请求上转发它；无效元数据会被忽略，并发调用
+各自保留父级。本扩展不关联工作区绑定请求、不配置全局 tracer／exporter、不转发任意请求头或
+baggage、不改变授权，也不将追踪元数据放入查询。Server 需要单独启用并配置 OTLP 导出器，才能
+看到下游阶段。旧调用方可以省略该字段，旧服务实现也可忽略它，不影响召回。

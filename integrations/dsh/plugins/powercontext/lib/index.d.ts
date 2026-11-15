@@ -35,6 +35,12 @@ interface PluginConfig {
   updateHold?: boolean;
 }
 //#endregion
+//#region src/trace-context.d.ts
+/** Optional propagation from a trusted, in-process companion. Never accept arbitrary headers or baggage. */
+interface TraceContext {
+  traceparent: string;
+}
+//#endregion
 //#region src/companion-memory.d.ts
 declare const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
 declare const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
@@ -44,6 +50,8 @@ interface CompanionMemoryRequest {
   query?: string;
   maxBytes?: number;
   signal?: AbortSignal;
+  /** Optional W3C v00 parent for this recall; never grants access or changes Scope binding. */
+  traceContext?: TraceContext;
 }
 type CompanionMemoryResult = {
   status: 'connected' | 'ready' | 'empty';

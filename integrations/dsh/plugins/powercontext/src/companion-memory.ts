@@ -21,6 +21,7 @@ import type { PluginRuntime } from './invoke.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { ServerResponseError } from './errors.ts'
 import { scrubSecrets } from './secrets.ts'
+import type { TraceContext } from './trace-context.ts'
 
 export const COMPANION_MEMORY_SERVICE = 'powercontextCompanionMemory'
 export const COMPANION_MEMORY_PROTOCOL = 'powercontext.companion-memory.v1'
@@ -31,6 +32,8 @@ export interface CompanionMemoryRequest {
   query?: string
   maxBytes?: number
   signal?: AbortSignal
+  /** Optional W3C v00 parent for this recall; never grants access or changes Scope binding. */
+  traceContext?: TraceContext
 }
 
 export type CompanionMemoryResult = {
@@ -106,7 +109,7 @@ export function registerCompanionMemory(ctx: CompanionHost, runtime: PluginRunti
           scope_id: scopeId, query, max_bytes: maxBytes,
           // A companion reads project memories; it does not inherit unrelated context families.
           assembly: { sections: [{ family: 'memory', limit: 3 }] },
-        }, signal)
+        }, signal, { traceContext: request.traceContext })
         signal.throwIfAborted()
         if (cwdFor(request.sessionId) !== cwd) return { status: 'unavailable', reason: 'workspace-unavailable' }
         const prepared = validatePreparedContext(result.kind === 'json' ? result.value : undefined,

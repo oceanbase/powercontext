@@ -2002,6 +2002,17 @@ function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
 }
 
 //#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value) {
+	const parent = value?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
+}
+
+//#endregion
 //#region src/client.ts
 const MIN_READINESS_TIMEOUT_MS = 4e4;
 function combineSignals(signals) {
@@ -2147,6 +2158,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -4523,7 +4535,7 @@ function registerCompanionMemory(ctx, runtime) {
 						family: "memory",
 						limit: 3
 					}] }
-				}, signal);
+				}, signal, { traceContext: request$2.traceContext });
 				signal.throwIfAborted();
 				if (cwdFor(request$2.sessionId) !== cwd) return {
 					status: "unavailable",

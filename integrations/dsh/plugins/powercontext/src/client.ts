@@ -29,6 +29,7 @@ import {
 } from './errors.ts'
 import { OPERATIONS, type OperationId, type OperationSpec } from './operations.generated.ts'
 import { normalizeServerUrl } from './transport.ts'
+import { traceContextHeaders, type TraceContext } from './trace-context.ts'
 
 // Cold readiness can spend 30s on inference, then 5s on access checks. Leave transport headroom.
 const MIN_READINESS_TIMEOUT_MS = 40_000
@@ -226,11 +227,12 @@ export class PowerContextClient {
     id: string,
     payload?: JsonObject,
     signal?: AbortSignal,
-    options: { readinessResponse?: boolean } = {},
+    options: { readinessResponse?: boolean; traceContext?: TraceContext } = {},
   ): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
+    Object.assign(prepared.headers, traceContextHeaders(options.traceContext))
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
     const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id))
     if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(undefined, init.signal))

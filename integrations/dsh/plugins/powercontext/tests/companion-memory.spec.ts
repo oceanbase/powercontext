@@ -20,6 +20,7 @@ import { registerCompanionMemory, COMPANION_MEMORY_SERVICE, type CompanionMemory
 import { ServerResponseError } from '../src/errors.ts'
 import { resolveConfig } from '../src/config.ts'
 import type { PluginRuntime } from '../src/invoke.ts'
+import { PowerContextClient } from '../src/client.ts'
 
 function fixture() {
   let cwd: string | undefined = '/projects/alpha'
@@ -44,6 +45,27 @@ function fixture() {
 }
 
 describe('optional companion memory service', () => {
+  it('propagates valid per-call parents without exposing credentials or accepting arbitrary headers', async () => {
+    const f = fixture()
+    const seen: Headers[] = []
+    f.runtime.client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8765', authorization: 'Bearer actual-host-key', requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        seen.push(new Headers(init.headers))
+        const content = 'Project memory'
+        return new Response(JSON.stringify({ schema: 'powercontext.prepared-context.v1', status: 'ready', content, content_bytes: Buffer.byteLength(content) }), { headers: { 'content-type': 'application/json' } })
+      },
+    })
+    const parents = ['1', '2'].map(char => `00-${char.repeat(32)}-${char.repeat(16)}-01`)
+    await Promise.all(parents.map(traceparent => f.service.prepare({
+      sessionId: 'active', query: 'hello', traceContext: { traceparent, authorization: 'injected-key' } as { traceparent: string },
+    })))
+    expect(seen.map(headers => headers.get('traceparent'))).toEqual(parents)
+    expect(seen.every(headers => headers.get('authorization') === 'Bearer actual-host-key')).toBe(true)
+    await f.service.prepare({ sessionId: 'active', query: 'hello', traceContext: { traceparent: 'invalid\r\nbaggage: secret' } })
+    expect(seen[2].has('traceparent')).toBe(false)
+    expect(seen[2].has('baggage')).toBe(false)
+  })
   it('reuses the running transport and requires an explicit or durable workspace binding', async () => {
     const f = fixture()
     const result = await f.service.prepare({ sessionId: 'active', query: 'Which database?', maxBytes: 1024 })
@@ -52,7 +74,7 @@ describe('optional companion memory service', () => {
     expect(f.request).toHaveBeenCalledWith('prepare_context', {
       scope_id: 'scope-alpha', query: 'Which database?', max_bytes: 1024,
       assembly: { sections: [{ family: 'memory', limit: 3 }] },
-    }, expect.any(AbortSignal))
+    }, expect.any(AbortSignal), { traceContext: undefined })
     expect(JSON.stringify(result)).not.toContain('private-token')
     expect(JSON.stringify(result)).not.toContain('127.0.0.1')
   })

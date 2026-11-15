@@ -642,7 +642,7 @@ The host plugin provides the optional Cordis service `powercontextCompanionMemor
 `powercontext.companion-memory.v1`. Trusted sibling plugins can soft-look it up with `ctx.get()`;
 it adds no Server HTTP endpoint and does not expose credentials or the raw client.
 
-`prepare({ sessionId, query?, maxBytes?, signal? })` resolves the actual host session working directory
+`prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` resolves the actual host session working directory
 and uses the running plugin's client, authentication, transport policy and Scope override. A durable DSH
 workspace binding or explicit Scope is required (`allow_default: false`). Without a query it returns
 `connected`; with a query it prepares the Memory family and returns `ready` or `empty`. Successful
@@ -660,3 +660,11 @@ This service only reads project Memory. It does not capture companion dialogue, 
 merge pet memory into coding projects, or add implicit parent/user Scope recall. It is for trusted
 plugins in the same DSH process; it is not a browser-facing credential proxy or a new authorization
 boundary between mutually untrusted plugins.
+
+For optional tracing, `traceContext: { traceparent }` accepts a valid W3C version-00 parent with
+nonzero trace and span IDs. The client forwards it only on this call's `prepare_context` HTTP request;
+invalid metadata is ignored. Concurrent calls retain their own parents. This extension does not join
+workspace-binding requests, configure a global tracer/exporter, forward arbitrary headers or baggage,
+change authorization, or put tracing metadata into the query. The Server must separately enable and
+configure its OTLP exporter for the downstream stages to be visible. Older companions may omit this
+field, and older service implementations may ignore it without affecting recall.
