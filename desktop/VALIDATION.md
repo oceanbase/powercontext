@@ -3584,3 +3584,62 @@ profiles retain their original source, contract, artifact and evidence identitie
 This is local SQLite protocol qualification, not an installed WebView or
 credential-persistence test, other-platform qualification, external database
 deployment, gateway transport acceptance, or release approval.
+
+## Server dc99352f memory gateway protocol qualification
+
+`sqlite-memory-gateway-dc99352f-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `dc99352fa53f9db07398000e904cb006c7b17a01`. The combined
+OpenAPI includes keyed Memory creation and Gateway lifecycle metadata.
+
+- Normalized OpenAPI SHA-256: `4ebf65e50668d64b7856c7f72667f7758840a49e443d1bb618318ac5d4615c00`.
+- Wheel: `powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl`.
+- Wheel SHA-256: `ee4f6c22345711c1a52e043bca950c7655a2323ef1aacf6c5428329dcb757ad5`.
+- Native debug probe SHA-256: `ff98d330b4fb9f2ff958b2badd2ab3234f097ced473d3997b72e4e904e5ca6ae`.
+
+All 799 packaged runtime files match the exact Git source archive after CRLF
+normalization, with no missing, extra or changed files. The wheel was built from the
+clean recorded commit with its actual VCS development version. Rust 1.95.0 built the
+ordinary product probe with `cargo build --locked`, without `ci-fixtures`; the client
+working tree contained the added qualification record.
+
+On 2026-11-15, a dedicated remote Linux x86_64 server ran the unchanged real-Server
+harness in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and Python 3.12.3.
+Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and enforced
+Provider modes all passed. Every mode reported `bundled product records`, the exact
+qualification above and matching client/Server contract digests. Checks cover identity,
+Scope selection, Memory save/search/exact reads, statistics, committed writes with lost
+responses without replay, and Server survival after client exit. Provider mode also
+checks Principal changes, revocation, scoped authorization without Server observation
+permission, and 51 same-title Scopes. Statistics usage is controlled fixture input.
+
+The generated Python and Desktop contracts are current. The Desktop generator and its
+check mode pass with Node 24.14.1, OpenAPI Generator 7.26.0 and Rustfmt 1.95.0;
+TypeScript checking also passes. The contract suite passes 69 tests, the idempotency
+end-to-end suite passes 18 tests, and all nine native session tests pass. `make check`
+passes, including type checks and 61 integration-manifest tests. Skill pin and
+tool-contract fixture checks pass. The missing-profile assertion was reproduced before
+adding this record.
+
+The wheel, source comparison, probe checksum and four-mode report are retained on the
+remote server under ignored `desktop/.artifacts/pr2583-nov15/`. Historical qualification
+records and authenticated-client mappings retain their evidence identities. These results
+qualify the Desktop HTTP/SQLite protocol, not the Rust Gateway lifecycle routes,
+installed WebView, credential persistence, other platforms, external databases, database
+upgrades or release publication. The probe does not send `idempotency_key`; the separate
+idempotency suite covers keyed writes, replay, conflict and authorization.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-gateway-dc99352f-v1 \
+  --wheel desktop/.artifacts/pr2583-nov15/server-wheel/powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约和 wheel，799 个运行时文件与源码归档一致。远端容器中的匿名、
+Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 模式全部通过，产品连接管理器选中同一内置记录。
+合同测试 69 项、幂等端到端测试 18 项、原生 session 测试 9 项及完整代码质量检查通过。
+历史资格与已认证客户端映射保留各自证据。本记录验证 Desktop 协议，不代替 Rust Gateway 生命周期、
+安装版界面、凭据持久化、其他平台、外部数据库、升级或发布验收；幂等 key 由独立端到端测试覆盖。
