@@ -49,6 +49,8 @@ from powercontext.builtin.plugins.host_protocol import (
     HostRequest,
     HostResponse,
     HostShutdown,
+    HostStarted,
+    HostUpgraded,
     PipeChannel,
     PluginHostSpec,
 )
@@ -198,6 +200,11 @@ class _Host:
                 await asyncio.wait(tasks.values(), timeout=10)
             heartbeat.cancel()
 
+    async def _report(self, message: object) -> None:
+        # The Server times each startup phase; the upgrade-only child has no Server to report to.
+        if self.channel is not None:
+            await self._send(message)
+
     async def _beat(self) -> None:
         while True:
             try:
@@ -246,8 +253,10 @@ class _Host:
             models=models,
             host=self,
         )
+        await self._report(HostStarted())
         if declaration.upgrade is not None:
             await self._upgrade(declaration.upgrade, context)
+            await self._report(HostUpgraded())
         if not serve:
             return ()
         self.plugin = await declaration.setup(context)

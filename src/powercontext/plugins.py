@@ -235,6 +235,8 @@ class ArtifactPluginSpec(BaseModel):
     host_processes: int = Field(default=1, ge=1)
     # Time limit of ``upgrade``, which runs every time a version of the plugin loads.
     upgrade_timeout_seconds: float = Field(default=600, gt=0)
+    # Time limit of ``setup``, counted from the end of ``upgrade``, or of core's startup when there is none.
+    setup_timeout_seconds: float = Field(default=60, gt=0)
     api: PluginApiSpec | None = None
     pages: PluginPages | None = None
 

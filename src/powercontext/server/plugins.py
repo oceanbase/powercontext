@@ -76,15 +76,18 @@ from powercontext.http._generated.models import PluginPage, PluginScopePage, Plu
 from powercontext.plugins import Cron, Interval
 from powercontext.server.plugin_hosts import READY_TIMEOUT_SECONDS, HostProcessBudget, PluginHost
 from powercontext.server.plugin_versions import (
+    ProcessSnapshots,
     content_digest,
     make_snapshot,
     remove_snapshot,
-    remove_stale_snapshots,
 )
 
 logger = logging.getLogger(__name__)
 # How soon a dirty Scope is admitted when the plugin asks to run on new Sources.
 ON_SOURCES_INTERVAL_SECONDS = 2.0
+FAMILY_CONFLICT = "family is already provided by another plugin"
+_RETRY_START_SECONDS = 300.0
+_RETRY_LIMIT_SECONDS = 3600.0
 # A replaced snapshot outlives the Worker time limit by this much before it is deleted.
 _WORKER_GRACE_SECONDS = 60.0
 
@@ -113,7 +116,8 @@ async def _run_upgrade(spec: PluginHostSpec, timeout: float) -> bool:  # noqa: A
 @dataclass
 class _Plugin:
     name: str
-    # The deployer's directory; it is only scanned, never imported from.
+    # The deployer's directory, unresolved: a symbolic link may be switched to another release at any time.
+    # It is only scanned, never imported from.
     directory: Path
     manifest: PluginManifest | None = None
     # Why no version of the plugin is loaded.
@@ -126,6 +130,11 @@ class _Plugin:
     last_check_failure: str | None = None
     last_digest: str | None = None
     failed_digest: str | None = None
+    # When the failed version is checked again, and the wait after that failure.
+    retry_at: float = 0.0
+    retry_seconds: float = 0.0
+    # Scans in a row that did not see the directory; it is removed after two, like any other change.
+    missing_scans: int = 0
 
     @property
     def failure(self) -> str | None:
@@ -167,6 +176,10 @@ class _Plugin:
             if spec is None or spec.pages is None
             else {"title": spec.pages.title, "path": f"/dashboard/plugins/{self.name}"},
         })
+
+
+def _failure_event(category: str | None) -> str:
+    return "upgrade_failed" if category in {"upgrade_failed", "upgrade_timeout"} else "check_failed"
 
 
 def _binding_fields(manifest: PluginManifest) -> dict[str, Any]:
@@ -244,7 +257,8 @@ class PluginManager:
         self._resources = AsyncExitStack()
         self.inference_config = inference_config
         self.storage_root = None if storage_root is None else str(storage_root)
-        self.snapshot_root = snapshot_root
+        self._snapshots = None if snapshot_root is None else ProcessSnapshots(snapshot_root)
+        self._snapshot_directory: Path | None = None
         # 0 turns off rescanning: plugins load once at startup.
         self.rescan_seconds = rescan_seconds
         self.host_security_builder = host_security_builder or security_builder
@@ -264,11 +278,9 @@ class PluginManager:
     async def __aenter__(self) -> PluginManager:
         if self.plugins_dir is None:
             return self
-        started = time.time()
+        if self._snapshots is not None:
+            self._snapshot_directory = await asyncio.to_thread(self._snapshots.open)
         await self.scan(initial=True)
-        if self.snapshot_root is not None:
-            current = frozenset(plugin.snapshot for plugin in self.plugins.values() if plugin.snapshot is not None)
-            await asyncio.to_thread(remove_stale_snapshots, self.snapshot_root, older_than=started, keep=current)
         if self.rescan_seconds > 0:
             self._scanner = asyncio.create_task(self._rescan(), name="plugin-rescan")
         return self
@@ -286,6 +298,8 @@ class PluginManager:
             return_exceptions=True,
         )
         await self._resources.aclose()
+        if self._snapshots is not None:
+            await asyncio.to_thread(self._snapshots.close)
 
     # Scanning
 
@@ -317,7 +331,8 @@ class PluginManager:
         for entry in entries:
             plugin = self.plugins.get(entry.name)
             if plugin is None:
-                plugin = self.plugins[entry.name] = _Plugin(name=entry.name, directory=entry.resolve())
+                plugin = self.plugins[entry.name] = _Plugin(name=entry.name, directory=entry)
+            plugin.missing_scans = 0
             try:
                 digest = await asyncio.to_thread(content_digest, plugin.directory)
             except OSError:
@@ -325,11 +340,16 @@ class PluginManager:
             stable = initial or digest == plugin.last_digest
             plugin.last_digest = digest
             current = None if plugin.manifest is None else plugin.manifest.fingerprint
-            if digest in {current, plugin.failed_digest} or not stable:
+            retry_due = digest == plugin.failed_digest and time.monotonic() >= plugin.retry_at
+            if digest == current or (digest == plugin.failed_digest and not retry_due) or not stable:
                 continue
             await self._activate(plugin, digest)
         for name in set(self.plugins) - names:
-            await self._remove(self.plugins.pop(name))
+            plugin = self.plugins[name]
+            plugin.missing_scans += 1
+            # A directory being replaced by a rename may be missing from one scan.
+            if plugin.missing_scans >= 2 or plugin.manifest is None:
+                await self._remove(self.plugins.pop(name))
         await asyncio.to_thread(self._collect_snapshots)
         if not initial or self.rescan_seconds > 0:
             log_safely(
@@ -362,10 +382,12 @@ class PluginManager:
     # Activation
 
     async def _activate(self, plugin: _Plugin, digest: str) -> None:
-        if self.snapshot_root is None:
+        if self._snapshot_directory is None:
             snapshot = None
         else:
-            snapshot = await asyncio.to_thread(make_snapshot, plugin.directory, self.snapshot_root, plugin.name, digest)
+            snapshot = await asyncio.to_thread(
+                make_snapshot, plugin.directory, self._snapshot_directory, plugin.name, digest
+            )
             if snapshot is None:
                 # The directory changed while it was copied; wait for it to settle again.
                 plugin.last_digest = None
@@ -379,7 +401,7 @@ class PluginManager:
                 and other.manifest.spec.family == manifest.spec.family
                 for other in self.plugins.values()
             ):
-                raise ValueError("family is already provided by another plugin")  # noqa: TRY003, TRY301
+                raise ValueError(FAMILY_CONFLICT)  # noqa: TRY301
         except Exception as error:
             self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
             return
@@ -389,6 +411,10 @@ class PluginManager:
             await self._update(plugin, manifest, snapshot, digest)
 
     def _check_failed(self, plugin: _Plugin, digest: str, category: str, *, event: str = "check_failed") -> None:
+        # The same version is checked again after a wait that doubles on each failure; a new version at once.
+        repeated = plugin.failed_digest == digest and plugin.retry_seconds > 0
+        plugin.retry_seconds = min(plugin.retry_seconds * 2, _RETRY_LIMIT_SECONDS) if repeated else _RETRY_START_SECONDS
+        plugin.retry_at = time.monotonic() + plugin.retry_seconds
         plugin.failed_digest = digest
         plugin.last_check_failure = category
         if plugin.manifest is None:
@@ -433,7 +459,7 @@ class PluginManager:
                 plugin,
                 digest,
                 category or message,
-                event="upgrade_failed" if category == "upgrade_failed" else "check_failed",
+                event=_failure_event(category),
             )
             self._sync_registry()
             return
@@ -465,39 +491,49 @@ class PluginManager:
         # Without upgrade the first process starts in the background, so a slow start delays no request
         # path; an upgrade must finish before the version is used.
         if manifest.upgrade or plugin.host is not None:
-            failure = await host.wait_ready(READY_TIMEOUT_SECONDS + manifest.spec.upgrade_timeout_seconds)
+            failure = await host.wait_ready()
             if failure is not None:
                 await host.close()
                 return failure
         return host
 
     async def _update(self, plugin: _Plugin, manifest: PluginManifest, snapshot: Path | None, digest: str) -> None:
+        """Replace the loaded version, or keep it when the new one cannot be used.
+
+        Everything that can fail runs before the old version is released: registering the new Source
+        Definitions, which the database may reject, and starting the new host process. The switch
+        itself only replaces this process's registrations; if it still fails, the old version is put back.
+        """
+
         old = plugin.manifest
         assert old is not None  # noqa: S101 - updates replace a loaded version
+        declaration_changed = old.declaration_digest != manifest.declaration_digest
+        try:
+            if declaration_changed:
+                # Definitions are kept by name and version, so one registered here stays harmless if the update stops.
+                await self._register_source_definitions(manifest)
+        except Exception as error:
+            self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
+            return
         prepared = await self._prepare_version(plugin, manifest, snapshot)
         if isinstance(prepared, str):
-            self._check_failed(
-                plugin, digest, prepared, event="upgrade_failed" if prepared == "upgrade_failed" else "check_failed"
-            )
+            self._check_failed(plugin, digest, prepared, event=_failure_event(prepared))
             return
         old_snapshot, old_host = plugin.snapshot, plugin.host
         family_changed = old.spec.family != manifest.spec.family
         rebind = family_changed or _binding_fields(old) != _binding_fields(manifest)
         try:
-            if rebind:
-                await self._unbind(plugin)
-            if family_changed:
-                await self._unregister(plugin, old)
-            plugin.manifest, plugin.snapshot, plugin.host = manifest, snapshot, prepared
-            if old.declaration_digest != manifest.declaration_digest:
-                await self._register(plugin)
-            self._sync_registry()
-            if rebind:
-                await self._bind(plugin)
+            await self._switch(plugin, old, manifest, snapshot, prepared, rebind=rebind, register=declaration_changed)
         except Exception as error:
-            await self._abandon(plugin, manifest, prepared, digest, error)
-            if old_host is not None:
-                self._spawn(self._retire(old_host, old_snapshot))
+            if prepared is not None:
+                await prepared.close()
+            try:
+                await self._switch(plugin, manifest, old, old_snapshot, old_host, rebind=rebind, register=True)
+            except Exception:
+                # Neither version could be registered again; unload rather than serve a mixture.
+                await self._unload(plugin, old_host, old_snapshot)
+                self._family_freed()
+            self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
             return
         if old_snapshot is not None:
             self.retain(old_snapshot, old.spec.timeout_seconds)
@@ -506,18 +542,49 @@ class PluginManager:
         plugin.activated_at = datetime.now(UTC)
         plugin.last_check_failure = plugin.failed_digest = None
         self._event(plugin, "updated")
+        if family_changed:
+            self._family_freed()
 
-    async def _abandon(
-        self, plugin: _Plugin, manifest: PluginManifest, prepared: PluginHost | None, digest: str, error: Exception
+    async def _switch(
+        self,
+        plugin: _Plugin,
+        current: PluginManifest,
+        manifest: PluginManifest,
+        snapshot: Path | None,
+        host: PluginHost | None,
+        *,
+        rebind: bool,
+        register: bool,
     ) -> None:
-        """Registering the new declaration failed after the old one was released: unload the plugin."""
+        """Replace this process's registrations of ``current`` with those of ``manifest``."""
 
-        if prepared is not None:
-            await prepared.close()
-        await self._unregister(plugin, manifest)
-        plugin.manifest = plugin.snapshot = plugin.host = None
-        self._check_failed(plugin, digest, str(error) if isinstance(error, ValueError) else type(error).__name__)
+        if rebind:
+            await self._unbind(plugin)
+        if current.spec.family != manifest.spec.family:
+            await self._unregister(plugin, current)
+        plugin.manifest, plugin.snapshot, plugin.host = manifest, snapshot, host
+        if register:
+            await self._register(plugin, definitions=False)
         self._sync_registry()
+        if rebind:
+            await self._bind(plugin)
+
+    def _family_freed(self) -> None:
+        """A family was released: plugins that failed only because another plugin had it are checked at the next scan."""
+
+        for other in self.plugins.values():
+            if other.last_check_failure == FAMILY_CONFLICT:
+                other.retry_at = 0.0
+
+    async def _unload(self, plugin: _Plugin, host: PluginHost | None, snapshot: Path | None) -> None:
+        manifest = plugin.manifest
+        await self._unbind(plugin)
+        if manifest is not None:
+            await self._unregister(plugin, manifest)
+        plugin.manifest = plugin.snapshot = plugin.host = None
+        self._sync_registry()
+        if host is not None:
+            self._spawn(self._retire(host, snapshot))
 
     async def _remove(self, plugin: _Plugin) -> None:
         manifest = plugin.manifest
@@ -533,6 +600,7 @@ class PluginManager:
         if host is not None:
             self._spawn(self._retire(host, snapshot))
         self._event(plugin, "removed")
+        self._family_freed()
 
     async def _retire(self, host: PluginHost, snapshot: Path | None) -> None:
         """Let the old version's calls finish within their limits, then stop its processes."""
@@ -597,14 +665,15 @@ class PluginManager:
             self.on_supervisor(self.supervisor)
         return self.supervisor
 
-    async def _register(self, plugin: _Plugin) -> None:
+    async def _register(self, plugin: _Plugin, *, definitions: bool = True) -> None:
         """Make the plugin's family, merges, Source types, and Source binding known in this process."""
 
         manifest = plugin.manifest
         if manifest is None:
             raise ValueError("plugin manifest is unavailable")  # noqa: TRY003
         generate = manifest.spec
-        await self._register_source_definitions(manifest)
+        if definitions:
+            await self._register_source_definitions(manifest)
         register_plugin_family(generate.family)
         if self.archive is not None:
             self.archive.register_artifact_family(
@@ -841,6 +910,60 @@ _ERRORS = {
 }
 
 
+_ERROR_SCHEMA = {
+    "type": "object",
+    "required": ["error"],
+    "properties": {
+        "error": {
+            "type": "object",
+            "required": ["code", "message", "details"],
+            "properties": {
+                "code": {"type": "string"},
+                "message": {"type": "string"},
+                "details": {"type": ["object", "null"]},
+            },
+        }
+    },
+}
+
+
+def _hoist_definitions(schema: dict[str, Any], schemas: dict[str, Any]) -> dict[str, Any]:
+    """Move a route schema's ``$defs`` into the document's components and point its references there.
+
+    Each route schema stays self-contained for MCP tools, so its references are relative to itself.
+    Embedded in the document they would resolve from the document root. Routes that share a model
+    share its component; a name already used for a different schema gets a numeric suffix.
+    """
+
+    definitions = schema.get("$defs")
+    if not isinstance(definitions, dict):
+        return schema
+    names = {name: name for name in definitions}
+    for name in definitions:
+        number = 1
+        # Reuse a component holding the same schema; otherwise take the first free name.
+        while (names[name] in schemas and schemas[names[name]] != _renamed(definitions[name], names)) or any(
+            names[other] == names[name] for other in definitions if other != name
+        ):
+            number += 1
+            names[name] = f"{name}{number}"
+    for name, target in names.items():
+        schemas[target] = _renamed(definitions[name], names)
+    return _renamed({key: value for key, value in schema.items() if key != "$defs"}, names)
+
+
+def _renamed(value: Any, names: dict[str, str]) -> Any:
+    if isinstance(value, dict):
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            name = reference.removeprefix("#/$defs/")
+            value = {**value, "$ref": f"#/components/schemas/{names.get(name, name)}"}
+        return {key: _renamed(item, names) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_renamed(item, names) for item in value]
+    return value
+
+
 def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
     """Describe the routes one plugin version declares; the plugin owns their compatibility."""
 
@@ -848,6 +971,7 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
 
     error = {"$ref": "#/components/schemas/Error"}
     paths: dict[str, dict[str, Any]] = {}
+    schemas: dict[str, Any] = {"Error": _ERROR_SCHEMA}
     api = manifest.spec.api
     for route in () if api is None else api.routes:
         parameters = [
@@ -864,7 +988,9 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
             "responses": {
                 "200": {
                     "description": "The handler's result.",
-                    "content": {"application/json": {"schema": route.response_schema or {}}},
+                    "content": {
+                        "application/json": {"schema": _hoist_definitions(route.response_schema or {}, schemas)}
+                    },
                 },
                 "204": {"description": "The handler returned nothing."},
                 **{
@@ -876,7 +1002,7 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
         if route.description is not None:
             operation["description"] = route.description
         if route.body == "json":
-            schema = route.request_schema or {}
+            schema = _hoist_definitions(route.request_schema or {}, schemas)
             operation["requestBody"] = {"required": True, "content": {"application/json": {"schema": schema}}}
         elif route.body == "binary":
             content = {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}
@@ -886,23 +1012,5 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
         "openapi": "3.1.0",
         "info": {"title": f"{manifest.name} plugin", "version": manifest.fingerprint[:12]},
         "paths": paths,
-        "components": {
-            "schemas": {
-                "Error": {
-                    "type": "object",
-                    "required": ["error"],
-                    "properties": {
-                        "error": {
-                            "type": "object",
-                            "required": ["code", "message", "details"],
-                            "properties": {
-                                "code": {"type": "string"},
-                                "message": {"type": "string"},
-                                "details": {"type": ["object", "null"]},
-                            },
-                        }
-                    },
-                }
-            }
-        },
+        "components": {"schemas": schemas},
     }

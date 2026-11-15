@@ -67,6 +67,16 @@ class PluginHostSpec:
 
 
 @dataclass(frozen=True)
+class HostStarted:
+    """Core's own startup finished; ``upgrade`` or ``setup`` runs next, each within its own time limit."""
+
+
+@dataclass(frozen=True)
+class HostUpgraded:
+    """``upgrade`` finished; ``setup`` runs next."""
+
+
+@dataclass(frozen=True)
 class HostReady:
     implemented: tuple[str, ...]
 

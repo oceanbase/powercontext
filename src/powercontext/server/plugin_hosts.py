@@ -38,13 +38,14 @@ from powercontext.builtin.plugins.host import run_plugin_host
 from powercontext.builtin.plugins.host_protocol import (
     HostCancel,
     HostFailed,
-    HostHeartbeat,
     HostMethod,
     HostReady,
     HostRegistry,
     HostRequest,
     HostResponse,
     HostShutdown,
+    HostStarted,
+    HostUpgraded,
     PipeChannel,
     PluginHostSpec,
 )
@@ -52,6 +53,13 @@ from powercontext.builtin.plugins.host_protocol import (
 logger = logging.getLogger(__name__)
 
 READY_TIMEOUT_SECONDS = 60.0
+# Why a process that never became ready stopped, as reported for the version.
+_START_FAILURES = {
+    "crash": "start_failed",
+    "start_timeout": "start_timeout",
+    "upgrade_timeout": "upgrade_timeout",
+    "setup_timeout": "setup_timeout",
+}
 HOST_CONCURRENCY = 8
 HEARTBEAT_TIMEOUT_SECONDS = 5.0
 IDLE_STOP_SECONDS = 300.0
@@ -95,6 +103,9 @@ class _HostProcess:
         self.process: Any = None
         self.channel: PipeChannel | None = None
         self.ready = False
+        # The startup phase the Server is timing: core's own startup, then upgrade if declared, then setup.
+        self.phase: str = "start"
+        self.phase_since = time.monotonic()
         # False once the process is being stopped; it takes no new calls.
         self.accepting = True
         self.in_flight = 0
@@ -117,32 +128,39 @@ class _HostProcess:
             child.close()
             channel = self.channel = PipeChannel(parent, name=f"powercontext-plugin-host-{group.name}")
             log_safely(logger, logging.INFO, f"Plugin host {group.name} started")
-            while True:
-                message = await channel.recv()
-                self.last_beat = time.monotonic()
-                if isinstance(message, HostHeartbeat):
-                    continue
-                if isinstance(message, HostReady):
-                    group.implemented = message.implemented
-                    self.ready = True
-                    self.idle_since = time.monotonic()
-                    group.notify()
-                elif isinstance(message, HostFailed):
-                    log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
-                    group.start_failure = message.category or "start_failed"
-                    if message.permanent:
-                        group.failure = message.error
-                    break
-                elif isinstance(message, HostResponse):
-                    future = self.pending.pop(message.id, None)
-                    if future is not None and not future.done():
-                        future.set_result(message)
+            while self._received(await channel.recv()):
+                pass
         except (EOFError, OSError):
             pass
         except Exception as error:
             log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed ({type(error).__name__})")
         finally:
             await asyncio.shield(self._cleanup(parent))
+
+    def _received(self, message: object) -> bool:
+        """Handle one message from the host; False once the host reported that it cannot start."""
+
+        group = self.group
+        self.last_beat = time.monotonic()
+        if isinstance(message, HostStarted | HostUpgraded):
+            self.phase = "upgrade" if isinstance(message, HostStarted) and group.upgrade else "setup"
+            self.phase_since = time.monotonic()
+        elif isinstance(message, HostReady):
+            group.implemented = message.implemented
+            self.ready = True
+            self.idle_since = time.monotonic()
+            group.notify()
+        elif isinstance(message, HostFailed):
+            log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
+            group.start_failure = message.category or "start_failed"
+            if message.permanent:
+                group.failure = message.error
+            return False
+        elif isinstance(message, HostResponse):
+            future = self.pending.pop(message.id, None)
+            if future is not None and not future.done():
+                future.set_result(message)
+        return True
 
     async def _cleanup(self, connection: Any) -> None:
         self.accepting = self.ready = False
@@ -235,6 +253,13 @@ class PluginHost:
         self._waiting = 0
         # Why the last process exited before it was ready, such as "upgrade_failed".
         self.start_failure: str | None = None
+        declared = spec.manifest.get("spec", {})
+        self.upgrade = bool(spec.manifest.get("upgrade"))
+        self._phase_limits = {
+            "start": READY_TIMEOUT_SECONDS,
+            "upgrade": float(declared.get("upgrade_timeout_seconds", 600)),
+            "setup": float(declared.get("setup_timeout_seconds", 60)),
+        }
 
     async def start(self) -> None:
         """Start the process the plugin always keeps; callers wait for readiness within their own time limit."""
@@ -265,8 +290,8 @@ class PluginHost:
         self._changed = asyncio.Event()
 
     def exited(self, process: _HostProcess) -> None:
-        if not process.ready and process.reason == "crash" and self.start_failure is None:
-            self.start_failure = "start_failed"
+        if not process.ready and self.start_failure is None and process.reason in _START_FAILURES:
+            self.start_failure = _START_FAILURES[process.reason]
         self._processes.remove(process)
         self._budget.give_back()
         self.notify()
@@ -292,8 +317,9 @@ class PluginHost:
             for process in serving:
                 if process.ready and now - process.last_beat > HEARTBEAT_TIMEOUT_SECONDS:
                     self.spawn_task(process.stop("unresponsive"))
-                elif not process.ready and now - process.started_at > READY_TIMEOUT_SECONDS:
-                    self.spawn_task(process.stop("start_timeout"))
+                elif not process.ready and now - process.phase_since > self._phase_limits[process.phase]:
+                    # Each phase has its own limit, so a long upgrade does not count against setup.
+                    self.spawn_task(process.stop(f"{process.phase}_timeout"))
             idle = [
                 process
                 for process in serving
@@ -369,20 +395,18 @@ class PluginHost:
                 process.idle_since = time.monotonic()
             self.notify()
 
-    async def wait_ready(self, timeout: float) -> str | None:  # noqa: ASYNC109 - bounds a new version's start
-        """Wait for the first process of a new version; return why it failed, or None once one is ready."""
+    async def wait_ready(self) -> str | None:
+        """Wait for the first process of a new version; return why it failed, or None once one is ready.
 
-        deadline = time.monotonic() + timeout
+        The watchdog stops a process that overruns any startup phase, so this wait always ends.
+        """
+
         while True:
             if any(process.ready for process in self._processes):
                 return None
             if self.failure is not None or not self._processes:
                 return self.start_failure or "start_failed"
-            changed = self._changed
-            try:
-                await asyncio.wait_for(changed.wait(), max(0.0, deadline - time.monotonic()))
-            except TimeoutError:
-                return "start_timeout"
+            await self._changed.wait()
 
     def update_registry(
         self, families: tuple[str, ...], bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
