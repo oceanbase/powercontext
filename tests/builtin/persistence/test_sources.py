@@ -39,7 +39,6 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     SHARED_TABLES,
     SOURCES_TABLE,
 )
@@ -282,29 +281,15 @@ def test_source_batch_validates_each_capture_against_reused_manifest() -> None:
             assert [item.declaration for item in evidence] == [declaration, MemoryEvidenceDeclaration(), declaration]
 
 
-def test_source_batches_notify_matching_artifact_plugins_only_for_new_inputs() -> None:
+def test_source_batches_notify_matching_plugin_bindings_only_for_new_inputs() -> None:
+    from powercontext.builtin.plugins import families
+
     async def scenario() -> None:
         intents = ArtifactProcessingIntentRepository()
         async with (
             repository_profile() as (profile, repositories),
             profile.database.transaction() as connection,
         ):
-            await connection.execute(
-                insert(ARTIFACT_PROCESSING_BINDING_STATES_TABLE),
-                [
-                    {
-                        "binding_name": name,
-                        "plugin_spec": specification,
-                        "desired_state": "disabled",
-                    }
-                    for name, specification in (
-                        ("all-scopes", {"manifest": {"scope_ids": None}}),
-                        ("matching-scope", {"manifest": {"scope_ids": ["scope-a"]}}),
-                        ("other-scope", {"manifest": {"scope_ids": ["scope-b"]}}),
-                        ("unloaded", None),
-                    )
-                ],
-            )
             first, second, third = (
                 NoteSource(name=f"note-{number}", materialization=SourceMaterialization.CAPTURED, body="Input")
                 for number in range(3)
@@ -312,24 +297,31 @@ def test_source_batches_notify_matching_artifact_plugins_only_for_new_inputs() -
             batch = (first, first, second)
             created = await repositories.sources.add_many_with_status(connection, "scope-a", batch)
             assert [is_new for _, is_new in created] == [True, False, True]
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 2
 
             replay = await repositories.sources.add_many_with_status(connection, "scope-a", batch)
             assert all(not is_new for _, is_new in replay)
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 2
 
             await repositories.sources.add(connection, "scope-a", third)
-            for name in ("all-scopes", "matching-scope"):
+            for name in ("plugin:all-scopes", "plugin:matching-scope"):
                 pending = await intents.load(connection, "scope-a", name)
                 assert pending is not None and pending.dirty_generation == 3
-            for name in ("other-scope", "unloaded"):
-                assert await intents.load(connection, "scope-a", name) is None
+            assert await intents.load(connection, "scope-a", "plugin:other-scope") is None
 
-    asyncio.run(scenario())
+    saved = dict(families._SOURCE_BINDINGS)
+    families.register_source_binding("plugin:all-scopes", None, frozenset({"note"}))
+    families.register_source_binding("plugin:matching-scope", frozenset({"scope-a"}), frozenset({"note"}))
+    families.register_source_binding("plugin:other-scope", frozenset({"scope-b"}), frozenset({"note"}))
+    try:
+        asyncio.run(scenario())
+    finally:
+        families._SOURCE_BINDINGS.clear()
+        families._SOURCE_BINDINGS.update(saved)
 
 
 def test_reusing_a_stable_source_identity_with_different_payload_is_a_conflict() -> None:

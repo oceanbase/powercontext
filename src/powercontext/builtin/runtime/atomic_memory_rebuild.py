@@ -68,6 +68,7 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACT_REVISION_COLUMNS,
     ARTIFACTS_TABLE,
 )
 from powercontext.sources import SourceRef
@@ -148,7 +149,7 @@ async def _evidence_history(
     evidence = AtomicMemoryEvidenceRepository()
     after: tuple[str, str, int] | None = None
     while True:
-        statement = select(table).where(table.c.family == AtomicMemory.family)
+        statement = select(*ARTIFACT_REVISION_COLUMNS).where(table.c.family == AtomicMemory.family)
         if selected_scope is not None:
             statement = statement.where(table.c.scope_id == selected_scope)
         if after is not None:
