@@ -96,6 +96,7 @@ Content-Type: application/octet-stream
 
 `GET P/scopes/{s}/imports/{request_id}` 显示 pending／processing／failed，或经核心历史验证的完成状态，同时单独展示可用版本。
 `POST .../imports/{request_id}/retry` 接收**新的** `idempotency_key`，创建新处理请求。
+`GET P/scopes/{s}/documents` 返回的近期请求采用相同的发布校验；即使处理观察记录仍为 processing，已提交的任务也返回 completed。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
 否则冲突的重解析失败。重解析同时固定原文快照及其对应的 document revision。并发上传、编辑或遗忘会阻止过期处理结果发布，
 包括读取快照期间发生的变化；如需使用最新原文，应提交新的重解析请求。
@@ -144,6 +145,9 @@ chunk 正文保存在独立不可变记录中，通过以下插件接口读取�
 提交到 `POST P/retrieve`。省略空间时解析当前默认空间；省略 `scope_ids` 选择其中可读知识库，明确传空数组则不选择任何库。
 明确选择不可读或其他空间的知识库会使整个请求失败。最多选择 20 个库、返回 50 个命中。
 `POST P/scopes/{s}/retrieve` 直接查询单库，不受默认空间影响。通用 document 搜索与 Prepared Context 复用当前版本过滤。
+插件检索接口逐块返回结果。通用 Artifact 搜索适配层最多召回 50 个排序后的 chunk，按 document revision 汇总，limit 按文档计数；
+文档得分取其最佳命中 chunk 的得分。Prepared Context 接收汇总片段，文本中保留 chunk ID、标题路径、原始 Source 引用、位置和人工修改标记，
+避免 Artifact 级去重丢掉同一文档的其他命中片段；输出仍受上下文字节预算限制。
 
 SQLite 使用 FTS5 和 sqlite-vec 余弦距离；SeekDB／OceanBase 使用原生 FULLTEXT 和 VECTOR 存储／距离计算。
 先融合全文与向量排序，再校验当前 active document／result／模型配置，并补充候选，不直接比较各库原始 BM25 分数。

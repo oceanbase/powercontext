@@ -23,7 +23,7 @@ from typing import NoReturn
 
 from pc_knowledge_base.content import ContentError, Snapshots, parse, relative_path
 from pc_knowledge_base.embedding import Embedding
-from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, identity
+from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, canonical, identity
 from pc_knowledge_base.sources import FileEvidence, ProcessEvidence
 from pc_knowledge_base.store import Store, defaults, resources, spaces
 from powercontext.plugins import AccessDenied, ApiError, InvalidContent, Rendering, SearchHit, SearchResult
@@ -392,22 +392,29 @@ class KnowledgeBase:
             },
         )
 
-    async def status(self, request):
-        await self.settings(request.scope_id)
-        key = request.path_params["request_id"]
-        row = await self.store.resource(request.scope_id, "request", key)
-        if row is None:
-            fail("Request not found", 404)
+    async def request_status(self, scope, row):
+        """Use committed publication to reconcile observations for every status read surface."""
+        key = row["resource_key"]
         state = row["value"]
         document = state["pinned"]["document_id"]
-        published = await self.ctx.reads(request.scope_id).get(document, revision=state["pinned"]["base_revision"] + 1)
-        current = await self.ctx.reads(request.scope_id).get(document)
+        published = await self.ctx.reads(scope).get(document, revision=state["pinned"]["base_revision"] + 1)
         completed = published is not None and published.content.get("applied_request_id") == key
         return {
             "request_id": key,
             "document_id": document,
             "state": "completed" if completed else state["state"],
             "error": None if completed else state.get("error"),
+        }
+
+    async def status(self, request):
+        await self.settings(request.scope_id)
+        row = await self.store.resource(request.scope_id, "request", request.path_params["request_id"])
+        if row is None:
+            fail("Request not found", 404)
+        result = await self.request_status(request.scope_id, row)
+        current = await self.ctx.reads(request.scope_id).get(result["document_id"])
+        return {
+            **result,
             "current_revision": None if current is None else current.ref.revision,
             "lifecycle_state": None if current is None else current.lifecycle_state,
         }
@@ -423,15 +430,7 @@ class KnowledgeBase:
         return {
             "items": [item.model_dump(mode="json") for item in page.items],
             "next_cursor": page.next_cursor,
-            "requests": [
-                {
-                    "request_id": row["resource_key"],
-                    "document_id": row["value"]["pinned"]["document_id"],
-                    "state": row["value"]["state"],
-                    "error": row["value"].get("error"),
-                }
-                for row in requests
-            ],
+            "requests": [await self.request_status(request.scope_id, row) for row in requests],
         }
 
     async def generate(self, request, writer):  # noqa: C901
@@ -674,18 +673,37 @@ class KnowledgeBase:
         body = Retrieve.model_validate({k: v for k, v in request.search.items() if k in {"query", "limit", "mode"}})
         await self.settings(request.scope_id)
         try:
-            results = await self.search([request.scope_id], body.query, body.mode, body.limit)
+            # The generic limit counts documents. Bound chunk recall separately before grouping;
+            # Prepared Context deduplicates hits by Artifact revision, not by chunk locator.
+            results = await self.search([request.scope_id], body.query, body.mode, 50)
         except ContentError as error:
             raise InvalidContent(str(error)) from error
+        documents = {}
+        for row in results:
+            ref = row["document"]
+            group = documents.setdefault(
+                (ref["artifact_id"], ref["revision"]),
+                {"ref": ref, "score": row["score"], "passages": [], "chunks": []},
+            )
+            location = {
+                "chunk_id": row["chunk_id"],
+                "heading_path": row["heading_path"],
+                "source": row["source"],
+                "manually_modified": row["manually_modified"],
+                **row["locator"],
+            }
+            group["chunks"].append(location)
+            # Context assembly retains text but not the structured locator.
+            group["passages"].append(f"Chunk: {canonical(location)}\n{row['text']}")
         return SearchResult(
             hits=tuple(
                 SearchHit(
-                    ref=row["document"],
-                    text=row["text"],
-                    score=row["score"],
-                    locator={"chunk_id": row["chunk_id"], **row["locator"]},
+                    ref=group["ref"],
+                    text="\n\n".join(group["passages"]),
+                    score=group["score"],
+                    locator={"chunks": group["chunks"]},
                 )
-                for row in results
+                for group in list(documents.values())[: body.limit]
             )
         )
 

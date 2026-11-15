@@ -106,6 +106,8 @@ infrastructure failures use the framework's window retry/backoff and can block t
 
 `GET P/scopes/{s}/imports/{request_id}` reports pending/processing/failed or a publication verified against core history, separately
 from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new** `idempotency_key` and creates a new request.
+The recent requests returned by `GET P/scopes/{s}/documents` use the same publication check, so committed work is reported as
+completed even if its processing observation still says processing.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
 permits replacing manual edits; otherwise conflicting reprocessing fails. Reprocessing pins the original snapshot and its
 document revision together. A concurrent upload, edit or forget prevents stale publication, including changes while the snapshot
@@ -157,6 +159,10 @@ Send this to `POST P/retrieve`. Omitting the space resolves the current default.
 bases in that space; an explicit empty list selects none. Explicit unreadable/out-of-space IDs fail the whole request. Select at most
 20 bases and 50 hits. `POST P/scopes/{s}/retrieve` selects one base independently of the default space. Generic document search and
 Prepared Context use the same current-revision filtering.
+The plugin retrieval endpoints return individual chunks. The generic Artifact search adapter recalls at most 50 ranked chunks,
+groups them by document revision and applies its limit to documents; each document's score is its best matching chunk's score.
+Prepared Context receives the grouped passages with chunk IDs, headings, original Source references, locations and manual-edit
+markers in the text, so Artifact-level deduplication retains distinct matches from the same document. Its output byte budget still applies.
 
 SQLite uses FTS5 and sqlite-vec cosine distance; SeekDB/OceanBase use native FULLTEXT and VECTOR storage/distance. Retrieval fuses
 lexical/vector ranks, then verifies current active document/result/profile and refills candidates. It never compares raw per-library

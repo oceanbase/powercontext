@@ -71,6 +71,8 @@ def test_reprocess_replay_keeps_the_accepted_snapshot_after_head_changes(tmp_pat
 
             first = await upload("first", "# First\n\nOriginal content.")
             assert (await settled(first))["current_revision"] == 1
+            requests = (await call("GET", base + "/documents"))["requests"]
+            assert next(item for item in requests if item["request_id"] == first["request_id"])["state"] == "completed"
             path = base + "/documents/" + first["document_id"] + "/reprocess"
             body = {"idempotency_key": "reprocess"}
             receipt = await call("POST", path, json=body)
@@ -113,6 +115,9 @@ def test_reprocess_replay_keeps_the_accepted_snapshot_after_head_changes(tmp_pat
             outcome = await settled(repaired)
             assert outcome["state"] == "failed" and outcome["current_revision"] == 4
             assert "Document changed" in outcome["error"]
+            requests = (await call("GET", base + "/documents"))["requests"]
+            listed = next(item for item in requests if item["request_id"] == repaired["request_id"])
+            assert listed["state"] == outcome["state"] and listed["error"] == outcome["error"]
             assert await call("POST", path, json=interrupted_body) == repaired
             governance = (
                 await client.get(f"/v1/scopes/{kb['scope_id']}/artifacts/document/{first['document_id']}/governance")
