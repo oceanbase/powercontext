@@ -127,6 +127,7 @@ This plugin has the basic parts of a plugin:
 | `change_timeout_seconds` | Time limit for one user change, presentation, or search |
 | `host_processes` | The most host processes of this plugin in each Server process, 1 by default; deployers can override it |
 | `upgrade`, `upgrade_timeout_seconds` | A data upgrade function called before `setup` every time this version loads, and its time limit (600 seconds by default); see "Update plugins" |
+| `setup_timeout_seconds` | The time limit of `setup`, 60 seconds by default, counted from the end of `upgrade`, or from the end of core's startup when there is no `upgrade` |
 | `definitions` | The plugin's own Source Definitions; see "Define Source types" |
 | `api` | The plugin's APIs; see "Provide APIs" |
 | `pages` | Dashboard pages; see "Dashboard pages" |
@@ -490,15 +491,27 @@ turns it off) and compares file contents to decide whether a plugin changed:
 
 - Once two scans in a row see the same content, different from the version in use, Server copies the directory into a
   read-only snapshot in its data directory and switches to it after the check passes. A change therefore takes effect
-  within two scan intervals, and a half-written directory never loads. Added directories load the same way; removed ones
-  unload at the next scan.
+  within two scan intervals, and a half-written directory never loads. Added directories load the same way; a removed one
+  unloads once two scans in a row miss it, so replacing a directory by renames does not take the plugin offline. A plugin
+  directory may be a symbolic link; it is resolved again at every scan, so pointing it at another release publishes that
+  release.
 - Plugin code is imported only from snapshots. New requests go to the new version once its host process is ready; the old
   version's host processes finish the requests they hold and stop, and background generation already started finishes on
   the old version.
-- If the new version fails its check or its `upgrade`, the old version stays in use and `last_check_failure` in
-  `GET /v1/plugins/<plugin name>` gives the failure category; `version_digest` and `activated_at` describe the version in
-  use and when it took effect.
+- If the new version fails its check, its `upgrade`, or its registration (such as a Source Definition whose schema
+  changed without a new version), or any startup phase runs out of time, the old version stays in use and
+  `last_check_failure` in `GET /v1/plugins/<plugin name>` gives the failure category; `version_digest` and
+  `activated_at` describe the version in use and when it took effect. A failed version is checked again after 5 minutes,
+  with the wait doubling after each failure up to 1 hour; changing the directory checks it at once. A plugin that failed
+  because another plugin had its family is checked again at the next scan after that plugin unloads or changes family.
+- A host process starts in three phases, each with its own time limit; the phase that ran out of time goes into
+  `last_check_failure`: core's startup and importing the plugin (60 seconds, `start_timeout`), `upgrade`
+  (`upgrade_timeout_seconds`, `upgrade_timeout`), and `setup` (`setup_timeout_seconds`, `setup_timeout`). A plugin with
+  heavy dependencies imports them in `setup` and raises `setup_timeout_seconds` as needed.
 - Server instances scan on their own, so until every instance has switched, instances may use different versions.
+  Server processes on one machine that share a data directory, such as an `api` and a `background` process, each keep
+  their own snapshots and delete only those; snapshots left by a process that exited abnormally are removed by the next
+  process that starts.
 
 `upgrade(ctx)` upgrades plugin data. It is called every time a plugin version loads, including at Server startup, and the
 plugin decides whether anything needs doing:

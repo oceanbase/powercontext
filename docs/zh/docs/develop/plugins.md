@@ -122,6 +122,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `change_timeout_seconds` | 一次用户修改、展示或检索的时限 |
 | `host_processes` | 每个 Server 进程中本插件宿主进程数的上限，默认 1；部署者可以覆盖 |
 | `upgrade`、`upgrade_timeout_seconds` | 每次加载本版本时在 `setup` 之前调用的数据升级函数及其时限（默认 600 秒），见"更新插件" |
+| `setup_timeout_seconds` | `setup` 的时限，默认 60 秒，从 `upgrade` 结束时算起，没有 `upgrade` 时从 core 启动完成时算起 |
 | `definitions` | 插件自己的 Source 定义，见"定义 Source 类型" |
 | `api` | 插件的接口，见"提供接口" |
 | `pages` | Dashboard 页面，见"Dashboard 页面" |
@@ -447,12 +448,19 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 插件是否变化：
 
 - 目录内容连续两次扫描都相同、且与正在使用的版本不同时，Server 把它复制成数据目录下的只读快照，检查通过后切换到新版本。
-  所以修改最晚在两个扫描间隔之后生效，写到一半的目录不会被加载。新增的目录同样处理；删除的目录在下一次扫描时卸载。
+  所以修改最晚在两个扫描间隔之后生效，写到一半的目录不会被加载。新增的目录同样处理；删除的目录连续两次扫描都不存在时才
+  卸载，用改名替换目录时的中间状态不会让插件下线。插件目录可以是符号链接，每次扫描都重新解析，切换链接指向即可发布新版本。
 - 插件代码只从快照导入。新版本的宿主进程就绪后，新请求才发往新版本；旧版本的宿主进程完成手头的请求后停止，已经开始的
   后台生成用旧版本完成。
-- 新版本检查失败或 `upgrade` 失败时继续使用旧版本，`GET /v1/plugins/<插件名>` 的 `last_check_failure` 给出失败分类；
-  `version_digest` 和 `activated_at` 是正在使用的版本及其生效时间。
-- 多个 Server 实例各自扫描，在所有实例完成切换之前，不同实例可能使用不同版本。
+- 新版本检查失败、`upgrade` 失败、注册失败（例如 Source 定义改了结构却没改版本号）或任何启动阶段超时，都继续使用旧版本，
+  `GET /v1/plugins/<插件名>` 的 `last_check_failure` 给出失败分类；`version_digest` 和 `activated_at` 是正在使用的版本及其
+  生效时间。失败的版本在 5 分钟后重新检查，之后每次失败等待时间翻倍，最长 1 小时；修改目录会立即重新检查。因为插件族已被
+  其他插件占用而失败的插件，在占用它的插件卸载或换了插件族后的下一次扫描重新检查。
+- 宿主进程的启动分三个阶段，各自计时，超时的阶段写进 `last_check_failure`：core 启动和导入插件（60 秒，`start_timeout`）、
+  `upgrade`（`upgrade_timeout_seconds`，`upgrade_timeout`）、`setup`（`setup_timeout_seconds`，`setup_timeout`）。
+  依赖很重的插件把耗时的导入放进 `setup`，并按需调大 `setup_timeout_seconds`。
+- 多个 Server 实例各自扫描，在所有实例完成切换之前，不同实例可能使用不同版本。同一台机器上共用数据目录的多个 Server
+  进程（例如 `api` 和 `background` 进程）各自保存快照，只删除自己的；进程异常退出留下的快照由之后启动的进程清理。
 
 `upgrade(ctx)` 用于插件数据的升级，每次加载一个插件版本都会调用（包括 Server 启动时），插件自己判断是否需要做什么：
 

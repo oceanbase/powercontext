@@ -215,10 +215,13 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
 
 ### 1.1 扫描与检查
 
-- 每个 Server 进程启动时和每隔扫描间隔，为插件目录的每个直接子目录计算内容摘要。
+- 每个 Server 进程启动时和每隔扫描间隔，为插件目录的每个直接子目录计算内容摘要。子目录可以是符号链接，每次扫描都重新
+  解析，部署者切换链接指向即可发布另一个版本。
 - 摘要与当前版本相同则跳过；与上一次扫描不同时先等待，连续两次扫描相同、且与当前版本不同时才检查，避免检查写了一半的
-  目录。
+  目录。移除同样需要连续两次扫描都看不到目录才卸载，用改名替换目录时的中间状态不会让插件下线。
 - 检查与 RFC #2549 的启动检查相同，在版本快照上执行（见 1.3）；根据结果新增、更新或卸载插件。
+- 检查失败的版本不会每次扫描都重新检查：5 分钟后重试，之后每次失败等待时间翻倍，最长 1 小时；目录内容变化时立即检查新
+  内容。因为 family 已被另一个插件占用而失败的插件，在占用它的插件卸载或改用其他 family 后的下一次扫描重新检查。
 
 - 摘要按文件内容计算，与 RFC #2549 的代码指纹相同。只看文件大小和修改时间不够：用时间戳归一化的归档解压出的新版本，
   大小和修改时间可能与旧版本完全相同。
@@ -236,6 +239,7 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
 | 更新，检查通过，声明不变 | 切换到新快照：替换宿主进程（见 1.4）；后台调用从下一次派发起使用新快照 |
 | 更新，检查通过，声明改变 | 按新声明重新注册：新增的 Source 类型、路由、页面生效，移除的不再可用；binding 的调度参数按新声明更新；切换到新快照 |
 | 更新，检查失败 | 继续使用当前快照，记录检查失败；`GET /v1/plugins` 中给出最近一次检查失败的分类 |
+| 更新，注册失败 | 同检查失败。可能失败的注册（例如数据库拒绝同名同版本、结构不同的 Source 定义）在释放旧版本之前执行；之后的切换只替换本进程内的注册，万一失败就恢复旧版本的注册 |
 | 移除 | 注销 Source 类型、family、接口、页面和 binding；等待进行中的同步调用结束或超时后停止宿主进程 |
 
 - family 改名等同于移除旧 family、新增新 family。旧 family 的 Artifact 保留在 core 中，处理方式与 RFC #2549 中停用插件相同。
@@ -254,10 +258,11 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
   快照提供。插件目录本身只用于扫描。
 - **取代代码指纹核对**：RFC #2549 中 Worker 和宿主进程在导入前核对代码指纹。有了快照，派发时直接把快照路径交给 Worker，
   快照不会被修改，不再需要核对；热加载关闭时，仍按 RFC #2549 的规则核对。
-- **清理**：每个 Server 进程只删除自己生成、且既不是当前版本、也没有本进程的宿主进程或 Worker 在使用的快照，在下一次
-  扫描中删除。Server 启动时只删除早于本进程启动时间、且不是任何当前版本的快照。同一台机器上的多个 Server 进程（例如
-  `api` 与 `background` 角色）共用数据目录时，一个进程启动不会删掉另一个进程正在使用的快照。快照是本机的派生文件，删除后
-  可以从插件目录重新生成，不属于需要备份的数据。
+- **清理**：同一台机器上的多个 Server 进程（例如 `api` 与 `background` 角色）可能共用数据目录。每个 Server 进程把快照
+  放在自己的子目录中，生命周期与进程相同：进程存续期间持有子目录旁的锁文件，在下一次扫描中删除既不是当前版本、也没有
+  本进程的宿主进程或 Worker 在使用的快照，退出时删除整个子目录。进程异常退出留下的子目录，其锁文件无人持有，由之后启动
+  的 Server 进程删除。一个进程不会删掉另一个进程正在使用的快照。快照是本机的派生文件，删除后可以从插件目录重新生成，
+  不属于需要备份的数据。
 
 ### 1.4 宿主进程的替换与后台调用
 
@@ -285,7 +290,7 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
 async def upgrade(ctx: PluginContext) -> None:
     """每次加载本版本时调用；自行判断已有数据是否需要升级。"""
 
-plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600)
+plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600, setup_timeout_seconds=60)
 ```
 
 - **调用时机**：每次加载一个插件版本都会调用，包括 Server 启动时加载和热加载切换到新版本，不只在首次安装时调用。插件
@@ -299,8 +304,21 @@ plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_secon
   前执行；迁移脚本使用插件自己的存储和 core 的公开接口，core 不为它提供额外机制。
 - **失败**：`upgrade` 抛出异常或超过 `upgrade_timeout_seconds`（默认 600 秒）时，按新版本检查失败处理：热加载时继续使用
   旧版本；Server 启动时插件为 `failed`。
+- **启动阶段的时限**：宿主进程的启动分三个阶段，由 Server 分别计时，到时限还没收到该阶段结束的消息就终止进程，并在
+  `last_check_failure` 中写明超时的阶段：
+
+  | 阶段 | 时限 | 结束时宿主进程发出 |
+  | --- | --- | --- |
+  | core 启动：启动解释器、导入插件、连接数据库、打开专属存储 | core 固定 60 秒（`start_timeout`） | 启动完成 |
+  | `upgrade`（声明了才有） | `upgrade_timeout_seconds`，默认 600 秒（`upgrade_timeout`） | 升级完成 |
+  | `setup(ctx)` | `setup_timeout_seconds`，默认 60 秒（`setup_timeout`） | 就绪 |
+
+  `setup` 从 `upgrade` 结束时开始计时，没有 `upgrade` 时从启动完成时开始，较长的 `upgrade` 不占用 `setup` 的时限。计时
+  不依赖宿主进程自身：`upgrade` 或 `setup` 中同步阻塞的代码也会在时限到达时被终止。依赖很重的插件把耗时的导入放进
+  `setup`，并按需调大 `setup_timeout_seconds`。
 - **上下文**：专属存储、模型和日志；`ctx.reads(scope_id)` 与 `ctx.writer(scope_id)` 以插件自身的身份执行，与 Worker
-  相同，不检查调用者权限，用于改写少量旧格式的 Artifact；写事务规则与 Worker 相同，一次 `upgrade` 最多开启一个写事务块。core 不提供"列出插件数据所在的 Scope"，插件按自己的记录
+  相同，不检查调用者权限，用于改写少量旧格式的 Artifact。启用权限控制时，插件自身的身份是
+  `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的后台身份；没有配置时写 Artifact 失败，专属存储照常可用；写事务规则与 Worker 相同，一次 `upgrade` 最多开启一个写事务块。core 不提供"列出插件数据所在的 Scope"，插件按自己的记录
   遍历。Artifact 的历史版本不可修改，读取历史版本的代码仍需兼容旧格式。
 - **重复与并发**：每个 Server 实例、每次加载都会调用，core 不在实例之间协调。`upgrade` 必须可以重复执行，也可以在多个
   实例上同时执行；需要互斥时，由插件在专属存储中自己加锁。
@@ -509,7 +527,7 @@ class PluginPages(BaseModel):
 | 新增 | `/dashboard/plugins/{name}`、`/dashboard/plugins/{name}/ui/...`、`/dashboard/plugins/{name}/api/...`、`/dashboard/plugins/{name}/artifacts/{scope_id}/...`、`/dashboard/plugins/_client.js` |
 | 新增 | 插件声明 `mcp=True` 的路由作为 MCP 工具出现在 Server 的 MCP 端点 |
 | 新增 | `powercontext.plugins`：`PluginApi`、`Route`、`ApiRequest`、`BinaryResponse`、`ApiError`、`Caller`、`PluginPages`；上下文的 `require`、`reads`、`writer`、`sources`、`scopes` |
-| 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api`、`pages`、`upgrade` 和 `upgrade_timeout_seconds` 字段 |
+| 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api`、`pages`、`upgrade`、`upgrade_timeout_seconds` 和 `setup_timeout_seconds` 字段 |
 | 调整 | `GET /v1/plugins`、`GET /v1/plugins/{name}` 的响应增加 `version_digest`、`declaration_digest`、`state`、`activated_at`、最近一次检查失败的分类、路由列表和页面信息 |
 | 新增 | 环境变量 `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS`（默认 60，0 关闭热加载）、`POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`（默认 32 MiB） |
 
