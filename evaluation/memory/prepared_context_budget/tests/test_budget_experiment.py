@@ -98,6 +98,12 @@ def test_the_pinned_run_manifest_names_no_absolute_path() -> None:
     assert [argument for argument in command if Path(argument).is_absolute()] == []
 
 
+def test_the_pinned_run_manifest_records_a_clean_source_tree() -> None:
+    record = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))
+
+    assert record["git_worktree_dirty"] is False
+
+
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_source_hashes_identify_the_same_code_across_checkout_line_endings(tmp_path: Path, newline: str) -> None:
     source = "answer = 42\n"
