@@ -14,10 +14,10 @@
 import asyncio
 from contextlib import asynccontextmanager, nullcontext
 
+from powercontext.builtin.authz import AccessAction, AccessDeniedError, ResourceRef
+from powercontext.builtin.authz.service import _require_allowed, access_control_for_mode
 from powercontext.builtin.scope.errors import ScopeBindingTargetMissingError
 from powercontext.builtin.sources import validate_scope_id
-from powercontext.server.authz import AccessAction, AccessDeniedError, ResourceRef
-from powercontext.server.authz.service import _require_allowed, access_control_for_mode
 from powercontext.server.context import current_principal
 from powercontext.server.dashboard.content import (
     RECORDS,

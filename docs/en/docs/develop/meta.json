@@ -4,6 +4,7 @@
     "index",
     "api-quickstart",
     "interfaces",
-    "http-api"
+    "http-api",
+    "plugins"
   ]
 }

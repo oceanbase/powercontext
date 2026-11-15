@@ -51,7 +51,6 @@ from powercontext.builtin.persistence.errors import (
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
@@ -279,7 +278,7 @@ class SourceRepository:
         if new_rows:
             intents = ArtifactProcessingIntentRepository()
             await intents.mark_dirty_many(connection, scope_id, SOURCE_PROCESSING_BINDINGS, increment=len(new_rows))
-            await _mark_custom_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
+            await _mark_plugin_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
         return tuple(results)
 
     def _encode(self, source: Source, *, saved_at: datetime | None = None) -> tuple[SourceRef, bytes]:
@@ -1284,22 +1283,13 @@ def _require_identity(field: str, value: object, maximum: int) -> None:
         raise InvalidRepositoryArgumentError(field, f"must not exceed {maximum} characters")
 
 
-async def _mark_custom_bindings_dirty(
+async def _mark_plugin_bindings_dirty(
     connection: AsyncConnection,
     scope_id: str,
     intents: ArtifactProcessingIntentRepository,
     *,
     increment: int,
 ) -> None:
-    plugins = (
-        await connection.execute(
-            select(
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name,
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec[("manifest", "scope_ids")].label("scope_ids"),
-            ).where(ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec.is_not(None))
-        )
-    ).all()
-    bindings = tuple(
-        plugin.binding_name for plugin in plugins if plugin.scope_ids is None or scope_id in plugin.scope_ids
-    )
-    await intents.mark_dirty_many(connection, scope_id, bindings, increment=increment)
+    from powercontext.builtin.plugins.families import source_bindings
+
+    await intents.mark_dirty_many(connection, scope_id, source_bindings(scope_id), increment=increment)

@@ -17,11 +17,15 @@
 Claude Code runs its hooks with the ``python3`` on ``PATH``, and Hermes installs no dependency for its plugin. Each
 plugin also puts its copy of a helper where it imports it. A helper may therefore import only the standard library,
 and no sibling.
+
+The TypeScript helpers are bundled into, or loaded as source by, plugins that each install their own dependencies, so
+a TypeScript helper may import only Node.js built-in modules.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +34,9 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 SOURCE = ROOT / "src/powercontext_integration_lifecycle"
+TYPESCRIPT_SOURCE = ROOT / "integrations/lifecycle"
+# Static, side-effect, and dynamic imports, and re-exports, all name their module after `from` or `import`.
+_TYPESCRIPT_SPECIFIER = re.compile(r"""\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]""")
 
 
 @pytest.mark.parametrize("module", sorted(SOURCE.glob("*.py")), ids=lambda path: path.name)
@@ -49,9 +56,19 @@ def _top_level_names(node: ast.Import | ast.ImportFrom) -> set[str]:
     return {""} if node.level else {(node.module or "").partition(".")[0]}
 
 
+@pytest.mark.parametrize("module", sorted(TYPESCRIPT_SOURCE.glob("*.ts")), ids=lambda path: path.name)
+def test_typescript_helper_imports_only_node_builtins(module: Path) -> None:
+    outside = [
+        specifier
+        for specifier in _TYPESCRIPT_SPECIFIER.findall(module.read_text(encoding="utf-8"))
+        if not specifier.startswith("node:")
+    ]
+    assert not outside, f"{module.name} imports outside the Node.js built-in modules: {', '.join(outside)}"
+
+
 def test_plugin_copies_match_their_source() -> None:
     # `make check` runs the same check. Running it here as well lets the unit test jobs catch a stale copy, as the
-    # shared-files test does for the JavaScript and TypeScript copies.
+    # shared-files test does for the JavaScript copies.
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts/generate_integration_lifecycle.py"), "--check"],
         capture_output=True,

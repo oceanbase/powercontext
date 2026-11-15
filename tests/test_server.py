@@ -33,6 +33,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 import powercontext.builtin.runtime.composition as runtime_composition
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import AccessControlService
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -51,7 +52,6 @@ from powercontext.http import (
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.authz import AccessControlService
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
@@ -423,6 +423,17 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     assert settings.inference.embedding_dimension == 1536
 
 
+def test_server_settings_read_both_plugin_host_process_limits(monkeypatch) -> None:
+    # The per-plugin map and the total are separate variables, though "_" also nests settings.
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES", '{"knowledge-base": 4}')
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES", "6")
+
+    settings = ServerSettings()
+
+    assert settings.plugin_host_processes == {"knowledge-base": 4}
+    assert settings.plugin_total_host_processes == 6
+
+
 def test_server_settings_select_oceanbase(monkeypatch) -> None:
     url = "mysql+aoceanbase://root:test@127.0.0.1:2881/powercontext?charset=utf8mb4"
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
@@ -544,6 +555,18 @@ def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, mo
     with TestClient(app):
         assert (data_dir / "powercontext.db").is_file()
         assert not (data_dir / "scheduler.db").exists()
+
+
+def test_server_app_ignores_deprecated_scheduler_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "powercontext-data"))
+    sidecar = tmp_path / "scheduler.db"
+
+    with pytest.warns(DeprecationWarning, match="scheduler_path is ignored"):
+        app = create_server_app(settings=ServerSettings(mcp=McpConfig(enabled=False)), scheduler_path=sidecar)
+    with TestClient(app):
+        pass
+
+    assert not sidecar.exists()
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:

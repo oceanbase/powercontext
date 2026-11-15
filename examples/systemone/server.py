@@ -289,9 +289,7 @@ class Experiment:
                     client,
                     laya_budget=self.laya_budget if provider == "laya" else None,
                 )
-                async with open_builtin_runtime(
-                    config, decision_model=backend, scheduler_path=directory / "scheduler.db"
-                ) as runtime:
+                async with open_builtin_runtime(config, decision_model=backend) as runtime:
                     if runtime.decision_model is None:
                         raise DemoError("The Runtime did not expose the injected decision model.")  # noqa: TRY003
                     for arm in _ARMS:

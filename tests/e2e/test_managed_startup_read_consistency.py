@@ -102,9 +102,7 @@ def test_concurrent_publication_does_not_reject_managed_startup(
     migration_backend, monkeypatch, entry, initialized_startup_database
 ):
     settings, evidence, embedding = initialized_startup_database
-    app = create_server_app(
-        settings=settings, scheduler_path=migration_backend.directory / "scheduler.db", embedding_model=embedding
-    )
+    app = create_server_app(settings=settings, embedding_model=embedding)
     with TestClient(app) as client:
         created = client.post(
             "/v1/scopes",
@@ -174,7 +172,6 @@ def test_concurrent_publication_does_not_reject_managed_startup(
                     create_server_app(
                         settings=settings,
                         embedding_model=embedding,
-                        scheduler_path=migration_backend.directory / "second-scheduler.db",
                     )
                 ) as second:
                     assert second.get("/health/ready").status_code == 200
