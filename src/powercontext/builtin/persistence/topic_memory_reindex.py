@@ -400,7 +400,9 @@ async def _active_fingerprint(connection: AsyncConnection) -> str | None:
     return str(rows[0][1])
 
 
-async def _declared_profile(connection: AsyncConnection) -> EmbeddingProfile | None:
+async def declared_storage_profile(connection: AsyncConnection) -> EmbeddingProfile | None:
+    """Read the managed shared vector declaration; None means FTS-only storage."""
+
     names = await _table_names(connection)
     if "pc_server_storage_profile" not in names:
         return None
@@ -459,7 +461,7 @@ def _atomic_index(connection: AsyncConnection, profile: EmbeddingProfile) -> Ato
 
 
 async def _verify_atomic_current(connection: AsyncConnection, profile: EmbeddingProfile) -> None:
-    if await _declared_profile(connection) is None:
+    if await declared_storage_profile(connection) is None:
         return
     # A declaration alone is not readiness: active heads, current rows, metadata,
     # vectors, retained evidence and exact-revision projections must all agree.
@@ -476,7 +478,7 @@ async def _verify_atomic_current(connection: AsyncConnection, profile: Embedding
 
 
 async def _verify_managed_target(connection: AsyncConnection, profile: EmbeddingProfile) -> None:
-    declared = await _declared_profile(connection)
+    declared = await declared_storage_profile(connection)
     if declared is not None and declared != profile:
         raise TopicMemoryStorageInvariantError("reindex-storage-profile", declared.profile_id)
     if declared is not None:
@@ -532,8 +534,9 @@ async def _inspect_managed_storage(
                 False,
                 False,
                 (
-                    "managed Server storage has no shared embedding declaration; "
-                    "initialize the configured profile with full Server maintenance first",
+                    "managed Server storage was initialized without an embedding profile; "
+                    "Topic Memory cannot adopt vectors in place. Keep the FTS-only configuration "
+                    "or create a new vector-enabled deployment.",
                 ),
             )
         errors = ("explicit Atomic Memory rebuild requires managed Server storage",) if rebuild_requested else ()
@@ -569,7 +572,7 @@ async def _inspect(
         active_fingerprint = await _active_fingerprint(connection)
         names = await _table_names(connection)
         cleanup_required = any(name.startswith(TOPIC_MEMORY_REINDEX_PREVIOUS_PREFIX) for name in names)
-        declared = await _declared_profile(connection)
+        declared = await declared_storage_profile(connection)
         activated = active_fingerprint == backend.fingerprint
         if activated:
             counts.update(
@@ -691,7 +694,7 @@ async def _rebuild_managed_atomic(
             "embedding-profile", "Atomic Memory rebuild requires the configured embedding provider"
         )
     async with database.transaction() as connection:
-        if await _declared_profile(connection) is None:
+        if await declared_storage_profile(connection) is None:
             raise TopicMemoryStorageInvariantError("reindex-storage-profile", 0)
         index = _atomic_index(connection, profile)
     from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
@@ -829,6 +832,7 @@ __all__ = [
     "TopicMemoryReindexChunk",
     "TopicMemoryReindexReport",
     "TopicMemoryReindexSource",
+    "declared_storage_profile",
     "pending_sources",
     "plan_topic_memory_reindex",
     "reindex_topic_memory",

@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -166,3 +168,68 @@ def test_oceanbase_activation_requires_every_registered_vector_index(monkeypatch
             await backend.validate_staging(connection)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1",
+    reason="real seekdb probe not enabled; not executed on this host",
+)
+def test_real_seekdb_activation_keeps_the_registered_chunk_index(short_tmp_path: Path) -> None:
+    """Reproduce the reported native layout loss through the real activation path."""
+
+    pytest.importorskip("pylibseekdb")
+    from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+    from powercontext.builtin.persistence.migrations.deployment import deployment_runner
+    from powercontext.builtin.persistence.migrations.server_readiness import check_server_layout
+    from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+    from powercontext.builtin.persistence.topic_memory_reindex import reindex_topic_memory
+    from powercontext.builtin.runtime.config import InferenceConfig
+    from powercontext.server.settings import ServerSettings
+
+    source = _profile()
+    target = source.model_copy(update={"profile_id": "topic-reindex-target", "model": "fixture-target"})
+    config = SeekDBConfig(path=short_tmp_path / "seekdb")
+    evidence = short_tmp_path / "evidence"
+    settings = ServerSettings(
+        database=config,
+        inference=InferenceConfig(
+            embedding_model=source.model,
+            embedding_profile_id=source.profile_id,
+            embedding_dimension=source.dimension,
+            embedding_normalization=source.normalization,
+        ),
+    )
+    runner = deployment_runner(settings, evidence_dir=evidence)
+    plan = runner.plan()
+    runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+
+    async def reindex():
+        # No authoritative Topics: activation still performs every staged DDL
+        # and declaration swap, which is the DDL that lost the index.
+        async with SeekDBProfile.open(config, tables=()) as profile:
+            return await reindex_topic_memory(
+                profile.database,
+                OceanBaseTopicMemoryReindexBackend(target),
+                embedding_model=None,
+                maintenance_confirmed=True,
+                batch_size=1,
+            )
+
+    report = asyncio.run(reindex())
+    assert report.ready is True and report.activated is True
+
+    def verify(connection, _identity, _guard) -> None:
+        indexes = {
+            (row[0], row[1])
+            for row in connection.exec_driver_sql(
+                "SELECT DISTINCT table_name, index_name FROM information_schema.statistics "
+                "WHERE table_schema = DATABASE() AND table_name IN "
+                "('pc_topic_memory_vector_topics', 'pc_topic_memory_vector_chunks')"
+            )
+        }
+        assert ("pc_topic_memory_vector_topics", "ix_pc_topic_memory_vector_topics_embedding") in indexes
+        assert ("pc_topic_memory_vector_chunks", "ix_pc_topic_memory_vector_chunks_embedding") in indexes
+        # Startup admission must accept the exact activated native layout.
+        check_server_layout(connection)
+
+    MaintenanceConnections(config, evidence_directory=evidence).run(verify)

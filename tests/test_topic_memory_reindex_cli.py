@@ -28,6 +28,7 @@ import os
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import pytest
 from click import unstyle
@@ -36,15 +37,17 @@ from typer.testing import CliRunner
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence.migrations.deployment import server_bundle
 from powercontext.builtin.persistence.migrations.models import MigrationError
-from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
+from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema, prepare_server_storage
 from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
+from powercontext.builtin.persistence.sqlite.topic_memory_reindex import SQLiteTopicMemoryReindexBackend
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
-from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.cli.app import create_cli
 from powercontext.server.cli import app
+from powercontext.server.settings import McpConfig, ServerSettings
 from tests.builtin.persistence.test_topic_memory_reindex import _Embedding, _profile, _publish
 
 
@@ -76,13 +79,17 @@ def _managed_database(
     return runner
 
 
-def _configure_target(monkeypatch: pytest.MonkeyPatch, database: Path, profile: EmbeddingProfile) -> None:
+def _configure_database(monkeypatch: pytest.MonkeyPatch, database: Path) -> None:
     for key in tuple(os.environ):
         if key.startswith("POWERCONTEXT_SERVER_"):
             monkeypatch.delenv(key)
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "sqlite")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", f"sqlite+aiosqlite:///{database}")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_JOURNAL_MODE", "DELETE")
+
+
+def _configure_target(monkeypatch: pytest.MonkeyPatch, database: Path, profile: EmbeddingProfile) -> None:
+    _configure_database(monkeypatch, database)
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL", profile.model)
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID", profile.profile_id)
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION", str(profile.dimension))
@@ -122,16 +129,28 @@ def _staging_tables(database: Path) -> list[str]:
         ]
 
 
-def _journal(database: Path) -> dict[str, object]:
+def _journal(database: Path) -> dict[str, Any]:
     path = database.with_name(database.name + ".pc-migration-state") / "maintenance.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _require_restart_admission(database: Path) -> None:
-    """Run the same admission Server startup uses against a reopened database."""
+def _require_restart_admission(database: Path, profile: EmbeddingProfile | None) -> None:
+    """Run the exact startup plan and business admission Server uses against a reopened database."""
+
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}", journal_mode="DELETE")
+    settings = ServerSettings(
+        database=config,
+        mcp=McpConfig(enabled=False),
+        inference=InferenceConfig(
+            embedding_model=profile.model if profile is not None else None,
+            embedding_profile_id=profile.profile_id if profile is not None else None,
+            embedding_dimension=profile.dimension if profile is not None else None,
+            embedding_normalization=profile.normalization if profile is not None else "unit",
+        ),
+    )
+    prepare_server_storage(settings)
 
     async def scenario() -> None:
-        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}", journal_mode="DELETE")
         async with (
             SQLiteProfile.open(config, tables=(), load_vector_extension=True) as opened,
             opened.database.transaction() as connection,
@@ -139,6 +158,13 @@ def _require_restart_admission(database: Path) -> None:
             await connection.run_sync(lambda sync: check_server_schema(sync, _startup=True))
 
     asyncio.run(scenario())
+
+
+def _transitions(database: Path) -> list[tuple[str, str, str]]:
+    return [
+        (item["previous"]["profile_id"], item["target"]["profile_id"], item["state"])
+        for item in _journal(database)["embedding_profile_transitions"]
+    ]
 
 
 def test_cli_dry_run_skips_provider_and_preserves_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,7 +206,7 @@ def test_cli_apply_preserves_history_for_restart_admission(
     old_profile, new_profile = _profile("old", 2), _profile("new", 3)
     _managed_database(database, old_profile, count=2)
     before = _authority(database)
-    recorded = dict(_journal(database)["release_checksums"])  # type: ignore[arg-type]
+    recorded = dict(_journal(database)["release_checksums"])
     _configure_target(monkeypatch, database, new_profile)
     model = _Embedding(new_profile)
     provider_calls = []
@@ -216,14 +242,16 @@ def test_cli_apply_preserves_history_for_restart_admission(
     assert _active_fingerprint(database) == topic_memory_embedding_profile_fingerprint(new_profile)
     assert _staging_tables(database) == []
 
-    # The managed profile switch keeps the superseded release evidence while the
-    # recorded checksums follow the target declaration, so a restarted Server and
-    # a repeated identical apply both admit the storage this command activated.
+    # A managed profile switch changes every profile-bound revision checksum.
+    # The recorded releases stay exactly as published and the accepted switch is
+    # journaled separately, so a restarted Server and a repeated identical apply
+    # both admit the storage this command activated.
     journal = _journal(database)
     assert journal["state"] == "complete"
-    assert journal["release_checksums"] == server_bundle(embedding_profile=new_profile).checksums
-    assert journal["superseded_release_checksums"] == [recorded]
-    _require_restart_admission(database)
+    assert journal["release_checksums"] == recorded
+    assert "superseded_release_checksums" not in journal
+    assert _transitions(database) == [(old_profile.profile_id, new_profile.profile_id, "complete")]
+    _require_restart_admission(database, new_profile)
 
     async def refuse_provider(*_args, **_kwargs):
         raise AssertionError("an activated apply must not initialize the embedding provider")  # noqa: TRY003
@@ -234,8 +262,9 @@ def test_cli_apply_preserves_history_for_restart_admission(
     repeated_report = json.loads(repeated.stdout)
     assert repeated_report["ready"] is True and repeated_report["activated"] is True
     assert repeated_report["embedded_vectors"] == 0
-    assert _journal(database)["superseded_release_checksums"] == [recorded]
-    _require_restart_admission(database)
+    assert _journal(database)["release_checksums"] == recorded
+    assert _transitions(database) == [(old_profile.profile_id, new_profile.profile_id, "complete")]
+    _require_restart_admission(database, new_profile)
 
 
 def test_cli_apply_rejects_fts_only_managed_storage_before_writing(
@@ -269,7 +298,8 @@ def test_cli_apply_rejects_fts_only_managed_storage_before_writing(
     assert applied.exit_code == 1, applied.exception or applied.output
     report = json.loads(applied.stdout)
     assert report["ready"] is False and report["activated"] is False
-    assert "no shared embedding declaration" in report["errors"][0]
+    assert "initialized without an embedding profile" in report["errors"][0]
+    assert "create a new vector-enabled deployment" in report["errors"][0]
 
     with closing(sqlite3.connect(database)) as connection:
         current = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -277,7 +307,10 @@ def test_cli_apply_rejects_fts_only_managed_storage_before_writing(
     assert _active_shape(database) == ("fts", None)
     assert _authority(database) == before
     assert _staging_tables(database) == []
-    _require_restart_admission(database)
+    assert _transitions(database) == []
+    # The command leaves the FTS-only deployment untouched, so that exact
+    # configuration must still start.
+    _require_restart_admission(database, None)
 
 
 def test_cli_apply_resumes_after_a_committed_atomic_rebuild(
@@ -302,7 +335,7 @@ def test_cli_apply_resumes_after_a_committed_atomic_rebuild(
 
     asyncio.run(interrupt())
     with pytest.raises(MigrationError, match="incompatible_schema"):
-        _require_restart_admission(database)
+        _require_restart_admission(database, old_profile)
 
     _configure_target(monkeypatch, database, new_profile)
     model = _Embedding(new_profile)
@@ -336,4 +369,71 @@ def test_cli_apply_resumes_after_a_committed_atomic_rebuild(
     assert definition is not None and f"float[{new_profile.dimension}]" in definition[0]
     assert declared is not None
     assert EmbeddingProfile.model_validate_json(declared[0]) == new_profile
-    _require_restart_admission(database)
+    _require_restart_admission(database, new_profile)
+
+
+def test_cli_apply_resumes_after_an_interrupted_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "interrupted.db"
+    old_profile, new_profile = _profile("old", 2), _profile("new", 3)
+    _managed_database(database, old_profile, count=1)
+    before = _authority(database)
+    recorded = dict(_journal(database)["release_checksums"])
+    _configure_target(monkeypatch, database, new_profile)
+    model = _Embedding(new_profile)
+
+    async def models(*_args, **_kwargs):
+        return model, model
+
+    monkeypatch.setattr("powercontext.server.cli._embedding_models", models)
+    command = [
+        "server",
+        "topic-memory-reindex",
+        "--action",
+        "apply",
+        "--maintenance-confirmed",
+        "--batch-size",
+        "1",
+    ]
+    original_activate = SQLiteTopicMemoryReindexBackend.activate
+
+    async def interrupt(self, connection, **options):
+        raise RuntimeError("injected activation interruption")  # noqa: TRY003
+
+    monkeypatch.setattr(SQLiteTopicMemoryReindexBackend, "activate", interrupt)
+    interrupted = CliRunner().invoke(create_cli([app]), command)
+
+    assert interrupted.exit_code == 1
+    assert isinstance(interrupted.exception, RuntimeError)
+    # Staging committed before the interruption. The journal explains the
+    # unfinished switch without rewriting published release checksums, so a new
+    # command run can resume it instead of replanning from scratch.
+    assert _journal(database)["release_checksums"] == recorded
+    assert _transitions(database) == [(old_profile.profile_id, new_profile.profile_id, "pending")]
+    assert _active_fingerprint(database) == topic_memory_embedding_profile_fingerprint(old_profile)
+    # A pending switch admits the deployment that is still running its old
+    # profile, so an interruption never leaves the storage unstartable.
+    _require_restart_admission(database, old_profile)
+    with pytest.raises(MigrationError):
+        _require_restart_admission(database, new_profile)
+
+    monkeypatch.setattr(SQLiteTopicMemoryReindexBackend, "activate", original_activate)
+
+    async def refuse_provider(*_args, **_kwargs):
+        raise AssertionError("resuming complete staging must not initialize the provider")  # noqa: TRY003
+
+    monkeypatch.setattr("powercontext.server.cli._embedding_models", refuse_provider)
+    resumed = CliRunner().invoke(create_cli([app]), command)
+
+    assert resumed.exit_code == 0, resumed.exception or resumed.output
+    report = json.loads(resumed.stdout)
+    assert report["ready"] is True and report["activated"] is True
+    assert report["embedded_vectors"] == 0
+    assert _authority(database) == before
+    assert _active_fingerprint(database) == topic_memory_embedding_profile_fingerprint(new_profile)
+    assert _staging_tables(database) == []
+    assert _journal(database)["release_checksums"] == recorded
+    assert _transitions(database) == [(old_profile.profile_id, new_profile.profile_id, "complete")]
+    _require_restart_admission(database, new_profile)

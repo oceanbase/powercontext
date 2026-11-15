@@ -19,7 +19,7 @@ from pathlib import Path
 from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 
-from .bundle import sqlite_inventory
+from .bundle import MigrationBundle, sqlite_inventory
 from .models import MigrationError, digest
 
 
@@ -95,8 +95,9 @@ def _check_sqlite_startup_history(connection, bundle):
     from .connections import BackendIdentity
     from .deployment import server_bundle
     from .mysql import require_completed_domain_maintenance
+    from .profile_transitions import verify_embedding_profile_evidence
     from .sources import MigrationSources
-    from .sqlite import read_maintenance_evidence, verify_release_checksums, verify_retained_objects
+    from .sqlite import read_maintenance_evidence, verify_retained_objects
 
     filename = next(
         (filename for _, name, filename in connection.exec_driver_sql("PRAGMA database_list") if name == "main"),
@@ -115,7 +116,16 @@ def _check_sqlite_startup_history(connection, bundle):
         bundle = MigrationSources(
             bundle, (server_bundle(embedding_profile=profile, source_release="1.4.0"),)
         ).from_evidence(evidence)
-        verify_release_checksums(evidence["release_checksums"], bundle.checksums)
+        verify_embedding_profile_evidence(
+            evidence,
+            profile=bundle.vector_profile.profile if bundle.vector_profile is not None else None,
+            checksums=bundle.checksums,
+            checksums_for=lambda origin: (
+                MigrationBundle(
+                    bundle.directory, embedding_profile=origin, source_directory=bundle.source_directory
+                ).checksums
+            ),
+        )
         verify_retained_objects(sqlite_inventory(connection), bundle.head, bundle=bundle, evidence=evidence)
     require_completed_domain_maintenance(directory, identity)
 

@@ -35,6 +35,7 @@ from powercontext.builtin.artifacts.atomic_memory import (
 )
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryCapabilityError, TopicMemoryStorageInvariantError
+from powercontext.builtin.authz.repository import ACCESS_TABLES
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.atomic_memory import AtomicMemoryStateRepository
@@ -75,7 +76,6 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import (
     rebuild_atomic_memory_projection,
     verify_atomic_memory_current,
 )
-from powercontext.builtin.authz.repository import ACCESS_TABLES
 
 _OLD = EmbeddingProfile(profile_id="old", model="test", dimension=2, distance="l2", normalization="unit")
 _TARGET = EmbeddingProfile(profile_id="target", model="test", dimension=3, distance="l2", normalization="unit")

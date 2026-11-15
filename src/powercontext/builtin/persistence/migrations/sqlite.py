@@ -35,10 +35,20 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import Connection, create_engine
 from sqlalchemy.exc import DatabaseError, OperationalError
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+
 from .backup import BackupContext, BackupProvider, BackupRef, SQLiteBackupProvider
 from .bundle import ALEMBIC_CONTEXT_LOCK, MigrationBundle, sqlite_inventory
 from .locking import local_migration_lock
 from .models import MigrationError, MigrationPlan, MigrationResult, digest
+from .profile_transitions import (
+    EmbeddingProfileTransition,
+    accept_embedding_profile_switch,
+    finish_embedding_profile_transition,
+    read_embedding_profile_transitions,
+    validate_embedding_profile_transitions,
+    verify_embedding_profile_evidence,
+)
 from .server_baselines import recognize_sqlite_server_baseline
 from .sources import MigrationSources
 
@@ -68,7 +78,7 @@ class _MaintenanceEvidence(BaseModel):
     retained_objects: tuple[str, ...] = ()
     backup_history: list[dict[str, Any]] = []
     compatibility_checksum: str | None = None
-    superseded_release_checksums: list[dict[str, str]] = []
+    embedding_profile_transitions: list[EmbeddingProfileTransition] = []
 
     @model_validator(mode="after")
     def consistent_recovery_point(self) -> Self:
@@ -92,6 +102,11 @@ class _MaintenanceEvidence(BaseModel):
             raise ValueError("An automatic recovery point is inconsistent with the declared backup state")  # noqa: TRY003
         return self
 
+    @model_validator(mode="after")
+    def transitions_form_one_switch_chain(self) -> Self:
+        validate_embedding_profile_transitions(self.embedding_profile_transitions)
+        return self
+
 
 def read_maintenance_evidence(path: Path, database_id: str) -> dict[str, Any] | None:
     """Read the original journal and require its recorded database identity."""
@@ -104,13 +119,6 @@ def read_maintenance_evidence(path: Path, database_id: str) -> dict[str, Any] | 
     if value.database_id != database_id:
         raise MigrationError("recovery_required", "The external maintenance evidence belongs to another target.")
     return value.model_dump(mode="json")
-
-
-def verify_release_checksums(recorded: Mapping[str, str], checksums: Mapping[str, str]) -> None:
-    """Require every recorded revision to retain its released resources."""
-    for revision, checksum in recorded.items():
-        if checksums.get(revision) != checksum:
-            raise MigrationError("checksum_conflict", "A recorded released migration resource changed.")
 
 
 def verify_retained_objects(
@@ -301,6 +309,7 @@ class SQLiteMigrationRunner:
                 connection.commit()
                 evidence["state"] = "complete"
                 evidence["release_checksums"] = self.bundle.checksums
+                evidence["embedding_profile_transitions"] = []
                 inventory = sqlite_inventory(connection)
                 evidence["retained_objects"] = [
                     name for name in self.bundle.retained_objects if any(row[1] == name for row in inventory)
@@ -460,7 +469,12 @@ class SQLiteMigrationRunner:
             state = "uninitialized"
         evidence = self._evidence()
         if evidence:
-            verify_release_checksums(evidence["release_checksums"], self.bundle.checksums)
+            verify_embedding_profile_evidence(
+                evidence,
+                profile=self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None,
+                checksums=self.bundle.checksums,
+                checksums_for=self._checksums_for_profile,
+            )
             if evidence["state"] != "complete":
                 if evidence.get("compatibility_checksum"):
                     from .historical import checksum
@@ -570,6 +584,7 @@ class SQLiteMigrationRunner:
                 "backup": None,
                 "release_checksums": previous.get("release_checksums", {}) if previous else {},
                 "retained_objects": previous.get("retained_objects", []) if previous else [],
+                "embedding_profile_transitions": previous.get("embedding_profile_transitions", []) if previous else [],
                 "compatibility_checksum": plan.compatibility_checksum,
             }
         )
@@ -622,27 +637,45 @@ class SQLiteMigrationRunner:
     def _evidence(self) -> dict[str, Any] | None:
         return read_maintenance_evidence(self.evidence_path, self._database_id())
 
-    def record_vector_profile_transition(self) -> bool:
-        """Rebind recorded release evidence to a completed managed profile switch.
+    def has_maintenance_evidence(self) -> bool:
+        return self.evidence_path.exists()
 
-        Revision checksums cover the configured EmbeddingProfile, so an accepted
-        profile transition legitimately changes every recorded checksum. Keeping
-        the old map as superseded evidence and adopting this bundle's map keeps
-        the historical record while letting the next startup plan admit the
-        database it just accepted. Returns whether the journal changed.
-        """
+    def _checksums_for_profile(self, profile: EmbeddingProfile) -> Mapping[str, str]:
+        return MigrationBundle(
+            self.bundle.directory, embedding_profile=profile, source_directory=self.bundle.source_directory
+        ).checksums
 
+    def begin_embedding_profile_transition(self, previous: EmbeddingProfile) -> bool:
+        """Record the accepted intent to switch a complete deployment's profile."""
+        evidence = self._evidence()
+        if evidence is None:
+            raise MigrationError("recovery_required", "The full Server maintenance evidence is missing.")
+        if evidence["state"] != "complete":
+            raise MigrationError("recovery_required", "Complete the recorded full Server maintenance first.")
+        target = self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None
+        if target is None:
+            raise MigrationError(
+                "embedding_profile_mismatch", "A profile switch requires a configured embedding profile."
+            )
+        transitions = read_embedding_profile_transitions(evidence.get("embedding_profile_transitions"))
+        accepted = accept_embedding_profile_switch(transitions, previous, target)
+        if accepted == transitions:
+            return False
+        evidence["embedding_profile_transitions"] = [item.model_dump(mode="json") for item in accepted]
+        _MaintenanceEvidence.model_validate(evidence)
+        self._write_evidence(evidence)
+        return True
+
+    def complete_embedding_profile_transition(self) -> bool:
+        """Mark the pending managed profile switch as reaching the declared storage."""
         evidence = self._evidence()
         if evidence is None:
             return False
-        if evidence["state"] != "complete":
-            raise MigrationError("recovery_required", "Complete the recorded full Server maintenance first.")
-        recorded = dict(evidence["release_checksums"])
-        if recorded == dict(self.bundle.checksums):
+        transitions = read_embedding_profile_transitions(evidence.get("embedding_profile_transitions"))
+        completed = finish_embedding_profile_transition(transitions)
+        if completed is None:
             return False
-        superseded = [*evidence.get("superseded_release_checksums", []), recorded]
-        evidence["superseded_release_checksums"] = superseded
-        evidence["release_checksums"] = dict(self.bundle.checksums)
+        evidence["embedding_profile_transitions"] = [item.model_dump(mode="json") for item in completed]
         _MaintenanceEvidence.model_validate(evidence)
         self._write_evidence(evidence)
         return True

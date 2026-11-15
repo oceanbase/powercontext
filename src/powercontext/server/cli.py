@@ -624,7 +624,7 @@ def topic_memory_reindex(
         raise typer.Exit(code=1)
 
 
-async def _topic_memory_reindex(
+async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps beside their command.
     settings: ServerSettings,
     *,
     dry_run: bool,
@@ -634,8 +634,12 @@ async def _topic_memory_reindex(
     show_progress: bool,
 ) -> bool:
     from powercontext.builtin.artifacts.memory import EmbeddingProfile
+    from powercontext.builtin.persistence.migrations.deployment import deployment_runner
+    from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
+    from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
     from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
     from powercontext.builtin.persistence.sqlite.topic_memory_reindex import SQLiteTopicMemoryReindexBackend
+    from powercontext.builtin.persistence.topic_memory_reindex import declared_storage_profile
 
     inference = settings.inference
     if (
@@ -680,14 +684,28 @@ async def _topic_memory_reindex(
         if show_progress:
             typer.echo(json.dumps({"progress": counts}, sort_keys=True), err=True)
 
+    runner = deployment_runner(settings) if not dry_run and isinstance(database, (SQLiteConfig, SeekDBConfig)) else None
+    # Only the Server bundle carries the maintenance journal this command extends.
+    journal = runner if isinstance(runner, (SQLiteMigrationRunner, MySQLMigrationRunner)) else None
     async with AsyncExitStack() as resources:
         profile = await resources.enter_async_context(opened)
         async with profile.database.transaction() as connection:
+            stored_profile = await declared_storage_profile(connection)
             inspection = await plan_topic_memory_reindex(
                 connection,
                 backend,
                 rebuild_atomic_memory=rebuild_atomic_memory,
             )
+        if (
+            not dry_run
+            and not inspection.errors
+            and journal is not None
+            and journal.has_maintenance_evidence()
+            and stored_profile is not None
+        ):
+            # Record the accepted switch before touching storage so an
+            # interrupted activation is explained by the journal it left behind.
+            journal.begin_embedding_profile_transition(stored_profile)
         if dry_run or inspection.errors:
             report = inspection if dry_run else inspection.model_copy(update={"action": "apply"})
         else:
@@ -705,37 +723,45 @@ async def _topic_memory_reindex(
                 rebuild_atomic_memory=rebuild_atomic_memory,
                 progress=progress,
             )
-        if not dry_run and report.ready and report.activated and isinstance(profile, SQLiteProfile):
-            # A managed profile switch changes every profile-bound revision
-            # checksum. Rebind the recorded release evidence before admission so
-            # a repeated apply and the next Server startup plan both accept the
-            # storage this command just activated.
-            _rebind_sqlite_profile_evidence(settings)
-            await _require_reindexed_server_admission(profile)
+    if not dry_run and report.ready and report.activated:
+        # Prove the restarted Server admits the storage before closing the
+        # journal, so an unadmitted switch stays visibly pending.
+        await _require_reindexed_server_admission(settings)
+        if journal is not None:
+            journal.complete_embedding_profile_transition()
     typer.echo(report.model_dump_json())
     return report.ready
 
 
-def _rebind_sqlite_profile_evidence(settings: ServerSettings) -> None:
-    """Record a completed managed profile switch in the maintenance journal."""
+async def _require_reindexed_server_admission(settings: ServerSettings) -> None:
+    """Prove that a restarted Server admits the storage this command activated.
 
-    from powercontext.builtin.persistence.migrations.deployment import deployment_runner
-    from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+    Unmanaged storage has no Server startup plan; its activated vectors belong to
+    the embedding application that owns it, so only managed storage is admitted.
+    """
 
-    runner = deployment_runner(settings)
-    if isinstance(runner, SQLiteMigrationRunner) and runner.evidence_path.exists():
-        runner.record_vector_profile_transition()
+    from powercontext.builtin.persistence.migrations.server_readiness import (
+        check_server_schema,
+        prepare_server_storage,
+    )
 
+    database = settings.database
 
-async def _require_reindexed_server_admission(profile: SQLiteProfile) -> None:
-    """Prove that a restarted Server admits the storage this command activated."""
+    def open_profile():
+        if isinstance(database, SQLiteConfig):
+            return SQLiteProfile.open(database, tables=(), load_vector_extension=True)
+        if isinstance(database, OceanBaseConfig):
+            return OceanBaseProfile.open(database, tables=())
+        return SeekDBProfile.open(database, tables=())
 
-    from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
-
-    async with profile.database.transaction() as connection:
+    async with open_profile() as profile, profile.database.transaction() as connection:
         managed = await connection.run_sync(lambda sync: "pc_schema_revision" in inspect(sync).get_table_names())
-        if managed:
-            await connection.run_sync(lambda sync: check_server_schema(sync, _startup=True))
+    if not managed:
+        return
+    # Build the exact startup plan the Server builds before it opens storage.
+    await asyncio.to_thread(prepare_server_storage, settings)
+    async with open_profile() as profile, profile.database.transaction() as connection:
+        await connection.run_sync(lambda sync: check_server_schema(sync, _startup=True))
 
 
 @app.command("access-ownership-migrate")

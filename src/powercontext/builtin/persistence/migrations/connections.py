@@ -84,6 +84,17 @@ class MaintenanceConnections:
         self.lock_coordination = lock_coordination
         self.acknowledge_previous_run = acknowledge_previous_run
 
+    def journal_identity(self) -> BackendIdentity | None:
+        """The durable journal identity when configuration alone determines it."""
+        if isinstance(self.config, SQLiteConfig):
+            url = make_url(self.config.url)
+            if not self.config.is_persistent or not url.database:
+                return None
+            return _sqlite_identity(url.database)
+        if isinstance(self.config, SeekDBConfig):
+            return _seekdb_identity(self.config.path.expanduser().resolve(), self.config.database)
+        return None
+
     def coordination(self, identity: BackendIdentity) -> dict[str, str]:
         if isinstance(self.config, SQLiteConfig):
             return {"mode": "database-file"}
@@ -111,11 +122,7 @@ class MaintenanceConnections:
             return self._sqlite(operation, self.config, writable=writable)
         if isinstance(self.config, SeekDBConfig):
             path = self.config.path.expanduser().resolve()
-            identity = BackendIdentity(
-                "seekdb",
-                digest({"backend": "seekdb", "path": str(path), "database": self.config.database}),
-                self.config.database,
-            )
+            identity = _seekdb_identity(path, self.config.database)
             if not path.exists() and not writable:
                 return operation(None, identity, lambda: None)
             with local_migration_lock(path):
@@ -161,7 +168,7 @@ class MaintenanceConnections:
         ):
             raise MigrationError("unsupported_target", "Maintenance requires a regular persistent SQLite file URL.")
         target = Path(url.database).absolute().resolve()
-        identity = BackendIdentity("sqlite", digest({"kind": "sqlite", "path": str(target)}), target.name)
+        identity = _sqlite_identity(url.database)
         if not target.exists():
             return operation(None, identity, lambda: None)
         if not target.is_file() or target.stat().st_nlink != 1:
@@ -343,6 +350,15 @@ async def _require_explicit_database(config: SeekDBConfig, options: Mapping[str,
         await seekdb_profile._require_explicit_legacy_database(config, options)
     except seekdb_profile.LegacySeekDBDatabaseError as error:
         raise MigrationError("explicit_database_required", str(error)) from error
+
+
+def _sqlite_identity(database: str) -> BackendIdentity:
+    target = Path(database).absolute().resolve()
+    return BackendIdentity("sqlite", digest({"kind": "sqlite", "path": str(target)}), target.name)
+
+
+def _seekdb_identity(path: Path, database: str) -> BackendIdentity:
+    return BackendIdentity("seekdb", digest({"backend": "seekdb", "path": str(path), "database": database}), database)
 
 
 def _directory_inode(path: Path) -> tuple[int, int]:
