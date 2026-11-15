@@ -6,9 +6,9 @@ cover: assets/blog/dsh-pet-powercontext-memory/cover.png
 cover_alt: 女仆装鲸鱼娘双手举起一块印着 PowerContext 标志的牌子。
 date: 2026-11-13
 authors:
-  - beaten
+  Beaten
 categories:
-  - 工程实践
+  工程实践
 draft: true
 pin: false
 ---

@@ -6,9 +6,9 @@ cover: assets/blog/dsh-pet-powercontext-memory/cover.png
 cover_alt: A whale girl in a maid outfit holds up a sign carrying the PowerContext logo.
 date: 2026-11-13
 authors:
-  - beaten
+  Beaten
 categories:
-  - Engineering
+  Engineering
 draft: true
 pin: false
 ---

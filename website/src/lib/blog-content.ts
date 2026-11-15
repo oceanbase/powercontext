@@ -65,6 +65,14 @@ function dateText(value: unknown, field: string): string {
   return text;
 }
 
+/** Accept either a YAML list or a single scalar written without a leading dash. */
+function textList(value: unknown, message: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  const items = Array.isArray(value) ? value : [value];
+  if (items.some((item: unknown) => typeof item !== 'string')) throw new Error(message);
+  return items.map((item) => (item as string).trim());
+}
+
 export function parsePost(markdown: string, file: string): BlogPost {
   const match = markdown.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) throw new Error(`Blog: missing front matter in ${file}`);
@@ -73,15 +81,14 @@ export function parsePost(markdown: string, file: string): BlogPost {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || ['page', 'authors', 'archive', 'publishing'].includes(slug)) {
     throw new Error(`Blog: invalid or reserved slug in ${file}`);
   }
-  if (!Array.isArray(meta.authors) || (!meta.authors.length && meta.draft !== true) || meta.authors.some((id: unknown) => typeof id !== 'string')) {
+  const authors = textList(meta.authors, `Blog: authors required in ${file}`);
+  if (authors === undefined || (!authors.length && meta.draft !== true)) {
     throw new Error(`Blog: authors required in ${file}`);
   }
   for (const flag of ['draft', 'pin']) {
     if (meta[flag] !== undefined && typeof meta[flag] !== 'boolean') throw new Error(`Blog: ${flag} must be boolean`);
   }
-  if (meta.categories !== undefined && (!Array.isArray(meta.categories) || meta.categories.some((item: unknown) => typeof item !== 'string'))) {
-    throw new Error(`Blog: categories must be a list in ${file}`);
-  }
+  const categories = textList(meta.categories, `Blog: categories must be a list in ${file}`);
   const created = typeof meta.date === 'object' ? meta.date.created : meta.date;
   const updated = meta.updated ?? (typeof meta.date === 'object' ? meta.date.updated : undefined);
   const date = dateText(created, `${file}: date`);
@@ -95,8 +102,8 @@ export function parsePost(markdown: string, file: string): BlogPost {
     ...(cover ? { cover, coverAlt } : {}),
     slug, title: requiredText(meta.title, `${file}: title`),
     description: requiredText(meta.description, `${file}: description`),
-    date, ...(updated ? { updated } : {}), authors: meta.authors,
-    categories: meta.categories ?? [], draft: meta.draft ?? false, pin: meta.pin ?? false,
+    date, ...(updated ? { updated } : {}), authors,
+    categories: categories ?? [], draft: meta.draft ?? false, pin: meta.pin ?? false,
     body: match[2].replace(/^\s*# [^\n]+\n/, '').replace(/<!--\s*more\s*-->/g, '')
       .replace(/\]\((?:\.\.\/)+assets\//g, '](/docs-assets/'),
   };
@@ -121,7 +128,7 @@ export async function readBlogContent(repositoryDir: string, today?: string): Pr
     const rawAuthors = parse(await readFile(path.join(directory, '.authors.yml'), 'utf8')).authors;
     const authors: Record<string, BlogAuthor> = {};
     for (const [id, raw] of Object.entries(rawAuthors) as [string, Record<string, unknown>][]) {
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error(`Blog: invalid author ID ${id}`);
+      if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(id)) throw new Error(`Blog: invalid author ID ${id}`);
       const avatar = requiredText(raw.avatar, `${id}: avatar`);
       if (!avatar.startsWith('assets/blog/') && !avatar.startsWith('https://')) throw new Error(`Blog: invalid avatar ${avatar}`);
       authors[id] = { id, name: requiredText(raw.name, `${id}: name`), description: raw.description === undefined ? '' : requiredText(raw.description, `${id}: description`), avatar, socials: authorSocials(raw.socials, id) };
