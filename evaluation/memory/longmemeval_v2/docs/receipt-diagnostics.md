@@ -187,8 +187,10 @@ uv run --project evaluation ruff check evaluation/memory/longmemeval_v2
 uv run --project evaluation ruff format --check evaluation/memory/longmemeval_v2
 ```
 
-The real TCP HTTP/SQLite acceptance uses the root Server environment, starts a
-disposable Server and makes no model calls. It is skipped unless explicitly enabled.
+The real TCP HTTP/SQLite acceptance uses the root Server environment and starts a
+disposable Server. It checks the default selection and model-rerank paths using
+Pydantic AI's local `TestModel`, with no external model-provider calls. It is skipped
+unless explicitly enabled.
 From the repository root, run:
 
 ```bash

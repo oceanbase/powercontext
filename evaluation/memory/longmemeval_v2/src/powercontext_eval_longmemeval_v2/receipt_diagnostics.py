@@ -30,7 +30,7 @@ MAX_DIAGNOSTICS_BYTES = 8_192
 
 Family = Literal["atomic-memory", "topic-memory", "experience", "profile", "code"]
 Digest = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
-CodeDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+HexDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Round = Annotated[int, Field(ge=0, le=2)]
 Count = Annotated[int, Field(ge=1)]
 
@@ -67,12 +67,12 @@ class _Address(_Evidence):
 
 class _Code(_Evidence):
     scope_id: Annotated[str, Field(min_length=1, max_length=256, pattern=r".*\S.*")]
-    fingerprint: CodeDigest
+    fingerprint: HexDigest
     path: str
-    file_sha256: CodeDigest
+    file_sha256: HexDigest
     start_line: Count
     end_line: Count
-    snippet_sha256: CodeDigest
+    snippet_sha256: HexDigest
 
 
 class _Selected(_Evidence):
@@ -120,7 +120,7 @@ class _Prompt(_Evidence):
     builtin_version: str
     selection: Literal["built_in", "artifact"]
     selected_version: str
-    compiled_digest: Digest
+    compiled_digest: HexDigest
     artifact_address: _Address | None
 
 

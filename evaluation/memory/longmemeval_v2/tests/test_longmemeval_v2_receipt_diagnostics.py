@@ -315,7 +315,7 @@ def test_missing_receipt_and_empty_selected_preserve_unknown_candidate_count(tmp
 
 def test_code_paths_and_prompt_payload_are_excluded(tmp_path: Path) -> None:
     payload = response()
-    digest = "sha256:" + "a" * 64
+    prompt_digest = "b" * 64
     payload["receipt"]["selected"] = [
         {
             "kind": "code",
@@ -338,7 +338,7 @@ def test_code_paths_and_prompt_payload_are_excluded(tmp_path: Path) -> None:
         model="PRIVATE-MODEL",
         non_deterministic=True,
         prompt={
-            "compiled_digest": digest,
+            "compiled_digest": prompt_digest,
             "payload": "PRIVATE-PROMPT",
             "scope_id": "synthetic-scope",
             "key": "private",
@@ -354,7 +354,7 @@ def test_code_paths_and_prompt_payload_are_excluded(tmp_path: Path) -> None:
     diagnostics = events(tmp_path)[0]["prepared_context_diagnostics"]
     assert diagnostics["receipt_status"] == "available"
     assert "path" not in diagnostics["selected"][0]["code_evidence"]
-    assert diagnostics["retrieval"]["rerank_configs"][0]["prompt_digest"] == digest
+    assert diagnostics["retrieval"]["rerank_configs"][0]["prompt_digest"] == prompt_digest
     assert "PRIVATE" not in json.dumps(diagnostics)
 
 

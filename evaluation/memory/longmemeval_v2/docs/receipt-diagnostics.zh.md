@@ -142,7 +142,8 @@ content digest 与字节预算、保序 selected 精确身份及 rendered bytes/
 默认测试使用离线合成 runtime 和阶段/模型替身，不访问远端 Server 或模型。
 [英文说明](receipt-diagnostics.md#synthetic-examples-and-offline-verification) 列出 focused pytest
 与 Ruff 命令。真实 TCP HTTP/SQLite 验收使用仓库根目录的 Server 环境，启动一次性 Server，
-不调用模型；未设置开关时跳过。在仓库根目录执行：
+覆盖普通选择和模型重排；重排使用 Pydantic AI 本地 `TestModel`，不调用外部模型服务。
+未设置开关时跳过。在仓库根目录执行：
 
 ```bash
 POWERCONTEXT_TEST_RECEIPT_HTTP=1 \
