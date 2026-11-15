@@ -152,12 +152,29 @@ capability.
   powercontext source-agent --server https://memory.example.com
   ```
 
-  It loads only the Source plugins in the plugin directory and connects to the central Server with its credential. The
-  runner is named after the credential's subject by default (for example the service account `robot-7`); `--name` sets
-  another name, and devices that share a credential must each set one. The name `server` is reserved for the central
-  Server's own runner; a name is bound to the credential subject of its first sync, and no other subject can sync under
-  it afterwards.
-- **Sync**: a runner calls the central sync API on a schedule (every 30 seconds by default) to do three things:
+  It loads only the Source plugins in the plugin directory and connects to the central Server with its credential.
+- **Runner names**: a name identifies a runner across the whole deployment, and targets, status, and checkpoints refer to
+  runners by name. The central Server decides the name, which never changes afterwards; a separate display name, which can
+  change and need not be unique, is shown in interfaces. The name `server` is reserved for the central Server's own runner.
+- **Registration**: a runner registers with the central Server when it first starts, and only then syncs, in one of two
+  ways:
+  - **Suggested name** (the default): the runner generates a random registration ID and registers with it and a suggested
+    name (`--suggest-name`, the host name by default). When nobody has the suggested name, the central Server uses it;
+    otherwise it assigns another one (such as `robot-7-2`) and returns the decided name. The runner keeps the registration
+    ID and name in a local state file (`--state-dir`, in the user data directory by default) and reuses them after a
+    restart; it exits with an error when the state directory is not writable. The same credential subject registering
+    again with the same registration ID gets the same name, so retries after a network failure are safe; another subject
+    holding the registration ID does not get the name. A suggested name never takes over an existing name.
+  - **Fixed name**: `--name robot-7` sets the name explicitly, for containers and CI whose state directory does not
+    persist. A name that does not exist is registered; one that exists and belongs to the same credential subject (same
+    type and ID) reuses its record; one that belongs to another subject fails the start. This way reads and writes no
+    state file, so it also runs on a read-only root file system.
+  - One credential can register several runners, but each device should have a credential of its own. Any authenticated
+    subject can register, with no limit on the number; registering only adds the runner to the list, and submitting data
+    to a Scope still needs `scope.contribute` on that Scope.
+- **Sync**: a runner calls the central sync API with its decided name on a schedule (every 30 seconds by default); the
+  central Server accepts only names that are registered and belong to the current credential subject, and a sync never
+  creates a runner record. A sync does three things:
   1. report the plugins it loaded, each plugin's version and load error, and when it was last seen;
   2. fetch every target assigned to it, across all Scopes;
   3. compare them with the targets it is running, start new ones, and stop removed or disabled ones.
@@ -177,8 +194,10 @@ pc_source_target_set_enabled(scope_id="robot-7-data", target_id="...", enabled=f
 pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 ```
 
-- **Choosing a runner and capability**: `pc_source_runners` lists every runner with the plugins and versions it loaded,
-  whether those versions are compatible with the central Server, and when it was last seen. A capability's description,
+- **Choosing a runner and capability**: `pc_source_runners` lists every registered runner with its display name, the
+  plugins and versions it loaded, whether those versions are compatible with the central Server, and when it was last
+  seen. Targets can be assigned only to registered runners (`server` always exists); creating a target for a runner that
+  does not exist is refused. A capability's description,
   parameter format, and identity expression come from the plugin loaded on the central Server. The Dashboard builds its
   form from them: choose a Scope, then a runner, then a capability, then fill in the parameters; a capability has the same
   form on every runner.
@@ -194,6 +213,10 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   checkpoint always belongs to the same external object.
 - **Disabling and deleting**: a disabled target leaves the sync results while its checkpoint is kept, and resuming
   continues from where it stopped; deleting also deletes its checkpoint, while collected Sources are kept.
+- **Transferring**: a target can be reassigned to another registered runner. The target ID stays the same and the
+  checkpoint follows the target by default, for example when a reinstalled device registers under a new name; when the
+  new device's data differs from the old one's, the checkpoint can be cleared at the same time. A target with the same key
+  already on the destination runner is a conflict.
 - **Permissions**:
   - Adding, changing, and removing targets of a device runner needs Source write permission on the Scope; a device can
     submit results only to Scopes where its credential has `scope.contribute`.
@@ -201,8 +224,13 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
     systems with credentials from the Server environment, so deciding what it collects is an operator decision that
     cannot be left to a user with write permission on some Scope. The server runner submits results inside the Server and
     needs no further permission.
-  - Listing runners needs only authentication; a runner can only sync and report its own targets; deleting a runner
-    record needs `server.admin`.
+  - Transferring a target is creating it on the destination runner, with the same checks: Source write permission on the
+    Scope, a registered destination runner, and `server.admin` when the destination is `server`; when the source runner is
+    `server`, `server.admin` is needed as for changing a `server` target. A user with only Scope write permission
+    therefore cannot create a target on their own device and then transfer it to `server`.
+  - Listing runners needs only authentication; a runner can only sync and report its own targets; changing a display
+    name and deleting a runner record need `server.admin`, and deleting a runner that still has targets is a conflict
+    until they are transferred or deleted.
 
 ## 5. Submitting results and recovering from disconnects
 
@@ -243,6 +271,13 @@ Projection results are deterministic.
   as in RFC #2549, with no separate registration command. Devices need only `scope.contribute` on the Scopes they serve.
 - When a runner goes offline, its record and targets remain; whether it is online is judged from `last_seen_at`. When a
   device is retired, users delete its targets and record.
+- Stateless deployments (containers, CI) either mount the state directory on a persistent volume or use a fixed name.
+  With a suggested name and a state directory that does not persist, every start registers another runner.
+- After the local state is lost (a reinstall, a cleared directory), starting with a suggested name registers a new name,
+  and the old targets are transferred to the new runner; starting with the same credential and a fixed name keeps the old
+  name and targets instead. Delete the state file before cloning a machine image, or two devices hold the same name.
+- For a malicious or leaked credential, disable it in credential management and delete the runners it registered;
+  registration has no separate defense.
 
 ## 8. Versions and upgrades
 
@@ -350,7 +385,7 @@ class SourceCollector(Protocol):
 
 | Data | Handling |
 | --- | --- |
-| `pc_source_runners` | Added: `runner` (primary key), `capabilities` (canonical JSON: each plugin's name, version, and load error), `capabilities_digest`, `last_seen_at` |
+| `pc_source_runners` | Added: `runner` (primary key, the name), `display_name`, the registering subject `principal_type` and `principal_id`, `registration_id` (the registration ID of a suggested-name registration, unique on `(principal_type, principal_id, registration_id)`; empty for a fixed name), `registered_at`, `capabilities` (canonical JSON: each plugin's name, version, and load error), `capabilities_digest`, `last_seen_at` |
 | `pc_source_collect_targets` | Added: primary key `(scope_id, target_id)`; `runner` (indexed), `capability`, `target_key`, `parameters` (canonical JSON), `enabled`, `updated_at`, `updated_by`; unique `(scope_id, runner, capability, target_key)`; written by the runner: `last_attempt_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `last_error_message` |
 | `pc_connector_checkpoints` | Kept; target checkpoints, keyed by `(scope_id, target_id)` |
 | `pc_sources`, Projections, the Source journal, `pc_source_definition_manifests` | Kept |
@@ -370,18 +405,21 @@ class SourceCollector(Protocol):
 
 | API | Permission | Description |
 | --- | --- | --- |
-| `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every runner, its capabilities, whether their versions are compatible with the central Server, and when it was last seen; capability descriptions and parameter formats come from the central plugin |
-| `POST /v1/source-runners/{runner}/sync` | The runner itself | The request carries the capability list (plugin versions and load errors); the response returns every enabled target of a compatible version assigned to the runner with its checkpoint |
+| `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every registered runner, its display name, its capabilities, whether their versions are compatible with the central Server, and when it was last seen; capability descriptions and parameter formats come from the central Server's plugins |
+| `POST /v1/source-runners` | Authenticated | Registers: a suggested-name registration carries `registration_id` and an optional `suggested_name`, a fixed-name one carries `name`; returns the decided name. See section 3 of the guide-level explanation |
+| `PATCH /v1/source-runners/{runner}` | `server.admin` | Changes the display name |
+| `POST /v1/source-runners/{runner}/sync` | The runner itself | Accepts only registered names; the request carries the capability list (plugin versions and load errors); the response returns every enabled target assigned to the runner whose version is compatible, with its checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | Deletes a runner record; a conflict while it still has targets |
 | `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope; `server.admin` when the runner is `server` | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
 | `GET /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_status`) | Scope read | Targets, their configuration, and status |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | As for creation | Changes fields of `parameters` outside the identity expression, or enables and disables |
+| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer` (MCP `pc_source_target_transfer`) | As for creating it on the destination runner; `server.admin` when the source runner is `server` | Reassigns the target to another registered runner; optional `reset_checkpoint` |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | As for creation | Deletes a target and its checkpoint |
 | `POST /v1/source-observations` | Existing | Requests from a runner gain the plugin name and version, checked against the compatible range |
 | `POST /v1/connector-checkpoints/commit` | Existing | The request gains an optional `status`: latest attempt, success, error category, and message; requests from a runner gain the plugin name and version, checked against the compatible range |
 
-"The runner itself" means the authenticated subject equals the runner name, or the subject recorded when the runner first
-reported.
+"The runner itself" means the authenticated subject is the runner record's registering subject, with the same type and
+ID.
 
 Requests sent through `call_plugin` carry the plugin version too.
 
@@ -427,8 +465,12 @@ own local files. `ctx.center` exists only on devices, which lets a plugin tell w
 - **Limited normalization**: identity uses only fixed normalization steps, so complex rules such as URL normalization cannot
   be expressed; plugins can merge identical objects themselves while collecting.
 - **Configuration takes effect with a delay**: up to the sync interval, 30 seconds by default.
-- **Devices sharing a credential must be named by hand**: two devices with the same name get the same targets, which core
-  cannot tell apart; only alternating reports in the status show it.
+- **Runner identity rests on the credential**: a name is not a secret, so whoever holds a credential can sync under any
+  name that credential registered, consistent with the trust model of a shared credential. Two runners that fix the same
+  name under one credential, or that copied the same state file, count as one runner and get the same targets, which
+  core cannot tell apart.
+- **A fixed name may be taken**: when another subject already registered the fixed name, the runner fails to start until
+  an administrator deletes that record.
 - **The central Server must be able to load every Source plugin on devices**: libraries used only on devices cannot be
   imported at the top of `plugin.py`, or the central load fails; splitting dependencies by side is left to the later
   plugin installation and dependency proposal.
@@ -439,6 +481,7 @@ own local files. `ctx.center` exists only on devices, which lets a plugin tell w
 
 | Option | Trade-off |
 | --- | --- |
+| Runners choose their names, bound to the credential subject at the first sync | No registration API; but a sync creates the record as a side effect, uniqueness depends on the devices, and targets can point at runners that never appeared |
 | Targets stored locally on the device (RFC #2549's initial design) | No new table, but the central Server can neither see nor manage device targets; embodied scenarios would need logging in to each device |
 | Targets stored as Artifacts of a built-in family (like Scope Prompt management) | No new table, with revisions, restore, and export ready-made; but finding a device's targets means searching across Scopes without an index |
 | Each device configures a home Scope that lists the Scopes it serves | No new table, but assigning a new Scope to a device means first finding its home Scope, which still needs a scan |

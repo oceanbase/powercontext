@@ -133,10 +133,21 @@ plugin = SourcePlugin(
   powercontext source-agent --server https://memory.example.com
   ```
 
-  它只加载插件目录中的 Source 插件，用凭据连接中心。runner 的名字默认取自凭据的主体（例如服务账号 `robot-7`），也可以用
-  `--name` 指定；多台设备共用一个凭据时必须分别指定。名字 `server` 保留给中心自带的 runner；一个名字第一次同步时与当时的
-  凭据主体绑定，其他主体不能再以这个名字同步。
-- **同步**：runner 定时（默认 30 秒）调用中心的同步接口，完成三件事：
+  它只加载插件目录中的 Source 插件，用凭据连接中心。
+- **runner 的名字**：名字是 runner 在整个部署中的唯一标识，目标、状态和 checkpoint 都按名字指向 runner。名字由中心确定，
+  确定后不能修改；另有一个可以修改、允许重复的显示名，供界面展示。名字 `server` 保留给中心自带的 runner。
+- **注册**：runner 第一次启动时向中心注册，之后才能同步，有两种方式：
+  - **提议名**（默认）：runner 生成一个随机的注册 ID，连同提议的名字（`--suggest-name`，默认为主机名）一起注册。提议的
+    名字没有被占用时中心采用它，已被占用时中心另外分配一个（例如 `robot-7-2`），并在响应中返回确定的名字。runner 把注册 ID
+    和名字保存在本地状态文件中（`--state-dir`，默认在用户数据目录下），重启后沿用；状态目录不可写时 runner 报错退出。
+    同一个凭据主体用同一个注册 ID 重复注册，得到同一个名字，网络中断后可以安全重试；其他主体拿到这个注册 ID 也得不到这个
+    名字。提议的名字永远不会接管已有的名字。
+  - **指定名**：`--name robot-7` 显式指定名字，用于状态目录不持久化的容器和 CI。名字不存在时注册；已存在且属于同一个凭据
+    主体（类型和 ID 都相同）时沿用原记录；属于其他主体时启动失败。这种方式不读写状态文件，只读的根文件系统中也能运行。
+  - 一个凭据可以注册多台 runner，但建议每台设备使用自己的凭据。任何已登录的主体都可以注册，不限制数量；注册只让 runner
+    出现在列表中，向 Scope 提交数据仍然需要该 Scope 的 `scope.contribute`。
+- **同步**：runner 定时（默认 30 秒）以确定的名字调用中心的同步接口；中心只接受已注册、且属于当前凭据主体的名字，同步不会
+  顺带创建 runner 记录。同步完成三件事：
   1. 上报自己加载的插件、每个插件的版本和加载错误，以及最近在线时间；
   2. 取回分配给自己的全部目标（跨所有 Scope）；
   3. 与本地正在执行的目标比对，开始新目标，停止已删除或已停用的目标。
@@ -155,7 +166,8 @@ pc_source_target_set_enabled(scope_id="robot-7-data", target_id="...", enabled=f
 pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 ```
 
-- **选择 runner 和能力**：`pc_source_runners` 列出所有 runner、它们加载的插件及版本、版本是否与中心兼容，以及最近在线时间。
+- **选择 runner 和能力**：`pc_source_runners` 列出所有已注册的 runner、显示名、它们加载的插件及版本、版本是否与中心兼容，以及最近
+  在线时间。目标只能分配给已注册的 runner（`server` 始终存在），为不存在的 runner 新建目标会被拒绝。
   能力的说明、参数格式和唯一性表达式取自中心加载的插件。Dashboard 据此生成"选 Scope → 选 runner → 选能力 → 按参数格式
   填写"的表单；同一能力在所有 runner 上是同一个表单。
 - **校验与去重**：中心按自己加载的插件版本的参数格式校验 `parameters`，按唯一性表达式算出目标键。同一个 Scope、runner、能力下键相同的
@@ -166,12 +178,18 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   目标，这样 checkpoint 总是对应同一个外部对象。
 - **停用与删除**：停用后目标不再出现在同步结果中，checkpoint 保留，恢复后从原位置继续；删除同时删除它的 checkpoint，已采集的
   Source 保留。
+- **转移**：把目标改派给另一台已注册的 runner，目标 ID 不变，checkpoint 默认跟着目标走，例如设备重装后以新名字注册时；
+  新设备上的数据与旧设备不同时，可以选择同时清空 checkpoint。目的 runner 上已有键相同的目标时返回冲突。
 - **权限**：
   - 给设备上的 runner 增删改目标，需要该 Scope 的 Source 写权限；设备只能把结果提交到它的凭据有 `scope.contribute` 的
     Scope。
   - 给 `server` runner 增删改目标需要 `server.admin`：服务端 runner 用 Server 环境中的凭据访问外部系统，决定它采集什么
     等同于运维决定，不能交给只有某个 Scope 写权限的用户。服务端 runner 提交结果在 Server 内部完成，不需要额外权限。
-  - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；删除 runner 记录需要 `server.admin`。
+  - 转移目标等同于在目的 runner 上新建这个目标，权限检查相同：Scope 的 Source 写权限，目的 runner 已注册，目的是 `server`
+    时还需要 `server.admin`；原 runner 是 `server` 时，与修改 `server` 的目标一样需要 `server.admin`。只有 Scope 写权限的
+    用户因此不能先在自己的设备上新建目标、再转移给 `server`。
+  - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；修改显示名和删除 runner 记录需要 `server.admin`，runner
+    名下还有目标时删除返回冲突，要先转移或删除这些目标。
 
 ## 5. 结果提交与断线恢复
 
@@ -204,6 +222,11 @@ Source；中心在写入 Source 时执行 Projection，可以读取插件存储�
 - 设备使用的每个 Source 插件都要部署在中心的插件目录中。中心加载插件时登记它的定义清单（Source 类型和 Projection 的
   声明），与 RFC #2549 相同，不需要单独的登记命令。设备只需要所服务 Scope 的 `scope.contribute` 权限。
 - runner 下线后，它的记录和目标保留；在线状态通过 `last_seen_at` 判断。设备退役时由用户删除它的目标和记录。
+- 无状态部署（容器、CI）有两种做法：把状态目录挂载到持久卷，或者使用指定名。只用提议名而状态目录不持久化时，每次启动
+  都会注册一台新的 runner。
+- 本地状态丢失（重装、清空目录）后，以提议名启动会注册新的名字，原来的目标用转移改派到新 runner；也可以用同一个凭据以
+  指定名启动，沿用原来的名字和目标。克隆机器镜像前要删除状态文件，否则两台设备会持有同一个名字。
+- 发现恶意或泄露的凭据时，在凭据管理中停用它，再删除它注册的 runner 记录；注册环节不另设防御。
 
 ## 8. 版本与升级
 
@@ -295,7 +318,7 @@ class SourceCollector(Protocol):
 
 | 数据 | 处理 |
 | --- | --- |
-| `pc_source_runners` | 新增：`runner`（主键）、`capabilities`（规范化 JSON：每个插件的名字、版本和加载错误）、`capabilities_digest`、`last_seen_at` |
+| `pc_source_runners` | 新增：`runner`（主键，即名字）、`display_name`、注册主体 `principal_type` 和 `principal_id`、`registration_id`（提议名注册时的注册 ID，唯一约束 `(principal_type, principal_id, registration_id)`；指定名注册时为空）、`registered_at`、`capabilities`（规范化 JSON：每个插件的名字、版本和加载错误）、`capabilities_digest`、`last_seen_at` |
 | `pc_source_collect_targets` | 新增：主键 `(scope_id, target_id)`；`runner`（索引）、`capability`、`target_key`、`parameters`（规范化 JSON）、`enabled`、`updated_at`、`updated_by`；唯一约束 `(scope_id, runner, capability, target_key)`；runner 写入的 `last_attempt_at`、`last_success_at`、`consecutive_failures`、`last_error_code`、`last_error_message` |
 | `pc_connector_checkpoints` | 保留；目标的 checkpoint，键为 `(scope_id, target_id)` |
 | `pc_sources`、Projection、Source journal、`pc_source_definition_manifests` | 保留 |
@@ -312,17 +335,20 @@ class SourceCollector(Protocol):
 
 | 接口 | 权限 | 说明 |
 | --- | --- | --- |
-| `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有 runner、它们的能力、版本是否与中心兼容和最近在线时间；能力的说明和参数格式取自中心的插件 |
-| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标及其 checkpoint |
+| `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有已注册的 runner、显示名、它们的能力、版本是否与中心兼容和最近在线时间；能力的说明和参数格式取自中心的插件 |
+| `POST /v1/source-runners` | 已登录 | 注册：提议名方式带 `registration_id` 和可选的 `suggested_name`，指定名方式带 `name`；返回确定的名字。规则见指南级说明第 3 节 |
+| `PATCH /v1/source-runners/{runner}` | `server.admin` | 修改显示名 |
+| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 只接受已注册的名字；请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标及其 checkpoint |
 | `DELETE /v1/source-runners/{runner}` | `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
 | `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限；runner 为 `server` 时需要 `server.admin` | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
 | `GET /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_status`） | Scope 读权限 | 目标、配置和状态 |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | 同新建 | 修改 `parameters` 中不参与唯一性的字段或启停 |
+| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer`（MCP `pc_source_target_transfer`） | 同在目的 runner 上新建；原 runner 是 `server` 时需要 `server.admin` | 改派给另一台已注册的 runner；可选 `reset_checkpoint` |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | 同新建 | 删除目标及其 checkpoint |
 | `POST /v1/source-observations` | 现有 | 来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 | `POST /v1/connector-checkpoints/commit` | 现有 | 请求增加可选的 `status`：最近尝试、成功、错误分类和信息；来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 
-"runner 本身"指认证主体等于 runner 名，或 runner 记录登记时的主体。
+"runner 本身"指认证主体与 runner 记录的注册主体相同，类型和 ID 都要相同。
 
 `call_plugin` 发出的请求同样带上插件版本。
 
@@ -364,7 +390,9 @@ class PluginCenter(Protocol):
 - **多两张表**：迁移、导出恢复和两种数据库后端都要维护。
 - **规范化规则受限**：唯一性只能用固定的规范化步骤，URL 规范化等复杂规则写不出来；插件可以在采集时自行合并相同对象。
 - **配置生效有延迟**：等于同步间隔，默认 30 秒。
-- **共用凭据的设备要手动起名**：名字相同的两台设备会拿到同一批目标，core 无法区分，只能在状态中看到交替汇报。
+- **runner 身份依赖凭据**：名字不是密钥，持有同一个凭据的人可以用这个凭据注册的任何名字同步，这与共享凭据的信任模型一致。
+  同一个凭据下两个 runner 指定同一个名字、或者复制了同一份状态文件，会被当成同一台 runner，拿到同一批目标，core 无法区分。
+- **指定名可能被占用**：指定的名字已被其他主体注册时 runner 启动失败，要由管理员删除占用的记录。
 - **中心必须能加载设备上的每个 Source 插件**：只在设备上使用的库不能在 `plugin.py` 顶部导入，否则中心加载失败；按端
   拆分依赖留给后续的插件安装与依赖提案。
 - **必须先升级中心**：设备先于中心升级时，新版本设备的请求被拒绝，直到中心升级。
@@ -373,6 +401,7 @@ class PluginCenter(Protocol):
 
 | 方案 | 取舍 |
 | --- | --- |
+| runner 自己决定名字，第一次同步时与凭据主体绑定 | 不需要注册接口；但同步会顺带创建记录，名字是否唯一取决于设备自己，目标也可能指向从未出现的 runner |
 | 采集目标存在设备本地（RFC #2549 最初的设计） | 不加表，但中心看不到、管不了设备上的目标，具身场景必须逐台登录设备 |
 | 目标存成一种内置 family 的 Artifact（参考 Scope Prompt 的做法） | 不加表，修订、恢复和导出都是现成的；但"某台设备有哪些目标"需要跨 Scope 查找，没有索引 |
 | 设备配置一个主 Scope，在主 Scope 中维护服务的 Scope 列表 | 不加表，但给一台设备分配新 Scope 要先找到它的主 Scope，仍然要扫描 |
