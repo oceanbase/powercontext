@@ -371,7 +371,10 @@ plugin = ArtifactPlugin(
 - Writes in APIs do not record who did what. When you need that provenance, submit the operation as a Source, as in the
   example above, and let `generate` write the new revision referencing it.
 - To create a Scope, call `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`; the caller needs
-  `server.admin`.
+  `server.admin`. `ctx.scopes.list()` returns the Scopes this plugin created that the caller can read.
+  `ctx.scopes.update(scope_id, expected_version=..., title=..., summary=...)` changes a Scope this plugin created and
+  also needs `server.admin`; the API returns 404 when the Scope does not exist and 403 when another plugin or user
+  created it.
 - `request.body` is the validated `request_model` instance, `bytes`, or `None`, according to `body`;
   `request.path_params`, `request.query`, and `request.caller` are the path parameters, query parameters, and caller.
 - Return a Pydantic model or a dict for JSON, `BinaryResponse(content=..., content_type=..., filename=...)` for a file,

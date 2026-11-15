@@ -346,6 +346,8 @@ plugin = ArtifactPlugin(
 - 接口中的写入不会自动记录"谁做了什么"。需要这类出处时，像上面的例子一样把操作作为 Source 提交，由 `generate` 写入新版本并
   引用它。
 - 需要创建 Scope 时用 `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`，要求调用者具备 `server.admin`。
+  `ctx.scopes.list()` 返回本插件创建、且调用者可读的 Scope。`ctx.scopes.update(scope_id, expected_version=..., title=...,
+  summary=...)` 修改本插件创建的 Scope，同样要求 `server.admin`；Scope 不存在时接口返回 404，不是本插件创建的返回 403。
 - `request.body` 按 `body` 声明是校验后的 `request_model` 实例、`bytes` 或 `None`；`request.path_params`、`request.query`、
   `request.caller` 分别是路径参数、查询参数和调用者。
 - 返回值：Pydantic 模型或 dict 返回 JSON；`BinaryResponse(content=..., content_type=..., filename=...)` 返回文件；

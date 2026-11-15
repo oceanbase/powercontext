@@ -118,6 +118,24 @@ class ScopeRepository:
     async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
         return await self._load(connection, _scope_projection(select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id)))
 
+    async def with_external_reference(
+        self, connection: AsyncConnection, reference: ScopeExternalReference, /
+    ) -> tuple[ScopeDescriptor, ...]:
+        external = SCOPE_EXTERNAL_REFERENCES_TABLE
+        matching = (
+            select(1)
+            .where(
+                external.c.scope_id == SCOPES_TABLE.c.scope_id,
+                external.c.kind == reference.kind,
+                external.c.value == reference.value,
+            )
+            .correlate(SCOPES_TABLE)
+            .exists()
+        )
+        return await self._load(
+            connection, _scope_projection(select(SCOPES_TABLE).where(matching).order_by(SCOPES_TABLE.c.scope_id))
+        )
+
     async def discover(
         self,
         connection: AsyncConnection,

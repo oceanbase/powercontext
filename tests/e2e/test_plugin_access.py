@@ -208,3 +208,107 @@ def test_empty_plugin_directory_needs_no_background_identity(tmp_path):
             assert response.json()["items"] == []
 
     asyncio.run(scenario())
+
+
+ROOMS = """
+from pydantic import BaseModel
+
+from powercontext.plugins import ApiRequest, ArtifactPlugin, PluginApi, Rendering, Route
+
+
+class Room(BaseModel):
+    title: str
+
+
+class Rename(BaseModel):
+    title: str
+    version: int
+
+
+class Rooms:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    async def render_artifact(self, request):
+        return Rendering(text="")
+
+    async def create(self, request: ApiRequest):
+        title = request.body.title
+        scope = await self.ctx.scopes.create(title=title, summary="A room.", idempotency_key=title)
+        return scope.model_dump()
+
+    async def list(self, request: ApiRequest):
+        return {"scope_ids": [scope.scope_id for scope in await self.ctx.scopes.list()]}
+
+    async def rename(self, request: ApiRequest):
+        scope_id = request.path_params["scope_id"]
+        scope = await self.ctx.scopes.update(
+            scope_id, expected_version=request.body.version, title=request.body.title, summary="A room."
+        )
+        return scope.model_dump()
+
+
+async def setup(ctx):
+    return Rooms(ctx)
+
+
+plugin = ArtifactPlugin(
+    family="rooms",
+    setup=setup,
+    api=PluginApi(
+        routes=(
+            Route(method="POST", path="/rooms", handler="create", access="authenticated", body="json",
+                  request_model=Room),
+            Route(method="GET", path="/rooms", handler="list", access="authenticated"),
+            Route(method="POST", path="/rooms/{scope_id}/rename", handler="rename", access="authenticated",
+                  body="json", request_model=Rename),
+        )
+    ),
+)
+"""
+
+
+def test_plugin_scopes_list_only_readable_own_scopes_and_update_checks_admin_first(tmp_path):
+    plugins = tmp_path / "plugins"
+    (plugins / "rooms").mkdir(parents=True)
+    (plugins / "rooms" / "plugin.py").write_text(ROOMS, encoding="utf-8")
+    identities = _identities(tmp_path)
+
+    async def scenario():
+        async with (
+            running_server(tmp_path, plugins, extra_env=identities) as admin,
+            httpx.AsyncClient(
+                base_url=admin.base_url, headers={"Authorization": "Bearer alice-token"}, timeout=20
+            ) as alice,
+        ):
+            api = "/v1/plugins/rooms/api/rooms"
+            created = []
+            for title in ("east", "west"):
+                response = await admin.post(api, json={"title": title})
+                assert response.status_code == 200, response.text
+                created.append(response.json())
+            east, west = created
+            other = await create_scope(admin, "not-a-room")
+            await _grant(admin, "alice", east["scope_id"], "scope.viewer")
+            await _grant(admin, "alice", other, "scope.viewer")
+
+            # Only this plugin's Scopes that the caller may read.
+            listed = await alice.get(api)
+            assert listed.status_code == 200, listed.text
+            assert listed.json()["scope_ids"] == [east["scope_id"]]
+
+            # Changing a Scope needs server.admin before anything about the Scope is revealed.
+            rename = {"title": "renamed", "version": east["version"]}
+            for scope_id in (east["scope_id"], "missing-scope"):
+                denied = await alice.post(f"{api}/{scope_id}/rename", json=rename)
+                assert denied.status_code == 403, denied.text
+            missing = await admin.post(f"{api}/missing-scope/rename", json=rename)
+            assert missing.status_code == 404, missing.text
+            foreign = await admin.post(f"{api}/{other}/rename", json={"title": "renamed", "version": 1})
+            assert foreign.status_code == 403, foreign.text
+            renamed = await admin.post(f"{api}/{east['scope_id']}/rename", json=rename)
+            assert renamed.status_code == 200, renamed.text
+            assert renamed.json()["title"] == "renamed"
+            assert west["scope_id"] not in listed.json()["scope_ids"]
+
+    asyncio.run(scenario())

@@ -28,6 +28,7 @@ from powercontext.builtin.scope import (
     ScopeBindingKey,
     ScopeBindingNotFoundError,
     ScopeDraft,
+    ScopeExternalReference,
     ScopeIdempotencyConflictError,
     ScopeMutation,
     ScopeRelationshipError,
@@ -373,5 +374,32 @@ def test_binding_resolution_fails_without_any_binding() -> None:
 
             with pytest.raises(ScopeBindingNotFoundError):
                 await scopes.resolve_binding()
+
+    asyncio.run(scenario())
+
+
+def test_scopes_listed_by_external_reference_match_kind_and_value_exactly() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            scopes = ScopeApplication(profile.database)
+
+            def draft(key: str, *references: tuple[str, str]) -> ScopeDraft:
+                return ScopeDraft(
+                    title=key,
+                    summary="Referenced",
+                    idempotency_key=key,
+                    external_references=tuple(
+                        ScopeExternalReference(kind=kind, value=value) for kind, value in references
+                    ),
+                )
+
+            owned = await scopes.create(draft("owned", ("plugin", "rooms"), ("ticket", "OPS-1")))
+            await scopes.create(draft("prefix", ("plugin", "rooms-archive")))
+            await scopes.create(draft("other-kind", ("ticket", "rooms")))
+            await scopes.create(draft("plain"))
+
+            reference = ScopeExternalReference(kind="plugin", value="rooms")
+            assert await scopes.list(external_reference=reference) == (owned,)
+            assert await scopes.list(external_reference=ScopeExternalReference(kind="plugin", value="none")) == ()
 
     asyncio.run(scenario())
