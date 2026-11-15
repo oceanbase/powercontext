@@ -3672,3 +3672,66 @@ Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 模式全部通过，产�
   --product-qualification sqlite-plugin-interfaces-3427cee7-v1 \
   --wheel desktop/.artifacts/plugin-interfaces/powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl
 ```
+
+## Server b496cc22 memory plugins protocol qualification
+
+`sqlite-memory-plugins-b496cc22-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `b496cc22ccf73a9c9e86dd5e7f942aa750186d1c`. Its OpenAPI
+combines keyed Memory creation, Gateway lifecycle metadata and the plugin interfaces.
+
+- Normalized OpenAPI SHA-256: `d988b0dacfa08880a2f21d562f8c014f5c8175d139ecac0de24612d6c503861a`.
+- Wheel: `powercontext-1.5.2.dev195+gb496cc22c-py3-none-any.whl`.
+- Wheel SHA-256: `e93a6080ad051bd0cb8d2ee7e4ee55852bc48a447e465c305cf31d157baa5da7`.
+- Native debug probe SHA-256: `ba2e76b6700bff1a38c05e279f6f7ebb82a6a2b7a8c9c21c43123dcceb28f2c5`.
+
+All 807 packaged runtime files match the exact Git source archive after CRLF
+normalization, with no missing, extra or changed files. The wheel was built from the
+clean recorded commit with its actual VCS development version. Rust 1.95.0 built the
+ordinary product probe with `cargo build --locked`, without `ci-fixtures`; the client
+working tree contained the added qualification record.
+
+On 2026-11-15, the unchanged real-Server harness passed anonymous loopback, static
+Bearer, HTTPS with explicit CA/base path and enforced Provider modes on a dedicated
+remote Linux x86_64 server in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and
+Python 3.12.3. Every mode reported `bundled product records`, the exact qualification
+above and matching client/Server contract digests. Checks cover identity, Scope
+selection, Memory save/search/exact reads, statistics, committed writes with lost
+responses without replay, and Server survival after client exit. Provider mode also
+checks Principal changes, revocation, scoped authorization without Server observation
+permission, and 51 same-title Scopes. Statistics usage is controlled fixture input.
+
+The API/Desktop contract suite passes 69 tests, the idempotency suite passes 18 tests,
+and all nine native session tests pass. `make check` passes, including type checks and
+61 integration-manifest tests. Desktop generation/check mode, TypeScript checking and
+native IPC generation checking pass. Skill pins and the tool-contract fixture pass.
+Separate SQLite migration and maintenance coverage passes 85 tests. The plugin storage
+regression preserves refusal while retired plugin data exists, then checks that cleanup
+and receipt-table creation complete through `v1_5_0_005` followed by `v1_5_2_001`.
+The receipt revision inherits plugin-aware readiness and records the reviewed final
+schema fingerprint on both registered source chains.
+
+The exact wheel, source comparison, probe checksum and four-mode report are retained
+on the remote server under ignored `desktop/.artifacts/pr2583-interfaces/`. Historical
+profiles and authenticated-client mappings retain their evidence identities. These
+results qualify the Desktop HTTP/SQLite protocol, not arbitrary plugin execution,
+Rust Gateway lifecycle routes, installed WebView, credential persistence, other platforms,
+external databases, installed-release upgrades or release publication. The probe does
+not send `idempotency_key`; the separate idempotency suite covers keyed creation,
+replay, conflict and authorization.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-plugins-b496cc22-v1 \
+  --wheel desktop/.artifacts/pr2583-interfaces/server-wheel/powercontext-1.5.2.dev195+gb496cc22c-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约和 wheel，807 个运行时文件与源码归档一致。远端容器中的四种
+真实 HTTP／SQLite 连接模式全部通过，产品连接管理器选中同一内置记录。合同测试 69 项、幂等测试
+18 项、原生 session 测试 9 项、SQLite 迁移与维护测试 85 项及代码质量检查通过。升级链先执行
+`v1_5_0_005`，再执行 `v1_5_2_001`，保留插件数据拒绝规则、插件就绪校验和幂等收据表。
+本记录不代替任意插件执行、Rust Gateway 生命周期、安装版、凭据持久化、其他平台、外部数据库、
+已安装发行版升级或发布验收；幂等 key 的行为由独立端到端测试覆盖。
