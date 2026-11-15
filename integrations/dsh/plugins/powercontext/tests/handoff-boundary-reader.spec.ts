@@ -38,6 +38,17 @@ function fixture(events = rows) {
 }
 
 describe('DSH boundary reader', () => {
+  it('requires manual input when the original request is too large even if a later request fits', async () => {
+    const events = rows.map(row => row.seq === 1 ? { ...row,
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '长'.repeat(2700) }] } } : row.seq === 2
+      ? { ...row, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Continue' }] } } : row)
+    const { read } = fixture(events)
+    const evidence = await read(context, source, { maxEvents: 511, maxBytes: 32768, maxWorkspaceBytes: 8192 })
+    expect(evidence.objective).toBeNull()
+    expect(evidence.events).toContainEqual(expect.objectContaining({ seq: 2, text: expect.stringContaining('Continue') }))
+    expect(await collectMaterials(context, source, read, 32768)).toBeUndefined()
+  })
+
   it('reads only the fixed session and boundary, retaining honest omissions', async () => {
     const { read, snapshotEvents } = fixture([...rows, { seq: 6, time: 7, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'later task' }] } }])
     const materials = await collectMaterials(context, source, read, 32768)

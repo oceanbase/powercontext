@@ -107,10 +107,10 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
       }
       if (event.type === 'user/message' && event.data?.source?.kind === 'user') {
         const human = text(event.data, 8000)
+        // Scanning backwards, even an omitted earlier request supersedes a later instruction.
+        objective = human ?? null
         if (human) {
-          // Events are scanned newest first, so the oldest retained human input wins.
           observe(event, label(`Human request or instruction: ${human}`, `用户请求或指令：${human}`))
-          objective = human
         }
       }
       if (event.type === 'tool/result') {

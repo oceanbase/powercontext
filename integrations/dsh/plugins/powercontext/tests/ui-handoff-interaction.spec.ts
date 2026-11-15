@@ -900,7 +900,7 @@ it('retains an interrupted preflight request ID across component remounts', asyn
   expect(calls[1]).toEqual(calls[0])
 })
 
-it('restores an interrupted manual draft and its request identity after remount and history recovery', async () => {
+it('preserves an uncertain manual request across remount but unlocks it after a definite validation rejection', async () => {
   const boundary = { ...source, sessionId: 'draft-session', messageId: 'draft-message' }
   const draftReady = { ...ready, source: boundary }
   const saved = { ...delivery('needs_input', 'draft-delivery'), source: boundary, createdAt: '2026-11-13T00:00:00Z', pinned: false }
@@ -920,6 +920,7 @@ it('restores an interrupted manual draft and its request identity after remount 
         const signal = init!.signal as AbortSignal
         return await new Promise<Response>((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }))
       }
+      if (body.workInput.objective.length > 8192) return json({ code: 'payload_invalid' }, 400)
       return json(draftSnapshot({ ...saved, preparationState: 'prepared', deliveryId: 'draft-successor' }))
     }
     throw new Error(path)
@@ -930,14 +931,23 @@ it('restores an interrupted manual draft and its request identity after remount 
       nodes: { get: () => ({ kind: 'turn-tail', data: { closing: { finalNode: { messageId: 'draft-message' } } } }) } }) }
   await act(async () => root.render(React.createElement(HandoffAction, slot)))
   await click('交接给其他 Agent'); await click('Codex Desktop'); await click('手动填写')
-  await select(0, 'blocked'); await input(0, 'Preserved goal'); await input(1, 'Known failure'); await click('使用填写内容准备'); await click('取消交接')
+  const longGoal = 'x'.repeat(8193)
+  await select(0, 'blocked'); await input(0, longGoal); await input(1, 'Known failure'); await click('使用填写内容准备'); await click('取消交接')
   await act(async () => root.render(null)); await act(async () => root.render(React.createElement(HandoffAction, slot)))
   await click('交接给其他 Agent')
   await openHistory(); await flush()
   await click('查看交付')
-  expect(document.body.querySelectorAll('textarea')[0].value).toBe('Preserved goal')
+  expect(document.body.querySelectorAll('textarea')[0].value).toBe(longGoal)
   expect(document.body.querySelectorAll('textarea')[0].disabled).toBe(true)
   await click('使用填写内容准备')
   expect(writes).toHaveLength(2)
   expect(writes[1]).toEqual(writes[0])
+  expect(document.body.textContent).toContain('交接内容未通过校验')
+  expect(document.body.querySelectorAll('textarea')[0].disabled).toBe(false)
+  expect(document.body.querySelectorAll('textarea')[0].value).toBe(longGoal)
+  expect(document.body.querySelectorAll('textarea')[1].value).toBe('Known failure')
+  await input(0, 'Corrected goal'); await click('使用填写内容准备')
+  expect(writes).toHaveLength(3)
+  expect(writes[2]).toMatchObject({ supersedesDeliveryId: 'draft-delivery', workInput: { objective: 'Corrected goal' } })
+  expect(writes[2].requestId).not.toBe(writes[0].requestId)
 })
