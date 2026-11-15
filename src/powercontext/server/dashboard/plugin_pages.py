@@ -18,6 +18,8 @@ The page runs in an opaque origin, so it cannot read the Dashboard session cooki
 its own requests to the Server carry no credentials. The host page forwards the page's
 request messages to ``/dashboard/plugins/{name}/api/...`` with the session, only for
 this plugin's declared routes, and stops forwarding once the frame navigates away.
+An Artifact plugin's page also reaches the generic Artifact API of its own family
+through ``/dashboard/plugins/{name}/artifacts/{scope_id}/...``.
 """
 
 from __future__ import annotations
@@ -42,6 +44,8 @@ ASSET_TYPES = {
     ".woff2": "font/woff2",
 }
 MAX_ASSET_BYTES = 5 * 1024 * 1024
+# Artifact content is limited to 256 KiB; a merge request also names its inputs.
+MAX_ARTIFACT_REQUEST_BYTES = 1024 * 1024
 CLIENT_SCRIPT = Path(__file__).parent / "static" / "plugin-client.js"
 # The frame may open external sites and submit forms; it never gets same-origin access.
 FRAME_SANDBOX = "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
@@ -155,10 +159,16 @@ async def plugin_page(request: Request, name: str) -> HTMLResponse:
         **entry,
         "src": f"/dashboard/plugins/{name}/ui/{pages.entry}",
         "api": f"/dashboard/plugins/{name}/api",
+        # Only Artifact plugins have a family whose generic API the page may call.
+        "artifacts": f"/dashboard/plugins/{name}/artifacts" if _family(manifest) else None,
         "sandbox": FRAME_SANDBOX,
         "routes": [{"method": route.method, "path": route.path} for route in manifest.spec.api.routes],
     }
     return render(request, ctx)
+
+
+def _family(manifest: Any) -> str | None:
+    return getattr(manifest.spec, "family", None)
 
 
 def _same_origin(request: Request) -> bool:
@@ -180,3 +190,54 @@ async def plugin_forward(name: str, path: str, request: Request) -> Response:
     if _loaded(request, name) is None:
         return Response(status_code=404)
     return await call_plugin_api(name, path, request)
+
+
+async def plugin_artifacts(name: str, scope_id: str, request: Request, path: str = "") -> Response:
+    """Call the generic Artifact API of this plugin's family as the Dashboard session's principal.
+
+    The page chooses the Scope and the path below the family; the family always comes from the
+    plugin's declaration. Authorization, version preconditions and evidence stay with the public
+    API, which this re-enters with the session's credentials.
+    """
+
+    import json
+
+    from powercontext.server.dashboard.api import DashboardAPI, segment
+
+    if not _same_origin(request) or request.headers.get("origin") == "null":
+        return Response(status_code=403)
+    loaded = _loaded(request, name)
+    family = None if loaded is None else _family(loaded[1])
+    parts = path.split("/") if path else []
+    if family is None or any(part in {"", ".", ".."} for part in parts):
+        return Response(status_code=404)
+    body = bytearray()
+    async for block in request.stream():
+        body.extend(block)
+        if len(body) > MAX_ARTIFACT_REQUEST_BYTES:
+            return Response(status_code=413)
+    content = bytes(body)
+    target = f"/v1/scopes/{segment(scope_id)}/artifacts"
+    if parts or request.method != "POST":
+        target = "/".join((target, segment(family), *(segment(part) for part in parts)))
+    else:
+        # Creation names its family in the body; the page cannot create another family's Artifact.
+        try:
+            payload = json.loads(content)
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return Response(status_code=422)
+        content = json.dumps({**payload, "family": family}).encode()
+    headers = {"Content-Type": "application/json"} if content else {}
+    if "if-match" in request.headers:
+        headers["If-Match"] = request.headers["if-match"]
+    api = DashboardAPI(request)
+    try:
+        response = await api.client.request(
+            request.method, target, params=request.query_params, content=content, headers=headers
+        )
+    finally:
+        await api.client.aclose()
+    kept = {key: value for key, value in response.headers.items() if key in {"content-type", "etag", "location"}}
+    return Response(response.content, status_code=response.status_code, headers=kept)

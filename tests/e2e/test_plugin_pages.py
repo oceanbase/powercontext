@@ -19,7 +19,7 @@ import json
 
 import httpx
 
-from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, running_server
+from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
 
 PLUGIN = """
 from pydantic import BaseModel
@@ -37,6 +37,18 @@ class Demo:
 
     async def render_artifact(self, request):
         return Rendering(text=request.artifact.content.get("text", ""))
+
+    async def create_artifact(self, request, writer):
+        async with writer.transaction() as tx:
+            await tx.put(request.artifact_id, content=request.content)
+
+    async def update_artifact(self, request, writer):
+        async with writer.transaction() as tx:
+            await tx.put(request.artifact_id, content=request.content)
+
+    async def forget_artifact(self, request, writer):
+        async with writer.transaction() as tx:
+            await tx.set_lifecycle(request.artifact_id, "deprecated")
 
     async def echo(self, request: ApiRequest):
         return {"text": request.body.text}
@@ -106,6 +118,10 @@ def test_plugin_page_is_sandboxed_and_forwards_only_same_origin_session_requests
                     f"{pages}/api/echo", json={"text": "x"}, headers={"Sec-Fetch-Site": "same-origin"}
                 )
                 assert forwarded.status_code == 401
+                unauthenticated = await anonymous.get(
+                    f"{pages}/artifacts/any-scope", headers={"Sec-Fetch-Site": "same-origin"}
+                )
+                assert unauthenticated.status_code == 401
 
             session = {"powercontext_dashboard_token": ADMIN_AUTHORIZATION_VALUE}
             async with httpx.AsyncClient(base_url=client.base_url, cookies=session, timeout=20) as browser:
@@ -127,6 +143,36 @@ def test_plugin_page_is_sandboxed_and_forwards_only_same_origin_session_requests
                 assert large.status_code == 413, large.text
                 small = await browser.post(f"{pages}/api/upload", content=b"x" * 3000, headers=same_origin)
                 assert small.json() == {"size": 3000}
+
+                # The page also reaches the generic Artifact API, always for its plugin's own family.
+                scope = await create_scope(client, "plugin-page-artifacts")
+                notes = f"{pages}/artifacts/{scope}"
+                created = await browser.post(
+                    notes, json={"family": "experience", "content": {"text": "draft"}}, headers=same_origin
+                )
+                assert created.status_code == 201, created.text
+                assert created.json()["family"] == "demo-notes" and created.headers["location"]
+                note = f"{notes}/{created.json()['artifact_id']}"
+                read = await browser.get(note, headers=same_origin)
+                assert read.status_code == 200 and read.json()["content"] == {"text": "draft"}, read.text
+                listed = await browser.get(notes, headers=same_origin)
+                assert [item["artifact_id"] for item in listed.json()["items"]] == [created.json()["artifact_id"]]
+                edit = {"content": {"text": "final"}}
+                edited = await browser.put(note, json=edit, headers={**same_origin, "If-Match": read.headers["etag"]})
+                assert edited.status_code == 200 and edited.json()["revision"] == 2, edited.text
+                stale = await browser.put(note, json=edit, headers={**same_origin, "If-Match": read.headers["etag"]})
+                assert stale.status_code == 412, stale.text
+                state = (await browser.get(f"{note}/governance", headers=same_origin)).json()
+                forgotten = await browser.post(
+                    f"{note}/forget", json={"revision": 2, "state_version": state["state_version"]}, headers=same_origin
+                )
+                assert forgotten.status_code == 200, forgotten.text
+                state = (await browser.get(f"{note}/governance", headers=same_origin)).json()
+                assert state["lifecycle_state"] == "deprecated"
+                # The same session and origin rules apply, and the path stays below the family.
+                for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Origin": "null"}, {}):
+                    assert (await browser.get(note, headers=headers)).status_code == 403
+                assert (await browser.get(f"{notes}/%2e%2e/experience", headers=same_origin)).status_code == 404
 
             # Plugins call the Server's generation model without seeing its address or credentials.
             completed = await client.post("/v1/plugins/demo/api/complete")

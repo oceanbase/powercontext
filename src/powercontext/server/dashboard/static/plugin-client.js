@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// The client a plugin page uses to call its plugin's routes. The page runs in a sandboxed
-// frame without the Dashboard session; the Dashboard host page forwards each request.
+// The client a plugin page uses to call its plugin's routes and the generic Artifact API of
+// its plugin's family. The page runs in a sandboxed frame without the Dashboard session; the
+// Dashboard host page forwards each request.
 (function () {
   "use strict";
   let nextId = 0;
@@ -37,12 +38,21 @@ limitations under the License.
   window.parent.postMessage({ type: "powercontext.ready" }, "*");
 
   function request(method, path, options = {}) {
+    return send({ method, path }, options);
+  }
+
+  // `path` follows /v1/scopes/{scopeId}/artifacts/{family}: "" lists or creates, "/{artifactId}" reads or
+  // edits, "/{artifactId}/forget" forgets, and so on. `scopeId` defaults to the page's current Scope.
+  function artifacts(method, path, options = {}) {
+    return send({ target: "artifacts", method, path, scopeId: options.scopeId, ifMatch: options.ifMatch }, options);
+  }
+
+  function send(target, options) {
     const id = ++nextId;
     const message = {
       type: "powercontext.request",
       id,
-      method,
-      path,
+      ...target,
       query: options.query || {},
       json: options.json,
       body: options.body,
@@ -59,6 +69,8 @@ limitations under the License.
           ok: reply.status >= 200 && reply.status < 300,
           contentType: reply.contentType || "",
           filename: reply.filename || null,
+          etag: reply.etag || null,
+          location: reply.location || null,
           json: reply.json,
           blob: reply.blob,
         });
@@ -68,6 +80,6 @@ limitations under the License.
   }
 
   window.powercontextPluginClient = function () {
-    return { context: () => context, request };
+    return { context: () => context, request, artifacts };
   };
 })();

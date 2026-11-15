@@ -74,12 +74,25 @@ limitations under the License.
         const reply = fields => send({ type: 'powercontext.response', id: data.id, ...fields });
         const method = String(data.method || 'GET').toUpperCase();
         const path = String(data.path || '');
-        if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
-        const url = new URL(config.api + path, location.origin);
+        // A page reaches its plugin's declared routes, or the generic Artifact API of the plugin's own family.
+        const artifacts = data.target === 'artifacts';
+        let url;
+        if (artifacts) {
+          const scopeId = String(data.scopeId || pageContext.scopeId || '');
+          if (!config.artifacts || !scopeId || !['GET', 'POST', 'PUT'].includes(method) || (path && !safePath(path))) {
+            reply({ status: 404, error: 'route_not_declared' });
+            return;
+          }
+          url = new URL(config.artifacts + '/' + encodeURIComponent(scopeId) + path, location.origin);
+        } else {
+          if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
+          url = new URL(config.api + path, location.origin);
+        }
         for (const [key, value] of Object.entries(data.query || {})) {
           for (const item of [].concat(value)) url.searchParams.append(key, String(item));
         }
         const init = { method, credentials: 'same-origin', headers: {} };
+        if (artifacts && data.ifMatch !== undefined) init.headers['If-Match'] = String(data.ifMatch);
         if (data.json !== undefined) {
           init.body = JSON.stringify(data.json);
           init.headers['Content-Type'] = 'application/json';
@@ -92,6 +105,10 @@ limitations under the License.
           const contentType = response.headers.get('content-type') || '';
           const disposition = response.headers.get('content-disposition') || '';
           const result = { status: response.status, contentType, filename: (/filename="([^"]+)"/.exec(disposition) || [])[1] };
+          if (artifacts) {
+            result.etag = response.headers.get('etag');
+            result.location = response.headers.get('location');
+          }
           if (response.status !== 204) {
             if (contentType.includes('application/json')) result.json = await response.json();
             else result.blob = await response.blob();
