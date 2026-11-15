@@ -27,6 +27,8 @@ jobs:
           python-version: '3.12'
       - name: Install plugin dependencies
         run: uv sync --locked --extra knowledge-base --group knowledge-base-tests
+      - name: Check plugin types with its optional dependencies
+        run: uv run --no-sync ty check --no-force-exclude plugins/knowledge-base
       - name: Install browser for plugin navigation regressions
         run: uv run --no-sync playwright install --with-deps chromium
       - name: Exercise Server, Worker, revision lifecycle and real OCR

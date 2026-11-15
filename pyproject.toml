@@ -251,6 +251,8 @@ extra-paths = [
 
 [tool.ty.src]
 exclude = [
+    # The plugin CI installs optional OCR/model dependencies and checks this directory explicitly.
+    "plugins/knowledge-base",
     # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
     "examples/jupyter",
     "e2e/bub",

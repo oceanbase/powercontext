@@ -536,7 +536,7 @@ class KnowledgeBase:
             await self.store.observation(
                 request.scope_id, key, state="failed", error="Document changed during processing"
             )
-        # The outer executor still owns core commit; status reads reconcile from committed lineage.
+        # Status reads reconcile committed publication/conflicts if observation updates are interrupted.
 
     async def prepare(self, scope, document, manifest, blocks):
         result = identity("result-v1", document, self.embedding.profile, blocks)
