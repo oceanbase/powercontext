@@ -83,6 +83,9 @@ Content-Type: application/octet-stream
 {"root":"/allowed/runbooks","paths":["restart.md","checklist.png"],"idempotency_key":"batch-1"}
 ```
 
+目录导入按路径逐项返回结果。确定性的文件错误、请求冲突或缺少文档写权限时，该项 `accepted` 为 false；冲突和权限错误还包含
+`status` 和 `error`。其余文件继续处理，成功项保留请求与 Source 回执；基础设施故障仍会使请求失败。
+
 本地导入拒绝路径穿越和文件符号链接。OpenDAL 管理按内容寻址的不可变本地快照，Worker 读取时校验摘要。
 浏览器上传和目录导入拥有独立、稳定的 collection 身份。同 collection／路径对应同一文档；字节变化产生新原文 Source，重命名视为新文档。
 字节与配置未变化时可复用已发布文档，不重复解析；同一请求键提交不同字节／显式参数会冲突，重试沿用首次接受时固定的配置。
@@ -95,6 +98,8 @@ Content-Type: application/octet-stream
 `POST .../imports/{request_id}/retry` 接收**新的** `idempotency_key`，创建新处理请求。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
 否则冲突的重解析失败。并发编辑或遗忘会阻止过期处理结果发布。
+以相同重解析键和显式文档／策略重试时，返回已接受请求的回执，即使原文件或处理配置已经变化。
+Source 登记中断时也从原先固定的输入和版本基准继续，不以当前 revision 重新确定基准；同键改用其他文档、策略或操作会返回冲突。
 同步 chunk 编辑在发布时也检查治理版本；向量准备期间发生遗忘时，编辑会被拒绝。
 
 `PATCH P/scopes/{s}/settings` 接收 `{version,chunking:{max_chars,overlap}}`；已有文档只在重解析后改变。

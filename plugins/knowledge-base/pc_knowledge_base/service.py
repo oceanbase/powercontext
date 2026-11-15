@@ -26,7 +26,7 @@ from pc_knowledge_base.embedding import Embedding
 from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, identity
 from pc_knowledge_base.sources import FileEvidence, ProcessEvidence
 from pc_knowledge_base.store import Store, defaults, resources, spaces
-from powercontext.plugins import ApiError, InvalidContent, Rendering, SearchHit, SearchResult
+from powercontext.plugins import AccessDenied, ApiError, InvalidContent, Rendering, SearchHit, SearchResult
 
 
 def fail(message: str, status: int = 409) -> NoReturn:
@@ -190,7 +190,9 @@ class KnowledgeBase:
             fail("Settings changed; refresh before retrying")
         return await self.settings(request.scope_id)
 
-    async def accept(self, scope, key, data, path, collection, origin, original_path=None, replace=False, force=False):
+    async def accept(
+        self, scope, key, data, path, collection, origin, original_path=None, replace=False, force=False, command=None
+    ):
         config = await self.settings(scope)
         path = relative_path(path)
         document = identity("document-v1", scope, collection, path)
@@ -220,15 +222,37 @@ class KnowledgeBase:
             "force_reprocess": force,
         }
         # Implicit settings are pinned on first acceptance; a retry keeps them after configuration changes.
-        digest_request = identity(original, pinned["manual_edits_policy"], force)
+        digest_request = (
+            identity(command) if command is not None else identity(original, pinned["manual_edits_policy"], force)
+        )
         if existing is None and current is not None and current.lifecycle_state != "active":
             fail("Document was forgotten and cannot be imported again")
         row = await self.store.add_resource(
-            scope, "request", request_key, {"pinned": pinned, "request_digest": digest_request, "state": "pending"}
+            scope,
+            "request",
+            request_key,
+            {"pinned": pinned, "request_digest": digest_request, "command": command, "state": "pending"},
         )
         if row["value"]["request_digest"] != digest_request:
             fail("Import key was already used with different file bytes or explicit parameters")
+        return await self.submit_accepted(scope, row)
+
+    async def submit_accepted(self, scope, row):
+        """Complete Source registration from immutable accepted input, including interrupted submissions."""
+        request_key = row["resource_key"]
         pinned = row["value"]["pinned"]
+        original = {
+            key: pinned[key]
+            for key in (
+                "document_id",
+                "snapshot",
+                "content_digest",
+                "relative_path",
+                "collection_id",
+                "origin_kind",
+                "original_path",
+            )
+        }
         source = await self.ctx.sources.submit(
             scope, "knowledge-base-file", FileEvidence(key=identity(original), payload=original)
         )
@@ -247,11 +271,14 @@ class KnowledgeBase:
             request_source=processing.model_dump(mode="json"),
         )
         await self.store.add_resource(
-            scope, "document", document, {"relative_path": path, "collection_id": collection, "origin_kind": origin}
+            scope,
+            "document",
+            pinned["document_id"],
+            {key: pinned[key] for key in ("relative_path", "collection_id", "origin_kind")},
         )
         return {
             "request_id": request_key,
-            "document_id": document,
+            "document_id": pinned["document_id"],
             "accepted": True,
             "source": source.model_dump(mode="json"),
             "request_source": processing.model_dump(mode="json"),
@@ -273,6 +300,12 @@ class KnowledgeBase:
                     original_path,
                 )
                 items.append({"path": path, **item})
+            except AccessDenied:
+                items.append({"path": path, "accepted": False, "status": 403, "error": "Access denied"})
+            except ApiError as error:
+                if error.status not in {400, 404, 409, 422}:
+                    raise
+                items.append({"path": path, "accepted": False, "status": error.status, "error": error.message})
             except (ContentError, OSError) as error:
                 items.append({"path": path, "accepted": False, "error": type(error).__name__})
         return {"items": items}
@@ -290,6 +323,18 @@ class KnowledgeBase:
             fail(str(error), 422)
 
     async def reprocess(self, request):
+        await self.ctx.require("scope.read", request.scope_id)
+        command = {
+            "operation": "reprocess",
+            "document_id": request.path_params["document_id"],
+            "manual_edits_policy": request.body.manual_edits_policy,
+        }
+        key = identity("import-v1", self.ctx.caller.principal_id, request.scope_id, request.body.idempotency_key)
+        existing = await self.store.resource(request.scope_id, "request", key)
+        if existing is not None:
+            if existing["value"].get("command") != command:
+                fail("Request key was already used with different explicit parameters")
+            return await self.submit_accepted(request.scope_id, existing)
         snapshot = await self.ctx.reads(request.scope_id).get(request.path_params["document_id"])
         if snapshot is None:
             fail("Document not found", 404)
@@ -305,6 +350,7 @@ class KnowledgeBase:
             content.get("original_path"),
             replace=request.body.manual_edits_policy == "replace",
             force=True,
+            command=command,
         )
 
     async def retry_import(self, request):
@@ -323,6 +369,11 @@ class KnowledgeBase:
             content.get("original_path"),
             replace=request.body.manual_edits_policy == "replace",
             force=True,
+            command={
+                "operation": "retry_import",
+                "request_id": request.path_params["request_id"],
+                "manual_edits_policy": request.body.manual_edits_policy,
+            },
         )
 
     async def status(self, request):

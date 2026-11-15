@@ -149,6 +149,34 @@ def test_replacements_require_document_authority_and_edits_cannot_follow_forget(
                 assert response.status_code == 403, response.text
                 assert (await call(admin, "GET", artifact))["revision"] == 2
                 assert (await call(admin, "GET", base + "/documents"))["requests"] == before["requests"]
+                for name in ("before", "protected", "after"):
+                    (tmp_path / f"{name}.md").write_text(f"# {name}\n\nDirectory import content.")
+                protected = await call(
+                    admin,
+                    "POST",
+                    base + "/imports",
+                    json={
+                        "root": str(tmp_path),
+                        "paths": ["protected.md"],
+                        "idempotency_key": "protected",
+                    },
+                )
+                assert (await settled(protected["items"][0]))["state"] == "completed"
+                (tmp_path / "protected.md").write_text("Unauthorized replacement")
+                batch = await call(
+                    other,
+                    "POST",
+                    base + "/imports",
+                    json={
+                        "root": str(tmp_path),
+                        "paths": ["before.md", "protected.md", "after.md"],
+                        "idempotency_key": "batch",
+                    },
+                )
+                assert [item["accepted"] for item in batch["items"]] == [True, False, True]
+                assert batch["items"][1]["status"] == 403
+                for item in (batch["items"][0], batch["items"][2]):
+                    assert (await settled(item))["state"] == "completed"
                 # Replaying accepted work remains valid even when the submitter does not own its generated Artifact.
                 replay = await call(admin, "POST", base + "/uploads", params=params, content=text)
                 assert replay == receipt
@@ -188,7 +216,7 @@ def test_replacements_require_document_authority_and_edits_cannot_follow_forget(
                 history = await call(admin, "GET", chunks + f"/3/chunks/{chunk}")
                 assert "GATED_EDIT" not in history["text"]
                 hits = await call(admin, "POST", base + "/retrieve", json={"query": "approval"})
-                assert not hits["hits"]
+                assert all(hit["document"]["artifact_id"] != document for hit in hits["hits"])
 
     asyncio.run(scenario())
 

@@ -90,6 +90,10 @@ For local import, send this to `POST P/scopes/{scope_id}/imports`:
 {"root":"/allowed/runbooks","paths":["restart.md","checklist.png"],"idempotency_key":"batch-1"}
 ```
 
+Directory import returns one item per path. A deterministic file error, request conflict or missing document write authority
+sets that item's `accepted` to false; conflicts and permission failures include `status` and `error`. Other files continue,
+and successful items retain their request/Source receipts. Infrastructure failures still fail the request.
+
 The local importer rejects traversal and file symlinks. OpenDAL manages immutable, content-addressed local snapshots; Workers
 verify their digest before reading. Browser and directory collections have separate stable identities. Same collection/path means
 the same document, changed bytes create a new original Source, and renames create a new document. Unchanged bytes/configuration
@@ -104,6 +108,9 @@ infrastructure failures use the framework's window retry/backoff and can block t
 from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new** `idempotency_key` and creates a new request.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
 permits replacing manual edits; otherwise conflicting reprocessing fails. A concurrent edit or forget prevents stale publication.
+Replaying the same reprocessing key and explicit document/policy returns the accepted request's receipt, even if the document's
+original file or processing settings have since changed. Interrupted Source registration resumes from the original pinned input
+and base; it never rebases onto the current revision. Reusing the key for another document, policy or operation is a conflict.
 Synchronous chunk edits also check the governance version at publication, so forgetting during embedding preparation rejects the edit.
 
 `PATCH P/scopes/{s}/settings` accepts `{version,chunking:{max_chars,overlap}}`; existing documents change only after reprocessing.
