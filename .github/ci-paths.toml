@@ -25,6 +25,7 @@ ignore = [
 gateway = [
   "gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py",
   "tests/e2e/test_gateway_authentication.py", "tests/e2e/test_gateway_target_real_process.py",
+  "tests/e2e/test_gateway_http1_lifecycle.py",
 ]
 
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
