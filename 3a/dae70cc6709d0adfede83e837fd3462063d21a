@@ -1,0 +1,23 @@
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_cfc6808cb12df2 539
+.github/workflows/knowledge-base.yml
+  s_13fec9a57c9104::t_56cfd4ca61a8c8 30-31
+pyproject.toml
+  s_13fec9a57c9104::t_7fc1f10ed5d105 254-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3adae70cc6709d0adfede83e837fd3462063d21a",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
