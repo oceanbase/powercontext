@@ -902,8 +902,8 @@ long-lived host process:
   504, and other requests in the same process are unaffected.
 - **Loss of response**: host processes report a heartbeat to Server. When a plugin blocks the event loop (CPU-heavy work,
   or a blocking call without `await`), cancellation cannot take effect and the heartbeat stops; past the heartbeat limit
-  core terminates the process, the timed-out request returns 504, and the process's other in-flight requests return 503. A
-  crash also returns 503 for in-flight requests. Plugins should move CPU-heavy work into `asyncio.to_thread` or into
+  core terminates the process. Requests that passed their own time limit before then return 504; requests still in
+  flight at termination, including the one that blocked, return 503. A crash also returns 503 for in-flight requests. Plugins should move CPU-heavy work into `asyncio.to_thread` or into
   background `generate`.
 - **Restarts**: when the plugin has no usable host process, core restarts one after a backoff; during the backoff the
   plugin's synchronous calls return 503, and background calls are unaffected.
