@@ -1,6 +1,6 @@
 ---
 title: "RFC 2570: Scope-based Knowledge Base document plugin"
-description: "One Scope per knowledge base, framework consumption cursors and document Artifacts, with three database backends, synchronous chunk editing and native soft deletion."
+description: "Plugin-local space Scopes organize knowledge-base Scopes for cross-base retrieval, a Dashboard, three database backends, synchronous editing and native soft deletion."
 ---
 
 - Proposal Name: `knowledge_base_plugin`
@@ -13,12 +13,14 @@ description: "One Scope per knowledge base, framework consumption cursors and do
 
 One `knowledge-base` business plugin provides local ingestion, parsing, chunking, versioning, and hybrid retrieval. Each
 ordinary Scope is one knowledge base. The plugin declares only the `document` family, with one Artifact per complete file.
-The knowledge base itself is not an Artifact; plugin storage holds its configuration by scope_id. The plugin supplies original
+A plugin-local space Scope groups knowledge-base Scopes. Space identities, membership, and user defaults live only in plugin
+storage: core stores neither the space object nor these parent-child relationships. A knowledge base is not an Artifact. The plugin supplies original
 and processing-request Source definitions and reuses framework generate, Supervisor, and consumption cursors rather than
 implementing an independent task scheduler.
 
 The first phase supports SQLite, SeekDB, OceanBase, Markdown, standalone-image RapidOCR, rule-based chunking, synchronous
-chunk edits/removals, and document forget. This is a target design dependent on framework contracts, not a claim that the
+chunk edits/removals, document forget, a Dashboard, browser uploads, and cross-base retrieval within a space. Spaces organize
+query scope; they do not introduce tenant isolation or team authorization. This is a target design dependent on framework contracts, not a claim that the
 current implementation PR provides every capability.
 
 # Motivation
@@ -29,18 +31,20 @@ holds bodies and indexes. Existing scheduling, revision preconditions, and lifec
 
 # Guide-level explanation
 
-1. An administrator creates a knowledge-base Scope and saves parsing/chunking configuration, then imports local files or a
-   directory accessible to the Server.
-2. The plugin saves immutable snapshots, registers Sources, and submits processing-request Sources. Acceptance is not parsing success.
-3. Framework generate asynchronously processes Markdown/images, prepares complete chunks and indexes, then publishes a document.
-4. Changed content and explicit reprocessing retain the document ID. Failures preserve existing revisions. Status distinguishes
+1. Select a plugin-local space, defaulting to the caller's own default space. An administrator creates a knowledge-base Scope
+   in that space and saves parsing/chunking configuration.
+2. Upload files through the Dashboard or import a Server-readable directory; select multiple knowledge bases within the space for retrieval.
+3. The plugin saves immutable snapshots, registers Sources, and submits processing-request Sources. Acceptance is not parsing success.
+4. Framework generate asynchronously processes Markdown/images, prepares complete chunks and indexes, then publishes a document.
+5. Changed content and explicit reprocessing retain the document ID. Failures preserve existing revisions. Status distinguishes
    pending, latest failure, published, and conflict/skipped.
-5. Synchronous chunk edits/removals increment the document revision; core records a lineage_only success Source in the same transaction.
-6. Whole-document soft deletion uses generic forget: deprecated, excluded from normal retrieval, with no new revision. Bodies,
+6. Synchronous chunk edits/removals increment the document revision; core records a lineage_only success Source in the same transaction.
+7. Whole-document soft deletion uses generic forget: deprecated, excluded from normal retrieval, with no new revision. Bodies,
    originals, and history remain stored.
 
 The first phase does not promise in-flight cancellation, Source deletion, knowledge-base cascades, physical erasure, an
-independent queue, online model switching, cross-base aggregate retrieval, continuous directory sync, or remote runners.
+independent queue, online model switching, cross-space aggregation, generated answers, nested/movable/deletable spaces, team
+membership or permission inheritance, continuous directory sync, or remote runners.
 PDF/Office, scene-image understanding, OCR of embedded Markdown images, semantic/LLM chunking, and large-corpus benchmarks
 are out of scope. Restore/merge methods are not implemented initially; generic routes report unsupported. Import is not restoration.
 
@@ -49,14 +53,16 @@ are out of scope. Restore/merge methods are not implemented initially; generic r
 ## 1. Plugin, Scope, and framework dependencies
 
 Follow [#2549](https://github.com/oceanbase/powercontext/pull/2549) for single-family plugins, Source definitions, writers,
-models, and storage, and [#2579](https://github.com/oceanbase/powercontext/pull/2579) for routes, Scope management, and upgrades.
-[#2616](https://github.com/oceanbase/powercontext/pull/2616) is an implementation dependency; capabilities such as dedicated
-storage on all three backends require actual implementation and validation. [#2617](https://github.com/oceanbase/powercontext/pull/2617)
+models, and storage, and [#2579](https://github.com/oceanbase/powercontext/pull/2579) for routes and Scope management.
+Use public master capabilities as the implementation baseline. Dedicated three-backend storage, original edit-payload evidence,
+and Dashboard forwarding of generic operations need limited framework adaptation. Initialize through setup without depending
+on a framework upgrade hook. [#2617](https://github.com/oceanbase/powercontext/pull/2617)
 is a future collection integration, not a prerequisite for explicit local imports.
 
 | Object | Model |
 | --- | --- |
-| Knowledge base | Ordinary Scope; scope_id is its identity |
+| Space Scope | Plugin-local logical Scope, space_scope_id; no core Scope record |
+| Knowledge-base Scope | Ordinary core Scope, scope_id; belongs to exactly one space initially |
 | Plugin | knowledge-base, one installed directory, one document family |
 | Original | knowledge-base-file Source, pinned snapshot and original path |
 | Processing request | knowledge-base-process Source, pinned original reference, configuration, base, and request identity |
@@ -65,7 +71,9 @@ is a future collection integration, not a prerequisite for explicit local import
 
 ```mermaid
 flowchart TD
-  S[Scope: knowledge base] --> C[Plugin configuration]
+  P[Plugin-local space Scope] --> M[Plugin-only membership]
+  M --> S[Core Scope: knowledge base]
+  S --> C[Plugin configuration]
   S --> O[Original Source and immutable snapshot]
   O --> R[Processing request Source]
   R --> G[Framework generate and cursor]
@@ -85,6 +93,29 @@ Plugin inputs subscribe only to processing requests, so originals do not indepen
 reserves knowledge-base Scopes for this use and does not enable other content consumers. A Source type name is not framework
 enforced exclusive admission; isolation from arbitrary other consumers is not a guarantee of this plugin.
 
+### 1.1 Space Scopes and default selection
+
+space_scope_id and core scope_id are separate namespaces. Never pass a space ID to core Scope APIs. The UI calls it a space;
+Workspace may be a display label, not another Artifact family or core domain model. Initially spaces are one level deep and
+one knowledge base has one parent. Store membership as indexed space_scope_id on the plugin's scope configuration row, never
+as core parent_scope_id or context_references.
+
+Defaults use the authenticated ctx.caller.principal_id. First default resolution idempotently creates a personal space and
+its default mapping; concurrent callers resolve the same space. This creates no core Scope or contribution grant. Users may
+select a visible space as their default. A space records a personal owner or team kind; team is an organizational label only.
+Explicit space creation/renaming and knowledge-base creation/renaming require server.admin. Implicit personal-space registration
+and changing one's own default do not require permission to create core Scopes.
+
+Personal owners can see their spaces; a caller who can read a contained knowledge base can see its space; administrators can
+manage empty spaces. Lists/counts include only readable knowledge bases. Membership grants no Scope read/contribute or Artifact
+write, permission inheritance, tenant isolation, or cascade deletion. An inaccessible default returns an error requiring a new
+selection; a space without readable bases returns no hits, never a global fallback. Moving knowledge bases or deleting spaces
+is not supported initially, avoiding implicit data migrations.
+
+Creating a knowledge base resolves its space, idempotently creates the core Scope, then commits membership/configuration in
+plugin storage before reporting readiness. A creation key cannot rebind to another space. Retry incomplete registration using
+the same key; a Scope missing membership/configuration cannot receive imports or enter space queries.
+
 ## 2. Local storage, identity, and request acceptance
 
 OpenDAL fs manages snapshot directories accessible to the importer, Server, and Workers. Original paths are provenance;
@@ -99,8 +130,13 @@ request_key = (scope_id, idempotency_key)
 result_id   = digest(canonical complete chunk result and provenance)
 ```
 
-Collection derives from the storage alias and normalized root, not a scan batch. Compare full identities on hash matches.
-The same file in different Scopes is independent. Same path/bytes reuse the original Source; changed bytes create a new Source
+For Server directories, collection derives from the storage alias and normalized root. Browser uploads use a stable collection
+within the knowledge base, never a new collection per batch. Browsers provide filenames/relative paths, not trusted client
+absolute paths. Record origin_kind, collection, and relative_path; OpenDAL fs saves uploaded bytes in the shared Server-local
+snapshot directory. Equal names from the two origin types are independent by default; the same collection/path retains identity.
+Use bounded binary requests and request keys, normalize relative paths, reject traversal, and keep file bodies out of JSON Sources.
+Compare full identities on hash matches. Files in different knowledge-base Scopes remain independent; space IDs are not part of
+file_key. Same path/bytes reuse the original Source; changed bytes create a new Source
 but retain the document ID. Renames are new files; disappearance does not automatically forget a document.
 
 Each processing request pins original_source_ref, snapshot_ref, processing settings, independent model fingerprint,
@@ -147,8 +183,15 @@ without changing existing core schemas. Originals stay in local OpenDAL director
 
 | Plugin domain table | Fields and constraints |
 | --- | --- |
-| pc_knowledge_base_resources | Primary key (scope_id, resource_kind, resource_key); fixed scope/document/request kinds; bounded payload, request_digest, source_ref, document_id, latest processing observations and timestamps |
+| pc_knowledge_base_spaces | Primary key space_scope_id; title, kind, personal_owner_id, created_by, creation_key, request_digest, version; unique personal owner and creation key |
+| pc_knowledge_base_space_defaults | Primary key principal_id; space_scope_id, version; one default mapping per authenticated user |
+| pc_knowledge_base_resources | Primary key (scope_id, resource_kind, resource_key); fixed scope/document/request kinds; one scope configuration row with indexed space_scope_id; bounded payload, request_digest, source_ref, document_id, latest observations and timestamps |
 | pc_knowledge_base_chunks | Primary key (scope_id, document_id, result_id, chunk_id); ordinal unique within a result; text, text_length, content_digest, heading_path, source_locator, origin, edit_metadata |
+
+There are four plugin domain tables; spaces/defaults do not invent core scope_id values. Validate space references in plugin
+transactions, use version preconditions for default updates, and atomically initialize a personal space/default without replacing
+an existing default. Explicit space-creation keys are scoped to their creator; changed parameters conflict. Reuse the scope
+resource row for membership without an additional relationship table or core schema changes.
 
 Resources is a fixed-purpose register, not a generic task framework: scope rows hold configuration/version, document rows stable
 file identities, and request rows immutable accepted inputs, receipts, and latest attempt observations. No leases, execution
@@ -183,7 +226,8 @@ bounded file sizes to keep OCR/model windows within limits; arbitrary files are 
 | Core publication completed | Derive published state and exact revision from manifest/history applied_request_ref |
 | Core succeeded but plugin status acknowledgement failed | Reconcile core, not failure or duplicate publication inferred from a missing status |
 
-Failure observations describe the latest attempt, not proof of cursor acknowledgement. Plugin status cannot advance consumption
+Display the currently usable revision separately from the latest request status: failed reprocessing does not make an older
+committed revision unusable. Failure observations describe the latest attempt, not proof of cursor acknowledgement. Plugin status cannot advance consumption
 or justify skipping unproven core writes. Persistent infrastructure failure may block subsequent windows in the Scope; independent
 unlimited per-file concurrency and a dead-letter queue are not promised. User retries of deterministic failures use new requests;
 old Sources remain unchanged. Processing requests express intent, not lineage_only success.
@@ -244,8 +288,13 @@ default successful JSON responses may use 200.
 
 | Operation | API and response |
 | --- | --- |
-| Create knowledge base | POST `P/knowledge-bases`, ctx.scopes.create plus configuration; returns scope_id |
+| List/create/rename spaces | GET/POST `P/spaces`, PATCH `P/spaces/{space_scope_id}`; plugin-local spaces, writes require idempotency keys or version preconditions |
+| My default space | GET/PUT `P/me/default-space`; current caller's space_scope_id and version; no caller-supplied principal_id for other users |
+| List/create knowledge bases | GET/POST `P/knowledge-bases`; optional space_scope_id, otherwise resolve default; create core Scope and save membership/configuration, returning both IDs |
+| Rename/configure knowledge base | PATCH `P/scopes/{s}/settings`; ctx.scopes.update for title/summary, plugin storage for chunking, separate version preconditions |
 | Import files | POST `P/scopes/{s}/imports`, bounded paths and idempotency_key; per-file request SourceRefs |
+| Browser upload | POST `P/scopes/{s}/uploads`, binary body; collection, relative_path, idempotency_key in query; same acceptance path |
+| Document list | GET `P/scopes/{s}/documents`, paginated published summaries and unpublished request observations; core determines revision/lifecycle |
 | Reprocess/retry | POST `P/scopes/{s}/documents/{d}/reprocess`, base, pinned configuration, original reference, new request key |
 | Processing status | GET `P/scopes/{s}/imports/{request_id}`, acceptance, latest attempt, and verifiable publication |
 | Document overview/history | Generic Artifact GET/revisions, bounded manifest |
@@ -254,12 +303,13 @@ default successful JSON responses may use 200.
 | Chunk directory/body | GET `P/scopes/{s}/documents/{d}/revisions/{rev}/chunks`; append `/{chunk_id}` for body |
 | Batch chunks | POST directory path plus `/batch-get`, bounded chunk_ids |
 | Chunk hybrid retrieval | POST `P/scopes/{s}/retrieve`, exact revision, chunk ID, score, provenance |
+| Cross-base retrieval within a space | POST `P/retrieve`, optional space_scope_id/scope_ids; resolve as below, hits carry space and knowledge-base IDs |
 | Rendering/generic search | render_artifact/search_artifacts; generic search and Prepared Context integration |
 
 Examples for knowledge-base creation, import, editing, forget, and retrieval:
 
 ```json
-{"title":"Operations SOPs","summary":"Runbooks","idempotency_key":"kb-01","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}
+{"space_scope_id":"space-team","title":"Operations SOPs","summary":"Runbooks","idempotency_key":"kb-01","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}
 ```
 
 ```json
@@ -287,7 +337,7 @@ Examples for knowledge-base creation, import, editing, forget, and retrieval:
 ```
 
 ```json
-{"hits":[{"document_ref":{"family":"document","artifact_id":"doc-1","revision":3},"chunk_id":"chunk-1","score":0.82,"source_ref":{"source_type":"knowledge-base-file","source_id":"original-1"},"locator":{"heading_path":["Operations","Restart"]}}]}
+{"hits":[{"space_scope_id":"space-team","scope_id":"scope-ops","document_ref":{"family":"document","artifact_id":"doc-1","revision":3},"chunk_id":"chunk-1","score":0.82,"source_ref":{"source_type":"knowledge-base-file","source_id":"original-1"},"locator":{"heading_path":["Operations","Restart"]}}]}
 ```
 
 Chunk APIs read the requested exact revision without current-version fallback. Directory pagination omits bodies; single/batch
@@ -296,23 +346,69 @@ Check Scope/document permissions and ownership first; plugin storage spans Scope
 
 Generic search retains the framework's Artifact-reference response; plugin retrieve returns chunk structures. Prepared Context
 uses SearchHit text/locators within its byte budget. Normal search excludes non-active, stale, and unauthorized candidates before
-refilling. Unsupported filter/rerank parameters fail explicitly. Different Scopes are authorized separately; no aggregate API
-initially. Python/HTTP share business handling; MCP and Dashboard integration follows actually available framework capabilities.
+refilling. Unsupported filter/rerank parameters fail explicitly. Python/HTTP share business semantics. Generic search/Prepared
+Context retain their Scope contract; plugin retrieve provides space aggregation.
 
-## 9. Upgrade, implementation, and acceptance
+### 8.1 Space selection and cross-base retrieval
 
-upgrade(ctx) manages plugin schema/index metadata migrations and a plugin-owned schema version. Upgrades are repeatable and
-coordinate in plugin storage across instances. Keep changes compatible with overlapping code versions and retain historical
-manifest/Source decoding. Initial deployments may restart for upgrades; completed hot reload is not a knowledge-base prerequisite.
+1. Omitted space_scope_id resolves the caller's default; an explicit value must be visible. Every explicit scope_id must belong
+   to that space; selecting bases never implicitly switches the resolved space.
+2. Omitted scope_ids selects readable bases in that space; an explicit empty list selects none. An explicitly inaccessible or
+   out-of-space base fails the whole request rather than being silently omitted. Bound base count, request size, and total hits;
+   require complete defaults/membership/configuration and never broaden to global search.
+3. Retrieve full-text/vector candidates in the selected range and fuse them consistently. Reuse the query vector for the fixed
+   embedding profile. Use comparable scoring/common candidate ranking, not raw BM25 scores from separate per-base corpora.
+   Constrain candidates by Scope, then verify core access, active lifecycle, current result_id/profile, and refill after filtering.
+4. Hits carry space_scope_id, scope_id, document_ref including revision, chunk_id, score, and provenance. Deduplicate with full
+   ownership/result identity; importing the same file into different bases does not merge its evidence. Exact chunk reads still
+   resolve by knowledge-base Scope and revision.
+
+```json
+{"space_scope_id":"space-team","scope_ids":["scope-ops","scope-dev"],"query":"How should I restart after a release?","mode":"hybrid","limit":10}
+```
+
+A query alone searches readable bases in the default space; space_scope_id alone selects readable bases in that space.
+Aggregation reuses single-base authorization, lifecycle, and revision rules without nested HTTP requests. Backend failures are
+explicit; partial success and a consistent snapshot across bases are not first-phase promises.
+
+## 9. Dashboard
+
+PluginPages provides space/default selection, knowledge-base management, Markdown/standalone-image drag-and-drop upload and
+local-directory import, document/request status, retry/reprocess, paginated chunk metadata/bodies, history viewing, synchronous
+edit/removal, document forget, and multi-base retrieval within a space. Filter lists by permissions and retain operation-specific
+access checks: creation/configuration management requires server.admin, imports require scope.contribute, and edit/forget retain
+artifact.write. Resolve valid chunking configuration before initial import; no separate post-upload pending-configuration queue.
+
+Display the usable revision separately from the latest request. A failure does not hide previously committed content. Successful
+edits show the new revision; conflicts require re-reading, and uncertain responses require reconciliation. Removing the final
+chunk is valid. Label forget as removal from retrieval with history retained; omit cancellation, restoration, whole-base deletion,
+and generated-answer controls.
+
+The sandboxed iframe calls declared plugin routes through the framework client; reads can wrap ctx.reads. Generic document
+PUT/forget requires limited framework forwarding: allow only declared operations on the owning plugin's family, retain the
+current caller's authorization, forward If-Match/revision/state_version, and validate knowledge-base ownership. Do not provide
+arbitrary URL forwarding or session credentials. Invoke the generic Artifact operation and its atomic evidence path; an ordinary
+plugin writer or asynchronous edit Source is not a substitute. Upload files separately within binary request limits, enforce
+server-side path/size bounds, and do not present uploaded-file counts as completed parsing progress.
+
+## 10. Initialization, implementation, and acceptance
+
+setup invokes plugin-owned idempotent initialization and schema-version checks. Deployment runs plugin migrations with
+coordination in plugin storage across instances. Preserve historical manifest/Source decoding and reject incompatible versions.
+The first phase restarts for deployment and does not depend on an upgrade(ctx) hook or hot reload.
 Backups must include core, plugin storage, and OpenDAL snapshots; core backups do not automatically cover plugin data.
 
 Framework implementation must supply three-backend ctx.storage, single-family writers, synchronous modification evidence,
-governance concurrency checks, Source definitions, and routes. Missing RFC features are implementation dependencies, not grounds
-for additional knowledge-base lock tables, read guards, or an independent queue. Necessary adapters must preserve core contracts.
+governance concurrency checks, Source definitions, and routes. Explicit adaptations are three-backend ctx.storage, evidence
+preserving the original caller payload rather than the generated manifest, and restricted Dashboard generic-operation forwarding.
+Do not introduce knowledge-base lock tables, read guards, or an independent queue; adapters must preserve core contracts.
 
 Validate on SQLite, SeekDB, and OceanBase:
 
-- Administrator-only Scope creation, configuration retry, multi-Scope isolation, immutable snapshots.
+- Concurrent plugin-local space/default initialization, default-update conflicts, unique membership, no core space hierarchy.
+- Default/explicit space queries, empty selections, inaccessible/out-of-space rejection, filtered counts, global top-k, scoped citations.
+- Sandboxed Dashboard generic-operation forwarding, preserved If-Match, zero-chunk edits, separate statuses and usable old revisions.
+- Administrator-only Scope creation, membership/configuration retry, multi-Scope isolation, snapshots, stable identities/path bounds for both origins.
 - Retries across import acceptance boundaries, key conflicts, content deduplication, repeated handling, and deterministic failures
   that do not block later files.
 - Window rollback/redelivery, failure observations versus committed core success, and pinned-base conflicts without automatic rebasing.
@@ -323,8 +419,8 @@ Validate on SQLite, SeekDB, and OceanBase:
 - Explicit model-fingerprint mismatch failures; Server model changes do not alter the plugin vector space.
 
 Use Markdown from a pinned oceanbase/oceanbase commit and real text images. Mocks cannot establish real OCR or backend support.
-#2441 covers ingestion/configuration; #2442 framework consumption/parsing/publication; #2443 retrieval/edit APIs; #2444 operation
-and acceptance; #2440 tracks the whole feature. Implementation may use one PR with staged commits and validation. No new issues.
+#2441 covers spaces/defaults/ingestion/configuration; #2442 framework consumption/parsing/publication; #2443 cross-base retrieval,
+editing, and Dashboard; #2444 operation/acceptance; #2440 tracks the whole feature. Implementation may use one PR with staged commits and validation. No new issues.
 
 # Drawbacks
 
@@ -334,7 +430,8 @@ not history access or stored evidence; Sources remain immutable and readable.
 
 # Rationale and alternatives
 
-- Scope is the knowledge base, matching a single-family plugin without another Artifact or cross-family writes.
+- Plugin-local space Scopes organize knowledge-base Scopes; membership/defaults stay in plugin tables without core hierarchy or implied grants.
+- A core Scope is a knowledge base, matching a single-family plugin without another Artifact or cross-family writes.
 - Framework generate/cursor atomically commits Artifacts and consumption progress; the plugin records acceptance/observations
   rather than duplicating scheduling.
 - Generic synchronous PUT supplies preconditions and success evidence; plugin-route writes do not automatically have those semantics.
@@ -355,11 +452,11 @@ acceptance, not completed parsing; deleting a collection target does not delete 
 
 Implementation fixes SQL/index details, OCR model versions, window/file sizes, synchronous editing limits, and API byte bounds.
 Validate revision/lifecycle races on real backends. Check gaps between framework RFCs and implementations, including dedicated
-storage and upgrades; proposals are not released capabilities. These choices do not change append-only Sources, forget without
+storage, edit evidence, and Dashboard forwarding; proposals are not released capabilities. These choices do not change append-only Sources, forget without
 new revisions, synchronous edits, pinned request bases, or independent models.
 
 # Future possibilities
 
-Word/PDF parsing, continuous collection, cross-base queries, rerank, adjacent context, in-flight cancellation, and controlled model
+Word/PDF parsing, continuous collection, cross-space queries, generated answers, rerank, adjacent context, in-flight cancellation, and controlled model
 migration. Complete Source deletion, revoking historical access, knowledge-base cascades, and independent long tasks require
 separate contracts rather than implicit first-phase promises.
