@@ -409,3 +409,61 @@ def test_generic_source_api_writes_plugin_source_types(tmp_path):
             assert body.json()["content"] == {"key": "OPS-7", "title": "Disk full on db-1"}
 
     asyncio.run(scenario())
+
+
+def test_plugin_source_allowlist_applies_to_generic_and_plugin_routes(tmp_path):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+
+    async def scenario():
+        async with running_server(tmp_path, plugins) as client:
+            allowed = await create_scope(client, "allowed-source-scope")
+            outside = await create_scope(client, "outside-source-scope")
+        code = (
+            TICKETS
+            .replace(
+                "from powercontext.plugins import ArtifactPlugin, Inputs, Rendering",
+                "from powercontext.plugins import ArtifactPlugin, Inputs, Rendering, PluginApi, Route",
+            )
+            .replace(
+                "class Tickets:",
+                """class Tickets:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    async def submit(self, request):
+        ref = await self.ctx.sources.submit(request.scope_id, "ticket", TicketInput.model_validate(request.body))
+        return ref.model_dump(mode="json")
+""",
+            )
+            .replace("return Tickets()", "return Tickets(ctx)")
+            .replace(
+                'family="tickets",',
+                f'family="tickets", scopes=({allowed!r},), api=PluginApi(routes=(Route('
+                'method="POST", path="/scopes/{scope_id}/submit", handler="submit", body="json", '
+                'access="scope.contribute", scope_param="scope_id"),)),',
+            )
+        )
+        (plugins / "tickets").mkdir()
+        (plugins / "tickets" / "plugin.py").write_text(code, encoding="utf-8")
+        async with running_server(tmp_path, plugins) as client:
+            # The static preset permits contribution to both Scopes; the plugin restricts admission further.
+            for scope in (allowed, outside):
+                for route in ("generic", "plugin"):
+                    key = "OPS-1" if route == "generic" else "OPS-2"
+                    content = {"key": key, "title": "A portable ticket"}
+                    if route == "generic":
+                        response = await client.post(
+                            f"/v1/scopes/{scope}/sources", json={"source_type": "ticket", "content": content}
+                        )
+                    else:
+                        response = await client.post(f"/v1/plugins/tickets/api/scopes/{scope}/submit", json=content)
+                    assert response.status_code == (
+                        (201 if route == "generic" else 200) if scope == allowed else 403
+                    ), response.text
+                    stored = await client.get(f"/v1/scopes/{scope}/sources/ticket/{key}")
+                    assert stored.status_code == (200 if scope == allowed else 404), stored.text
+            await wait_for(lambda: items(client, allowed, "tickets"), lambda value: len(value) == 2)
+            assert await items(client, outside, "tickets") == []
+
+    asyncio.run(scenario())

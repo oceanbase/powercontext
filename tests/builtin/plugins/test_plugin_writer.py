@@ -311,3 +311,30 @@ def test_lifecycle_changes_report_the_target_and_its_group(runtime):
             assert {ref.artifact_id for ref in restored.retired} == {"ab"}
 
     asyncio.run(scenario())
+
+
+def test_revert_returns_the_target_snapshot_and_lifecycle_changes(runtime):
+    from typing import get_type_hints
+
+    from powercontext.plugins import ArtifactChange, ArtifactTransaction
+
+    for method in (ArtifactTransaction.revert, ArtifactTransaction.set_lifecycle):
+        assert get_type_hints(method)["return"] is ArtifactChange
+
+    async def scenario():
+        async with open_builtin_contexts(runtime) as contexts:
+            database = contexts.database
+            scope = await _scope(contexts)
+            writer = _writer(database, scope)
+            async with writer.transaction() as tx:
+                await tx.put("a", content={"text": "original"})
+                await tx.put("a", content={"text": "edited"})
+            async with _writer(database, scope).transaction() as tx:
+                result = await tx.revert("a", to_revision=1)
+                assert isinstance(result, ArtifactChange)
+                assert result.artifact.ref.revision == 3
+                assert result.artifact.content == {"text": "original"}
+                assert result.restored == result.retired == ()
+            assert await writer.get("a") == result.artifact
+
+    asyncio.run(scenario())

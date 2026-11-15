@@ -178,11 +178,9 @@ class _Host:
         for binding, scopes, source_types in spec.source_bindings:
             register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
         self.database = await resources.enter_async_context(open_plugin_database(spec.database))
-        from powercontext.builtin.authz.worker import open_worker_security
+        from powercontext.builtin.authz.worker import build_host_access
 
-        security = await resources.enter_async_context(open_worker_security(spec.security, self.database))
-        if security is not None:
-            self.access = security.access
+        self.access = build_host_access(spec.security, self.database)
         if spec.security is not None:
             self.deployment_id = spec.security.get("deployment_id")
         storage, models = await open_plugin_resources(
@@ -509,6 +507,9 @@ class _Host:
     async def store_source(self, scope_id: str, definition: str, value: BaseModel) -> SourceRef:
         """Resolve and project an input of one of this plugin's Source types, then store it like a remote observation."""
 
+        scopes = self.manifest.spec.scopes
+        if scopes is not None and scope_id not in scopes:
+            raise AccessDenied("the Scope is outside the plugin's declared scopes")  # noqa: TRY003
         if self.definitions is None:
             raise ValueError("the plugin declares no Source Definitions")  # noqa: TRY003
         from powercontext.builtin.sources.observation_validation import validate_source_observation

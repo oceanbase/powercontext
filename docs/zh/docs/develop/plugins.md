@@ -155,6 +155,8 @@ Server 在一个独立的子进程中导入 `plugin.py` 并检查声明，导入
   所以重复交付不会写出重复的版本。`writer.stable_id(...)` 按输入生成稳定的 ID，便于同一条 Source 总是写到同一个 Artifact。
 - 还可以用 `tx.set_lifecycle`、`tx.merge`、`tx.revert`、`tx.set_tags` 等方法，以及 `writer.get`、`writer.list`、
   `writer.by_source` 读取当前状态。
+  `tx.revert` 和 `tx.set_lifecycle` 返回 `ArtifactChange`：`result.artifact` 是目标快照，
+  `result.restored` 和 `result.retired` 列出同一次变更影响的其他 Artifact。
 - core 在每个版本上记录写入它的插件名和插件代码的内容摘要，多个 Server 加载了不同版本的插件时可以据此追溯。
 
 生成的 Artifact 与内置 Artifact 一样，可以通过 `/v1/scopes/{scope_id}/artifacts/{family}` 系列接口读取、打标签。

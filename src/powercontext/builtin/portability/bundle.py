@@ -531,10 +531,18 @@ class PortableBundleService:
         self._artifact_content_decoder = artifact_content_decoder
         self._candidate_decoder = candidate_decoder
         self._source_decoder = source_decoder
+        self._family_decoders: dict[str, Callable[[Mapping[str, Any]], object]] = {}
         self._supported_source_types = None if supported_source_types is None else frozenset(supported_source_types)
         self._supported_artifact_families = (
             None if supported_artifact_families is None else frozenset(supported_artifact_families)
         )
+
+    def register_artifact_family(self, family: str, decoder: Callable[[Mapping[str, Any]], object]) -> None:
+        """Add a loaded family's storage decoder to validation and restoration."""
+
+        self._family_decoders[family] = decoder
+        if self._supported_artifact_families is not None:
+            self._supported_artifact_families = self._supported_artifact_families | {family}
 
     async def export(
         self,
@@ -875,13 +883,16 @@ class PortableBundleService:
             if self._candidate_decoder is None:
                 raise BundleFormatError("target cannot validate Candidate proposals")
             return
-        if record.record_type != "artifact_revision" or self._artifact_content_decoder is None:
+        if record.record_type != "artifact_revision":
             return
         family = str(record.identity["family"])
+        decoder = self._family_decoders.get(family, self._artifact_content_decoder)
+        if decoder is None:
+            return
         if self._supported_artifact_families is not None and family not in self._supported_artifact_families:
             return
         try:
-            self._artifact_content_decoder(_row_values(record))
+            decoder(_row_values(record))
         except InvalidStoredPayloadError as error:
             raise BundleFormatError("Artifact content does not match the target family decoder") from error
 

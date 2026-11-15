@@ -164,6 +164,8 @@ Listing, reading revisions and history, governance state, and tags call no plugi
   Artifact.
 - Other operations include `tx.set_lifecycle`, `tx.merge`, `tx.revert`, and `tx.set_tags`; read current state with
   `writer.get`, `writer.list`, and `writer.by_source`.
+  `tx.revert` and `tx.set_lifecycle` return `ArtifactChange`: `result.artifact` is the target snapshot,
+  while `result.restored` and `result.retired` identify other Artifacts affected by the same change.
 - Core records on each revision the plugin name and the content digest of the plugin code that wrote it, so revisions can
   be traced when several Servers load different plugin versions.
 

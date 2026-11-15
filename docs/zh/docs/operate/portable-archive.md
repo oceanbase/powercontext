@@ -93,6 +93,9 @@ manifest，并在恢复前校验 observation
 的身份和定义指纹。缺失定义或与目标定义冲突会阻止恢复；未引用的全局定义不会随包导出。
 Observation 的 payload 和每个 projection 还必须通过正常写入路径所使用的 manifest schema 校验。恢复不会请求远程 schema。
 
+对于 Server 部署，写恢复前须按 `powercontext server db-migrate` 文档流程初始化或迁移目标库。
+逻辑恢复不会初始化受管 Server schema，也不会迁移访问绑定；使用恢复的 Scope 前须配置目标端访问权限。
+
 要执行写恢复，必须显式确认：
 
 ```bash
@@ -180,6 +183,11 @@ powercontext archive restore ./payments.pcb --env-file ./oceanbase.env --yes
 `POWERCONTEXT_SERVER_DATABASE_URL`。写入前，dry-run 应报告不存在不支持的 family，且冲突数为零。
 
 ## 格式兼容窗口
+
+恢复包含插件 Artifact 的归档时，目标环境须通过 `POWERCONTEXT_SERVER_PLUGINS_DIR` 配置对应插件，
+`--dry-run` 也需要此配置。归档命令在子进程中检查声明，不启动插件 host、不运行 `setup`，也不调度生成。
+Core 校验 Artifact 的不透明存储封装；插件 Source observation 根据归档内携带的不可变 Source 定义校验。
+恢复保留版本元数据、历史和出处。插件独立存储仍不包含在归档内。
 
 Bundle ID 必须使用带连字符、小写的标准 UUID 表示。完整归档文件连同 ZIP 前缀或尾随字节不得超过 512 MiB；manifest
 上限为 256 KiB，解压后的 record 流上限为 2 GiB，最多包含 2,000,000 条 record，每行 NDJSON 不超过 8 MiB。

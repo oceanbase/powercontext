@@ -95,7 +95,7 @@ def _identities(tmp_path):
         "POWERCONTEXT_SERVER_AUTH_IDENTITIES_FILE": str(path),
         "POWERCONTEXT_SERVER_AUTH_ADMINISTRATORS": json.dumps(["user:admin"]),
         "POWERCONTEXT_SERVER_AUTH_TOKEN": None,
-        "POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID": "plugin-worker",
+        "POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID": None,
     }
 
 
@@ -192,5 +192,19 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
             ) as carol,
         ):
             await check_reads(carol, shared, private, note, secret.json()["artifact_id"])
+
+    asyncio.run(scenario())
+
+
+def test_empty_plugin_directory_needs_no_background_identity(tmp_path):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    identities = _identities(tmp_path)
+
+    async def scenario():
+        async with running_server(tmp_path, plugins, extra_env=identities) as client:
+            response = await client.get("/v1/plugins")
+            assert response.status_code == 200, response.text
+            assert response.json()["items"] == []
 
     asyncio.run(scenario())

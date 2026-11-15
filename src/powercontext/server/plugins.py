@@ -24,9 +24,7 @@ forwards.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import sys
 from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -46,10 +44,16 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
 from powercontext.builtin.plugins.executor import PluginWorkerSpec, run_plugin_worker
-from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
+from powercontext.builtin.plugins.families import (
+    plugin_artifact_repository,
+    register_plugin_family,
+    register_source_binding,
+    revision_metadata,
+)
 from powercontext.builtin.plugins.host_protocol import PluginHostSpec
-from powercontext.builtin.plugins.manifest import PluginManifest
+from powercontext.builtin.plugins.manifest import PluginManifest, check_plugin_directory
 from powercontext.builtin.plugins.writer import plugin_merge_service
+from powercontext.builtin.portability import PortableBundleService
 from powercontext.builtin.records import BaseValueNotFoundError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess
 from powercontext.builtin.runtime.artifact_processing import (
@@ -66,7 +70,6 @@ from powercontext.plugins import Cron, Interval
 from powercontext.server.plugin_hosts import HostProcessBudget, PluginHost
 
 logger = logging.getLogger(__name__)
-CHECK_TIMEOUT_SECONDS = 60
 # How soon a dirty Scope is admitted when the plugin asks to run on new Sources.
 ON_SOURCES_INTERVAL_SECONDS = 2.0
 
@@ -106,33 +109,6 @@ class _Plugin:
         })
 
 
-async def check_plugin_directory(directory: Path) -> PluginManifest:
-    """Import user code only in a time-limited child process."""
-
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "powercontext.builtin.plugins.manifest",
-        str(directory),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    try:
-        output, _ = await asyncio.wait_for(process.communicate(), CHECK_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        raise ValueError("plugin check timed out") from None  # noqa: TRY003
-    lines = output.decode("utf-8", "replace").strip().splitlines()
-    try:
-        result = json.loads(lines[-1])
-    except (IndexError, ValueError):
-        raise ValueError("plugin check produced no result") from None  # noqa: TRY003
-    if "error" in result:
-        raise ValueError(result["error"])
-    return PluginManifest.model_validate(result["manifest"])
-
-
 class PluginManager:
     def __init__(
         self,
@@ -144,6 +120,7 @@ class PluginManager:
         plugins_dir: Path | None,
         *,
         register_merge: Callable[[Any], None] | None = None,
+        archive: PortableBundleService | None = None,
         dispatch: bool = True,
         inference_config: Any = None,
         storage_root: Path | None = None,
@@ -154,6 +131,7 @@ class PluginManager:
     ) -> None:
         self.database = database
         self.register_merge = register_merge
+        self.archive = archive
         # API-only instances register families for reads but never dispatch plugin Workers.
         self.dispatch = dispatch
         self.config = config
@@ -204,6 +182,8 @@ class PluginManager:
             for plugin in self.plugins.values()
             if plugin.error is None and plugin.manifest is not None
         ]
+        if not loaded:
+            return
         families = tuple(sorted(manifest.spec.family for _, manifest in loaded))
         bindings = tuple(
             (manifest.binding_name, manifest.spec.scopes, manifest.spec.inputs.source_types)
@@ -269,6 +249,10 @@ class PluginManager:
         generate = manifest.spec
         await self._register_source_definitions(manifest)
         register_plugin_family(generate.family)
+        if self.archive is not None:
+            self.archive.register_artifact_family(
+                generate.family, plugin_artifact_repository(generate.family).decode_content
+            )
         if self.register_merge is not None:
             self.register_merge(
                 plugin_merge_service(

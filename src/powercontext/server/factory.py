@@ -102,7 +102,7 @@ from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.plugins import PluginManager
-from powercontext.server.processing_security import build_worker_security
+from powercontext.server.processing_security import build_host_security, build_worker_security
 from powercontext.server.request_id import HttpRequestIdMiddleware
 from powercontext.server.settings import MissingAuthenticationProviderError, ServerSettings
 from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
@@ -361,15 +361,15 @@ def create_server_app(  # noqa: C901
                     on_supervisor=bind_supervisor,
                     plugins_dir=resolved.plugins_dir,
                     register_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.register,
+                    archive=runtime.archive,
                     dispatch=dispatch_plugins,
                     inference_config=config.inference,
                     storage_root=powercontext_data_dir() / "plugins",
                     # Host processes authorize callers in every role that serves requests.
-                    host_security_builder=lambda: build_worker_security(
+                    host_security_builder=lambda: build_host_security(
                         resolved,
                         active_access_control,
                         legacy_static_principal=static_principal if legacy_static_admin else None,
-                        enabled=True,
                         injected=configured_access_control is not None,
                     ),
                     host_processes=resolved.plugin_host_processes,

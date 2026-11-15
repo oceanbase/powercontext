@@ -113,6 +113,10 @@ global definitions are not exported.
 Observation payloads and supplied projections must also satisfy the same manifest schemas checked during normal
 ingestion. Restore does not fetch remote schema references.
 
+For a Server deployment, initialize or migrate the target with the documented `powercontext server db-migrate`
+workflow before the write restore. Logical restoration does not initialize the managed Server schema or transfer
+access bindings; configure target access before using the restored Scopes.
+
 To perform the write, repeat the command with explicit confirmation:
 
 ```bash
@@ -208,6 +212,12 @@ The environment files use `POWERCONTEXT_SERVER_DATABASE_KIND` and `POWERCONTEXT_
 the Server configuration guide. Dry-run must report no unsupported families and zero conflicts before the write.
 
 ## Format compatibility
+
+For bundles containing plugin Artifacts, configure `POWERCONTEXT_SERVER_PLUGINS_DIR` with the corresponding plugins
+on the restore target, including for `--dry-run`. Archive commands check declarations in child processes without
+starting plugin hosts, running `setup`, or dispatching generation. Core validates the opaque Artifact storage wrapper;
+plugin Source observations are validated against the immutable Source definitions carried in the bundle. Restoring
+preserves revision metadata, history, and provenance. Plugin-owned storage remains outside the archive.
 
 Bundle IDs must use the canonical lowercase, hyphenated UUID representation. The entire archive file, including ZIP
 prefixes or trailing bytes, is limited to 512 MiB. The manifest limit is 256 KiB; uncompressed records are limited to

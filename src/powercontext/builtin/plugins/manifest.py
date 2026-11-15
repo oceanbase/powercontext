@@ -21,9 +21,11 @@ in a child process; the declaration crosses process boundaries as ``PluginManife
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.util
 import inspect
+import json
 import re
 import sys
 from pathlib import Path
@@ -33,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from powercontext.plugins import ArtifactPlugin, ArtifactPluginSpec
 
+CHECK_TIMEOUT_SECONDS = 60
 ENTRY_FILE = "plugin.py"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
@@ -127,6 +130,33 @@ def load_plugin(directory: Path) -> tuple[PluginManifest, ArtifactPlugin]:
         ),
         declaration,
     )
+
+
+async def check_plugin_directory(directory: Path) -> PluginManifest:
+    """Import user code only in a time-limited child process."""
+
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "powercontext.builtin.plugins.manifest",
+        str(directory),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), CHECK_TIMEOUT_SECONDS)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        raise ValueError("plugin check timed out") from None  # noqa: TRY003
+    lines = output.decode("utf-8", "replace").strip().splitlines()
+    try:
+        result = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        raise ValueError("plugin check produced no result") from None  # noqa: TRY003
+    if "error" in result:
+        raise ValueError(result["error"])
+    return PluginManifest.model_validate(result["manifest"])
 
 
 def main() -> None:
