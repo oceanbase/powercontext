@@ -222,6 +222,11 @@ authentication credentials, as in the UDS example above. Clients of protected Co
 `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for
 client credentials.
 
+For TCP Core calls (`PC_GATEWAY_CORE_BASE`), privileged target resolution requires HTTPS or an explicit
+loopback IP over HTTP, such as `http://127.0.0.1:8000` or `http://[::1]:8000`. Plain HTTP hostnames,
+including `http://localhost:8000`, are rejected; DNS resolution does not establish loopback trust.
+Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
+
 ### Gateway model destination
 
 Configure the trusted endpoint, protocol and model in Core `InferenceConfig.protection.targets`.

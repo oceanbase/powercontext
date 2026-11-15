@@ -106,6 +106,10 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 Core `InferenceConfig.protection.targets[<profile>]` owns the endpoint, model and protocol. Configure
 an authenticated service principal with both `gateway.invoke` and `scope.read` on the chosen Scope,
 and pass its bearer token as `PC_GATEWAY_CORE_TOKEN` (UDS alone does not authenticate).
+For a TCP Core link, privileged target resolution requires HTTPS, except for HTTP to literal
+loopback IP addresses such as `PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000` or `http://[::1]:8000`.
+Plain HTTP hostnames, including `http://localhost:8000`, are rejected: DNS resolution does not
+establish loopback trust. Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
 `PC_GATEWAY_API_KEY` is a separate mandatory client-facing secret: missing or identical credentials
 prevent startup. This first iteration authenticates the Gateway client, but does not map individual
 client identities to distinct Core principals or enforce per-client Scope authorization. Gateway

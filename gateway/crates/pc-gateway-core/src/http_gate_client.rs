@@ -19,6 +19,7 @@ use pc_gateway_types::{
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+use url::Host;
 
 /// 独立部署形态：HTTPS/TCP 直连 PowerContext Server 的公开契约。
 /// 同机组合部署用 `UdsGateClient`（HTTP over Unix Domain Socket）。
@@ -132,10 +133,11 @@ impl GateClient for HttpGateClient {
             let url = reqwest::Url::parse(&self.base_url)
                 .map_err(|_| GateError::Malformed("invalid Core URL".into()))?;
             let local_http = url.scheme() == "http"
-                && url
-                    .host_str()
-                    .and_then(|host| host.parse::<std::net::IpAddr>().ok())
-                    .is_some_and(|host| host.is_loopback());
+                && match url.host() {
+                    Some(Host::Ipv4(host)) => host.is_loopback(),
+                    Some(Host::Ipv6(host)) => host.is_loopback(),
+                    _ => false,
+                };
             if url.scheme() != "https" && !local_http {
                 return Err(GateError::Malformed(
                     "privileged target resolution requires HTTPS or loopback Core".into(),
@@ -215,21 +217,74 @@ mod target_security_tests {
     use pc_gateway_types::ModelJsonPayload;
     use std::collections::BTreeMap;
 
+    fn before_send() -> ContextCheckRequest {
+        ContextCheckRequest::BeforeSend {
+            scope_id: "test".into(),
+            target_profile: "test".into(),
+            payload: ModelJsonPayload::new(
+                BTreeMap::from([("content-type".into(), "application/json".into())]),
+                "{}".into(),
+            ),
+            prepared_contexts: vec![],
+        }
+    }
+
     #[tokio::test]
-    async fn remote_plain_http_cannot_receive_privileged_target_resolution_token() {
-        let client =
-            HttpGateClient::with_token("http://model.example", Some("private-token".into()));
-        let verdict = client
-            .check(ContextCheckRequest::BeforeSend {
-                scope_id: "test".into(),
-                target_profile: "test".into(),
-                payload: ModelJsonPayload::new(
-                    BTreeMap::from([("content-type".into(), "application/json".into())]),
-                    "{}".into(),
+    async fn plain_http_requires_a_literal_loopback_address() {
+        for base in [
+            "http://model.example",
+            "http://localhost:8000",
+            "http://192.0.2.1:8000",
+            "http://[2001:db8::1]:8000",
+        ] {
+            let client = HttpGateClient::with_token(base, Some("private-token".into()));
+            let verdict = client.check(before_send()).await;
+            assert!(matches!(verdict, Err(GateError::Malformed(_))), "{base}");
+        }
+    }
+
+    #[tokio::test]
+    async fn ipv4_and_ipv6_loopback_can_resolve_targets_over_http() {
+        use axum::{http::HeaderMap, routing::post, Json, Router};
+
+        for address in ["127.0.0.1:0", "[::1]:0"] {
+            let listener = tokio::net::TcpListener::bind(address)
+                .await
+                .expect("loopback listener must bind");
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let app = Router::new().route(
+                "/v1/context/check",
+                post(
+                    |headers: HeaderMap, Json(request): Json<ContextCheckRequest>| async move {
+                        assert_eq!(headers["authorization"], "Bearer private-token");
+                        assert_eq!(headers["x-powercontext-resolve-target"], "true");
+                        assert!(matches!(request, ContextCheckRequest::BeforeSend { .. }));
+                        Json(serde_json::json!({
+                            "schema": "powercontext.context-check.v1",
+                            "phase": "before_send",
+                            "decision": "allow",
+                            "reason_codes": [],
+                            "coverage": {"profile": "test", "complete": true},
+                            "policy_version": "test",
+                            "binding": "loopback-binding",
+                            "valid_until": "2999-01-01T00:00:00Z",
+                            "target_endpoint": "https://model.example/v1/chat/completions",
+                            "target_protocol": "openai-chat"
+                        }))
+                    },
                 ),
-                prepared_contexts: vec![],
-            })
-            .await;
-        assert!(matches!(verdict, Err(GateError::Malformed(_))));
+            );
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = HttpGateClient::with_token(&base, Some("private-token".into()));
+            let result = client.check(before_send()).await;
+            server.abort();
+            let result = result.unwrap_or_else(|error| panic!("{base}: {error:?}"));
+            assert_eq!(result.binding.as_deref(), Some("loopback-binding"));
+            assert_eq!(
+                result.target_endpoint.as_deref(),
+                Some("https://model.example/v1/chat/completions")
+            );
+            assert_eq!(result.target_protocol.as_deref(), Some("openai-chat"));
+        }
     }
 }

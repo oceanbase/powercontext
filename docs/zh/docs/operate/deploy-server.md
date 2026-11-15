@@ -203,6 +203,10 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 如上文的 UDS 示例所示。访问受保护 Core 路由的客户端必须使用 Core 凭据。
 `PC_GATEWAY_CORE_TOKEN` 用于网关主动发起的 Core 调用；反向代理不会用它替换客户端凭据。
 
+通过 TCP 调用 Core（`PC_GATEWAY_CORE_BASE`）时，特权目标解析要求 HTTPS，或使用显式回环 IP 的 HTTP 地址，
+例如 `http://127.0.0.1:8000`、`http://[::1]:8000`。普通 HTTP 主机名地址（包括 `http://localhost:8000`）
+会被拒绝；DNS 解析不作为回环信任的依据。请改用回环 IP、HTTPS 或 `PC_GATEWAY_CORE_UDS`。
+
 ### 网关模型目标
 
 模型入口的可信 endpoint、协议和模型由 Core `InferenceConfig.protection.targets` 配置。
