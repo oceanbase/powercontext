@@ -396,7 +396,7 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         matches = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["RELEASE"]})
         )
-        assert {item.target.root.family.value for item in matches.items} == set(contents)
+        assert {item.target.root.model_dump(mode="json")["family"] for item in matches.items} == set(contents)
         selected = await client.query_artifact_tags(
             scope, QueryArtifactTagsRequest.model_validate({"tags": ["release"], "families": list(contents)})
         )

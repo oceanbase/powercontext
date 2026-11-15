@@ -148,11 +148,9 @@ MAX_TOPIC_MEMORY_SOURCE_DEPTH = 32
 MAX_TOPIC_MEMORY_WINDOW_SOURCES = 100
 
 # Rejections worth recording on the frontier. ``source_complexity_limit`` is decided
-# by this window's own input, so a retry replays the same rejection and it ends the
-# frontier immediately. ``related_history_limit`` is measured against the *generated*
-# proposals' secondary candidates, so a retry can be narrow enough to fit — it is
-# recorded for diagnosis but stays recoverable, with the attempt ceiling bounding how
-# many retries it may spend.
+# by this window's own input, so a retry replays the same rejection. Generated
+# rejections can be cleared by a later bounded attempt; the attempt ceiling bounds
+# how many retries they may spend.
 RECORDED_TOPIC_MEMORY_REJECTIONS = frozenset({"source_complexity_limit"}) | RECOVERABLE_TOPIC_MEMORY_REJECTIONS
 
 InputT = TypeVar("InputT", bound=BaseModel)
@@ -1158,7 +1156,7 @@ class TopicMemoryProcessor:
                 proposals.append(proposal)
         return self._validate_proposals(tuple(proposals), evidence, candidates, internal_ids=known_ids)
 
-    async def _coordinate(
+    async def _coordinate(  # noqa: C901
         self,
         scope_id: str,
         proposals: tuple[TopicMemoryProposal, ...],
@@ -1173,53 +1171,71 @@ class TopicMemoryProcessor:
             for index, proposal in enumerate(proposals, start=1)
         )
         known_ids.update(item.proposal_id for item in proposals if item.proposal_id is not None)
-        secondary: list[frozenset[str]] = []
+        related_scores: dict[str, float] = {}
+        discovered: dict[tuple[str, int], tuple[float, ArtifactRef]] = {}
+        searches: list[tuple[TopicMemorySearchHit, ...]] = []
         vectors: list[tuple[float, ...] | None] = []
         signatures = tuple(topic_memory_lexical_signature(proposal.content) for proposal in proposals)
         for proposal, signature in zip(proposals, signatures, strict=True):
             if proposal.candidate_id is not None:
-                secondary.append(frozenset({proposal.candidate_id}))
+                searches.append(())
                 vectors.append(None)
                 continue
-            vector = await self._signature_vector(proposal.content)
-            if not signature and vector is None:
-                secondary.append(frozenset())
+            hits, vector = await self._related_candidates(scope_id, proposal, signature)
+            if not hits and vector is None:
+                searches.append(())
                 vectors.append(None)
                 continue
-            profile = None if self._embedding_model is None else self._embedding_model.profile
-            query = (
-                signature
-                or f"{proposal.content.title}\n{proposal.content.summary}"[:MAX_TOPIC_MEMORY_QUERY_LENGTH].strip()
-            )
-            mode: TopicMemorySearchMode = "fts" if vector is None else "hybrid" if signature else "vector"
+            for hit in hits:
+                key = _artifact_key(hit.artifact_ref)
+                current = discovered.get(key)
+                if current is None or hit.score > current[0]:
+                    discovered[key] = (hit.score, hit.artifact_ref)
+            searches.append(hits)
+            vectors.append(vector)
+        known = {_artifact_key(publication.topic.as_ref()): key for key, publication in candidates.items()}
+        # Every newly discovered related Topic stays reachable: unrelated unbound initial
+        # candidates must not consume the capacity a distinct second-pass match needs.
+        # The per-component ranking below keeps each reconcile stage input within its limit.
+        added = sorted(
+            (key for key in discovered if key not in known),
+            key=lambda key: (-discovered[key][0], key[0].encode(), -key[1]),
+        )
+        reserved = set(candidates)
+        next_index = 1
+        for key in added:
+            candidate_id = f"candidate-{next_index:04d}"
+            while candidate_id in reserved:
+                next_index += 1
+                candidate_id = f"candidate-{next_index:04d}"
+            reserved.add(candidate_id)
+            next_index += 1
+            known[key] = candidate_id
+        if added:
             async with self._database.transaction(consistent_snapshot=True) as connection:
-                result = await self._topics.search(
+                publications = await self._topics.get_exact_many(
                     connection,
                     scope_id,
-                    query,
-                    limit=self._history_max,
-                    mode=mode,
-                    query_vector=vector,
-                    embedding_profile=profile,
+                    tuple(discovered[key][1] for key in added),
                 )
-                known = {_artifact_key(publication.topic.as_ref()): key for key, publication in candidates.items()}
-                missing = {
-                    _artifact_key(hit.artifact_ref): hit.artifact_ref
-                    for hit in result.hits
-                    if _artifact_key(hit.artifact_ref) not in known
-                }
-                if missing:
-                    publications = await self._topics.get_exact_many(connection, scope_id, tuple(missing.values()))
-                    for ref, publication in zip(missing, publications, strict=True):
-                        candidate_id = f"candidate-{len(candidates) + 1:04d}"
-                        candidates[candidate_id] = publication
-                        known[ref] = candidate_id
-                ids = {known[_artifact_key(hit.artifact_ref)] for hit in result.hits}
-            secondary.append(frozenset(ids))
-            vectors.append(vector)
+            for key, publication in zip(added, publications, strict=True):
+                candidates[known[key]] = publication
+        known_ids.update(candidates)
+        secondary_candidates: list[frozenset[str]] = []
+        for hits, proposal in zip(searches, proposals, strict=True):
+            scored = {
+                known[_artifact_key(hit.artifact_ref)]: hit.score
+                for hit in hits
+                if _artifact_key(hit.artifact_ref) in known and known[_artifact_key(hit.artifact_ref)] in candidates
+            }
+            for candidate_id, score in scored.items():
+                related_scores[candidate_id] = max(related_scores.get(candidate_id, 0.0), score)
+            if proposal.candidate_id is not None:
+                scored[proposal.candidate_id] = float("inf")
+            secondary_candidates.append(frozenset(scored))
         components = topic_memory_related_components(
             proposals,
-            secondary_candidates=tuple(secondary),
+            secondary_candidates=tuple(secondary_candidates),
             vectors=tuple(vectors),
             signatures=signatures,
         )
@@ -1227,18 +1243,16 @@ class TopicMemoryProcessor:
         for component_index, component in enumerate(components, start=1):
             members = tuple(proposals[index] for index in component)
             creates = tuple(member for member in members if member.candidate_id is None)
-            history_ids = sorted(
-                {
-                    *(member.candidate_id for member in members if member.candidate_id is not None),
-                    *(cid for index in component for cid in secondary[index]),
-                }
-                - {None}
-            )
+            bound_candidates = {member.candidate_id for member in members if member.candidate_id is not None}
+            related_candidates = {cid for index in component for cid in secondary_candidates[index]} - bound_candidates
+            ranked_candidates = sorted(
+                related_candidates,
+                key=lambda candidate_id: (-related_scores.get(candidate_id, 0.0), candidate_id),
+            )[: MAX_TOPIC_MEMORY_STAGE_ITEMS - len(bound_candidates)]
+            history_ids = sorted(bound_candidates | set(ranked_candidates))
             if not creates or (len(component) == 1 and not history_ids):
                 coordinated.extend(members)
                 continue
-            if len(history_ids) > MAX_TOPIC_MEMORY_STAGE_ITEMS:
-                raise TopicMemoryGenerationError("related_history_limit")
             reconcile_input = TopicMemoryReconcileInput(
                 component_id=f"component-{component_index:04d}",
                 proposals=members,
@@ -1267,6 +1281,32 @@ class TopicMemoryProcessor:
             internal_ids=known_ids,
         )
         return validated, candidates
+
+    async def _related_candidates(
+        self,
+        scope_id: str,
+        proposal: TopicMemoryProposal,
+        signature: str,
+    ) -> tuple[tuple[TopicMemorySearchHit, ...], tuple[float, ...] | None]:
+        vector = await self._signature_vector(proposal.content)
+        if not signature and vector is None:
+            return (), None
+        profile = None if self._embedding_model is None else self._embedding_model.profile
+        query = (
+            signature or f"{proposal.content.title}\n{proposal.content.summary}"[:MAX_TOPIC_MEMORY_QUERY_LENGTH].strip()
+        )
+        mode: TopicMemorySearchMode = "fts" if vector is None else "hybrid" if signature else "vector"
+        async with self._database.transaction(consistent_snapshot=True) as connection:
+            result = await self._topics.search(
+                connection,
+                scope_id,
+                query,
+                limit=self._history_max,
+                mode=mode,
+                query_vector=vector,
+                embedding_profile=profile,
+            )
+        return result.hits, vector
 
     async def _signature_vector(self, content: TopicMemoryContent) -> tuple[float, ...] | None:
         if self._embedding_model is None:

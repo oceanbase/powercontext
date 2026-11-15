@@ -1756,6 +1756,7 @@ server = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlite-vec" },
     { name = "tzdata" },
+    { name = "tzlocal" },
     { name = "uvicorn" },
 ]
 
@@ -1905,6 +1906,11 @@ requires-dist = [
     { name = "tzdata", marker = "extra == 'ops'", specifier = ">=2026.3" },
     { name = "tzdata", marker = "extra == 'seekdb'", specifier = ">=2026.3" },
     { name = "tzdata", marker = "extra == 'server'", specifier = ">=2026.3" },
+    { name = "tzlocal", marker = "extra == 'builtin'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'cli'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'ops'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'seekdb'", specifier = ">=5.2,<6" },
+    { name = "tzlocal", marker = "extra == 'server'", specifier = ">=5.2,<6" },
     { name = "uvicorn", marker = "extra == 'ops'", specifier = ">=0.34,<1" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]

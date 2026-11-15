@@ -60,8 +60,7 @@ _BACKFILL_FTS_SQL = """
 INSERT INTO pc_artifact_fts (scope_id, family, artifact_id, revision, searchable_text)
 SELECT h.scope_id, h.family, h.artifact_id, h.revision, h.searchable_text
 FROM pc_artifact_heads AS h
-WHERE h.family IN ('experience', 'skill')
-  AND h.searchable_text IS NOT NULL
+WHERE h.searchable_text IS NOT NULL
 """
 _PROBE_FTS_SQL = "SELECT rowid FROM pc_artifact_fts WHERE pc_artifact_fts MATCH 'powercontext' LIMIT 1"
 _DELETE_FTS_SQL = text(

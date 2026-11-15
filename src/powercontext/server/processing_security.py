@@ -21,7 +21,7 @@ from typing import Any
 from powercontext.builtin.authz import AccessControlService, PrincipalRef
 from powercontext.builtin.authz.repository import RelationalAccessRepository
 from powercontext.builtin.authz.service import BuiltinAuthorizationProvider
-from powercontext.builtin.authz.worker import WorkerSecuritySpec
+from powercontext.builtin.authz.worker import HostSecuritySpec, WorkerSecuritySpec
 from powercontext.builtin.runtime.composition import BuiltinConfigurationError
 from powercontext.server.settings import ServerSettings
 
@@ -38,15 +38,7 @@ def build_worker_security(
 
     if not enabled or settings.access.mode == "disabled":
         return None
-    if injected or (
-        access is not None
-        and (
-            type(access.provider) is not BuiltinAuthorizationProvider
-            or type(access.relationships) is not RelationalAccessRepository
-            or access.audit is not access.relationships
-        )
-    ):
-        raise BuiltinConfigurationError("artifact-processing-worker-authorization-provider")
+    _validate_provider(access, injected=injected)
     if settings.access.background_principal_id is not None:
         principal = PrincipalRef(
             type="service",
@@ -62,3 +54,33 @@ def build_worker_security(
         deployment_id=settings.access.deployment_id,
         static_preset=principal == legacy_static_principal,
     ).model_dump(mode="json")
+
+
+def build_host_security(
+    settings: ServerSettings,
+    access: AccessControlService | None,
+    *,
+    legacy_static_principal: PrincipalRef | None = None,
+    injected: bool = False,
+) -> dict[str, Any] | None:
+    """Reconstruct caller authorization without requiring a scheduled-work identity."""
+
+    if settings.access.mode == "disabled":
+        return None
+    _validate_provider(access, injected=injected)
+    return HostSecuritySpec(
+        deployment_id=settings.access.deployment_id,
+        static_scope_principal=legacy_static_principal,
+    ).model_dump(mode="json")
+
+
+def _validate_provider(access: AccessControlService | None, *, injected: bool) -> None:
+    if injected or (
+        access is not None
+        and (
+            type(access.provider) is not BuiltinAuthorizationProvider
+            or type(access.relationships) is not RelationalAccessRepository
+            or access.audit is not access.relationships
+        )
+    ):
+        raise BuiltinConfigurationError("artifact-processing-worker-authorization-provider")
