@@ -518,8 +518,12 @@ class PluginModels(Protocol):
 - **Dedicated storage**: core uses Server's existing database connection settings to allocate an area for the plugin on
   the same backend, with no additional database login:
   - SQLite: `plugins/<plugin name>.sqlite3` in the data directory.
-  - OceanBase / seekdb: a database named `powercontext_plugin_<plugin name>` (with `-` replaced by `_`), created by core on
-    first use. When Server's database login cannot create databases, the deployer creates it in advance.
+  - OceanBase / seekdb: a database named `powercontext_plugin_<plugin name>` (with `-` replaced by `_`) on the same tenant
+    or instance, created by core when the plugin loads and reused when it exists. When Server's database login cannot
+    create databases, the deployer creates it in advance. If the database is missing and cannot be created, or its name
+    exceeds 64 characters (a plugin name longer than 44), the plugin still loads, and accessing `ctx.storage` raises an
+    error that states the reason. A tenant or instance carries one deployment, so the name does not identify the
+    deployment.
   - The plugin manages its own tables and migrations; core does not read, migrate, or back up this area. It is not part
     of core's transactions, and its consistency with core data follows 3.5.
   - This area belongs to the whole plugin and is not isolated by Scope. The plugin partitions its data by `scope_id` and,

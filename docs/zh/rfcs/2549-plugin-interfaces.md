@@ -463,8 +463,10 @@ class PluginModels(Protocol):
   连接）通过 `ctx.enter_async_context` 注册，Worker 调用结束或宿主进程停止时由执行器释放。
 - **专属存储**：core 使用 Server 现有的数据库连接配置，在同一个后端上为插件分配一块空间，不需要额外的数据库账号：
   - SQLite：数据目录下的 `plugins/<插件名>.sqlite3`。
-  - OceanBase / seekdb：名为 `powercontext_plugin_<插件名>` 的库（`-` 换成 `_`），首次使用时由 core 创建。Server 的数据库
-    登录没有建库权限时，由部署者事先建好。
+  - OceanBase / seekdb：同一个租户或实例上名为 `powercontext_plugin_<插件名>` 的库（`-` 换成 `_`），插件加载时由 core
+    创建，已存在则直接使用。Server 的数据库登录没有建库权限时，由部署者事先建好。库不存在又无法创建，或者库名超过 64 个字符
+    （插件名超过 44 个字符）时，插件照常加载，访问 `ctx.storage` 时报错并说明原因。一个租户或实例只承载一套部署，
+    库名因此不区分部署。
   - 表结构和迁移由插件自己管理，core 不读取、不迁移、不备份这块空间。它不在 core 的事务中，与核心数据的一致性按 3.5 处理。
   - 这块空间属于整个插件，不按 Scope 隔离。插件按 `scope_id` 划分自己的数据，并在读取时自行确认数据属于本次请求的 Scope，
     不能只凭调用方给出的 ID 返回数据。
