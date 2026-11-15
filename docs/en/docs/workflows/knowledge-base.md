@@ -107,7 +107,9 @@ infrastructure failures use the framework's window retry/backoff and can block t
 `GET P/scopes/{s}/imports/{request_id}` reports pending/processing/failed or a publication verified against core history, separately
 from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new** `idempotency_key` and creates a new request.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
-permits replacing manual edits; otherwise conflicting reprocessing fails. A concurrent edit or forget prevents stale publication.
+permits replacing manual edits; otherwise conflicting reprocessing fails. Reprocessing pins the original snapshot and its
+document revision together. A concurrent upload, edit or forget prevents stale publication, including changes while the snapshot
+is being read; submit a new reprocessing request to use the latest original.
 Replaying the same reprocessing key and explicit document/policy returns the accepted request's receipt, even if the document's
 original file or processing settings have since changed. Interrupted Source registration resumes from the original pinned input
 and base; it never rebases onto the current revision. Reusing the key for another document, policy or operation is a conflict.

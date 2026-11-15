@@ -191,12 +191,26 @@ class KnowledgeBase:
         return await self.settings(request.scope_id)
 
     async def accept(
-        self, scope, key, data, path, collection, origin, original_path=None, replace=False, force=False, command=None
+        self,
+        scope,
+        key,
+        data,
+        path,
+        collection,
+        origin,
+        original_path=None,
+        replace=False,
+        force=False,
+        command=None,
+        *,
+        base_revision=None,
     ):
         config = await self.settings(scope)
         path = relative_path(path)
         document = identity("document-v1", scope, collection, path)
         current = await self.ctx.reads(scope).get(document)
+        if base_revision is None:
+            base_revision = 0 if current is None else current.ref.revision
         request_key = identity("import-v1", self.ctx.caller.principal_id, scope, key)
         existing = await self.store.resource(scope, "request", request_key)
         if existing is None and current is not None:
@@ -217,7 +231,7 @@ class KnowledgeBase:
             **original,
             "chunking": config["value"]["chunking"],
             "embedding_profile": self.embedding.profile,
-            "base_revision": 0 if current is None else current.ref.revision,
+            "base_revision": base_revision,
             "manual_edits_policy": "replace" if replace else "reject",
             "force_reprocess": force,
         }
@@ -351,6 +365,8 @@ class KnowledgeBase:
             replace=request.body.manual_edits_policy == "replace",
             force=True,
             command=command,
+            # The original bytes and publication precondition must refer to the same revision.
+            base_revision=snapshot.ref.revision,
         )
 
     async def retry_import(self, request):

@@ -97,7 +97,8 @@ Content-Type: application/octet-stream
 `GET P/scopes/{s}/imports/{request_id}` 显示 pending／processing／failed，或经核心历史验证的完成状态，同时单独展示可用版本。
 `POST .../imports/{request_id}/retry` 接收**新的** `idempotency_key`，创建新处理请求。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
-否则冲突的重解析失败。并发编辑或遗忘会阻止过期处理结果发布。
+否则冲突的重解析失败。重解析同时固定原文快照及其对应的 document revision。并发上传、编辑或遗忘会阻止过期处理结果发布，
+包括读取快照期间发生的变化；如需使用最新原文，应提交新的重解析请求。
 以相同重解析键和显式文档／策略重试时，返回已接受请求的回执，即使原文件或处理配置已经变化。
 Source 登记中断时也从原先固定的输入和版本基准继续，不以当前 revision 重新确定基准；同键改用其他文档、策略或操作会返回冲突。
 同步 chunk 编辑在发布时也检查治理版本；向量准备期间发生遗忘时，编辑会被拒绝。

@@ -206,3 +206,110 @@ async def _interrupted_resolve(self, value, /):
     return await _original_resolve(self, value)
 Definition.resolve = _interrupted_resolve
 """
+
+
+def test_reprocess_cannot_replace_an_upload_published_while_reading_its_snapshot(tmp_path):
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING + GATED_SNAPSHOT_READ)
+
+    async def scenario():
+        async with running_server(
+            tmp_path,
+            plugins,
+            extra_env={
+                "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
+                "KNOWLEDGE_BASE_TEST_GATE": str(tmp_path),
+            },
+        ) as client:
+
+            async def call(method, path, **kwargs):
+                response = await client.request(method, P + path, **kwargs)
+                assert response.is_success, response.text
+                return response.json()
+
+            space = await call("GET", "/me/default-space")
+            kb = await call(
+                "POST",
+                "/knowledge-bases",
+                json={"title": "Concurrent upload", "space_scope_id": space["space_scope_id"], "idempotency_key": "kb"},
+            )
+            base = "/scopes/" + kb["scope_id"]
+
+            async def upload(key, text):
+                return await call(
+                    "POST",
+                    base + "/uploads",
+                    params={"relative_path": "one.md", "idempotency_key": key},
+                    content=text.encode(),
+                )
+
+            async def settled(receipt):
+                return await wait_for(
+                    lambda: call("GET", base + "/imports/" + receipt["request_id"]),
+                    lambda result: result["state"] in {"completed", "failed"},
+                    log=tmp_path / "server.log",
+                )
+
+            first = await upload("first", "# Old\n\nOld original content.")
+            assert (await settled(first))["current_revision"] == 1
+            path = base + "/documents/" + first["document_id"] + "/reprocess"
+            body = {"idempotency_key": "racing-reprocess"}
+            (tmp_path / "pause-read").touch()
+            pending = asyncio.create_task(call("POST", path, json=body))
+            try:
+                await wait_for(
+                    lambda: asyncio.sleep(0, (tmp_path / "waiting").exists()), bool, log=tmp_path / "server.log"
+                )
+                latest_text = "# Latest\n\nNew authoritative content."
+                latest = await upload("latest", latest_text)
+                assert (await settled(latest))["current_revision"] == 2
+            finally:
+                (tmp_path / "release").touch()
+            receipt = await pending
+            outcome = await settled(receipt)
+            assert outcome["state"] == "failed", outcome
+            assert "Document changed" in outcome["error"]
+            assert outcome["current_revision"] == 2
+            assert receipt["source"] == first["source"]
+            assert await call("POST", path, json=body) == receipt
+            assert (await settled(receipt))["state"] == "failed"
+
+            # A fresh command uses the new original; the failed command never rebases on retry.
+            fresh = await call("POST", path, json={"idempotency_key": "fresh-reprocess"})
+            outcome = await settled(fresh)
+            assert outcome["state"] == "completed" and outcome["current_revision"] == 3
+            assert fresh["source"] == latest["source"]
+            artifact = f"/v1/scopes/{kb['scope_id']}/artifacts/document/{first['document_id']}"
+            head = await client.get(artifact)
+            assert head.is_success, head.text
+            assert head.json()["revision"] == 3
+            for revision in (2, 3):
+                chunks = base + f"/documents/{first['document_id']}/revisions/{revision}/chunks"
+                listing = await call("GET", chunks)
+                assert listing["total"] == 1
+                chunk = await call("GET", chunks + "/" + listing["items"][0]["chunk_id"])
+                assert chunk["text"] == latest_text
+
+    asyncio.run(scenario())
+
+
+GATED_SNAPSHOT_READ = """
+import os, time
+from pathlib import Path
+from pc_knowledge_base.content import Snapshots
+_original_read = Snapshots.read
+def _gated_read(self, key, digest):
+    gate = Path(os.environ['KNOWLEDGE_BASE_TEST_GATE'])
+    if (gate / 'pause-read').exists():
+        (gate / 'pause-read').unlink()
+        (gate / 'waiting').touch()
+        deadline = time.monotonic() + 60
+        while not (gate / 'release').exists():
+            if time.monotonic() > deadline:
+                raise RuntimeError('snapshot read gate timed out')
+            time.sleep(0.02)
+    return _original_read(self, key, digest)
+Snapshots.read = _gated_read
+"""
