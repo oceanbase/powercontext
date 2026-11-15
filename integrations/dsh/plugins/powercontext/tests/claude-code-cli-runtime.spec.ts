@@ -49,6 +49,10 @@ it('resolves the installed plugin against the Server and rejects routing and acc
   })
   try {
     await Promise.all([mkdir(config), mkdir(workspace), mkdir(packages)])
+    const overridePreferences = join(config, '.claude.json')
+    const terminal = (deepLinkTerminal: string) => JSON.stringify({ deepLinkTerminal })
+    await writeFile(overridePreferences, terminal('Terminal'))
+    await writeFile(join(root, '.claude.json'), terminal('Terminal'))
     await new Promise<void>(resolveServer => server.listen(0, '127.0.0.1', resolveServer))
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('missing server address')
@@ -57,14 +61,14 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     const output = JSON.stringify([{ id: 'powercontext@powercontext', enabled: true, installPath: plugin }])
     await writeFile(executable, `#!/bin/sh\nprintf '%s' '${output}'\n`, { mode: 0o755 })
     const receiver = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'fixture-terminal', evidence: 'fixture' }, launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: config }, qualifiedPackageRoots: [packages] })
+      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: config }, qualifiedPackageRoots: [packages] })
     const signal = new AbortController().signal
     const observed = await receiver.environment(executable, workspace, signal)
     expect(observed).toMatchObject({ effectiveCwd: workspace, serverIdentity: 'server-one', scopeId: 'scope-one',
       newSession: true, unsentPrefill: true, packageAccess: true })
     expect(observed?.configurationGeneration).toMatch(/^[0-9a-f]{64}$/)
     const recreated = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'fixture-terminal', evidence: 'fixture' }, launchEnvironment: { CLAUDE_CONFIG_DIR: config, PATH: '/usr/bin:/bin', HOME: root }, qualifiedPackageRoots: [packages] })
+      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { CLAUDE_CONFIG_DIR: config, PATH: '/usr/bin:/bin', HOME: root }, qualifiedPackageRoots: [packages] })
     expect((await recreated.environment(executable, workspace, signal))?.configurationGeneration).toBe(observed?.configurationGeneration)
     await writeFile(join(config, 'settings.json'), JSON.stringify({ env: 'invalid' }))
     expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
@@ -73,11 +77,11 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     await mkdir(defaultProfile)
     await writeFile(join(defaultProfile, 'settings.json'), JSON.stringify({ pluginConfigs: { 'powercontext@powercontext': { options: { server_url: endpoint } } } }))
     const defaultReceiver = createClaudeCodeCliReceiver({ configDir: defaultProfile, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'fixture-terminal', evidence: 'fixture' },
+      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
       launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, qualifiedPackageRoots: [packages] })
     expect((await defaultReceiver.environment(executable, workspace, signal))?.scopeId).toBe('scope-one')
     const wrongReceiver = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'fixture-terminal', evidence: 'fixture' },
+      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
       launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, qualifiedPackageRoots: [packages] })
     expect(await wrongReceiver.environment(executable, workspace, signal)).toBeUndefined()
     handoffToolsAvailable = false
@@ -85,10 +89,22 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     handoffToolsAvailable = true
     const packagePath = join(packages, 'handoff.json')
     await writeFile(packagePath, 'handoff')
-    const bundle = { packagePath, packageSha256: createHash('sha256').update('handoff').digest('hex') } as LaunchBundle
-    expect(await receiver.canReadPackage(executable, bundle, signal)).toBe(true)
+    const bundle = { packagePath, packageSha256: createHash('sha256').update('handoff').digest('hex') } as { packagePath: string; packageSha256: string }
+    const launch = { ...bundle, binding: { effectiveCwd: workspace } } as LaunchBundle
+    expect(await receiver.canReadPackage(executable, launch, signal)).toBe(true)
+    // The handler executable and file are unchanged; the receiver's terminal and policies still matter.
+    await writeFile(overridePreferences, terminal('Ghostty'))
+    expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
+    expect(await receiver.canReadPackage(executable, launch, signal)).toBe(false)
+    await writeFile(overridePreferences, terminal('Terminal'))
+    await writeFile(join(config, 'settings.json'), JSON.stringify({
+      permissions: { deny: ['Read(~/.powercontext-dsh-handoff/**)'] },
+    }))
+    expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
+    expect(await receiver.canReadPackage(executable, launch, signal)).toBe(false)
+    await writeFile(join(config, 'settings.json'), JSON.stringify({ pluginConfigs: { 'powercontext@powercontext': { options: { server_url: endpoint } } } }))
     await writeFile(packagePath, 'changed')
-    expect(await receiver.canReadPackage(executable, bundle, signal)).toBe(false)
+    expect(await receiver.canReadPackage(executable, launch, signal)).toBe(false)
     await writeFile(join(workspace, '.mcp.json'), JSON.stringify({ mcpServers: { powercontext: { url: 'http://wrong' } } }))
     expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
     await rm(join(workspace, '.mcp.json'))

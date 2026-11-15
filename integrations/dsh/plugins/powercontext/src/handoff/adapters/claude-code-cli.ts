@@ -167,7 +167,7 @@ export interface ClaudeCodeCliTargetOptions extends Omit<ClaudeCodeCliOptions, '
 export async function createClaudeCodeCliTarget(options: ClaudeCodeCliTargetOptions = {}): Promise<ClaudeCliAdapter> {
   const { integrationOptions = {}, ...adapterOptions } = options
   const inherited = integrationOptions.environment ?? process.env
-  const configDir = integrationOptions.configDir ?? inherited.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
+  const configDir = integrationOptions.configDir ?? inherited.CLAUDE_CONFIG_DIR ?? join(inherited.HOME ?? homedir(), '.claude')
   const path = adapterOptions.path ?? inherited.PATH ?? ''
   const environment = { ...inherited, PATH: path }
   const unavailable: ClaudeIntegration = {

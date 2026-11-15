@@ -20,7 +20,7 @@ and workflow have been verified.
 The shared integration service's configuration key identifies the actual Claude
 configuration directory and installer write domain, including `CLAUDE_CONFIG_DIR`
 when applicable. When the default profile has no `CLAUDE_CONFIG_DIR`, the
-service preserves its absence: setting it changes Claude's global configuration
+service uses the receiving environment's home and preserves its absence: setting it changes Claude's global configuration
 file. The receiver rejects a profile that differs from the observed terminal.
 Its check uses the existing PowerContext Claude doctor, whose `claude plugin
 list` can initialize or update Claude configuration. It is not a guaranteed
@@ -40,8 +40,11 @@ are insufficient evidence for these claims. The CLI runtime checks the selected
 Launch Services handler and executable, the installed plugin, MCP authentication
 and required tools, and resolves Scope with the installed plugin. This also
 invokes `claude plugin list` and may write Claude configuration. It does not
-independently prove the terminal environment or receiver sandbox. An unavailable
-or uncertain observation must fail closed. The preflight service compares the observed Server,
+independently prove the terminal environment or receiver sandbox. Record the exact
+macOS terminal preference (for example, `Terminal` for Terminal.app). The runtime
+requires that recorded preference before preflight and again before launch; it
+rejects user and workspace permission or sandbox overrides and local managed
+settings it cannot qualify. The preflight service compares the observed Server,
 Scope and directory against the source; the delivery service owns its existing
 package and receipt identities.
 
