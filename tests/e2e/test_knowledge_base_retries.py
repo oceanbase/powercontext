@@ -198,6 +198,80 @@ def test_batch_conflicts_preserve_receipts_and_continue_with_later_files(tmp_pat
     asyncio.run(scenario())
 
 
+def test_batch_invalid_paths_preserve_receipts_and_do_not_create_documents(tmp_path):
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+    for name in ("a", "c"):
+        (tmp_path / f"{name}.md").write_text(f"# {name}\n\nOriginal {name} content.")
+
+    async def scenario():
+        async with running_server(
+            tmp_path,
+            plugins,
+            extra_env={
+                "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
+                "POWERCONTEXT_KB_IMPORT_ROOTS": str(tmp_path),
+            },
+        ) as client:
+
+            async def call(method, path, **kwargs):
+                response = await client.request(method, P + path, **kwargs)
+                assert response.is_success, response.text
+                return response.json()
+
+            space = await call("GET", "/me/default-space")
+            kb = await call(
+                "POST",
+                "/knowledge-bases",
+                json={"title": "Invalid paths", "space_scope_id": space["space_scope_id"], "idempotency_key": "kb"},
+            )
+            base = "/scopes/" + kb["scope_id"]
+            invalid_paths = ["\x00.md", "directory\x00/file.md"]
+            body = {
+                "root": str(tmp_path),
+                "paths": ["a.md", *invalid_paths, "c.md"],
+                "idempotency_key": "batch",
+            }
+            result = (await call("POST", base + "/imports", json=body))["items"]
+            assert [item["path"] for item in result] == body["paths"]
+            assert [item["accepted"] for item in result] == [True, False, False, True]
+            assert all(item.get("error") and "request_id" not in item for item in result[1:3])
+            for item in (result[0], result[-1]):
+                outcome = await wait_for(
+                    lambda item=item: call("GET", base + "/imports/" + item["request_id"]),
+                    lambda value: value["state"] in {"completed", "failed"},
+                    log=tmp_path / "server.log",
+                )
+                assert outcome["state"] == "completed" and outcome["current_revision"] == 1
+            assert (await call("POST", base + "/imports", json=body))["items"] == result
+
+            # Both entry points reject invalid paths before accepting a processing request.
+            for path in invalid_paths:
+                rejected = await client.post(
+                    P + base + "/uploads",
+                    params={"relative_path": path, "idempotency_key": "invalid-upload"},
+                    content=b"Invalid filename",
+                )
+                assert rejected.status_code == 422, rejected.text
+            invalid_root = await call(
+                "POST", base + "/imports", json={**body, "root": str(tmp_path) + "\x00", "idempotency_key": "bad-root"}
+            )
+            assert [item["path"] for item in invalid_root["items"]] == body["paths"]
+            assert all(not item["accepted"] and "request_id" not in item for item in invalid_root["items"])
+            listing = await call("GET", base + "/documents")
+            assert len(listing["items"]) == 2
+            assert {doc["content"]["relative_path"] for doc in listing["items"]} == {"a.md", "c.md"}
+            assert all(doc["ref"]["revision"] == 1 for doc in listing["items"])
+            assert {request["request_id"] for request in listing["requests"]} == {
+                result[0]["request_id"],
+                result[-1]["request_id"],
+            }
+
+    asyncio.run(scenario())
+
+
 INTERRUPTED_SUBMISSION = """
 import os
 from pathlib import Path

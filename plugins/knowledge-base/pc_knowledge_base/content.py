@@ -36,6 +36,8 @@ class ContentError(ValueError):
 
 
 def relative_path(value):
+    if "\x00" in value:
+        raise ContentError("File paths must not contain null characters")  # noqa: TRY003
     path = PurePosixPath(value)
     if not value or "\\" in value or path.is_absolute() or any(p in {"", ".", ".."} for p in value.split("/")):
         raise ContentError("Use a nonempty normalized relative path")  # noqa: TRY003
@@ -56,6 +58,8 @@ class Snapshots:
         self.allowed_roots = tuple(Path(p).expanduser().resolve() for p in allowed_roots)
 
     def local(self, root, path):
+        if "\x00" in root:
+            raise ContentError("Import roots must not contain null characters")  # noqa: TRY003
         base = Path(root).expanduser().resolve(strict=True)
         if not any(base == allowed or base.is_relative_to(allowed) for allowed in self.allowed_roots):
             raise ContentError("Directory is outside the configured import roots")  # noqa: TRY003
