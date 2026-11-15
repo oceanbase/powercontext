@@ -1,0 +1,29 @@
+e2e/bub/tests/test_harbor_agent.py
+  s_98c1bb9fbaf7be::t_af27574d561700 25,70
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_98c1bb9fbaf7be::t_af27574d561700 29,44,46,131-136,196
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_af27574d561700 573-575,679
+e2e/bub/src/powercontext_e2e/agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_af27574d561700 21-23,52,56
+e2e/bub/tests/test_agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_af27574d561700 36,81,105,138
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_e366b4bb76e620 397-398,406,408,415-416
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82c7c1ef0196471c629b86493e9dc5632b48dcaa",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

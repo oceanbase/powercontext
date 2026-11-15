@@ -1,0 +1,25 @@
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_91e3335203d1f1 110-112
+tests/e2e/test_knowledge_base_retries.py
+  s_13fec9a57c9104::t_657b04ff81b403 209-315
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_91e3335203d1f1 194-206,212-213,234,368-369
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_91e3335203d1f1 100-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2fb1aab0072cc90a284862a3568f0b77e3c22ded",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

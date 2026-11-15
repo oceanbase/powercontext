@@ -1,0 +1,90 @@
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_c03701fce95058 12-15,46,48-49,62-64,104-105
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_c03701fce95058 11-14,42,174-178
+tests/e2e/test_knowledge_base_spaces.py
+  s_13fec9a57c9104::t_e66f5cd4e17d9a 1-33,50-52,67-76,96,113-117,120-121,128-132
+  s_13fec9a57c9104::t_64fd35bcd34f5b 34-49,53-66,77-95,97-112,122-127
+  s_13fec9a57c9104::t_4e7c2a647421b2 118-119
+plugins/knowledge-base/plugin.py
+  s_13fec9a57c9104::t_93eb36e41fe9c2 81
+src/powercontext/server/dashboard/plugin_pages.py
+  s_13fec9a57c9104::t_4d9fa008815727 159,180
+plugins/knowledge-base/README.md
+  s_13fec9a57c9104::t_c03701fce95058 13-16
+tests/e2e/test_knowledge_base.py
+  s_13fec9a57c9104::t_8bd6a09110a63c 30-31
+  s_13fec9a57c9104::t_71592942ec4b25 175
+tests/builtin/persistence/test_oceanbase_vector.py
+  s_13fec9a57c9104::t_4d9fa008815727 1-92
+pyproject.toml
+  s_13fec9a57c9104::t_4d9fa008815727 59-60,163
+  s_13fec9a57c9104::t_8e6f300d9a0cad 191
+src/powercontext/builtin/runtime/atomic_memory_rebuild.py
+  s_13fec9a57c9104::t_4d9fa008815727 26,384-397,432,440-454,461
+tests/e2e/test_atomic_memory_projection_rebuild.py
+  s_13fec9a57c9104::t_4d9fa008815727 18,21,23,27,36-39,47-81
+  s_13fec9a57c9104::t_5964672edcba1c 82-83
+tests/knowledge_base/test_content_store.py
+  s_13fec9a57c9104::t_e44847fe02fc6a 20,27,47-48,50-75
+  s_13fec9a57c9104::t_8bd6a09110a63c 49
+  s_13fec9a57c9104::t_f3447f28573354 76-77
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_13fec9a57c9104::t_4d9fa008815727 23,58,148-150,363,464,630
+src/powercontext/builtin/plugins/writer.py
+  s_13fec9a57c9104::t_4d9fa008815727 29,467
+src/powercontext/builtin/plugins/host.py
+  s_13fec9a57c9104::t_4d9fa008815727 355,379,481,483,495
+release/upgrade-support.json
+  s_13fec9a57c9104::t_4d9fa008815727 6-7
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_93eb36e41fe9c2 65,89-90,94-101,113,410-412,420,424-425
+  s_13fec9a57c9104::t_64fd35bcd34f5b 413-419
+src/powercontext/builtin/persistence/oceanbase/topic_memory_index.py
+  s_13fec9a57c9104::t_4d9fa008815727 23,60,383,395,409
+src/powercontext/builtin/plugins/storage.py
+  s_13fec9a57c9104::t_4d9fa008815727 27,51,146-147
+src/powercontext/builtin/persistence/oceanbase/vector.py
+  s_13fec9a57c9104::t_4d9fa008815727 1-66
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_13fec9a57c9104::t_93eb36e41fe9c2 67-70,72-75
+src/powercontext/plugins.py
+  s_13fec9a57c9104::t_4d9fa008815727 435,437,440,443
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_71592942ec4b25 32-35,42-44,51-66,115,120-154,158-163,165,167,184-189,193,195,197-198,211-217,219-220,222,242-243,251,254,257,265,278-279,283,285,287-288,299,306,324-326,330,332-333,362-365,462-466,474-475,481,536-539,541,545
+  s_13fec9a57c9104::t_8e6f300d9a0cad 280-282,284,298,305,312
+  s_13fec9a57c9104::t_b51d9452a92b61 116-119,196,447-449,451,454-456
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_64fd35bcd34f5b 1-48,50-72,74-88,91-128,131-160
+  s_13fec9a57c9104::t_b1e0e976bb429c 49,73,129
+  s_13fec9a57c9104::t_65a4b459e186a3 89-90,130
+src/powercontext/builtin/persistence/sources.py
+  s_13fec9a57c9104::t_4d9fa008815727 266-270,777,784-785,811-820
+tests/e2e/test_knowledge_base_retries.py
+  s_13fec9a57c9104::t_e66f5cd4e17d9a 395-413,416-422,425-426,433-439,443,446,454-457,467-505
+  s_13fec9a57c9104::t_64fd35bcd34f5b 414-415,423-424,427-432,440-442,444-445,447-453,458-466
+.github/workflows/knowledge-base.yml
+  s_13fec9a57c9104::t_5d5a4dd70bf90a 29-31
+e2e/bub/uv.lock
+  s_13fec9a57c9104::t_c14d5eeb1f759a 1713-1717,1727-1731,1839,1864
+evaluation/uv.lock
+  s_13fec9a57c9104::t_1f9652495e61a1 1622-1679,1740-1741,1744,1819-1823,1833-1837,1945,1970
+uv.lock
+  s_13fec9a57c9104::t_edd2404b661f82 3232-3234,3258-3259,3261,3310-3311,3314,3341-3343,3370-3371,3374,3405,3419-3421,3446,3522-3526,3536-3540,3648,3673
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6080d1b86a1228e652833d31c8ca749e88fee0c4",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

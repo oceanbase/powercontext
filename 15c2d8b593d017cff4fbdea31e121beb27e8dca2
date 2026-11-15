@@ -1,0 +1,25 @@
+docs/en/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_4d16fd6d5543e0 83
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_1ed46e7e06a93d 611-612,654,659
+docs/zh/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_03a3a0a5f52e2f 83
+tests/test_e2e_workflow_contract.py
+  s_98c1bb9fbaf7be::t_8ec2c71de4cd8a 225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "15c2d8b593d017cff4fbdea31e121beb27e8dca2",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

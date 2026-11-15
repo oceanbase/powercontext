@@ -1,0 +1,48 @@
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_acf461081857b1::t_a7b6a2080da2fb 1807,1915
+  s_acf461081857b1::t_c791de8b51523f 1710-1804
+src/powercontext/builtin/runtime/context_check.py
+  s_acf461081857b1::t_62de8eb0eb617e 362-363,368-369,373,427
+  s_acf461081857b1::t_c70c10f35770e8 365-367,370
+  s_acf461081857b1::t_992dd018180a5a 286-289,371,428
+gateway/crates/pc-gateway-app/src/main.rs
+  s_acf461081857b1::t_23a8e617531cc5 178-179
+docs/zh/docs/operate/context-protection.md
+  s_acf461081857b1::t_dd184be5186127 8,96,99-105
+docs/en/docs/operate/context-protection.md
+  s_acf461081857b1::t_dd184be5186127 8,102,105-111
+tests/e2e/test_context_check_authorization.py
+  s_acf461081857b1::t_9496ea97df4c3f 76-81,83-91,245
+  s_acf461081857b1::t_8da6048ec2e087 31,34,217-218,220,282-283,285
+  s_acf461081857b1::t_854a7ec232426d 82
+  s_acf461081857b1::t_992dd018180a5a 269
+tests/builtin/runtime/test_context_check.py
+  s_acf461081857b1::t_c6ebf15cfeae3a 140-141,143-144,148,151,153,187-194,197-202,204-211,219,221-222,224-231,235-236,258-259,262,272,275
+  s_acf461081857b1::t_9496ea97df4c3f 195-196,203,220,223
+  s_acf461081857b1::t_268dfca3263efa 212-218
+tests/e2e/test_gateway_authentication.py
+  s_acf461081857b1::t_d3610cf9132a79 158,160,185
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_acf461081857b1::t_23a8e617531cc5 131,154,165-171,292-296,400-404,458-465,789-791,795,810-811
+  s_acf461081857b1::t_a7b6a2080da2fb 457
+tests/e2e/test_context_external_executor.py
+  s_acf461081857b1::t_1d2f97a18d9504 90-94
+  s_acf461081857b1::t_dd184be5186127 64-79,95-106
+  s_acf461081857b1::t_854a7ec232426d 80-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "428172c1a09eb75986458727aa6f1c0d64119551",
+  "prompts": {},
+  "sessions": {
+    "s_acf461081857b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9be-165d-7212-9566-657833d76862",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}

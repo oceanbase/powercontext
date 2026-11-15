@@ -1,0 +1,49 @@
+e2e/bub/harbor-tasks/locomo-temporal-banker/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+tests/release_upgrades/test_full_server.py
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 292,313
+e2e/bub/harbor-tasks/api-contract-continuation/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 16-17
+e2e/bub/scripts/memorycode_tasks.py
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 137-138
+e2e/bub/harbor-tasks/locomo-multihop-football/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/tests/test_agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_31e7053c379cfe 95-128
+  s_98c1bb9fbaf7be::t_1abc3dbd5e5937 84-94,129-135
+e2e/bub/harbor-tasks/project-decision-continuation/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/harbor-tasks/failure-policy-followup/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/harbor-tasks/failure-policy-timeout/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/src/powercontext_e2e/agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 45,47,51-56
+  s_98c1bb9fbaf7be::t_fc6ee0955b7369 23-24,46,48-50
+e2e/bub/harbor-tasks/locomo-support-group/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/harbor-tasks/project-database-decision/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+e2e/bub/harbor-tasks/revised-decision-continuation/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 16-17
+e2e/bub/harbor-tasks/locomo-open-pastries/environment/Dockerfile
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 17-18
+scripts/capture_release_schema.py
+  s_98c1bb9fbaf7be::t_79090c6b75bf24 219-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b8f5142ffc27fcfcffb04e612c91d4fbf3aa8603",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_1ee74d4764000e 90-92,104-112
+  s_98c1bb9fbaf7be::t_c0888f5b2400b5 77-89,93-103,113-114
+scripts/oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_b07f18dd053a6d 24,75-83,86-90,104-119,204-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9fc9f1fdfdfcce541f451cd02ee17271359c355",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

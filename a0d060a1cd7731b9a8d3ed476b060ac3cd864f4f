@@ -1,0 +1,29 @@
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_7849825a984032::t_f22287be53b8d7 158,208,419-426,734-780
+  s_7849825a984032::t_e8492be2c86581 781
+gateway/crates/pc-gateway-app/src/main.rs
+  s_7849825a984032::t_f22287be53b8d7 68-69,116-127,165,285-295,316-324
+  s_7849825a984032::t_447d0f07154313 325
+gateway/README.md
+  s_7849825a984032::t_f22287be53b8d7 96-97
+docs/en/docs/operate/deploy-server.md
+  s_7849825a984032::t_467a5fb519530d 241-248
+docs/zh/docs/operate/deploy-server.md
+  s_7849825a984032::t_2b5c75c67f1b05 220-226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a0d060a1cd7731b9a8d3ed476b060ac3cd864f4f",
+  "prompts": {},
+  "sessions": {
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

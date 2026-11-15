@@ -1,0 +1,21 @@
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_98c1bb9fbaf7be::t_95ed3f7c00993f 407-417
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_b686e298d608b5 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a4e262517a4ebfa69c2e0b8f957b694bb8b5511",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

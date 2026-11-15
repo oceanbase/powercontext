@@ -1,0 +1,19 @@
+tests/codex_plugin/test_token_savings.py
+  s_98c1bb9fbaf7be::t_38e7d4e20a90f5 443-445,450,456,506-508,513,519,526,530,541,569-571,576,582
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d339ec21deaac04dd0c2d4ebe7d68371f93e4ee6",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

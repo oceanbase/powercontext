@@ -1,0 +1,21 @@
+docs/en/rfcs/2570-knowledge-base.md
+  s_13fec9a57c9104::t_0f6c6614a99d9a 57-62,114-118,137-140,197,209-210,220,230-232,246,249-253,262-264,318,409-411,419-422,434-438,442-444,492
+docs/zh/rfcs/2570-knowledge-base.md
+  s_13fec9a57c9104::t_53d064ec96f903 49-52,97-100,116-118,164-165,176,183,203,206-209,217-218,260,343-344,349-352,362-364,368-371,417
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b9a688a4174352a18f542adf237daede617f10cd",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

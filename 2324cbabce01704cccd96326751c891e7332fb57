@@ -1,0 +1,24 @@
+desktop/src-tauri/tests/deployment_identity.rs
+  s_98c1bb9fbaf7be::t_c6981ad2ae38b6 22,88-97,230-250,257,303,305,355-362
+  s_98c1bb9fbaf7be::t_005b7b463fbd33 363-365,369,786,796
+integrations/opendal/src/powercontext_connector_opendal/source.py
+  s_98c1bb9fbaf7be::t_684acd8c5a8765 160-165
+integrations/dsh/plugins/powercontext/scripts/e2e-server.mjs
+  s_98c1bb9fbaf7be::t_684acd8c5a8765 129-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2324cbabce01704cccd96326751c891e7332fb57",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

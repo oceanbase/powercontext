@@ -1,0 +1,405 @@
+tests/e2e/test_observability.py
+  s_acf461081857b1::t_1893e9b9c44191 21,369-372,446,452,501,554,573,591,603,629,634,689,733,836,867,918,932,944,949-951,1021,1023,1158-1163,1180,1269,1328,1342,1509,1534,1570-1591
+src/powercontext/_logging.py
+  s_acf461081857b1::t_1893e9b9c44191 65-69
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_acf461081857b1::t_1893e9b9c44191 24,120-138,277,693-980
+  s_acf461081857b1::t_7a040958c577cc 981
+tests/test_cli.py
+  s_acf461081857b1::t_1893e9b9c44191 1344
+src/powercontext/service/model.py
+  s_acf461081857b1::t_1893e9b9c44191 136,140-141,167,201,222-223,373-379
+src/powercontext/observability/deployment.py
+  s_acf461081857b1::t_1893e9b9c44191 1-415
+src/powercontext/cli/observability_notice.py
+  s_acf461081857b1::t_1893e9b9c44191 1-104
+src/powercontext/observability/connection_checks.py
+  s_acf461081857b1::t_1893e9b9c44191 1-191
+src/powercontext/observability/resources/collector/config.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-134
+src/powercontext/observability/resources/grafana/provisioning/datasources/datasources.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-73
+src/powercontext/observability/resources/prometheus/alert-tests.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-291
+deploy/observability/compose.split.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-184
+docs/zh/development/observability.md
+  s_acf461081857b1::t_1893e9b9c44191 84-88,135-136,142-143
+src/powercontext/server/cli.py
+  s_acf461081857b1::t_1893e9b9c44191 61,844-846,874,879-885,1016-1020,1044-1045,1048-1050
+tests/e2e/test_codex_service_chain.py
+  s_acf461081857b1::t_1893e9b9c44191 242
+src/powercontext/observability/resources/prometheus/alerts.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-144
+src/powercontext/server/metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 22,28,30,43,54-55,207,211-214,216,225-235,260-277,356,365-373,379-384,503-565,589,593,598,603,606,608-612,644,647
+deploy/observability/.gitignore
+  s_acf461081857b1::t_1893e9b9c44191 1
+docs/en/docs/operate/meta.json
+  s_acf461081857b1::t_1893e9b9c44191 16
+src/powercontext/builtin/runtime/processing_contracts.py
+  s_acf461081857b1::t_1893e9b9c44191 25,107,119,152,158-160,164-165,167-168
+tests/e2e/test_worker_otlp.py
+  s_acf461081857b1::t_1893e9b9c44191 206,258-259,265-297,299-306,309-316
+desktop/src-tauri/src/transport/wire.rs
+  s_acf461081857b1::t_1893e9b9c44191 659-762,1411-1414,1423,1703-1970,2504-2510,2528-2529,2873,2886-2888,2926-2928
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_acf461081857b1::t_1893e9b9c44191 150-151
+openapi/powercontext.yaml
+  s_acf461081857b1::t_1893e9b9c44191 8568-8699,8715-8723,8759-8762
+scripts/prepare_managed_resources.py
+  s_acf461081857b1::t_1893e9b9c44191 54,108-139,159
+src/powercontext/observability/resources/prometheus/acceptance-prometheus.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-47
+src/powercontext/server/telemetry.py
+  s_acf461081857b1::t_1893e9b9c44191 17,19,27,35-47,54-58,65-80
+  s_acf461081857b1::t_f8ea26a4fb78ff 81-82
+tests/e2e/test_claude_code_service_chain.py
+  s_acf461081857b1::t_1893e9b9c44191 70
+docs/zh/docs/integrations/kimi-code.md
+  s_acf461081857b1::t_1893e9b9c44191 54
+gateway/crates/pc-gateway-core/src/lifecycle.rs
+  s_acf461081857b1::t_1893e9b9c44191 1-174
+src/powercontext/observability/resources/loki.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-48
+docs/zh/development/desktop-candidate-assembly.md
+  s_acf461081857b1::t_1893e9b9c44191 1-46
+src/powercontext/service/controller.py
+  s_acf461081857b1::t_1893e9b9c44191 186-191,199,1002-1004,1029-1031,1051-1056,1067
+docs/zh/docs/operate/meta.json
+  s_acf461081857b1::t_1893e9b9c44191 16
+tests/e2e/test_workbuddy_service_chain.py
+  s_acf461081857b1::t_1893e9b9c44191 58
+tests/test_http_response_metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-249
+desktop/ui/src/generated/operations.ts
+  s_acf461081857b1::t_db1129bccf6502 18
+docs/en/docs/operate/reference-observability-stack.md
+  s_acf461081857b1::t_1893e9b9c44191 1-381
+src/powercontext/server/retrieval_observation.py
+  s_acf461081857b1::t_1893e9b9c44191 1-97
+src/powercontext/observability/resources/tempo.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-36
+gateway/crates/pc-gateway-app/Cargo.toml
+  s_acf461081857b1::t_1893e9b9c44191 45-47
+docs/en/docs/integrations/kimi-code.md
+  s_acf461081857b1::t_1893e9b9c44191 54
+src/powercontext/builtin/runtime/composition.py
+  s_acf461081857b1::t_1893e9b9c44191 23,100-109,556-557,608,783,1012,1092,1110,2073,2124,2132-2155,2503-2504
+tests/test_background_metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 99-107,110-111,113-114,117-118
+deploy/observability/ACCEPTANCE.md
+  s_acf461081857b1::t_1893e9b9c44191 1-63
+src/powercontext/observability/resources/grafana/dashboards/advanced/pc-business.json
+  s_acf461081857b1::t_1893e9b9c44191 1-1272
+src/powercontext/server/settings.py
+  s_acf461081857b1::t_1893e9b9c44191 218-219
+pyproject.toml
+  s_acf461081857b1::t_1893e9b9c44191 43,93,126,214-216
+  s_acf461081857b1::t_d73b9d67bf8bb8 217
+tests/test_observability_demo.py
+  s_acf461081857b1::t_1893e9b9c44191 1-51
+src/powercontext/observability/resources/grafana/dashboards/advanced/pc-scopes.json
+  s_acf461081857b1::t_1893e9b9c44191 1-3128
+.dockerignore
+  s_acf461081857b1::t_1893e9b9c44191 29-31
+docker/README.md
+  s_acf461081857b1::t_1893e9b9c44191 52-58
+src/powercontext/server/logging.py
+  s_acf461081857b1::t_1893e9b9c44191 24-25,34,43-45,66,88-92,104-111,137-138,154-173,177,179,185-186,225,431-509,528-533,561,565,589-631,640-641,644-646,655-656,667,671-673,677,681,685
+src/powercontext/observability/resources/grafana/dashboards/main/pc-service.json
+  s_acf461081857b1::t_1893e9b9c44191 1-3535
+docker/Dockerfile
+  s_acf461081857b1::t_1893e9b9c44191 31
+src/powercontext/observability/resources/gateway/nginx.conf
+  s_acf461081857b1::t_1893e9b9c44191 1-39
+tests/e2e/test_source_collect.py
+  s_acf461081857b1::t_1893e9b9c44191 290-297
+tests/test_provider_observability.py
+  s_acf461081857b1::t_1893e9b9c44191 1-448
+docs/zh/docs/operate/reference-observability-stack.md
+  s_acf461081857b1::t_1893e9b9c44191 1-358
+docs/zh/docs/operate/trace-with-phoenix.md
+  s_acf461081857b1::t_1893e9b9c44191 30-33
+.github/workflows/e2e-harness.yml
+  s_acf461081857b1::t_1893e9b9c44191 548-549,568-569
+docs/en/rfcs/0046_observability_foundations.md
+  s_acf461081857b1::t_1893e9b9c44191 301,303-307
+src/powercontext/http/_generated/schema.py
+  s_acf461081857b1::t_1893e9b9c44191 8896-9155,9163-9185,9209-9231
+tests/e2e/test_worker_logging.py
+  s_acf461081857b1::t_1893e9b9c44191 71,383-384,404
+tests/conftest.py
+  s_acf461081857b1::t_1893e9b9c44191 30-35
+  s_acf461081857b1::t_f803a93ea1b233 29
+tests/test_scope_observability.py
+  s_acf461081857b1::t_1893e9b9c44191 1-106
+deploy/observability/compose.container.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-46
+src/powercontext/observability/resources/prometheus/acceptance-alerts.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-53
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_acf461081857b1::t_1893e9b9c44191 50-54,87,148,235,241,256-263,362-365,367-368,376-377,444-448,455-457,476,667-722,726,1113,1118-1132,1145-1148,1190-1211,1220,1268-1274,1276-1277,1314-1315,1320,1324-1329,1333,1348-1357,1380-1381,1383,1387-1390,1399,1401-1415,1435,1484-1485,1493-1495,1514-1516,1564,1622-1623,1656-1664,1670,1672-1687,1738,1789,1914-1916,1936,1960,1963-1966,1970-1971,1990,2034,2109-2110,2118-2131
+  s_acf461081857b1::t_4a1f769ca0fac8 2132-2133
+tests/test_upgrade_release_gate.py
+  s_acf461081857b1::t_1893e9b9c44191 914,921-925,936,941,951-955,959-960,962-970
+src/powercontext/observability/resources/grafana/provisioning/dashboards/dashboards.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-26
+docs/zh/docs/operate/configuration.md
+  s_acf461081857b1::t_1893e9b9c44191 126
+src/powercontext/builtin/runtime/statistics.py
+  s_acf461081857b1::t_1893e9b9c44191 85,105,176,439-441,454
+src/powercontext/observability/cli.py
+  s_acf461081857b1::t_1893e9b9c44191 1-599
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_acf461081857b1::t_1893e9b9c44191 31,39
+scripts/desktop_candidate.py
+  s_acf461081857b1::t_1893e9b9c44191 1-437
+src/powercontext/observability/resources/grafana/dashboards/advanced/pc-dependencies.json
+  s_acf461081857b1::t_1893e9b9c44191 1-962
+src/powercontext/builtin/persistence/statistics.py
+  s_acf461081857b1::t_1893e9b9c44191 21,37,51,93-139
+  s_acf461081857b1::t_ec96b1b81877a7 140
+tests/builtin/persistence/test_evidence_neutralization_logging.py
+  s_acf461081857b1::t_1893e9b9c44191 79,102
+tests/e2e/test_provider_observability.py
+  s_acf461081857b1::t_1893e9b9c44191 1-243
+deploy/observability/Dockerfile
+  s_acf461081857b1::t_1893e9b9c44191 1-30
+desktop/src-tauri/src/transport/operations.json
+  s_acf461081857b1::t_db1129bccf6502 2
+tests/test_ci_pipeline.py
+  s_acf461081857b1::t_1893e9b9c44191 21,35-88,95-142
+  s_acf461081857b1::t_c8e5417438abb2 143-144
+src/powercontext/observability/profile.py
+  s_acf461081857b1::t_1893e9b9c44191 1-106
+src/powercontext/observability/resources/stats-proxy.py
+  s_acf461081857b1::t_1893e9b9c44191 1-222
+src/powercontext/service/launcher.py
+  s_acf461081857b1::t_1893e9b9c44191 28,60,78-90
+deploy/observability/verify.py
+  s_acf461081857b1::t_1893e9b9c44191 1-309
+tests/test_processing_security.py
+  s_acf461081857b1::t_1893e9b9c44191 35,143-147
+src/powercontext/builtin/runtime/application.py
+  s_acf461081857b1::t_1893e9b9c44191 35,975-989,997-999,1001-1002,1065,1077-1078,4508
+src/powercontext/builtin/runtime/protocols.py
+  s_acf461081857b1::t_1893e9b9c44191 42-46
+.github/workflows/desktop-candidate.yml
+  s_acf461081857b1::t_1893e9b9c44191 1-211
+src/powercontext/server/access.py
+  s_acf461081857b1::t_1893e9b9c44191 37-43,46,64,76,124,127-130
+tests/test_observability_phoenix.py
+  s_acf461081857b1::t_1893e9b9c44191 1-71
+desktop/ui/src/generated/api.d.ts
+  s_acf461081857b1::t_1893e9b9c44191 3717-3787,3794-3799,3815-3819
+tests/test_service_flow_observability.py
+  s_acf461081857b1::t_1893e9b9c44191 1-625
+docs/en/docs/operate/configuration.md
+  s_acf461081857b1::t_1893e9b9c44191 139
+src/powercontext/builtin/statistics/__init__.py
+  s_acf461081857b1::t_1893e9b9c44191 20-21,53-54
+tests/test_process_inventory_metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-74
+docs/en/docs/operate/trace-with-phoenix.md
+  s_acf461081857b1::t_1893e9b9c44191 31-34
+docs/en/development/desktop-candidate-assembly.md
+  s_acf461081857b1::t_1893e9b9c44191 1-46
+src/powercontext/server/provider_metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-182
+src/powercontext/http/_generated/models.py
+  s_acf461081857b1::t_1893e9b9c44191 1004-1087,5000-5028,5038-5045,5067-5072
+tests/test_telemetry_target.py
+  s_acf461081857b1::t_1893e9b9c44191 1-125
+.github/workflows/master.yml
+  s_acf461081857b1::t_1893e9b9c44191 234-235,283,285-291,396-397,485,487,547-548
+tests/test_observability_statistics_proxy.py
+  s_acf461081857b1::t_1893e9b9c44191 1-184
+tests/builtin/persistence/test_sqlite_profile.py
+  s_acf461081857b1::t_1893e9b9c44191 95
+tests/e2e/test_monitoring_diagnostics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-415
+tests/test_ci_changes.py
+  s_acf461081857b1::t_1893e9b9c44191 67-71
+src/powercontext/observability/resources/grafana/dashboards/main/pc-providers.json
+  s_acf461081857b1::t_1893e9b9c44191 1-1304
+src/powercontext/server/tracing.py
+  s_acf461081857b1::t_1893e9b9c44191 20,35,39,57-64,74-94,97-108,111-123,178,323-330,474-476,486
+docs/en/development/observability.md
+  s_acf461081857b1::t_1893e9b9c44191 84-88,134-135,141-142
+tests/test_observability_cli.py
+  s_acf461081857b1::t_1893e9b9c44191 1-554
+tests/test_managed_resource_producer.py
+  s_acf461081857b1::t_1893e9b9c44191 216-248
+src/powercontext/builtin/inference/pydantic_ai.py
+  s_acf461081857b1::t_1893e9b9c44191 48-52,301-303,375-384,386-400,402-421,446-448,477-482,484,486-503
+deploy/observability/run-host.py
+  s_acf461081857b1::t_1893e9b9c44191 1-92
+tests/e2e/test_observability_package.py
+  s_acf461081857b1::t_1893e9b9c44191 1-76
+deploy/observability/init.py
+  s_acf461081857b1::t_1893e9b9c44191 1-98
+desktop/src-tauri/tests/statistics.rs
+  s_acf461081857b1::t_1893e9b9c44191 69-70,285-316
+  s_acf461081857b1::t_98482374f18c51 317-318
+src/powercontext/builtin/inference/observability.py
+  s_acf461081857b1::t_1893e9b9c44191 1-368
+src/powercontext/server/factory.py
+  s_acf461081857b1::t_1893e9b9c44191 28,116,156-157,203-210,236-237,240-245,307-308,314-318,484,495,500
+tests/test_metrics_exemplars.py
+  s_acf461081857b1::t_1893e9b9c44191 1-76
+.licenserc.yaml
+  s_acf461081857b1::t_1893e9b9c44191 61-65
+.github/ci-paths.toml
+  s_acf461081857b1::t_1893e9b9c44191 32-35
+docs/zh/docs/operate/observability.md
+  s_acf461081857b1::t_1893e9b9c44191 11-13,18-21,66-67,74-79,95-103,120-125,157-158,171-174,202-203,217-235,328-376,424-455,492-504
+  s_acf461081857b1::t_2d1946eee479ad 505
+src/powercontext/server/configuration.py
+  s_acf461081857b1::t_1893e9b9c44191 153-164,175,195,199,221
+src/powercontext/observability/connection.py
+  s_acf461081857b1::t_1893e9b9c44191 1-425
+src/powercontext/observability/resources/prometheus/prometheus.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-46
+src/powercontext/server/process_metrics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-73
+integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs
+  s_acf461081857b1::t_1893e9b9c44191 102
+src/powercontext/observability/resources/grafana/dashboards/main/pc-processing.json
+  s_acf461081857b1::t_1893e9b9c44191 1-1752
+src/powercontext/service/cli.py
+  s_acf461081857b1::t_1893e9b9c44191 55-57,79,82-87
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_acf461081857b1::t_1893e9b9c44191 31,35,132,136-148,207-208,253,256,261,578,596,598-605,608
+deploy/observability/RUNBOOKS.md
+  s_acf461081857b1::t_1893e9b9c44191 1-142
+gateway/crates/pc-gateway-app/src/main.rs
+  s_acf461081857b1::t_1893e9b9c44191 151,176-185
+  s_acf461081857b1::t_de1be5b4797f5c 186-187
+src/powercontext/observability/resources/grafana/dashboards/main/pc-overview.json
+  s_acf461081857b1::t_1893e9b9c44191 1-2064
+src/powercontext/server/app.py
+  s_acf461081857b1::t_1893e9b9c44191 47,50,855,922,930,1366-1368,1379,1419-1434,1453,2605-2607,3978,3994-3995,4022,5864-5938,5940-5941,5943-5946,5948-5949,5951-5955,5960-6014
+  s_acf461081857b1::t_cb7496b3625e7a 6015-6016
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_acf461081857b1::t_1893e9b9c44191 18-19,78,117-123,178,190-196,269-275,344,351,373-740,753,792,818,839,859,883,909,934,960,985,1035-1040,1116,1167,1224-1229,1254-1259,1283-1288,1319-1324,1339,1371-1372,1375,1391-1398,1418-1423,1447-1448,1451,1459-1463,1486,1519-1524,1548,1575,1616-1621,1674-1679,1714,1740,1767,1793,1825,1849,1880-1885,1922-1927,1964-1969,2006-2011,2040-2045,2156,2164-2169,2199,2207-2212,2236,2257,2281-2286,2302-2307,2327-2338,2351-2356,2404-2409,2415-2420,2427-2432,2522-2524,2586,2621-2626,2653-2658,2674-2679,2729-2734,2737-2742,2745-2756,2766-2771,2789-2794,2813-2818,2852
+src/powercontext/observability/resources/compose.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-188
+src/powercontext/builtin/statistics/models.py
+  s_acf461081857b1::t_1893e9b9c44191 311-365,374-375,399-400
+tests/e2e/test_observability_cli.py
+  s_acf461081857b1::t_1893e9b9c44191 1-151
+tests/test_desktop_candidate.py
+  s_acf461081857b1::t_1893e9b9c44191 1-250
+tests/test_server_logging.py
+  s_acf461081857b1::t_1893e9b9c44191 20,23-25,224-307,326-352,538-539,598-601,608-609
+tests/e2e/test_zcode_service_chain.py
+  s_acf461081857b1::t_1893e9b9c44191 74,98-102,136-164,166,178-179,181-182,261-262,268-289,358,368,370-385,391
+tests/e2e/test_scoped_observability_stack.py
+  s_acf461081857b1::t_1893e9b9c44191 1-369
+src/powercontext/observability/__init__.py
+  s_acf461081857b1::t_1893e9b9c44191 1-15
+tests/test_observability_notice.py
+  s_acf461081857b1::t_1893e9b9c44191 1-97
+deploy/observability/model-fixture.py
+  s_acf461081857b1::t_1893e9b9c44191 1-56
+deploy/observability/init-db.py
+  s_acf461081857b1::t_1893e9b9c44191 1-49
+desktop/src-tauri/src/ipc.rs
+  s_acf461081857b1::t_1893e9b9c44191 19,45
+docs/zh/rfcs/0046_observability_foundations.md
+  s_acf461081857b1::t_1893e9b9c44191 292,294-297
+docs/en/docs/operate/observability.md
+  s_acf461081857b1::t_1893e9b9c44191 11-12,17-23,68-69,76-81,98-108,125-130,164-165,179-183,214-215,230-255,363-421,474-521,562-574
+  s_acf461081857b1::t_e878e9d64d57f4 575
+src/powercontext/builtin/inference/minimax.py
+  s_acf461081857b1::t_1893e9b9c44191 31,46-51,109-116,141-197,242
+desktop/src-tauri/src/transport/api.rs
+  s_acf461081857b1::t_1893e9b9c44191 110-115
+src/powercontext/observability/phoenix.py
+  s_acf461081857b1::t_1893e9b9c44191 1-58
+src/powercontext/server/artifact_read_observation.py
+  s_acf461081857b1::t_1893e9b9c44191 1-90
+src/powercontext/server/worker_tracing.py
+  s_acf461081857b1::t_1893e9b9c44191 30-34,43,51-52,61,69-70,72-75,77-79,88,92-100,130-131
+tests/e2e/test_bootstrap_delivery_statistics.py
+  s_acf461081857b1::t_1893e9b9c44191 1-118
+desktop/VALIDATION.md
+  s_acf461081857b1::t_4112072d24ec6e 238-240
+  s_acf461081857b1::t_f766978d4dbb6b 182-183,190-230
+  s_7849825a984032::t_b1eb2edc854b4d 231
+src/powercontext/observability/resources/grafana/dashboards/main/pc-flow.json
+  s_acf461081857b1::t_1893e9b9c44191 1-11549
+deploy/observability/faults.py
+  s_acf461081857b1::t_1893e9b9c44191 1-163
+.github/workflows/desktop.yml
+  s_acf461081857b1::t_1893e9b9c44191 244,257
+deploy/observability/README.md
+  s_acf461081857b1::t_1893e9b9c44191 1-287
+src/powercontext/builtin/runtime/processing_observation.py
+  s_acf461081857b1::t_1893e9b9c44191 1-93
+tests/e2e/test_reference_observability_stack.py
+  s_acf461081857b1::t_1893e9b9c44191 1-557
+tests/test_observability_connect.py
+  s_acf461081857b1::t_1893e9b9c44191 1-492
+desktop/ui/src/generated/ipc.ts
+  s_acf461081857b1::t_1893e9b9c44191 107,133,170-180,282-286,302-332,360-364
+desktop/src-tauri/tests/ipc.rs
+  s_acf461081857b1::t_1893e9b9c44191 19,36-70
+  s_acf461081857b1::t_be290934aa30a8 71-72
+release/upgrade-support.json
+  s_acf461081857b1::t_1893e9b9c44191 6-7
+tests/test_dream_review_transport.py
+  s_acf461081857b1::t_1893e9b9c44191 703-728
+desktop/src-tauri/src/connections/compatibility.json
+  s_acf461081857b1::t_2118f97b9d78fe 947-967
+  s_acf461081857b1::t_332db5a7a5947c 945-946,968-1066
+deploy/observability/compose.acceptance.yaml
+  s_acf461081857b1::t_1893e9b9c44191 1-22
+deploy/observability/collector
+  s_acf461081857b1::t_5853c07f6e1a1f 1
+deploy/observability/compose.yaml
+  s_acf461081857b1::t_845c288a446aff 1
+deploy/observability/gateway
+  s_acf461081857b1::t_4a87efa92a0446 1
+deploy/observability/grafana
+  s_acf461081857b1::t_fb1bc17fee7dda 1
+deploy/observability/loki.yaml
+  s_acf461081857b1::t_1e9869c15784b5 1
+deploy/observability/prometheus
+  s_acf461081857b1::t_a51227b5878251 1
+deploy/observability/stats-proxy.py
+  s_acf461081857b1::t_73d0400f21598f 1
+deploy/observability/tempo.yaml
+  s_acf461081857b1::t_3c549a76186fb5 1
+e2e/bub/uv.lock
+  s_acf461081857b1::t_945f9dac1b0615 1730-1732
+evaluation/uv.lock
+  s_acf461081857b1::t_2223eeb41b6154 1686,1769-1771,1949-1976
+uv.lock
+  s_acf461081857b1::t_e21dd4b2ba0a2b 2872,2896,2946,3093-3095
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "195b0562255244604a33d91a573d8132cc15edcf",
+  "prompts": {},
+  "sessions": {
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_acf461081857b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9be-165d-7212-9566-657833d76862",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

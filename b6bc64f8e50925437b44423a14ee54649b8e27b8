@@ -1,0 +1,46 @@
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_577bae9da3858e 32
+.github/workflows/build-docker.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 19
+.github/workflows/capture-release-schema.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 31
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_577bae9da3858e 47,78,345,509,547
+.github/workflows/skill-guidance.yml
+  s_2ef0feea0a110d::t_577bae9da3858e 30
+.github/workflows/ci-changes.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 27
+.github/workflows/seekdb-lock-observation.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 15
+.github/workflows/seekdb-lock-probe.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 30
+.github/workflows/release.yml
+  s_2ef0feea0a110d::t_240f2ed5312242 106
+.github/workflows/candidate-schema-replay.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 31
+.github/workflows/upgrade-release.yml
+  s_2ef0feea0a110d::t_dc1bf8b42c7d83 26-29,40,251,306
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_14e7ef3bb055ca 100
+  s_2ef0feea0a110d::t_dc1bf8b42c7d83 94
+  s_2ef0feea0a110d::t_577bae9da3858e 37,180,237,299,354,378,423,488,637,803,869,896,943,986,1015,1039,1065,1111,1317
+  s_2ef0feea0a110d::t_b7221aeea5a23d 120
+.github/workflows/build-artifacts.yml
+  s_2ef0feea0a110d::t_268ac97b441cb1 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b6bc64f8e50925437b44423a14ee54649b8e27b8",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

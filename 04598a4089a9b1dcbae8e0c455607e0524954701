@@ -1,0 +1,27 @@
+tests/test_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_96a23354e12797 101-106,119-123
+  s_98c1bb9fbaf7be::t_d7c86f9c550ba8 100,107
+  s_98c1bb9fbaf7be::t_f309fb0a5c393e 124
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_d7c86f9c550ba8 299-300,360-362,365-375
+scripts/check_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_d7c86f9c550ba8 27
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_d7c86f9c550ba8 29,275-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "04598a4089a9b1dcbae8e0c455607e0524954701",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

@@ -1,0 +1,101 @@
+src/powercontext/builtin/inference/minimax.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 34,76,101,108,159,168,188
+src/powercontext/builtin/inference/pydantic_ai.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 98,100,683-685,688-689,693-695
+src/powercontext/builtin/runtime/composition.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 243-244,2071-2080,2135,2139,2142,2180,2187,2210,2227,2232-2238,2243,2253-2255,2260-2262,2268-2296,2298-2299,2301-2304
+tests/builtin/inference/test_codex_credentials.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 1-222
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 1147
+tests/builtin/inference/test_privacy.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 25,29,352,367,392,453,510,523,599,637,738,741,745-746,772,799,801,806,809,856,861,914,924,929,1019,1024,1082,1133,1142,1174,1215-1227,1231,1236
+evaluation/memory/locomo/runner.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 31,617
+src/powercontext/builtin/inference/observability.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 30,183,228-229,233,253,256,271,279,281
+tests/builtin/artifacts/memory/test_jev_reranking.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 23,52-53,74,92,100,109-110,112,137,156,166,194,223,248,261-262,275,278
+tests/builtin/inference/test_minimax_embedding.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 23,71-72,85,90,104,109,121,127,137,139,144,155-156,159,168-169,172,187-188,191,211,215,224-225,228,253,257,266,268,273,285,290,336-337,340
+tests/builtin/runtime/test_topic_memory_work_budget.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 27,376,395,572-573,576
+tests/e2e/test_rfc2086_transport_acceptance.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 31,93,110
+integrations/pydantic-ai/src/powercontext_pydantic_ai/capability.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 130-132,134-136,138-139,143-144,152-155,376-419
+  s_98c1bb9fbaf7be::t_4a6784fe4ba420 420-421
+tests/pydantic_ai_adapter/test_capability.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 19,28-36,50,53-54,61,74-80,88-196
+tests/test_provider_observability.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 28,47,73,91-92,313,316,320,322,324,328,330,358-359,362-365
+tests/builtin/runtime/test_composition_embedding.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 235,242,244,253,255-256,258-259,273
+tests/e2e/test_atomic_memory_temporal_retention.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 25,55,62-63,158
+tests/e2e/test_inference_observation_retries.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 24,181
+pyproject.toml
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 57,60,150
+docs/zh/development/pydantic-ai-inference.md
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 8,10,12,18,24-25,28,34,41,43,45,53,72-84,86,88,90,92-102,104,106-129,153,155,157,159,182-184,186,190,192
+tests/e2e/test_responses_output_privacy.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 22,24,28,113,116
+src/powercontext/builtin/artifacts/memory/jev_reranking.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 25,75,115,191,202,208,236,244,259,261,263
+src/powercontext/builtin/inference/codex.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 1-71
+tests/examples/openai_sdk/test_openai_sdk_example.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 21,60,62,68,70,75,90
+tests/test_inference_endpoints.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 31,45-46,65-73,212-214,217-218,220-221,225,231-232,242-243,252,257,263,273,291-293,296-297,300-303,307-308,314-315,327-359
+tests/test_locomo_plus_runner.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 29,1509-1511
+docs/en/development/pydantic-ai-inference.md
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 8,10,12,18,24-25,28,34,41,43,45,53,72-84,86,88,90,92-102,104,106-129,153,155,157,159,182-184,186,190,192
+tests/evaluation/test_jev_rerank_comparison.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 500,524,541,548,569,608-609,611-613,617,620-621
+src/powercontext/builtin/inference/protected_transport.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 23,38,44,57,61,73,76,80,94,98,154,184
+tests/e2e/test_jev_memory_reranking.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 25,53-54,67
+tests/pydantic_ai_adapter/test_toolset.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 24,124,127-132
+tests/test_server_tracing.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 186-192
+tests/e2e/rfc2086_real_acceptance.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 40,102,115,203,276
+tests/test_server.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 24,1051,1053,1055,1069
+tests/test_ci_pipeline.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 221-223
+  s_98c1bb9fbaf7be::t_8c4be194016c97 224-225
+tests/e2e/test_atomic_memory_reconciliation_retry.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 24,49-51,53,190,197-199
+tests/builtin/inference/test_pydantic_ai.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 26,44,256,258,277,392-397,1014-1017,1019-1034
+tests/e2e/test_atomic_memory_related_embedding.py
+  s_98c1bb9fbaf7be::t_7eadbafa62cc59 24,540,546,595,597,599,612,648
+e2e/bub/uv.lock
+  s_98c1bb9fbaf7be::t_9539eb3cd6878a 1684-1688,1728-1732,1828
+evaluation/uv.lock
+  s_98c1bb9fbaf7be::t_69dce930818554 842-843,914,1678,1740-1744,1784-1788,1884,2058,2070,2072,2188,2196,2198,2758-2759
+uv.lock
+  s_98c1bb9fbaf7be::t_60d776a9cdbcc3 5-6,78,83,85,90,92,1016,1018-1020,1022-1041,1043,1045,2352-2353,2405,2409,2415,2417,2909,2930,2971,3000,3023,3092,3154-3158,3198-3202,3298,3549,3553-3554,3556,3562,3564,3680,3688,3690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "18a9b2990f49e8603978f3cdcf99da4ae922779c",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

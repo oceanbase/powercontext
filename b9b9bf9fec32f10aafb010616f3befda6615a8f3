@@ -1,0 +1,19 @@
+e2e/bub/tests/test_agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_5eeeb645de9b57 48-53,63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b9b9bf9fec32f10aafb010616f3befda6615a8f3",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

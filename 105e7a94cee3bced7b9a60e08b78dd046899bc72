@@ -1,0 +1,19 @@
+.github/actions/setup-license-eye/action.yml
+  s_b8cede7abf9387::t_6863248114dfc1 17,52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "105e7a94cee3bced7b9a60e08b78dd046899bc72",
+  "prompts": {},
+  "sessions": {
+    "s_b8cede7abf9387": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1afd5-8b2b-7782-9cd6-215fb3eab895",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

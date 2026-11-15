@@ -1,0 +1,23 @@
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_dd718a55552956::t_69a94cde3a35bc 19,4481-4482,4487-4491
+integrations/dsh/plugins/powercontext/src/index.ts
+  s_dd718a55552956::t_9d58e70de5db1d 19,163-164,169-170
+integrations/dsh/plugins/powercontext/tests/automatic-path.spec.ts
+  s_dd718a55552956::t_d1cda9f423e9bc 18,61-68,107-114,145-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "adf8406a3d49f065235cc049e81f2a7933e1d898",
+  "prompts": {},
+  "sessions": {
+    "s_dd718a55552956": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab78-7a60-76c2-b2ed-ff4f3e121e7c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

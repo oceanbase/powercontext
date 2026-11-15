@@ -1,0 +1,40 @@
+.github/actions/setup-license-eye/action.yml
+  s_b8cede7abf9387::t_7492d397b9cde1 1,3-5,8-11,22,25,35,40,57,60-61,64,67-69
+  s_b8cede7abf9387::t_39fa4a43174e94 2,6-7,12-21,23-24,26-34,36-39,41-47,49-50,52-53,58-59,62-63,65-66,70-71
+  s_b8cede7abf9387::t_fee1fd77336ee1 48,51,54-56
+.github/ci-paths.toml
+  s_b8cede7abf9387::t_39fa4a43174e94 8
+docs/en/development/ci-scope.md
+  s_b8cede7abf9387::t_39fa4a43174e94 36
+  s_b8cede7abf9387::t_225011b3cb444f 34-35,37
+docs/zh/development/ci-scope.md
+  s_b8cede7abf9387::t_39fa4a43174e94 36
+  s_b8cede7abf9387::t_225011b3cb444f 34-35,37
+tests/test_ci_pipeline.py
+  s_b8cede7abf9387::t_7492d397b9cde1 200,202-203,207,209-210
+  s_b8cede7abf9387::t_a79cd5779302fa 208
+tests/test_ci_changes.py
+  s_b8cede7abf9387::t_225011b3cb444f 372-398
+tests/test_ci_license_eye.py
+  s_b8cede7abf9387::t_fbe3843d51dd5d 15,23-63
+  s_b8cede7abf9387::t_a9846766a074d9 1-14,16-22
+.github/workflows/master.yml
+  s_b8cede7abf9387::t_7492d397b9cde1 187,189,191-192,207-208,210,213-214,217-218
+  s_b8cede7abf9387::t_39fa4a43174e94 179-180,209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "996c730fcc5c03c278c8dde48455553bf4b0f70a",
+  "prompts": {},
+  "sessions": {
+    "s_b8cede7abf9387": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1afd5-8b2b-7782-9cd6-215fb3eab895",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

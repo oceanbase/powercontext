@@ -1,0 +1,68 @@
+src/powercontext/builtin/runtime/context_reuse.py
+  s_7849825a984032::t_a0b4d878ff152b 15,22,28,40,80-135,146,151-153,158-161,170,187,196-197,201,204,218-220
+src/powercontext/builtin/runtime/application.py
+  s_7849825a984032::t_a0b4d878ff152b 1141,1250
+docs/en/docs/operate/deploy-server.md
+  s_7849825a984032::t_94506629f85b0d 236-240
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_7849825a984032::t_a0b4d878ff152b 35-37,68-69,154-163,165-170,172-178,180-184,187-205,208-218,226-230,233-235,238-252,254-257,259-261,599-600,608
+  s_7849825a984032::t_94506629f85b0d 185,206-207,219-225
+  s_7849825a984032::t_506f7774f4c551 236-237
+gateway/crates/pc-gateway-core/src/replay_cache.rs
+  s_7849825a984032::t_a0b4d878ff152b 86-92
+gateway/crates/pc-gateway-app/src/main.rs
+  s_7849825a984032::t_a0b4d878ff152b 62-63,149-151
+  s_7849825a984032::t_9d6d8923ed34be 152
+src/powercontext/builtin/code/application.py
+  s_7849825a984032::t_a0b4d878ff152b 37-41
+tests/builtin/runtime/test_context_reuse.py
+  s_7849825a984032::t_a0b4d878ff152b 199-202
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_7849825a984032::t_a0b4d878ff152b 390
+  s_7849825a984032::t_af851c404909de 186
+gateway/crates/pc-gateway-types/src/prepare.rs
+  s_7849825a984032::t_a0b4d878ff152b 35-37
+gateway/README.md
+  s_7849825a984032::t_a0b4d878ff152b 95-96
+docs/en/docs/operate/context-protection.md
+  s_7849825a984032::t_a0b4d878ff152b 47-48,53-57
+  s_7849825a984032::t_17a51172dedd0a 58
+release/upgrade-support.json
+  s_7849825a984032::t_a0b4d878ff152b 6-7
+src/powercontext/builtin/code/capture.py
+  s_7849825a984032::t_a0b4d878ff152b 340-376
+src/powercontext/builtin/code/service.py
+  s_7849825a984032::t_a0b4d878ff152b 31,116-121
+  s_7849825a984032::t_bbc9b1058f0994 122
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_7849825a984032::t_c43ab01468409f 2611,2630-2633,2638-2644,2646-2660,2669-2687,2698-2721
+  s_7849825a984032::t_94506629f85b0d 84-85,380,2498-2548
+  s_7849825a984032::t_a0b4d878ff152b 158-161,290,2549-2610
+  s_7849825a984032::t_af851c404909de 2612-2629,2634-2637,2645,2661-2668,2688-2691,2693,2722-2723
+  s_7849825a984032::t_28ea1bcaaa02c4 2692,2694-2697
+docs/zh/docs/operate/deploy-server.md
+  s_7849825a984032::t_94506629f85b0d 216-219
+docs/zh/docs/operate/context-protection.md
+  s_7849825a984032::t_a0b4d878ff152b 46-47,51-53
+  s_7849825a984032::t_43f1fcd16e8d23 54
+tests/builtin/runtime/test_code_context_reuse.py
+  s_7849825a984032::t_a2343be54c63bb 273-280
+  s_7849825a984032::t_a0b4d878ff152b 1-28,30-264,298-299
+  s_7849825a984032::t_020f43d530ada0 29,265-272,281-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "28ba11dc26865b4bae1bd6d9bb483248886c4c74",
+  "prompts": {},
+  "sessions": {
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

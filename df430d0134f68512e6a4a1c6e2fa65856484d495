@@ -1,0 +1,85 @@
+integrations/dsh/plugins/powercontext/tests/runtime/acceptance/2026-11-05.md
+  s_dd718a55552956::t_cc13c93b301be6 4-6
+  s_dd718a55552956::t_3e58145e9fe652 1-3,7-45
+integrations/dsh/plugins/powercontext/scripts/pack-release.mjs
+  s_dd718a55552956::t_cc13c93b301be6 36
+  s_dd718a55552956::t_0380cc0a51e04f 17,19-20,25,27-29,32-35,37-39,42-44,46
+  s_dd718a55552956::t_01d0e7c07f97b3 18,40-41
+docs/en/development/releasing.md
+  s_dd718a55552956::t_138538a97feb30 129-185
+  s_dd718a55552956::t_e8cb9e5b4693b1 77,99
+docs/zh/docs/integrations/dsh.md
+  s_dd718a55552956::t_3e58145e9fe652 27-28
+  s_dd718a55552956::t_e8cb9e5b4693b1 11-24
+integrations/dsh/plugins/powercontext/tests/runtime/context-observer.mjs
+  s_dd718a55552956::t_755692d5a69b4e 23-24
+integrations/dsh/plugins/powercontext/tests/runtime/fixture.mjs
+  s_dd718a55552956::t_3e58145e9fe652 418-419
+.github/workflows/master.yml
+  s_dd718a55552956::t_fab87bf7119da7 910-912
+integrations/dsh/plugins/powercontext/src/index.ts
+  s_dd718a55552956::t_755692d5a69b4e 58,141,148
+.github/workflows/release.yml
+  s_dd718a55552956::t_fab87bf7119da7 31,88,109-154,156-160,162-221,225,241,258-268
+  s_dd718a55552956::t_cc13c93b301be6 155,161
+  s_dd718a55552956::t_7a6f66587f081c 269-270
+integrations/dsh/plugins/powercontext/README.md
+  s_dd718a55552956::t_e8cb9e5b4693b1 5-17,19-23,43,132,143
+  s_dd718a55552956::t_9164f5ff60f05d 18
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_dd718a55552956::t_cc13c93b301be6 5,33-39
+  s_dd718a55552956::t_01d0e7c07f97b3 9,14,21,23-24
+  s_dd718a55552956::t_739e4fd0af6d36 1-4,6-8,10-13,15-16,20,22,25-26,29-32,40-55
+  s_dd718a55552956::t_ba18ec33f18383 17-19,27-28
+integrations/dsh/plugins/powercontext/src/dsh-shims.d.ts
+  s_dd718a55552956::t_755692d5a69b4e 45
+integrations/dsh/plugins/powercontext/pnpm-lock.yaml
+  s_dd718a55552956::t_8218818cddcb25 17-19,251,334,341,348,355,362,369,376,383,390,397,491,497,503,509,515,521,527,533,539,545,551,557,563,673-676,742-744,771-774,842-849,1018-1022,1448-1453,1516-1517,1534-1535,1651-1656,1806-1809
+docs/en/docs/integrations/dsh.md
+  s_dd718a55552956::t_3e58145e9fe652 30-32
+  s_dd718a55552956::t_e8cb9e5b4693b1 11-27
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_dd718a55552956::t_f9afa7b293ae82 32,4436,4450
+integrations/dsh/plugins/powercontext/tests/stamp-version.spec.ts
+  s_dd718a55552956::t_8058e7ce0ee05f 18,66-87
+integrations/dsh/plugins/powercontext/package.json
+  s_dd718a55552956::t_01d0e7c07f97b3 102
+  s_dd718a55552956::t_9164f5ff60f05d 13-24
+  s_dd718a55552956::t_0380cc0a51e04f 6-12,60
+integrations/dsh/plugins/powercontext/scripts/check-registry.mjs
+  s_dd718a55552956::t_fab87bf7119da7 1-29
+integrations/dsh/plugins/powercontext/tests/automatic-path.spec.ts
+  s_dd718a55552956::t_9905a86760f7c7 296,306,309-312
+  s_dd718a55552956::t_e87c24e54a0ae6 300
+  s_dd718a55552956::t_7f69d8e3dc041e 313
+tests/test_ci_release_verification.py
+  s_dd718a55552956::t_74d41390e64904 189-190
+  s_dd718a55552956::t_138538a97feb30 140-146,181,185-188
+integrations/dsh/plugins/powercontext/tests/registry.spec.ts
+  s_dd718a55552956::t_ba18ec33f18383 1-21
+docs/zh/development/releasing.md
+  s_dd718a55552956::t_138538a97feb30 122-172
+  s_dd718a55552956::t_e8cb9e5b4693b1 73,95
+integrations/dsh/plugins/powercontext/tests/runtime/README.md
+  s_dd718a55552956::t_3e58145e9fe652 3-5
+integrations/dsh/plugins/powercontext/src/errors.ts
+  s_dd718a55552956::t_0380cc0a51e04f 17-18,24
+integrations/dsh/plugins/powercontext/scripts/stamp-version.mjs
+  s_dd718a55552956::t_0380cc0a51e04f 21-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "df430d0134f68512e6a4a1c6e2fa65856484d495",
+  "prompts": {},
+  "sessions": {
+    "s_dd718a55552956": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab78-7a60-76c2-b2ed-ff4f3e121e7c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}

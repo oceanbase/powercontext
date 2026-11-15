@@ -1,0 +1,14 @@
+tests/e2e/test_background_metrics.py
+  h_231a34833395a1 37,48-58,82,97,99,109-110,134,141,148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bac1a28a72986085c262185538416981bb9651d8",
+  "prompts": {},
+  "humans": {
+    "h_231a34833395a1": {
+      "author": "Frey <370805886@qq.com>"
+    }
+  }
+}

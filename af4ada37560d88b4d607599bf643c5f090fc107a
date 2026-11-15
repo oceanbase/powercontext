@@ -1,0 +1,24 @@
+e2e/bub/tests/test_agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_f50507aff96784 51-70
+  s_98c1bb9fbaf7be::t_fae55766162aab 1-50,71-83
+e2e/bub/src/powercontext_e2e/agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_e17d7e8e85a388 1-49
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_98c1bb9fbaf7be::t_db49c5e0bf78fb 29-30,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "af4ada37560d88b4d607599bf643c5f090fc107a",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

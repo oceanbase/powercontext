@@ -1,0 +1,19 @@
+tests/e2e/test_atomic_memory_reconciliation_retry.py
+  s_98c1bb9fbaf7be::t_824e0b8ff6cdbb 33,347-349,372-374,398-400
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "be601d51b4cb4c1e58fa5736c9def60f9aa56433",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

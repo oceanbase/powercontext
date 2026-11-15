@@ -1,0 +1,714 @@
+desktop/ui/tests/connections.test.tsx
+  s_98c1bb9fbaf7be::t_25846512e8b168 30,36,39-40,49,128-171,176-268,416-453
+  s_98c1bb9fbaf7be::t_c4233333de56ce 454-456
+gateway/crates/pc-gateway-protocol/src/content.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-257
+docs/zh/docs/integrations/dsh.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 11,13,15-18,20,22,24-29,32-34,37-41,43,46-47,50-54,56-59,61-62,65,67,69,71-74,76,78,80,82-85,87,90-93,96-98,100,103-105,108-114,116-117,319-320
+docs/en/development/releasing.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 77,99,129-184
+  s_98c1bb9fbaf7be::t_6de4930d9a0e3a 185
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_98c1bb9fbaf7be::t_25846512e8b168 1522-1532,2471
+src/powercontext/builtin/persistence/topic_memory_budget.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 40-45,100-143,150-154,299-303,321-324,330,333-334,343-347,382-386
+integrations/dsh/plugins/powercontext/src/recall.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 90-97,99,111
+docs/en/docs/operate/gateway-evidence.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-222
+docs/zh/docs/integrations/hermes.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 91-124
+docs/assets/blog/magpie-gateway-powercontext-memory/integration-choices.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+tests/test_installation_contract.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-239
+desktop/scripts/generate.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 39
+integrations/capabilities.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 1321-1334
+docs/zh/development/memory-layer.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 51-53,61-72,81-86
+desktop/src-tauri/src/commands.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 110-120
+  s_98c1bb9fbaf7be::t_b8c44c68ce128b 109
+docs/en/docs/integrations/dsh.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 11-27,30-32,369-371
+docs/assets/blog/magpie-gateway-powercontext-memory/experiment-result.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+evaluation/memory/atomic_extraction/cases/atomic-extraction-v2.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-177
+README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 16,26,30,47,62,68,72,76,84-89,110-112,120,132,152-162,172,179,183,198,202,209,213-215,217-218,222,246,256,277
+tests/test_connection_identity.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-88
+e2e/bub/src/powercontext_e2e/access_audit.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 53
+website/package.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 7
+docs/en/docs/operate/context-protection.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 47-48,53-57
+  s_98c1bb9fbaf7be::t_6309d1222d4749 58
+tests/integration_conformance/hermes/model_stub.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-105
+tests/integration_conformance/__init__.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 15
+integrations/dsh/plugins/powercontext/package.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 6-24,60,102
+desktop/src-tauri/tests/discovery.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 41,88-91,230,252-261
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/run-manifest.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-40
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,26-29,131-153,168,171,178-187,303,316-322,336,339,341-343,347,350-352,663-691,754-758,771-776,802-819,826-827,840,844,850,860,1610-1751
+tests/e2e/test_atomic_memory_language_live.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 36,49,136,145
+tests/test_e2e_workflow_contract.py
+  s_98c1bb9fbaf7be::t_854114203fed2f 46-58
+docs/zh/docs/integrations/meta.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 15
+desktop/src-tauri/src/transport/wire.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 962-1012,2946-2947
+gateway/crates/pc-gateway-app/src/authentication.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-74
+gateway/crates/pc-gateway-evidence/src/output.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-188
+gateway/crates/pc-gateway-protocol/tests/content_boundary.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-174
+gateway/crates/pc-gateway-transport/src/sender.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 40-43,57-62,77
+tests/integration_conformance/hermes/test_real_manager.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-162
+docs/zh/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 84-87
+tests/builtin/persistence/test_topic_memory.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 79-83,1618-1644,1667-1669,1677-1681
+docs/zh/docs/get-started/quickstart.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 8,10,38,42,46-47,50,52,63,67,73,75,78-79,90,92,94,96,98,102,118,137,139,151,167,169
+tests/test_release_version.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 90,101-102
+docs/zh/docs/workflows/manage-prompts.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 15-18
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 66-71,1335,1337-1338,1348,1632-1639
+desktop/ui/src/app/session-messages.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 151,299
+integrations/minimax/plugins/powercontext/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 46-57,69-88,104-111,113,120-121,132,134
+integrations/dsh/plugins/powercontext/tests/runtime/fixture.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 418-419
+docs/zh/docs/integrations/openclaw.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 39-72,79
+tests/test_integration_manifest.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 175,519-520
+tests/builtin/artifacts/prompt/test_prompt_content.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 74
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 39-44
+docs/en/development/processing-failures.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 22,38-39,57,64,78-92,97-98
+docs/en/blog/posts/magpie-gateway-powercontext-memory.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-294
+gateway/crates/pc-gateway-types/src/lib.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 15,18,21,26
+src/powercontext/client/client.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 70,266,600-602
+  s_98c1bb9fbaf7be::t_e0438fa517c396 603
+tests/e2e/test_rfc2086_transport_acceptance.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 50,56
+docs/en/docs/workflows/manage-prompts.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 17-18,20-22
+integrations/dsh/plugins/powercontext/tests/runtime/acceptance/2026-11-05.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-45
+src/powercontext/builtin/artifacts/atomic_memory/temporal.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-102
+docs/zh/docs/get-started/install-and-run.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 8,17-67,69,71-147,154,156,158,170,172,174,178-179,194,202,210,212,214,216,218,222,228,236,238,258,260,262,264,268,276,278,280,282,288,290,292,302,312,314,316,337,347
+docs/zh/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 14-17,517-519
+gateway/crates/pc-gateway-transport/src/retry.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 57-59
+docs/en/development/desktop-session-observations.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 24,26
+integrations/dsh/plugins/powercontext/src/dsh-shims.d.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 45
+src/powercontext/cli/authorization.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 43
+tests/e2e/test_zcode_service_chain.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 48-83,110,119,135,205,222,301,339,450,484,492
+docs/assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+gateway/crates/pc-gateway-app/src/proxy.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 60,120
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_98c1bb9fbaf7be::t_25846512e8b168 1522-1532
+.github/workflows/seekdb-lock-observation.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 15
+tests/test_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 963-964
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 42-43,815-816
+tests/test_managed_resource_producer.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 544-546
+src/powercontext/server/atomic_memory.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 66
+gateway/crates/pc-gateway-app/Cargo.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 37
+docs/en/docs/get-started/quickstart.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 8,10,38,42,46-47,50,52,63,67,73,75,78-79,90,92,94,96,98,102,119,139,141,153,169,171
+tests/integration_conformance/hermes/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-119
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 41-42
+README_JP.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,74,128,148-158,168,175,179,187,194,205,252,272
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 26-29,40,129,251,306
+docs/assets/blog/magpie-gateway-powercontext-memory/context-model.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+docs/zh/docs/operate/meta.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 16
+.github/workflows/build-artifacts.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 39,103
+docs/en/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 89-94
+docs/zh/development/releasing.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 73,95,122-171
+  s_98c1bb9fbaf7be::t_2b0af91cd73c77 172
+gateway/Cargo.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 44
+src/powercontext/builtin/code/capture.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 340-376
+src/powercontext/cli/hosts.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 66-67,103,119-122,128-130,170-178
+.github/workflows/release.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 31,88,108-221,226,242,259-269
+  s_98c1bb9fbaf7be::t_338fc92dc3d05d 270-271
+docs/zh/blog/posts/harbor-context-evaluation-harness.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-82
+docs/zh/docs/operate/context-protection.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 46-47,51-53
+  s_98c1bb9fbaf7be::t_668c2f8bd59c7d 54
+docs/en/rfcs/1892-script-installation.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-174
+desktop/VALIDATION.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 3-366,544-548,550,560-586,1869-1896,2466-2508
+gateway/crates/pc-gateway-app/tests/capacity_process.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-733
+gateway/crates/pc-gateway-protocol/src/lib.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 22,27
+integrations/dsh/plugins/powercontext/tests/recall-fail-open.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 243-244
+tests/builtin/runtime/test_topic_memory_work_budget.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 47-51,226,228-240,647-708
+  s_98c1bb9fbaf7be::t_275737bb20bf75 709-712
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 47,57,70,461,509,525,528-530,557-561,660,663-709,1023-1041
+  s_98c1bb9fbaf7be::t_f2fa95f78b3169 1042-1043
+.github/workflows/installation.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-77
+desktop/src-tauri/src/transport/api.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 386-412
+tests/e2e/test_atomic_memory_reconciliation_retry.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 22-23,27,30,70,168-396
+docs/assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+integrations/dsh/plugins/powercontext/tests/runtime/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 3-5
+tests/integration_conformance/hermes/__init__.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-15
+tests/e2e/test_worker_logging.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 386,389-399,419,445,451-454,475-481,656-661,675-679,690-694
+desktop/ui/src/generated/ipc.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 88-93,113,219-220
+docs/en/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 13-16,587-589
+docs/zh/blog/.authors.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 47-52
+openapi/powercontext.yaml
+  s_98c1bb9fbaf7be::t_25846512e8b168 21,299,4620,4669,4724,4773,4828,5079-5104,13755-13774
+tests/builtin/runtime/test_topic_memory_scope.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 21,35-39,41,374-407
+  s_98c1bb9fbaf7be::t_37ac9ce3740cdd 408-411
+tests/builtin/test_processing_diagnostics.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 36-41,62,418-536
+src/powercontext/cli/installation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 24,123,137,161-179
+desktop/src-tauri/tests/statistics.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 175-178,186-191
+  s_98c1bb9fbaf7be::t_7401cd3f3d1422 192-193
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/report.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-23
+docs/en/docs/integrations/hermes.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 95-132
+src/powercontext/builtin/processing_diagnostics.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 153-222,232-242,359-395,404
+.pre-commit-config.yaml
+  s_98c1bb9fbaf7be::t_25846512e8b168 13
+tests/fixtures/installation/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-49
+docs/zh/docs/develop/http-api.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 24-31
+desktop/src-tauri/tests/memory.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 118-122,272
+tests/e2e/test_atomic_memory_unrelated_reconciliation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 140-141,165,177-245
+docs/en/docs/integrations/openclaw.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 39-76,85
+evaluation/memory/atomic_extraction/manifest.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 27
+integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 1200,1210-1225
+  s_98c1bb9fbaf7be::t_9f510dfef706f5 1226
+src/powercontext/http/__init__.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 139-140,633-634
+src/powercontext/builtin/runtime/application.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1157,1266
+docs/zh/blog/posts/magpie-gateway-powercontext-memory.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-294
+tests/e2e/test_artifact_tags.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 45-84,284-292
+tests/builtin/artifacts/atomic_memory/test_temporal_evidence.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-188
+docs/en/blog/.authors.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 47-52
+tests/test_api_contract.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 21,952-974
+  s_98c1bb9fbaf7be::t_c2f2791e524c55 975-976
+docs/zh/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 33-34
+.github/workflows/desktop.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 208,253-265,274,276,278
+docs/zh/docs/integrations/minimax.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-100
+tests/builtin/artifacts/memory/test_prompts.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 55
+.github/workflows/desktop-release.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-134
+src/powercontext/builtin/runtime/composition.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 45,1701
+tests/integration_conformance/hermes/test_isolation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-112
+docs/assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+.github/workflows/gateway.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 32
+desktop/src-tauri/src/lib.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 69
+docs/zh/docs/operate/deploy-server.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 195-205,227-230,243-288
+  s_98c1bb9fbaf7be::t_46e69b060c8187 289
+desktop/SECURITY.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 23-30
+desktop/ui/src/app/TopBar.tsx
+  s_98c1bb9fbaf7be::t_25846512e8b168 21-25,113,300-301,307-314
+src/powercontext/server/app.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 469-470,763,1598,1904-1920,3153,3166,3197,3209,3241
+gateway/CAPACITY_VALIDATION.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-88
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,26-34,1554-1559
+  s_98c1bb9fbaf7be::t_227c996db6affa 1560-1564
+desktop/ui/src/generated/api.d.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 2298-2317,5875-5882,10511-10530,10532-10533
+  s_98c1bb9fbaf7be::t_6351bea654d63f 10531
+website/next.config.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 24-25
+.github/workflows/ci-changes.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 27
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 25,84-85,137-140,214-215,270,368,1368-1369,2464-2465,2880-3714
+docs/assets/blog/magpie-gateway-powercontext-memory/context-model.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+Makefile
+  s_98c1bb9fbaf7be::t_25846512e8b168 45,48-50,54-55,63-64
+gateway/crates/pc-gateway-types/src/prepare.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 35-37
+tests/builtin/runtime/test_topic_memory_fragment_reduction.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 51-55,228,230-236,299-348
+.github/workflows/capture-release-schema.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 31
+src/powercontext/cli/guidance.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 104-105,143-144,270,306
+tests/integrations/test_hermes_provider.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 635-724
+docs/assets/blog/magpie-gateway-powercontext-memory/experiment-result.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+desktop/src-tauri/capabilities/main.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 26
+scripts/publish_desktop_release.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-471
+desktop/ui/src/app/Connections.tsx
+  s_98c1bb9fbaf7be::t_25846512e8b168 24,37-41,85-91,118,187-205,246,270-273,275,282,558-565,583,619-634,636-643
+docs/zh/docs/integrations/pi.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 40-41
+src/powercontext/builtin/code/application.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 37-41
+tests/fixtures/installation/capabilities.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-116
+integrations/dsh/plugins/powercontext/tests/runtime/context-observer.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 23-24
+integrations/minimax/acceptance.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-123
+desktop/src-tauri/src/connections/compatibility.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 174-192,328-331,344,347-350,364,367-370,383,386-389,398,403,406-409,418,423,426-429,442,445-448,461-480,503-506,520,620-623,637,640-643,652,657-663,666-669,674,684,687-690,695,705,708-711,725,728-731,745,748-771,785,805-831,998-1019,1120-1184
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/report.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-78
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-74
+gateway/crates/pc-gateway-transport/tests/usage_timing.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-214
+src/powercontext/builtin/runtime/topic_memory_processing.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 111-116,593,602-636,644-659,664-671,684-691,697-704,779-793,827,844-854,908-913,1128-1132,1230,2055-2060
+  s_98c1bb9fbaf7be::t_f2ffbc04f3f421 2061-2062
+.github/workflows/seekdb-lock-probe.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 30
+tests/test_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 226-240
+tests/test_minimax_model_gateway.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-142
+integrations/dsh/plugins/powercontext/tests/stamp-version.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,66-87
+desktop/src-tauri/tests/deployment_identity.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 39-40,66,85-87,92-93,143-148,160-161,215-224,227,272-346,451-741,745,755,948,955-956,987,998-999,1036-1037,1096-1097
+gateway/crates/pc-gateway-core/src/replay_cache.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 86-92
+gateway/crates/pc-gateway-protocol/Cargo.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 25
+docs/zh/development/desktop-release-publication.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-81
+src/powercontext/cli/native_transport.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 177-180,192,198-204
+tests/test_hook_characterization.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 34,216,304-322
+  s_98c1bb9fbaf7be::t_44ca11d683ab93 323-324
+gateway/crates/pc-gateway-evidence/Cargo.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 23
+docs/zh/docs/operate/gateway-evidence.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-208
+gateway/crates/pc-gateway-evidence/tests/output.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-306
+tests/e2e/test_kimi_code_host.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 259-260
+integrations/zcode/plugins/powercontext/shared/context.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 20
+src/powercontext/client/transport_policy.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 98-103,105-113
+gateway/crates/pc-gateway-types/src/check.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 30-32,155-177
+  s_98c1bb9fbaf7be::t_600657d41af6bd 178
+desktop/ui/tests/connection-transition.test.tsx
+  s_98c1bb9fbaf7be::t_25846512e8b168 18-25,41,363-478
+  s_98c1bb9fbaf7be::t_021bac481f040f 479
+src/powercontext/cli/system.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 212-215,238-239,279-282,322-323
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_98c1bb9fbaf7be::t_25846512e8b168 19,32-40,1622-1632,4098-4104,4106,4116,4378,4463,4477,4490-4505,4511
+tests/integration_conformance/hermes/support.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-369
+desktop/src-tauri/build.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 60
+gateway/crates/pc-gateway-types/src/lifecycle.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-47
+docs/en/docs/integrations/capabilities.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 51
+docs/en/docs/operate/deploy-server.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 212-224,249-253,268-318
+  s_98c1bb9fbaf7be::t_62e6ef4fbb47e4 319
+scripts/blog-magpie-image-sources.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-49
+tests/e2e/test_atomic_memory_vector_index.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 39,194-275
+  s_98c1bb9fbaf7be::t_d5e07130aeac5d 276-277
+docs/en/development/memory-layer.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 52-57,65-80,92-101
+docs/zh/development/desktop-session-observations.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 23,25
+integrations/dsh/plugins/powercontext/src/index.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 18-19,31,36,61,144,151,161-174,180
+integrations/pi/plugins/powercontext/tests/extension.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 103,474
+tests/e2e/test_gateway_authentication.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-281
+integrations/dsh/plugins/powercontext/src/errors.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 17-18,24-35
+gateway/crates/pc-gateway-app/src/evidence_body.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-232
+src/powercontext/builtin/code/service.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 31,116-121
+  s_98c1bb9fbaf7be::t_42dad2ba22cf92 122
+docs/en/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 38-39
+docs/assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 30-34,57-60,68-70,75-77,161-171,316-340,370,377-389,402-416
+docs/en/docs/get-started/install-and-run.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 8,17-33,35,37-147,154,156,158,170,172,174,178-179,194,202,210,212,214,216,218,222,228,236,238,258,260,262,264,268,276,278,280,282,288-292,302,304,312,314,316,339,349
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/report.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-23
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 105-106,212
+website/public/install.sh
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-398
+src/powercontext/http/_generated/models.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 3709-3723
+tests/test_native_transport_diagnostics.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 185-220
+.github/workflows/build-docker.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 19
+tests/integration_conformance/hermes/conftest.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-26
+desktop/ui/src/app/connection-messages.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 69-70,114-117,225-226,275-278,360-366
+pyproject.toml
+  s_98c1bb9fbaf7be::t_25846512e8b168 223
+tests/builtin/runtime/test_code_context_reuse.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-265
+integrations/dsh/plugins/powercontext/scripts/stamp-version.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 21-33
+src/powercontext/cli/transport.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 53-58,75,82-86,97-99,156,193,207-208,232
+tests/test_ci_pipeline.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 277,293
+gateway/crates/pc-gateway-app/src/middleware/resource_limits.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 29-32,39-43,45-48,66-85,93,95,99,109-114
+tests/test_ci_release_verification.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 140-146,181,185-188
+  s_98c1bb9fbaf7be::t_0931837f3d593a 189-190
+docs/en/blog/posts/harbor-context-evaluation-harness.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-82
+tests/native/test_installation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-531
+docs/zh/docs/operate/connect-remote-server.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 88
+README_CN.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 45,74,108-109,130,150-160,170,177,181,195,206,253,274
+desktop/README.zh.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 95-107,112,114,120,122,128,173-174,197,199
+desktop/ui/src/app/context.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 30-57
+integrations/minimax/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 5-13,31
+tests/e2e/test_minimax_host.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-649
+docs/en/docs/integrations/minimax.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-100
+src/powercontext/http/_generated/schema.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 261,5056,5126,5202,5272,5342,5678-5717,14259-14270,15386
+integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 40,51,56,115-124,126,153-154,194,290,296,303-307,348
+docs/zh/docs/integrations/capabilities.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 51
+desktop/src-tauri/tests/session.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 76,78-87
+.github/workflows/skill-guidance.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 30
+desktop/src-tauri/src/connections/session.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 66-68,70-72,81-95,105-108,176-195,199,220,268,395-396,402-409,418-481,483-499,510-514,516,544-607,624-639,642-643,674,678-680,682,827-830
+docs/zh/development/processing-failures.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 21,36-37,51,58,72-85,89-90
+evaluation/memory/atomic_extraction/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 15-19
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 31,35-37,41,43,70-71,107-123,130,152,156-162,170-180,182-185,196,203-211,214-218,220-225,228-230,232,235-280,282-322,344,348,352-363,365,434-436,486,493,583,591-593,688,699-703,711,715,723-734,736,745-755,778-780,810-811
+docs/assets/blog/magpie-gateway-powercontext-memory/architecture.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+gateway/crates/pc-gateway-core/src/evidence.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-164
+gateway/crates/pc-gateway-evidence/src/lib.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 15,17-18,21,26,31-102,105-113,115-121,125-186,188-190,192-193,202,208,215,218,221-224,229,234-235,238-245,247-248,250-277
+integrations/dsh/plugins/powercontext/tests/automatic-path.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,61-68,107-114,145-160,327,331,337,340-346
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 28,58-61,78,168,172-214
+  s_98c1bb9fbaf7be::t_18ae14b8a80236 215-216
+src/powercontext/cli/minimax.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-572
+gateway/crates/pc-gateway-transport/tests/buffer_limit_nonstreaming.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 59-66
+docs/en/docs/integrations/meta.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 15
+integrations/dsh/plugins/powercontext/tests/runtime/runtime.test.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 137-139
+integrations/pi/plugins/powercontext/src/recall.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 60
+docs/en/development/desktop-release-publication.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-97
+tests/e2e/test_access_control_regressions.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 110-142
+gateway/crates/pc-gateway-app/src/main.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 27-29,40,49,64-65,72,81,87-91,122-170,172-180,193,199-202,211-212,219,252-273,275-277,303-304
+gateway/crates/pc-gateway-core/src/lifecycle.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 20,39-40,65-66,123-132,156
+integrations/dsh/plugins/powercontext/scripts/pack-release.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 17-20,25,27-29,32-44,46
+src/powercontext/cli/config.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 340-341,348,350-352
+tests/test_desktop_fixture_qualification.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 128-150
+integrations/dsh/plugins/powercontext/tests/recall-query.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 57-66
+tests/e2e/test_atomic_memory_temporal_retention.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-367
+.github/workflows/candidate-schema-replay.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 31
+src/powercontext/builtin/runtime/topic_memory_scope.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 34-38,173-178
+integrations/opencode/plugins/powercontext/src/index.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 45
+integrations/dsh/plugins/powercontext/tests/registry.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-35
+gateway/crates/pc-gateway-app/tests/evidence_process.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-401
+integrations/opencode/plugins/powercontext/tests/plugin.spec.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 124
+integrations/zcode/plugins/powercontext/tests/lifecycle.test.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 88-89
+src/powercontext/builtin/runtime/context_reuse.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 15,22,28,40,80-135,146,151-153,158-161,170,187,196-197,201,204,218-220
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 404-407
+desktop/src-tauri/src/connections/discovery.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 159-168,195-233
+tests/builtin/runtime/test_processing_scheduler.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 32-37,42,818-820,869-913
+  s_98c1bb9fbaf7be::t_b57290a99cfd2e 914-915
+tests/builtin/runtime/test_topic_memory_processing.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 104-108,1716,1719-1727
+  s_98c1bb9fbaf7be::t_1a6ea5f3908dd2 1728
+tests/e2e/test_blog_site.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 130-140,154-157
+tests/test_desktop_release_publication.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-500
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/run-manifest.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-38
+tests/install_support.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 18-19,22,31-33,40,42-43
+desktop/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 121-137,149-151,157,159,165,167,173,225,227
+docs/en/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 124,212-244
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/report.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-76
+gateway/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 15,29,31,33,76,96-97,109
+website/public/install.ps1
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-407
+desktop/src-tauri/src/session_observations.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 52,69,312
+integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 426
+desktop/ui/src/generated/operations.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,64-66
+  s_98c1bb9fbaf7be::t_0cde27be59f948 67
+desktop/src-tauri/examples/server_probe.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 46-50,81-85,105-123,159-166,190,203-220,232,239-254,264-266,275-305,401,403-412,414-417,462,479-563,570,580,597-607,651
+docs/en/docs/develop/http-api.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 28-36
+desktop/src-tauri/src/connections/session/runtime.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 18,88,103-110,130-131,133-139,141
+docs/zh/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 104-105,179-209
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_25846512e8b168 37,94,100,120,180,203-211,217,247,309,364,388,433,498,647,804,814,880,907,929-931,957,1000,1029,1053,1079,1125,1192-1201,1303,1342
+desktop/ui/src/shared/ipc.ts
+  s_98c1bb9fbaf7be::t_25846512e8b168 82-83
+src/powercontext/builtin/artifacts/prompt/builtin.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 122
+src/powercontext/builtin/artifacts/topic_memory/generation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 29-34,41-47,153-165,488-499
+tests/builtin/runtime/test_context_reuse.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 199-202
+tests/integration_conformance/hermes/run_manager.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-108
+integrations/zcode/plugins/powercontext/tests/plugin.test.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 168-169
+docs/assets/blog/magpie-gateway-powercontext-memory/integration-choices.en.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+scripts/release_version.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 49,56
+src/powercontext/http/_generated/operations.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 62,247,3687-3705
+  s_98c1bb9fbaf7be::t_deb651f1f89fdb 3706-3707
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 6-7
+integrations/dsh/plugins/powercontext/scripts/check-registry.mjs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-43
+desktop/ui/src/app/Overview.tsx
+  s_98c1bb9fbaf7be::t_25846512e8b168 20-24,53
+docs/en/docs/integrations/pi.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 40-42
+scripts/desktop_publication_manifest.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-422
+desktop/src-tauri/src/transport/operations.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 2,48-51,60-63,99-101
+tests/test_cli_minimax.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-993
+e2e/bub/run.sh
+  s_98c1bb9fbaf7be::t_b80ca32d54c6c5 155-163
+docs/en/docs/operate/meta.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 16
+docs/en/docs/operate/connect-remote-server.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 98
+tests/fixtures/installation/hosts.json
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-262
+tests/integration_conformance/hermes/compaction.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-197
+desktop/tests/real_server.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 27,31,52-54,63-64,382-385,387-403,405,408-441,444-461,465,469-474,482,486-487,541,574,604-610,613-620,630,632-634,654-666
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_b80ca32d54c6c5 225,545-552
+  s_98c1bb9fbaf7be::t_25846512e8b168 47,78,223,288,415,453
+  s_98c1bb9fbaf7be::t_5cc3f3f9c1bf58 553
+gateway/crates/pc-gateway-transport/src/reqwest_transport.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 27,45,50,75-76,107,109,114-119,122-123,125,127-131,137-138,143-144,157-189,193,200-210
+desktop/src-tauri/tests/common/mod.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 25-34,43
+docs/assets/blog/magpie-gateway-powercontext-memory/architecture.zh.svg
+  s_98c1bb9fbaf7be::t_25846512e8b168 1
+docs/zh/rfcs/1892-script-installation.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-174
+gateway/crates/pc-gateway-app/src/link.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 32,37
+gateway/EVIDENCE_VALIDATION.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-154
+integrations/dsh/plugins/powercontext/README.md
+  s_98c1bb9fbaf7be::t_25846512e8b168 5-23,43,132,143
+tests/builtin/artifacts/atomic_memory/test_reconciliation.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 25,27-31,46-88
+  s_98c1bb9fbaf7be::t_86d20c19926d67 89-90
+tests/e2e/test_minimax_diagnostics_http.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-166
+tests/native/test_install_sources.py
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-373
+gateway/crates/pc-gateway-app/src/evidence_diagnostics.rs
+  s_98c1bb9fbaf7be::t_25846512e8b168 1-161
+gateway/Cargo.lock
+  s_98c1bb9fbaf7be::t_99945dc70bd4b3 649,685
+integrations/dsh/plugins/powercontext/pnpm-lock.yaml
+  s_98c1bb9fbaf7be::t_d0972a433e9888 17-19,251,334,341,348,355,362,369,376,383,390,397,491,497,503,509,515,521,527,533,539,545,551,557,563,673-676,742-744,771-774,842-849,1018-1022,1448-1453,1516-1517,1534-1535,1651-1656,1806-1809
+integrations/dsh/plugins/powercontext/src/operations.generated.ts
+  s_98c1bb9fbaf7be::t_ecf72cb2bd4236 146
+integrations/opencode/plugins/powercontext/src/operations.generated.ts
+  s_98c1bb9fbaf7be::t_51404bbac29e4e 146
+integrations/pi/plugins/powercontext/src/operations.generated.ts
+  s_98c1bb9fbaf7be::t_9f2def1aefa5d2 146
+tests/test_bub_compose_startup.py
+  s_98c1bb9fbaf7be::t_bc696dffb042b4 117-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08a34940faf7343cc41fbe4fa694e3709fdba806",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_b0268534ea6b24 237-238
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_b0268534ea6b24 224-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b7035c41faa2133a8a12eef351640a3356661b66",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
