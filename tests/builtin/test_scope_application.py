@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from contextlib import AsyncExitStack
 
@@ -378,9 +379,21 @@ def test_binding_resolution_fails_without_any_binding() -> None:
     asyncio.run(scenario())
 
 
-def test_scopes_listed_by_external_reference_match_kind_and_value_exactly() -> None:
+@pytest.mark.parametrize("backend", ["sqlite", "seekdb"])
+def test_scopes_listed_by_external_reference_match_kind_and_value_exactly(tmp_path, backend: str) -> None:
+    if backend == "seekdb":
+        # seekdb compares string columns without regard to case or accents by default.
+        if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
+            pytest.skip("real seekdb acceptance not enabled")
+        pytest.importorskip("pylibseekdb")
+        from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+
+        opened = SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=BUILTIN_TABLES)
+    else:
+        opened = SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES)
+
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+        async with opened as profile:
             scopes = ScopeApplication(profile.database)
 
             def draft(key: str, *references: tuple[str, str]) -> ScopeDraft:
@@ -395,6 +408,8 @@ def test_scopes_listed_by_external_reference_match_kind_and_value_exactly() -> N
 
             owned = await scopes.create(draft("owned", ("plugin", "rooms"), ("ticket", "OPS-1")))
             await scopes.create(draft("prefix", ("plugin", "rooms-archive")))
+            await scopes.create(draft("other-case", ("plugin", "ROOMS")))
+            await scopes.create(draft("accented", ("plugin", "róoms")))
             await scopes.create(draft("other-kind", ("ticket", "rooms")))
             await scopes.create(draft("plain"))
 

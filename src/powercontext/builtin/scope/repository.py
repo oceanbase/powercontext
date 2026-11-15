@@ -132,8 +132,16 @@ class ScopeRepository:
             .correlate(SCOPES_TABLE)
             .exists()
         )
-        return await self._load(
+        found = await self._load(
             connection, _scope_projection(select(SCOPES_TABLE).where(matching).order_by(SCOPES_TABLE.c.scope_id))
+        )
+        # OceanBase and seekdb compare these columns without regard to case or accents; a reference matches exactly.
+        return tuple(
+            descriptor
+            for descriptor in found
+            if any(
+                item.kind == reference.kind and item.value == reference.value for item in descriptor.external_references
+            )
         )
 
     async def discover(
