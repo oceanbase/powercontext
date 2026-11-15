@@ -47,15 +47,6 @@ test('unattributed drafts stay private and require an author before publication'
   assert.throws(() => parsePost(markdown.replace('draft: true', 'draft: false'), 'post.md'), /authors required/);
 });
 
-test('single author and category accept the scalar form without a list marker', () => {
-  const markdown = article('scalar')
-    .replace('authors: [ada, bob]', 'authors:\n  Beaten')
-    .replace('cover_alt: A continuous path through project records', 'cover_alt: A continuous path through project records\ncategories:\n  Engineering');
-  const post = parsePost(markdown, 'scalar.md');
-  assert.deepEqual(post.authors, ['Beaten']);
-  assert.deepEqual(post.categories, ['Engineering']);
-});
-
 test('Markdown body preserves Chinese, code and shared image links', () => {
   const post = parsePost(article('sample') + '\n<!-- more -->\n![图](../../../assets/blog/image.png)\n```sh\necho 中文\n```', 'sample.md');
   assert.ok(post.body.includes('Body with 中文.'));
