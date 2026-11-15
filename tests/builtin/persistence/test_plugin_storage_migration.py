@@ -27,6 +27,7 @@ import pytest
 from powercontext.builtin.persistence.migrations.bundle import MigrationBundle
 from powercontext.builtin.persistence.migrations.deployment import server_bundle
 from powercontext.builtin.persistence.migrations.models import MigrationError
+from powercontext.builtin.persistence.migrations.mysql_schema import MySQLSchema
 from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
@@ -43,7 +44,67 @@ RETIRED_TABLES = {
     "pc_artifact_search_text",
     "pc_artifact_search_fts",
 }
-RETIRED_COLUMNS = {"plugin_id", "plugin_family", "plugin_spec", "binding_generation", "desired_state", "phase"}
+RETIRED_COLUMNS = {
+    "plugin_id",
+    "plugin_family",
+    "plugin_spec",
+    "binding_generation",
+    "desired_state",
+    "phase",
+    "last_error",
+}
+MYSQL_RETIRED_TABLES = (
+    "pc_artifact_search_text",
+    "pc_artifact_index_changes",
+    "pc_artifact_index_coverage",
+    "pc_artifact_search_states",
+    "pc_artifact_vector_indexes",
+    "pc_artifact_vector_spaces",
+    "pc_artifact_family_schemas",
+)
+
+
+@pytest.mark.parametrize("completed", [0, 1, 7, 8, 9])
+def test_mysql_plugin_cleanup_recovers_only_completed_ddl(completed):
+    schema = MySQLSchema(server_bundle())
+    inventory = schema.required(PREVIOUS)
+    target = schema.required("v1_5_0_005")
+    tables = inventory["tables"]
+    for name in MYSQL_RETIRED_TABLES[:completed]:
+        del tables[name]
+    if completed >= 8:
+        for column in RETIRED_COLUMNS:
+            del tables["pc_artifact_processing_binding_states"]["columns"][column]
+    metadata = target["tables"]["pc_artifacts"]["columns"]["metadata"]
+    if completed == 9:
+        tables["pc_artifacts"]["columns"]["metadata"] = metadata
+    # Independently owned storage remains allowed at every migration boundary.
+    tables["plugin_owned"] = schema.required(PREVIOUS)["tables"]["pc_scopes"]
+    tables["pc_artifact_processing_binding_states"]["columns"]["plugin_extension"] = metadata
+
+    recovery = schema.recovery(inventory, PREVIOUS)
+    assert recovery.pending_statements == schema.statements("v1_5_0_005")[completed:]
+    assert recovery.completed_revision == ("v1_5_0_005" if completed == 9 else None)
+    if completed == 9:
+        schema.verify(inventory, "v1_5_0_005")
+    else:
+        with pytest.raises(MigrationError, match="incompatible_schema"):
+            schema.verify(inventory, "v1_5_0_005")
+
+
+@pytest.mark.parametrize("retained", ["table", "column"])
+def test_mysql_plugin_revision_rejects_incomplete_cleanup(retained):
+    schema = MySQLSchema(server_bundle())
+    inventory = schema.required("v1_5_0_005")
+    old = schema.required(PREVIOUS)["tables"]
+    if retained == "table":
+        inventory["tables"]["pc_artifact_family_schemas"] = old["pc_artifact_family_schemas"]
+    else:
+        inventory["tables"]["pc_artifact_processing_binding_states"]["columns"]["plugin_id"] = old[
+            "pc_artifact_processing_binding_states"
+        ]["columns"]["plugin_id"]
+    with pytest.raises(MigrationError, match="incompatible_schema"):
+        schema.verify(inventory, "v1_5_0_005")
 
 
 def previous_bundle(directory: Path) -> MigrationBundle:

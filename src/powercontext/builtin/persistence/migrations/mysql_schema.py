@@ -161,6 +161,8 @@ class MySQLSchema:
         manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
         self.optional_table_options = {}
         self.affected_objects = bundle.affected_objects
+        self._removed_tables: set[str] = set()
+        self._removed_columns: dict[str, set[str]] = {}
         if "mysql_state_layouts" in manifest:
             self._load_state_layouts(manifest["mysql_state_layouts"])
             if embedded_code:
@@ -254,8 +256,14 @@ class MySQLSchema:
                     if table is None:
                         if name not in inventory["tables"]:
                             raise MigrationError("invalid_bundle", "A transition removes an unknown table.")
+                        self._removed_tables.add(name)
                         del inventory["tables"][name]
                     else:
+                        previous = inventory["tables"].get(name)
+                        if previous is not None:
+                            removed = previous["columns"].keys() - table["columns"].keys()
+                            if removed:
+                                self._removed_columns.setdefault(name, set()).update(removed)
                         inventory["tables"][name] = table
                 prefixes.append(copy.deepcopy(inventory))
             self._statements[revision] = tuple(statements)
@@ -411,6 +419,18 @@ class MySQLSchema:
                     actual["tables"][name] = table
                     del table[option]
         if self.bundle.readiness_scope == "server":
+            # Independently owned extensions are allowed, but a registered removal
+            # is complete only when its table or column is actually absent.
+            if self._removed_tables & (actual["tables"].keys() - expected["tables"].keys()):
+                return False
+            for name, removed in self._removed_columns.items():
+                table, target = actual["tables"].get(name), expected["tables"].get(name)
+                if (
+                    table is not None
+                    and target is not None
+                    and removed & (table["columns"].keys() - target["columns"].keys())
+                ):
+                    return False
             return compatible_inventory(actual, expected)
         return _matches(actual, expected)
 
