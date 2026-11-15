@@ -1101,9 +1101,11 @@ record one event.
 
 # Drawbacks
 
-- **Host processes hold resources**: each Server process gets at least one more long-lived process (about 150 MB each)
-  for each loaded plugin, more under load, and the count grows with instances in multi-instance deployments. Synchronous calls add one
-  inter-process round trip and serialization.
+- **Host processes hold resources**: each Server process gets at least one more long-lived process for each loaded
+  plugin, more under load, and the count grows with instances in multi-instance deployments. Each host process is a
+  full interpreter with the core runtime and the plugin loaded, so its memory is of the same order as a Server
+  process's, and more for plugins with heavier dependencies. Synchronous calls add one inter-process round trip and
+  serialization.
 - **Synchronous calls depend on the plugin being available**: while a host process is crashed or in restart backoff, the
   plugin's Source writes and user changes return 503; defects in plugin code show up directly as failed user requests. A
   plugin that blocks the event loop makes other requests in the same process fail with it.
