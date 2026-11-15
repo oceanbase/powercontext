@@ -75,7 +75,7 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import (
     rebuild_atomic_memory_projection,
     verify_atomic_memory_current,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES
+from powercontext.builtin.authz.repository import ACCESS_TABLES
 
 _OLD = EmbeddingProfile(profile_id="old", model="test", dimension=2, distance="l2", normalization="unit")
 _TARGET = EmbeddingProfile(profile_id="target", model="test", dimension=3, distance="l2", normalization="unit")
