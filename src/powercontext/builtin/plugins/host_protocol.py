@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -116,10 +117,12 @@ class HostHeartbeat:
 
 
 class _Closed:
-    pass
+    def __init__(self, error: BaseException | None = None) -> None:
+        self.error = error
 
 
 _CLOSED = _Closed()
+_CLOSE_WAIT_SECONDS = 5.0
 
 
 class PipeChannel:
@@ -136,17 +139,24 @@ class PipeChannel:
         self._incoming: asyncio.Queue[object] = asyncio.Queue()
         self._outgoing: queue.SimpleQueue[tuple[object, asyncio.Future[None]] | None] = queue.SimpleQueue()
         self._read_done = asyncio.Event()
+        self._write_done = asyncio.Event()
         self._closed = False
         threading.Thread(target=self._read, name=f"{name}-recv", daemon=True).start()
         threading.Thread(target=self._write, name=f"{name}-send", daemon=True).start()
 
     async def recv(self) -> Any:
-        """The next message; ``EOFError`` once the other end is gone."""
+        """The next message; ``EOFError`` once the other end is gone.
+
+        A message that cannot be received, such as one that fails to unpickle, raises its error once;
+        later calls raise ``EOFError``.
+        """
 
         message = await self._incoming.get()
-        if message is _CLOSED:
+        if isinstance(message, _Closed):
             self._incoming.put_nowait(_CLOSED)
-            raise EOFError
+            if message.error is not None:
+                raise message.error
+            raise EOFError  # noqa: TRY004 - the end of the stream, not a wrong argument type
         return message
 
     async def send(self, message: object) -> None:
@@ -158,13 +168,17 @@ class PipeChannel:
         self._outgoing.put((message, future))
         await future
 
-    async def close(self, timeout: float = 5.0) -> None:
-        """Stop sending and close the Pipe once the reader has stopped, so no thread uses a closed handle."""
+    async def close(self) -> None:
+        """Stop sending and close the Pipe once both threads have stopped, so neither uses a closed handle.
+
+        Messages already queued are sent first. If a thread is still running after a few seconds, the Pipe
+        is left open: its descriptor number cannot be reused while a thread may still write to it.
+        """
 
         self._closed = True
         self._outgoing.put(None)
         try:
-            await asyncio.wait_for(self._read_done.wait(), timeout)
+            await asyncio.wait_for(asyncio.gather(self._read_done.wait(), self._write_done.wait()), _CLOSE_WAIT_SECONDS)
         except TimeoutError:
             return
         self._connection.close()
@@ -174,27 +188,31 @@ class PipeChannel:
             while True:
                 message = self._connection.recv()
                 self._call(self._incoming.put_nowait, message)
-        except BaseException:
+        except (EOFError, OSError):
             self._call(self._incoming.put_nowait, _CLOSED)
+        except BaseException as error:
+            # Ends the stream too, but recv raises it so the owner can report why.
+            self._call(self._incoming.put_nowait, _Closed(error))
         finally:
             self._call(self._read_done.set)
 
     def _write(self) -> None:
-        while (item := self._outgoing.get()) is not None:
-            message, future = item
-            try:
-                self._connection.send(message)
-            except Exception as error:
-                self._call(_settle, future, error)
-            else:
-                self._call(_settle, future, None)
+        try:
+            while (item := self._outgoing.get()) is not None:
+                message, future = item
+                try:
+                    self._connection.send(message)
+                except Exception as error:
+                    self._call(_settle, future, error)
+                else:
+                    self._call(_settle, future, None)
+        finally:
+            self._call(self._write_done.set)
 
     def _call(self, callback: Any, *args: object) -> None:
-        try:
+        # RuntimeError: the event loop has closed, so nobody is waiting any more.
+        with suppress(RuntimeError):
             self._loop.call_soon_threadsafe(callback, *args)
-        except RuntimeError:
-            # The event loop has closed; nobody is waiting any more.
-            pass
 
 
 def _settle(future: asyncio.Future[None], error: Exception | None) -> None:

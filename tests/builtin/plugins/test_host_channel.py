@@ -16,6 +16,7 @@
 
 import asyncio
 import multiprocessing
+import pickle
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -60,5 +61,21 @@ def test_channel_reports_the_other_end_going_away_and_refuses_sends_once_closed(
             await channel.close()
         with pytest.raises(OSError, match="closed"):
             await channel.send("late")
+
+    asyncio.run(scenario())
+
+
+def test_channel_raises_a_message_that_cannot_be_received_then_reports_the_end():
+    async def scenario():
+        left, right = multiprocessing.Pipe(duplex=True)
+        channel = PipeChannel(left, name="server")
+        right.send_bytes(b"not a pickle")
+        async with asyncio.timeout(5):
+            with pytest.raises(pickle.UnpicklingError):
+                await channel.recv()
+            with pytest.raises(EOFError):
+                await channel.recv()
+        right.close()
+        await channel.close()
 
     asyncio.run(scenario())
