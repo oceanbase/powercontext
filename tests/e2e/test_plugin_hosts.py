@@ -63,6 +63,11 @@ class Slow:
         time.sleep(request.body.seconds)
         return {"pid": os.getpid()}
 
+    async def crowd(self, request: ApiRequest):
+        # Occupy every thread of the default executor for a while, as CPU work moved off the event loop would.
+        self.crowd = [asyncio.ensure_future(asyncio.to_thread(time.sleep, request.body.seconds)) for _ in range(64)]
+        return {"pid": os.getpid()}
+
 
 async def setup(ctx):
     return Slow()
@@ -90,6 +95,7 @@ plugin = ArtifactPlugin(
             route("/wait", "wait", 3),
             route("/hold", "wait", 30),
             route("/block", "block", 1),
+            route("/crowd", "crowd", 3),
             route("/gate", "gate", 120, Gate),
         )
     ),
@@ -157,5 +163,36 @@ def test_plugin_hosts_cancel_timed_out_calls_replace_blocked_hosts_and_grow_unde
             responses = await asyncio.gather(*held)
             assert all(response.status_code == 200 for response in responses), [item.text for item in responses]
             assert len({response.json()["pid"] for response in responses}) == 2
+
+    asyncio.run(scenario())
+
+
+def test_plugin_hosts_keep_answering_while_plugin_code_fills_the_default_executor(tmp_path):
+    plugins = tmp_path / "plugins"
+    (plugins / "slow").mkdir(parents=True)
+    (plugins / "slow" / "plugin.py").write_text(PLUGIN, encoding="utf-8")
+    log = tmp_path / "server.log"
+
+    async def scenario():
+        async with running_server(tmp_path, plugins) as client:
+            api = "/v1/plugins/slow/api"
+
+            async def call(path, seconds):
+                return await client.post(f"{api}{path}", json={"seconds": seconds}, timeout=60)
+
+            first = await wait_for(lambda: call("/wait", 0), lambda response: response.status_code == 200, log=log)
+            pid = first.json()["pid"]
+            crowded = await call("/crowd", 10)
+            assert crowded.status_code == 200, crowded.text
+            assert crowded.json()["pid"] == pid
+
+            # Past the heartbeat timeout, the same host still answers within the route's time limit.
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 8
+            while loop.time() < deadline:
+                response = await call("/wait", 0)
+                assert response.status_code == 200, response.text
+                assert response.json()["pid"] == pid
+                await asyncio.sleep(0.5)
 
     asyncio.run(scenario())

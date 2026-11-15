@@ -47,6 +47,7 @@ from powercontext.builtin.plugins.host_protocol import (
     HostRequest,
     HostResponse,
     HostShutdown,
+    PipeChannel,
     PluginHostSpec,
 )
 from powercontext.builtin.plugins.manifest import PluginConfigError, PluginManifest, load_plugin
@@ -111,8 +112,8 @@ def run_plugin_host(connection: Any, spec: PluginHostSpec) -> None:
 class _Host:
     def __init__(self, connection: Any, spec: PluginHostSpec) -> None:
         self.connection = connection
+        self.channel: PipeChannel | None = None
         self.spec = spec
-        self.send_lock = asyncio.Lock()
         self.manifest = PluginManifest.model_validate(spec.manifest)
         self.family = self.manifest.spec.family
         self.access: Any = None
@@ -122,10 +123,11 @@ class _Host:
         self.definitions: Any = None
 
     async def _send(self, message: object) -> None:
-        async with self.send_lock:
-            await asyncio.to_thread(self.connection.send, message)
+        assert self.channel is not None  # noqa: S101 - opened before anything is sent
+        await self.channel.send(message)
 
     async def serve(self) -> None:
+        channel = self.channel = PipeChannel(self.connection, name="powercontext-plugin-host")
         async with AsyncExitStack() as resources:
             try:
                 implemented = await self._start(resources)
@@ -142,7 +144,7 @@ class _Host:
             tasks: dict[str, asyncio.Task[None]] = {}
             while True:
                 try:
-                    message = await asyncio.to_thread(self.connection.recv)
+                    message = await channel.recv()
                 except (EOFError, OSError):
                     break
                 if isinstance(message, HostShutdown):
