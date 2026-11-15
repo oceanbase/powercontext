@@ -52,6 +52,35 @@ def test_markdown_html_tables_keep_content_and_source_lines():
     assert blocks[0]["locator"]["line_end"] == 3
 
 
+@pytest.mark.parametrize(
+    ("body", "expected_paths"),
+    [
+        (
+            "## Preconditions\n\nCheck backups.\n\n## Execution\n\nDrain connections.",
+            [["Preconditions"], ["Execution"]],
+        ),
+        (
+            "# Runbook\n\n### Preconditions\n\nCheck backups.\n\n### Execution\n\nDrain connections.",
+            [["Runbook"], ["Runbook", "Preconditions"], ["Runbook", "Execution"]],
+        ),
+        (
+            "# Runbook\n\n## Restart\n\n#### Checks\n\nVerify backups.\n\n## Stop\n\nDrain connections.\n\n# Appendix",
+            [["Runbook"], ["Runbook", "Restart"], ["Runbook", "Restart", "Checks"], ["Runbook", "Stop"], ["Appendix"]],
+        ),
+        (
+            "# Runbook\n\n- ## Embedded heading\n\nOutside the list.",
+            [["Runbook"]],
+        ),
+    ],
+    ids=["h2-siblings", "skipped-level-siblings", "return-to-ancestor", "atomic-list-heading"],
+)
+def test_markdown_heading_paths_follow_levels_and_block_boundaries(body, expected_paths):
+    blocks = parse(body.encode(), "runbook.md", {"max_chars": 360, "overlap": 40})
+    assert [block["heading_path"] for block in blocks] == expected_paths
+    # Heading metadata must not remove or reorder the original Markdown blocks.
+    assert "\n\n".join(block["text"] for block in blocks) == body
+
+
 def test_sqlite_indexes_preserve_old_chunks_and_isolate_scopes(tmp_path):
     async def scenario():
         storage = SQLitePluginStorage(tmp_path / "plugin.db")

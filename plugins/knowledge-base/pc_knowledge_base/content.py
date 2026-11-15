@@ -105,11 +105,15 @@ def markdown_blocks(text):
     covered = -1
     parsed = MarkdownIt("commonmark").enable("table").parse(text)
     for i, token in enumerate(parsed):
-        if token.type == "heading_open":
-            level = int(token.tag[1:])
-            headings = [*headings[: level - 1], parsed[i + 1].content]
         if token.map is None or token.map[0] < covered or token.nesting == -1:
             continue
+        if token.type == "heading_open":
+            level = int(token.tag[1:])
+            # A missing heading level does not create a parent. Atomic blocks already
+            # covered above must not change the outline of subsequent document blocks.
+            while headings and headings[-1][0] >= level:
+                headings.pop()
+            headings.append((level, parsed[i + 1].content))
         if token.type in {
             "paragraph_open",
             "heading_open",
@@ -123,7 +127,7 @@ def markdown_blocks(text):
             start, end = token.map
             blocks.append({
                 "text": "".join(lines[start:end]).rstrip(),
-                "heading_path": headings[:],
+                "heading_path": [title for _, title in headings],
                 "locator": {"line_start": start + 1, "line_end": end},
             })
             covered = end
