@@ -24,6 +24,7 @@ import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PluginRuntime } from '../invoke.ts'
 import { isLoopbackAddress, localDeploymentFacts, resolveDeployment } from '../status-bridge.ts'
+import { createHostCodexDesktopAdapter } from './adapters/codex-desktop-runtime.ts'
 import { createHandoffServices } from './assembly.ts'
 import type { CallContext, SourceBoundary } from './contracts.ts'
 import { HandoffError } from './errors.ts'
@@ -204,14 +205,14 @@ function sourceConnection(host: Host, runtime: PluginRuntime, key: Buffer) {
 }
 
 /** Optional DSH Host composition; headless and status-only plugin paths stay independent. */
-export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adapters: readonly TargetAdapter[] = []): void {
+export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adapters?: readonly TargetAdapter[]): void {
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['webServer', 'connection'], host => {
     const ui = host as Host
     const facts = localDeploymentFacts(ui, runtime.config.ownerLocal)
     const profile = ui.get('profileContext') as Profile | undefined
     const lifetime = new AbortController()
-    const catalog = new TargetCatalog(adapters)
+    let catalog: TargetCatalog | undefined
     const requireLocal = () => {
       if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) {
         throw new HandoffError('deployment_unsupported')
@@ -219,36 +220,44 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
     }
     let services: ReturnType<typeof createHandoffServices> | undefined
     let release: (() => void) | undefined
+    const ensureServices = () => {
+      lifetime.signal.throwIfAborted()
+      requireLocal()
+      if (services !== undefined) return services
+      if (!profile || !isAbsolute(profile.home)) throw new HandoffError('integration_unavailable')
+      const ownerRoot = join(homedir(), '.powercontext-dsh-handoff')
+      const unlock = lockWriter(ownerRoot)
+      try {
+        const root = join(ownerRoot, keyFor(profile.home, profile.name))
+        privateDirectory(root)
+        const generationKey = connectionKey(root)
+        catalog = new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
+          codexHome: process.env.CODEX_HOME ?? join(homedir(), '.codex'),
+          deliveryRoot: join(root, 'deliveries'), generationKey,
+        })])
+        services = createHandoffServices({
+          root, catalog, signal: lifetime.signal, client: runtime.client,
+          authorization: runtime.config.authorization,
+          authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, generationKey),
+            verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
+        })
+        release = unlock
+        return services
+      } catch (error) { unlock(); throw error }
+    }
     const handler = createHandoffHandler({
-      facts, requireLocal, catalog, signal: lifetime.signal,
+      facts, requireLocal, get catalog() { ensureServices(); return catalog! }, signal: lifetime.signal,
       requestRejection: request => ui.connection.requestRejection(request),
       authenticatedOwner: request => {
         const admission = ui.connection.admit?.(request)
         if (ui.connection.admit && admission?.peer?.principal?.kind !== 'owner') return undefined
         return `local-owner:${process.getuid?.() ?? 'host'}`
       },
-      services: () => {
-        if (services !== undefined) return services
-        if (!profile || !isAbsolute(profile.home)) throw new HandoffError('integration_unavailable')
-        const ownerRoot = join(homedir(), '.powercontext-dsh-handoff')
-        const unlock = lockWriter(ownerRoot)
-        try {
-          const root = join(ownerRoot, keyFor(profile.home, profile.name))
-          privateDirectory(root)
-          services = createHandoffServices({
-            root, catalog, signal: lifetime.signal, client: runtime.client,
-            authorization: runtime.config.authorization,
-            authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, connectionKey(root)),
-              verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
-          })
-          release = unlock
-          return services
-        } catch (error) { unlock(); throw error }
-      },
+      services: ensureServices,
     })
     for (const path of COLLECTIONS) {
       host.effect(() => ui.webServer.register({
-        kind: path === COLLECTIONS[0] ? 'exact' : 'prefix', path, handler,
+        kind: 'prefix', path, handler,
       }), `powercontext: ${path}`)
     }
     host.effect(() => async () => {

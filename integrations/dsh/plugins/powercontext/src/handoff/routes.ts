@@ -29,7 +29,7 @@ const MAX_EXPORT_BYTES = 2 * 1024 * 1024
 const BODY_TIMEOUT_MS = 10_000
 const PREFIX = '/powercontext'
 const TOKEN = /^[A-Za-z0-9._:-]{1,256}$/
-const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch))?)?$/
+const ROUTES = /^(targets|preflights|deliveries)(?:\/([A-Za-z0-9._:-]{1,256})(?:\/(install|cancel|export|launch|diagnose))?)?$/
 
 interface RouteOptions {
   facts: DeploymentFacts
@@ -166,7 +166,8 @@ export function createHandoffHandler(options: RouteOptions) {
       const route = ROUTES.exec(path.slice(PREFIX.length + 1))
       if (!route) throw new HandoffError('not_found')
       const [, resource, id, action] = route
-      if ((resource === 'targets' && id) || (resource === 'preflights' && action && !['install', 'cancel'].includes(action))
+      if ((resource === 'targets' && id && action !== 'diagnose') || (action === 'diagnose' && resource !== 'targets')
+        || (resource === 'preflights' && action && !['install', 'cancel'].includes(action))
         || (resource === 'deliveries' && action === 'install')) throw new HandoffError('not_found')
       const method = resource === 'targets' || action === 'export' || (id && !action) ? 'GET' : 'POST'
       if (request.method !== method) {
@@ -175,6 +176,8 @@ export function createHandoffHandler(options: RouteOptions) {
       }
       if (resource === 'targets') {
         if (question !== -1) return fail()
+        signal.throwIfAborted()
+        if (id) return json(response, 200, { targetId: id, ...await options.catalog.diagnose(id, signal) })
         return json(response, 200, { targets: options.catalog.list() })
       }
       const query = new URLSearchParams(question === -1 ? '' : raw.slice(question + 1))
