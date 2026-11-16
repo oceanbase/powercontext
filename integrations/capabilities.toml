@@ -119,6 +119,9 @@ capabilities = ["source_capture"]
 id = "pc_source_target_delete"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
+id = "pc_source_target_transfer"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
 id = "capture_working_note"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
@@ -347,6 +350,9 @@ id = "mcp__powercontext__pc_source_target_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__pc_source_target_delete"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_target_transfer"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_working_note"
@@ -1194,6 +1200,9 @@ id = "pc_source_target_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "pc_source_target_delete"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_transfer"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"
