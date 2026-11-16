@@ -66,7 +66,7 @@ _BOOTSTRAP_PROFILE = "powercontext.scope-bootstrap.v1"
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.3",
+    "User-Agent": "powercontext-claude-code-plugin/0.1.4",
 }
 
 

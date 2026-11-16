@@ -57,7 +57,7 @@ _REQUEST_HEADERS = {
     "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.3",
+    "User-Agent": "powercontext-claude-code-plugin/0.1.4",
 }
 _FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 
