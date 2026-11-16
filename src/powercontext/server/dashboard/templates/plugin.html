@@ -47,7 +47,10 @@ limitations under the License.
         method: route.method,
         pattern: new RegExp('^' + escape(route.path).replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, '[^/]+') + '$'),
       }));
-      const safePath = path => /^\/[A-Za-z0-9._~%!$&'()*+,;=:@\/-]*$/.test(path) && !/(^|\/)\.\.?(\/|$)/.test(path);
+      // Dot segments are refused in their percent-encoded forms too: the URL parser resolves both.
+      const safePath = path => /^\/[A-Za-z0-9._~%!$&'()*+,;=:@\/-]*$/.test(path) && !/(^|\/)(\.|%2e){1,2}(\/|$)/i.test(path);
+      // The resolved destination must still lie under the endpoint it was built from.
+      const within = (url, base) => url.origin === location.origin && (url.pathname === base || url.pathname.startsWith(base + '/'));
       const declared = (method, path) => safePath(path) && routes.some(route => route.method === method && route.pattern.test(path));
       // The first load is the plugin page. Any later load may be another site, so forwarding stops.
       let loads = 0;
@@ -74,12 +77,28 @@ limitations under the License.
         const reply = fields => send({ type: 'powercontext.response', id: data.id, ...fields });
         const method = String(data.method || 'GET').toUpperCase();
         const path = String(data.path || '');
-        if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
-        const url = new URL(config.api + path, location.origin);
+        // A page reaches its plugin's declared routes, or the generic Artifact API of the plugin's own family.
+        const artifacts = data.target === 'artifacts';
+        let url;
+        if (artifacts) {
+          const scopeId = String(data.scopeId || pageContext.scopeId || '');
+          if (!config.artifacts || !scopeId || !['GET', 'POST', 'PUT'].includes(method) || (path && !safePath(path))) {
+            reply({ status: 404, error: 'route_not_declared' });
+            return;
+          }
+          const base = config.artifacts + '/' + encodeURIComponent(scopeId);
+          url = new URL(base + path, location.origin);
+          if (!within(url, base)) { reply({ status: 404, error: 'route_not_declared' }); return; }
+        } else {
+          if (!declared(method, path)) { reply({ status: 404, error: 'route_not_declared' }); return; }
+          url = new URL(config.api + path, location.origin);
+          if (!within(url, config.api)) { reply({ status: 404, error: 'route_not_declared' }); return; }
+        }
         for (const [key, value] of Object.entries(data.query || {})) {
           for (const item of [].concat(value)) url.searchParams.append(key, String(item));
         }
         const init = { method, credentials: 'same-origin', headers: {} };
+        if (artifacts && data.ifMatch !== undefined) init.headers['If-Match'] = String(data.ifMatch);
         if (data.json !== undefined) {
           init.body = JSON.stringify(data.json);
           init.headers['Content-Type'] = 'application/json';
@@ -92,6 +111,10 @@ limitations under the License.
           const contentType = response.headers.get('content-type') || '';
           const disposition = response.headers.get('content-disposition') || '';
           const result = { status: response.status, contentType, filename: (/filename="([^"]+)"/.exec(disposition) || [])[1] };
+          if (artifacts) {
+            result.etag = response.headers.get('etag');
+            result.location = response.headers.get('location');
+          }
           if (response.status !== 204) {
             if (contentType.includes('application/json')) result.json = await response.json();
             else result.blob = await response.blob();

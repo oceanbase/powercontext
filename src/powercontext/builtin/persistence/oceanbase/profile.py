@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Literal
@@ -236,6 +236,17 @@ class OceanBaseProfile:
         database = AsyncDatabase.attach(engine)
         async with _initialized_profile(cls(database=database, tables=tables)) as profile:
             yield profile
+
+
+def sibling_database_engines(config: OceanBaseConfig, database: str) -> tuple[AsyncEngine, Callable[[], AsyncEngine]]:
+    """Engines for another database of this tenant and for the tenant itself, with this deployment's settings.
+
+    The second engine creates the database when it is missing; see ``ensure_database``.
+    """
+
+    _register_official_dialect()
+    url = _validate_oceanbase_url(config.url.get_secret_value())
+    return _create_engine(config, url.set(database=database)), lambda: _create_engine(config, url.set(database=""))
 
 
 def _create_engine(config: OceanBaseConfig, url: URL) -> AsyncEngine:

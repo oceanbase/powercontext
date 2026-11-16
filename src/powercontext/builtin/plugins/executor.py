@@ -67,6 +67,14 @@ def run_plugin_worker(
 
 @asynccontextmanager
 async def open_plugin_database(config: DatabaseConfig):
+    async with open_plugin_profile(config) as profile:
+        yield profile.database
+
+
+@asynccontextmanager
+async def open_plugin_profile(config: DatabaseConfig):
+    """The opened profile; its seekdb connection options also reach the plugin's own database."""
+
     from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
     from powercontext.builtin.persistence.seekdb.profile import SeekDBProfile
     from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -79,7 +87,7 @@ async def open_plugin_database(config: DatabaseConfig):
     else:
         opened = SeekDBProfile.open(config, tables=())
     async with opened as profile:
-        yield profile.database
+        yield profile
 
 
 async def execute_plugin(  # noqa: C901 - one window from selection through acknowledgment
@@ -95,8 +103,11 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
     sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
     cursors = SourceCursorRepository()
     async with AsyncExitStack() as resources:
+        connection_options = None
         if database is None:
-            database = await resources.enter_async_context(open_plugin_database(spec.database))
+            profile = await resources.enter_async_context(open_plugin_profile(spec.database))
+            database = profile.database
+            connection_options = getattr(profile, "connection_options", None)
         from powercontext.builtin.authz.worker import open_worker_security
 
         security = await resources.enter_async_context(open_worker_security(spec.security, database))
@@ -176,7 +187,12 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
                     from powercontext.builtin.plugins.storage import open_plugin_resources
 
                     storage, models = await open_plugin_resources(
-                        spec.database, spec.storage_root, manifest.name, spec.inference, plugin_resources
+                        spec.database,
+                        spec.storage_root,
+                        manifest.name,
+                        spec.inference,
+                        plugin_resources,
+                        connection_options=connection_options,
                     )
                     context = PluginContext(
                         name=manifest.name,

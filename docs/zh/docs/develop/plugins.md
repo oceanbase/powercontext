@@ -153,6 +153,8 @@ Server 在一个独立的子进程中导入 `plugin.py` 并检查声明，导入
 - 调用模型、解析文件等慢操作放在事务之外，事务里只做写入。
 - `tx.put(artifact_id, content=..., source_refs=[...])` 写一个新版本，`source_refs` 记录出处。内容与当前版本相同时不产生新版本，
   所以重复交付不会写出重复的版本。`writer.stable_id(...)` 按输入生成稳定的 ID，便于同一条 Source 总是写到同一个 Artifact。
+- 事务外用 `writer.get` 等方法读过的 Artifact，写入时 core 会核对它之后有没有变化：内容被修改过，或者被遗忘、恢复、合并过，
+  这次写入都会冲突，整批 Source 稍后再次交付，插件基于新状态重新决定。插件不需要自己比较。
 - 还可以用 `tx.set_lifecycle`、`tx.merge`、`tx.revert`、`tx.set_tags` 等方法，以及 `writer.get`、`writer.list`、
   `writer.by_source` 读取当前状态。
   `tx.revert` 和 `tx.set_lifecycle` 返回 `ArtifactChange`：`result.artifact` 是目标快照，
@@ -228,7 +230,8 @@ class Notes:
   （修改内容时为 412），插件不必自己重复检查。方法只负责校验内容并完成约定的那一次写入。
 - 接口返回本次写入提交的版本，即使之后已有其他写入。
 - 抛出 `InvalidContent` 时接口返回 422，错误信息展示给调用者。
-- 用户修改会以修改人的身份记录出处，与内置 Artifact 的修改相同。
+- 用户修改会以修改人的身份记录出处，与内置 Artifact 的修改相同。记录的是请求中的 `content` 原文：方法可以把它当作对一次
+  修改的描述，写入另行算出的内容，出处里保留的仍是调用者提交的那一份。
 
 ## 定义 Source 类型
 
@@ -340,12 +343,17 @@ plugin = ArtifactPlugin(
   - `authenticated`：只要求已登录；
   - `scope.read` / `scope.contribute`：要求调用者对 `scope_param` 指定的路径参数中的 Scope 具备该权限。
 - 处理函数里用 `ctx.require(action, scope_id)` 检查其他权限，不具备时接口返回 403；`ctx.allowed(...)` 只返回真假。
+  接口只是接受请求、之后由 `generate` 修改已有 Artifact 时，先用
+  `ctx.require("artifact.write", scope_id, artifact_id=...)` 检查调用者对这个 Artifact 的写权限：后台写入时没有调用者身份。
+  这项检查只针对本插件 family 的 Artifact。
 - 读写核心数据：`ctx.reads(scope_id)` 按调用者权限读取；`ctx.writer(scope_id)` 和 `ctx.sources.submit(...)` 只能用于本次
   请求中已经确认 `scope.contribute` 的 Scope（路由声明了该权限，或处理函数先调用了 `ctx.require`）。修改已有 Artifact
   （包括标签、handle 和生命周期）还需要调用者对该 Artifact 有 `artifact.write` 权限，与通用接口相同；没有权限时接口返回 403。
 - 接口中的写入不会自动记录"谁做了什么"。需要这类出处时，像上面的例子一样把操作作为 Source 提交，由 `generate` 写入新版本并
   引用它。
 - 需要创建 Scope 时用 `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`，要求调用者具备 `server.admin`。
+  `ctx.scopes.list()` 返回本插件创建、且调用者可读的 Scope。`ctx.scopes.update(scope_id, expected_version=..., title=...,
+  summary=...)` 修改本插件创建的 Scope，同样要求 `server.admin`；Scope 不存在时接口返回 404，不是本插件创建的返回 403。
 - `request.body` 按 `body` 声明是校验后的 `request_model` 实例、`bytes` 或 `None`；`request.path_params`、`request.query`、
   `request.caller` 分别是路径参数、查询参数和调用者。
 - 返回值：Pydantic 模型或 dict 返回 JSON；`BinaryResponse(content=..., content_type=..., filename=...)` 返回文件；
@@ -360,8 +368,8 @@ plugin = ArtifactPlugin(
 
 - 一个宿主进程同时处理多个请求，都在同一个事件循环上。调用超过时限时，core 只取消这个请求（写事务随之回滚）并返回 504，
   同一进程中的其他请求不受影响。
-- 阻塞事件循环会让取消无法生效，宿主进程的心跳也随之中断。心跳中断 5 秒后 core 终止该进程：超时的请求返回 504，进程中的
-  其他请求返回 503，进程退避后重启。CPU 密集或同步阻塞的代码放进 `await asyncio.to_thread(...)`；需要几分钟的工作交给
+- 阻塞事件循环会让取消无法生效，宿主进程的心跳也随之中断。心跳中断 5 秒后 core 终止该进程：在此之前已经超过自身时限的
+  请求返回 504，终止时仍在进行中的请求（包括造成阻塞的那个）返回 503，进程退避后重启。CPU 密集或同步阻塞的代码放进 `await asyncio.to_thread(...)`；需要几分钟的工作交给
   后台的 `generate`。
 - Prepared Context 中的插件 section 在插件不可用（超时、宿主进程不可用或检索失败）时省略，回执中记录该 family 的检索
   失败，其他 section 照常返回。
@@ -379,9 +387,13 @@ async def setup(ctx):
     return Notes(ctx)
 ```
 
-- `ctx.storage.engine()` 返回一个 SQLAlchemy 异步引擎，指向数据目录下的 `plugins/<插件名>.sqlite3`。表结构和迁移由插件自己
-  管理，core 不读取、不备份这块存储。目前只支持 SQLite 部署；使用 OceanBase 或 seekdb 的 Server 上，访问 `ctx.storage`
-  会报错。
+- `ctx.storage.engine()` 返回一个 SQLAlchemy 异步引擎，只指向本插件的存储，使用 Server 的数据库后端和连接配置：SQLite
+  部署是数据目录下的 `plugins/<插件名>.sqlite3`；OceanBase 和 seekdb 部署是同一个租户或实例上名为
+  `powercontext_plugin_<插件名>` 的库（`-` 换成 `_`）。`ctx.storage.backend` 给出后端（`sqlite`、`oceanbase` 或 `seekdb`），
+  插件据此选择建表语句和索引。表结构和迁移由插件自己管理，core 不读取、不备份这块存储。
+- OceanBase 和 seekdb 上的库在插件加载时由 core 创建，已存在则直接使用。Server 的数据库登录没有建库权限时，由部署者
+  事先建好并授权。库不存在又无法创建，或者库名超过 64 个字符（插件名超过 44 个字符）时，插件照常加载，调用
+  `ctx.storage.engine()` 时报错并说明原因。
 - 这块存储不在 core 的事务里。大块内容（文件、向量）建议按内容摘要保存，再在 Artifact 中引用摘要：写入重试或事务回滚只会
   留下没人引用的记录，不会让 Artifact 指向错误的数据。
 - 存储属于整个插件，不按 Scope 隔离。按 `scope_id` 划分数据，并在读取时确认数据属于本次请求的 Scope。
@@ -411,9 +423,14 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 ```
 
 - 页面出现在 Dashboard 左侧导航中，地址是 `/dashboard/plugins/<插件名>`。
-- 页面运行在沙箱 iframe 中，拿不到用户的登录会话；请求由 Dashboard 以当前用户的身份转发，只能调用本插件声明的路由。
+- 页面运行在沙箱 iframe 中，拿不到用户的登录会话；请求由 Dashboard 以当前用户的身份转发，只能调用本插件声明的路由和本插件
+  family 的通用 Artifact 接口。
 - `client.request(method, path, options)` 的 `options` 可以有 `json`、`body`（例如文件的 `ArrayBuffer`）、`contentType` 和
   `query`；返回 `status`、`ok`、`json`、`blob`、`filename`。
+- `client.artifacts(method, path, options)` 调用本插件 family 的通用 Artifact 接口，不需要声明路由。`path` 接在
+  `/v1/scopes/{scope_id}/artifacts/{family}` 之后：空字符串是列表（`GET`）或新建（`POST`），`/{artifact_id}` 是读取或编辑，
+  `/{artifact_id}/forget` 是遗忘，依此类推。`options` 另有 `scopeId`（默认是页面当前的 Scope）和 `ifMatch`；返回值另有
+  `etag` 和 `location`。权限、版本校验和出处记录与直接调用通用接口相同，页面不能指定其他 family。
 - 页面要做成单页应用：页面跳转后 Dashboard 会停止转发，提示用户重新打开。沙箱中不能使用 `alert`、`confirm` 等浏览器对话框。
 - 只提供静态文件（HTML、JavaScript、CSS、图片、字体），单个文件不超过 5 MiB；脚本只能来自插件自己的目录和
   `/dashboard/plugins/_client.js`。
@@ -432,6 +449,5 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 ## 当前限制
 
 - 插件更新需要重启 Server，还不支持热加载。
-- 插件专属存储目前只支持 SQLite 部署。
 - 插件依赖由部署者手动安装到 Server 环境。
 - 插件代码与 Server 有相同的权限，宿主进程和 Worker 隔离的是故障，不是不可信代码。
