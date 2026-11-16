@@ -4,7 +4,7 @@
 
 PowerContext v1.5.2 makes Agent long-term memory more efficient, transparent and easier to use, with single-Server performance improvements, native Dashboard observability, stronger Desktop and plugin support, OAuth subscription transports, and more reliable cross-tool handoffs.
 
-- Improve single-Server efficiency through batched writes, reusable query structures, optimized vector conversion, and fewer repeated computations and database round trips. The release benchmark reports approximately 190% higher write throughput, 171% higher query throughput, and 64%–67% lower CPU cost than v1.5.1. These figures describe the measured workload, not a throughput guarantee for every deployment or end-to-end model extraction. ([#2567](https://github.com/oceanbase/powercontext/pull/2567), [#2532](https://github.com/oceanbase/powercontext/pull/2532), [#2449](https://github.com/oceanbase/powercontext/pull/2449))
+- Improve single-Server efficiency through batched writes, reusable query structures, optimized vector conversion, and fewer repeated computations and database round trips. Maintainer-provided release measurements report approximately 190% higher write throughput, 171% higher query throughput, and 64%–67% lower CPU cost than v1.5.1. These measurements were not rerun during release preparation. The repository does not include the workload, hardware, concurrency, sample count, measurement date or reproduction command for these figures; they are not independently reproducible release acceptance evidence or a throughput guarantee for every deployment or end-to-end model extraction. ([#2567](https://github.com/oceanbase/powercontext/pull/2567), [#2532](https://github.com/oceanbase/powercontext/pull/2532), [#2449](https://github.com/oceanbase/powercontext/pull/2449))
 
 - Add native Dashboard observability views for processing progress, failure diagnostics, Token usage and runtime state. Inspect saved Sources, generated Artifacts, Dream inputs and outputs, and read-only processing status. Historical Sources without a recorded save time retain an unknown value. ([#2557](https://github.com/oceanbase/powercontext/pull/2557), [#2568](https://github.com/oceanbase/powercontext/pull/2568), [#2539](https://github.com/oceanbase/powercontext/pull/2539), [#2619](https://github.com/oceanbase/powercontext/pull/2619))
 
@@ -22,6 +22,8 @@ PowerContext v1.5.2 makes Agent long-term memory more efficient, transparent and
 
 - Upgrade Server, SDK, CLI and integrations together. The directory-plugin framework replaces the previous managed plugin APIs and configuration. Migration v1_5_0_005 refuses databases that retain old plugin registrations or data. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. Portable Artifact revision records use schema version 3 and still restore version 2. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance. ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
 
+- Update imports from `powercontext.server.authz` to `powercontext.builtin.authz`, from `powercontext.cli.env_file` to `powercontext.env_file`, and from `powercontext.cli.inference_notice` to `powercontext.server.inference_notice`. `powercontext.paths.default_scheduler_path` has been removed. The `scheduler_path` argument is deprecated and ignored; passing a non-None value emits `DeprecationWarning`. Remove that argument from runtime construction. ([#2244](https://github.com/oceanbase/powercontext/pull/2244))
+
 ### Installation and compatibility
 
 ```bash
@@ -34,7 +36,7 @@ Use `powercontext-v1.5.2` for Agent integration refs and reopen Agent sessions. 
 
 PowerContext v1.5.2 让 Agent 的长期记忆更高效、更透明，也更易用。本次更新围绕单 Server 性能、Dashboard 原生可观测性、Desktop 与插件体验、OAuth 订阅传输，以及更可靠的跨工具交接展开。
 
-- 通过批量写入、查询结构复用、向量转换优化，以及减少重复计算和数据库往返，提升单 Server 的处理效率。版本基准测试相比 v1.5.1，写入吞吐提升约 190%，查询吞吐提升约 171%，CPU 成本降低 64%–67%。这些数字描述测试负载下的结果，不代表所有部署或端到端模型提取的吞吐保证。 ([#2567](https://github.com/oceanbase/powercontext/pull/2567), [#2532](https://github.com/oceanbase/powercontext/pull/2532), [#2449](https://github.com/oceanbase/powercontext/pull/2449))
+- 通过批量写入、查询结构复用、向量转换优化，以及减少重复计算和数据库往返，提升单 Server 的处理效率。维护者提供的发布测量结果相比 v1.5.1，写入吞吐提升约 190%，查询吞吐提升约 171%，CPU 成本降低 64%–67%。本次发布准备未重新运行这些测量。仓库未提供这些数字对应的负载、硬件、并发数、样本数、测量日期或复现命令；它们不构成可独立复现的发布验收证据，也不代表所有部署或端到端模型提取的吞吐保证。 ([#2567](https://github.com/oceanbase/powercontext/pull/2567), [#2532](https://github.com/oceanbase/powercontext/pull/2532), [#2449](https://github.com/oceanbase/powercontext/pull/2449))
 
 - 新增 Dashboard 原生可观测性面板，集中展示记忆处理进度、异常诊断、Token 用量和运行状态。可查看已保存的 Source、生成的 Artifact、Dream 输入输出，以及只读处理状态；历史 Source 未记录保存时间时仍显示未知。 ([#2557](https://github.com/oceanbase/powercontext/pull/2557), [#2568](https://github.com/oceanbase/powercontext/pull/2568), [#2539](https://github.com/oceanbase/powercontext/pull/2539), [#2619](https://github.com/oceanbase/powercontext/pull/2619))
 
@@ -51,6 +53,8 @@ PowerContext v1.5.2 让 Agent 的长期记忆更高效、更透明，也更易�
 - 限制 Topic Memory 相关历史候选规模，在后续内容失败或过大时保留可正常处理的前缀，并避免并发版本冲突消耗窗口尝试次数。保证 Memory 合并不超过标签上限，支持导出记录了绝对工作目录的 Source。 ([#2632](https://github.com/oceanbase/powercontext/pull/2632), [#2530](https://github.com/oceanbase/powercontext/pull/2530), [#2597](https://github.com/oceanbase/powercontext/pull/2597), [#2596](https://github.com/oceanbase/powercontext/pull/2596), [#2572](https://github.com/oceanbase/powercontext/pull/2572))
 
 - Server、SDK、CLI 与集成需协调升级。目录插件框架替换旧的托管插件 API 与配置。迁移 v1_5_0_005 会拒绝仍保留旧插件登记或数据的数据库；这些数据库目前没有受支持的原地升级路径。卸载插件、删除插件目录或导出归档不会清除框架保留的记录，即使没有生成 Artifact 也是如此。请保留数据库并继续使用旧版本，等待受支持的迁移方案。可以使用独立的新数据库运行新版本，但这不会迁移旧插件数据；不要手工删除框架记录来绕过检查。可移植 Artifact 修订记录使用 schema version 3，并继续支持恢复 version 2。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。 ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
+
+- 将导入路径 `powercontext.server.authz` 改为 `powercontext.builtin.authz`，`powercontext.cli.env_file` 改为 `powercontext.env_file`，`powercontext.cli.inference_notice` 改为 `powercontext.server.inference_notice`。`powercontext.paths.default_scheduler_path` 已移除。`scheduler_path` 参数已废弃且被忽略；传入非 None 值会发出 `DeprecationWarning`。请从运行时构造调用中移除该参数。 ([#2244](https://github.com/oceanbase/powercontext/pull/2244))
 
 ### 安装与兼容性
 

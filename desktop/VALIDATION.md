@@ -3471,6 +3471,23 @@ uv run --no-sync python desktop/tests/real_server.py \
 operations against Server source `be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3`,
 with the API release version set to `1.5.2`.
 
+This is an artifact-specific historical qualification, not a qualification of the final
+release tag. `serverCommit` identifies the source actually used to build the recorded
+wheel and must remain paired with its `artifactSha256`. A squash merge need not put
+that commit on `master`; retrieve the PR history explicitly to inspect the source:
+
+```sh
+git fetch https://github.com/oceanbase/powercontext.git refs/pull/2670/head
+git show be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3:pyproject.toml
+```
+
+Subsequent branch changes include runtime migration diagnostics and upstream plugin
+runtime changes. This record does not qualify those changes. Qualifying the final
+release requires building and testing that artifact and adding a record with its own
+source commit, artifact digest and results; changing this record to a later commit or
+tag would misidentify the tested artifact. The locally retained wheel and report are
+not public release assets, so fetching the source alone does not reproduce this run.
+
 - OpenAPI SHA-256: `e9749951301bd0fc191e70b4573016fda0f56a21cbcdc9affebf1af2a6d3b568`.
 - Wheel: `powercontext-1.5.2.dev178+gbe5f0f769-py3-none-any.whl`.
 - Wheel SHA-256: `436574fca95ce7b7660ccdc61e825955e09749bc9f07edfccbe339635d1e0da4`.
