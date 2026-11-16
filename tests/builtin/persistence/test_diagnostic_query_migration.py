@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Append the nullable query column without rewriting historical diagnostics."""
+"""Create the complete diagnostic store in one additive revision."""
 
 import sqlite3
 from contextlib import closing
@@ -22,45 +22,39 @@ from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRu
 from tests.builtin.persistence.test_portable_storage_migration import apply, configuration, previous_bundle
 
 
-def test_query_column_upgrade_preserves_005_receipts_and_keeps_original_text_unknown(tmp_path):
-    previous = previous_bundle(tmp_path / "old", None, through="v1_5_0_006")
+def test_diagnostic_upgrade_creates_query_column_and_preserves_published_data(tmp_path):
+    previous = previous_bundle(tmp_path / "old", None, through="v1_5_0_005")
     config = configuration(None)
     database = tmp_path / "diagnostics.db"
     old = SQLiteMigrationRunner(database, previous, configuration=config)
-    assert apply(old).revision == "v1_5_0_006"
-    body = "历史上下文保留 😀\n"
-    receipt = b'{"historical":"receipt"}'
-    evidence = b'{"historical":"stages"}'
+    assert apply(old).revision == "v1_5_0_005"
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
-            "INSERT INTO pc_context_prepare_diagnostics "
-            "(record_id,scope_id,started_at,finished_at,duration_ms,status,query_digest,requested_max_bytes,"
-            "prepared_content,receipt_payload,diagnostics_payload) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                "legacy",
-                "scope",
-                "2026-11-01",
-                "2026-11-01",
-                1.0,
-                "ready",
-                "sha256:" + "0" * 64,
-                8000,
-                body,
-                receipt,
-                evidence,
-            ),
+            "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
+            "VALUES ('scope','preserved','summary','scope','preserved','summary',1)"
         )
-        assert "query_text" not in {
-            row[1] for row in connection.execute("PRAGMA table_info(pc_context_prepare_diagnostics)")
-        }
+        assert not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pc_context_prepare_diagnostics'"
+        ).fetchall()
     current = server_bundle()
     assert all(current.checksums[key] == value for key, value in previous.checksums.items())
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
-    plan = upgraded.plan()
-    assert plan.revisions == ("v1_5_0_007",)
-    assert apply(upgraded).revision == "v1_5_0_007"
+    assert upgraded.plan().revisions == ("v1_5_0_006",)
+    assert apply(upgraded).revision == "v1_5_0_006"
     assert upgraded.verify().state == "ready" and not apply(upgraded).changed
-    with closing(sqlite3.connect(database)) as connection:
+    query = "查询原文保留 😀\n"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        assert connection.execute("SELECT title,summary,version FROM pc_scopes WHERE scope_id='scope'").fetchone() == (
+            "preserved",
+            "summary",
+            1,
+        )
+        connection.execute(
+            "INSERT INTO pc_context_prepare_diagnostics "
+            "(record_id,scope_id,started_at,finished_at,duration_ms,status,query_digest,requested_max_bytes,"
+            "diagnostics_payload,query_text) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("new", "scope", "2026-11-01", "2026-11-01", 1.0, "empty", "sha256:" + "0" * 64, 8000, b"{}", query),
+        )
         assert connection.execute(
-            "SELECT query_text,prepared_content,receipt_payload,diagnostics_payload FROM pc_context_prepare_diagnostics WHERE record_id='legacy'"
-        ).fetchone() == (None, body, receipt, evidence)
+            "SELECT query_text FROM pc_context_prepare_diagnostics WHERE record_id='new'"
+        ).fetchone() == (query,)

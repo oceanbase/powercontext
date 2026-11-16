@@ -1,3 +1,0 @@
-{
-  "statement": "ALTER TABLE pc_context_prepare_diagnostics ADD COLUMN query_text TEXT"
-}

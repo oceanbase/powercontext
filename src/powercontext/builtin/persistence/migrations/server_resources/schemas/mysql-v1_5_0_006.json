@@ -3,7 +3,7 @@
   "revisions": {
     "v1_5_0_006": {
       "statements": [
-        "CREATE TABLE pc_context_prepare_diagnostics (\n\trecord_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tstarted_at DATETIME(6) NOT NULL, \n\tfinished_at DATETIME(6) NOT NULL, \n\tduration_ms FLOAT NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tprincipal_type VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tprincipal_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\trequest_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttrace_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tquery_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trequested_max_bytes INTEGER NOT NULL, \n\tcontent_bytes BIGINT, \n\tselected_count INTEGER, \n\terror_code VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\treceipt_payload MEDIUMBLOB, \n\tprepared_content MEDIUMTEXT, \n\tdiagnostics_payload MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (record_id), \n\tCONSTRAINT ck_pc_context_prepare_status CHECK (status IN ('ready', 'empty', 'failed', 'cancelled')), \n\tCONSTRAINT ck_pc_context_prepare_duration CHECK (duration_ms >= 0), \n\tCONSTRAINT ck_pc_context_prepare_budget CHECK (requested_max_bytes >= 512 AND requested_max_bytes <= 32768), \n\tCONSTRAINT ck_pc_context_prepare_content_bytes CHECK (content_bytes IS NULL OR content_bytes >= 0), \n\tCONSTRAINT ck_pc_context_prepare_selected_count CHECK (selected_count IS NULL OR selected_count >= 0)\n)",
+        "CREATE TABLE pc_context_prepare_diagnostics (\n\trecord_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tstarted_at DATETIME(6) NOT NULL, \n\tfinished_at DATETIME(6) NOT NULL, \n\tduration_ms FLOAT NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tprincipal_type VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tprincipal_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\trequest_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttrace_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tquery_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trequested_max_bytes INTEGER NOT NULL, \n\tcontent_bytes BIGINT, \n\tselected_count INTEGER, \n\terror_code VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\treceipt_payload MEDIUMBLOB, \n\tprepared_content MEDIUMTEXT, \n\tdiagnostics_payload MEDIUMBLOB NOT NULL, \n\tquery_text MEDIUMTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (record_id), \n\tCONSTRAINT ck_pc_context_prepare_status CHECK (status IN ('ready', 'empty', 'failed', 'cancelled')), \n\tCONSTRAINT ck_pc_context_prepare_duration CHECK (duration_ms >= 0), \n\tCONSTRAINT ck_pc_context_prepare_budget CHECK (requested_max_bytes >= 512 AND requested_max_bytes <= 32768), \n\tCONSTRAINT ck_pc_context_prepare_content_bytes CHECK (content_bytes IS NULL OR content_bytes >= 0), \n\tCONSTRAINT ck_pc_context_prepare_selected_count CHECK (selected_count IS NULL OR selected_count >= 0)\n)",
         "CREATE INDEX ix_pc_context_prepare_scope_finished ON pc_context_prepare_diagnostics (scope_id, finished_at, record_id)",
         "CREATE INDEX ix_pc_context_prepare_scope_status_finished ON pc_context_prepare_diagnostics (scope_id, status, finished_at, record_id)"
       ],
@@ -229,6 +229,17 @@
                 "default": null,
                 "charset": null,
                 "collation": null,
+                "extra": []
+              },
+              "query_text": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
                 "extra": []
               }
             },
@@ -592,6 +603,17 @@
                 "default": null,
                 "charset": null,
                 "collation": null,
+                "extra": []
+              },
+              "query_text": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
                 "extra": []
               }
             },
@@ -976,6 +998,17 @@
                 "default": null,
                 "charset": null,
                 "collation": null,
+                "extra": []
+              },
+              "query_text": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
                 "extra": []
               }
             },

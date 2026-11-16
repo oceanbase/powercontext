@@ -55,10 +55,6 @@
     "v1_5_0_006": [
       "schemas/sqlite-v1_5_0_006.json",
       "schemas/mysql-v1_5_0_006.json"
-    ],
-    "v1_5_0_007": [
-      "schemas/sqlite-v1_5_0_007.json",
-      "schemas/mysql-v1_5_0_007.json"
     ]
   },
   "sqlite_baselines": {
@@ -102,10 +98,7 @@
       "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
     "v1_5_0_006": [
-      "4afa8e2474806be46ce9cde1d74b4c50a194440ddaecdbc24fbf6e5a68ebbf12"
-    ],
-    "v1_5_0_007": [
-      "e23ba109da6d710a7a3f468a00a0ce8fcba1132248819a07de0afaaa1d1478fe"
+      "5adca391e74bf82c5cc2c413e6aa3c5b2a5ba4bd8d9a182071730d9befcfff5f"
     ]
   },
   "affected_objects": [
@@ -393,11 +386,6 @@
       "plugin_artifacts",
       "portable_storage",
       "atomic_memory_evidence_projection"
-    ],
-    "v1_5_0_007": [
-      "plugin_artifacts",
-      "portable_storage",
-      "atomic_memory_evidence_projection"
     ]
   },
   "retained_fingerprints": {
@@ -421,8 +409,7 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
-    "schemas/mysql-v1_5_0_006.json",
-    "schemas/mysql-v1_5_0_007.json"
+    "schemas/mysql-v1_5_0_006.json"
   ],
   "mysql_history": "mysql",
   "mysql_schema_extensions": {
