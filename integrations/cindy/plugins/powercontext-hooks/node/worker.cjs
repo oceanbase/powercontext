@@ -693,9 +693,31 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	register_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
 	sync_source_runner: {
 		method: "POST",
 		path: "/v1/source-runners/{runner}/sync",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	update_source_runner: {
+		method: "PATCH",
+		path: "/v1/source-runners/{runner}",
 		location: "body",
 		scopeMode: "none",
 		pathParameters: ["runner"],
@@ -758,6 +780,17 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [204],
 		emptyStatuses: [204]
+	},
+	pc_source_target_transfer: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_plugin_scopes: {
 		method: "GET",
