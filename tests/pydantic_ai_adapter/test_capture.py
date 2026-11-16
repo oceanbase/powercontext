@@ -32,7 +32,8 @@ from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart, ToolCall
 from pydantic_ai.models.function import FunctionModel
 
 from powercontext.client import TransportError
-from powercontext.client.capture import redact_known_secrets, render_capture_event
+from powercontext.client.capture import render_capture_event
+from powercontext.redaction import redact_known_secrets
 from tests.pydantic_ai_adapter.fakes import RecordingClient, prepared_response
 
 

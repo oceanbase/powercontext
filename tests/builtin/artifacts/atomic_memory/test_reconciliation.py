@@ -155,6 +155,33 @@ def test_unpublished_reconciliation_receives_bounded_identity_correction(correct
     asyncio.run(scenario())
 
 
+def test_release_keeps_read_dependencies_for_commit() -> None:
+    workset = AtomicMemoryWindowWorkset()
+    related = AtomicMemoryRead(
+        ref=ArtifactRef(family="atomic-memory", artifact_id="memory-1", revision=1),
+        state=AtomicMemoryStateValue.ACTIVE,
+        state_version=1,
+    )
+    workset.add(
+        AtomicMemoryWorkingItem(
+            key="memory:memory-1",
+            content=AtomicMemoryContent(kind="fact", text="Existing memory."),
+            origins=(related,),
+        )
+    )
+    proposal = workset.add(
+        AtomicMemoryWorkingItem(
+            key="candidate:0",
+            content=AtomicMemoryContent(kind="fact", text="New observation."),
+            changed=True,
+        )
+    )
+    workset.release(("memory:memory-1",), keep=proposal)
+    assert "memory:memory-1" not in workset.items
+    assert "memory-1" not in workset.origins
+    assert workset.reads == {"memory-1": related}
+
+
 def test_reconciliation_generator_advertises_only_model_owned_content() -> None:
     async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         output = info.model_request_parameters.output_object

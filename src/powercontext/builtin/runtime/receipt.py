@@ -23,7 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_valid
 from powercontext.artifacts import ArtifactAddress
 
 RECEIPT_POLICY = "powercontext.prepared-context-receipt.v1"
-ReceiptFamily = Literal["atomic-memory", "topic-memory", "experience", "profile", "code"]
+# atomic-memory, topic-memory, experience, profile, code, or a plugin family.
+ReceiptFamily = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9-]*$")]
 OmissionReason = Literal[
     "duplicate",
     "blank",

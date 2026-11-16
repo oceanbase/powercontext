@@ -25,7 +25,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import closing
 from pathlib import Path
 
-from powercontext.cli.env_file import EnvironmentFileError, _split_assignment, parse_environment
+from powercontext.env_file import EnvironmentFileError, _split_assignment, parse_environment
 
 _BEGIN = "# >>> powercontext managed configuration >>>"
 _END = "# <<< powercontext managed configuration <<<"
