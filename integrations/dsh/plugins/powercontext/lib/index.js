@@ -5424,15 +5424,15 @@ const REQUIRED_TOOLS = [
 ];
 const SAFE_PART = /^[A-Za-z0-9._-]+$/u;
 const MAX_OUTPUT = 2 * 1024 * 1024;
-/** Compose detection and the runtime against the same app and Host profile. */
+/** Compose detection and the runtime without opening the Host's delivery store. */
 function createHostCodexDesktopAdapter(options) {
-	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt, qualification, ...runtimeOptions } = options;
+	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt, qualification, deliveryStorage, ...runtimeOptions } = options;
 	return createCodexDesktopAdapter({
 		appPath,
-		runtime: createCodexDesktopRuntime({
+		runtime: createRuntime$1({
 			...runtimeOptions,
 			cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
-		}),
+		}, deliveryStorage),
 		buildReceiverPrompt,
 		qualification
 	});
@@ -5513,6 +5513,7 @@ async function inspectAppServer(options, cwd, signal, mode) {
 	signal.addEventListener("abort", abort, { once: true });
 	child.once("error", fail$2);
 	child.once("exit", fail$2);
+	child.stdin.on("error", fail$2);
 	lines.on("line", (line) => {
 		size += Buffer.byteLength(line);
 		if (size > MAX_OUTPUT) {
@@ -5531,6 +5532,11 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			abort();
 		}
 	});
+	const write = (message) => {
+		child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+			if (error) fail$2();
+		});
+	};
 	const call$1 = (method, params) => {
 		if (failure || signal.aborted) return Promise.reject(failure ?? /* @__PURE__ */ new Error("Cancelled"));
 		const id = ++sequence;
@@ -5539,12 +5545,10 @@ async function inspectAppServer(options, cwd, signal, mode) {
 				resolve: resolve$1,
 				reject
 			});
-			child.stdin.write(`${JSON.stringify({
+			write({
 				id,
 				method,
 				params
-			})}\n`, (error) => {
-				if (error) fail$2();
 			});
 		});
 	};
@@ -5560,7 +5564,10 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			}
 		}));
 		if (await realpath(text(initialized.codexHome)) !== await realpath(options.codexHome) || initialized.platformOs !== "macos") throw new Error("Codex runtime profile mismatch");
-		child.stdin.write("{\"method\":\"initialized\",\"params\":{}}\n");
+		write({
+			method: "initialized",
+			params: {}
+		});
 		if (mode === "requirements") return { requirements: object$4(await call$1("configRequirements/read", {})) };
 		const [hooks, config, mcp, requirements, plugins] = await Promise.all([
 			call$1("hooks/list", { cwds: [cwd] }),
@@ -5772,13 +5779,8 @@ async function sandboxHash(options, profile, cwd, path, signal) {
 	if (!hash) throw new Error("Sandbox read failed");
 	return hash;
 }
-function createCodexDesktopRuntime(options) {
-	if (![
-		options.cliPath,
-		options.codexHome,
-		options.deliveryRoot
-	].every(isAbsolute) || options.cliPath.includes(":") || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32 || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl(options.setup.serverUrl))) throw new Error("Invalid Codex runtime paths");
-	const key$2 = Buffer.from(options.generationKey).toString("hex");
+function createRuntime$1(options, deliveryStorage) {
+	if (![options.cliPath, options.codexHome].every(isAbsolute) || options.cliPath.includes(":") || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl(options.setup.serverUrl))) throw new Error("Invalid Codex runtime paths");
 	return {
 		configurationKey: `codex:${options.codexHome}`,
 		async checkIntegration(_target, signal) {
@@ -5855,6 +5857,9 @@ function createCodexDesktopRuntime(options) {
 		},
 		async resolveEnvironment(_target, cwd, signal) {
 			try {
+				signal.throwIfAborted();
+				const { deliveryRoot, generationKey } = deliveryStorage();
+				const key$2 = generationKey.toString("hex");
 				const observed$1 = await inspectAppServer(options, cwd, signal);
 				const plugin = installedPlugin(observed$1.plugins);
 				if (!plugin?.enabled) throw new Error("Plugin unavailable");
@@ -5889,7 +5894,7 @@ function createCodexDesktopRuntime(options) {
 				const url = new URL(text(transport.url));
 				const expected = new URL(`${scope.endpoint.replace(/\/$/u, "")}/mcp/`);
 				if (url.username || url.password || url.search || url.hash || url.href.replace(/\/$/u, "") !== expected.href.replace(/\/$/u, "")) throw new Error("MCP and hook endpoints differ");
-				const temporary = await mkdtemp(join(options.deliveryRoot, ".codex-probe-"));
+				const temporary = await mkdtemp(join(deliveryRoot, ".codex-probe-"));
 				let packageAccess = false;
 				try {
 					const path = join(temporary, "probe");
@@ -5905,7 +5910,7 @@ function createCodexDesktopRuntime(options) {
 						force: true
 					});
 				}
-				const configurationGeneration = createHmac("sha256", Buffer.from(key$2, "hex")).update(configurationJson([
+				const configurationGeneration = createHmac("sha256", generationKey).update(configurationJson([
 					plugin,
 					hooks,
 					receiverHash,
@@ -5934,7 +5939,7 @@ function createCodexDesktopRuntime(options) {
 		},
 		async canReadPackage(_target, bundle, signal) {
 			try {
-				const root = await realpath(options.deliveryRoot);
+				const root = await realpath(deliveryStorage().deliveryRoot);
 				const permission = await desktopPermission(options, (await inspectAppServer(options, bundle.binding.effectiveCwd, signal, "requirements")).requirements);
 				const path = await realpath(bundle.packagePath);
 				const rel = relative(root, path);
@@ -9009,6 +9014,14 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 		const profile = ui.get("profileContext");
 		const lifetime = new AbortController();
 		let catalog;
+		let storage;
+		const getCatalog = () => catalog ??= new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
+			codexHome: process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+			deliveryStorage: () => {
+				if (!storage) throw new HandoffError("integration_unavailable");
+				return storage;
+			}
+		})]);
 		const requireLocal = () => {
 			if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) throw new HandoffError("deployment_unsupported");
 		};
@@ -9025,14 +9038,9 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 				const root = join(ownerRoot, keyFor(profile.home, profile.name));
 				privateDirectory(root);
 				const generationKey = connectionKey(root);
-				catalog = new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
-					codexHome: process.env.CODEX_HOME ?? join(homedir(), ".codex"),
-					deliveryRoot: join(root, "deliveries"),
-					generationKey
-				})]);
 				services = createHandoffServices({
 					root,
-					catalog,
+					catalog: getCatalog(),
 					signal: lifetime.signal,
 					client: runtime.client,
 					authorization: runtime.config.authorization,
@@ -9042,6 +9050,10 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 						verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
 					}
 				});
+				storage = {
+					deliveryRoot: join(root, "deliveries"),
+					generationKey
+				};
 				release = unlock;
 				return services;
 			} catch (error) {
@@ -9053,8 +9065,7 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 			facts,
 			requireLocal,
 			get catalog() {
-				ensureServices();
-				return catalog;
+				return getCatalog();
 			},
 			signal: lifetime.signal,
 			requestRejection: (request$2) => ui.connection.requestRejection(request$2),
