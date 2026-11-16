@@ -259,7 +259,9 @@ A runner collects, per Scope, the enabled targets assigned to it:
 - **Validation does not depend on request fields**: the central Server looks up by `(scope_id, target_id)` whether a
   checkpoint commit belongs to a collection target, whichever optional fields the request carries. A collection target's
   checkpoint can be committed only by the runner the target belongs to; other callers are refused even with write
-  permission on the Scope.
+  permission on the Scope. Checkpoints of collection targets use the reserved connector version `target`; a commit that
+  names it, or carries a configuration version, for a target that no longer exists is refused as well, and is not
+  stored as an ordinary connector checkpoint.
 - **Sources already submitted**: Sources are submitted by a separate request before the checkpoint. When the checkpoint
   commit is refused, those Sources are already saved and are kept: they are real observations of the external object,
   their identity comes from the plugin, and the central Server deduplicates them when the same object is collected again
