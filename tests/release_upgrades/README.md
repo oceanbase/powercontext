@@ -6,7 +6,7 @@ embedded seekDB Code configurations. Missing full migration integration (#2154) 
 
 ## Reviewed sources and current target
 
-The declared target release is **1.5.1**. Public migration output maps the two source baselines to
+The declared target release is **1.5.2**. Public migration output maps the two source baselines to
 `v1_3_0_000` / `v1_4_0_000` and the shared steps to `v1_4_1_001`–`v1_4_1_006`, followed by
 `v1_5_0_001`–`v1_5_0_004`. The suite checks these names while retaining the original revision IDs in execution
 and recovery evidence.

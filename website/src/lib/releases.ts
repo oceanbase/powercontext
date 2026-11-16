@@ -29,6 +29,44 @@ export interface Release {
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
+    "version": "v1.5.2",
+    "date": "2026-11-16",
+    "title": {
+      "en": "Faster memory · Native observability · Easier integrations",
+      "zh": "更高效的长期记忆 · 原生可观测性 · 更易用的集成"
+    },
+    "summary": {
+      "en": "PowerContext v1.5.2 makes Agent long-term memory more efficient, transparent and easier to use, with single-Server performance improvements, native Dashboard observability, stronger Desktop and plugin support, OAuth subscription transports, and more reliable cross-tool handoffs.",
+      "zh": "PowerContext v1.5.2 让 Agent 的长期记忆更高效、更透明，也更易用。本次更新围绕单 Server 性能、Dashboard 原生可观测性、Desktop 与插件体验、OAuth 订阅传输，以及更可靠的跨工具交接展开。"
+    },
+    "changes": {
+      "en": [
+        "Improve single-Server efficiency through batched writes, reusable query structures, optimized vector conversion, and fewer repeated computations and database round trips. The release benchmark reports approximately 190% higher write throughput, 171% higher query throughput, and 64%–67% lower CPU cost than v1.5.1. These figures describe the measured workload, not a throughput guarantee for every deployment or end-to-end model extraction.",
+        "Add native Dashboard observability views for processing progress, failure diagnostics, Token usage and runtime state. Inspect saved Sources, generated Artifacts, Dream inputs and outputs, and read-only processing status. Historical Sources without a recorded save time retain an unknown value.",
+        "Improve Desktop local Server installation, recovery and management, package independent Ops resources, and add Linux systemd --user service integration. Protocol checks and local setup support do not replace signed-installer or clean-machine platform acceptance.",
+        "Load directory plugins that generate, render, search and change their own Artifacts, with plugin APIs and sandboxed Dashboard pages. Plugins can declare their own Source types. Hot reload, plugin data upgrades, plugin MCP tools and standalone Source collection are not included.",
+        "Add Gateway alpha OAuth subscription transports and improve request deadlines, cancellation and bounded shutdown. Provider capabilities differ: Gemini context injection is disabled, and Claude CLI is single-turn/text-only and unavailable under enforcing or unknown Core protection. Gateway continues to buffer complete responses for inspection.",
+        "Persist and recover DSH handoff deliveries, expose connection status and update checks, and embed the Dashboard in the sidebar. Add the Claude Desktop Code handoff adapter; native launch stays disabled by default until the receiving environment can be verified. Offer optional PowerContext long-term memory for dsh-pet.",
+        "Strengthen privacy handling in DSH automatic recall and capture, request confirmation for OpenCode writes under default permissions, and detect Memory protocol mismatches across Hosts. Improve Codex setup, preserve OpenClaw project bindings during capture, and checkpoint in-session auto-compaction.",
+        "Bound Topic Memory related history, preserve the healthy processing prefix before a failing or oversized look-ahead, and prevent concurrent head conflicts from consuming window attempts. Keep Memory merges within the tag limit and allow portable Source exports to retain recorded absolute working directories.",
+        "Upgrade Server, SDK, CLI and integrations together. The directory-plugin framework replaces the previous managed plugin APIs and configuration. Migration v1_5_0_005 refuses databases that retain old plugin registrations or data; export and remove them using the previous version before upgrading. Portable Artifact revision records use schema version 3 and still restore version 2. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance."
+      ],
+      "zh": [
+        "通过批量写入、查询结构复用、向量转换优化，以及减少重复计算和数据库往返，提升单 Server 的处理效率。版本基准测试相比 v1.5.1，写入吞吐提升约 190%，查询吞吐提升约 171%，CPU 成本降低 64%–67%。这些数字描述测试负载下的结果，不代表所有部署或端到端模型提取的吞吐保证。",
+        "新增 Dashboard 原生可观测性面板，集中展示记忆处理进度、异常诊断、Token 用量和运行状态。可查看已保存的 Source、生成的 Artifact、Dream 输入输出，以及只读处理状态；历史 Source 未记录保存时间时仍显示未知。",
+        "完善 Desktop 本地 Server 的安装、恢复与管理，打包独立 Ops 资源，并新增 Linux systemd --user 服务集成。协议检查与本地安装支持不替代签名安装包和各平台干净机器验收。",
+        "支持从目录加载插件，由插件生成、展示、搜索和修改自身 Artifact，并提供插件 API 与沙箱化 Dashboard 页面。插件可声明自身 Source 类型；本次不包含热重载、插件数据升级、插件 MCP 工具和独立 Source 采集。",
+        "Gateway alpha 新增 OAuth 订阅传输支持，完善请求超时、取消和有界关闭。各 Provider 能力不同：Gemini 不启用上下文注入，Claude CLI 仅支持单轮文本，且在 Core 保护处于强制执行或未知状态时不可用。Gateway 仍缓冲完整响应以完成检查。",
+        "DSH 支持交接投递的持久化与恢复、连接状态与更新检查，并在侧栏嵌入 Dashboard。新增 Claude Desktop Code 交接适配器；在能够验证接收环境前，原生启动默认保持禁用。为 dsh-pet 提供可选的 PowerContext 长期记忆能力。",
+        "加强 DSH 自动召回与采集中的隐私保护，在 OpenCode 默认权限下要求写入确认，并检测跨 Host 的 Memory 协议不匹配。完善 Codex 安装，保留 OpenClaw 采集时的项目绑定，并为会话内自动压缩记录检查点。",
+        "限制 Topic Memory 相关历史候选规模，在后续内容失败或过大时保留可正常处理的前缀，并避免并发版本冲突消耗窗口尝试次数。保证 Memory 合并不超过标签上限，支持导出记录了绝对工作目录的 Source。",
+        "Server、SDK、CLI 与集成需协调升级。目录插件框架替换旧的托管插件 API 与配置。迁移 v1_5_0_005 会拒绝仍保留旧插件登记或数据的数据库；升级前需使用旧版本导出并移除这些内容。可移植 Artifact 修订记录使用 schema version 3，并继续支持恢复 version 2。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。"
+      ]
+    },
+    "installCommand": "uv tool install --force \"powercontext[cli,server]==1.5.2\"",
+    "githubUrl": "https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.2"
+  },
+  {
     version: 'v1.5.1',
     date: '2026-11-09',
     title: {
