@@ -9,9 +9,9 @@ The `knowledge-base` plugin implements [RFC #2570](https://github.com/oceanbase/
 It owns the `document` Artifact family and supports SQLite, embedded SeekDB and OceanBase MySQL tenants.
 The plugin provides ingestion, parsing, immutable chunk results, hybrid retrieval and Dashboard pages.
 
-Requires framework RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659) and implementation
-[#2660](https://github.com/oceanbase/powercontext/pull/2660). Merge those dependencies before deploying this plugin;
-its PR contains no core/framework patches. Dashboard document operations use the framework `client.artifacts` bridge.
+Requires a Server version containing the framework contracts from RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659)
+and implementation [#2660](https://github.com/oceanbase/powercontext/pull/2660). The plugin contains no core/framework patches.
+Dashboard document operations use the framework `client.artifacts` bridge.
 
 ## Install and start
 

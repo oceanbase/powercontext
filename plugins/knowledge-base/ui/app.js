@@ -465,6 +465,8 @@ $("settings").onclick = () =>
     }), () => version === viewVersion && state.kb?.scope_id === kb.scope_id);
     if (!updated) return;
     state.kb = updated;
+    state.kbs = state.kbs.map(k => k.scope_id === updated.scope_id ? updated : k);
+    renderLibraries();
     show("配置已保存。已有文档需显式重新解析。");
   });
 $("search").onsubmit = (e) => {

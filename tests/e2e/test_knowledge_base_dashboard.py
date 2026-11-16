@@ -160,6 +160,88 @@ def test_dashboard_discards_previous_library_loads_and_uses_framework_artifact_a
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("selection", ["same", "another"])
+def test_dashboard_keeps_saved_settings_when_reselecting_a_library(tmp_path, selection):
+    playwright = pytest.importorskip("playwright.async_api")
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+
+    async def scenario():
+        async with (
+            running_server(
+                tmp_path,
+                plugins,
+                extra_env={
+                    "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
+                    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
+                },
+            ) as client,
+            playwright.async_playwright() as pw,
+        ):
+            executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
+            if not await asyncio.to_thread(Path(executable).exists):
+                pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
+
+            async def call(method, path, **kwargs):
+                response = await client.request(method, P + path, **kwargs)
+                assert response.is_success, response.text
+                return response.json()
+
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            for title in ("Settings A", "Settings B"):
+                await call(
+                    "POST", "/knowledge-bases", json={"title": title, "space_scope_id": space, "idempotency_key": title}
+                )
+            browser = await pw.chromium.launch(executable_path=executable)
+            context = await browser.new_context()
+            origin = str(client.base_url).rstrip("/")
+            await context.add_cookies([
+                {"name": "powercontext_dashboard_token", "value": ADMIN_AUTHORIZATION_VALUE, "url": origin}
+            ])
+            page = await context.new_page()
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            frame = page.frame_locator("iframe")
+
+            async def select(title):
+                await frame.get_by_role("button", name=title, exact=True).click()
+                await playwright.expect(frame.locator("#library")).to_be_visible()
+                await playwright.expect(frame.locator("#library-title")).to_have_text(title)
+
+            async def configure(expected, maximum):
+                await frame.locator("#settings").click()
+                await playwright.expect(frame.locator("#question-input")).to_have_value(str(expected))
+                await frame.locator("#question-input").fill(str(maximum))
+                await frame.locator("#question-confirm").click()
+                await playwright.expect(frame.locator("#question-label")).to_have_text("重叠字符数")
+                await frame.locator("#question-input").fill("40")
+                async with page.expect_response(
+                    lambda r: r.request.method == "PATCH" and r.url.endswith("/settings")
+                ) as saved:
+                    await frame.locator("#question-confirm").click()
+                response = await saved.value
+                assert response.status == 200, await response.text()
+                await playwright.expect(frame.locator("#notice")).to_contain_text("配置已保存")
+
+            await select("Settings A")
+            await configure(360, 300)
+            if selection == "another":
+                await select("Settings B")
+            await select("Settings A")
+            await configure(300, 280)
+            rows = (await call("GET", "/knowledge-bases", params={"space_scope_id": space}))["items"]
+            saved = next(row for row in rows if row["value"]["title"] == "Settings A")
+            assert saved["version"] == 3
+            assert saved["value"]["chunking"] == {"max_chars": 280, "overlap": 40}
+            other = next(row for row in rows if row["value"]["title"] == "Settings B")
+            assert other["version"] == 1
+            assert other["value"]["chunking"]["max_chars"] == 360
+            await browser.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("delayed", ["/me/default-space", "/knowledge-bases"])
 def test_dashboard_invalidates_library_controls_when_switching_spaces(tmp_path, delayed):
     playwright = pytest.importorskip("playwright.async_api")

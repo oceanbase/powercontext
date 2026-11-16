@@ -8,8 +8,8 @@ description: 导入 Markdown 和图片，维护文档版本，并跨知识库 Sc
 `knowledge-base` 插件实现 [RFC #2570](https://github.com/oceanbase/powercontext/pull/2570)，拥有 `document` Artifact family，
 支持 SQLite、嵌入式 SeekDB 和 OceanBase MySQL 租户，提供导入、解析、不可变 chunk 结果、混合检索和 Dashboard 页面。
 
-依赖框架 RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659) 和实现
-[#2660](https://github.com/oceanbase/powercontext/pull/2660)，部署前先合入这些依赖；本插件 PR 不携带 core／框架补丁。
+要求 Server 版本包含框架 RFC [#2659](https://github.com/oceanbase/powercontext/pull/2659) 和实现
+[#2660](https://github.com/oceanbase/powercontext/pull/2660) 所定义的契约。本插件不携带 core／框架补丁。
 Dashboard 文档操作使用框架 `client.artifacts` 桥接。
 
 ## 安装与启动

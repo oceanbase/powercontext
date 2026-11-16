@@ -28,7 +28,7 @@ from pc_knowledge_base.models import identity
 from pc_knowledge_base.store import Store
 
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig
-from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig
+from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.plugins.storage import open_plugin_resources
 
 
@@ -41,8 +41,17 @@ def test_native_indexes_and_plugin_storage_isolation(tmp_path):
 
     async def scenario():
         async with AsyncExitStack() as stack:
+            connection_options = None
+            if isinstance(database, SeekDBConfig):
+                profile = await stack.enter_async_context(SeekDBProfile.open(database, tables=()))
+                connection_options = profile.connection_options
             storage, _ = await open_plugin_resources(
-                database, str(tmp_path), "kb-test-" + identity(str(tmp_path))[:12], None, stack
+                database,
+                str(tmp_path),
+                "kb-test-" + identity(str(tmp_path))[:12],
+                None,
+                stack,
+                connection_options=connection_options,
             )
             store = Store(storage, 2)
             await store.initialize()
