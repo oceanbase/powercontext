@@ -155,3 +155,19 @@ def test_a_version_snapshot_holds_copies_of_linked_files_and_refuses_links_outsi
         assert epsilon.last_check_failure == "secret.txt links outside the plugin directory"
 
     asyncio.run(scenario(tmp_path, steps))
+
+
+def test_a_plugin_with_a_loop_of_links_fails_alone(tmp_path):
+    plugins = tmp_path / "plugins"
+    write(plugins / "looped", "scan-looped")
+    (plugins / "looped" / "a").symlink_to(plugins / "looped" / "b")
+    (plugins / "looped" / "b").symlink_to(plugins / "looped" / "a")
+    write(plugins / "sound", "scan-sound")
+
+    async def steps(manager):
+        # The Server starts and the other plugin loads; only the broken directory is reported.
+        assert loaded(manager, "sound")
+        assert not loaded(manager, "looped")
+        assert manager.plugins["looped"].last_check_failure == "a is a link that cannot be resolved"
+
+    asyncio.run(scenario(tmp_path, steps))

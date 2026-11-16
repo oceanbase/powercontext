@@ -355,10 +355,12 @@ class PluginManager:
             digest = await asyncio.to_thread(content_digest, plugin.directory)
         except OSError:
             return
-        except ValueError as error:
-            # Such as a link leading outside the plugin directory; reported once until the directory changes.
-            if plugin.failed_digest != f"invalid:{error}":
-                self._check_failed(plugin, f"invalid:{error}", str(error))
+        except Exception as error:
+            # Such as a link leading outside the plugin directory. One plugin's directory never stops the scan of
+            # the others or Server startup; the failure is reported once until the directory changes.
+            reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+            if plugin.failed_digest != f"invalid:{reason}":
+                self._check_failed(plugin, f"invalid:{reason}", reason)
             return
         stable = initial or digest == plugin.last_digest
         plugin.last_digest = digest
@@ -961,7 +963,8 @@ def _hoist_definitions(
         return _renamed({name: value for name, value in schema.items() if name != "$defs"}, hoisted[key])
     names = {name: name for name in definitions}
     if any(name in schemas and schemas[name] != _renamed(definitions[name], names) for name in definitions):
-        taken = set(schemas)
+        # New names avoid both the document's components and this route's own definitions.
+        taken = set(schemas) | set(definitions)
         for name in definitions:
             if name not in schemas:
                 continue

@@ -86,7 +86,11 @@ def version_files(directory: Path) -> list[tuple[PurePosixPath, Path]]:
         for entry in sorted(real.iterdir(), key=lambda item: item.name):
             if entry.name == "__pycache__":
                 continue
-            target = entry.resolve()
+            try:
+                target = entry.resolve(strict=entry.is_symlink())
+            except (OSError, RuntimeError):
+                # A dangling link or a loop of links; Python versions report loops differently.
+                raise PluginConfigError(f"{relative / entry.name} is a link that cannot be resolved") from None  # noqa: TRY003
             if entry.is_symlink() and not target.is_relative_to(root):
                 raise PluginConfigError(f"{relative / entry.name} links outside the plugin directory")  # noqa: TRY003
             if target.is_dir():

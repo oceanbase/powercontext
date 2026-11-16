@@ -161,3 +161,42 @@ def test_discriminator_mappings_point_at_document_components():
         "dog": "#/components/schemas/Dog",
     }
     assert "$defs" not in json.dumps(document)
+
+
+def _v1_document_request() -> type[BaseModel]:
+    class Document(BaseModel):
+        title: str
+
+    class Request(BaseModel):
+        document: Document
+
+    return Request
+
+
+def _v2_document_request() -> type[BaseModel]:
+    class Document(BaseModel):
+        content: str
+
+    class Document2(BaseModel):
+        revision: int
+
+    class Request(BaseModel):
+        document: Document
+        previous: Document2
+
+    return Request
+
+
+def test_new_component_names_do_not_collide_with_the_routes_own_models():
+    routes = (_route("/v1", _v1_document_request()), _route("/v2", _v2_document_request()))
+    manifest = PluginManifest(
+        name="docs", spec=ArtifactPluginSpec(family="docs-notes", api=PluginApiSpec(routes=routes))
+    )
+
+    document = plugin_openapi(manifest)
+    v2 = _resolve(document, _schema(document, "/v2"))
+
+    assert _resolve(document, v2["properties"]["document"])["required"] == ["content"]
+    assert _resolve(document, v2["properties"]["previous"])["required"] == ["revision"]
+    v1 = _resolve(document, _schema(document, "/v1"))
+    assert _resolve(document, v1["properties"]["document"])["required"] == ["title"]
