@@ -9360,6 +9360,7 @@ async function probeClaudeCodeCli(signal, path = process.env.PATH ?? "") {
 //#endregion
 //#region src/handoff/adapters/claude-code-cli-runtime.ts
 const execute = promisify(execFile);
+const powercontextMcpServer = "plugin:powercontext:powercontext";
 const PROBE = String.raw`
 import json, os, sys, time
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -9476,24 +9477,85 @@ const terminalApps = {
 	Alacritty: "/Applications/Alacritty.app",
 	WezTerm: "/Applications/WezTerm.app"
 };
+/** Claude keys project state by the main checkout, even from a linked worktree or subdirectory. */
+async function observeProject(cwd, env, signal) {
+	if (await realpath(cwd) !== cwd) throw new Error("Noncanonical working directory");
+	const gitEnv = {
+		PATH: env.PATH,
+		HOME: env.HOME,
+		LC_ALL: "C"
+	};
+	let layout;
+	try {
+		layout = await command("git", [
+			"rev-parse",
+			"--path-format=absolute",
+			"--show-toplevel",
+			"--git-dir",
+			"--git-common-dir"
+		], gitEnv, signal, cwd);
+	} catch (error) {
+		signal.throwIfAborted();
+		if (error.stderr?.trim() !== "fatal: not a git repository (or any of the parent directories): .git") throw error;
+		return {
+			worktreeRoot: cwd,
+			projectRoot: cwd
+		};
+	}
+	const lines = layout.split("\n");
+	const [topLevel, gitDir, commonDir, end] = lines;
+	if (lines.length !== 4 || end !== "" || !topLevel || !gitDir || !commonDir || ![
+		topLevel,
+		gitDir,
+		commonDir
+	].every(isAbsolute)) throw new Error("Unknown Git worktree layout");
+	const worktreeRoot = await realpath(topLevel);
+	let projectRoot = worktreeRoot;
+	if (await realpath(gitDir) !== await realpath(commonDir)) {
+		const [main = ""] = (await command("git", [
+			"worktree",
+			"list",
+			"--porcelain",
+			"-z"
+		], gitEnv, signal, cwd)).split("\0\0", 1);
+		const [worktree, ...fields] = main.split("\0");
+		if (!worktree?.startsWith("worktree ") || !isAbsolute(worktree.slice(9)) || fields.includes("bare")) throw new Error("Unknown Git main checkout");
+		projectRoot = await realpath(worktree.slice(9));
+	}
+	return {
+		worktreeRoot,
+		projectRoot
+	};
+}
+function observeProjectMcp(preferences, projectRoot) {
+	const projectKey = projectRoot.normalize("NFC");
+	const projects = object$3(preferences.projects);
+	if (preferences.projects !== void 0 && !projects) return void 0;
+	const entry = projects?.[projectKey];
+	const project$1 = object$3(entry);
+	if (entry !== void 0 && !project$1) return void 0;
+	const disabled = project$1?.disabledMcpServers;
+	if (disabled !== void 0 && (!Array.isArray(disabled) || disabled.some((name$1) => typeof name$1 !== "string"))) return void 0;
+	if (disabled?.includes(powercontextMcpServer)) return void 0;
+	return {
+		projectKey,
+		disabledMcpServers: [...new Set(disabled)].sort()
+	};
+}
 /** Reject policy overrides rather than trying to reproduce Claude's Read and sandbox rules. */
-async function observeSettings(configDir, cwd, env, signal) {
+async function observeSettings(configDir, cwd, { worktreeRoot, projectRoot }) {
 	const settings = await readObject(join(configDir, "settings.json"));
 	if (Object.hasOwn(settings, "permissions") || Object.hasOwn(settings, "sandbox")) return void 0;
-	let gitRoot = cwd;
-	try {
-		const root = (await command("git", ["rev-parse", "--show-toplevel"], env, signal, cwd)).trim();
-		if (isAbsolute(root)) gitRoot = await realpath(root);
-	} catch {
-		if (signal.aborted) signal.throwIfAborted();
-	}
-	for (const directory$1 of new Set([cwd, gitRoot])) {
-		for (const name$1 of ["settings.json", "settings.local.json"]) {
-			const value = await readObject(join(directory$1, ".claude", name$1));
-			if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || Object.hasOwn(value, "permissions") || Object.hasOwn(value, "sandbox") || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return void 0;
-		}
+	const workspaceSettings = new Set([join(projectRoot, ".claude", "settings.local.json")]);
+	for (const directory$1 of new Set([cwd, worktreeRoot])) {
+		workspaceSettings.add(join(directory$1, ".claude", "settings.json"));
+		workspaceSettings.add(join(directory$1, ".claude", "settings.local.json"));
 		const mcp = await readObject(join(directory$1, ".mcp.json"));
 		if (mcp.mcpServers !== void 0 && !object$3(mcp.mcpServers) || mcp.mcpServers?.powercontext) return void 0;
+	}
+	for (const path of workspaceSettings) {
+		const value = await readObject(path);
+		if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks || Object.hasOwn(value, "permissions") || Object.hasOwn(value, "sandbox") || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return void 0;
 	}
 	for (const name$1 of ["managed-settings.json", "managed-mcp.json"]) if (Object.keys(await readObject(join(managed, name$1))).length) return void 0;
 	try {
@@ -9538,10 +9600,9 @@ function createClaudeCodeCliReceiver(options) {
 	if (!isAbsolute(options.configDir) || !isAbsolute(options.pythonExecutable)) throw new Error("Absolute paths required");
 	if (!options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) throw new Error("Verified terminal evidence is required");
 	const env = { ...options.launchEnvironment };
-	const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR ? join(options.configDir, ".claude.json") : join(env.HOME ?? homedir(), ".claude.json");
+	const globalConfigFile = env.CLAUDE_CONFIG_DIR ? join(options.configDir, ".claude.json") : join(env.HOME ?? homedir(), ".claude.json");
 	const qualifiedTerminal = options.environmentEvidence.terminal;
-	const observeTerminal = async () => {
-		const { deepLinkTerminal } = await readObject(terminalPreferenceFile);
+	const observeTerminal = async (deepLinkTerminal) => {
 		if (!Object.hasOwn(terminalApps, qualifiedTerminal) || deepLinkTerminal !== qualifiedTerminal) return void 0;
 		if (process.platform === "darwin") try {
 			await access(terminalApps[qualifiedTerminal], constants.F_OK);
@@ -9551,16 +9612,30 @@ function createClaudeCodeCliReceiver(options) {
 		}
 		return qualifiedTerminal;
 	};
+	const observeReceiverPolicy = async (cwd, signal) => {
+		signal.throwIfAborted();
+		if (await realpath(options.configDir) !== options.configDir) return void 0;
+		const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), ".claude");
+		if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return void 0;
+		const preferences = await readObject(globalConfigFile);
+		const terminal = await observeTerminal(preferences.deepLinkTerminal);
+		if (!terminal) return void 0;
+		const project$1 = await observeProject(cwd, env, signal);
+		const projectMcp = observeProjectMcp(preferences, project$1.projectRoot);
+		if (!projectMcp) return void 0;
+		const settings = await observeSettings(options.configDir, cwd, project$1);
+		if (!settings) return void 0;
+		return {
+			terminal,
+			projectMcp,
+			settings
+		};
+	};
 	const inspect = async (executable, cwd, signal) => {
 		try {
-			const terminal = await observeTerminal();
-			if (!terminal) return void 0;
-			if (await realpath(cwd) !== cwd) return void 0;
-			if (await realpath(options.configDir) !== options.configDir) return void 0;
-			const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), ".claude");
-			if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return void 0;
-			const settings = await observeSettings(options.configDir, cwd, env, signal);
-			if (!settings) return void 0;
+			const policy = await observeReceiverPolicy(cwd, signal);
+			if (!policy) return void 0;
+			const { terminal, projectMcp, settings } = policy;
 			if (settings.env !== void 0 && !object$3(settings.env) || settings.pluginConfigs !== void 0 && !object$3(settings.pluginConfigs) || settings.enabledPlugins !== void 0 && !object$3(settings.enabledPlugins) || settings.enabledPlugins?.["powercontext@powercontext"] === false || settings.mcpServers !== void 0 && !object$3(settings.mcpServers)) return void 0;
 			if (settings.mcpServers?.powercontext || settings.deniedMcpServers || settings.allowedMcpServers || settings.enabledMcpjsonServers || settings.disabledMcpjsonServers) return void 0;
 			const settingsEnv = object$3(settings.env) ?? {};
@@ -9619,7 +9694,8 @@ function createClaudeCodeCliReceiver(options) {
 				promptHooks,
 				receiverHash,
 				options.environmentEvidence,
-				terminal
+				terminal,
+				projectMcp
 			])).digest("hex");
 			return {
 				effectiveCwd: cwd,
@@ -9639,7 +9715,7 @@ function createClaudeCodeCliReceiver(options) {
 		async handler(executable, _version, signal) {
 			try {
 				signal.throwIfAborted();
-				if (!await observeTerminal()) return "needs_user_action";
+				if (!await observeTerminal((await readObject(globalConfigFile)).deepLinkTerminal)) return "needs_user_action";
 				return await registeredHandler(executable, env, signal);
 			} catch {
 				signal.throwIfAborted();
@@ -9650,7 +9726,7 @@ function createClaudeCodeCliReceiver(options) {
 		async canReadPackage(_executable, bundle, signal) {
 			try {
 				signal.throwIfAborted();
-				if (!await observeTerminal() || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false;
+				if (!await observeReceiverPolicy(bundle.binding.effectiveCwd, signal)) return false;
 				const path = await realpath(bundle.packagePath);
 				if (!(await Promise.all(options.packageStorage().qualifiedPackageRoots.map((root) => realpath(root)))).some((root) => {
 					const rel = relative(root, path);
