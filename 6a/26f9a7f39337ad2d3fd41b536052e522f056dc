@@ -1,0 +1,31 @@
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_13fec9a57c9104::t_8e39e8c1ec8de4 166-167
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_8e39e8c1ec8de4 117-122,181-183,194,203
+.github/ci-paths.toml
+  s_13fec9a57c9104::t_552e0d6c5cc9fc 25-26,208,238
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_6b0699c873b1da 1392-1412,1427
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_4bcd7b5e3ec3f1 161-260
+tests/e2e/test_knowledge_base_ocr.py
+  s_13fec9a57c9104::t_a45d494ca1c742 1-95
+tests/test_ci_changes.py
+  s_13fec9a57c9104::t_8fa06fdfe66a0a 264-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6a26f9a7f39337ad2d3fd41b536052e522f056dc",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
