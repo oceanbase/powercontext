@@ -217,7 +217,7 @@ Inputs SHA-256: `7898b82f155accc150e507ba8eab48a1a1aa34681521dd71e201af5fa0f6bc6
 
 ### `assembly-large-early-then-small`
 
-Inputs SHA-256: `bc7766a4de352fc6d6a3f704a95c5b1cd9239555f210a4767746d4bfb9b03933`
+Inputs SHA-256: `74132e65051a1c2c34aedde5f414789d373136598206ce4234d31aabd88b0e17`
 
 | Pos | Kind | Artifact | Rank | Display | Baseline | Delivered | Retained | Candidate | Delivered | Retained |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: |
@@ -231,7 +231,7 @@ Inputs SHA-256: `bc7766a4de352fc6d6a3f704a95c5b1cd9239555f210a4767746d4bfb9b0393
 
 ### `assembly-controls-and-line-endings`
 
-Inputs SHA-256: `391945926fe015cfee954ef91b0cec6ebd2e50564af31d86f54008fa3af2bbd1`
+Inputs SHA-256: `8d00f828905ab0d2e5a2a6a12bc521b8a88e425b3270d759dac83ff52d293038`
 
 | Pos | Kind | Artifact | Rank | Display | Baseline | Delivered | Retained | Candidate | Delivered | Retained |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: |
@@ -242,7 +242,7 @@ Inputs SHA-256: `391945926fe015cfee954ef91b0cec6ebd2e50564af31d86f54008fa3af2bbd
 
 ### `assembly-infeasible-640`
 
-Inputs SHA-256: `7960458af30d40aff0c152b08205fd1ed19094e940756936be4a17580048e76d`
+Inputs SHA-256: `3c2cf212de65546866d245aad3703f51771a391a84b0de78ee30e69fa01f4d28`
 
 | Pos | Kind | Artifact | Rank | Display | Baseline | Delivered | Retained | Candidate | Delivered | Retained |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: |
@@ -257,7 +257,7 @@ Inputs SHA-256: `7960458af30d40aff0c152b08205fd1ed19094e940756936be4a17580048e76
 
 ### `assembly-four-sections`
 
-Inputs SHA-256: `e996105f32ead0a09138d8182dde67e23252c8dca26a009fc37fb038f953a345`
+Inputs SHA-256: `93a5308fa74066923ec1fa76c687ea3e5b9b4b7792131cc4e79a8b9f724f683f`
 
 | Pos | Kind | Artifact | Rank | Display | Baseline | Delivered | Retained | Candidate | Delivered | Retained |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: |
@@ -289,7 +289,7 @@ Inputs SHA-256: `c07ebcd45331d109c14dea3742a00af25cbcd18da56dc80847ad5fa589ac76c
 
 ### `sensitivity-assembly-large-last`
 
-Inputs SHA-256: `bfb0fc5f1aad7c0558a227dd8cee2319fef9a9100de3c9a5ae95f3108d7a8e3d`
+Inputs SHA-256: `119ec1d83cfd36e1c008dd0205d193d0a20beec1c52452ea2fbe68544c58e92a`
 
 | Pos | Kind | Artifact | Rank | Display | Baseline | Delivered | Retained | Candidate | Delivered | Retained |
 | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: |
