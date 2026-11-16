@@ -139,7 +139,7 @@ packaging = [
 ]
 desktop = [
   "desktop/**", "tests/test_desktop_fixture_qualification.py", "website/assets/**",
-  ".github/workflows/desktop.yml",
+  ".github/workflows/desktop.yml", ".github/actions/setup-openapi-generator/**",
 ]
 managed_resources = [
   "scripts/*managed_resource*", "scripts/build_ops_bundle.py", "scripts/ci_ops_bundle_smoke.py",
