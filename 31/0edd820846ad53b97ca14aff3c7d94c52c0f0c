@@ -1,0 +1,56 @@
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_a4ba8eb781ec58 151,154-160
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_a4ba8eb781ec58 144
+  s_13fec9a57c9104::t_0a48e18f71ad81 30,35
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_13fec9a57c9104::t_a4ba8eb781ec58 16-149,151-191,193-197
+  s_13fec9a57c9104::t_abc51819c4c74c 1-15,150,192,198-212
+frontend/knowledge-base/src/hooks.ts
+  s_13fec9a57c9104::t_3da008e7ef05a6 20,74,76-77,141-142,170-171,174,184,190
+  s_13fec9a57c9104::t_a4ba8eb781ec58 75,159-162,172-173,175-183,185-189
+plugins/knowledge-base/pc_knowledge_base/models.py
+  s_13fec9a57c9104::t_1d7b478d55848d 21,23,92-96,99-108
+  s_13fec9a57c9104::t_6c34ed4ef0585d 109
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_a4ba8eb781ec58 134,137-143
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_3da008e7ef05a6 64
+  s_13fec9a57c9104::t_a4ba8eb781ec58 16-29
+frontend/knowledge-base/src/types.ts
+  s_13fec9a57c9104::t_a4ba8eb781ec58 70-72
+frontend/knowledge-base/src/actions/index.ts
+  s_13fec9a57c9104::t_3da008e7ef05a6 19-20
+frontend/knowledge-base/src/actions/RemoveChunks.tsx
+  s_13fec9a57c9104::t_3da008e7ef05a6 1-20,32-33,80
+  s_13fec9a57c9104::t_a4ba8eb781ec58 21-31,34-79
+frontend/knowledge-base/src/pages/Reader.tsx
+  s_13fec9a57c9104::t_a4ba8eb781ec58 19-28,34-42,47,50-51,74-75,110-113,128,142-152,169-191,208-234
+  s_13fec9a57c9104::t_3da008e7ef05a6 16-17,29,44-45,48-49,52-54,72-73,86,153,168,192,207,235
+  s_13fec9a57c9104::t_ca90e4ea40f5ca 46
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_1d7b478d55848d 561-562,564-565,569
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_13fec9a57c9104::t_3da008e7ef05a6 1-22,28-30,43-46,54
+  s_13fec9a57c9104::t_a4ba8eb781ec58 23-27,31-42,47-53
+  s_13fec9a57c9104::t_1afd2d2c02112d 55
+frontend/knowledge-base/src/App.tsx
+  s_13fec9a57c9104::t_3da008e7ef05a6 21,51,53,123
+  s_13fec9a57c9104::t_a4ba8eb781ec58 71-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "310edd820846ad53b97ca14aff3c7d94c52c0f0c",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
