@@ -303,15 +303,27 @@ async function chunks() {
     box.className = "chunk";
     const label = document.createElement("small");
     label.textContent = `#${item.ordinal + 1} · ${item.heading_path.join(" / ")} · ${item.length} 字符${item.manually_modified ? " · 已人工编辑" : ""}`;
-    box.append(
-      label,
-      button("展开正文", async () => {
+    const body = document.createElement("pre");
+    body.id = `chunk-body-${item.chunk_id}`;
+    body.hidden = true;
+    let loaded = false;
+    const toggle = button("展开正文", async () => {
+      if (!sameDocument()) return;
+      if (!loaded) {
         const full = await forView(api("GET", path + "/" + item.chunk_id), sameDocument);
         if (!full) return;
-        const pre = document.createElement("pre");
-        pre.textContent = full.text;
-        box.append(pre);
-      }),
+        body.textContent = full.text;
+        loaded = true;
+      }
+      body.hidden = !body.hidden;
+      toggle.textContent = body.hidden ? "展开正文" : "收起正文";
+      toggle.setAttribute("aria-expanded", String(!body.hidden));
+    });
+    toggle.setAttribute("aria-controls", body.id);
+    toggle.setAttribute("aria-expanded", "false");
+    box.append(
+      label,
+      toggle,
       button("编辑", async () => {
         const full = await forView(api("GET", path + "/" + item.chunk_id), sameDocument);
         if (!full) return;
@@ -323,6 +335,7 @@ async function chunks() {
         if (!(await ask("移除此分块并生成新版本？历史版本仍保留。")) || !sameDocument()) return;
         await edit({ operation: "remove_chunk", chunk_id: item.chunk_id });
       }),
+      body,
     );
     $("chunks").append(box);
   }

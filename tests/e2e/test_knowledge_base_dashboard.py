@@ -131,6 +131,19 @@ def test_dashboard_discards_previous_library_loads_and_uses_framework_artifact_a
 
             # The page must use the upstream family-bound Artifact bridge for edits.
             await frame.locator("#documents").get_by_role("button", name="浏览", exact=True).click()
+            chunk = frame.locator("#chunks .chunk").first
+            for _ in range(3):
+                await chunk.get_by_role("button", name="展开正文", exact=True).click()
+                await playwright.expect(chunk.locator("pre")).to_have_count(1)
+                await playwright.expect(chunk.locator("pre")).to_be_visible()
+                await playwright.expect(chunk.locator("pre")).to_contain_text("Body B")
+                collapse = chunk.get_by_role("button", name="收起正文", exact=True)
+                await playwright.expect(collapse).to_have_attribute("aria-expanded", "true")
+                await collapse.click()
+                await playwright.expect(chunk.locator("pre")).to_be_hidden()
+                await playwright.expect(chunk.get_by_role("button", name="展开正文", exact=True)).to_have_attribute(
+                    "aria-expanded", "false"
+                )
             await frame.locator("#chunks").get_by_role("button", name="编辑", exact=True).first.click()
             await frame.locator("#editor").wait_for(state="visible")
             await frame.locator("#chunk-text").fill("Browser correction")
@@ -141,6 +154,10 @@ def test_dashboard_discards_previous_library_loads_and_uses_framework_artifact_a
             assert (await saved.value).status == 200
             await frame.locator("#editor").wait_for(state="hidden")
             assert (await call("GET", "/scopes/" + b + "/documents"))["items"][0]["ref"]["revision"] == 2
+            chunk = frame.locator("#chunks .chunk").first
+            await chunk.get_by_role("button", name="展开正文", exact=True).click()
+            await playwright.expect(chunk.locator("pre")).to_have_count(1)
+            await playwright.expect(chunk.locator("pre")).to_have_text("Browser correction")
 
             # Exercise the unavailable-default response contract; actual revocation is covered
             # by the multi-identity HTTP test (Dashboard currently uses a static identity).
