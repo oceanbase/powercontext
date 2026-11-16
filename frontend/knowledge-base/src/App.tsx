@@ -51,12 +51,13 @@ function Workspace({ space }: { space: string }) {
               icon={<BookOutlined aria-hidden />}
               aria-pressed={item.scope_id === selected}
               aria-label={item.value.title}
+              title={item.value.title}
               onClick={() => {
                 setSelected(item.scope_id);
                 setLocation(undefined);
               }}
             >
-              {item.value.title}
+              <span className="library-name">{item.value.title}</span>
             </Button>
           ))}
           {!libraries.isPending && !items.length && (

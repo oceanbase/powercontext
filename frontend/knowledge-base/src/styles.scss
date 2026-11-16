@@ -171,3 +171,10 @@ body {
   justify-content: flex-start;
   text-align: left;
 }
+
+.library-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

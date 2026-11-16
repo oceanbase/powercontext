@@ -110,9 +110,11 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
                   )}
                   <Flex vertical>
                     <Typography.Link onClick={() => open(doc)}>{doc.content.title}</Typography.Link>
-                    <Typography.Text type="secondary" className="file-path">
-                      {doc.content.relative_path}
-                    </Typography.Text>
+                    {doc.content.relative_path !== doc.content.title && (
+                      <Typography.Text type="secondary" className="file-path">
+                        {doc.content.relative_path}
+                      </Typography.Text>
+                    )}
                   </Flex>
                 </Space>
               ),
