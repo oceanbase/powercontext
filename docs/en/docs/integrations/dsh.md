@@ -626,7 +626,8 @@ powercontext doctor dsh
 Before each model step, automatic Scope resolution, preparation, and capture share `timeoutMs` (4000 ms by
 default), and each request is limited to `requestTimeoutMs` (3000 ms by default). The step waits for this budget, so
 a slow Server delays each step by at most `timeoutMs`. A preparation that times out still leaves the remaining
-budget for capture.
+budget for capture, and context prepared within the budget is still injected when capture or flush uses the rest of
+it. Only host cancellation withdraws prepared context.
 
 `get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds so cold readiness
 can finish the default 30-second inference probe and subsequent access checks (up to 5 seconds), with

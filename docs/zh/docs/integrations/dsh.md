@@ -536,7 +536,8 @@ powercontext doctor dsh
 
 每次模型调用前，自动 Scope 解析、上下文准备和采集共用 `timeoutMs`（默认 4000 毫秒），单个请求受
 `requestTimeoutMs`（默认 3000 毫秒）限制。模型调用会等待这段预算，所以 Server 响应慢时，每次调用最多延迟
-`timeoutMs`。上下文准备超时后，剩余预算仍可用于采集。
+`timeoutMs`。上下文准备超时后，剩余预算仍可用于采集；预算内已准备好的上下文，即使采集或 flush 用完剩余预算，
+也照常注入。只有宿主取消会撤回已准备的上下文。
 
 `get_readiness`（包括 `/pc doctor` 中的检查）使用 `max(requestTimeoutMs, 40000)` 毫秒的请求预算，
 以容纳冷缓存下默认 30 秒的推理探测、后续最多 5 秒的访问控制检查，并留出网络传输余量。

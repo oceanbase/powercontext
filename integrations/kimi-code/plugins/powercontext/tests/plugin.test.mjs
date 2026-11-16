@@ -301,6 +301,31 @@ test('a prepare request stops at its own limit and leaves budget for capture', {
   assert.ok(elapsed >= 2900 && elapsed < 5000, `elapsed ${elapsed} ms`)
 })
 
+test('a capture that never answers cannot withdraw context that was already prepared', { timeout: 10000 }, async t => {
+  const content = 'Historical context: deploy blue.'
+  const f = await fixture(t, {
+    '/v1/scope-bindings/resolve': (_req, res) => setTimeout(() => {
+      res.writeHead(200); res.end(JSON.stringify({ scope_id: 'scope-test' }))
+    }, 500),
+    '/v1/context/prepare': (_req, res) => setTimeout(() => {
+      res.writeHead(200)
+      res.end(JSON.stringify({ schema: 'powercontext.prepared-context.v1', status: 'ready',
+        content, content_bytes: Buffer.byteLength(content) }))
+    }, 800),
+    '/v1/sources/content': () => {},
+  })
+  const started = Date.now()
+  const { output, stderr } = await f.invoke()
+  const elapsed = Date.now() - started
+  assert.ok(output.message?.endsWith(content), JSON.stringify(output))
+  assert.match(stderr, /capture_source/)
+  assert.ok(elapsed < 4500, `elapsed ${elapsed} ms`)
+  const status = await f.status()
+  assert.equal(status.stages.prepare.state, 'ready')
+  assert.equal(status.stages.capture.state, 'unknown')
+  assert.equal(status.stages.injection.state, 'emitted')
+})
+
 test('loopback aliases support automatic context and Source capture', async t => {
   const f = await fixture(t, {}, {}, '127.0.0.2')
   const { output, stderr } = await f.invoke()

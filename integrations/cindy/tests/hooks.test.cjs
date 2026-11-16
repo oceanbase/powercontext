@@ -215,6 +215,27 @@ test('a slow Scope resolution that leaves only capture time sends no preparation
   assert.equal(outcome.capture, 'accepted');
 });
 
+test('a capture that never answers cannot withdraw context that was already prepared', async () => {
+  const backend = server();
+  const request = async (url, init) => {
+    if (url.endsWith('/scope-bindings/resolve')) await delay(300, init.signal);
+    if (url.endsWith('/context/prepare')) await delay(800, init.signal);
+    if (url.endsWith('/sources/content')) await delay(60_000, init.signal);
+    return backend.request(url, init);
+  };
+  let outcome;
+  const adapter = host(config, async value => {
+    outcome = await runHook(value.params, undefined, request);
+    return { ok: true, result: outcome };
+  });
+  await adapter.dispatch(event);
+  assert.equal(adapter.sent.length, 1);
+  assert.equal(adapter.sent[0].action, 'rewrite');
+  assert.ok(adapter.sent[0].text.includes('QUARTZ-8413'));
+  assert.equal(outcome.prepare, 'ready');
+  assert.equal(outcome.capture, 'unknown');
+});
+
 test('oversized rewrites allow the original message without truncating it', async () => {
   const adapter = host(config, async () => ({ ok: true, result: { ok: true, prepare: 'ready', content: 'history' } }));
   await adapter.dispatch({ ...event, data: { ...event.data, text: 'x'.repeat(15990) } });

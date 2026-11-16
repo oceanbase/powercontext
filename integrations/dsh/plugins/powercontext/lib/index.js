@@ -4291,12 +4291,13 @@ async function runRecallPreStep(input) {
 	}
 	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
 	if (recalled.content) observation?.record("injection", { state: "running" });
-	if (!recalled.scopeId && !recalled.content || signal.aborted) {
-		observation?.skip("injection", signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+	const cancelled = input.signal?.aborted === true;
+	if (!recalled.scopeId && !recalled.content || cancelled) {
+		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
 		return downstream;
 	}
 	try {
-		if (signal.aborted) throw new TransportError("", signal.reason);
+		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const additions = [];
 		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
 		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
@@ -4350,6 +4351,10 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 	}
 	observation?.scope(scopeId);
 	const content = await recallContent(input, query, scopeId, observation);
+	const settled = input.signal?.aborted ? {} : {
+		scopeId,
+		content: content ?? void 0
+	};
 	observation?.skip("capture", input.signal?.aborted ? cancellationReason(input.signal) : "no_user_text");
 	observation?.skip("flush", "capture_skipped");
 	if (userPrompt && !input.signal?.aborted) try {
@@ -4369,10 +4374,7 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 		observation?.fail("capture", error, true, input.signal);
 		reportFailure(input.log, "capture_content_source", error);
 	}
-	return input.signal?.aborted ? {} : {
-		scopeId,
-		content: content ?? void 0
-	};
+	return settled;
 }
 
 //#endregion
