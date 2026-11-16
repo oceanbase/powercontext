@@ -26,7 +26,7 @@ import asyncio
 import hashlib
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Literal, cast
@@ -88,6 +88,8 @@ class UserChange:
     inputs: tuple[str, ...] = ()
     # The caller's (revision, state_version) per Artifact, enforced against the rows the transaction writes.
     expected: dict[str, tuple[int, int | None]] = field(default_factory=dict)
+    # The content a create or update request carried, kept as evidence even when the plugin writes other content.
+    submitted_content: dict[str, JsonValue] | None = None
 
 
 _AGREED = {
@@ -316,6 +318,12 @@ class PluginArtifactTransaction(_Reads):
 
         super().__init__(owner, borrow)
         self._connection = connection
+        # Authorization inside the transaction reads and audits on its connection; a second connection
+        # would wait on this transaction's own locks.
+        context = owner.context
+        if context is not None and context.access is not None:
+            context = replace(context, access=context.access.with_connection(connection))
+        self._context = context
         self._writes = 0
         self._bytes = 0
         self.closed = False
@@ -352,9 +360,22 @@ class PluginArtifactTransaction(_Reads):
     async def _committed(self, plan, direct_source: SourceRef | None = None):
         owner = self._owner
         prepared = await owner.service.prepare_change(plan)
-        result = await owner.service.commit(self._connection, prepared, owner.context, direct_source=direct_source)
-        owner.records = tuple(_snapshot(record) for record in result.records)
+        result = await owner.service.commit(self._connection, prepared, self._context, direct_source=direct_source)
+        self._record_written(result.records)
         return result
+
+    def _record_written(self, records) -> None:
+        owner = self._owner
+        owner.records = tuple(_snapshot(record) for record in records)
+        self._governed(owner.records)
+
+    def _governed(self, snapshots: Sequence[ArtifactSnapshot]) -> None:
+        """Later writes in this transaction are decided against the governance state it wrote itself."""
+
+        observed = self._owner.observed_governance
+        for snapshot in snapshots:
+            if snapshot.ref.artifact_id in observed:
+                observed[snapshot.ref.artifact_id] = snapshot.governance_generation
 
     async def _commit(self, plan) -> ArtifactSnapshot:
         return self._written(_snapshot((await self._committed(plan)).primary))
@@ -404,7 +425,7 @@ class PluginArtifactTransaction(_Reads):
         """Writes that bypass the governance engine still need the caller's ``artifact.write``."""
 
         owner = self._owner
-        await owner.service.security.authorize(self._connection, owner.scope_id, owner.context, "write", ref)
+        await owner.service.security.authorize(self._connection, owner.scope_id, self._context, "write", ref)
 
     def _written(self, snapshot: ArtifactSnapshot) -> ArtifactSnapshot:
         self._owner.written = snapshot
@@ -427,6 +448,14 @@ class PluginArtifactTransaction(_Reads):
         body = owner.body(content)
         current = await self._record(self._connection, artifact_id)
         expected_revision = self._put_revision(artifact_id, current, expected_revision)
+        observed_governance = owner.observed_governance.get(artifact_id)
+        if (
+            current is not None
+            and observed_governance is not None
+            and current.state.governance_generation != observed_governance
+        ):
+            # Forget, restore and merge can leave the revision unchanged, so the revision check misses them.
+            raise owner.service.errors.conflict("the Artifact governance changed after it was read")  # noqa: TRY003
         if change is not None:
             if (change.operation == "create") != (current is None):
                 raise owner.service.errors.conflict(
@@ -451,10 +480,13 @@ class PluginArtifactTransaction(_Reads):
             owner.scope_id,
             artifact_id,
             body,
-            owner.context,
+            self._context,
             expected_revision=None
             if current is None
             else (current.artifact.revision if expected_revision is None else expected_revision),
+            # The inspection reads the Artifact again; a governance change committed since the check above
+            # must fail there too, in the same validation as the revision.
+            expected_state_version=None if current is None else observed_governance,
             lineage=ArtifactLineage(sources=tuple(source_refs), artifacts=tuple(artifact_refs)),
         )
         direct = None
@@ -464,7 +496,7 @@ class PluginArtifactTransaction(_Reads):
                 self._connection,
                 owner,
                 artifact_id,
-                content,
+                content if change.submitted_content is None else change.submitted_content,
                 "artifact_create" if current is None else "artifact_replace",
                 1 if current is None else current.artifact.revision + 1,
             )
@@ -475,7 +507,7 @@ class PluginArtifactTransaction(_Reads):
         self._agree("revert", artifact_id)
         owner = self._owner
         plan = await owner.service.inspect_restore(
-            self._connection, owner.scope_id, artifact_id, owner.context, operation="restore", revision=to_revision
+            self._connection, owner.scope_id, artifact_id, self._context, operation="restore", revision=to_revision
         )
         return await self._commit_change(plan, artifact_id)
 
@@ -504,7 +536,7 @@ class PluginArtifactTransaction(_Reads):
                 self._connection,
                 owner.scope_id,
                 artifact_id,
-                owner.context,
+                self._context,
                 expected_revision=current.artifact.revision,
                 expected_state_version=current.state.governance_generation,
             )
@@ -512,7 +544,7 @@ class PluginArtifactTransaction(_Reads):
         if requested is ArtifactLifecycleState.ACTIVE:
             # Shared restoration also undoes the merges that froze an input, as one group.
             plan = await owner.service.inspect_restore(
-                self._connection, owner.scope_id, artifact_id, owner.context, operation="restore"
+                self._connection, owner.scope_id, artifact_id, self._context, operation="restore"
             )
             return await self._commit_change(plan, artifact_id)
         await self._authorize_write(current.artifact.as_ref())
@@ -525,7 +557,9 @@ class PluginArtifactTransaction(_Reads):
             requested,
             replacement_artifact_id,
         )
-        return ArtifactChange(artifact=_snapshot(await self._require(artifact_id)))
+        transitioned = _snapshot(await self._require(artifact_id))
+        self._governed((transitioned,))
+        return ArtifactChange(artifact=transitioned)
 
     async def merge(
         self,
@@ -560,7 +594,7 @@ class PluginArtifactTransaction(_Reads):
             into,
             reads,
             owner.body(content),
-            owner.context,
+            self._context,
             lineage=lineage,
         )
         return await self._commit(plan)
@@ -568,7 +602,7 @@ class PluginArtifactTransaction(_Reads):
     async def _undo_plan(self, artifact_id: str):
         owner = self._owner
         return await owner.service.inspect_restore(
-            self._connection, owner.scope_id, artifact_id, owner.context, operation="undo_merge"
+            self._connection, owner.scope_id, artifact_id, self._context, operation="undo_merge"
         )
 
     async def preview_undo_merge(self, artifact_id: str, /) -> UndoMergePreview:
@@ -589,8 +623,8 @@ class PluginArtifactTransaction(_Reads):
         self._agree("undo_merge", artifact_id)
         owner = self._owner
         prepared = await owner.service.prepare_change(await self._undo_plan(artifact_id))
-        result = await owner.service.commit(self._connection, prepared, owner.context)
-        owner.records = tuple(_snapshot(record) for record in result.records)
+        result = await owner.service.commit(self._connection, prepared, self._context)
+        self._record_written(result.records)
         target = next((record for record in result.records if record.ref.artifact_id == artifact_id), None)
         if target is not None:
             self._written(_snapshot(target))
@@ -700,6 +734,8 @@ class PluginArtifactWriter(_Reads):
         self.states = ArtifactGovernanceRepository()
         self.sources = sources
         self.observed: dict[str, int] = {}
+        # The governance state version of each Artifact as first read outside the transaction.
+        self.observed_governance: dict[str, int] = {}
         # Restored and retired refs of the last lifecycle write, which user changes report back.
         self.outcome: tuple[tuple[ArtifactRef, ...], tuple[ArtifactRef, ...], tuple[str, ...]] = ((), (), ())
         # The snapshot the agreed write committed, and every record it changed, which user changes return
@@ -720,6 +756,7 @@ class PluginArtifactWriter(_Reads):
     def _seen(self, snapshots: Sequence[ArtifactSnapshot]) -> None:
         for snapshot in snapshots:
             self.observed.setdefault(snapshot.ref.artifact_id, snapshot.ref.revision)
+            self.observed_governance.setdefault(snapshot.ref.artifact_id, snapshot.governance_generation)
 
     @property
     def family(self) -> str:

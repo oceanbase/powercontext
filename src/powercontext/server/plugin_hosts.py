@@ -43,6 +43,7 @@ from powercontext.builtin.plugins.host_protocol import (
     HostRequest,
     HostResponse,
     HostShutdown,
+    PipeChannel,
     PluginHostSpec,
 )
 
@@ -90,7 +91,7 @@ class _HostProcess:
     def __init__(self, group: PluginHost) -> None:
         self.group = group
         self.process: Any = None
-        self.connection: Any = None
+        self.channel: PipeChannel | None = None
         self.ready = False
         # False once the process is being stopped; it takes no new calls.
         self.accepting = True
@@ -100,7 +101,6 @@ class _HostProcess:
         self.last_beat = self.started_at
         self.idle_since = self.started_at
         self.reason = "crash"
-        self._send_lock = asyncio.Lock()
         self._exited = asyncio.Event()
 
     async def run(self) -> None:
@@ -110,13 +110,13 @@ class _HostProcess:
         self.process = context.Process(
             target=run_plugin_host, args=(child, group.spec), name=f"powercontext-plugin-host-{group.name}"
         )
-        self.connection = parent
         try:
             await asyncio.to_thread(self.process.start)
             child.close()
+            channel = self.channel = PipeChannel(parent, name=f"powercontext-plugin-host-{group.name}")
             log_safely(logger, logging.INFO, f"Plugin host {group.name} started")
             while True:
-                message = await asyncio.to_thread(parent.recv)
+                message = await channel.recv()
                 self.last_beat = time.monotonic()
                 if isinstance(message, HostHeartbeat):
                     continue
@@ -139,9 +139,9 @@ class _HostProcess:
         except Exception as error:
             log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed ({type(error).__name__})")
         finally:
-            await asyncio.shield(self._cleanup())
+            await asyncio.shield(self._cleanup(parent))
 
-    async def _cleanup(self) -> None:
+    async def _cleanup(self, connection: Any) -> None:
         self.accepting = self.ready = False
         for future in self.pending.values():
             if not future.done():
@@ -149,15 +149,17 @@ class _HostProcess:
         self.pending.clear()
         if self.process is not None and self.process.pid is not None:
             await asyncio.to_thread(_stop_process, self.process)
-        self.connection.close()
+        if self.channel is None:
+            connection.close()
+        else:
+            await self.channel.close()
         self._exited.set()
         self.group.exited(self)
 
     async def send(self, message: object) -> None:
-        if self.connection is None:
+        if self.channel is None:
             raise OSError("the host process has not started")  # noqa: TRY003
-        async with self._send_lock:
-            await asyncio.to_thread(self.connection.send, message)
+        await self.channel.send(message)
 
     async def request(self, request: HostRequest, deadline: float) -> HostResponse:
         future: asyncio.Future[HostResponse] = asyncio.get_running_loop().create_future()
