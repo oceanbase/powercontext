@@ -143,9 +143,9 @@ Migration `v1_5_0_006` only adds the independent table and indexes. It preserves
 and existing statistics and does not backfill past calls. Capture has no switch, so every prepare writes a record and
 history stays readable. Scope deletion has no new cascade or restriction from this table; stored content does not gain a
 new permission path after deletion. Existing managed databases require the ordinary explicit migration workflow before
-startup. Rollback uses the existing verified backup workflow; disabling capture never drops the table.
+startup. Rollback uses the existing verified backup workflow; rollback never drops the table.
 
-Revision `v1_5_0_006` creates the complete table, including nullable `query_text`. MySQL-compatible backends use UTF-8 text. Only the diagnostic setting enables writes; public Receipts and operational telemetry remain body-free.
+Revision `v1_5_0_006` creates the complete table, including nullable `query_text`. MySQL-compatible backends use UTF-8 text. Writes do not depend on a setting; public Receipts and operational telemetry remain body-free.
 
 ### Review explains the proposal and the saved result
 
