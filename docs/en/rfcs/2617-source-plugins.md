@@ -38,7 +38,8 @@ the central Server.
 
 This proposal replaces the plugin contracts and management mechanisms of the
 [Source plugin framework RFC #2012](2012-source-plugin-system.md): the management service, instance registration, reverse
-channel, and `source load` command are removed, and `pc_source_write_plugins` is dropped when it holds no data.
+channel, and `source load` command are removed, and `pc_source_write_plugins` is dropped when it holds no data. Section 6
+of the reference-level explanation covers upgrading deployments that used the previous framework.
 
 This document describes the target design; it does not mean the mainline or a release already provides it. Interface
 names and code examples illustrate the contract; the implementation determines the final syntax.
@@ -208,6 +209,10 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 - **Status**: each target's latest attempt time, latest success time, consecutive failures, and latest error are reported
   by the runner together with its checkpoint. A `last_seen_at` later than the target's `updated_at` means the runner has
   fetched the latest configuration.
+- **Configuration version**: each target has a configuration version that increases when its parameters change, when it
+  is enabled or disabled, when it is transferred, and when its checkpoint is cleared; a sync delivers it to the runner. A
+  runner submits results with the configuration version it collected under, and the central Server refuses results
+  collected under an older configuration (see section 5).
 - **Changing**: fields of `parameters` outside the identity expression can change, and targets can be enabled or
   disabled; fields in the identity expression cannot change. To collect another object, add another target, so a
   checkpoint always belongs to the same external object.
@@ -229,8 +234,9 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
     `server`, `server.admin` is needed as for changing a `server` target. A user with only Scope write permission
     therefore cannot create a target on their own device and then transfer it to `server`.
   - Listing runners needs only authentication; a runner can only sync and report its own targets; changing a display
-    name and deleting a runner record need `server.admin`, and deleting a runner that still has targets is a conflict
-    until they are transferred or deleted.
+    name needs `server.admin`.
+  - Deleting a runner record: the subject that registered a runner can delete its own records, and `server.admin` can
+    delete any record. Deleting a runner that still has targets is a conflict until they are transferred or deleted.
 
 ## 5. Submitting results and recovering from disconnects
 
@@ -239,8 +245,25 @@ A runner collects, per Scope, the enabled targets assigned to it:
 - On the Server, core saves the returned Sources and each target's new checkpoint in one transaction.
 - On a device, the runner first submits Sources through `POST /v1/source-observations`, then submits the new checkpoint
   through `POST /v1/connector-checkpoints/commit` with the old checkpoint as the expected value, together with the target's
-  status. If anything fails midway, the checkpoint does not advance and the next call collects again from the old
-  checkpoint; resubmitted Sources have the same identity and content, and the central Server deduplicates them.
+  status and the configuration version it collected under. If anything fails midway, the checkpoint does not advance and
+  the next call collects again from the old checkpoint; resubmitted Sources have the same identity and content, and the
+  central Server deduplicates them.
+- **Targets are validated at commit**: the checkpoint and the target status are written in one transaction. In that
+  transaction the central Server first confirms that the target still exists, is enabled, belongs to the submitting
+  runner, and has the configuration version given in the request; if any of these fails, the whole commit is refused and
+  neither the checkpoint nor the status changes. Commits by the server runner pass the same validation. After a target is
+  deleted, disabled, transferred, has its checkpoint cleared, or has its parameters changed, results collected under the
+  old configuration therefore cannot advance the checkpoint, and a late commit cannot recreate the checkpoint of a
+  deleted target. A runner whose commit is refused discards that result and collects again under the latest
+  configuration after its next sync.
+- **Validation does not depend on request fields**: the central Server looks up by `(scope_id, target_id)` whether a
+  checkpoint commit belongs to a collection target, whichever optional fields the request carries. A collection target's
+  checkpoint can be committed only by the runner the target belongs to; other callers are refused even with write
+  permission on the Scope.
+- **Sources already submitted**: Sources are submitted by a separate request before the checkpoint. When the checkpoint
+  commit is refused, those Sources are already saved and are kept: they are real observations of the external object,
+  their identity comes from the plugin, and the central Server deduplicates them when the same object is collected again
+  under the new configuration.
 - Every device request carries the plugin version; the central Server checks it as described in section 8 and hands the
   request to the same plugin loaded on the central Server.
 
@@ -278,6 +301,9 @@ Projection results are deterministic.
   name and targets instead. Delete the state file before cloning a machine image, or two devices hold the same name.
 - For a malicious or leaked credential, disable it in credential management and delete the runners it registered;
   registration has no separate defense.
+- When a device moves to a credential of another subject (for example after its service account is disabled), its old
+  name belongs to the old subject and cannot be reused: register a new runner with the new credential, transfer the
+  targets to it, and have an administrator delete the old record.
 
 ## 8. Versions and upgrades
 
@@ -386,7 +412,7 @@ class SourceCollector(Protocol):
 | Data | Handling |
 | --- | --- |
 | `pc_source_runners` | Added: `runner` (primary key, the name), `display_name`, the registering subject `principal_type` and `principal_id`, `registration_id` (the registration ID of a suggested-name registration, unique on `(principal_type, principal_id, registration_id)`; empty for a fixed name), `registered_at`, `capabilities` (canonical JSON: each plugin's name, version, and load error), `capabilities_digest`, `last_seen_at` |
-| `pc_source_collect_targets` | Added: primary key `(scope_id, target_id)`; `runner` (indexed), `capability`, `target_key`, `parameters` (canonical JSON), `enabled`, `updated_at`, `updated_by`; unique `(scope_id, runner, capability, target_key)`; written by the runner: `last_attempt_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `last_error_message` |
+| `pc_source_collect_targets` | Added: primary key `(scope_id, target_id)`; `runner` (indexed), `capability`, `target_key`, `parameters` (canonical JSON), `enabled`, `config_version` (the configuration version, starting at 1), `updated_at`, `updated_by`; unique `(scope_id, runner, capability, target_key)`; written by the runner: `last_attempt_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `last_error_message` |
 | `pc_connector_checkpoints` | Kept; target checkpoints, keyed by `(scope_id, target_id)` |
 | `pc_sources`, Projections, the Source journal, `pc_source_definition_manifests` | Kept |
 | `pc_source_write_plugins` | Dropped; plugins that provide only definitions come from the plugin directory |
@@ -396,8 +422,8 @@ class SourceCollector(Protocol):
   columns at each collection, in the same transaction as the checkpoint (on a device, in the checkpoint commit request).
   User changes to targets write only the user columns and never conflict with runner writes.
 - The two new tables and the drop ship as one new migration revision; the migration resources of released versions stay
-  unchanged. The migration preflight refuses to upgrade while `pc_source_write_plugins` still holds data; the deployer
-  uninstalls the old plugins on the old version first.
+  unchanged. The migration preflight refuses to upgrade while `pc_source_write_plugins` still holds data and leaves the
+  database unchanged (see section 6).
 - Export and restore include both new tables; `last_seen_at` in `pc_source_runners` and the status columns of
   `pc_source_collect_targets` are not exported and restore empty.
 
@@ -408,15 +434,15 @@ class SourceCollector(Protocol):
 | `GET /v1/source-runners` (MCP `pc_source_runners`) | Authenticated | Every registered runner, its display name, its capabilities, whether their versions are compatible with the central Server, and when it was last seen; capability descriptions and parameter formats come from the central Server's plugins |
 | `POST /v1/source-runners` | Authenticated | Registers: a suggested-name registration carries `registration_id` and an optional `suggested_name`, a fixed-name one carries `name`; returns the decided name. See section 3 of the guide-level explanation |
 | `PATCH /v1/source-runners/{runner}` | `server.admin` | Changes the display name |
-| `POST /v1/source-runners/{runner}/sync` | The runner itself | Accepts only registered names; the request carries the capability list (plugin versions and load errors); the response returns every enabled target assigned to the runner whose version is compatible, with its checkpoint |
-| `DELETE /v1/source-runners/{runner}` | `server.admin` | Deletes a runner record; a conflict while it still has targets |
+| `POST /v1/source-runners/{runner}/sync` | The runner itself | Accepts only registered names; the request carries the capability list (plugin versions and load errors); the response returns every enabled target assigned to the runner whose version is compatible, each with its configuration version and checkpoint |
+| `DELETE /v1/source-runners/{runner}` | The subject that registered the runner, or `server.admin` | Deletes a runner record; a conflict while it still has targets |
 | `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope; `server.admin` when the runner is `server` | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
 | `GET /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_status`) | Scope read | Targets, their configuration, and status |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | As for creation | Changes fields of `parameters` outside the identity expression, or enables and disables |
-| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer` (MCP `pc_source_target_transfer`) | As for creating it on the destination runner; `server.admin` when the source runner is `server` | Reassigns the target to another registered runner; optional `reset_checkpoint` |
+| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer` (MCP `pc_source_target_transfer`) | As for creating it on the destination runner; `server.admin` when the source runner is `server` | Reassigns the target to another registered runner and increases its configuration version; optional `reset_checkpoint` |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | As for creation | Deletes a target and its checkpoint |
 | `POST /v1/source-observations` | Existing | Requests from a runner gain the plugin name and version, checked against the compatible range |
-| `POST /v1/connector-checkpoints/commit` | Existing | The request gains an optional `status`: latest attempt, success, error category, and message; requests from a runner gain the plugin name and version, checked against the compatible range |
+| `POST /v1/connector-checkpoints/commit` | Existing; a collection target's checkpoint is accepted only from the runner the target belongs to | The request gains an optional `status` (latest attempt, success, error category, and message) and `config_version`; requests from a runner gain the plugin name and version, checked against the compatible range. The central Server decides by `(scope_id, target_id)` whether the commit belongs to a collection target; if it does, it validates the target's existence, enabled state, ownership, and configuration version in the same transaction that writes the checkpoint and status, and returns a conflict otherwise |
 
 "The runner itself" means the authenticated subject is the runner record's registering subject, with the same type and
 ID.
@@ -450,7 +476,7 @@ own local files. `ctx.center` exists only on devices, which lets a plugin tell w
 | Old framework | This proposal |
 | --- | --- |
 | The management service and its SQLite | Two central tables |
-| Instance registration (by an administrator) | Runners report themselves when they sync, named after their credential subject |
+| Instance registration (by an administrator) | Runners register themselves and the central Server decides their names; they report capabilities when they sync |
 | Reverse poll / reply channels | Runners pull and sync |
 | Instance `scope_ids` | Targets carry their Scope |
 | `default_capabilities` default instances | Not provided; users choose the runner on the panel |
@@ -458,6 +484,21 @@ own local files. `ctx.center` exists only on devices, which lets a plugin tell w
 | The built-in `content.inline` capability | The existing Source write API |
 | Write plugins (`pc_source_write_plugins`) | Source plugins that provide only `definitions` |
 | The tickets, ticket_chat, and images examples in `examples/source_plugins` | Rewritten as Source plugin examples |
+
+**Upgrading deployments that used the previous framework**:
+
+- Databases that never loaded a write plugin and never ran the previous management service are unaffected: the migration
+  only adds two empty tables and drops the empty `pc_source_write_plugins`.
+- While `pc_source_write_plugins` holds records (after `source load --kind write`), the migration refuses with
+  `unsupported_plugin_data` and leaves the database unchanged. The previous version has no operation that removes these
+  registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version,
+  or move to a new database; do not delete the records by hand to bypass the check.
+- The previous management service's own SQLite (instances, configuration, and channels) is not migrated. After the
+  upgrade, rewrite the old plugins as the Source plugins of this proposal and configure the collection targets again
+  through the target APIs.
+- Collected Sources, Projections, and the checkpoint table are kept. The definition manifests of Source types
+  (`pc_source_definition_manifests`) are kept too; a rewritten plugin must keep declaring definitions of the same name
+  and version for the saved Sources to stay readable.
 
 # Drawbacks
 

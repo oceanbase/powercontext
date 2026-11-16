@@ -28,7 +28,7 @@ Source 类型，需要时从外部系统持续采集。采集可以在中心 Ser
 - **大块内容**：框架不规定传输方式；同一个 Source 插件可以同时在中心运行，提供接收文件的接口，并在 Projection 中读出文件。
 
 本提案取代 [Source 插件框架 RFC #2012](2012-source-plugin-system.md) 的插件契约与管理机制：管理服务、实例登记、反向通道和
-`source load` 命令移除，`pc_source_write_plugins` 在没有数据时删除。
+`source load` 命令移除，`pc_source_write_plugins` 在没有数据时删除。使用过旧框架的部署怎样升级，见参考级说明第 6 节。
 
 本文描述目标设计，不代表主线或发布版本已经可用。接口名称和代码示例用于说明契约，最终语法以实现为准。
 
@@ -174,6 +174,8 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   目标已经存在时，返回已有目标；键相同但参数不同时返回冲突。
 - **状态**：每个目标的最近尝试时间、最近成功时间、连续失败次数和最近错误，由 runner 随 checkpoint 一起汇报。
   `last_seen_at` 晚于目标的 `updated_at`，说明 runner 已经拉到最新配置。
+- **配置版本**：每个目标有一个配置版本，修改参数、启停、转移和清空 checkpoint 时递增，随同步下发给 runner。runner 提交
+  结果时带上采集时使用的配置版本，中心据此拒绝按旧配置采集的结果（见第 5 节）。
 - **修改**：可以修改 `parameters` 中不参与唯一性的字段和启停；唯一性表达式中的字段不能修改，要采集另一个对象就新增一个
   目标，这样 checkpoint 总是对应同一个外部对象。
 - **停用与删除**：停用后目标不再出现在同步结果中，checkpoint 保留，恢复后从原位置继续；删除同时删除它的 checkpoint，已采集的
@@ -188,8 +190,9 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   - 转移目标等同于在目的 runner 上新建这个目标，权限检查相同：Scope 的 Source 写权限，目的 runner 已注册，目的是 `server`
     时还需要 `server.admin`；原 runner 是 `server` 时，与修改 `server` 的目标一样需要 `server.admin`。只有 Scope 写权限的
     用户因此不能先在自己的设备上新建目标、再转移给 `server`。
-  - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；修改显示名和删除 runner 记录需要 `server.admin`，runner
-    名下还有目标时删除返回冲突，要先转移或删除这些目标。
+  - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；修改显示名需要 `server.admin`。
+  - 删除 runner 记录：注册它的主体可以删除自己名下的记录，`server.admin` 可以删除任何记录。runner 名下还有目标时删除返回
+    冲突，要先转移或删除这些目标。
 
 ## 5. 结果提交与断线恢复
 
@@ -197,8 +200,16 @@ runner 每次采集一个 Scope 中分配给它的已启用目标：
 
 - 在服务端，core 把返回的 Source 和各目标的新 checkpoint 在一个事务中保存。
 - 在端侧，runner 先通过 `POST /v1/source-observations` 提交 Source，再以旧 checkpoint 为期望值通过
-  `POST /v1/connector-checkpoints/commit` 提交新 checkpoint，同时带上目标的状态。中途失败时 checkpoint 不前进，下次从旧
-  checkpoint 重新采集；重新提交的 Source 身份和内容相同，由中心去重。
+  `POST /v1/connector-checkpoints/commit` 提交新 checkpoint，同时带上目标的状态和采集时使用的配置版本。中途失败时
+  checkpoint 不前进，下次从旧 checkpoint 重新采集；重新提交的 Source 身份和内容相同，由中心去重。
+- **提交时校验目标**：checkpoint 和目标状态在同一个事务中写入。中心在这个事务里先确认目标仍然存在、已启用、属于提交的
+  runner，并且配置版本与请求中的一致；任何一项不符就拒绝整次提交，checkpoint 和状态都不变。服务端 runner 的提交执行同样的
+  校验。这样，目标被删除、停用、转移、清空 checkpoint 或修改参数之后，按旧配置采集的结果不能推进 checkpoint，被删除目标的
+  checkpoint 也不会被迟到的提交重新创建。runner 收到拒绝后丢弃这次结果，下一次同步按最新配置重新采集。
+- **校验不依赖请求字段**：一次 checkpoint 提交是否属于采集目标，由中心按 `(scope_id, target_id)` 查出，与请求带了哪些
+  可选字段无关。属于采集目标的 checkpoint 只能由目标所属的 runner 提交，其他调用者即使有该 Scope 的写权限也会被拒绝。
+- **已提交的 Source**：Source 在 checkpoint 之前由单独的请求提交。checkpoint 提交被拒绝时，这些 Source 已经保存，予以
+  保留：它们是对外部对象的真实观测，身份由插件决定，之后按新配置重新采集到同一对象时由中心去重。
 - 设备的每个请求都带上插件版本，中心按第 8 节核对后，交给中心加载的同一插件处理。
 
 ## 6. 大块内容
@@ -227,6 +238,8 @@ Source；中心在写入 Source 时执行 Projection，可以读取插件存储�
 - 本地状态丢失（重装、清空目录）后，以提议名启动会注册新的名字，原来的目标用转移改派到新 runner；也可以用同一个凭据以
   指定名启动，沿用原来的名字和目标。克隆机器镜像前要删除状态文件，否则两台设备会持有同一个名字。
 - 发现恶意或泄露的凭据时，在凭据管理中停用它，再删除它注册的 runner 记录；注册环节不另设防御。
+- 设备改用另一个主体的凭据时（例如原服务账号停用），原来的名字属于旧主体，不能沿用：用新凭据注册一台新的 runner，把
+  目标转移过去，再由管理员删除旧记录。
 
 ## 8. 版本与升级
 
@@ -319,7 +332,7 @@ class SourceCollector(Protocol):
 | 数据 | 处理 |
 | --- | --- |
 | `pc_source_runners` | 新增：`runner`（主键，即名字）、`display_name`、注册主体 `principal_type` 和 `principal_id`、`registration_id`（提议名注册时的注册 ID，唯一约束 `(principal_type, principal_id, registration_id)`；指定名注册时为空）、`registered_at`、`capabilities`（规范化 JSON：每个插件的名字、版本和加载错误）、`capabilities_digest`、`last_seen_at` |
-| `pc_source_collect_targets` | 新增：主键 `(scope_id, target_id)`；`runner`（索引）、`capability`、`target_key`、`parameters`（规范化 JSON）、`enabled`、`updated_at`、`updated_by`；唯一约束 `(scope_id, runner, capability, target_key)`；runner 写入的 `last_attempt_at`、`last_success_at`、`consecutive_failures`、`last_error_code`、`last_error_message` |
+| `pc_source_collect_targets` | 新增：主键 `(scope_id, target_id)`；`runner`（索引）、`capability`、`target_key`、`parameters`（规范化 JSON）、`enabled`、`config_version`（配置版本，从 1 开始）、`updated_at`、`updated_by`；唯一约束 `(scope_id, runner, capability, target_key)`；runner 写入的 `last_attempt_at`、`last_success_at`、`consecutive_failures`、`last_error_code`、`last_error_message` |
 | `pc_connector_checkpoints` | 保留；目标的 checkpoint，键为 `(scope_id, target_id)` |
 | `pc_sources`、Projection、Source journal、`pc_source_definition_manifests` | 保留 |
 | `pc_source_write_plugins` | 删除；只提供定义的插件改由插件目录提供 |
@@ -328,7 +341,7 @@ class SourceCollector(Protocol):
 - 写入频率：`capabilities` 只在摘要变化时写；`last_seen_at` 每台 runner 每次同步写一次；状态列在每次采集时与 checkpoint
   同一事务写入（端侧在 checkpoint 提交请求中）。用户修改目标只写用户列，不与 runner 的写入冲突。
 - 两张新表和删除通过一个新的迁移版本完成，已发布版本的迁移资源保持不变。迁移检查发现 `pc_source_write_plugins` 中仍有
-  数据时拒绝升级，由部署者先在旧版本上卸载旧插件。
+  数据时拒绝升级，数据库保持不变（见第 6 节）。
 - 导出与恢复包含两张新表；`pc_source_runners` 中的在线时间和 `pc_source_collect_targets` 的状态列不参与导出，恢复后为空。
 
 ## 4. 接口
@@ -338,15 +351,15 @@ class SourceCollector(Protocol):
 | `GET /v1/source-runners`（MCP `pc_source_runners`） | 已登录 | 所有已注册的 runner、显示名、它们的能力、版本是否与中心兼容和最近在线时间；能力的说明和参数格式取自中心的插件 |
 | `POST /v1/source-runners` | 已登录 | 注册：提议名方式带 `registration_id` 和可选的 `suggested_name`，指定名方式带 `name`；返回确定的名字。规则见指南级说明第 3 节 |
 | `PATCH /v1/source-runners/{runner}` | `server.admin` | 修改显示名 |
-| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 只接受已注册的名字；请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标及其 checkpoint |
-| `DELETE /v1/source-runners/{runner}` | `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
+| `POST /v1/source-runners/{runner}/sync` | runner 本身 | 只接受已注册的名字；请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标，每个目标带配置版本和 checkpoint |
+| `DELETE /v1/source-runners/{runner}` | 注册该 runner 的主体，或 `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
 | `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限；runner 为 `server` 时需要 `server.admin` | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
 | `GET /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_status`） | Scope 读权限 | 目标、配置和状态 |
 | `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | 同新建 | 修改 `parameters` 中不参与唯一性的字段或启停 |
-| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer`（MCP `pc_source_target_transfer`） | 同在目的 runner 上新建；原 runner 是 `server` 时需要 `server.admin` | 改派给另一台已注册的 runner；可选 `reset_checkpoint` |
+| `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer`（MCP `pc_source_target_transfer`） | 同在目的 runner 上新建；原 runner 是 `server` 时需要 `server.admin` | 改派给另一台已注册的 runner，配置版本递增；可选 `reset_checkpoint` |
 | `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | 同新建 | 删除目标及其 checkpoint |
 | `POST /v1/source-observations` | 现有 | 来自 runner 的请求增加插件名和版本，按兼容范围核对 |
-| `POST /v1/connector-checkpoints/commit` | 现有 | 请求增加可选的 `status`：最近尝试、成功、错误分类和信息；来自 runner 的请求增加插件名和版本，按兼容范围核对 |
+| `POST /v1/connector-checkpoints/commit` | 现有；属于采集目标的 checkpoint 只接受目标所属 runner 的提交 | 请求增加可选的 `status`（最近尝试、成功、错误分类和信息）和 `config_version`；来自 runner 的请求增加插件名和版本，按兼容范围核对。中心按 `(scope_id, target_id)` 判断是否属于采集目标；属于时在同一事务中校验目标存在、已启用、归属和配置版本，再写入 checkpoint 和状态，不符返回冲突 |
 
 "runner 本身"指认证主体与 runner 记录的注册主体相同，类型和 ID 都要相同。
 
@@ -376,7 +389,7 @@ class PluginCenter(Protocol):
 | 旧框架 | 本提案 |
 | --- | --- |
 | 管理服务及其 SQLite | 中心的两张表 |
-| 实例登记（管理员） | runner 同步时自己上报，名字取自凭据主体 |
+| 实例登记（管理员） | runner 自己注册，名字由中心确定；同步时上报能力 |
 | 反向 poll / reply 通道 | runner 拉取同步 |
 | `scope_ids` 实例配置 | 目标自带 Scope |
 | `default_capabilities` 默认实例 | 不提供；面板由用户选择 runner |
@@ -384,6 +397,17 @@ class PluginCenter(Protocol):
 | `content.inline` 内置能力 | 现有 Source 写入接口 |
 | write 插件（`pc_source_write_plugins`） | 只提供 `definitions` 的 Source 插件 |
 | `examples/source_plugins` 的 tickets、ticket_chat、images | 改写为 Source 插件示例 |
+
+**使用过旧框架的部署怎样升级**：
+
+- 没有加载过 write 插件、也没有部署过旧管理服务的数据库不受影响，迁移只新增两张空表并删除空的 `pc_source_write_plugins`。
+- `pc_source_write_plugins` 中有记录时（执行过 `source load --kind write`），迁移以 `unsupported_plugin_data` 拒绝，数据库
+  保持不变。旧版本没有删除这些登记的操作，所以这样的数据库目前没有受支持的原地升级路径：继续使用旧版本，或者改用新的
+  数据库；不要手工删除记录来绕过检查。
+- 旧管理服务自己的 SQLite（实例、配置和通道）不迁移。升级后要把旧插件改写成本提案的 Source 插件，并通过目标接口重新
+  配置采集目标。
+- 已经采集的 Source、Projection 和 checkpoint 表保留。Source 类型的定义清单（`pc_source_definition_manifests`）也保留，
+  改写后的插件要继续声明同名同版本的定义，已保存的 Source 才能继续读取。
 
 # 缺点
 
