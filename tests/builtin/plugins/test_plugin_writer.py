@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+import os
 from uuid import uuid4
 
 import pytest
@@ -262,6 +263,58 @@ def test_a_write_decided_on_a_stale_read_conflicts_instead_of_overwriting(runtim
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("forget_after_inspection", [False, True], ids=["before-inspection", "after-inspection"])
+def test_a_forget_committed_during_put_rejects_the_stale_write(short_tmp_path, monkeypatch, forget_after_inspection):
+    if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
+        pytest.skip("real seekdb acceptance not enabled")
+    pytest.importorskip("pylibseekdb")
+    from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictError
+    from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+    from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+    from powercontext.builtin.scope import ScopeApplication
+
+    async def scenario():
+        config = SeekDBConfig(path=short_tmp_path / "seekdb")
+        async with SeekDBProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            database = profile.database
+            scope = (
+                await ScopeApplication(database).create(
+                    ScopeDraft(title="Concurrent forget", summary="Plugins", idempotency_key="concurrent-forget")
+                )
+            ).scope_id
+            async with _writer(database, scope).transaction() as tx:
+                await tx.put("draft", content={"text": "original"})
+
+            stale = _writer(database, scope)
+            original = await stale.get("draft")
+            assert original is not None and original.lifecycle_state == "active"
+            inspect_change = stale.service.inspect_change
+
+            async def inspect_around_forget(*args, **kwargs):
+                # Schedule a real second connection's commit after put's preliminary check,
+                # on either side of inspection. Both windows must reject stale content.
+                plan = await inspect_change(*args, **kwargs) if forget_after_inspection else None
+                async with _writer(database, scope).transaction() as other:
+                    await other.set_lifecycle("draft", "deprecated")
+                if plan is not None:
+                    return plan
+                return await inspect_change(*args, **kwargs)
+
+            monkeypatch.setattr(stale.service, "inspect_change", inspect_around_forget)
+            with pytest.raises(ArtifactMergeConflictError):
+                async with stale.transaction() as tx:
+                    await tx.put("draft", content={"text": "generated from the active draft"})
+
+            stored = await _writer(database, scope).get("draft")
+            assert stored is not None
+            assert stored.lifecycle_state == "deprecated"
+            assert stored.ref.revision == original.ref.revision == 1
+            assert stored.content == original.content
+            assert stored.governance_generation == original.governance_generation + 1
+
+    asyncio.run(scenario())
+
+
 def test_user_changes_complete_exactly_their_write_and_always_record_a_revision(runtime):
     from powercontext.builtin.plugins.writer import PluginContractError, UserChange
 
@@ -291,6 +344,45 @@ def test_user_changes_complete_exactly_their_write_and_always_record_a_revision(
             async with _writer(database, scope).transaction() as tx:
                 kept = await tx.put("a", content={"text": "same"})
             assert kept.ref.revision == 2
+
+    asyncio.run(scenario())
+
+
+def test_a_forget_that_lands_between_the_writers_check_and_its_inspection_conflicts(runtime):
+    from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictError
+
+    async def scenario():
+        async with open_builtin_contexts(runtime) as contexts:
+            database = contexts.database
+            scope = await _scope(contexts)
+            async with _writer(database, scope).transaction() as tx:
+                await tx.put("a", content={"text": "first"})
+
+            stale = _writer(database, scope)
+            observed = await stale.get("a")
+            service = stale.service
+            inspect = service.inspect_change
+
+            async def forget_then_inspect(connection, scope_id, artifact_id, *args, **kwargs):
+                # Stands in for another connection's forget, committed after put compared the governance
+                # state and visible to this transaction's next read, as under READ COMMITTED.
+                plan = await service.inspect_forget(
+                    connection,
+                    scope_id,
+                    artifact_id,
+                    None,
+                    expected_revision=observed.ref.revision,
+                    expected_state_version=observed.governance_generation,
+                )
+                await service.commit(connection, await service.prepare_change(plan), None)
+                return await inspect(connection, scope_id, artifact_id, *args, **kwargs)
+
+            service.inspect_change = forget_then_inspect
+            with pytest.raises(ArtifactMergeConflictError):
+                async with stale.transaction() as tx:
+                    await tx.put("a", content={"text": "derived from the active draft"})
+            record = await current(database, "notes", scope, "a")
+            assert (record.revision, record.content.content) == (1, {"text": "first"})
 
     asyncio.run(scenario())
 

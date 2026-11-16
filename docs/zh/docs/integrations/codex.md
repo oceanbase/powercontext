@@ -25,8 +25,11 @@ powercontext doctor codex
 重复执行是安全的。`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
 
 插件的 Hook 和 MCP 凭据助手都通过 `PATH` 中的 `uv` 运行，因此 setup 需要 `uv`，首次安装时还需要能访问包索引。
-在 setup 时构建环境，可避免首次会话在 Codex 同时启动 Hook 和 MCP 时才去构建。如果插件通过其他方式安装或更新，
-在重新执行 setup 之前，`powercontext doctor codex` 会把 `plugin_runtime` 报告为 degraded。
+在 setup 时构建环境，可避免首次会话在 Codex 同时启动 Hook 和 MCP 时才去构建。`UV_PYTHON` 指向的解释器与 setup
+构建环境时所用的不同时，uv 会重建环境：如果 Codex 启动时带着这样的 `UV_PYTHON`，首次会话的 `SessionStart` Hook
+会重建环境，该会话可能没有 PowerContext 的 MCP 工具，之后的会话复用重建后的环境。要避免这种情况，请用与 Codex
+相同的 `UV_PYTHON` 运行 setup，或在启动 Codex 时不设置它。如果插件通过其他方式安装或更新，在重新执行 setup
+之前，`powercontext doctor codex` 会把 `plugin_runtime` 报告为 degraded。
 
 PowerContext 的 MCP server 对 Codex 是可选的，因此 Server 不可用时不会阻塞会话。Codex 默认只等待可选 server 一秒
 （`mcp_optional_startup_grace_ms`），然后列出会话首轮可用的工具；在较慢或负载较高的机器上，首轮可能没有 PowerContext
