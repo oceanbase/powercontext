@@ -3741,3 +3741,63 @@ uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py 
 `v1_5_0_005`，再执行 `v1_5_2_001`，保留插件数据拒绝规则、插件就绪校验和幂等收据表。
 本记录不代替任意插件执行、Rust Gateway 生命周期、安装版、凭据持久化、其他平台、外部数据库、
 已安装发行版升级或发布验收；幂等 key 的行为由独立端到端测试覆盖。
+
+## Server be5f0f76 v1.5.2 release protocol qualification
+
+`sqlite-release-1-5-2-be5f0f76-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3`,
+with the API release version set to `1.5.2`.
+
+This is an artifact-specific historical qualification, not a qualification of the final
+release tag. `serverCommit` identifies the source actually used to build the recorded
+wheel and must remain paired with its `artifactSha256`. A squash merge need not put
+that commit on `master`; retrieve the PR history explicitly to inspect the source:
+
+```sh
+git fetch https://github.com/oceanbase/powercontext.git refs/pull/2670/head
+git show be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3:pyproject.toml
+```
+
+Subsequent branch changes include runtime migration diagnostics and upstream plugin
+runtime changes. This record does not qualify those changes. Qualifying the final
+release requires building and testing that artifact and adding a record with its own
+source commit, artifact digest and results; changing this record to a later commit or
+tag would misidentify the tested artifact. The locally retained wheel and report are
+not public release assets, so fetching the source alone does not reproduce this run.
+
+- OpenAPI SHA-256: `e9749951301bd0fc191e70b4573016fda0f56a21cbcdc9affebf1af2a6d3b568`.
+- Wheel: `powercontext-1.5.2.dev178+gbe5f0f769-py3-none-any.whl`.
+- Wheel SHA-256: `436574fca95ce7b7660ccdc61e825955e09749bc9f07edfccbe339635d1e0da4`.
+- Native debug probe SHA-256: `2e019c3fd7a01a01e1dd258a44d67fbba1457d3a76ba3e95a708afeb9ca8ee22`.
+
+On 2026-11-16, Linux 5.10 x86_64 with glibc 2.32 and Python 3.14.6 passed
+anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+injected-provider/enforced-access modes. The ordinary ConnectionManager selected
+this bundled product record with matching Server and client contract digests.
+Checks cover save, search, exact revision reads, lost write responses without
+replay, independent Server survival after client exit, Principal changes,
+same-identity revocation, 51 same-title Scopes, and scoped native authorization
+without Server observation permission. Model usage is fixture input.
+All 808 checked packaged runtime files match the source tree at the recorded commit.
+
+The host lacks WebKitGTK 4.1. The native probe was compiled with Rust 1.96.0 in
+an isolated protocol-only Cargo crate importing the unchanged product connections,
+credentials, error, Ops bridge, session observations and transport modules, plus
+the unchanged `server_probe.rs`. Every registry dependency version and checksum
+matches the product Cargo lock. The crate omits the Tauri/WebView shell and uses
+no `ci-fixtures`; this is not a full Desktop application build.
+
+The first harness run exceeded its startup polling budget in Bearer mode. The
+successful run used a local wrapper around `desktop/tests/real_server.py` that
+allows 60 seconds for Server startup. Native probe code, request timeouts,
+HTTP assertions and business operations are unchanged. The original harness
+SHA-256 is `998b09165bf2114408d9e2da234403b1a218bfe19cecbd9453436e7ac0606075`.
+The wheel, isolated Cargo crate, wrapper and four-mode report are retained under
+`/data/codex-tmp/release-v1.5.2/` on the validation host; the report is
+`artifacts/real-server.json`.
+
+The report marks the Desktop working tree dirty because the new qualification
+record was not yet committed. Historical profiles retain their original evidence.
+These results qualify the observed local SQLite protocol, not installed WebView
+behavior, native credential persistence, other platforms, external providers,
+native database upgrades or the formal release acceptance matrix.

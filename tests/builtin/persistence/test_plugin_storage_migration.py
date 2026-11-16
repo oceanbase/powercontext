@@ -154,6 +154,7 @@ def test_upgrade_refuses_retained_plugin_data_and_drops_only_empty_storage(tmp_p
         upgraded.plan()
     assert refused.value.code == "unsupported_plugin_data"
     assert "pc_artifact_family_schemas" in str(refused.value)
+    assert "no supported in-place upgrade path" in str(refused.value)
 
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM pc_artifact_family_schemas")

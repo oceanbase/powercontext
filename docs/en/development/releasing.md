@@ -200,7 +200,7 @@ CI upgrade acceptance, so a passing gate does not certify its upgrade path. Sour
 from public PyPI and recorded with the target artifact.
 
 The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
-`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005`.
 They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
@@ -260,7 +260,7 @@ the GitHub Release page: run the command above before that action. `make publish
 ### Publish from the GitHub Actions page
 
 For an existing published Release, open **Actions → Release → Run workflow**, select `master`, and enter
-`powercontext-v1.5.1` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
+`powercontext-v1.5.2` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
 Workflow changes must be merged into `master` first. The run uses its workflow commit for gate tooling and the
 selected tag for package builds and acceptance suites. All twelve cases must pass before package publication;
 no support table, fixed Release wording, or policy-mode change is required.
