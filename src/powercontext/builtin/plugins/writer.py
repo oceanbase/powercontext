@@ -484,6 +484,9 @@ class PluginArtifactTransaction(_Reads):
             expected_revision=None
             if current is None
             else (current.artifact.revision if expected_revision is None else expected_revision),
+            # The inspection reads the Artifact again; a governance change committed since the check above
+            # must fail there too, in the same validation as the revision.
+            expected_state_version=None if current is None else observed_governance,
             lineage=ArtifactLineage(sources=tuple(source_refs), artifacts=tuple(artifact_refs)),
         )
         direct = None

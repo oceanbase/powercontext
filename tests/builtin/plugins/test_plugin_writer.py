@@ -295,6 +295,45 @@ def test_user_changes_complete_exactly_their_write_and_always_record_a_revision(
     asyncio.run(scenario())
 
 
+def test_a_forget_that_lands_between_the_writers_check_and_its_inspection_conflicts(runtime):
+    from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictError
+
+    async def scenario():
+        async with open_builtin_contexts(runtime) as contexts:
+            database = contexts.database
+            scope = await _scope(contexts)
+            async with _writer(database, scope).transaction() as tx:
+                await tx.put("a", content={"text": "first"})
+
+            stale = _writer(database, scope)
+            observed = await stale.get("a")
+            service = stale.service
+            inspect = service.inspect_change
+
+            async def forget_then_inspect(connection, scope_id, artifact_id, *args, **kwargs):
+                # Stands in for another connection's forget, committed after put compared the governance
+                # state and visible to this transaction's next read, as under READ COMMITTED.
+                plan = await service.inspect_forget(
+                    connection,
+                    scope_id,
+                    artifact_id,
+                    None,
+                    expected_revision=observed.ref.revision,
+                    expected_state_version=observed.governance_generation,
+                )
+                await service.commit(connection, await service.prepare_change(plan), None)
+                return await inspect(connection, scope_id, artifact_id, *args, **kwargs)
+
+            service.inspect_change = forget_then_inspect
+            with pytest.raises(ArtifactMergeConflictError):
+                async with stale.transaction() as tx:
+                    await tx.put("a", content={"text": "derived from the active draft"})
+            record = await current(database, "notes", scope, "a")
+            assert (record.revision, record.content.content) == (1, {"text": "first"})
+
+    asyncio.run(scenario())
+
+
 def test_lifecycle_changes_report_the_target_and_its_group(runtime):
     async def scenario():
         async with open_builtin_contexts(runtime) as contexts:
