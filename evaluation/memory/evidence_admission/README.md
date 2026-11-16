@@ -135,7 +135,10 @@ uv run --project evaluation evidence-admission run-live \
 queries or fragments. Credentials are read from the named environment variable, never from a manifest or a command argument.
 SDK retries and HTTP redirects are disabled. The per-generation request cap is one; the manifest fixes a 60-second timeout,
 2,048 output tokens, temperature zero and sequential execution. The explicit global request cap also bounds failed attempts.
-No currency estimate is implied: use the chosen provider's prices before selecting the cap. A capped, interrupted or failed
+The generic CLI has no currency limit. Before sending requests, calculate the full-context input/output and fee upper
+bound using the [cost worksheet and formula](LIVE_RUNBOOK.md#calculate-the-maximum-amount), including smoke and all
+formal commands. Estimator tokens are not billed-token caps; an unbounded billing component prevents a proven maximum
+amount. The historical v20 money ledger and approval do not apply to generic commands. A capped, interrupted or failed
 execution must not be treated as full coverage.
 Every ordinary sample in every arm must finish generation or produce an expected control budget rejection. Accepted partial
 windows still require completed generation. Control failures and unresolved control reviews cannot be hidden by candidate

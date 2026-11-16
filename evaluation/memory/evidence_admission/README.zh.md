@@ -7,6 +7,10 @@
 [RESULTS_ARTIFACT.md](RESULTS_ARTIFACT.md)。只有历史回放需要设置
 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`；默认测试不下载证据包，也不需要 provider 凭据。
 
+通用 `run-live`/`run-smoke` 只执行请求次数限制，不执行金额上限。实际调用前按
+[费用表与上界公式](LIVE_RUNBOOK.zh.md#运行前计算最大费用)合计 smoke 和全部正式命令；
+估算 token 不能当作计费 token 硬边界。历史 v20 金额账本与批准不自动适用于通用命令。
+
 [v20 实际结果](V20_RESULTS.zh.md)已补跑剩余 351 次，全部有响应及用量，未新增未知调用。
 原 471 次清单现已全部尝试，未运行请求为 0；合并 469 个可用响应回放全部匹配，2 个历史缺失仍不可用。
 输出引用、结构化解析及 Unicode 字面量门槛存在失败，533 个候选语义未决，最终仍为 insufficient_evidence。
