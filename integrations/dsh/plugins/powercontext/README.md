@@ -85,7 +85,8 @@ The native client connects through a process-local streaming boundary that forwa
 endpoint and rejects every redirect. It preserves native discovery, session headers, streaming and connection cleanup;
 it does not register HTTP operation tools or change the host's global fetch. HTTP failures expose controlled status/code
 information, not upstream response bodies or diagnostic headers. Content writes, including nested Handoff state, Drafts
-and prepared carriers, are rejected with `secret_rejected` before approval or dispatch when they contain likely secrets.
+and prepared carriers, are rejected with `secret_rejected` before approval or dispatch when they contain a credential
+recognized by the shared automatic prompt privacy rule, including the configured Server token.
 The plugin's MCP catalog and approval classification are generated from the Server's public `tools/list` results,
 separately from the lifecycle HTTP operations table.
 

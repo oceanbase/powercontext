@@ -124,7 +124,7 @@ describe('invokeOperation', () => {
       requestTimeoutMs: 1000,
       fetch: async () => new Response('{}', { status: 200 }),
     })
-    await expect(invokeOperation(client, 'remember_memory', { kind: 'decision', text: 'sk-secret' }, 'project:demo')).resolves.toMatchObject({
+    await expect(invokeOperation(client, 'remember_memory', { kind: 'decision', text: 'sk-synthetic-value-2084' }, 'project:demo')).resolves.toMatchObject({
       ok: false,
       code: 'secret_rejected',
     })
