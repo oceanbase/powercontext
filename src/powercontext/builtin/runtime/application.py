@@ -1268,17 +1268,15 @@ class ScopedContextApplication:
                 resolve_target=resolve_target,
             )
 
-    async def _prepare(  # noqa: C901 -- Keep recall statistics and optional evidence in the same execution.
+    async def _prepare(
         self,
         request: PrepareContextRequest,
         scope: ScopeDescriptor,
         /,
         *,
         binding_identity: str = "local",
-        evidence: ReceiptEvidence | None = None,
+        evidence: ReceiptEvidence | None,
     ) -> PrepareContextResult:
-        if evidence is None and request.include_receipt:
-            evidence = ReceiptEvidence()
         token = bind_receipt_evidence(evidence)
         try:
             build, effort = await self._prepare_build(request, scope)
@@ -1362,10 +1360,11 @@ class ScopedContextApplication:
             return build.context
         if evidence.diagnostics:
             evidence.selected_count = len(build.origins) + len(build.code_origins)
-            evidence.selected_by_family = {
-                family: sum(fragment.kind == family for fragment in build.fragments)
-                for family in ("atomic-memory", "topic-memory", "experience", "profile", "code")
-            }
+            counts = dict.fromkeys(("atomic-memory", "topic-memory", "experience", "profile", "code"), 0)
+            for fragment in build.fragments:
+                if fragment.kind in counts:
+                    counts[fragment.kind] += 1
+            evidence.selected_by_family = counts
         try:
             receipt = evidence.build(request, build.context, build, self.scope_id)
         except Exception as error:
@@ -1424,8 +1423,8 @@ class ScopedContextApplication:
         policy is not configured, so the default-off path allocates nothing.
         """
 
-        collector = current_receipt_evidence()
-        builder = PreparedContextBuilder(diagnostics=collector is not None and collector.diagnostics)
+        evidence = current_receipt_evidence()
+        builder = PreparedContextBuilder(diagnostics=evidence is not None and evidence.diagnostics)
         if request.include_code:
             builder.entry_limit = self._runtime.context_assembly_max_entries
         scope_ids = [self.scope_id, *scope.context_references]
@@ -1462,7 +1461,6 @@ class ScopedContextApplication:
             embedding_budget=embedding_budget,
             excluded_memory=injected_memory_keys,
         )
-        evidence = current_receipt_evidence()
         if evidence is not None:
             evidence.rounds.append(RecallRound(round=0, outcome="completed", retained=True))
         memory_candidates = list(round_zero.memory)
@@ -1528,7 +1526,6 @@ class ScopedContextApplication:
                     "profile": len(profile_candidates),
                     "code": len(code),
                 }
-        if evidence is not None:
             for group in memory_candidates:
                 evidence.text_snapshot(
                     "assembly",
@@ -1802,7 +1799,6 @@ class ScopedContextApplication:
                 configured=True,
                 duration_ms=(perf_counter() - started) * 1000,
             )
-        if evidence is not None:
             evidence.text_snapshot("search", "code", self.scope_id, lambda: (code_text(item) for item in candidates))
         log_safely(
             logger,
@@ -2426,7 +2422,6 @@ class ScopedContextApplication:
             )
         if evidence is not None and started is not None:
             evidence.stage("topic_memory.search", (perf_counter() - started) * 1000)
-        if evidence is not None and started is not None:
             evidence.search(
                 "topic-memory",
                 outcome.mode,

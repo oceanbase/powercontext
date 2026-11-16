@@ -342,9 +342,11 @@ in its harness. The explicit Server diagnostic extension below defines a separat
 
 ### Explicit Server diagnostic extension
 
-The Server always writes independent prepare history to `pc_context_prepare_diagnostics`; there is no enable setting.
+The built-in Server attempts to save observed prepare executions to `pc_context_prepare_diagnostics`; there is no enable setting.
 It captures the same authorized execution, including the original prepare query, exact final prepared text,
-Receipt when available, actual family result counts, per-stage candidate text and terminal failure/cancellation evidence. It does not collect authentication credentials, vectors or raw model outputs. Query text is retained verbatim. Receipt JSON remains content-free and is never injected. The
+Receipt when available, actual family result counts, per-stage candidate text and terminal failure/cancellation evidence.
+Authentication headers, vectors and raw model responses are not copied as separate fields. Query and candidate/final text
+are retained without redaction, including any secrets present in that text. Receipt JSON remains content-free and is never injected. The
 extension does not change host requests, responses, reuse or the public Receipt schema and never reruns prepare.
 
 Capture covers all Server Scopes and rounds. Records have permanent retention, without TTL, capacity eviction or a
@@ -442,7 +444,7 @@ already withholds it. PreparedContext selection happens after Memory search and 
 different budget.
 
 **Do not put the diagnostic history in the public contract.** The Server diagnostic extension retains final context,
-including the original query, in a separate diagnostic record that is always written. Query text remains excluded from
+including the original query, in a separate best-effort diagnostic record. Query text remains excluded from
 Receipt JSON and operational signals. Evaluation can keep the HTTP response in its harness.
 
 **Do not invent a progressive-content cache.** Expanding a Receipt item through existing exact-read APIs preserves

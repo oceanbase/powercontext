@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Server-owned opt-in persistence for Runtime prepare diagnostics."""
+"""Server-owned persistence for Runtime prepare diagnostics."""
 
 from powercontext.builtin.persistence.context_prepare_diagnostics import ContextPrepareDiagnosticsRepository
 from powercontext.builtin.runtime.application import BuiltinRuntime

@@ -148,8 +148,6 @@ class PrepareDiagnosticCapture:
 
 
 def _failure_code(error: Exception | None) -> str:
-    # Class identity selects a closed code. Messages and attached provider data
-    # never become a diagnostic field.
     for kind, code in (
         (InferenceTimeoutError, "inference_timeout"),
         (InferenceUnavailableError, "inference_unavailable"),

@@ -309,9 +309,10 @@ reason 为封闭枚举：
 
 ### 显式 Server 诊断扩展
 
-Server 始终向 `pc_context_prepare_diagnostics` 写入独立 prepare 历史，没有开启开关。
+内置 Server 尝试向 `pc_context_prepare_diagnostics` 保存被观察的 prepare 执行，没有开启开关。
 它采集同一次已授权执行的原始 prepare query、准确最终正文、可用的 Receipt、各类真实返回数、分阶段候选文本以及失败/取消终态证据。
-不额外采集认证凭据、向量或原始模型输出，查询原文不做改写。Receipt JSON 自身保持无正文，不注入模型。
+认证请求头、向量和原始模型响应不作为独立字段复制。查询和候选/最终正文不做脱敏，包含正文中已有的秘密。
+Receipt JSON 自身保持无正文，不注入模型。
 扩展不修改宿主请求、响应、reuse 或公开 Receipt 格式，也不重新执行 prepare。
 
 采集覆盖全部 Server Scope 和轮次。记录永久保留，没有 TTL、容量淘汰或清理操作。
@@ -399,7 +400,7 @@ schema。
 **不要复用 Memory 搜索的 rerank trace。** 该 trace 包含 candidate hits，且仅在进程内。HTTP 搜索已经不返回它。
 PreparedContext 选择发生在 Memory 搜索和 Experience 搜索之后，并使用不同预算。
 
-**诊断历史不进入公开契约。** Server 诊断扩展在独立诊断记录中始终保留最终上下文及原始 query；Receipt JSON 和普通运维信号仍排除 query 原文。
+**诊断历史不进入公开契约。** Server 诊断扩展在独立记录中尽力保留最终上下文及原始 query；Receipt JSON 和普通运维信号仍排除 query 原文。
 评测可以在 harness 中保留 HTTP 响应。
 
 **不要发明渐进内容缓存。** 通过现有精确读取 API 展开 Receipt 条目，能保持 Artifact 权威。独立诊断历史是历史证据，

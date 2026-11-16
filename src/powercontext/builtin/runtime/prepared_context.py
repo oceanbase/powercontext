@@ -542,6 +542,7 @@ class PreparedContextBuilder:
         included: list[ContextTextItem] = []
         origins: list[PreparedContextOrigin] = []
         fragments: list[PreparedContextFragment] = []
+        family_numbers: Counter[str] = Counter()
         counts: Counter[tuple[str, str]] = Counter()
         count = counts if request.include_receipt or self.diagnostics else None
         truncated_items = 0
@@ -595,12 +596,12 @@ class PreparedContextBuilder:
                 included.append(fitted)
                 origins.append(entry.origin)
                 if count is not None:
-                    number = 1 + sum(fragment.kind == entry.kind for fragment in fragments)
+                    family_numbers[entry.kind] += 1
                     fragments.append(
                         PreparedContextFragment(
                             entry.origin,
                             entry.kind,
-                            rendered_text_fragment_bytes(fitted, assembly, number),
+                            rendered_text_fragment_bytes(fitted, assembly, family_numbers[entry.kind]),
                             fitted.truncated,
                         )
                     )

@@ -804,5 +804,5 @@ registered migration chain and read-only startup admission; its startup never in
 
 `v1_5_0_006` adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
 records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
-installations must migrate even when capture is disabled. Disabling capture preserves all history; recovery uses the
-existing verified-backup workflow and never automatically drops diagnostic records.
+installations must migrate before startup. Capture is always on for the Server; recovery uses the existing
+verified-backup workflow and never automatically drops diagnostic records.

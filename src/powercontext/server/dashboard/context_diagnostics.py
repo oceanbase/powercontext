@@ -103,7 +103,8 @@ async def inspect_record(api, ctx, record):
             error = None
         except (ValueError, RecursionError):
             error = "invalid"
-    selected = []
+    selected_by_family = defaultdict(list)
+    unavailable = []
     retained_text = _retained_text(record)
     urls = await _reference_links(api, ctx, record, receipt)
     for item in receipt.selected if receipt is not None else ():
@@ -124,20 +125,17 @@ async def inspect_record(api, ctx, record):
                     "text": retained_text.get(key),
                     "url": url,
                 }
-        selected.append(row)
-    # Group rows by family so interleaved Receipt order reads as one block per type.
-    order = {
-        family: index
-        for index, family in enumerate(dict.fromkeys(row.get("family") for row in selected if row.get("family")))
-    }
-    selected.sort(key=lambda row: (order.get(row.get("family"), len(order)), not row["available"]))
+        if row["available"]:
+            selected_by_family[item.kind].append(row)
+        else:
+            unavailable.append(row)
     for scope_id, item, ref in _candidate_refs(record):
         item["url"] = urls.get((scope_id, ref["family"], ref["artifact_id"], ref["revision"]))
     ctx["context_diagnostic"] = {
         "prepared": prepared,
         "receipt": receipt,
         "error": error,
-        "selected": selected,
+        "selected": [row for group in selected_by_family.values() for row in group] + unavailable,
         "fallbacks": sum(group.count for group in receipt.retrieval.searches if group.fallback_reason != "none")
         + sum(group.count for group in receipt.retrieval.reranks if group.fallback_reason != "none")
         if receipt is not None
@@ -311,14 +309,20 @@ _PHASE_STAGE_KEYS = {
 
 
 def _phase_durations(record):
-    stages = record["diagnostics_payload"].get("stages") or {}
-    return {
+    payload = record["diagnostics_payload"]
+    stages = payload.get("stages") or {}
+    durations = {
         phase: {
             "duration_ms": sum(stages.get(key, (0.0, 0))[0] for key in keys),
             "count": sum(stages.get(key, (0.0, 0))[1] for key in keys),
         }
         for phase, keys in _PHASE_STAGE_KEYS.items()
     }
+    for search in payload.get("searches", []):
+        if search["family"] in {"profile", "code"} and search.get("duration_ms") is not None:
+            durations["context_searches"]["duration_ms"] += search["duration_ms"]
+            durations["context_searches"]["count"] += 1
+    return durations
 
 
 async def load_detail(api, request, ctx):

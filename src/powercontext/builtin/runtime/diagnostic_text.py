@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exact already-read candidate text for the opt-in diagnostic store only."""
+"""Exact already-read candidate text for the private diagnostic store."""
 
 from __future__ import annotations
 

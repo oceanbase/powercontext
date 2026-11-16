@@ -14,8 +14,6 @@
 
 """Actual HTTP prepare -> durable record -> authorized read-only Dashboard acceptance."""
 
-# ruff: noqa: F811 -- Imported Dashboard fixture is intentionally used by pytest.
-
 import asyncio
 import json
 import re
@@ -30,7 +28,8 @@ from powercontext.builtin.runtime import PrepareContextRequest
 from powercontext.builtin.runtime.application import ScopedContextApplication
 from powercontext.builtin.runtime.receipt_builder import ReceiptEvidence
 from powercontext.server.context_diagnostics import diagnostic_sink
-from tests.test_dashboard import create_scope, dashboard  # noqa: F401
+from tests.test_dashboard import create_scope
+from tests.test_dashboard import dashboard as dashboard
 
 
 def records(client, scope):
@@ -72,7 +71,7 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
     assert set(body) == {"schema", "status", "content", "content_bytes"}
     assert body == baseline
     summaries = records(dashboard, scope)
-    assert len(summaries) == 2  # Both prepares are captured; capture no longer toggles at runtime.
+    assert len(summaries) == 2
     assert "prepared_content" not in summaries[0] and "receipt_payload" not in summaries[0]
     record = detail_record(dashboard, scope, summaries[0]["record_id"])
     assert record["prepared_content"] == body["content"]
@@ -299,6 +298,28 @@ def test_capture_records_all_five_families_with_code_failure(dashboard):
     )
     assert page.status_code == 200 and "Prefer concise answers." in page.text
     assert "Partial degradation" in page.text and "Code retrieval is disabled" in page.text
+
+
+def test_profile_only_search_keeps_its_phase_duration(dashboard):
+    scope = create_scope(dashboard, "Profile search duration")["scope_id"]
+    assert (
+        dashboard.post(
+            f"/v1/scopes/{scope}/artifacts",
+            json={"family": "profile", "content": {"content": "Prefer concise answers."}},
+        ).status_code
+        == 201
+    )
+    response = prepare(dashboard, scope, assembly={"sections": [{"family": "profile", "limit": 1}]})
+    assert response.status_code == 200
+    record = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
+    search = record["diagnostics_payload"]["searches"][0]
+    page = dashboard.get(
+        "/dashboard/context-diagnostic-detail", params={"scope": scope, "diagnostic": record["record_id"], "lang": "en"}
+    )
+    assert page.status_code == 200
+    heading = re.search(r'data-context-phase="context_searches".*?</h2>', page.text, re.S)
+    assert heading is not None
+    assert f"{search['duration_ms']:.2f} ms · 1" in heading[0]
 
 
 def test_retained_body_reauthorizes_referenced_scope_and_completed_audit(dashboard, monkeypatch):

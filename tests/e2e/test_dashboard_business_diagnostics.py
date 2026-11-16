@@ -46,7 +46,7 @@ def test_source_gap_and_unselected_memory_remain_distinct_after_runtime_reopen(t
     )
 
     def app():
-        return create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+        return create_server_app(settings=settings)
 
     server = app()
     with TestClient(server) as client:

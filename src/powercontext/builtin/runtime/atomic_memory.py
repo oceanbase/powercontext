@@ -1205,7 +1205,6 @@ class ScopedAtomicMemory:
         )
         binding = nullcontext() if prompt is None else prompt.service.bind(self.scope_id, "memory.rerank")
         started = perf_counter()
-        evidence = current_receipt_evidence()
         if evidence is not None:
             evidence.active_stage = "atomic-memory.rerank"
         async with binding as selected_prompt:
@@ -1237,7 +1236,6 @@ class ScopedAtomicMemory:
                 self.scope_id,
                 lambda: (memory_text(candidates[rank - 1]) for rank in ranks),
             )
-        if evidence is not None:
             evidence.active_stage = "atomic-memory.search"
         trace = AtomicMemoryRerankTrace(
             reranker.policy_id,
@@ -1351,9 +1349,7 @@ def _rerank_receipt_configuration(reranker, evidence):
         return None
 
 
-def _record_rerank_decision(
-    evidence, reranker, prompt, decision, candidate_count: int, scope_id: str | None = None
-) -> None:
+def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_count: int, scope_id: str) -> None:
     if decision.used_fallback and decision.fallback_reason is None:
         evidence.incomplete = "rerank-fallback-reason-missing"
         return

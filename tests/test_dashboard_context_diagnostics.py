@@ -185,6 +185,66 @@ def test_reference_denial_redacts_links_in_saved_detail(dashboard, monkeypatch):
     assert f"artifact={artifact}" not in page.text and "private-error-secret" not in page.text
 
 
+def test_selected_references_group_interleaved_families_and_keep_unavailable_rows(dashboard, monkeypatch):
+    scope = create_scope(dashboard, "Grouped references")["scope_id"]
+    for day in ("Thursday", "Friday"):
+        assert (
+            dashboard.post(
+                "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": f"Budget review is {day}."}
+            ).status_code
+            == 200
+        )
+    assert (
+        dashboard.post(
+            f"/v1/scopes/{scope}/artifacts", json={"family": "profile", "content": {"content": "Use short answers."}}
+        ).status_code
+        == 201
+    )
+    response = dashboard.post(
+        "/v1/context/prepare",
+        json={
+            "scope_id": scope,
+            "query": "budget",
+            "include_receipt": True,
+            "assembly": {"sections": [{"family": "memory", "limit": 2}, {"family": "profile", "limit": 1}]},
+        },
+    )
+    assert response.status_code == 200
+    receipt = response.json()["receipt"]
+    first, second, profile = receipt["selected"]
+    receipt["selected"] = [first, profile, second]
+    record_id = latest_record_id(dashboard, scope)
+
+    async def interleave():
+        async with dashboard.app.state.application.primary_database.transaction() as connection:
+            await connection.execute(
+                update(CONTEXT_PREPARE_DIAGNOSTICS_TABLE)
+                .where(CONTEXT_PREPARE_DIAGNOSTICS_TABLE.c.record_id == record_id)
+                .values(receipt_payload=json.dumps(receipt).encode())
+            )
+
+    dashboard.portal.call(interleave)
+    original = DashboardAPI.artifact_revision
+    denied_id = first["artifact_address"]["artifact"]["artifact_id"]
+
+    async def deny_first(self, scope, family, artifact, revision):
+        if artifact == denied_id:
+            raise ReadError(403, "forbidden")
+        return await original(self, scope, family, artifact, revision)
+
+    for denied in (False, True):
+        if denied:
+            monkeypatch.setattr(DashboardAPI, "artifact_revision", deny_first)
+        page = detail_page(dashboard, scope, record_id)
+        assert page.status_code == 200
+        table = re.search(r"<table[^>]*data-selected-summary[^>]*>(.*?)</table>", page.text, re.S)
+        assert table is not None
+        expected = [profile, second] if denied else [first, second, profile]
+        ids = [item["artifact_address"]["artifact"]["artifact_id"] for item in expected]
+        assert re.findall(r'data-selected-reference><a href="[^"]+">([^<]+) @', table[1]) == ids
+        assert ("Reference unavailable" in table[1]) is denied
+
+
 def test_import_endpoint_is_removed_and_detail_requires_an_id(dashboard):
     scope = create_scope(dashboard, "No import")["scope_id"]
     assert dashboard.post("/dashboard/context-diagnostics", data={"scope": scope, "response": "{}"}).status_code == 405

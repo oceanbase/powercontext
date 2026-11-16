@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Same-execution public Receipt evidence and separate opt-in diagnostic snapshots."""
+"""Same-execution public Receipt evidence and separate diagnostic snapshots."""
 
 from __future__ import annotations
 

@@ -186,6 +186,6 @@ setting, default test runs skip that lifecycle test.
 
 ## Prepared-context history
 
-The Server always writes the separate durable diagnostic store described in
+The built-in Server attempts to save each observed prepare execution in the separate diagnostic store described in
 [Context diagnostics](dashboard.md#context-diagnostics). It can retain the original prepare query, exact final prepared text and actual stage candidate text. It does not
 permit bodies or queries in logs, metrics or traces, and it does not change the public Receipt schema or host response.
