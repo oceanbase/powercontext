@@ -162,6 +162,10 @@ Listing, reading revisions and history, governance state, and tags call no plugi
   `source_refs`. Content identical to the current revision adds no revision, so repeated delivery never writes duplicate
   revisions. `writer.stable_id(...)` derives a stable ID from its inputs, so the same Source always writes to the same
   Artifact.
+- For an Artifact read outside the transaction with `writer.get` and similar methods, core checks at write time whether
+  it changed since: if its content was edited, or it was forgotten, restored, or merged, the write conflicts, the batch of
+  Sources is delivered again later, and the plugin decides again from the new state. The plugin need not compare anything
+  itself.
 - Other operations include `tx.set_lifecycle`, `tx.merge`, `tx.revert`, and `tx.set_tags`; read current state with
   `writer.get`, `writer.list`, and `writer.by_source`.
   `tx.revert` and `tx.set_lifecycle` return `ArtifactChange`: `result.artifact` is the target snapshot,
@@ -248,7 +252,9 @@ class Notes:
   write.
 - The response reports the revision this write committed, even if later writes have followed.
 - Raising `InvalidContent` returns 422 with the message shown to the caller.
-- User changes record provenance as the person who made them, as edits of built-in Artifacts do.
+- User changes record provenance as the person who made them, as edits of built-in Artifacts do. What is recorded is
+  the request's `content` as submitted: a method may treat it as a description of one change and write content computed
+  from it, and the provenance still keeps what the caller submitted.
 
 ## Define Source types
 
@@ -363,7 +369,10 @@ plugin = ArtifactPlugin(
   - `scope.read` / `scope.contribute`: the caller needs that permission on the Scope in the path parameter named by
     `scope_param`.
 - In handlers, `ctx.require(action, scope_id)` checks further permissions and makes the API return 403 when the caller
-  lacks them; `ctx.allowed(...)` only answers true or false.
+  lacks them; `ctx.allowed(...)` only answers true or false. When an API only accepts a request and `generate` changes
+  an existing Artifact later, first check the caller's write permission on that Artifact with
+  `ctx.require("artifact.write", scope_id, artifact_id=...)`: the background write has no caller identity. This check
+  covers only Artifacts of this plugin's family.
 - Reading and writing core data: `ctx.reads(scope_id)` reads with the caller's permissions; `ctx.writer(scope_id)` and
   `ctx.sources.submit(...)` work only for Scopes whose `scope.contribute` was confirmed earlier in the request (by the
   route's `access` or a prior `ctx.require`). Changing an existing Artifact, including its tags, handles, and lifecycle,
@@ -371,7 +380,10 @@ plugin = ArtifactPlugin(
 - Writes in APIs do not record who did what. When you need that provenance, submit the operation as a Source, as in the
   example above, and let `generate` write the new revision referencing it.
 - To create a Scope, call `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`; the caller needs
-  `server.admin`.
+  `server.admin`. `ctx.scopes.list()` returns the Scopes this plugin created that the caller can read.
+  `ctx.scopes.update(scope_id, expected_version=..., title=..., summary=...)` changes a Scope this plugin created and
+  also needs `server.admin`; the API returns 404 when the Scope does not exist and 403 when another plugin or user
+  created it.
 - `request.body` is the validated `request_model` instance, `bytes`, or `None`, according to `body`;
   `request.path_params`, `request.query`, and `request.caller` are the path parameters, query parameters, and caller.
 - Return a Pydantic model or a dict for JSON, `BinaryResponse(content=..., content_type=..., filename=...)` for a file,
@@ -410,9 +422,16 @@ async def setup(ctx):
     return Notes(ctx)
 ```
 
-- `ctx.storage.engine()` returns an async SQLAlchemy engine for `plugins/<plugin name>.sqlite3` in the data directory. The
-  plugin owns its tables and migrations; core never reads or backs up this storage. Only SQLite deployments are supported
-  for now; on Servers using OceanBase or seekdb, accessing `ctx.storage` raises an error.
+- `ctx.storage.engine()` returns an async SQLAlchemy engine for this plugin's storage only, on the Server's database
+  backend and with its connection settings: `plugins/<plugin name>.sqlite3` in the data directory on SQLite deployments,
+  and a database named `powercontext_plugin_<plugin name>` (with `-` replaced by `_`) on the same tenant or instance on
+  OceanBase and seekdb deployments. `ctx.storage.backend` names the backend (`sqlite`, `oceanbase`, or `seekdb`) so the
+  plugin can choose its table definitions and indexes. The plugin owns its tables and migrations; core never reads or
+  backs up this storage.
+- On OceanBase and seekdb, core creates the database when the plugin loads and reuses an existing one. When the Server's
+  database login cannot create databases, the deployer creates it and grants access beforehand. If the database is
+  missing and cannot be created, or its name exceeds 64 characters (a plugin name longer than 44), the plugin still
+  loads, and `ctx.storage.engine()` raises an error that states the reason.
 - This storage is outside core's transactions. Store large content such as files and vectors under its content digest and
   reference the digest from Artifacts: retried writes and rolled-back transactions then leave only unreferenced records,
   never Artifacts pointing at the wrong data.
@@ -445,9 +464,14 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 
 - The page appears in the Dashboard's side navigation at `/dashboard/plugins/<plugin name>`.
 - The page runs in a sandboxed iframe without the user's session; the Dashboard forwards its requests as the current user,
-  only to routes the plugin declares.
+  only to routes the plugin declares and to the generic Artifact API of the plugin's family.
 - `client.request(method, path, options)` accepts `json`, `body` (such as a file's `ArrayBuffer`), `contentType`, and
   `query`, and returns `status`, `ok`, `json`, `blob`, and `filename`.
+- `client.artifacts(method, path, options)` calls the generic Artifact API of this plugin's family, with no route to
+  declare. `path` follows `/v1/scopes/{scope_id}/artifacts/{family}`: an empty string lists (`GET`) or creates (`POST`),
+  `/{artifact_id}` reads or edits, `/{artifact_id}/forget` forgets, and so on. `options` also takes `scopeId` (the page's
+  current Scope by default) and `ifMatch`, and the result also has `etag` and `location`. Permissions, version checks,
+  and provenance are the same as calling the generic API directly, and the page cannot name another family.
 - Build the page as a single-page app: after the page navigates, the Dashboard stops forwarding and asks the user to reopen
   it. Browser dialogs such as `alert` and `confirm` are unavailable in the sandbox.
 - Pages are static files only (HTML, JavaScript, CSS, images, fonts), up to 5 MiB each; scripts may come only from the
@@ -467,6 +491,5 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 ## Current limits
 
 - Updating a plugin requires a Server restart; hot reload is not available yet.
-- Dedicated plugin storage supports only SQLite deployments for now.
 - Deployers install plugin dependencies into the Server environment by hand.
 - Plugin code has the Server's permissions; host processes and Workers isolate failures, not untrusted code.

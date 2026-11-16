@@ -1,0 +1,31 @@
+name: Prepare OpenAPI Generator
+description: Restore the pinned Desktop generator JAR or download and cache it before validation
+
+runs:
+  using: composite
+  steps:
+    - name: Locate the pinned generator
+      id: generator
+      shell: bash
+      working-directory: desktop
+      run: node scripts/prepare-openapi-generator.mjs --cache-info >> "$GITHUB_OUTPUT"
+
+    - name: Restore the generator JAR
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.generator.outputs.jar }}
+        key: ${{ runner.os }}-${{ steps.generator.outputs.key }}
+
+    - name: Download and verify the generator
+      shell: bash
+      working-directory: desktop
+      run: node scripts/prepare-openapi-generator.mjs
+
+    # Save before lint/tests/build so a later validation failure does not discard the download.
+    - name: Save the verified generator JAR
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.generator.outputs.jar }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

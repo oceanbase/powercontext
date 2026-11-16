@@ -46,8 +46,8 @@ and [npm release instructions](https://github.com/oceanbase/powercontext/blob/ma
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.1
+uv tool install --force "powercontext[cli,server]==1.5.2"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.2
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.

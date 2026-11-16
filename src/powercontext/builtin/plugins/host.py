@@ -25,6 +25,7 @@ import asyncio
 import contextvars
 import logging
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictError
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.plugins.executor import open_plugin_database
+from powercontext.builtin.plugins.executor import open_plugin_profile
 from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
 from powercontext.builtin.plugins.host_protocol import (
     HostCancel,
@@ -47,6 +48,7 @@ from powercontext.builtin.plugins.host_protocol import (
     HostRequest,
     HostResponse,
     HostShutdown,
+    PipeChannel,
     PluginHostSpec,
 )
 from powercontext.builtin.plugins.manifest import PluginConfigError, PluginManifest, load_plugin
@@ -111,8 +113,8 @@ def run_plugin_host(connection: Any, spec: PluginHostSpec) -> None:
 class _Host:
     def __init__(self, connection: Any, spec: PluginHostSpec) -> None:
         self.connection = connection
+        self.channel: PipeChannel | None = None
         self.spec = spec
-        self.send_lock = asyncio.Lock()
         self.manifest = PluginManifest.model_validate(spec.manifest)
         self.family = self.manifest.spec.family
         self.access: Any = None
@@ -122,10 +124,11 @@ class _Host:
         self.definitions: Any = None
 
     async def _send(self, message: object) -> None:
-        async with self.send_lock:
-            await asyncio.to_thread(self.connection.send, message)
+        assert self.channel is not None  # noqa: S101 - opened before anything is sent
+        await self.channel.send(message)
 
     async def serve(self) -> None:
+        channel = self.channel = PipeChannel(self.connection, name="powercontext-plugin-host")
         async with AsyncExitStack() as resources:
             try:
                 implemented = await self._start(resources)
@@ -142,7 +145,7 @@ class _Host:
             tasks: dict[str, asyncio.Task[None]] = {}
             while True:
                 try:
-                    message = await asyncio.to_thread(self.connection.recv)
+                    message = await channel.recv()
                 except (EOFError, OSError):
                     break
                 if isinstance(message, HostShutdown):
@@ -177,14 +180,20 @@ class _Host:
             register_plugin_family(family)
         for binding, scopes, source_types in spec.source_bindings:
             register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
-        self.database = await resources.enter_async_context(open_plugin_database(spec.database))
+        profile = await resources.enter_async_context(open_plugin_profile(spec.database))
+        self.database = profile.database
         from powercontext.builtin.authz.worker import build_host_access
 
         self.access = build_host_access(spec.security, self.database)
         if spec.security is not None:
             self.deployment_id = spec.security.get("deployment_id")
         storage, models = await open_plugin_resources(
-            spec.database, spec.storage_root, self.manifest.name, spec.inference, resources
+            spec.database,
+            spec.storage_root,
+            self.manifest.name,
+            spec.inference,
+            resources,
+            connection_options=getattr(profile, "connection_options", None),
         )
         if declaration.definitions:
             from powercontext.sources.definitions import SourceDefinitionRegistry
@@ -352,7 +361,7 @@ class _Host:
         if operation == "create":
             target = payload.get("artifact_id") or uuid4().hex
             await self._authorize(scope_id, "create", None)
-            change = UserChange("create", target)
+            change = UserChange("create", target, submitted_content=deepcopy(payload["content"]))
             plugin_request: BaseModel = CreateRequest(
                 scope_id=scope_id, artifact_id=target, content=payload["content"], caller=caller
             )
@@ -376,7 +385,12 @@ class _Host:
             await self._authorize(scope_id, "write", target)
             if operation == "update":
                 await self._precheck(scope_id, target, payload["expected_revision"], None, "precondition")
-                change = UserChange("update", target, expected={target: (payload["expected_revision"], None)})
+                change = UserChange(
+                    "update",
+                    target,
+                    expected={target: (payload["expected_revision"], None)},
+                    submitted_content=deepcopy(payload["content"]),
+                )
                 plugin_request = UpdateRequest(
                     scope_id=scope_id,
                     artifact_id=target,
@@ -478,10 +492,12 @@ class _Host:
         principal = _CURRENT.get().request.caller
         return Caller(principal_id="local" if principal is None else f"{principal.type}:{principal.id}")
 
-    async def require(self, action: str, scope_id: str | None) -> None:
+    async def require(self, action: str, scope_id: str | None, *, artifact_id: str | None = None) -> None:
         call = _CURRENT.get()
-        if action in {"scope.read", "scope.contribute"} and scope_id is None:
-            raise ValueError("Scope permissions need a scope_id")  # noqa: TRY003
+        if action in {"scope.read", "scope.contribute", "artifact.write"} and scope_id is None:
+            raise ValueError("Scope and Artifact permissions need a scope_id")  # noqa: TRY003
+        if (action == "artifact.write") != (artifact_id is not None):
+            raise ValueError("artifact.write needs an artifact_id, and only artifact.write takes one")  # noqa: TRY003
         if self.access is None or call.request.caller is None:
             if action == "scope.contribute" and scope_id is not None:
                 call.contribute_scopes.add(scope_id)
@@ -492,7 +508,12 @@ class _Host:
             resource = ResourceRef.server() if self.deployment_id is None else ResourceRef.server(self.deployment_id)
         else:
             assert scope_id is not None  # noqa: S101 - checked above for Scope actions
-            resource = ResourceRef.scope(scope_id)
+            # An Artifact check always names this plugin's family; a plugin cannot ask about another's.
+            resource = (
+                ResourceRef.scope(scope_id)
+                if artifact_id is None
+                else ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id)
+            )
             await self.access.bootstrap_static_scope(call.request.caller, scope_id, context=call.request.audit)
         try:
             await self.access.require(call.request.caller, AccessAction(action), resource, context=call.request.audit)
@@ -500,6 +521,23 @@ class _Host:
             raise AccessDenied(action) from None
         if action == "scope.contribute" and scope_id is not None:
             call.contribute_scopes.add(scope_id)
+
+    async def readable(self, scope_ids: tuple[str, ...]) -> set[str]:
+        """The Scopes among these that the caller may read, checked in one batch."""
+
+        call = _CURRENT.get()
+        if self.access is None or call.request.caller is None or not scope_ids:
+            return set(scope_ids)
+        from powercontext.builtin.authz import AccessAction, ResourceRef
+
+        for scope_id in scope_ids:
+            await self.access.bootstrap_static_scope(call.request.caller, scope_id, context=call.request.audit)
+        decisions = await self.access.check_batch(
+            call.request.caller,
+            [(AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)) for scope_id in scope_ids],
+            context=call.request.audit,
+        )
+        return {scope_id for scope_id, decision in zip(scope_ids, decisions, strict=True) if decision.allowed}
 
     def reads(self, scope_id: str) -> Any:
         return _CheckedReads(self, scope_id)
@@ -622,11 +660,14 @@ class _Scopes:
         from powercontext.builtin.scope.models import ScopeMutation
 
         host = self._host
+        await host.require("server.admin", None)
         application = self._application()
-        (current,) = await application.list(scope_ids=(scope_id,))
+        found = await application.list(scope_ids=(scope_id,))
+        if not found:
+            raise RepositoryNotFoundError("scope", (scope_id,))
+        (current,) = found
         if not self._own(current):
             raise AccessDenied("the Scope was not created by this plugin")  # noqa: TRY003
-        await host.require("server.admin", None)
         updated = await application.update(
             scope_id,
             ScopeMutation(
@@ -641,17 +682,10 @@ class _Scopes:
         return self._scope(updated)
 
     async def list(self) -> tuple[PluginScope, ...]:
-        host = self._host
-        visible = []
-        for descriptor in await self._application().list():
-            if self._own(descriptor) and await _allowed(host, descriptor.scope_id):
-                visible.append(self._scope(descriptor))
-        return tuple(visible)
+        from powercontext.builtin.scope.models import ScopeExternalReference
 
-
-async def _allowed(host: _Host, scope_id: str) -> bool:
-    try:
-        await host.require("scope.read", scope_id)
-    except AccessDenied:
-        return False
-    return True
+        owned = await self._application().list(
+            external_reference=ScopeExternalReference(kind=self._KIND, value=self._host.manifest.name)
+        )
+        readable = await self._host.readable(tuple(descriptor.scope_id for descriptor in owned))
+        return tuple(self._scope(descriptor) for descriptor in owned if descriptor.scope_id in readable)
