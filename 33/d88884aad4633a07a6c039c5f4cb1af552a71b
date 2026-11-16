@@ -1,0 +1,21 @@
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_9080c87fb89a0c 134-146,157-160
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_838395f26636ec 306-312,315-326,338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "33d88884aad4633a07a6c039c5f4cb1af552a71b",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
