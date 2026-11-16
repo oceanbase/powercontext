@@ -1,5 +1,16 @@
 // Copyright (c) 2026 OceanBase.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use pc_gateway_transport::{AdmittedSend, ReqwestTransport, SendOutcome, Transport};
 use serde_json::Value;
@@ -40,7 +51,7 @@ async fn exchange(request: &Value, response: &Value, limit: usize) -> SendOutcom
 }
 
 #[tokio::test]
-async fn goose_envelopes_cross_real_http_and_only_complete_bounded_chat_is_released() {
+async fn goose_envelopes_cross_real_http_with_bounded_bodies_and_preserved_finish_reasons() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tests/fixtures/oauth/upstream/provider-vectors.json");
     let fixtures: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -68,6 +79,28 @@ async fn goose_envelopes_cross_real_http_and_only_complete_bounded_chat_is_relea
     assert!(chat["usage"].get("completion_tokens").is_none());
     assert_eq!(chat["model"], request["model"]);
     assert_eq!(raw.content_type, "application/json");
+    for (reason, expected) in [
+        ("STOP", "tool_calls"),
+        ("MAX_TOKENS", "length"),
+        ("SAFETY", "content_filter"),
+    ] {
+        let mut tool_response = response.clone();
+        let candidate = &mut tool_response["response"]["candidates"][0];
+        candidate["finishReason"] = reason.into();
+        candidate["content"]["parts"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"functionCall":{"name":"lookup","args":{}}}));
+        let SendOutcome::Delivered(raw) = exchange(request, &tool_response, 4096).await else {
+            panic!("terminal tool response lost")
+        };
+        let chat: Value = serde_json::from_slice(&raw.body).unwrap();
+        assert_eq!(chat["choices"][0]["finish_reason"], expected, "{reason}");
+        assert_eq!(
+            chat["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "lookup"
+        );
+    }
     let mut reasoning = response.clone();
     reasoning["response"]["candidates"][0]["content"]["parts"]
         .as_array_mut()

@@ -1,5 +1,16 @@
 // Copyright (c) 2026 OceanBase.
-// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use crate::RenderError;
 use serde_json::{json, Map, Value};
@@ -246,6 +257,11 @@ pub fn codeassist_chat_response(bytes: &[u8], model: &str) -> Option<Vec<u8>> {
                 calls.push(call);
             }
         }
+        let finish = if finish == "stop" && !calls.is_empty() {
+            "tool_calls"
+        } else {
+            finish
+        };
         let mut message = json!({"role":"assistant","content":text});
         if !reasoning.is_empty() {
             message["reasoning_content"] = reasoning.into();
@@ -253,7 +269,7 @@ pub fn codeassist_chat_response(bytes: &[u8], model: &str) -> Option<Vec<u8>> {
         if !calls.is_empty() {
             message["tool_calls"] = json!(calls);
         }
-        choices.push(json!({"index":index,"message":message,"finish_reason":if calls.is_empty(){finish}else{"tool_calls"}}));
+        choices.push(json!({"index":index,"message":message,"finish_reason":finish}));
     }
     let created = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
