@@ -1,741 +1,358 @@
 ---
-title: "RFC 0000：Scope 间共享、跨 Scope 查询与本层加工"
-description: "从团队／项目记忆与 RAG 需求出发，定义业务级联关系的 Scope 表达，以及共享、查询、加工和生命周期能力。"
+title: "RFC 0000：Scope 间共享、查询与目标制品维护"
+description: "定义如何在授权范围内持续使用多个 Scope 的材料，维护一个目标制品，并管理需要级联处理的业务数据。"
 ---
 
 - Proposal Name: `scope_sharing_and_processing`
 - Start Date: 2026-11-09
-- RFC PR: 待创建
+- RFC PR: [oceanbase/powercontext#2611](https://github.com/oceanbase/powercontext/pull/2611)
 
 # Summary
 
-本提案扩展 PowerContext 面向 Agent 上下文的数据基础能力，用 Scope 结构表达需要级联管理的业务概念。共享先约定持续有效的授权范围，再自动发现其中符合条件的材料，并在每次运行固定实际输入。第三方 Scope 的 Dream 或后加工负责协调这些输入、解决冲突并形成自己的产物，读取和继续加工以目标 Artifact 为入口。Scope 定义数据归属和访问范围，Artifact 保存版本化内容，输入通过精确出处追溯。
-
-团队／项目记忆与 RAG 是这套能力的用例。接入应用负责业务映射、共享规则和操作触发，PowerContext 执行范围解析、授权、加工及生命周期控制。归档停止指定 Scope 的普通写入和加工，已有获准使用方仍可在自己的 Scope 使用其材料。删除须显式发起，并分别约定停止访问、资源清理和物理擦除的完成条件。
+PowerContext 为 Agent 提供上下文数据基础设施。本提案约定如何跨 Scope 使用材料，以及归档和删除如何影响这些材料。应用与来源方事先约定共享范围，系统自动发现其中符合条件的现有和未来材料。查询保留命中的来源地址。加工则固定本次输入，在一个目标 Scope 内比较证据、解释冲突并维护正式制品。需要级联管理的业务关系可映射到普通 Scope 的父子树。归档只停止指定 Scope 的普通写入和本地加工，显式删除按确认的 Scope 及其所属资源执行。
 
 ```text
-Standing authorization + sharing rule -> automatic discovery -> pinned inputs
-    +-- query -> results retain exact origins
-    `-- Dream / processing -> reviewed target Artifact
-Explicit Scope lifecycle operation -> bounded resource handling
+Orders project                          Orders knowledge space
+  Inputs: Alice and Bob's work records    Owns: Interface and Help
+  Reviewed output: project Profile@5      Shared library: Operations / Runbook
+  Cites: Alice's Retry trace@3            Delete Orders subtree: Orders, Interface, Help
 ```
 
 # Motivation
 
-个人会在多个工作 Scope 中积累制品，团队和项目需要在事前约定的边界内自动获得可用材料，协调不同人的结论，并形成自己的 Profile、Skill 或其他产物。用户应能设置覆盖未来内容的规则，系统据此选材和发起加工。知识库 RFC 2570 提出文档接入、切块、检索与删除，其中以 `knowledge-base` Artifact 组织文档是一个过渡性方案。 [知识库 PR #2570](https://github.com/oceanbase/powercontext/pull/2570)
+订单项目需要回答“回调超时后能不能重试”。新版通道带幂等键时重试成功，旧通道却可能重复扣款。只向成员发两份排障记录，使用者还得自己判断适用条件。项目需要能读懂和修正的正式结论，还需要在新事实出现后重新评估结论。已有个人画像能根据本 Scope 新采集的记录（Source）更新。工作材料分散在多个 Scope 时，还需要一条受控的持续取材路径。
 
-团队记忆中的来源读取、加工用途和结果披露都需要授权，成员关系不能直接决定这些权限。RAG 的过渡方案则暴露出另一个问题：原有 Artifact 之间没有实质性的父子级联关系，引入知识库 Artifact 后，制品层还需处理级联生命周期和加工，包括父对象失效后的子文档可见性、未完成任务和资源清理。本提案扩展普通 Scope，使业务中具有级联关系的概念可以通过 Scope 结构表达，并在 Scope 层管理相应范围内的数据和处理。文档仍保存为版本化 Artifact。 [RFC 2570 的对象与删除设计](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md)
+RAG 有另一项需求。一个知识空间关闭时，可能要停止其所拥有知识库的写入、处置未完成的导入任务并清理索引。RFC #2570 的过渡设计在一个 Scope 内用 `knowledge-base` Artifact 管理文档。原有制品之间没有需要这种级联的父子关系。按该过渡设计，制品层还要协调父级失效后子文档的可见性、待处理任务和资源清理。本提案将这种业务级联关系映射到 Scope 结构，文档内容和版本仍由制品管理。共享进来的外部库可以参与查询，生命周期由其归属方管理。下图用缩进和 `+--` 标出接口库及其负责的文档和导入任务。[知识库提案](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md)
 
 ```text
-Team/project memory                   Transitional RAG model
-Authorized work Artifacts             knowledge-base Artifact -> documents
-         |                                      |
-         v                                      v
-Target Profile or Skill               Artifact lifecycle + processing cascades
-         +----------------------+---------------+
-                                v
-              Scope structure, sharing, processing, lifecycle
+RFC #2570: Orders Scope                  Proposed: Orders Scope
+  +-- Interface knowledge-base Artifact    +-- Interface Scope
+       +-- API document@3                       +-- API document@3
+       +-- pending import for API@4             +-- pending import for API@4
 ```
-
-| 场景要求 | 需要的公共能力 | 场景特有逻辑 |
-| --- | --- | --- |
-| 多人制品形成项目或团队记忆 | 持续共享边界、自动选材、逐来源授权、单目标加工及审核。 | 材料选择、接收和审核流程、生成策略。 |
-| 知识库组织文档并跨库检索 | Scope 归属、结构与共享入口、有界跨 Scope 查询。 | 文档解析、chunk、检索投影和领域配置。 |
-| 集合关闭、材料撤回或显式删除 | 写入控制、读取可见性、在途任务约束和可恢复清理。 | 业务触发条件、保留规则及操作展示。 |
 
 # Guide-level explanation
 
-## 共同的数据与操作模型
+Scope 标识一组数据的归属。Source 是服务采集的一条原始记录，例如一次复盘。Artifact 是可以按版本读取的制品，Family 表示它的种类，例如 Experience（经验记录）、Profile（画像）或 Skill（操作指南）。图中的 `Retry trace@3` 表示《重试记录》第 3 版。读回它的完整地址还包含所属 Scope、Family 和制品 ID。Dream 根据证据提出修订，待审核的修订称为 Candidate。
 
-Scope 标识一组数据的归属。Family 表示制品种类，如 Experience、Profile、Skill，以及待接入的 document。图中使用显示名，`Retry trace@3` 表示《重试记录》第 3 版。完整地址包含 Scope ID、Family、制品 ID 和版本。Dream 根据证据生成修订，Candidate 是待审核的修订。
-
-```text
-Scope                   Family       Artifact title   Revision
-Alice's investigations  Experience   Retry trace      3
-```
-
-接入应用配置持续共享边界和选材规则，系统为每次操作解析 Scope 范围及精确输入，并在实际读取、加工和提交时检查权限。手工选材可用于例外和纠正。底层请求仍固定具体地址以便复现，这些地址可以由规则自动生成。一次操作可读取多个来源，保存加工结果时指定一个目标 Scope。
+- **团队／项目记忆。** Alice 允许订单项目使用其工作 Scope 中符合约定的排障记录。以后有新材料时，她无需逐件分享。项目读者看到的正式结论可以是“新版通道携带幂等键时可重试。旧通道先查交易状态”。有权查看原始依据的人可以打开对应版本。项目维护者能修正结论，个人画像仍由个人在自己的 Scope 使用。
+- **RAG。** 在订单知识空间搜索时，结果可以同时来自自有的接口库和共享的运维手册。读者能从命中的段落打开对应文档版本。管理员移除共享手册入口时，运维空间保留原件。
 
 ```text
-Selected source Scopes and exact Artifacts
-                    |
-             check each operation
-                /           \
-       query and read       process with current target
-              |                       |
-      qualified results       Candidate -> review -> target revision
+Orders project                         Orders knowledge space
+  read: Service behavior@5               search: Interface + shared Runbook
+  inspect evidence: separate grant       open: Runbook / Timeouts@2 / chunk 4
 ```
-
-## 团队、项目与个人记忆
-
-以订单排障为例，Alice 和 Bob 分别在自己的工作 Scope 保存 Experience。订单项目指定一个 Scope 保存 Profile，稳定性团队另选 Scope 保存值班 Skill。这些 Scope 可以位于不同结构子树，使用材料前须取得相应操作的授权。
-
-```text
-Alice's investigations / Retry trace@3 --------+
-Bob's adapter reviews / Duplicate callback@1 --+-> Orders project Profile@4
-                                                  -> Dream -> review -> @5
-
-Authorized shift-review Experiences -> Reliability team Scope / on-call Skill
-```
-
-项目 Profile 写着“回调超时可重试”。Alice 记录了携带幂等键的新版通道重试成功，Bob 则记录了旧通道重复处理。证据足以解释差异时，Dream 提出带适用条件和出处的修订。证据不足时保留现行结论。管理员手工更新目标后，旧候选须按新基线重新评估。个人 Profile 也可作为同一条路径的目标，仍遵守来源授权、Family 准入和审核规则。
-
-共享边界可覆盖指定工作 Scope 中满足条件的现有及未来材料。例如，约定将 Alice 排障和 Bob 适配评审中的可用 Experience 用于订单项目后，新增制品和版本会自动成为输入候选，个人私密 Scope 保持边界之外。规则明确用途、处理身份和产物受众，运行时重验权限。成员访问先复用现有 Scope 授权，外部目录按需接入，应用指定各业务目标 Scope。 [Scope 与访问控制](../docs/workflows/scopes-and-access.md)
-
-## 知识库、知识空间与共享材料
-
-知识空间和知识库是业务中具有级联关系的概念，下面用它们演示如何映射到 Scope 结构。Scope 管理结构范围内的生命周期和处理控制，document Artifact 保存文档版本，文档服务维护 chunk 和索引。RFC 2570 中的解析、持久任务和版本化片段设计可继续适配这一结构。 [RAG 文档处理提案](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md)
-
-```text
-Transitional RAG model
-Workspace Scope -> knowledge-base Artifact -> document Artifacts
-                   Artifact lifecycle and processing cascades
-
-Business concepts with cascade relationships -> mapped Scope hierarchy
-Workspace Scope
-  +-- Interface Scope -> document revisions and processing resources
-  +-- Help Scope      -> document revisions and processing resources
-```
-
-知识空间可以对应一个上层 Scope，也可以只由应用维护映射。下图中，订单空间拥有接口和帮助两个真实子 Scope，并获准使用运维空间中的手册 Scope。产品可以将这些关系显示为拥有和共享，服务按具体的结构、选材和授权执行操作。
-
-```text
-Orders space Scope                   Operations space Scope
-  +-- owns Interface Scope             +-- owns Runbook Scope
-  +-- owns Help Scope                           ^
-  +-- selects shared Runbook Scope -------------+  authorized use
-
-Application-only Orders entry -> [Interface, Help, Runbook] Scope IDs
-```
-
-查询订单空间时，入口解析出获准知识库 Scope，逐个调用文档检索并保留 Scope、文档版本和 chunk 标识。只分享《回调排障手册》第 3 版时，需要对应的单件和版本授权，不能把它扩成整个手册 Scope 的搜索。结果加工为 Topic Memory 还需选定可写目标与受支持的输入路径。
-
-归档接口 Scope 会停止其普通内容写入，其他获准空间仍可使用其中材料。显式删除订单空间 Scope 及其真实后代时，接口和帮助 Scope 会被处理，外部手册 Scope 仍按自己的生命周期管理。移除共享入口只影响该入口及相关授权的使用。
 
 # Reference-level explanation
 
-## 支持状态与实施边界
+应用把业务 ID 映射到 Scope，约定共享条件、用途、受众和触发时机。PowerContext 及注册服务负责解析范围、在真实来源鉴权、按目标 Family 的规则提交，并控制归档和删除的生效。HTTP、SDK、MCP 和注册扩展必须通过公共运行时执行这些检查。验收时从相应入口发起操作，既有本地调用保留原契约。新增端点和字段待定。
 
-实现基线为 [master fd9f1682b](https://github.com/oceanbase/powercontext/tree/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a)。RFC 2570 是设计输入，document、chunk 和知识库任务仍需文档服务接入。下表区分已实现的行为、接入应用可组合的用法，以及本提案提出的扩展。
+下表中“现有”指固定代码基线，“可组合”指应用可调用现有服务完成的步骤。持续共享规则、通用跨 Scope Dream 以及公共归档和删除均待实现。末节的 document、chunk 和持久导入任务来自 #2570 的设计快照。文档服务、跨库检索、文件原件的消费资格隔离及相应产品入口均待接入。[实现基线 1cb0e75db](https://github.com/oceanbase/powercontext/tree/1cb0e75dbd56227bb13550d63f301b8f39feb931) · [知识库提案](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md)
 
-**现状图（master）**
-
-Orders 下已经可以组织 Interface 和 Help，但搜索仍按单个 Scope 调用，Dream 的输入和目标也都在运行 Scope 内。已有结构关系本身不会把子级材料纳入这两种操作，Scope 归档和删除尚无公共入口。
-
-```text
-Orders Scope
-+-- Profile: Service behavior@4
-+-- Interface Scope
-|   `-- Experience: Retry trace@3
-`-- Help Scope
-    `-- Experience: FAQ correction@1
-
-Search(Interface, Experience) -> Interface hits only
-Dream(Orders) -> evidence and target inside Orders only
-No public Scope archive or delete operation
-```
-
-**预期图（提议）**
-
-提案将选定来源纳入统一的授权、查询和加工控制，使 Orders 能用多个 Scope 的材料维护自己的 Profile。查询可先由应用组合现有调用，跨 Scope Dream 和 Scope 生命周期仍需实现，来源归属保持不变。
-
-```text
-Orders Scope [target]
-+-- Profile: Service behavior@4 -> review -> @5
-+-- Interface Scope
-|   `-- Experience: Retry trace@3
-`-- Help Scope
-    `-- Experience: FAQ correction@1
-
-Runbook Scope [outside Orders]
-`-- Experience: Timeout notes@2
-
-Authorized inputs: Interface + Help + Runbook
-  +-- query -> results keep each origin
-  `-- Dream -> one Candidate in Orders
-Explicit Orders subtree delete: Orders + Interface + Help only
-```
-
-| 能力 | 已有或可组合 | 本提案扩展 |
+| 能力 | 现有或可组合 | 本提案要提供 |
 | --- | --- | --- |
-| 组织与选材 | Scope 身份、无环单父树、直接 Context Reference、观察范围解析。 | 持续规则下自动解析可用输入，有界展开并固定每次运行的精确清单。 |
-| 授权与共享 | Scope 及受支持 Family 的逻辑制品授权、撤销和到期，部分 Family 的独立发布。 | 确定跨来源加工和结果披露的授权方式，以及入口／版本限制的执行方式。 |
-| 查询与读取 | 单 Scope、单 Family 搜索。Prepare 已有受限跨直接 Scope 召回。接入应用可聚合获准单库调用。 | 明确结果身份、预算、失败和单件候选过滤。RAG 按 Scope 接入 chunk 检索。 |
-| 目标内加工 | 本地 Dream、证据清单、审核、Family 条件写入。 | 来源 Scope 和输入视图贯穿证据及提交，以加工产物为目标维护。 |
-| 生命周期 | 关系版本检查、Binding 生命周期与 Family 状态。内部通用处理状态投影已实现，尚无公共通用入口。 | Scope 归档、恢复、显式删除及资源参与机制。 |
+| 确定操作范围 | 普通 Scope、单父树、直接引用、观察范围解析 | 区分真实后代和外部来源，有界地解析和确认范围 |
+| 交付或引用材料 | Scope／逻辑制品授权、部分 Family 的独立发布 | 执行来源、用途、受众和撤回约定 |
+| 持续取得输入 | 本地 Source 采集、按窗口生成、应用调度 | 在约定范围内自动发现材料，记录每轮评估的输入与结果 |
+| 查询并打开结果 | 单 Scope 搜索、有限的直接引用 Prepare、应用聚合 | 约定跨来源查询的预算、覆盖范围与精确读回 |
+| 维护一个正式制品 | 本地 Dream、候选审核、按目标版本提交 | 按操作接纳跨 Scope 的 Source 或制品，按其真实来源复核 |
+| 管理归档和删除 | 关系版本、授权撤销和个别 Family 的状态 | 指定停止写入或访问的范围，跟踪各资源处理结果 |
 
-## Scope 身份、结构与入口
+## Scope 关系与操作范围
 
-**已支持。** Scope ID 为不透明身份。描述符保存标题、外部引用、`parent_scope_id`、`context_references` 和版本。修改关系使用 `expected_version`。一个 Scope 最多一个结构父级，父子关系无环。Context Reference 当前只保存 Scope ID，供 Prepare 使用直接来源。[Scope 模型](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/scope/models.py#L55) · [关系校验与更新](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/scope/application.py#L195)
+**现状。** Scope 用不透明 ID 标识。`parent_scope_id` 定义无环的单父树，`context_references` 保存直接引用的 Scope ID，修改关系需带 `expected_version`。`ScopeSelection` 的 `exact`、`subtree` 和 `all` 返回 Scope 描述信息。HTTP 对 `exact` 的每个 Scope 检查 `scope.read`，后两种范围要求 `server.observe`。当前子树解析需读取全部 Scope 描述符。查看树中的节点和读取节点里的内容分别鉴权。[Scope 模型与关系校验](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/scope/application.py#L195) · [范围解析](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/scope/application.py#L293)
 
-下图沿用订单场景的显示名。树枝连接两个 Scope 时表示真实父子关系，连接制品时表示该制品存于此 Scope。`..>` 表示引用或选入路径，`~~>` 表示证据溯源。引用本身不授予权限，图中预期的文档资源仍需另行接入。
+**图示约定。** 后文使用不同连线区分归属、使用来源和证据出处，箭头方向如下。
 
-**现状图（master）**
-
-Interface 和 Help 是 Orders 的真实子级，Runbook 则位于 Operations 下，只通过直接引用参与 Orders 的 Prepare。当前子树选择返回描述符，图中 Skill 的证据关系也局限在 Interface 内。
-
-```text
-Orders Scope                                 Operations Scope
-+-- Profile: Service behavior@4              `-- Runbook Scope
-+-- Interface Scope                              `-- Experience: Timeout notes@2
-|   +-- Experience: Retry trace@3
-|   `-- Skill: Callback checks@1
-|         ~~> Retry trace@3 [same Scope]
-`-- Help Scope
-    `-- Experience: FAQ correction@1
-
-Orders Scope ..> Runbook Scope [direct Context Reference]
-Prepare(Orders): Orders + direct Runbook, for supported Families
-subtree(Orders): descriptors of Orders, Interface, Help
-```
-
-**预期图（提议）**
-
-同一棵树将用于显式范围操作，Profile 的证据地址则扩展到不同来源 Scope。框内标出一次明确选定的子树，Runbook 仍在框外，因此可参与获准查询或加工，但不会因引用或证据关系被纳入该子树的删除。
-
-```text
-Explicitly selected Orders subtree           Outside that subtree
-+--------------------------------------+     Operations Scope
-| Orders Scope                         |     `-- Runbook Scope
-| +-- Profile: Service behavior@5      |         `-- Experience: Timeout notes@2
-| +-- Interface Scope                  |
-| |   +-- Experience: Retry trace@3    |
-| |   `-- Skill: Callback checks@1     |
-| `-- Help Scope                       |
-|     `-- Experience: FAQ correction@1 |
-+--------------------------------------+
-
-Orders Scope ..> Runbook Scope [separately selected and authorized]
-Orders / Service behavior@5
-  +~~> (Interface Scope, Retry trace@3)
-  +~~> (Help Scope, FAQ correction@1)
-  `~~> (Runbook Scope, Timeout notes@2)
-
-Explicit subtree delete selects boxed Scopes only.
-References and lineage do not enlarge that set.
-```
-
-业务对象的外部标识可以映射到 Scope ID，调用时传入实际 Scope 地址。需要级联管理的业务概念通过 Scope 结构表达，文档配置由注册服务按映射后的 Scope 保存。个人、团队、项目和知识空间都可通过这种映射组织，应用决定它们之间的关系。
-
-结构关系决定真实后代，引用和业务映射决定可选来源。增加共享入口后，来源的身份和归属保持不变。服务校验结构及并发版本，并限制每次操作的工作量，包括展开节点数和遍历深度。接入应用可以在创建和移动流程中施加更严格的组织规则，并决定产品显示的层级。
-
-## 选材、授权与共享路径
-
-**已支持。** `ScopeSelection` 可解析 `exact`、`subtree`、`all`，返回 Scope 描述符。HTTP 对 exact 的每个 Scope 检查 `scope.read`，subtree 和 all 要求 `server.observe`。观察集合不能代替内容读取检查。逻辑制品授权的资源键不含 Revision，精确版本地址也不会收窄授权范围。[范围解析](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/scope/application.py#L293) · [观察权限](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/server/app.py#L5732) · [Family 授权](1396_handoff_access_control.md)
-
-**现状图（master）**
-
-同一身份可以搜索 Interface，却只能精确读取 Help 中获准的 FAQ 制品，且没有 Runbook 读权。它们在业务上属于哪个入口，不改变这三种授权结果。
-
-```text
-Request identity
-+-- Scope read grant: Interface Scope
-`-- Artifact read grant: Help / FAQ correction
-
-Orders Scope
-+-- Interface Scope   [Scope search and exact reads allowed]
-`-- Help Scope        [exact FAQ read allowed; Scope search denied]
-
-Runbook Scope         [no read authority]
-subtree(Orders) observes descriptors; HTTP requires server.observe
-```
-
-**预期图（提议）**
-
-将材料选入同一操作后，仍须分别检查实际来源，并在加工提交时重验必要权限。图中 Runbook 的必要读权被撤回，候选便不能提交。固定输入版本只确定取材地址，版本和用途限制还须由 Access 模式执行。
-
-```text
-Orders input rule [standing boundary + application mapping]
-+..> Interface Scope                [whole-Scope input]
-+..> Help / FAQ correction@1         [pinned Artifact input]
-`..> Runbook Scope                  [required read permission withdrawn]
-
-Selected inputs
-+-- query/read -> authorize each actual origin
-`-- Dream -> Orders / Service behavior@4
-             `-- Candidate cannot commit with a required input revoked
-
-Pinned address does not imply a revision-only grant.
-Entry, use, and revision restrictions need an enforceable Access mode.
-```
-
-先固定本次选材范围，按精确地址去重并保留选入路径，再对实际操作鉴权。父子关系和共享入口均不自动授予权限。现有子树解析会读取全部 Scope 描述符，大规模部署需要改为按父级定位后代，并限制工作量。加工若要求完整输入，超过预算时须缩小选择后重试。
-
-| 动作 | 现有契约与扩展边界 |
+| 画法 | 含义 |
 | --- | --- |
-| 搜索整个 Scope | 当前要求该 Scope 的 `scope.read`。单件制品读权只支持相应精确读取。 |
-| 用材料生成目标 | 本地 Dream 已检查证据、贡献与目标权限。跨 Scope 须在真实来源检查，并确认用于目标及披露结果的依据。 |
-| 查看并批准候选 | 本地审核检查证据、`scope.review` 和操作所需目标写权。扩展后同样检查真实来源。 |
-| 独立交付版本 | Experience 发布检查来源 `artifact.share` 与目标 `scope.admin`，Topic Memory 检查两端 `scope.admin`。受支持 Family 的副本有独立地址及生命周期。 |
-| 仅经某入口使用固定版本 | 入口、用途、版本和撤回语义仍须与 Access 设计共同确定，无法执行这些限制时应拒绝对应模式。 |
+| 缩进与 `+--` | 在 Scope 树中，Scope 下的 Scope 是真实子级，Scope 下的 Source 或 Artifact 存放于该 Scope。流程图中的同类分支仅列举步骤或选项。 |
+| `Orders ..> Runbook` | **使用方指向来源。** Orders 引用或选入 Runbook 的材料，Runbook 的结构归属不变。具体是现有 Context Reference 还是提议的共享入口，由图中文字说明。 |
+| `Profile@5 ~~> Retry trace@3` | **产物修订指向证据。** Profile 第 5 版以 Retry trace 第 3 版为依据。这是 lineage，记录该版结论的出处。 |
+| `Source -> Dream -> Candidate` | **输入指向处理步骤或结果。** 普通箭头表示图中标注的数据流、处理顺序或版本变化。 |
 
-如果原文和结论都获准独立交付，可以先通过 publication 发布副本，再在目标加工。若私人证据只能用于生成团队可见的结论，还需定义处理主体、审核者、受众和撤回效果。发布原文会将原文交付给接收方，无法满足这种保密要求。现有读权也不包含向新受众披露的权限。 [发布权限](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/server/app.py#L5752) · [Dream 授权](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/server/dream_access.py#L79)
-
-接入应用将共享边界、用途和受众配置成持续有效的规则，系统在此范围内自动发现材料。规则可以覆盖未来内容，手工分享保留为补充方式。授权仍可能到期或被撤销，业务映射和规则都不能使它永久有效。
-
-### 持续共享与自动选材
-
-共享应先约定持续有效的边界，系统再自动纳入符合条件的材料。边界包括来源 Scope 范围、可用制品及版本条件、处理身份、允许用途、目标和产物受众。它可以覆盖将来新增的内容，无需用户逐件点击分享。涉及新的来源 Scope 时，由有权的接入流程按既定规则建立相应授权，结构挂接或成员标签本身不产生读权。
-
-来源范围可以从 Scope 关系或业务映射动态解析，规则不必逐个列举制品。新增来源 Scope 的发现和授权也可由有权的接入流程自动完成，PowerContext 无需维护团队或项目成员表。
-
-**现状图（master）**
-
-已有整 Scope 读权可以覆盖其中新增的可读内容，逻辑制品读权可以覆盖该制品的新版本。现有查询和读取可用于发现这些材料，但尚无本文提出的持续跨 Scope 规则、输入检查点与目标加工的一体流程。
+引用和证据连线均不授予权限，也不扩展子树删除范围。方括号标注操作集合或状态。
 
 ```text
-Orders task identity [existing read grants]
-+..> Alice work Scope
-|    `-- Experience: Retry trace@3 -> @4 [readable under the Scope grant]
-`..> Bob work Scope
-     `-- Experience: Duplicate callback@1
+Current
+  Orders                            Operations
+    +-- Interface                     +-- Runbook
+    +-- Help
+  Orders ..> Runbook                direct Context Reference for Prepare
 
-Applications can call existing discovery and read operations.
-Cross-Scope recurring selection and Dream are not integrated.
+Proposed
+  [Orders, Interface, Help]         confirmed structural subtree
+  Orders ..> Runbook                also selectable for authorized use
+  Orders / Profile@5 ~~> Runbook / Timeout notes@2
+                                   evidence for one revision
 ```
 
-**预期图（提议）**
+**提议。** 服务按父子关系计算真实后代。应用可另选外部 Scope 或精确的制品版本，结果保留选入路径。例如，Runbook 若再引用第三个 Scope，Orders 的直接引用并不把第三个 Scope 纳入范围。只有规则明确覆盖第三个 Scope 时，服务才可在限定的深度与数量内选入它，并在该来源独立鉴权。制品的 lineage（哪一版依据哪些材料形成）可以跨越结构与共享范围。图中 Runbook 既能提供材料又能出现在出处中，删除 Orders 子树时其归属仍是 Operations。一次删除所选中的真实子级，即使被外部引用，也属于此次操作。
 
-应用将事前约定配置成可复用规则。新增制品或版本满足规则时自动成为可用输入，下一次任务固定实际采用的清单。自动纳入材料后，目标制品仍按自己的 Family 规则生成、审核和提交。
+应用根据业务 ID 查到实际 Scope 后再调用服务。个人、团队、项目和知识空间都可这样映射。团队与项目各自选择目标，也可位于不同子树。产品可组合一个团队的多个项目或一个项目的多个团队，并在创建、移动时施加自己的组织限制。若多个入口共用同一 Scope，归档或删除都会影响全部入口。只关闭其中一个入口时，应用可以调整它的映射、所选材料或相关授权。大规模操作中，应能按父级定位后代，并限制节点数和深度。
+
+## 共享材料的交付、使用与披露
+
+**现状。** 整个 Scope 的搜索要求该 Scope 的读权。受支持 Family 的逻辑制品授权可允许精确读取某一制品，授权键不含修订号。固定第 3 版的地址决定读哪份内容，不能据此声称调用者只获准第 3 版。现有 Scope 授权可直接给成员和任务身份使用，应用按需接入成员目录。[Scope 与访问控制](../docs/workflows/scopes-and-access.md) · [制品授权](1396_handoff_access_control.md)
+
+| 如何交付材料 | 现有能力与限制 |
+| --- | --- |
+| 接收方可以独立保存一份原文 | **复制（Copy）**。Experience、Skill 和 Handoff 的精确版本发布要求来源 `artifact.share`、目标 `scope.admin`。Topic Memory 通过专用流程发布，要求两端 `scope.admin`。副本在目标以新身份从第 1 版开始。Atomic Memory、Profile、Prompt 不支持 publication。 |
+| 读者按来源当前权限使用材料 | **引用（Ref）**。保留原地址，访问时检查来源权限。现有直接 Scope 引用只供受支持的 Prepare 取材，指定版本可按现有权限精确读回。规则驱动的跨 Scope 加工还需实现。 |
 
 ```text
-Standing rule [version=2, target=Orders, permitted use and audience]
-+..> Alice work Scope [current approved Experiences]
-+..> Bob work Scope   [current approved Experiences]
-`-- Alice private Scope [outside the range]
+Current
+  Alice / Experience@3 -> publication -> Orders / Experience copy@1
+  Alice / Profile@3 [publication unsupported]
+  Orders ..> Alice work Scope [direct reference grants no read authority]
 
-New revision or periodic discovery
-  -> resolve rule + check current authority
-  -> pin exact input list and target baseline
-  -> Dream / processing -> Candidate -> reviewed Orders Artifact
-
-Retry -> same pinned inputs; next run may select newer revisions.
+Proposed
+  Material selected for Orders
+    +-- Copy: deliver an independently retained revision
+    +-- Ref: read the selected revision under a current origin grant
+  Proposed Orders conclusion -> check permitted audience and retention
 ```
 
-PowerContext 需要提供可版本化的选材规则解析、可恢复的输入处理状态，以及与查询、Dream 共用的授权检查。每次运行记录规则版本、目标、输入精确地址及摘要和目标基线。调度可先由应用定时调用，后续接入事件触发。处理状态记录上次成功采用的输入和目标修订，用于合并重复通知和跳过已处理输入，不复用目标的本地 Source 游标。
+**提议。** 双方约定材料范围、执行账号、用途、目标及读者。读取或复制原文、用作证据、审阅候选和向目标读者披露结论，各有相应的权限要求。例如，Alice 可以允许处理账号用私密记录生成项目结论，只有指定审核者可以人工查阅原文。目标 Scope 标识产物归属。服务按实际执行账号检查各来源的读取权限和目标的写入权限，但仅有这两项权限仍不足以向新的受众披露。采用这种模式前，Access 设计须说明谁能授权该用途、谁能看原文、服务如何限制结论的受众及留存。仅限某入口或某版本的使用也须由 Access 执行。若服务无法执行所要求的限制，须拒绝该用途。[发布实现](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/publication.py#L151) · [Dream 授权](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/server/dream_access.py#L79)
 
-目标当前版本作为比较基线，不作为支持自身修订的新事实。自动提交产生的目标更新不能单独触发反复加工自己。输入视图和派生 Source 都保留证据来源，规则须避免把同一内容的转换或回流当成新增独立支持。
+单次复制停在交付的版本，固定版本的引用也只指向该版。目标以后是否更新，取决于能否获得新材料、谁发起处理及如何提交。来源授权到期或撤回后，须阻止依赖该权限的读取和待审候选提交。已经按约定获准独立留存的副本和正式结论继续按目标规则管理。留存结论本身并不授权保存原文快照。只有核验、重建或留存约定确需原文且获准保存时，才保留相应快照。要求随来源撤权而停止展示的模式，须另外规定停止披露和重建的条件。
 
-规则只在有效授权范围内执行。规则修改、来源撤权或目标停写后，任务须复核是否仍可运行和提交。规则版本失效时重新解析，运行重试则保持已固定输入，不在同一次重试中改用新 head。每次展开、发现和处理均须限制目标数、输入数及工作量，过大的范围拆分为可追踪任务。
+## 持续发现材料与固定本次输入
 
-规则配置、输入检查点和任务状态归目标 Scope 管理。目标归档时停止相关普通加工，删除时纳入该 Scope 的资源处理。来源 Scope 归档后仍可被外部规则按有效授权读取，来源删除则按规则的完整性要求报告不可用并重新评估后续运行。
-
-执行身份与数据 Scope 分开。任务在团队或项目 Scope 发起，也须使用获准的任务身份读取来源、写入目标。接入应用负责把业务共识落实为授权和规则配置，PowerContext 在每次使用及提交时执行它们。现有授权无法表达的用途或受众限制，需要先补齐 Access 契约。
-
-## 跨 Scope 查询与精确读回
-
-**已支持与可组合。** Artifact Search 以一个 Scope 和 Family 检索当前可用 head，内置支持 Experience、Skill、Topic Memory、Atomic Memory。Profile 可以精确读或显式选择为 Prepare 快照。Prepare 对当前与直接引用 Scope 召回 Atomic Memory、Experience，Profile 快照也可覆盖这些 Scope。Topic Memory 只查当前 Scope。含引用的 Prepare 不支持 context reuse。[搜索契约](../docs/workflows/search-artifacts.md) · [Prepare 取材](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/runtime/application.py#L1330) · [本地 Topic 查询](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/runtime/application.py#L2148)
-
-**现状图（master）**
-
-三个来源可以分别检索，应用负责合并各次获准调用的结果。Prepare 已有直接引用召回，但它不会因为 Interface 和 Help 是 Orders 的子级，就自动执行对子级的查询。
+**现状。** 应用可把获准采集的工作记录直接写入目标 Scope。Profile 和 Topic Memory 的常规处理各自从本地 Source Journal 按窗口取材，以游标记录进度。Profile 处理器用上一版正式 Profile 作比较基线，用本窗口符合条件的 Source 更新结论。如果结论未变，游标可以推进而不创建新修订。配置画像策略和生成模型后，应用可显式触发处理，也可启用默认关闭的后台调度。[画像生成与调度](../docs/workflows/use-profiles.md) · [Profile 处理窗口](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/artifacts/profile/service.py#L223)
 
 ```text
-Orders Scope
-+-- Interface Scope -> Search(Interface, Experience) -> Retry trace@3
-`-- Help Scope      -> Search(Help, Experience)      -> FAQ correction@1
+Current: Orders
+  Source Journal: reviews A and B [consumed], review C [after cursor]
+  Profile@4 and review C -> local Profile processing
 
-Operations Scope
-`-- Runbook Scope   -> Search(Runbook, Experience)   -> Timeout notes@2
+Proposed: rule v2 for Orders
+  +-- Alice work / Retry trace@3 [selected]
+  +-- Bob work / incident Source [selected]
+  Alice private [outside rule]
 
-Application merges these separately authorized calls.
-Prepare(Orders) reads current + direct references, not implicit children.
+  Run 1 and its retry: same inputs, including Retry trace@3
+  Alice publishes Retry trace@4 -> eligible for selection in a new run
 ```
 
-**预期图（提议）**
+**提议。** 接入应用让双方先约定长期有效的共享范围。规则可以覆盖指定工作 Scope 内现有及未来符合条件的记录和制品版本。获准流程也可以自动发现新的来源 Scope 并建立所需授权。成员标签、树上的新节点和规则本身都不授予读权。人工选择用于补充和纠正，无需贡献者逐件批准规则已覆盖的材料。
 
-业务入口先解析为明确的 Scope 选择，再由应用或拟议的聚合接口执行有界查询。RAG 还需接入文档检索，结果保留来源 Scope、文档版本和 chunk，后续读回按该地址重新鉴权。父子结构仍不自动授予检索权限。
+**一次运行。** 规则随目标 Scope 管理，说明以后可以到哪里找材料。每次加工另行固定规则版本、目标与基线，以及本次各输入的真实地址、摘要和角色。同一地址经多个入口选入时保留各路径，按适用用途鉴权，证据只计一次。同一次重试沿用这份清单并复核权限。新的来源版本留给下一轮选材。原规则失效时停止依赖它的运行，按有效规则重新选材。临时鉴权故障可重试，撤权后须重新获得授权。
+
+目标的处理记录保存本轮的规则、输入、基线和评估结果，供重复通知查回。补充证据或显式请求重新评估时可以另开一轮。只有正式提交的修订才记录该版最终采用的证据。使用外部输入不推进目标本地 Source Journal 的游标。
+
+限制每次发现的 Scope 数、输入数和处理工作量。要求完整输入的任务若超预算，应由调用方明确缩小范围，或分成可追踪的批次并在采用结果前核对完整性。应用可定时触发发现，按规则选取新增材料。来源归档后，外部规则仍可按有效权限读取材料。来源删除后，任务须报告依据不可用，并按是否要求完整输入决定后续处理。目标自身更新和同一内容的反复转换都不能作为新事实触发下一轮修订。
+
+## 跨 Scope 查询与结果读回
+
+**现状。** Artifact Search 一次在一个 Scope、一个 Family 检索当前可检索的版本。内置支持 Experience、Skill、Topic Memory 和 Atomic Memory。应用可分别查询获准的 Scope 后合并。Prepare 在当前与直接引用的 Scope 中召回 Experience、Atomic Memory，也可显式选择 Profile 快照。Topic Memory 的 Prepare 检索限于当前 Scope。含引用的 Prepare 不支持上下文复用。树上的子级不会被自动搜索。[制品搜索](../docs/workflows/search-artifacts.md) · [Prepare 组装](../docs/workflows/prepare-context-text.md) · [直接引用用例](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/tests/e2e/test_builtin_runtime.py#L335)
 
 ```text
-Orders Scope                                   Operations Scope
-+-- Interface Scope                            `-- Runbook Scope
-|   `-- document: Callback API@3 / chunk 2         `-- document: Timeout notes@2 / chunk 4
-`-- Help Scope
-    `-- document: Retry FAQ@1 / chunk 1
+Current
+  Search(Interface, Experience) -> Retry trace@3
+  Search(Help, Experience)      -> FAQ correction@1
+  Runbook / Timeout notes@2 [exact read under an item grant]
 
-Orders query ..> [Interface, Help, Runbook] [explicit mapping + authority]
-                   `-- document retrieval -> bounded result merge
-
-One returned hit: (Runbook Scope, Timeout notes@2, chunk 4)
-Readback -> recheck that exact origin and current resource state
+Proposed: Orders query
+  +-- Interface -> (Interface, Experience, Retry trace, 3)
+  +-- Help      -> (Help, Experience, FAQ correction, 1)
+  +-- Runbook   -> item search only if permitted and supported
+  Open Retry trace hit -> check access to Interface / Retry trace@3
 ```
 
-接入应用可先用现有接口编排多库查询。PowerContext 若提供聚合接口，须复用相同的选材和授权规则，并限制目标数、候选数和返回总数。Artifact 结果按 `(scope_id, family, artifact_id, revision)` 去重，独立副本保持各自地址。各目标的分数不可直接比较时，按目标内排名融合，并保持稳定次序。完整模式在必要目标失败时返回对应错误。部分成功模式须标明覆盖不完整，且只返回获准结果。
+**提议。** 应用聚合与平台聚合都须解析明确的来源范围，在各来源鉴权，并限制 Scope 数、候选数和总返回数。按 `(scope_id, family, artifact_id, revision)` 去重。独立发布的副本有自己的地址。分数不可直接比较时，按各来源内部排名融合，同等排名保持稳定次序。调用方要求完整结果时，必要来源失败应返回错误。允许部分成功时，只返回获准结果。必要来源失败或范围未查全须标明覆盖不完整。重新打开结果、通过插件读取片段或通过 Prepare 装入 Agent 上下文时，都要重验来源权限与可见状态。
 
-在上述 RAG 映射下，接入应用将业务查询解析为获准的 Scope 选择，文档服务返回 `(scope_id, document_ref, chunk_id)` 和原文定位。文档服务决定哪些 chunk 可参与检索，并负责索引和排名，聚合接口保留这些响应含义。业务的 `knowledge_base_ids` 须通过映射解析成 Scope 选择，库级配置和任务归属也需与 Scope 结构及生命周期衔接。document 检索、精确读取和交付仍待实现。
+仅获准搜索某个制品或版本时，检索服务必须在打分、截断和生成摘要前限制候选。搜完整个库再过滤可能漏掉允许的命中，也可能暴露无权查看的内容。只索引当前版本的服务须拒绝针对历史版本的搜索。精确读取或独立发布各按本身的授权和 Family 能力处理。例如，接口库发布《重试记录》第 4 版后，已有命中仍指向第 3 版。打开时须按该地址检查当前权限和历史版本的可用性。
 
-精确读取一个版本时，读权可能仍覆盖该制品的其他版本。仅授权这个版本还需要额外限制。只分享某个 document 版本时，服务须在打分、截断和摘要生成前限制候选范围。先搜整库再过滤会影响排名并漏召回，只索引最新版也无法检索旧版内容。相关索引和授权能力未就绪时，只支持已有精确读权或适用 Family 的独立交付。打开结果、读取 chunk 和后续装配上下文时，都须重验当前权限及资源状态。
+## 从 Source 或 Artifact 维护一个目标制品
 
-## 从多个来源加工一个目标
-
-**已支持。** Dream 请求在运行 Scope 内解析 `ArtifactRef`、`SourceRef`，记录精确证据和目标基线，生成 Candidate、`no_change` 或 `needs_evidence`。接收请求、后台执行、候选生成与审核分别有授权或证据校验。写入由目标 Family 执行版本条件检查。[Dream RFC](1715_multi_artifact_dreaming.md) · [本地证据解析](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/evidence/resolver.py#L90) · [生成与提交](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/dream/service.py#L419)
-
-**现状图（master）**
-
-Orders 内的项目复盘和现有 Profile 可参与本地 Dream，候选审核后按目标版本条件提交。Alice 的材料位于另一 Scope，现有本地引用和证据解析不能直接将它作为该次输入。
+**现状。** 本地 Dream 解析运行 Scope 内的 `SourceRef` 和 `ArtifactRef`。操作规定可用的 Family 和角色，例如 `revise_profile` 接收当前目标 Profile，并可使用合格的 Experience 或 Source。`derive_skill` 则不要求已有目标 Skill。服务记录输入及目标基线，生成待审候选、`no_change`（当前结论仍适用）或 `needs_evidence`（证据不足）。提交成功才得到新的正式修订。Dream 独立于 Family 日常消费 Source 的进度。[Dream 操作与输入](1715_multi_artifact_dreaming.md) · [操作绑定](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/dream/bindings.py#L71)
 
 ```text
-Orders Scope [Dream run and target]
-+-- Experience: Project review@2 [evidence]
-+-- Profile: Service behavior@4  [baseline]
-`-- Candidate: revised behavior [pending review]
+Current: Orders
+  local Source and local Experience -> Dream with Profile@4 -> Candidate
+  published Experience copy [searchable, unresolved for Dream]
 
-Project review@2 + behavior@4 -> local manifest -> Dream -> Candidate
-Approve with valid evidence and unchanged baseline -> behavior@5
-
-Alice work Scope
-`-- Experience: Retry trace@3 [outside run Scope; not a local input]
+Proposed: Dream with Orders / Profile@4
+  +-- Alice work / Retry trace@3 [supports retry with an idempotency key]
+  +-- Bob work / Duplicate callback@1 [counterexample on the old channel]
+  +-- Orders / incident Source [local observation]
+  Evidence and baseline -> no_change, needs_evidence, or Candidate
+  Approved Candidate -> Orders / Profile@5
 ```
 
-**预期图（提议）**
+**提议。** 各加工操作声明可接受的输入和角色，以及要求已有目标还是允许创建目标。使用外部证据创建首份 Profile，也须有明确的初始化契约。处理器可以合并重复经验、解释冲突、补充适用条件或废止旧建议，形成目标读者能直接使用的结论。后续读者和加工任务以已提交的目标制品为入口，需要查证时再按权限打开出处。
 
-扩展的是证据的来源范围，结果仍只写入 Orders。候选须保留 Alice 和 Bob 各自的精确地址，审核时重验来源、目标和基线，继续使用现有 Family 的条件写入机制。
-
-```text
-Alice work Scope                         Orders Scope [target]
-`-- Experience: Retry trace@3            +-- Profile: Service behavior@4
-                                         `-- Candidate: conditional retry rule
-Bob work Scope                               +~~> (Alice work, Retry trace@3)
-`-- Experience: Duplicate callback@1         `~~> (Bob work, Duplicate callback@1)
-
-Selected remote evidence + target@4 -> Dream -> Candidate in Orders
-Review rechecks both origins, target authority, writable state, and baseline.
-Only a valid approval writes Orders / Service behavior@5.
-```
-
-1. 按有效规则自动发现输入，扩展请求使用已有 `ArtifactAddress` 形式，本地引用仍按运行 Scope 解释。固定规则版本、输入清单和目标基线，清单节点、根证据分组、候选引用和最终修订依据均记录来源 Scope。同 ID 同版本位于不同 Scope 时是不同输入，多条路径命中同一地址只计一次。既有清单保留原身份和摘要。
-2. 在实际来源检查权限、Family 准入和状态，按输入视图及操作契约解析证据。确需读取底层 Source、Lineage 或附件时，分别检查其访问权限。将支持证据、反证和当前目标一起比较，派生材料及已有结论不能循环计为独立支持。证据不足或无需修改时，分别返回相应结果。
-3. 只向获准审核者展示差异和依据。批准时复核候选、规则版本、来源用途、产物受众、目标权限、基线和可写状态。必要授权被撤回后阻止旧候选提交，不能通过丢弃反证使其获批。目标已改版时基于新基线重新评估。结果只写入目标，并按该产物的留存及披露规则维护。
-
-幂等重试保留本次选定的输入和目标，不能自动改用新的来源 head。鉴权因暂时故障无法完成时，保留错误并按恢复机制重试。授权已撤回时，须重新取得有效依据。实际写入和审核操作都须执行这些检查。 [证据清单](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/evidence/models.py#L90) · [候选批准](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/review/service.py#L676)
-
-### 加工产物与输入视图
-
-团队、项目等目标 Scope 的 Dream 或后加工，以形成和维护目标产物为目标。处理可以合并重复结论、解释冲突、增加适用条件或淘汰旧结论。读取和继续加工以已提交的目标 Artifact 为入口，来源记录提供证据及出处，不要求目标逐段保留原文。运行也可能返回 `no_change` 或 `needs_evidence`。
-
-**现状图（master）**
-
-现有 Dream 已区分 `sources` 与 `artifacts`，解析后形成证据投影，操作还限制输入 Family 和角色。例如，`revise_profile` 只允许当前目标 Profile，`revise_skill` 也不接受目标之外的 Skill。解析会按 Family 规则展开证据与来源，尚不能把任意其他 Scope 的现成制品直接接入。[操作绑定](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/dream/bindings.py#L71) · [输入与目标校验](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/dream/models.py#L123)
-
-```text
-Orders Scope
-+-- sources: captured Source references
-+-- artifacts: local Experience + current target Profile
-`-- revise_profile
-    -> Family and role checks
-    -> evidence resolution -> EvidenceProjection -> Candidate
-
-Another Profile or unsupported Family -> rejected by operation admission
-```
-
-现有系统已将制品写入、替换或恢复产生的内部 Source 标记为 `lineage_only`，生成选材会排除它们。这种用于溯源的记录不能直接变成新一轮加工的原始事实。[Source 用途标记](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/sources/content.py#L87) · [生成读取规则](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/persistence/generation_sources.py#L28)
-
-**预期图（提议）**
-
-优先保留来源制品的身份和 Family，用明确的输入视图适配处理器。需要内容的处理器可以接收该版本的受控投影，投影仍记录自己来自加工制品。支持新 Family 或新角色时须扩展服务端准入及验证规则，不能通过包装成 Source 绕过现有约束。
-
-```text
-Alice work Scope
-`-- Experience: Retry trace@3 [exact origin and digest]
-    +-- Artifact view: Family snapshot + provenance --------+
-    `-- Content view: derived projection + adapter version -+
-                                                           |
-                                                           v
-Orders Scope [authorized use and output audience]
-+-- pinned input manifest [one origin per input, admitted view]
-+-- Profile: Service behavior@4
-`-- Dream / processing -> reviewed Service behavior@5
-```
-
-| 输入视图 | 保留的信息与处理方式 | 需要补充的能力 |
+| 输入 | 处理器实际读什么 | 准入与记录 |
 | --- | --- | --- |
-| 现成 Artifact | 以精确来源版本参与加工，保留 Family、结构化内容、摘要和已获准的溯源信息。 | 带 Scope 的解析、输入角色准入，以及制品边界上的证据校验。 |
-| 制品内容投影 | 将来源版本适配成处理器需要的内容，保留来源地址、转换版本和摘要，明确它是派生材料。 | 注册适配器及投影验证。临时投影不自动变成目标 Source Journal 中的新事实，也不推进其游标。 |
+| 原始 Source | 已获准的原始观察、工作记录或反例。可持续写入目标本地 Journal | 本地常规处理遵循 Family 窗口。加工操作接纳外部 Source 时，须记录来源 Scope、Source 身份及摘要，分别检查访问和用途。 |
+| 已有 Artifact | 来源某一版的结构化内容，如已审核的排障经验 | 保留 Scope、Family、ID、修订、摘要和证据角色。哪些操作可直接采用该版结论，哪些须读取底层 Source、附件或根证据，由各操作明确。每一次额外读取都需授权。 |
+| 制品内容的转换结果 | 同一修订按处理器需要转换的正文或字段 | 记录原地址、转换方式的版本和摘要。转换结果和原件只算一份依据。若处理器要求把派生 Source 落盘，还须定义其角色、幂等写入和游标语义。 |
 
-同一制品的不同视图保留同一个证据来源，不能计为两份独立支持。如果需要复用必须读取 Source Journal 的处理器，还需定义显式的派生 Source 接入，保留来源版本和转换身份、保证写入幂等，并明确相应游标如何推进。现有普通 Source 接入本身没有这套派生语义。
+**现有副本的限制。** 目标 Scope 可以检索已发布的 Experience 副本。Dream 的证据解析器却将带 `publication_source` 的 Experience 标成 `unresolved`，不把其正文送入生成。因此复制适合交付、查阅或人工采纳。要让加工直接使用这类材料，必须实现并验证该操作的输入契约。制品创建、替换或恢复产生的内部 `lineage_only` Source 只记录出处。禁止把它或制品投影包装成新的独立事实，以绕过 Family 准入或重复计算支持证据。[Experience 副本与索引](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/publication.py#L171) · [副本的证据解析](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/evidence/resolver.py#L390) · [Source 准入](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/persistence/generation_sources.py#L28)
 
-提议将获准使用的来源制品作为输入单元。若某个 Family 的验证要求核验原始 Source、附件或根证据，则在该操作中单独读取和鉴权。制品读权不自动授予底层数据访问权，证据关系也不产生额外的独立支持。哪些操作可直接采用制品、哪些必须展开根证据，需要定义各自的输入契约，现有解析不能仅靠关闭检查完成这一扩展。
+跨 Scope 的清单、根证据分组、候选引用和正式修订依据都须记录来源 Scope。制品地址沿用 `ArtifactAddress`，不同 Scope 的同 ID 同版本制品是两个输入。两个输入如经核验都来自同一条原始观察，该观察只能算一份独立依据。相同的 ID 或内容摘要本身不能证明同源。旧的本地引用和证据仍在各自原运行 Scope 中解析，迁移须保留其原有身份和摘要。处理器比较支持证据、反例和目标基线。即使历史原文已无法打开，已获准独立留存的目标仍可作为基线。目标当前版本不能作为支持自身修订的新事实。
 
-输入契约还须区分目标基线与新增支持证据。已获准留存的目标产物作为比较基线时，不能因历史原文不再可用就被当成不存在，也不能被算成支持自身的新证据。现有解析和各 Family 的修订流程需要分别核对、适配这一边界。
+**审核与提交。** 接收请求、后台取材、写候选和批准时，服务按当时的操作检查权限与状态。审核者须有权查看差异，并须有相应的来源权限才能打开原始依据。审核者可以修改候选正文，目标和证据须保留。批准时重新检查规则版本、真实来源、用途与受众、审核权限（`scope.review`）、目标写权、可写状态和基线版本。必要来源被撤权后须阻止依赖它的候选提交，不能通过删掉反证让候选获批。目标被人工改版后，Family 的条件写入拒绝旧候选，重新评估须以新版本开始另一轮运行。阅读正式结论和打开原始依据分别鉴权。[候选批准](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/review/service.py#L676) · [本地 Dream 撤权用例](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/tests/e2e/test_artifact_dreaming.py#L1781)
 
-独立发布副本仍可用于原文交付，但不作为第三方 Scope 加工的必经步骤。来源准入须覆盖加工用途和结果受众，目标产物按约定的留存及披露规则管理。读取已提交的结论与查看原始证据分别鉴权。是否还需要保留原文快照，由对应验证、重建或留存要求决定。
+**运行结束后。** 提议沿用 Dream 运行、Candidate 决策和制品修订，按下表记录跨 Scope 加工的结果。批准响应丢失时，应先查询原 Candidate 决策及对应制品版本。已提交则按权限取回结果，无法确认时保留未决状态，不重复生成或发布。
 
-### Profile、Topic Memory 与文档服务
+| 本轮结果 | 目标 Scope 可据此判断什么 |
+| --- | --- |
+| `no_change` | 该清单已在指定基线上完成评估，正式修订保持不变。 |
+| `needs_evidence` | 记录本轮评估及缺少的依据。保留现行结论，补充材料后可重新评估。 |
+| 候选待审或已拒绝 | 可以查到提议、依据与审核状态。它没有成为正式修订。 |
+| 候选已批准 | 已存决定标识提交的目标修订，该修订保留实际采用的依据。 |
 
-**已支持。** 主体绑定通过 `integration=subject`、`kind=user`、`external_id=subject_key` 解析普通 Scope。首次写入可以指定既有 Scope，也可由服务创建。后续写入沿同一绑定解析，为个人画像提供稳定的主 Scope。服务可在同一事务中将 Source 写入业务和主体 Scope，各 Scope 独立维护至多一份 `profile/profile`。Profile 和 Topic Memory 按本地 Source 窗口及游标处理。服务双写 Source，画像在各 Scope 分别加工。 [Source 双写](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/scope/subject_sources.py#L99) · [Profile 处理](1485_profile_artifact.md) · [Topic Memory](1417_topic_memory.md)
+## Scope 归档、删除与清理
 
-**现状图（master）**
-
-个人画像已经有由稳定绑定解析的主 Scope。双写会在两个 Scope 分别保存 Source，各自沿本地窗口和游标处理，并不共享一个画像处理进度。
-
-```text
-Subject binding: (subject, user, alice) ..> Alice profile Scope
-
-One Source capture, one transaction
-+-- Orders work Scope
-|   `-- Source: Shift review -> local processing and cursor
-`-- Alice profile Scope
-    +-- Source: Shift review -> local processing and cursor
-    `-- Profile: Preferences@2
-
-Each Scope processes its own Source Journal.
-```
-
-**预期图（提议）**
-
-目标可以直接使用获准的远端制品作为证据，同时保留自己的本地 Source 处理进度。新增跨 Scope 清单记录这些输入，目标 Family 仍负责准入和提交。远端材料无需伪装成本地 Source。
+**现状。** Scope 已有关系版本和可撤销的授权，少数 Family 有自己的状态。Atomic Memory 的 `forgotten` 会使该条目退出普通召回。内部处理状态可以汇总本地进度和阻塞。公共接口尚不能归档或删除整个 Scope。[Scope 接口](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/openapi/powercontext.yaml#L759) · [本地处理状态](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/processing_status.py)
 
 ```text
-Alice work Scope
-`-- Experience: Retry trace@3
-          |
-          | admitted, authorized remote evidence
-          v
-Orders Scope [target]
-+-- Profile: Service behavior@4 -> reviewed revision@5
-+-- Local Source Journal + cursor [unchanged by remote evidence]
-`-- Qualified manifest
-    `~~> (Alice work Scope, Retry trace@3)
+Current: Orders
+  +-- Interface
+  +-- Help
+  Orders ..> Operations / Runbook [direct reference]
+  No public Scope archive or delete
 
-The registered Family admits and commits the target revision.
+Proposed: archive Orders
+  Orders [ordinary local writes, processing and Candidate commits stopped]
+    +-- Interface [own state, still writable]
+    +-- Help [own state, still writable]
+  Reliability ..> Orders [valid grant to use archived material in Reliability]
+
+Proposed: explicitly delete the confirmed subtree [Orders, Interface, Help]
+  +-- access cutoff -> ordinary reads and Candidate commits stop in that set
+  +-- resource cleanup -> Interface index [retry pending]
+  +-- physical erasure [separate terms, if supported]
+  Operations / Runbook [outside, retained]
+  Analytics [outside] ..> Interface [unavailable]
 ```
 
-团队、项目等目标也可通过普通 Scope 和映射指定，并遵守每个 Scope 内的 Profile 约束。跨 Scope 证据须单独记录，使用远端制品不能伪造本地 Source 或推进本地游标。从远端证据初始化首份 Profile 需要明确初始化条件。Dream 仍限制输入 Family，接入 document 或 chunk 还须适配其证据和处理规则。注册文档服务可提供解析、索引和任务处理，并须执行公共的 Scope 状态检查和提交条件。
+**归档与恢复。** 归档只停止指定 Scope 新增 Source、写入制品内容、本地普通加工和候选提交。真实子级保持各自状态，其他 Scope 仍可按有效来源授权使用归档材料并写入自己的目标。授权管理、恢复和已生效删除的善后仍可进行。入队、开始计算、持久化候选和最终发布都须检查状态。状态转换与写入共用事务锁或等效版本条件，在途工作不得越过生效点。恢复使用同一 Scope ID，重新调度时重验当前权限和目标基线。
 
-## Scope 生命周期与级联
+**删除与留存。** 删除须显式发起。建议删除单个仍有子级的 Scope 时返回冲突。显式删除子树时先预览集合，再对每个目标检查权限。只检查根版本会漏掉新挂入的后代。集合确认与新增、移动和发布必须串行化或进行等效校验。集合变化需重新确认。只删除确认集合中的 Scope 及其所属资源。服务解除从集合内指向外部的共享引用。外部引用方随后看到其指向的集合内来源不可用，外部 Scope 继续存在。
 
-### 归档、恢复及状态生效
+| 操作结果 | 可以向调用者作出的承诺 |
+| --- | --- |
+| 停止访问已生效 | 普通读取、历史读回、证据预览、Prepare、检索和插件读取均不可再访问目标，旧任务不能提交。管理入口按权限查询有限状态。逻辑不可见可以保留存储中的正文。 |
+| 本次清理已完成 | 必需的资源处理器均完成约定动作。任一索引、缓存或任务清理失败则保留失败／未完成状态，可从未完成项重试。 |
+| 已按约定物理擦除 | 必须先约定原件、历史、副本及存储的具体覆盖范围，并有对应完成证据。搜索无命中不足以证明擦除。 |
 
-**已支持。** Scope 只有版本化元数据与关系，尚无公共归档或删除操作。Access Binding 可以撤销或到期。Atomic Memory 的 `forgotten` 会退出普通召回并保留历史。它们分别控制访问和 Family 状态。内部 processing-status 投影已能汇总本地处理进度、阻塞及 Dream 状态，尚未接入公共通用入口。[Scope 模型](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/scope/models.py#L144) · [Atomic 生命周期](../docs/workflows/atomic-memory.md) · [内部只读处理状态](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/processing_status.py#L1)
+Scope 服务持久保存操作身份、确认集合、访问截止和分项进度。各注册服务声明归其管理的资源、可见性检查和幂等处理方式，按 Scope 处理制品、Source、共享规则及检查点、文档登记、在途任务、chunk、索引和缓存。必需服务无法执行所选动作时，服务须在接受请求前拒绝该模式。应用决定何时发起操作、保留多久以及如何处理自己控制的副本。跨存储清理和无结构归属的多 Scope 批量操作不保证整体原子性。前者按分项进度继续，后者逐 Scope 返回结果。
 
-**现状图（master）**
+旧 Scope 初始可写。引入删除状态时须迁移相应记录。移除部署默认 Scope 前须显式更换默认指针，并清理或修复受影响的持久绑定。过期的业务映射也必须遵守访问截止。现有持久绑定或默认指针指向缺失目标时，解析会报告 `409 scope_binding_target_missing`，需显式修复。来源清除后，已获准留存的正式结论应继续显示精确出处及其不可用状态。现有出处和 publication 外键会约束来源记录的删除。一种迁移方式是保留不含正文的地址墓碑，保存原身份和摘要。具体存储方案、删除恢复及物理擦除模式待定。[约束表](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/src/powercontext/builtin/persistence/tables.py#L330) · [绑定解析](../docs/workflows/scopes-and-access.md)
 
-现有授权撤销控制某个身份的访问，Atomic Memory 的遗忘状态控制该条记忆的召回。Scope 自身还没有能统一停止本层内容写入和加工的归档状态。
+**验收。** 归档生效后，即便本地任务已入队也不能发布。删除预览之后若新增或移动子级改变了确认集合，必须重新确认。索引清理失败时，普通读者已无法打开删除集合中的版本，管理员仍可查到未完成项并重试。
+
+## 团队／项目记忆如何使用和维护
+
+项目负责人为“订单项目”选择一个普通 Scope 存放正式 Profile。稳定性团队可以另选 Scope 保存值班 Skill。成员通过现有 Scope 授权访问各自获准的内容。接入产品应让用户可以查看当前记忆、管理持续使用的材料，以及审核或手工修正结论。
 
 ```text
-Orders Scope [metadata version=7; no archive state]
-+-- Interface Scope
-|   +-- Experience: Retry trace@3
-|   `-- Atomic Memory: Retry hint [forgotten; excluded from recall]
-`-- Help Scope
+Alice's personal Scope
+  captured Sources -> Profile policy -> personal Profile -> Prepare
 
-Consumer identity ..> Interface [grant can be active, revoked, or expired]
-Processing status remains an internal read-only projection.
+Orders project Scope [review required]
+  +-- current: local review Sources -> local Profile processing
+  +-- proposed: Alice and Bob's work inputs -> cross-Scope Dream
+  Candidate -> review -> Orders / Profile@5 -> members and their Agents
+  Orders / Profile@5 ~~> Bob work / Duplicate callback@1
 ```
 
-**预期图（提议）**
+**个人如何用。** 用户选择允许采集的工作记录。主体绑定把用户 ID 映射到普通 Scope。写入记录需要写权，建立绑定另需绑定权限。服务可以在一次事务中把指定记录写入业务 Scope 和个人 Scope，两份 Source 的 ID 和摘要相同，但 Journal 位置和处理进度各自独立。重新发起同一 HTTP 请求会创建新的一对 Source，调用方须按此处理重试。新建主体 Scope 时启用画像策略，绑定已有 Scope 时沿用其原策略。
 
-归档 Interface 后，它的普通写入和加工停止，Orders、Help 及外部 Reliability 保持各自状态。Reliability 仍可按有效授权读取其中材料并写入自己的目标，归档与授权撤销分别控制不同的行为。
+用户可启用后台调度或显式触发生成。默认激活模式为 `automatic`。如需逐次审核，应选择 `review_required`，用户可以修改候选正文、批准或拒绝。修改候选须保留其目标和证据。用户也可用当前版本的 ETag 手工替换正式画像，或将历史正文作为新修订恢复。人工编辑不会重放已消费的 Source。
+
+要在某次 Agent 会话中使用画像，用户须在 Prepare 显式选择 Profile。读取正式画像本身不会启动生成。产品可通过插件提供采集、策略配置、触发处理和选择上下文的入口。[个人画像工作流](../docs/workflows/use-profiles.md) · [Agent 上下文配置](../docs/workflows/prepare-context-text.md) · [Cindy 操作](https://github.com/oceanbase/powercontext/blob/1cb0e75dbd56227bb13550d63f301b8f39feb931/integrations/cindy/plugins/powercontext-hooks/node/worker.cjs#L192)
+
+**材料交付与持续维护。** 如果项目获准独立留存某一版排障经验，贡献者可以发布 Experience 副本，成员可以检索、查阅或人工采纳这份记录。项目要维护自己的正式结论，则由持续规则自动选取获准的外部材料，也可结合本地采集的复盘、决定和反例更新目标制品。项目以 Profile 为目标时，每个 Scope 最多保存一份 `profile/profile`。需要维护者逐次审核时，使用 `review_required`。
+
+**跨来源加工的预期。** 项目和来源方约定哪些工作记录可用于何种产物、谁能看依据、谁能读最终结论。系统自动选取符合条件的更新。订单项目比较 Alice 的成功重试和 Bob 的重复扣款记录，把宽泛建议改成带通道和幂等条件的结论。成员打开的是项目的正式版本。审核者能在授权范围内查看具体反例。直接采用外部 Experience，还是必须展开其原始 Source，要由 `revise_profile` 等具体操作规定。同类规则也可用于更新个人 Scope 的 Profile，前提是来源允许该用途且执行账号获准写入个人目标。
+
+如果成员只贡献整理好的经验，就可能遗漏事故背景或没有写成制品的反例。产品应让管理员补上已知遗漏、改正错误，并能决定以后持续采集哪些项目事实。维护者手工改版后，旧候选无法获批，审核者仍可拒绝它。如需新的建议，要基于新版本发起另一轮加工。管理员换人只需给继任者相应权限，集体记录仍由同一 Scope 持有，无须转移前任的个人制品。擦除账号数据时，应用明确个人数据集合，以及哪些集体产物已经获准独立留存，服务按相应的范围和完成条件处理。
+
+## RAG 如何入库、共享和检索文档
+
+**预期形态。** 在“订单知识空间”中，用户看到自有的接口库、帮助库和共享的运维手册。若订单空间负责前两库的生命周期，应用可将它们映射为真实子 Scope。只用作导航的知识空间也可以只保存业务映射。用户选择一个库导入文件，文档服务返回持久任务。界面显示处理阶段、失败原因和可用版本。成功发布后，搜索结果能定位到具体的文档版本和片段。[RFC #2570 的导入和检索设计](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md)
 
 ```text
-Orders Scope [writable]
-+-- Interface Scope [ARCHIVED]
-|   +-- Experience: Retry trace@3 [readable with current authority]
-|   `-- New Sources, local Dream, Candidate commits [blocked]
-`-- Help Scope [writable]
+Orders space Scope                              Operations space Scope
+  +-- Interface Scope                             +-- Runbook Scope
+  |     +-- immutable file Source                   +-- Timeouts@2 / chunk 4
+  |     +-- import job: file Source -> API@3
+  |     +-- API@3 with versioned chunks
+  +-- Help Scope
 
-Reliability Scope [writable, outside Orders]
-+..> Interface / Retry trace@3 [authorized source use continues]
-`-- Dream -> own on-call Skill [allowed with required authority]
+Orders space Scope ..> Operations / Runbook Scope (shared entry, authorized use)
 
-Reopen Interface -> same Scope identity, writable again
-Archive changes only Interface; deletion still requires an explicit request.
+  Search Orders: authorized calls -> hit (Runbook, Timeouts@2, chunk 4)
+  Remove shared entry: detach it     Delete Orders subtree: Interface + Help + Orders
 ```
 
-归档只作用于指定 Scope，停止新增 Source、制品内容写入、普通加工和候选提交。真实子级和引用方保持各自状态。服务仍允许管理查询、授权撤销和恢复，也允许完成已生效删除的清理。已有来源授权继续按原范围和期限生效。
+**导入与更新。** #2570 复用 Source 存储保存不可变文件原件。原件供文档任务解析，制品内保存整篇 `document` 修订，文档服务管理 chunk、原文定位和索引。文件变化或显式重解析可发布新修订。发布失败仍能使用上一已发布版本。文档任务另行记录进度，不借用普通记忆的 Source 游标。接入时须在写入通知、启动恢复、自动消费和手动生成入口落实消费资格，让专用原件只进入文档流程。这些原件与仅记录操作出处的 `lineage_only` 内部 Source 用途不同。
 
-状态转换须与数据写入、候选创建、批准和插件发布共用事务锁，或使用等效的版本条件。服务在入队、开始计算、持久化候选和最终提交时分别检查状态，取消在途计算或丢弃其结果。恢复后保持原身份，重新调度时复核当前权限和基线。删除始终须显式发起。
+**共享与读回。** 订单空间引用运维手册库时，查询会在获准的库中检索新发布的内容。应用把业务库 ID 解析为 Scope，文档服务负责本库的候选过滤、索引和排名，返回 `(scope_id, document_ref, chunk_id)` 及原文位置。聚合结果保留每个命中的来源与库内排名含义。手册更新后，已有命中仍指向原文档版本，打开时重验该版本的权限及可用性。若共享仅覆盖单篇文档或指定版本，精确读取须遵守该范围。要在其中搜索，还须由 Access 层执行相应授权，文档服务在打分前限定候选，索引覆盖所选版本。独立交付固定版本需要 document 支持复制，且接收方获准留存。把命中用于生成 Topic Memory 还需选定可写目标，并按操作契约验证 document 或 chunk 输入。
 
-### 删除集合、共享引用与清理结果
+**归属与关闭。** 移除共享手册只改变订单入口。归档接口库停止其普通写入及本地导入发布，获准的其他空间仍可使用原有版本。显式删除订单空间及其真实子树时，处理接口库、帮助库及其登记的原件、未完成任务、片段和索引。运维手册留在运维空间，清理失败可以继续跟踪。
 
-**现状图（master）**
-
-现有父子和引用记录约束数据关系，但没有公开的 Scope 删除及资源清理流程。持久绑定指向缺失 Scope 时，解析会报冲突，仍需显式修复。
-
-```text
-Orders Scope                          Operations Scope
-`-- Interface Scope                   `-- Runbook Scope
-    `-- Experience: Retry trace@3
-
-Orders Scope ..> Runbook Scope [stored Context Reference]
-Structural parent and incoming-reference FKs use RESTRICT.
-There is no public Scope delete operation.
-
-Persistent binding ..> missing Scope
-  `-- resolution -> 409 scope_binding_target_missing
-```
-
-**预期图（提议）**
-
-删除将成为针对已确认集合的显式操作。框外 Runbook 保留原件，Analytics 也继续存在，但它引用的 Interface 在集合内，随后会显示来源不可用。停止访问和清理完成分开报告，物理擦除还须明确单独的范围和完成条件。
-
-```text
-Confirmed deletion set      Outside the deletion set
-+---------------------+     Operations Scope
-| Orders Scope        |     `-- Runbook Scope [retained]
-| +-- Interface Scope |
-| `-- Help Scope      |     Analytics Scope [retained]
-+---------------------+     `..> Interface Scope [origin becomes unavailable]
-
-Orders ..> Runbook [detach reference; retain Runbook]
-Confirmed set -> access cutoff -> owned-resource handling
-Cleanup progress is separate from any physical-erasure completion.
-```
-
-移除业务入口可以只更新映射或引用。删除知识库本体须选定对应 Scope。单 Scope 删除遇到真实子级时，建议返回冲突。显式子树删除先预览集合，再检查每个目标的权限和结构状态。只比较根版本会漏掉新挂接的后代，因此须与新增子级、移动和发布串行化，集合变化后重新确认。共享边和证据 lineage 均不能扩大删除集合。选中的后代即使仍被外部入口引用，也按本次动作处理，引用方随后会看到来源不可用。保留共享入口无法保证原件留存。
-
-Scope 管理保存操作身份、目标集合、停止访问的状态和资源处理进度。参与服务按 Scope 处理制品、原文、选材规则及检查点、未发布文档登记、在途任务、chunk、索引和缓存。多个存储可分阶段处理，重试接续未完成工作。Scope 对普通读取不可见后，通用读取、搜索、证据预览、Prepare、插件读取和旧任务提交均须检查该状态。获准的管理入口仍可查询有限状态。
-
-删除请求须明确动作和完成条件。逻辑删除可以保留正文和历史，清理完成表示本次约定的处理已完成，物理擦除还需明确原件、历史、副本及存储范围。必需处理失败时，操作仍为未完成或失败，不能用搜索无命中证明擦除完成。本提案定义归档恢复。删除恢复和物理擦除需要分别确定契约。
-
-### 清理参与、依赖与留存
-
-**已支持。** 父子关系、来源证据与 publication 记录有存储约束。持久绑定或默认指针指向缺失 Scope 时，现有解析返回 `409 scope_binding_target_missing`，要求显式修复。[证据与发布约束](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/src/powercontext/builtin/persistence/tables.py#L330) · [绑定解析](../docs/workflows/scopes-and-access.md)
-
-**现状图（master）**
-
-Orders 已能保存独立发布的副本，但 publication 记录仍以外键约束来源身份。直接移除来源记录会遇到存储约束，现有各资源持久化路径也没有统一的 Scope 清理协调。
-
-```text
-Alice work Scope
-`-- Experience: Retry trace@3
-
-Orders Scope
-`-- Experience: Published retry trace@1 [independent copy]
-
-Publication record ~~> (Alice work Scope, Retry trace@3) [FK RESTRICT]
-Source identity is constrained while the independent target is retained.
-Families and other resource stores currently use their own persistence paths.
-```
-
-**预期图（提议）**
-
-Scope 操作由各资源处理器报告进度。即使制品和 Source 已处理，索引待重试时也不能报告整体完成。Orders 的独立副本按自己的留存规则保留，来源清除后仍需保存不可用的精确出处，这部分需要存储迁移。
-
-```text
-Lifecycle operation: Alice work Scope [access cutoff effective]
-+-- Artifact / Source handler [complete]
-+-- Index handler             [retry pending]
-`-- Overall cleanup          [incomplete]
-
-Orders Scope [outside the operation set]
-+-- Experience: Published retry trace@1 [retained]
-`-- Exact origin ~~> (Alice work Scope, Retry trace@3) [unavailable]
-
-Retaining an unavailable origin while purging source content needs
-storage changes, such as a content-free address tombstone.
-```
-
-参与服务声明其 Scope 资源、可见性检查和幂等处理方式。若某类资源尚不能满足选定的删除或擦除动作，须在接受前拒绝该模式。各服务实现自己的资源处理，Scope 管理协调停止访问、汇总进度并按约定条件报告完成。文档服务通过这套机制参与集合级联。
-
-清除来源正文并保留目标溯源，需要解决现有 RESTRICT 外键。一种可选实现是引入不含正文的地址墓碑，通过存储迁移保留精确身份和不可用状态，以及既有修订的身份与摘要。已按允许独立留存的用途和受众提交的加工产物及独立副本，继续按目标规则管理。来源更新、撤权或删除会约束后续读取及加工，不自动删除这些已提交产物。若某种披露模式要求持续来源授权，须单独约定暂停披露和重建规则。
-
-删除默认 Scope 前须明确更换指针，其他持久绑定须清理或修复。接入应用更新自己维护的业务映射，服务拒绝旧映射对已不可用资源的访问。擦除个人账号数据时，业务方确定个人数据集合，服务按指定范围执行，保留集体 Scope 中的团队记录。管理员换人后，获准继任者继续维护同一目标。
-
-## 组合入口与职责
-
-PowerContext 接口接收已解析的 Scope、动作和资源。业务入口可以组合若干调用，公共服务在实际使用和提交时执行约束。注册的 Family 服务和文档服务也是这套数据能力的实现，接入应用通过其接口完成制品处理和文档操作。
-
-```text
-Product action -> application mapping and operation selection
-                         |
-              Scope / Access / query / Dream / lifecycle
-                         |
-              registered Family and resource services
-```
-
-| 操作 | PowerContext 及注册服务保证 | 接入应用选择或封装 |
-| --- | --- | --- |
-| 组织集合 | Scope 身份、结构有效性、关系版本检查与受控范围解析。 | 业务对象映射、可见层级、创建和移动流程。 |
-| 使用共享材料 | 持续范围解析、当前权限检查、精确输入及模式限制。 | 共享边界、自动纳入条件、用途及产物受众。 |
-| 查询与形成上下文 | 有界调用、结果身份、来源可见性及状态检查。 | 查询入口、业务筛选、排序策略和呈现。 |
-| 形成长期制品 | 输入视图及 Family 准入、规则版本、证据清单、审核与条件提交。 | 目标产物、处理策略、调度、提示及审核分工。 |
-| 关闭或清理集合 | 归档、显式删除的生效点、资源处理和可查询结果。 | 触发条件、保留期、审批和外部副本管理。 |
-
-多个业务对象共用一个 Scope 时，Scope 级操作影响所有相关入口。若只停止某个入口使用材料，可调整该入口的选材、任务或相关授权。若要整体停写，则归档目标 Scope。业务批量操作涉及多个无结构归属的 Scope 时，接入应用须处理各目标的结果，这些操作不保证跨存储原子性。
-
-## 接口演进与验收
-
-新增 HTTP 和 SDK 字段尚待确定，现有 Scope、Artifact 和授权接口保留原契约。实现时先在公共运行时服务中增加选材、来源解析和生命周期检查，再由 HTTP、SDK、MCP 和注册扩展调用同一路径。旧 Scope 初始为可写，旧证据仍在原运行 Scope 中解析，并保留历史身份和摘要。跨 Scope 加工、资源参与和删除模式须明确相应的持久化迁移。
-
-```text
-Existing local calls and records -> preserve their interpretation
-Extended contracts -> shared service checks -> HTTP / SDK / MCP / extensions
-```
-
-| 验收场景 | 现行基础 | 扩展后的检查 |
-| --- | --- | --- |
-| 已授权工作 Scope 新增制品或版本 | 整 Scope 读权可覆盖可读新增内容，持续规则待实现。 | 自动发现符合规则的材料，私密范围不被纳入，固定本次输入。 |
-| 只有目标自身自动提交产生更新 | 现有 target 角色及 `lineage_only` 规则避免自证。 | 不把目标更新或内容投影当成新增独立事实反复触发加工。 |
-| 相同变更重复通知或任务重试 | 本地已有幂等与版本检查基础。 | 同一规则、输入和目标基线不重复采用，重试不切换输入 head。 |
-| 外部制品按不同视图参与加工 | 本地已有 Artifact／Source 区分及 Family 约束。 | 保留来源与派生角色，拒绝通过 Source 包装绕过准入。 |
-| 来源失效但加工产物已获准独立留存 | 目标制品有自己的身份与修订。 | 停止失效来源的后续使用，按产物约定继续管理目标，证据查看单独鉴权。 |
-| 同一材料经团队与项目入口选入 | 精确地址、现有 Scope／制品授权。 | 同地址去重，逐用途检查，保留选入路径。 |
-| 直接引用还引用了第三个 Scope | Prepare 当前只取直接引用。 | 有限展开，读权及预算有效，结构范围不等于内容授权。 |
-| 两份 Experience 修订目标 Profile | 本地 Dream、Family 写入与审核。 | 不同来源身份保留，反证不能丢弃，证据不足不提交。 |
-| 审核期间撤权或手工改版 | 本地重新鉴权、目标版本检查。 | 在真实来源重验，拒绝失效候选或重新评估新基线。 |
-| 知识空间查询共享知识库 | 单 Scope 查询及授权可复用，RAG 服务待接入。 | 每个库按 Scope 鉴权，document／chunk 来源保留，单件权不扩成整库搜索。 |
-| 来源或目标归档 | Scope 归档待实现。 | 来源获准读取继续，目标本层普通写入和提交被阻止，清理仍可完成。 |
-| 删除空间的真实子树 | Scope 删除与资源参与待实现。 | 确认集合，外部共享来源保留，失败可续做，截止与完成状态准确。 |
-| 个人擦除与管理员换人 | Scope 身份与数据归属独立。 | 按指定个人集合擦除，集体记录由获准继任者维护。 |
-
-现有用例覆盖直接引用、来源读权、本地 Dream 撤权和审核竞争，可作为回归基础。跨 Scope 和生命周期的新路径还需端到端验收。图中的预期流程属于待实现设计。 [直接引用](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/tests/e2e/test_builtin_runtime.py#L335) · [来源读权](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/tests/e2e/test_access_control_regressions.py#L330) · [Dream 撤权](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/tests/e2e/test_artifact_dreaming.py#L1781) · [审核竞争](https://github.com/oceanbase/powercontext/blob/fd9f1682b89f6766efb25d1bfb1caf14cb90e09a/tests/e2e/test_artifact_dreaming.py#L3130)
+**模型配置与重建。** #2570 的过渡方案允许一个 Scope 内多个库按库配置解析和切块，共用 embedding／索引配置。切换模型需要重建该共享 Scope。映射调整后必须明确共享哪份配置、一次切换覆盖哪些库，以及旧的 `knowledge_base_ids` 和任务如何解析到对应 Scope。[配置和模型切换](https://github.com/oceanbase/powercontext/blob/71e842cd2a34a7943ab0adecb3542771e3da387e/docs/zh/rfcs/2570-knowledge-base.md#81-更换模型并重建索引)
 
 # Drawbacks
 
-操作需要检查权限和资源状态，涉及结构范围时还需检查 Scope 关系。持续共享增加增量发现、去重和重试状态，跨来源任务也可能在审核期间失去输入。内容投影须保留派生关系，跨存储生命周期还需对账。业务级联关系映射到 Scope 后，RAG 的库级配置、归属和查询接口也须适配。
+持续规则需要发现更新、记录处理进度和处理撤权。等待审核时来源越多，越容易遇到权限或基线变化。多库查询要限制工作量并说明缺失覆盖。跨存储删除要记录每项清理的结果。RAG 文档服务还要调整配置和任务的归属，才能参与 Scope 级操作。
 
 ```text
-More source Scopes -> more checks and possible invalidation
-More resource stores -> staged cleanup and explicit completion accounting
+Orders / Candidate [pending] -> Bob's required grant expires -> commit blocked
+Delete Interface [access stopped] -> index cleanup fails -> cleanup incomplete
 ```
 
 # Rationale and alternatives
 
-普通 Scope 已有身份、授权和结构，可用于表达需要级联管理的业务概念。业务的父子关系映射到 Scope 结构，共享使用通过引用和授权表达。团队／项目记忆与 RAG 都可使用这些通用能力，Artifact Family 继续管理内容和版本，资源服务负责具体处理。
+普通 Scope 已有稳定身份、结构和授权。把需要级联的业务关系映射到 Scope，可以让新增资源服务参加同一套范围和生命周期管理。继续沿用知识库 Artifact 也能集中组织文档，但每种此类集合都要在制品层处理父级失效、未发布资源和清理。内建团队或项目类型则会把各产品的组织规则带入共同数据模型。保留应用映射可以同时支持有结构归属的空间和纯导航入口。
+
+应用可逐件发布允许独立留存的材料，或直接向目标写入获准采集的 Source。这两种做法已能交付固定版本和积累本地事实，但要持续采用仍归来源方管理的更新，还需在约定范围内反复发现，并固定每轮输入。按原处授权引用可省去副本的存储和更新工作，代价是后续读取依赖来源权限。删除若沿引用或证据链展开，会影响其他业务所属的材料。显式确认真实子树可以限定这个范围。
 
 ```text
-Business cascade -> collection Artifact -> Artifact lifecycle/processing cascades
-Business cascade -> Scope structure    -> common lifecycle + resource handlers
+Knowledge-base Artifact approach       Scope approach
+  +-- Interface Artifact                  +-- Interface Scope
+       +-- API@4 import job                    +-- API@4 import job
+  Artifact service coordinates closure    Scope confirms range, job owner handles cleanup
 ```
-
-- 继续以知识库 Artifact 表达业务层级，需要为原本没有实质级联关系的制品新增生命周期和处理规则。将这类业务关系映射到 Scope 结构，可以集中管理级联范围，让 Artifact 继续负责内容和版本。
-- 内建团队、项目和知识空间类型，会把各业务的对象关系与产品规则带入公共数据模型。普通 Scope 与外部映射可表达所需入口。
-- 独立发布副本适合可独立交付的内容。复制会增加身份和更新责任，来源撤权也不会自动撤回独立副本。
-- 沿整张引用图删除会影响其他集合。删除按明确 Scope 归属和真实子树执行，共享来源通过引用与当前授权使用。
 
 # Prior art
 
-团队和项目记忆所需的来源授权、Profile 演进和审核，可以复用现有 Scope、Access、Dream 和 Family 设计。RAG RFC 2570 以知识库 Artifact 管理文档的过渡方案暴露了制品侧的级联需求，其文档处理、持久任务和版本化片段设计仍可在业务关系映射到 Scope 后适配。 [知识库提案](https://github.com/oceanbase/powercontext/pull/2570)
+PowerContext 的 Profile 处理和 Dream 审核提供了两条可复用的更新路径。RFC #2570 的文件原件、逐文档任务、版本化片段和索引提供 RAG 的文档处理设计。[Profile](1485_profile_artifact.md) · [Dream](1715_multi_artifact_dreaming.md) · [RAG](https://github.com/oceanbase/powercontext/pull/2570)
 
-GitHub 按仓库分配团队角色，Linear 的跨团队项目保留私有 issue 的访问限制。项目汇集多个团队的工作时，私有内容仍按原权限可见。 [GitHub 仓库角色](https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization) · [Linear 私有团队](https://linear.app/docs/private-teams)
-
-Nowledge Mem 支持读取多个获准 Space 的材料，将结果写入指定 Space，并记录多来源结论的出处。它的读取、写入和溯源边界可用于参考。PowerContext 的授权和生命周期仍按自身规则执行。 [Spaces](https://mem.nowledge.co/docs/spaces) · [Crystals](https://mem.nowledge.co/docs/concepts/crystals)
+GitHub 按仓库分配团队角色，Linear 汇集多个团队的项目时仍限制私有内容的访问。Nowledge Mem 的 Spaces 和 Crystals 展示了从多个允许的空间读取、在一个空间保存结论并记录出处的用法。[GitHub 仓库角色](https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization) · [Linear 私有团队](https://linear.app/docs/private-teams) · [Spaces](https://mem.nowledge.co/docs/spaces) · [Crystals](https://mem.nowledge.co/docs/concepts/crystals)
 
 ```text
-Resource roles -> authorized material
-Read several spaces -> save in one destination
-Derived conclusion -> retain contributing origins
+Personal Scope: Profile@4 and new Sources -> Profile processing
+Orders Scope:   local evidence -> Dream -> Candidate -> review -> Artifact revision
 ```
 
 # Unresolved questions
 
-- 持续共享规则由谁配置和修改，任务身份如何绑定，现有 Access 如何落实加工用途、产物受众及撤回效果？
-- 哪些操作可将已审核 Artifact 作为输入边界，哪些必须核验底层 Source？何时需要把制品投影显式落盘为派生 Source，以及如何保持证据独立性与游标语义？
-- 首期跨 Scope Dream 接入哪些 Family 和输入角色，怎样初始化首份目标制品，并保持现有证据语义？
-- Scope 删除首期支持哪些动作、保留规则和资源参与协议？地址墓碑、默认指针与外部存储的迁移如何定义？
-- RAG 的库级配置、模型切换和持久任务如何与业务到 Scope 的映射及生命周期契约衔接？哪些技术预算需要在服务端固定或配置？
+| 待定问题 | 推荐方向与确定条件 |
+| --- | --- |
+| 谁能改规则？谁能批准用私密证据形成项目可见的结论？ | 与 Access 设计共同明确规则配置者、执行账号、证据审核者和产物读者。用审核期间撤权、正式提交后撤权两个例子，说明谁还能读哪一版结论或原文，以及何时需要停止披露。 |
+| 哪些输入足以让某个操作修订或创建目标？ | 逐操作确定可接受的 Source、Artifact Family 与角色、须展开的原件或附件，以及首次没有正式基线时的行为。若处理器确需持久化派生 Source，还要给出同一版本重试时的身份、去重和游标规则。 |
+| 各删除模式覆盖哪些资源，怎样判定完成？ | 按所选动作列出必需资源、截止点和完成证据。以默认指针或绑定未处理、来源清除后仍有出处、索引清理失败为例，确定参与服务的职责和迁移要求。删除恢复与物理擦除各自需要明确的契约。 |
+| 如何限定单件和历史版本搜索？每次操作能展开多大范围？ | 明确哪些授权可用于搜索以及索引覆盖哪些版本。用单件授权验证打分前的候选范围，并按命中的精确地址验证读回权限。分别按发现、查询和加工所需的完整性与开销确定预算。 |
+| RAG 改用 Scope 表达库的归属后，模型切换覆盖哪些库？ | 给出一个从 `knowledge_base_ids` 和在途任务到目标 Scope 的映射，列出共用活动配置且必须一起重建的库。 |
 
 ```text
-Requested mode -> supported authorization and resource capabilities?
-                     +-- yes -> enforce the complete path
-                     +-- unresolved -> define the contract before admission
+Alice work / incident Source [private] -> Orders / proposed project conclusion
+  +-- origin grant withdrawn before commit: block Candidate, retain Profile@4
+  +-- origin grant withdrawn after a lawful commit: which terms govern Profile@5?
 ```
 
 # Future possibilities
 
-持续选材与自动纳入属于本提案能力，首期可由应用定时触发。后续可增加事件订阅和调度优化，以及面向特定应用的批量操作封装。多跳共享还需明确每一跳的选材、权限和撤回效果，新的 Artifact Family 和存储服务也可接入资源参与机制。
+事件订阅可以缩短等待时间，合并通知可以减少重复调度。应用可封装本业务的批量操作。多跳共享还需逐跳定义选材、权限和撤回。更多 Family 和外部存储也可以加入资源处理协议。
 
 ```text
-Event subscription -> coalesced scheduling -> standing rules -> current checks
+Alice publishes Retry trace@4 -> notifications collected -> one discovery run
+  Orders ..> Alice work [recheck rule and grants before selecting @4]
 ```
