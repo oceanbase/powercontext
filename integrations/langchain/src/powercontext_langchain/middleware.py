@@ -129,8 +129,8 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
         return None
 
     async def _prepare(self, prompt: str, scope: PowerContextScope | None) -> str | None:
-        query = bounded_recall_query(prompt)
         try:
+            query = bounded_recall_query(prompt)
             config = resolve_config(scope)
             with (
                 recall_content_observation(query, enabled=self.trace_content) as record_output,
@@ -149,6 +149,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
                         record_output(prepared.content, str(prepared.status))
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain recall skipped: request validation failed.")
+            return None
+        except UnicodeEncodeError:
+            # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
+            _LOGGER.debug("PowerContext LangChain recall skipped: the query is not valid UTF-8 text.")
             return None
         except ClientError as exc:
             self._log_client_failure("recall", exc)

@@ -16,7 +16,8 @@
 
 Hermes, LangChain, LangGraph, and Pydantic AI run inside their host's process rather than as hooks. Each turn here goes
 through the adapter's public host entry point and its real HTTP client, and the Server records what reached it: the
-automatic recall query and any captured Source content.
+automatic recall query and any captured Source content. Each turn completes only when the host reached its model (or,
+for Hermes, its provider calls returned), so a turn that raises fails the test.
 """
 
 from __future__ import annotations
@@ -47,6 +48,9 @@ from powercontext.http import (
 )
 
 ADAPTERS = ("hermes", "langchain", "langgraph", "pydantic-ai")
+# Entry points beyond each adapter's default asynchronous turn: LangChain's synchronous ``invoke``, and Hermes's
+# ``queue_prefetch`` ahead of the ``prefetch`` that consumes it.
+ENTRIES = {"langchain": ("ainvoke", "invoke"), "hermes": ("prefetch", "queue_prefetch")}
 RECALLED = "safe historical context"
 ANSWER = "Acknowledged."
 _SCOPE_ID = "scp_00000000000000000000000000"
@@ -66,6 +70,8 @@ class Turn:
     queries: list[str] = field(default_factory=list)
     captures: list[str] = field(default_factory=list)
     requests: list[dict[str, Any]] = field(default_factory=list)
+    recalled: bool = False
+    """Whether the recalled context reached the host's model."""
 
 
 def _json(model: Any) -> bytes:
@@ -148,7 +154,7 @@ def _recording_server(turn: Turn) -> Iterator[str]:
         server.server_close()
 
 
-def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Path) -> None:
+def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
     names = [name for name in sys.modules if name == "plugins" or name.startswith("plugins.")]
     previous = {name: sys.modules.pop(name) for name in names}
     sys.path.insert(0, str(_HERMES_ROOT))
@@ -160,10 +166,15 @@ def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Pa
         provider = plugin.PowerContextMemoryProvider(config)
         provider.initialize("session-1", hermes_home=str(home), agent_identity="coder", user_id="user-1")
         try:
-            assert RECALLED in provider.prefetch(prompt, session_id="session-1")
+            if entry == "queue_prefetch":
+                # Hermes queues the next turn's recall in the background; the next prefetch consumes its result.
+                provider.queue_prefetch(prompt, session_id="session-1")
+                assert provider._wait_for_memory_writes(timeout=10)
+            recalled = RECALLED in provider.prefetch(prompt, session_id="session-1")
             provider.sync_turn(prompt, ANSWER, session_id="session-1")
         finally:
             provider.shutdown()
+        return recalled
     finally:
         sys.path.remove(str(_HERMES_ROOT))
         for name in [name for name in sys.modules if name == "plugins" or name.startswith("plugins.")]:
@@ -195,7 +206,7 @@ def _system_texts(messages: list[Any]) -> str:
     return "\n".join(message.text for message in messages if message.type == "system")
 
 
-def _langchain(url: str, prompt: str, *, token: str | None, capture: bool, home: Path) -> None:
+def _langchain(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
     del home
     from langchain.agents import create_agent
     from langchain_core.messages import HumanMessage
@@ -208,16 +219,17 @@ def _langchain(url: str, prompt: str, *, token: str | None, capture: bool, home:
         middleware=[PowerContextMiddleware(auto_capture=capture)],
         context_schema=PowerContextScope,
     )
-    asyncio.run(
-        agent.ainvoke(
-            {"messages": [HumanMessage(content=prompt)]}, context=PowerContextScope(base_url=url, token=token)
-        )
-    )
-    assert RECALLED in _system_texts(model.inputs[-1])
+    state = {"messages": [HumanMessage(content=prompt)]}
+    scope = PowerContextScope(base_url=url, token=token)
+    if entry == "invoke":
+        agent.invoke(state, context=scope)
+    else:
+        asyncio.run(agent.ainvoke(state, context=scope))
+    return RECALLED in _system_texts(model.inputs[-1])
 
 
-def _langgraph(url: str, prompt: str, *, token: str | None, capture: bool, home: Path) -> None:
-    del capture, home  # The LangGraph adapter captures only through explicit tools.
+def _langgraph(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+    del capture, home, entry  # The LangGraph adapter captures only through explicit tools.
     from langchain_core.messages import HumanMessage
     from langgraph.prebuilt import create_react_agent  # ty: ignore[deprecated]
     from powercontext_langgraph import PowerContextRecall, PowerContextScope
@@ -232,11 +244,11 @@ def _langgraph(url: str, prompt: str, *, token: str | None, capture: bool, home:
             {"messages": [HumanMessage(content=prompt)]}, context=PowerContextScope(base_url=url, token=token)
         )
     )
-    assert RECALLED in _system_texts(model.inputs[-1])
+    return RECALLED in _system_texts(model.inputs[-1])
 
 
-def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, home: Path) -> None:
-    del home
+def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+    del home, entry
     from powercontext_pydantic_ai import PowerContext, PowerContextSettings
     from pydantic import SecretStr
     from pydantic_ai import Agent
@@ -244,8 +256,10 @@ def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, hom
     from pydantic_ai.models.function import FunctionModel
 
     seen: list[str] = []
+    responded: list[bool] = []
 
     async def respond(messages: list[Any], _info: Any) -> ModelResponse:
+        responded.append(True)
         seen.extend(
             part.content for message in messages for part in message.parts if isinstance(part, SystemPromptPart)
         )
@@ -255,10 +269,11 @@ def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, hom
     settings = PowerContextSettings(base_url=url, token=secret, capture_events=capture)
     agent = Agent(FunctionModel(respond), capabilities=[PowerContext(settings=settings)])
     asyncio.run(agent.run(prompt))
-    assert any(RECALLED in text for text in seen)
+    assert responded, "the agent did not reach its model"
+    return any(RECALLED in text for text in seen)
 
 
-_RUNNERS: dict[str, Callable[..., None]] = {
+_RUNNERS: dict[str, Callable[..., bool]] = {
     "hermes": _hermes,
     "langchain": _langchain,
     "langgraph": _langgraph,
@@ -274,8 +289,14 @@ def run_turn(
     home: Path,
     token: str | None = None,
     capture: bool = False,
+    entry: str | None = None,
+    expect_recall: bool = True,
 ) -> Turn:
-    """Submit ``prompt`` as one user turn and return what the adapter sent to the Server."""
+    """Submit ``prompt`` as one user turn and return what the adapter sent to the Server.
+
+    ``entry`` names one of the adapter's ``ENTRIES``; the default is its first. Unless ``expect_recall`` is false, the
+    recalled context must have reached the model.
+    """
 
     if adapter != "hermes":
         pytest.importorskip(f"powercontext_{adapter.replace('-', '_')}")
@@ -284,5 +305,7 @@ def run_turn(
             monkeypatch.delenv(name)
     turn = Turn()
     with _recording_server(turn) as url:
-        _RUNNERS[adapter](url, prompt, token=token, capture=capture, home=home)
+        turn.recalled = _RUNNERS[adapter](url, prompt, token=token, capture=capture, home=home, entry=entry)
+    if expect_recall:
+        assert turn.recalled, "the recalled context did not reach the model"
     return turn

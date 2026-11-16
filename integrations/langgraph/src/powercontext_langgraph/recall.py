@@ -129,8 +129,12 @@ class PowerContextRecall:
                 prepared = await client.prepare_context(request)
         except ValidationError:
             # Request construction is inside the fail-open boundary: an out-of-range field must skip recall, not
-            # interrupt the graph. The query is already clamped, so this guards the remaining config-derived fields.
+            # interrupt the graph. The query is already bounded, so this guards the remaining config-derived fields.
             _LOGGER.debug("PowerContext recall skipped: prepare request failed validation.")
+            return None
+        except UnicodeEncodeError:
+            # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
+            _LOGGER.debug("PowerContext recall skipped: the query is not valid UTF-8 text.")
             return None
         except ClientError as exc:
             self._log_failure(exc)

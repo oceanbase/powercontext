@@ -224,11 +224,17 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                 await self._flush_locked(final=True)
         return result
 
-    async def _prepare_context(self, query: str) -> str | None:
+    async def _prepare_context(self, prompt: str) -> str | None:
         state = self._require_state()
+        try:
+            query = bounded_recall_query(prompt)
+        except UnicodeEncodeError:
+            # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
+            logger.debug("PowerContext context preparation skipped: the query is not valid UTF-8 text")
+            return None
         request = PrepareContextRequest(
             scope_id=state.require_scope_id(),
-            query=bounded_recall_query(query),
+            query=query,
             max_bytes=self.settings.max_bytes,
             **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )

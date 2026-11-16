@@ -129,6 +129,19 @@ _AUTOMATIC_OPERATION_PATHS = {
 }
 
 
+def _automatic_recall_query(prompt: str) -> str:
+    """Return the query an automatic recall sends, or an empty query that skips the recall.
+
+    A prompt holding unpaired surrogates, such as a file name decoded with ``surrogateescape``, has no UTF-8 form, so
+    no request can carry it. Skipping the recall keeps that failure out of the Hermes turn.
+    """
+    try:
+        return _bounded_recall_query(prompt)
+    except UnicodeEncodeError:
+        logger.debug("Skipping PowerContext automatic recall: the query is not valid UTF-8 text")
+        return ""
+
+
 def _precompress_content_for_entries(
     entries: list[tuple[str, dict[str, Any]]],
     *,
@@ -826,7 +839,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         scope_id = self._scope_id
         client = self._client
-        recall_query = _bounded_recall_query(query)
+        recall_query = _automatic_recall_query(query)
         if not client or not recall_query or not scope_id:
             self._last_recall = None
             self._last_recall_scope_id = ""
@@ -881,7 +894,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         scope_id = self._scope_id
         client = self._client
-        recall_query = _bounded_recall_query(query)
+        recall_query = _automatic_recall_query(query)
         if not client or not scope_id or not recall_query:
             return
         session_key = session_id or self._session_id
