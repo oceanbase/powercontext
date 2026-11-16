@@ -27,12 +27,12 @@ from tests.e2e.test_knowledge_base import FIXTURE_EMBEDDING, PLUGIN, P
 
 
 @asynccontextmanager
-async def dashboard(tmp_path):
+async def dashboard(tmp_path, extra_plugin=""):
     playwright = pytest.importorskip("playwright.async_api")
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGIN, plugins / "knowledge-base")
     entry = plugins / "knowledge-base" / "plugin.py"
-    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING + extra_plugin)
     async with (
         running_server(
             tmp_path,
@@ -141,7 +141,7 @@ def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
             await expect(body.locator("strong")).to_have_text("Body B")
             await expect(body.locator("script, img")).to_have_count(0)
             for _ in range(4):
-                await frame.locator(".chunk-directory button").first.click()
+                await frame.locator(".chunk-link").first.click()
                 await expect(body).to_have_count(1)
                 await expect(body).to_contain_text("Body B")
             await frame.get_by_text("Markdown 源码", exact=True).click()

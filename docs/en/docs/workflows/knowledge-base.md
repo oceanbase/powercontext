@@ -148,9 +148,16 @@ An exact revision never falls back to the current revision. To edit, use the gen
 {"content":{"operation":"edit_chunk","chunk_id":"<ID>","text":"Verify the latest backup before restarting."}}
 ```
 
-Use `operation:"remove_chunk"` and omit `text` to remove a chunk. Both operations are synchronous and create one new document
+Use `operation:"remove_chunk"` and omit `text` to remove a chunk. Edits and removals are synchronous and create one new document
 revision plus a lineage-only Source containing the original command. Manual text replacement preserves the logical chunk ID;
 rechunking generates new IDs. Removing the last chunk creates a valid empty revision. Historical chunks and their indexes remain.
+For bulk removal, use `{"content":{"operation":"remove_chunks","chunk_ids":["<ID1>","<ID2>"]}}`
+with the same revision precondition. A request accepts 1–100 unique chunk IDs belonging to that revision; an invalid ID or
+revision conflict rejects the whole operation. One successful batch creates one document revision and one edit evidence Source.
+The Dashboard supports selection across loaded chunk pages, clears selection when switching revisions, and disables editing
+of historical versions. Use **Settings** to change chunking parameters, then **Document → More → Reparse** to rebuild chunks
+from the saved original snapshot. This also rebuilds the new result's search projections; manual edits require replacement confirmation.
+
 New results/indexes are durable before the manifest is committed. Failed publication leaves only invisible, unreferenced results.
 
 `POST /v1/scopes/{s}/artifacts/document/{d}/forget` takes `{revision,state_version}`. Forget changes lifecycle to deprecated,

@@ -131,9 +131,16 @@ chunk 正文保存在独立不可变记录中，通过以下插件接口读取�
 {"content":{"operation":"edit_chunk","chunk_id":"<ID>","text":"Verify the latest backup before restarting."}}
 ```
 
-移除 chunk 使用 `operation:"remove_chunk"`，不传 `text`。两种操作都同步完成，新增一个 document revision，
+移除 chunk 使用 `operation:"remove_chunk"`，不传 `text`。编辑和移除操作都同步完成，新增一个 document revision，
 并由核心生成包含原始编辑命令的 lineage-only Source。手动替换正文保留逻辑 chunk ID，重新切块生成新 ID。
 移除最后一块形成合法空版本，历史 chunk 和索引继续保留。
+批量移除使用 `{"content":{"operation":"remove_chunks","chunk_ids":["<ID1>","<ID2>"]}}`，
+沿用相同的版本前置条件。一次接受 1–100 个当前版本内、不重复的 chunk ID；任一 ID 无效或版本冲突时整批拒绝。
+一次成功的批量操作只生成一个 document revision 和一条编辑证据 Source。
+界面支持跨已加载分块页多选，切换版本时清空选择，历史版本不允许修改。
+重新分块可先在“设置”调整参数，再执行“文档 → 更多 → 重新解析”，从保存的原文快照重新生成分块及检索索引；
+存在人工修改时需要确认替换。后台完成后会刷新版本、目录，并使旧的检索结果失效。
+
 新结果及索引先持久化，再提交 manifest；发布失败只留下不可见的未引用结果。
 
 `POST /v1/scopes/{s}/artifacts/document/{d}/forget` 接收 `{revision,state_version}`。

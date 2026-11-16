@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def canonical(value):
@@ -89,9 +89,23 @@ class BatchChunks(Model):
 
 
 class ChunkEdit(Model):
-    operation: Literal["edit_chunk", "remove_chunk"]
-    chunk_id: str = Field(min_length=1, max_length=64)
+    operation: Literal["edit_chunk", "remove_chunk", "remove_chunks"]
+    chunk_id: str | None = Field(default=None, min_length=1, max_length=64)
+    chunk_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
     text: str | None = Field(default=None, min_length=1, max_length=12000)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.operation == "remove_chunks":
+            if self.chunk_ids is None or self.chunk_id is not None or self.text is not None:
+                raise ValueError("remove_chunks requires only chunk_ids")  # noqa: TRY003
+            if len(set(self.chunk_ids)) != len(self.chunk_ids):
+                raise ValueError("chunk_ids must be unique")  # noqa: TRY003
+        elif self.chunk_id is None or self.chunk_ids is not None:
+            raise ValueError("Single-chunk operations require chunk_id")  # noqa: TRY003
+        return self
 
 
 class Evidence(Model):

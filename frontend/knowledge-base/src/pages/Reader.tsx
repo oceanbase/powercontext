@@ -13,16 +13,45 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import { useState } from "react";
-import { Alert, Badge, Button, Card, Empty, Flex, Select, Space, Spin, Typography } from "@oceanbase/design";
+import { useEffect, useState } from "react";
+import { Alert, Badge, Button, Card, Checkbox, Empty, Flex, Select, Space, Spin, Typography } from "@oceanbase/design";
 import { PageContainer } from "@oceanbase/ui";
-import { useChunk, useChunks, useGovernance, useHead, useRevisions } from "../hooks";
+import {
+  useChunk,
+  useChunks,
+  useDocuments,
+  useGovernance,
+  useHead,
+  useRevisions,
+  useProcessingRequests,
+  trackProcessing,
+} from "../hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Location } from "../types";
 import { Failure } from "../components/Feedback";
 import { Markdown } from "../components/Markdown";
 import * as Actions from "../actions";
-export function Reader({ location, onBack }: { location: Location; onBack(): void }) {
+export function Reader({
+  location,
+  libraryTitle,
+  onBack,
+}: {
+  location: Location;
+  libraryTitle?: string;
+  onBack(): void;
+}) {
   const { scope, id } = location;
+  const client = useQueryClient();
+  const documents = useDocuments(scope);
+  const lastRequest = documents.data?.pages[0]?.requests.find((item) => item.document_id === id);
+  const pending = useProcessingRequests().data.some((item) => item.scope === scope && item.document === id);
+  useEffect(() => {
+    for (const request of documents.data?.pages[0]?.requests || []) {
+      if (request.document_id === id && ["pending", "processing"].includes(request.state))
+        trackProcessing(client, scope, request);
+    }
+  }, [documents.data, scope, id, client]);
+  const [selection, setSelection] = useState<{ revision: number; ids: string[] }>({ revision: 0, ids: [] });
   const head = useHead(scope, id);
   const governance = useGovernance(scope, id);
   const history = useRevisions(scope, id);
@@ -40,7 +69,10 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
         : chunks[0]?.chunk_id || "";
   const body = useChunk(scope, id, revision, selectedId);
   const active = governance.data?.lifecycle_state === "active";
-  const editable = !!head.data && active && revision === head.data.revision;
+  const editable = !!head.data && active && revision === head.data.revision && !pending;
+  const checked = selection.revision === revision ? selection.ids : [];
+  const selectChunk = (chunk: string, value: boolean) =>
+    setSelection({ revision, ids: value ? [...checked, chunk] : checked.filter((id) => id !== chunk) });
   const versions = [
     ...new Set(
       [
@@ -51,6 +83,7 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
     ),
   ].sort((a, b) => b - a);
   const changed = () => {
+    setSelection({ revision: 0, ids: [] });
     setChosen(undefined);
     setSelected(undefined);
     setSelectionRevision(0);
@@ -74,7 +107,10 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
     >
       <Flex vertical gap="middle">
         <Flex justify="space-between" align="center" wrap gap="small">
-          <Typography.Text type="secondary">{head.data?.content.relative_path}</Typography.Text>
+          <Typography.Text type="secondary">
+            {libraryTitle ? `知识库：${libraryTitle} · ` : ""}
+            {head.data?.content.relative_path}
+          </Typography.Text>
           <Space>
             <Badge
               status={active ? "success" : "default"}
@@ -89,6 +125,7 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
                 label: `v${v}${v === head.data?.revision ? " · 当前版本" : " · 历史版本"}`,
               }))}
               onChange={(value) => {
+                setSelection({ revision: value, ids: [] });
                 setChosen(value);
                 setSelected(undefined);
                 setSelectionRevision(value);
@@ -102,7 +139,18 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
           </Space>
         </Flex>
         <Failure error={head.error || governance.error || directory.error || history.error} />
-        {head.data && governance.data && !editable && (
+        {pending && (
+          <Alert
+            type="info"
+            showIcon
+            message="正在重新解析，完成前继续使用当前版本"
+            description="完成后会刷新文档版本、分块目录和检索结果。"
+          />
+        )}
+        {!pending && lastRequest?.state === "failed" && (
+          <Alert type="error" showIcon message="最近一次解析失败，当前可用版本保留" description={lastRequest.error} />
+        )}
+        {head.data && governance.data && (!active || revision !== head.data.revision) && (
           <Alert
             type="info"
             showIcon
@@ -117,6 +165,31 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
           >
             <Spin spinning={directory.isPending && revision > 0}>
               <Flex vertical gap="small">
+                <Space wrap>
+                  <Checkbox
+                    aria-label="选择已加载分块"
+                    disabled={!editable || !chunks.length || chunks.length > 100}
+                    checked={chunks.length > 0 && chunks.every((item) => checked.includes(item.chunk_id))}
+                    indeterminate={checked.length > 0 && !chunks.every((item) => checked.includes(item.chunk_id))}
+                    onChange={(event: { target: { checked: boolean } }) =>
+                      setSelection({ revision, ids: event.target.checked ? chunks.map((item) => item.chunk_id) : [] })
+                    }
+                  >
+                    已加载分块
+                  </Checkbox>
+                  {checked.length > 0 && (
+                    <Button size="small" type="text" onClick={() => setSelection({ revision, ids: [] })}>
+                      清空选择
+                    </Button>
+                  )}
+                  <Actions.RemoveChunks
+                    key={revision}
+                    target={{ scope, id, revision }}
+                    ids={checked}
+                    disabled={!editable}
+                    onRemoved={changed}
+                  />
+                </Space>
                 {location.chunk &&
                   !chunks.some((c) => c.chunk_id === location.chunk) &&
                   location.revision === revision && (
@@ -131,26 +204,35 @@ export function Reader({ location, onBack }: { location: Location; onBack(): voi
                     </Button>
                   )}
                 {chunks.map((item) => (
-                  <Button
-                    key={item.chunk_id}
-                    type={item.chunk_id === selectedId ? "link" : "text"}
-                    block
-                    className="chunk-link"
-                    aria-pressed={item.chunk_id === selectedId}
-                    onClick={() => {
-                      setSelected(item.chunk_id);
-                      setSelectionRevision(revision);
-                    }}
-                  >
-                    <Flex vertical align="start">
-                      <span>
-                        {String(item.ordinal + 1).padStart(2, "0")} · {item.heading_path.at(-1) || "无标题分块"}
-                      </span>
-                      <Typography.Text type="secondary">
-                        {item.length} 字符{item.manually_modified ? " · 人工修改" : ""}
-                      </Typography.Text>
-                    </Flex>
-                  </Button>
+                  <Flex key={item.chunk_id} align="center" gap="small">
+                    <Checkbox
+                      aria-label={`选择分块 ${item.ordinal + 1}`}
+                      disabled={!editable || (!checked.includes(item.chunk_id) && checked.length >= 100)}
+                      checked={checked.includes(item.chunk_id)}
+                      onChange={(event: { target: { checked: boolean } }) =>
+                        selectChunk(item.chunk_id, event.target.checked)
+                      }
+                    />
+                    <Button
+                      type={item.chunk_id === selectedId ? "link" : "text"}
+                      block
+                      className="chunk-link"
+                      aria-pressed={item.chunk_id === selectedId}
+                      onClick={() => {
+                        setSelected(item.chunk_id);
+                        setSelectionRevision(revision);
+                      }}
+                    >
+                      <Flex vertical align="start">
+                        <span>
+                          {String(item.ordinal + 1).padStart(2, "0")} · {item.heading_path.at(-1) || "无标题分块"}
+                        </span>
+                        <Typography.Text type="secondary">
+                          {item.length} 字符{item.manually_modified ? " · 人工修改" : ""}
+                        </Typography.Text>
+                      </Flex>
+                    </Button>
+                  </Flex>
                 ))}
                 {!directory.isPending && !chunks.length && (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="此版本没有分块" />

@@ -17,6 +17,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { service } from "./services";
 import type { KB, Target, Edit } from "./types";
 export const keys = {
+  processing: ["processing-requests"],
   documentChanges: ["document-changes"],
   spaces: ["spaces"],
   defaults: ["default-space"],
@@ -70,7 +71,10 @@ export const useChunk = (scope: string, id: string, revision: number, chunk: str
   });
 export function useRefresh() {
   const client = useQueryClient();
-  return () => client.invalidateQueries();
+  return () => {
+    client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
+    return client.invalidateQueries();
+  };
 }
 export function useCreate(kind: "space" | "kb") {
   const client = useQueryClient();
@@ -134,7 +138,8 @@ export function useDocumentAction(target: Target) {
       if (command.kind === "forget") return service.forget(target);
       return service.reprocess(target, command.replace, command.key);
     },
-    onSuccess: async () => {
+    onSuccess: async (data, command) => {
+      if (command.kind === "reprocess") trackProcessing(client, target.scope, data);
       client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
       await Promise.all(
         [
@@ -151,7 +156,10 @@ export function useRetry(scope: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ request, key }: { request: string; key: string }) => service.retry(scope, request, key),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.documents(scope) }),
+    onSuccess: (data) => {
+      trackProcessing(client, scope, data);
+      return client.invalidateQueries({ queryKey: keys.documents(scope) });
+    },
   });
 }
 export const useRetrieve = () =>
@@ -159,3 +167,24 @@ export const useRetrieve = () =>
     mutationFn: ({ space, scopes, query, mode }: { space: string; scopes: string[]; query: string; mode: string }) =>
       service.retrieve(space, scopes, query, mode),
   });
+
+export type ProcessingTarget = { scope: string; document: string; request: string };
+export const useProcessingRequests = () =>
+  useQuery({ queryKey: keys.processing, initialData: [] as ProcessingTarget[], enabled: false, gcTime: Infinity });
+export function trackProcessing(client: ReturnType<typeof useQueryClient>, scope: string, data: unknown) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("request_id" in data) ||
+    !("document_id" in data) ||
+    typeof data.request_id !== "string" ||
+    typeof data.document_id !== "string"
+  )
+    return;
+  const target = { scope, document: data.document_id, request: data.request_id };
+  client.setQueryData<ProcessingTarget[]>(keys.processing, (previous) =>
+    previous?.some((item) => item.scope === scope && item.request === target.request)
+      ? previous
+      : [...(previous ?? []), target],
+  );
+}

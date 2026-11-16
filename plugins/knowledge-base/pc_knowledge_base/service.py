@@ -558,14 +558,15 @@ class KnowledgeBase:
         try:
             edit = ChunkEdit.model_validate(request.content)
             blocks = await self.store.blocks(request.scope_id, request.artifact_id, current.content["result_id"])
-            match = next((block for block in blocks if block["chunk_id"] == edit.chunk_id), None)
-            if match is None:
+            ids = set(edit.chunk_ids or [edit.chunk_id])
+            if not ids.issubset({block["chunk_id"] for block in blocks}):
                 raise ContentError("Chunk not found in the current revision")  # noqa: TRY003
-            if edit.operation == "remove_chunk":
-                blocks.remove(match)
+            if edit.operation in {"remove_chunk", "remove_chunks"}:
+                blocks = [block for block in blocks if block["chunk_id"] not in ids]
             else:
                 if edit.text is None:
                     raise ContentError("edit_chunk requires text")  # noqa: TRY003
+                match = next(block for block in blocks if block["chunk_id"] == edit.chunk_id)
                 match.update(text=edit.text, length=len(edit.text), manually_modified=True)
             manifest = await self.prepare(
                 request.scope_id, request.artifact_id, {**current.content, "manually_modified": True}, blocks

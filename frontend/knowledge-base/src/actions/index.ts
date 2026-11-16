@@ -16,3 +16,5 @@ limitations under the License.
 export { Create } from "./Create";
 export { Import } from "./Import";
 export { EditChunk, DocumentMenu } from "./Document";
+
+export { RemoveChunks } from "./RemoveChunks";

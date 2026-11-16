@@ -67,4 +67,6 @@ export type Hit = {
 export type Location = { scope: string; id: string; revision?: number; chunk?: string };
 export type Target = { scope: string; id: string; revision: number };
 export type Receipt = { path: string; accepted: boolean; request_id?: string; document_id?: string; error?: string };
-export type Edit = { operation: "edit_chunk" | "remove_chunk"; chunk_id: string; text?: string };
+export type Edit =
+  | { operation: "edit_chunk" | "remove_chunk"; chunk_id: string; text?: string }
+  | { operation: "remove_chunks"; chunk_ids: string[] };

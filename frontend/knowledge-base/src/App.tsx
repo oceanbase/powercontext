@@ -18,6 +18,7 @@ import { Alert, Button, Dropdown, Empty, Flex, Space, Spin, Typography } from "@
 import { BookOutlined, ReloadOutlined, SwapOutlined } from "@oceanbase/icons";
 import { PageContainer } from "@oceanbase/ui";
 import { useDefault, useLibraries, useRefresh, useSetDefault, useSpaces } from "./hooks";
+import { ProcessingWatcher } from "./components/ProcessingWatcher";
 import { Failure } from "./components/Feedback";
 import { Create } from "./actions";
 import { Documents } from "./pages/Documents";
@@ -47,9 +48,9 @@ function Workspace({ space }: { space: string }) {
               block
               key={item.scope_id}
               className="library-link"
-              type={item.scope_id === selected ? "link" : "text"}
+              type={item.scope_id === (location?.scope ?? selected) ? "link" : "text"}
               icon={<BookOutlined aria-hidden />}
-              aria-pressed={item.scope_id === selected}
+              aria-pressed={item.scope_id === (location?.scope ?? selected)}
               aria-label={item.value.title}
               title={item.value.title}
               onClick={() => {
@@ -67,7 +68,12 @@ function Workspace({ space }: { space: string }) {
       </aside>
       <main className="workspace-main">
         {location && (
-          <Reader key={`${location.scope}:${location.id}`} location={location} onBack={() => setLocation(undefined)} />
+          <Reader
+            key={`${location.scope}:${location.id}`}
+            location={location}
+            libraryTitle={items.find((item) => item.scope_id === location.scope)?.value.title}
+            onBack={() => setLocation(undefined)}
+          />
         )}
         <div hidden={!!location}>
           {kb ? (
@@ -114,6 +120,7 @@ export function App() {
   const space = spaces.data?.items.find((item) => item.space_scope_id === preferred);
   return (
     <Flex vertical className="kb-app">
+      <ProcessingWatcher />
       <header className="space-bar">
         <Flex justify="space-between" align="center" wrap gap="middle">
           <Space>

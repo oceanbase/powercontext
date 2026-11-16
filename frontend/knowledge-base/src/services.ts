@@ -13,7 +13,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import type { Space, DefaultSpace, KB, DocPage, Head, Chunk, ChunkPage, Hit, Target, Receipt, Edit } from "./types";
+import type {
+  Processing,
+  Space,
+  DefaultSpace,
+  KB,
+  DocPage,
+  Head,
+  Chunk,
+  ChunkPage,
+  Hit,
+  Target,
+  Receipt,
+  Edit,
+} from "./types";
 type Options = {
   query?: Record<string, unknown>;
   json?: unknown;
@@ -48,6 +61,7 @@ export const service = {
   libraries: (space: string) => api<{ items: KB[] }>("GET", "/knowledge-bases", { query: { space_scope_id: space } }),
   documents: (scope: string, cursor: string | null) =>
     api<DocPage>("GET", `/scopes/${scope}/documents`, { query: { limit: 50, ...(cursor ? { cursor } : {}) } }),
+  status: (scope: string, request: string) => api<Processing>("GET", `/scopes/${scope}/imports/${request}`),
   head: (scope: string, id: string) => artifact<Head>(scope, id),
   governance: (scope: string, id: string) =>
     artifact<{ lifecycle_state: string; state_version: number }>(scope, id, "/governance"),
