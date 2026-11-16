@@ -121,22 +121,31 @@ def test_exported_blog_and_original_pages() -> None:
 
 def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
     """Catch untranslated prompts/comments and accidental cross-language image reuse."""
-    original_images = {
-        # Preserve the supplied MiniMax article artwork in both editions.
-        *(f"building-durable-project-context/figure-{number}.png" for number in range(1, 10)),
+    original_media = {
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
-        # Preserve the supplied dsh-pet-powercontext recordings and figures in both editions.
+        # Preserve the supplied dsh-pet screenshots, recordings, and artwork in both editions.
         "dsh-pet-powercontext-memory/dsh-chat.gif",
         "dsh-pet-powercontext-memory/dsh-memory-recall.gif",
         "dsh-pet-powercontext-memory/dsh-facts.png",
         "dsh-pet-powercontext-memory/dsh-sources.png",
         "dsh-pet-powercontext-memory/dsh-settings.png",
         "dsh-pet-powercontext-memory/dsh-memory-service.png",
-        "dsh-pet-powercontext-memory/reuse-cost.en.svg",
         "dsh-pet-powercontext-memory/feiyu.png",
         "dsh-pet-powercontext-memory/3475.jpeg",
+        # Preserve the reviewed project screenshots, paired by interface language.
+        *(
+            f"magpie-gateway-powercontext-memory/{name}.{language}.png"
+            for name in ("magpie-agents", "magpie-routing", "powercontext-memory", "powercontext-handoff")
+            for language in ("en", "zh")
+        ),
+    }
+    shared_diagrams = {
+        # Preserve the supplied MiniMax article figures in both editions.
+        *(f"building-durable-project-context/figure-{number}.png" for number in range(1, 10)),
+        # Both dsh-pet editions deliberately share this English cost comparison chart.
+        "dsh-pet-powercontext-memory/reuse-cost.en.svg",
         # These supplied diagrams are intentionally shared by both locales.
         "power-system-agent-memory/memory.svg",
         "power-system-agent-memory/memory-validation.svg",
@@ -144,12 +153,6 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "power-system-agent-memory/diagnosis-workflow.svg",
         "power-system-agent-memory/task-recovery.svg",
         "power-system-agent-memory/power-system-agent-architecture.png",
-        # Preserve the reviewed project screenshots, paired by interface language.
-        *(
-            f"magpie-gateway-powercontext-memory/{name}.{language}.png"
-            for name in ("magpie-agents", "magpie-routing", "powercontext-memory", "powercontext-handoff")
-            for language in ("en", "zh")
-        ),
         # The Harbor article deliberately shares English architecture figures across editions.
         "harbor-context-evaluation-harness/coding-verification.png",
         "harbor-context-evaluation-harness/harbor-integration.png",
@@ -172,7 +175,10 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
             other = "zh" if language == "en" else "en"
             assert f"https://powercontext.oceanbase.io/{other}/" not in markdown, source
             for image in re.findall(r"!\[[^\]]*\]\(\.\./\.\./\.\./assets/blog/([^\s)]+)\)", markdown):
-                if image in original_images:
+                if image in shared_diagrams:
+                    assert (ROOT / "docs/assets/blog" / image).is_file()
+                    continue
+                if image in original_media:
                     assert (ROOT / "docs/assets/blog" / image).is_file()
                     if image.startswith("magpie-gateway-powercontext-memory/"):
                         assert image.endswith(f".{language}.png"), f"Wrong screenshot language: {source}: {image}"
