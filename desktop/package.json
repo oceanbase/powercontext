@@ -13,7 +13,7 @@
     "generate:check": "node scripts/generate.mjs --check",
     "lint": "oxlint ui scripts && pnpm generate:check && pnpm icons:check && pnpm format:check",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node --test scripts/prepare-openapi-generator.test.mjs && vitest run",
     "build": "pnpm generate:check && tsc --noEmit && vite build",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",

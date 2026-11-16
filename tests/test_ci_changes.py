@@ -100,6 +100,7 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
+        ([".github/actions/setup-openapi-generator/action.yml"], {"desktop"}),
         ([".github/workflows/desktop-candidate.yml"], {"tests"}),
         ([".github/workflows/desktop-release.yml"], {"tests"}),
         (["scripts/desktop_candidate.py"], {"tests"}),
