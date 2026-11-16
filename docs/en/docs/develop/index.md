@@ -12,6 +12,7 @@ Choose an [interface](interfaces.md) for your application: the async Python Clie
 Server, while the Core SDK supports in-process composition. MCP exposes a curated subset for Agents.
 
 - [HTTP behavior](http-api.md): authentication, request IDs, errors, and concurrency.
+- [Write a plugin](plugins.md): generate your own Artifacts, define Source types, and provide APIs and Dashboard pages with plugins.
 - [HTTP API](/api): generated endpoints and schemas.
 - [Python API](/en/modules): generated Python documentation.
 - [Python Agent frameworks](../integrations/index.md#python-agent-frameworks): community adapters with their own lifecycles.

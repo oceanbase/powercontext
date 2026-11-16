@@ -104,22 +104,18 @@ def test_startup_scan_catches_up_profile_evidence(tmp_path):
                     await asyncio.sleep(0.02)
             saved = await runtime.records.for_scope(sid).get_artifact("profile", "profile")
             assert saved.revision == 1
-        assert not (tmp_path / "jobs.db").exists()
 
     asyncio.run(run())
 
 
-def test_manual_profile_generation_does_not_create_scheduler_when_disabled(tmp_path):
+def test_manual_profile_flush_works_without_automatic_processing(tmp_path):
     class Generator:
         async def generate(self, value):
             return "# Manual flush"
 
     async def run():
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'manual.db'}"))
-        scheduler_path = tmp_path / "jobs.db"
-        async with open_builtin_runtime(
-            config, profile_generator=Generator(), scheduler_path=scheduler_path
-        ) as runtime:
+        async with open_builtin_runtime(config, profile_generator=Generator()) as runtime:
             assert runtime.scopes is not None and runtime.profiles is not None
             sid = (
                 await runtime.scopes.create(ScopeDraft(title="User", summary="User", idempotency_key="User"))
@@ -128,6 +124,5 @@ def test_manual_profile_generation_does_not_create_scheduler_when_disabled(tmp_p
             await runtime.records.for_scope(sid).create_source("content", "Chinese")
             result = await runtime.profiles.flush(sid)
             assert result.status == "updated"
-        assert not scheduler_path.exists()
 
     asyncio.run(run())

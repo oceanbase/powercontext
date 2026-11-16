@@ -167,11 +167,13 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         EVIDENCE_REVISION,
         PROJECTION_REVISION,
         "v1_5_0_004",
+        "v1_5_0_005",
     )
     assert plan.domain_steps == (
         "artifact_storage",
         "atomic_memory_evidence",
         "atomic_memory_evidence_projection",
+        "plugin_artifacts",
     )
     assert upgraded.evidence_path.read_bytes() == old_evidence_bytes
     result = upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
@@ -194,6 +196,7 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         EVIDENCE_REVISION,
         PROJECTION_REVISION,
         "v1_5_0_004",
+        "v1_5_0_005",
     }
     ready = reopened.plan()
     assert ready.state == "ready"
@@ -247,8 +250,8 @@ def test_evidence_projection_upgrade_preserves_registered_evidence_revision(tmp_
     before = old.evidence_path.read_bytes()
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
     plan = upgraded.plan()
-    assert plan.revisions == (PROJECTION_REVISION, "v1_5_0_004")
-    assert plan.domain_steps == ("atomic_memory_evidence_projection",)
+    assert plan.revisions == (PROJECTION_REVISION, "v1_5_0_004", "v1_5_0_005")
+    assert plan.domain_steps == ("atomic_memory_evidence_projection", "plugin_artifacts")
     assert old.evidence_path.read_bytes() == before
     assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == current.head
     assert upgraded.verify().state == "ready"

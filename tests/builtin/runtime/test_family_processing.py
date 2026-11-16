@@ -25,6 +25,9 @@ from sqlalchemy import func, select
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryCandidate, AtomicMemoryExtractionOutput
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
+from powercontext.builtin.authz import AccessConflictError, AccessDeniedError, PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
+from powercontext.builtin.authz.worker import WorkerSecuritySpec, open_worker_security
 from powercontext.builtin.inference import InferenceTimeoutError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.inference.usage import UsageReportingStructuredGenerator
@@ -58,9 +61,6 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import SourceCursor
-from powercontext.server.authz import AccessConflictError, AccessDeniedError, PrincipalRef
-from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
-from powercontext.server.processing_security import WorkerSecuritySpec, open_worker_security
 from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 

@@ -124,7 +124,6 @@ def test_http_replaces_during_generation_never_block_the_spawned_topic_worker(tm
                 runtime=RuntimeConfig(artifact_processing_families=("topic-memory",)),
                 mcp=McpConfig(enabled=False),
             ),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),

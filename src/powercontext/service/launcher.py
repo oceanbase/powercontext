@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TextIO
 from urllib.parse import urlsplit
 
-from powercontext.cli.env_file import environment_context
+from powercontext.env_file import environment_context
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.server.settings import ServerLoggingConfig
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file

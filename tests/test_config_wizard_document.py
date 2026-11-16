@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from powercontext.cli.config_wizard_document import read_sqlite_summary, update_document
-from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+from powercontext.env_file import EnvironmentFileError, parse_environment
 
 
 def test_update_preserves_managed_and_unmanaged_unknown_assignments_and_comments() -> None:

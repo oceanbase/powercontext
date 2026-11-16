@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from powercontext.cli.env_file import environment_context, read_environment_file
+from powercontext.env_file import environment_context, read_environment_file
 from powercontext.server.settings import ServerSettings
 
 

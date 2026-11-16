@@ -51,7 +51,6 @@ from powercontext.builtin.persistence.errors import (
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
@@ -264,8 +263,11 @@ class SourceRepository:
             # Reuse only within this journal-locked batch; a rollback or later
             # registration must never inherit an earlier transaction's result.
             native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
-            for ref, source in new_sources.values():
-                await self._bind_memory_evidence(connection, scope_id, ref, source, native_manifests)
+            bindings = [
+                await self._memory_evidence_binding(connection, scope_id, ref, source, native_manifests)
+                for ref, source in new_sources.values()
+            ]
+            await connection.execute(insert(SOURCE_EVIDENCE_BINDINGS_TABLE), bindings)
         for (source_type, source_id), payload in upgrades.items():
             await connection.execute(
                 update(SOURCES_TABLE)
@@ -279,7 +281,7 @@ class SourceRepository:
         if new_rows:
             intents = ArtifactProcessingIntentRepository()
             await intents.mark_dirty_many(connection, scope_id, SOURCE_PROCESSING_BINDINGS, increment=len(new_rows))
-            await _mark_custom_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
+            await _mark_plugin_bindings_dirty(connection, scope_id, intents, increment=len(new_rows))
         return tuple(results)
 
     def _encode(self, source: Source, *, saved_at: datetime | None = None) -> tuple[SourceRef, bytes]:
@@ -772,15 +774,15 @@ class SourceRepository:
             )
         return tuple(evidence)
 
-    async def _bind_memory_evidence(
+    async def _memory_evidence_binding(
         self,
         connection: AsyncConnection,
         scope_id: str,
         ref: SourceRef,
         source: Source,
         native_manifests: dict[tuple[str, str], SourceDefinitionManifest | None],
-    ) -> None:
-        """Freeze registration evidence only for a newly accepted Source row."""
+    ) -> dict[str, Any]:
+        """Prepare the immutable evidence binding within the accepting transaction."""
 
         if isinstance(source, SourceObservation):
             manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
@@ -806,18 +808,16 @@ class SourceRepository:
         declaration = (
             MemoryEvidenceDeclaration() if manifest is None else self._registry.memory_evidence_for_source(source)
         )
-        await connection.execute(
-            insert(SOURCE_EVIDENCE_BINDINGS_TABLE).values(
-                scope_id=scope_id,
-                source_type=ref.source_type,
-                source_id=ref.source_id,
-                material_digest=_source_material_digest(source),
-                definition_name=ref.source_type,
-                definition_version=source.definition_version,
-                manifest_fingerprint=None if manifest is None else manifest.fingerprint,
-                declaration=declaration.model_dump_json().encode("utf-8"),
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "source_type": ref.source_type,
+            "source_id": ref.source_id,
+            "material_digest": _source_material_digest(source),
+            "definition_name": ref.source_type,
+            "definition_version": source.definition_version,
+            "manifest_fingerprint": None if manifest is None else manifest.fingerprint,
+            "declaration": declaration.model_dump_json().encode("utf-8"),
+        }
 
     async def list(
         self,
@@ -1284,22 +1284,13 @@ def _require_identity(field: str, value: object, maximum: int) -> None:
         raise InvalidRepositoryArgumentError(field, f"must not exceed {maximum} characters")
 
 
-async def _mark_custom_bindings_dirty(
+async def _mark_plugin_bindings_dirty(
     connection: AsyncConnection,
     scope_id: str,
     intents: ArtifactProcessingIntentRepository,
     *,
     increment: int,
 ) -> None:
-    plugins = (
-        await connection.execute(
-            select(
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name,
-                ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec[("manifest", "scope_ids")].label("scope_ids"),
-            ).where(ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.plugin_spec.is_not(None))
-        )
-    ).all()
-    bindings = tuple(
-        plugin.binding_name for plugin in plugins if plugin.scope_ids is None or scope_id in plugin.scope_ids
-    )
-    await intents.mark_dirty_many(connection, scope_id, bindings, increment=increment)
+    from powercontext.builtin.plugins.families import source_bindings
+
+    await intents.mark_dirty_many(connection, scope_id, source_bindings(scope_id), increment=increment)

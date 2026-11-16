@@ -28,7 +28,7 @@ from typer.testing import CliRunner
 import powercontext.cli.config_wizard as wizard
 from powercontext.cli.config import app
 from powercontext.cli.config_wizard_ui import WizardUI
-from powercontext.cli.env_file import parse_environment
+from powercontext.env_file import parse_environment
 
 
 @pytest.fixture(autouse=True)

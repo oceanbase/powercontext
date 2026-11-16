@@ -41,7 +41,7 @@ def main() -> int:
     if args.container:
         environment = dict(os.environ)
     else:
-        from powercontext.cli.env_file import read_environment_file
+        from powercontext.env_file import read_environment_file
 
         environment.update(read_environment_file(local / "server.env"))
     if not args.container:
