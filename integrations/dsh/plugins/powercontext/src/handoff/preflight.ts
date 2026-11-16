@@ -25,7 +25,9 @@ import type { ConnectionBinding, InstallationResult, PresentTarget, TargetAdapte
 
 const SCHEMA = 'powercontext.dsh-preflight.v1'
 const ACTIVE = new Set(['checking_agent', 'checking_integration', 'installing', 'verifying'])
-const CHECK_TIMEOUT_MS = 20_000
+// A cold Codex app-server can spend over ten seconds on each plugin inventory.
+// Preflight performs separate integration and workspace observations.
+export const PREFLIGHT_CHECK_TIMEOUT_MS = 45_000
 const INSTALL_TIMEOUT_MS = 120_000
 const UNUSED_READY_RETENTION_MS = 30 * 86_400_000
 
@@ -247,7 +249,7 @@ export class PreflightService implements PreflightGate {
         set({ state: 'verifying', installation: 'completed' })
       }
       return this.inspect(call, updated, adapter, set)
-    }, installing ? INSTALL_TIMEOUT_MS + CHECK_TIMEOUT_MS : CHECK_TIMEOUT_MS)
+    }, installing ? INSTALL_TIMEOUT_MS + PREFLIGHT_CHECK_TIMEOUT_MS : PREFLIGHT_CHECK_TIMEOUT_MS)
   }
 
   async validateForPrepare(context: CallContext, input: Parameters<PreflightGate['validateForPrepare']>[1]): Promise<VerifiedPreflight> {
@@ -295,7 +297,7 @@ export class PreflightService implements PreflightGate {
   }
 
   private async revalidate(context: CallContext, record: PreflightRecord, binding: VerifiedPreflight, latest?: boolean) {
-    const call = { ...context, signal: AbortSignal.any([context.signal, this.options.signal, AbortSignal.timeout(CHECK_TIMEOUT_MS)]) }
+    const call = { ...context, signal: AbortSignal.any([context.signal, this.options.signal, AbortSignal.timeout(PREFLIGHT_CHECK_TIMEOUT_MS)]) }
     if (latest !== undefined) await this.options.authority.verifySource(call, binding.source, latest)
     const adapter = this.options.catalog.require(binding.targetId)
     const target = await adapter.detect(call.signal)
@@ -475,7 +477,7 @@ export class PreflightService implements PreflightGate {
   }
 
   private run(context: CallContext, record: PreflightRecord,
-    work: (call: CallContext, set: Update) => Promise<PreflightView>, timeoutMs = CHECK_TIMEOUT_MS): Promise<PreflightView> {
+    work: (call: CallContext, set: Update) => Promise<PreflightView>, timeoutMs = PREFLIGHT_CHECK_TIMEOUT_MS): Promise<PreflightView> {
     const id = record.preflightId
     const controller = new AbortController()
     const deadline = AbortSignal.timeout(timeoutMs)

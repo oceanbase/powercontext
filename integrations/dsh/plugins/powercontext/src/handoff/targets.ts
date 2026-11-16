@@ -15,6 +15,7 @@
  */
 
 
+import type { HandoffLocale } from './locale.ts'
 import type { LaunchBundle } from './contracts.ts'
 import { HandoffError } from './errors.ts'
 
@@ -44,6 +45,8 @@ export type TargetDetection =
   | { state: 'present'; version: string; configurationKey: string }
   | { state: 'missing' | 'unsupported' | 'unknown' }
 export type PresentTarget = Extract<TargetDetection, { state: 'present' }>
+/** Safe to expose to the owner: the installer configuration key stays internal. */
+export type TargetDiagnostic = { state: 'present'; version: string } | { state: 'missing' | 'unsupported' | 'unknown' }
 
 export type IntegrationCheck =
   | { state: 'ready' }
@@ -81,7 +84,7 @@ export interface NativeLaunchIntent {
 export interface TargetAdapter {
   readonly id: NativeTargetId
   readonly version: string
-  readonly qualification: { readonly platform: 'darwin'; readonly evidence: string }
+  readonly qualification?: { readonly platform: 'darwin'; readonly evidence: string }
   detect(signal: AbortSignal): Promise<TargetDetection>
   checkIntegration(target: PresentTarget, signal: AbortSignal): Promise<IntegrationCheck>
   /**
@@ -95,29 +98,34 @@ export interface TargetAdapter {
   resolveEnvironment(target: PresentTarget, sourceCwd: string, signal: AbortSignal): Promise<TargetEnvironment>
   /** Prove the particular package path is readable by the target, including its sandbox. */
   canReadPackage(target: PresentTarget, bundle: LaunchBundle, signal: AbortSignal): Promise<boolean>
-  launchIntent(target: PresentTarget, bundle: LaunchBundle): NativeLaunchIntent
+  launchIntent(target: PresentTarget, bundle: LaunchBundle, locale?: HandoffLocale): NativeLaunchIntent
 }
 
 export class TargetCatalog {
   private readonly adapters = new Map<string, TargetAdapter>()
+  private readonly platform: NodeJS.Platform
 
   constructor(adapters: readonly TargetAdapter[] = [], platform = process.platform) {
+    this.platform = platform
     for (const adapter of adapters) {
       if (!(NATIVE_TARGET_IDS as readonly string[]).includes(adapter.id) || this.adapters.has(adapter.id)) {
         throw new Error('Invalid or duplicate handoff adapter')
       }
-      if (adapter.qualification.platform === platform) this.adapters.set(adapter.id, adapter)
+      this.adapters.set(adapter.id, adapter)
     }
   }
 
   list() {
     return TARGETS.map(([targetId, name, kind]) => {
       const adapter = this.adapters.get(targetId)
+      const qualification = adapter?.qualification
+      const qualified = qualification?.platform === this.platform && Boolean(qualification.evidence.trim())
       return {
         targetId, name, kind,
-        qualification: adapter?.qualification ?? null,
-        availability: adapter ? 'requires_preflight' : 'unavailable',
-        action: adapter ? 'preflight' : kind === 'framework' ? 'developer_setup'
+        qualification: qualified ? qualification : null,
+        diagnostics: adapter ? 'available' : 'unavailable',
+        availability: qualified ? 'requires_preflight' : 'unavailable',
+        action: qualified ? 'preflight' : kind === 'framework' ? 'developer_setup'
           : kind === 'evaluation' ? 'evaluation_only' : 'manual_setup_or_export',
       }
     })
@@ -126,7 +134,18 @@ export class TargetCatalog {
   require(targetId: string): TargetAdapter {
     if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError('payload_invalid')
     const adapter = this.adapters.get(targetId)
-    if (!adapter) throw new HandoffError('integration_unavailable')
+    if (!adapter || adapter.qualification?.platform !== this.platform || !adapter.qualification.evidence.trim()) {
+      throw new HandoffError('integration_unavailable')
+    }
     return adapter
+  }
+
+  /** Detection is read-only and available even before a target has launch qualification. */
+  async diagnose(targetId: string, signal: AbortSignal): Promise<TargetDiagnostic> {
+    if (!TARGETS.some(([id]) => id === targetId)) throw new HandoffError('payload_invalid')
+    const adapter = this.adapters.get(targetId)
+    if (!adapter) throw new HandoffError('integration_unavailable')
+    const result = await adapter.detect(signal)
+    return result.state === 'present' ? { state: 'present', version: result.version } : { state: result.state }
   }
 }
