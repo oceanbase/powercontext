@@ -236,6 +236,14 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
     const profile = ui.get('profileContext') as Profile | undefined
     const lifetime = new AbortController()
     let catalog: TargetCatalog | undefined
+    let storage: { deliveryRoot: string; generationKey: Buffer } | undefined
+    const getCatalog = () => catalog ??= new TargetCatalog(adapters ?? createDefaultTargetAdapters({
+      sourceServerUrl: runtime.config.baseUrl,
+      deliveryStorage: () => {
+        if (!storage) throw new HandoffError('integration_unavailable')
+        return storage
+      },
+    }))
     const requireLocal = () => {
       if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) {
         throw new HandoffError('deployment_unsupported')
@@ -256,12 +264,9 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
         const root = join(ownerRoot, keyFor(profile.home, profile.name))
         privateDirectory(root)
         const generationKey = connectionKey(root)
-        catalog = new TargetCatalog(adapters ?? createDefaultTargetAdapters({
-          root, generationKey, sourceServerUrl: runtime.config.baseUrl,
-        }))
         const connection = sourceConnection(ui, runtime, generationKey)
         services = createHandoffServices({
-          root, catalog, signal: lifetime.signal, client: runtime.client,
+          root, catalog: getCatalog(), signal: lifetime.signal, client: runtime.client,
           authorization: runtime.config.authorization,
           readBoundary: createBoundaryReader(ui),
           resolveReceiptConnection: async (context, binding) => {
@@ -276,6 +281,7 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
           authority: { requireLocal, sourceConnection: connection,
             verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
         })
+        storage = { deliveryRoot: join(root, 'deliveries'), generationKey }
         release = unlock
         maintenanceTimer = setInterval(() => {
           if (maintenance || lifetime.signal.aborted) return
@@ -289,7 +295,7 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
     }
     const handler = createHandoffHandler({
       facts, requireLocal, signal: lifetime.signal,
-      get catalog() { ensureServices(); return catalog! },
+      get catalog() { return getCatalog() },
       requestRejection: request => ui.connection.requestRejection(request),
       authenticatedOwner: request => {
         const admission = ui.connection.admit?.(request)

@@ -103,10 +103,8 @@ export interface ClaudeCodeCliRuntimeOptions {
   /** Exact macOS deep-link terminal preference and evidence for this environment. */
   readonly environmentEvidence: { readonly terminal: string; readonly evidence: string }
   readonly pythonExecutable: string
-  /** Persistent host-owned secret used only to fingerprint effective configuration. */
-  readonly generationKey: Buffer
-  /** Roots whose receiver Read access was actually tested for the qualified CLI/terminal. */
-  readonly qualifiedPackageRoots: readonly string[]
+  /** Persistent fingerprint key and roots qualified for receiver Read access. */
+  readonly packageStorage: () => { generationKey: Buffer; qualifiedPackageRoots: readonly string[] }
 }
 
 function object(value: unknown): Record<string, any> | undefined {
@@ -206,9 +204,9 @@ async function registeredHandler(executable: string, env: NodeJS.ProcessEnv, sig
  */
 export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions): ClaudeCliReceiver {
   if (!isAbsolute(options.configDir) || !isAbsolute(options.pythonExecutable)) throw new Error('Absolute paths required')
-  if (options.generationKey.length < 32 || !options.environmentEvidence.terminal.trim()
-    || !options.environmentEvidence.evidence.trim()) throw new Error('Verified terminal evidence and a persistent generation key are required')
-  const key = Buffer.from(options.generationKey)
+  if (!options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) {
+    throw new Error('Verified terminal evidence is required')
+  }
   const env = { ...options.launchEnvironment }
   const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR
     ? join(options.configDir, '.claude.json') : join(env.HOME ?? homedir(), '.claude.json')
@@ -281,12 +279,14 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       const parsed = object(JSON.parse(await command(options.pythonExecutable, ['-c', PROBE, pluginRoot, cwd, endpoint], targetEnv, signal, cwd)))
       if (!parsed || typeof parsed.serverIdentity !== 'string' || !parsed.serverIdentity
         || typeof parsed.scopeId !== 'string' || !parsed.scopeId) return undefined
-      const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
+      const { generationKey, qualifiedPackageRoots } = options.packageStorage()
+      if (generationKey.length < 32) return undefined
+      const roots = await Promise.all(qualifiedPackageRoots.map(root => realpath(root)))
       const credentialFile = join(options.configDir, 'powercontext', 'credentials.json')
       const clientsFile = targetEnv.POWERCONTEXT_CLIENT_CONFIG_FILE ?? join(targetEnv.HOME ?? '', '.config', 'powercontext', 'clients.json')
       const credentials = await readObject(credentialFile)
       const clients = await readObject(clientsFile)
-      const generation = createHmac('sha256', key).update(JSON.stringify([await realpath(executable), pluginRoot,
+      const generation = createHmac('sha256', generationKey).update(JSON.stringify([await realpath(executable), pluginRoot,
         manifest, mcp, settings, Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
         credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal])).digest('hex')
       return { effectiveCwd: cwd, serverIdentity: parsed.serverIdentity, scopeId: parsed.scopeId,
@@ -314,7 +314,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
         if (!await observeTerminal()
           || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false
         const path = await realpath(bundle.packagePath)
-        const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
+        const roots = await Promise.all(options.packageStorage().qualifiedPackageRoots.map(root => realpath(root)))
         if (!roots.some(root => { const rel = relative(root, path); return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) })) return false
         const info = await lstat(bundle.packagePath)
         if (!info.isFile()) return false

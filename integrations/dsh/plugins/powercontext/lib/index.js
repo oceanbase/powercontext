@@ -8445,15 +8445,15 @@ const REQUIRED_TOOLS = [
 ];
 const SAFE_PART = /^[A-Za-z0-9._-]+$/u;
 const MAX_OUTPUT = 2 * 1024 * 1024;
-/** Compose detection and the runtime against the same app and Host profile. */
+/** Compose detection and the runtime without opening the Host's delivery store. */
 function createHostCodexDesktopAdapter(options) {
-	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt: buildReceiverPrompt$1, qualification, ...runtimeOptions } = options;
+	const { appPath = "/Applications/ChatGPT.app", buildReceiverPrompt: buildReceiverPrompt$1, qualification, deliveryStorage, ...runtimeOptions } = options;
 	return createCodexDesktopAdapter({
 		appPath,
-		runtime: createCodexDesktopRuntime({
+		runtime: createRuntime$1({
 			...runtimeOptions,
 			cliPath: join(appPath, "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
-		}),
+		}, deliveryStorage),
 		buildReceiverPrompt: buildReceiverPrompt$1,
 		qualification
 	});
@@ -8534,6 +8534,7 @@ async function inspectAppServer(options, cwd, signal, mode) {
 	signal.addEventListener("abort", abort, { once: true });
 	child.once("error", fail$2);
 	child.once("exit", fail$2);
+	child.stdin.on("error", fail$2);
 	lines.on("line", (line) => {
 		size += Buffer.byteLength(line);
 		if (size > MAX_OUTPUT) {
@@ -8552,6 +8553,11 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			abort();
 		}
 	});
+	const write = (message) => {
+		child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+			if (error) fail$2();
+		});
+	};
 	const call$1 = (method, params) => {
 		if (failure || signal.aborted) return Promise.reject(failure ?? /* @__PURE__ */ new Error("Cancelled"));
 		const id = ++sequence;
@@ -8560,12 +8566,10 @@ async function inspectAppServer(options, cwd, signal, mode) {
 				resolve: resolve$1,
 				reject
 			});
-			child.stdin.write(`${JSON.stringify({
+			write({
 				id,
 				method,
 				params
-			})}\n`, (error) => {
-				if (error) fail$2();
 			});
 		});
 	};
@@ -8581,7 +8585,10 @@ async function inspectAppServer(options, cwd, signal, mode) {
 			}
 		}));
 		if (await realpath(text(initialized.codexHome)) !== await realpath(options.codexHome) || initialized.platformOs !== "macos") throw new Error("Codex runtime profile mismatch");
-		child.stdin.write("{\"method\":\"initialized\",\"params\":{}}\n");
+		write({
+			method: "initialized",
+			params: {}
+		});
 		if (mode === "requirements") return { requirements: object$4(await call$1("configRequirements/read", {})) };
 		const [hooks, config, mcp, requirements, plugins] = await Promise.all([
 			call$1("hooks/list", { cwds: [cwd] }),
@@ -8793,13 +8800,8 @@ async function sandboxHash(options, profile, cwd, path, signal) {
 	if (!hash) throw new Error("Sandbox read failed");
 	return hash;
 }
-function createCodexDesktopRuntime(options) {
-	if (![
-		options.cliPath,
-		options.codexHome,
-		options.deliveryRoot
-	].every(isAbsolute) || options.cliPath.includes(":") || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32 || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl(options.setup.serverUrl))) throw new Error("Invalid Codex runtime paths");
-	const key$2 = Buffer.from(options.generationKey).toString("hex");
+function createRuntime$1(options, deliveryStorage) {
+	if (![options.cliPath, options.codexHome].every(isAbsolute) || options.cliPath.includes(":") || options.setup && (!isAbsolute(options.setup.executable) || options.setup.source !== void 0 && !isAbsolute(options.setup.source) || !validServerUrl(options.setup.serverUrl))) throw new Error("Invalid Codex runtime paths");
 	return {
 		configurationKey: `codex:${options.codexHome}`,
 		async checkIntegration(_target, signal) {
@@ -8878,6 +8880,9 @@ function createCodexDesktopRuntime(options) {
 		},
 		async resolveEnvironment(_target, cwd, signal) {
 			try {
+				signal.throwIfAborted();
+				const { deliveryRoot, generationKey } = deliveryStorage();
+				const key$2 = generationKey.toString("hex");
 				const observed$1 = await inspectAppServer(options, cwd, signal);
 				const plugin = installedPlugin(observed$1.plugins);
 				if (!plugin?.enabled) throw new Error("Plugin unavailable");
@@ -8912,7 +8917,7 @@ function createCodexDesktopRuntime(options) {
 				const url = new URL(text(transport.url));
 				const expected = new URL(`${scope.endpoint.replace(/\/$/u, "")}/mcp/`);
 				if (url.username || url.password || url.search || url.hash || url.href.replace(/\/$/u, "") !== expected.href.replace(/\/$/u, "")) throw new Error("MCP and hook endpoints differ");
-				const temporary = await mkdtemp(join(options.deliveryRoot, ".codex-probe-"));
+				const temporary = await mkdtemp(join(deliveryRoot, ".codex-probe-"));
 				let packageAccess = false;
 				try {
 					const path = join(temporary, "probe");
@@ -8928,7 +8933,7 @@ function createCodexDesktopRuntime(options) {
 						force: true
 					});
 				}
-				const configurationGeneration = createHmac("sha256", Buffer.from(key$2, "hex")).update(configurationJson([
+				const configurationGeneration = createHmac("sha256", generationKey).update(configurationJson([
 					plugin,
 					hooks,
 					receiverHash,
@@ -8957,7 +8962,7 @@ function createCodexDesktopRuntime(options) {
 		},
 		async canReadPackage(_target, bundle, signal) {
 			try {
-				const root = await realpath(options.deliveryRoot);
+				const root = await realpath(deliveryStorage().deliveryRoot);
 				const permission = await desktopPermission(options, (await inspectAppServer(options, bundle.binding.effectiveCwd, signal, "requirements")).requirements);
 				const path = await realpath(bundle.packagePath);
 				const rel = relative(root, path);
@@ -9531,8 +9536,7 @@ async function registeredHandler(executable, env, signal) {
 */
 function createClaudeCodeCliReceiver(options) {
 	if (!isAbsolute(options.configDir) || !isAbsolute(options.pythonExecutable)) throw new Error("Absolute paths required");
-	if (options.generationKey.length < 32 || !options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) throw new Error("Verified terminal evidence and a persistent generation key are required");
-	const key$2 = Buffer.from(options.generationKey);
+	if (!options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) throw new Error("Verified terminal evidence is required");
 	const env = { ...options.launchEnvironment };
 	const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR ? join(options.configDir, ".claude.json") : join(env.HOME ?? homedir(), ".claude.json");
 	const qualifiedTerminal = options.environmentEvidence.terminal;
@@ -9594,12 +9598,14 @@ function createClaudeCodeCliReceiver(options) {
 				endpoint
 			], targetEnv, signal, cwd)));
 			if (!parsed || typeof parsed.serverIdentity !== "string" || !parsed.serverIdentity || typeof parsed.scopeId !== "string" || !parsed.scopeId) return void 0;
-			const roots = await Promise.all(options.qualifiedPackageRoots.map((root) => realpath(root)));
+			const { generationKey, qualifiedPackageRoots } = options.packageStorage();
+			if (generationKey.length < 32) return void 0;
+			const roots = await Promise.all(qualifiedPackageRoots.map((root) => realpath(root)));
 			const credentialFile = join(options.configDir, "powercontext", "credentials.json");
 			const clientsFile = targetEnv.POWERCONTEXT_CLIENT_CONFIG_FILE ?? join(targetEnv.HOME ?? "", ".config", "powercontext", "clients.json");
 			const credentials = await readObject(credentialFile);
 			const clients = await readObject(clientsFile);
-			const generation = createHmac("sha256", key$2).update(JSON.stringify([
+			const generation = createHmac("sha256", generationKey).update(JSON.stringify([
 				await realpath(executable),
 				pluginRoot,
 				manifest,
@@ -9646,7 +9652,7 @@ function createClaudeCodeCliReceiver(options) {
 				signal.throwIfAborted();
 				if (!await observeTerminal() || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false;
 				const path = await realpath(bundle.packagePath);
-				if (!(await Promise.all(options.qualifiedPackageRoots.map((root) => realpath(root)))).some((root) => {
+				if (!(await Promise.all(options.packageStorage().qualifiedPackageRoots.map((root) => realpath(root)))).some((root) => {
 					const rel = relative(root, path);
 					return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 				})) return false;
@@ -9926,11 +9932,10 @@ function installedExecutable(name$1, path) {
 	}
 }
 /**
-* The Host constructs this inside its profile lock. New native targets can be added
-* here once their own adapters exist; absence of qualification is not absence of detection.
+* Target discovery needs neither the profile lock nor the connection key.
+* Only receiver environment and package checks use delivery storage.
 */
 function createDefaultTargetAdapters(options) {
-	if (!isAbsolute(options.root) || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32) throw new Error("Default target adapters require an absolute Host root and persistent 32-byte key");
 	const home = homedir();
 	const path = [
 		...(process.env.PATH ?? "").split(delimiter),
@@ -9948,7 +9953,6 @@ function createDefaultTargetAdapters(options) {
 		source: options.codexSource,
 		path
 	} : void 0;
-	const deliveryRoot = join(options.root, "deliveries");
 	const configDir = join(home, ".claude");
 	const environment = {
 		HOME: home,
@@ -9958,19 +9962,23 @@ function createDefaultTargetAdapters(options) {
 		configDir,
 		launchEnvironment: environment,
 		pythonExecutable: "/usr/bin/python3",
-		generationKey: options.generationKey,
 		environmentEvidence: {
 			terminal: "Terminal",
 			evidence: CLAUDE_CLI.evidence
 		},
-		qualifiedPackageRoots: [deliveryRoot]
+		packageStorage: () => {
+			const { deliveryRoot, generationKey } = options.deliveryStorage();
+			return {
+				generationKey,
+				qualifiedPackageRoots: [deliveryRoot]
+			};
+		}
 	});
 	return [
 		createHostCodexDesktopAdapter({
 			appPath: options.codexAppPath,
 			codexHome,
-			deliveryRoot,
-			generationKey: options.generationKey,
+			deliveryStorage: options.deliveryStorage,
 			setup,
 			buildReceiverPrompt,
 			qualification: CODEX
@@ -10587,6 +10595,14 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 		const profile = ui.get("profileContext");
 		const lifetime = new AbortController();
 		let catalog;
+		let storage;
+		const getCatalog = () => catalog ??= new TargetCatalog(adapters ?? createDefaultTargetAdapters({
+			sourceServerUrl: runtime.config.baseUrl,
+			deliveryStorage: () => {
+				if (!storage) throw new HandoffError("integration_unavailable");
+				return storage;
+			}
+		}));
 		const requireLocal = () => {
 			if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) throw new HandoffError("deployment_unsupported");
 		};
@@ -10605,15 +10621,10 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 				const root = join(ownerRoot, keyFor(profile.home, profile.name));
 				privateDirectory(root);
 				const generationKey = connectionKey(root);
-				catalog = new TargetCatalog(adapters ?? createDefaultTargetAdapters({
-					root,
-					generationKey,
-					sourceServerUrl: runtime.config.baseUrl
-				}));
 				const connection = sourceConnection(ui, runtime, generationKey);
 				services = createHandoffServices({
 					root,
-					catalog,
+					catalog: getCatalog(),
 					signal: lifetime.signal,
 					client: runtime.client,
 					authorization: runtime.config.authorization,
@@ -10633,6 +10644,10 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 						verifySource: async (context, source$1, latest) => verifyHostSource(ui, context, source$1, latest)
 					}
 				});
+				storage = {
+					deliveryRoot: join(root, "deliveries"),
+					generationKey
+				};
 				release = unlock;
 				maintenanceTimer = setInterval(() => {
 					if (maintenance || lifetime.signal.aborted) return;
@@ -10655,8 +10670,7 @@ function registerHandoffBridge(ctx, runtime, adapters) {
 			requireLocal,
 			signal: lifetime.signal,
 			get catalog() {
-				ensureServices();
-				return catalog;
+				return getCatalog();
 			},
 			requestRejection: (request$2) => ui.connection.requestRejection(request$2),
 			authenticatedOwner: (request$2) => {

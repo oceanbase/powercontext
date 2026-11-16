@@ -53,7 +53,10 @@ async function fixture() {
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>codex</string></array></dict></array>
 </dict></plist>`)
   await symlink(executable, join(bin, 'codex'))
-  return { root: temporary, codexHome: temporary, codexAppPath: app, generationKey: Buffer.alloc(32, 7) }
+  return {
+    root: temporary, codexHome: temporary, codexAppPath: app,
+    deliveryStorage: () => { throw new Error('Discovery must not open delivery storage') },
+  }
 }
 
 afterEach(async () => { if (temporary) await rm(temporary, { recursive: true, force: true }); temporary = '' })
@@ -92,8 +95,3 @@ it.skipIf(process.platform !== 'darwin')('uses the shared unsent draft for the s
   })
   expect(() => new TargetCatalog([adapter, adapter], 'linux')).toThrow()
 }, 30_000)
-
-it('requires a profile root and persistent generation key', () => {
-  expect(() => createDefaultTargetAdapters({ root: 'relative', generationKey: Buffer.alloc(32) })).toThrow()
-  expect(() => createDefaultTargetAdapters({ root: '/tmp', generationKey: Buffer.alloc(31) })).toThrow()
-})

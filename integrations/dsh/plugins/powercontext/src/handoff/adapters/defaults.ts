@@ -28,9 +28,8 @@ const CODEX = { targetVersion: '26.1106.51428 (26605); codex-cli 0.167.0-alpha.4
 const CLAUDE_CLI = { targetVersion: '2.1.323', evidence: 'HANDOFF_VALIDATION.md (d093)' }
 
 export interface DefaultTargetAdaptersOptions {
-  /** Profile-specific Host root and its persisted connection key. */
-  readonly root: string
-  readonly generationKey: Buffer
+  /** Delivery storage is available only after the Host acquires its writer lease. */
+  readonly deliveryStorage: () => { deliveryRoot: string; generationKey: Buffer }
   readonly sourceServerUrl?: string
   readonly powercontextExecutable?: string
   readonly codexHome?: string
@@ -51,13 +50,10 @@ function installedExecutable(name: string, path: string): string | undefined {
 }
 
 /**
- * The Host constructs this inside its profile lock. New native targets can be added
- * here once their own adapters exist; absence of qualification is not absence of detection.
+ * Target discovery needs neither the profile lock nor the connection key.
+ * Only receiver environment and package checks use delivery storage.
  */
 export function createDefaultTargetAdapters(options: DefaultTargetAdaptersOptions): TargetAdapter[] {
-  if (!isAbsolute(options.root) || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32) {
-    throw new Error('Default target adapters require an absolute Host root and persistent 32-byte key')
-  }
   const home = homedir()
   // An app launched from Finder may not inherit ~/.local/bin (uv tools and native Claude).
   const path = [...(process.env.PATH ?? '').split(delimiter), join(home, '.local/bin'), '/opt/homebrew/bin',
@@ -67,18 +63,20 @@ export function createDefaultTargetAdapters(options: DefaultTargetAdaptersOption
   const setup = executable && options.sourceServerUrl
     ? { executable, serverUrl: options.sourceServerUrl, source: options.codexSource, path }
     : undefined
-  const deliveryRoot = join(options.root, 'deliveries')
   // The macOS link starts the normal user profile, not a DSH-only CLAUDE_CONFIG_DIR or credential.
   const configDir = join(home, '.claude')
   const environment = { HOME: home, PATH: path }
   const receiver = createClaudeCodeCliReceiver({
     configDir, launchEnvironment: environment, pythonExecutable: '/usr/bin/python3',
-    generationKey: options.generationKey, environmentEvidence: { terminal: 'Terminal', evidence: CLAUDE_CLI.evidence },
-    qualifiedPackageRoots: [deliveryRoot],
+    environmentEvidence: { terminal: 'Terminal', evidence: CLAUDE_CLI.evidence },
+    packageStorage: () => {
+      const { deliveryRoot, generationKey } = options.deliveryStorage()
+      return { generationKey, qualifiedPackageRoots: [deliveryRoot] }
+    },
   })
   return [createHostCodexDesktopAdapter({
-    appPath: options.codexAppPath, codexHome, deliveryRoot,
-    generationKey: options.generationKey, setup, buildReceiverPrompt, qualification: CODEX,
+    appPath: options.codexAppPath, codexHome, deliveryStorage: options.deliveryStorage,
+    setup, buildReceiverPrompt, qualification: CODEX,
   }), createClaudeDesktopAdapter(), createDeferredClaudeCodeCliTarget({
     receiver, buildReceiverPrompt, path, qualification: CLAUDE_CLI,
     integrationOptions: { configDir, environment, powercontextExecutable: executable, serverUrl: options.sourceServerUrl },

@@ -61,14 +61,14 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     const output = JSON.stringify([{ id: 'powercontext@powercontext', enabled: true, installPath: plugin }])
     await writeFile(executable, `#!/bin/sh\nprintf '%s' '${output}'\n`, { mode: 0o755 })
     const receiver = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: config }, qualifiedPackageRoots: [packages] })
+      environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: config }, packageStorage: () => ({ generationKey: Buffer.alloc(32, 1), qualifiedPackageRoots: [packages] }) })
     const signal = new AbortController().signal
     const observed = await receiver.environment(executable, workspace, signal)
     expect(observed).toMatchObject({ effectiveCwd: workspace, serverIdentity: 'server-one', scopeId: 'scope-one',
       newSession: true, unsentPrefill: true, packageAccess: true })
     expect(observed?.configurationGeneration).toMatch(/^[0-9a-f]{64}$/)
     const recreated = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { CLAUDE_CONFIG_DIR: config, PATH: '/usr/bin:/bin', HOME: root }, qualifiedPackageRoots: [packages] })
+      environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { CLAUDE_CONFIG_DIR: config, PATH: '/usr/bin:/bin', HOME: root }, packageStorage: () => ({ generationKey: Buffer.alloc(32, 1), qualifiedPackageRoots: [packages] }) })
     expect((await recreated.environment(executable, workspace, signal))?.configurationGeneration).toBe(observed?.configurationGeneration)
     await writeFile(join(config, 'settings.json'), JSON.stringify({ env: 'invalid' }))
     expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
@@ -77,12 +77,12 @@ it('resolves the installed plugin against the Server and rejects routing and acc
     await mkdir(defaultProfile)
     await writeFile(join(defaultProfile, 'settings.json'), JSON.stringify({ pluginConfigs: { 'powercontext@powercontext': { options: { server_url: endpoint } } } }))
     const defaultReceiver = createClaudeCodeCliReceiver({ configDir: defaultProfile, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
-      launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, qualifiedPackageRoots: [packages] })
+      environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
+      launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, packageStorage: () => ({ generationKey: Buffer.alloc(32, 1), qualifiedPackageRoots: [packages] }) })
     expect((await defaultReceiver.environment(executable, workspace, signal))?.scopeId).toBe('scope-one')
     const wrongReceiver = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
-      launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, qualifiedPackageRoots: [packages] })
+      environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
+      launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin' }, packageStorage: () => ({ generationKey: Buffer.alloc(32, 1), qualifiedPackageRoots: [packages] }) })
     expect(await wrongReceiver.environment(executable, workspace, signal)).toBeUndefined()
     handoffToolsAvailable = false
     expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
