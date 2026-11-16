@@ -733,6 +733,78 @@ it('keeps the retry request ID if recovery still shows only the prior launch att
   expect(launches[1]).toEqual(launches[0])
 })
 
+it('explicitly retries an opened history delivery with no receipt and reuses the ID after a lost response', async () => {
+  const saved = { ...delivery('prepared', 'opened-delivery'), createdAt: new Date(Date.now() - 600_000).toISOString(), pinned: false }
+  const previous = { launchAttemptId: 'opened-first', state: 'opened', createdAt: saved.createdAt }
+  const attempts = [previous]
+  const launches: Array<{ requestId: string; retryOf: string }> = []
+  const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(url)
+    if (path === '/powercontext/targets') return json({ targets: [{ targetId: 'codex-desktop', availability: 'requires_preflight' }] })
+    if (path === '/powercontext/deliveries?sessionId=s1') return json({ deliveries: [saved] })
+    if (path === '/powercontext/deliveries/opened-delivery?sessionId=s1') return json(snapshot(saved, attempts))
+    if (path === '/powercontext/deliveries/opened-delivery/launch') {
+      launches.push(JSON.parse(String(init?.body)))
+      if (launches.length === 1) throw new TypeError('Lost launch response')
+      const opened = { launchAttemptId: `opened-${launches.length}`, state: 'opened', createdAt: new Date().toISOString() }
+      attempts.push(opened)
+      return json(opened)
+    }
+    throw new Error(path)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const readReceipt = vi.fn(async () => ({ deliveryId: saved.deliveryId, state: 'awaiting' as const,
+    readState: 'not_found' as const, observedAt: new Date().toISOString() }))
+  const ports = { resolveBoundary: async () => source, readReceipt }
+  await act(async () => root.render(React.createElement(HandoffAction, props(ports))))
+  await click('交接给其他 Agent'); await openHistory(); await click('查看交付')
+  expect(launches).toHaveLength(0)
+  expect(document.body.textContent).toContain('未找到回执')
+  await click('明确重试打开')
+  expect(launches).toEqual([expect.objectContaining({ requestId: expect.any(String), retryOf: previous.launchAttemptId })])
+
+  await click('刷新交付状态')
+  expect(launches).toHaveLength(1)
+  await click('明确重试打开')
+  expect(launches[1]).toEqual(launches[0])
+  await click('明确重试打开')
+  expect(launches[2].retryOf).toBe(attempts[1].launchAttemptId)
+  expect(launches[2].requestId).not.toBe(launches[1].requestId)
+  expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST').map(([path]) => path))
+    .toEqual(Array(3).fill('/powercontext/deliveries/opened-delivery/launch'))
+})
+
+it('waits for the receipt on an opened history delivery and does not retry after acknowledgement', async () => {
+  const saved = { ...delivery('prepared', 'acknowledged'), createdAt: new Date(Date.now() - 600_000).toISOString(), pinned: false }
+  const previous = { launchAttemptId: 'opened-first', state: 'opened', createdAt: saved.createdAt }
+  const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST') throw new Error('Unexpected mutation')
+    const path = String(url)
+    if (path === '/powercontext/targets') return json({ targets: [{ targetId: 'codex-desktop', availability: 'requires_preflight' }] })
+    if (path === '/powercontext/deliveries?sessionId=s1') return json({ deliveries: [saved] })
+    if (path === '/powercontext/deliveries/acknowledged?sessionId=s1') return json(snapshot(saved, [previous]))
+    throw new Error(path)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const observed = { deliveryId: saved.deliveryId, observedAt: new Date().toISOString() }
+  let confirm!: (value: Awaited<ReturnType<HandoffPorts['readReceipt']>>) => void
+  const readReceipt = vi.fn<HandoffPorts['readReceipt']>()
+    .mockImplementationOnce(() => new Promise(resolve => { confirm = resolve }))
+    .mockResolvedValue({ ...observed, state: 'awaiting', readState: 'invalid' })
+  const ports = { resolveBoundary: async () => source, readReceipt }
+  await act(async () => root.render(React.createElement(HandoffAction, props(ports))))
+  await click('交接给其他 Agent'); await openHistory(); await click('查看交付')
+  expect(document.body.textContent).not.toContain('明确重试打开')
+  expect(readReceipt).toHaveBeenCalledWith(saved.deliveryId, source.sessionId)
+  await act(async () => confirm({ ...observed, state: 'accepted', readState: 'verified' }))
+  expect(document.body.textContent).toContain('接收方已确认')
+  expect(document.body.textContent).not.toContain('明确重试打开')
+  await click('刷新接收确认')
+  expect(document.body.textContent).toContain('接收方已确认')
+  expect(document.body.textContent).not.toContain('明确重试打开')
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})
+
 it('recovers a delivery from history after aborting preparation before its ID was returned', async () => {
   const saved = { ...delivery('prepared', 'saved-after-abort'), createdAt: '2026-11-13T00:00:00Z', pinned: false }
   let prepares = 0

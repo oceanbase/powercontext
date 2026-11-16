@@ -238,7 +238,9 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
     try {
       const value = await ports.readReceipt(id, sessionId)
       if (!isCurrent() || activeDeliveryId.current !== id) return undefined
-      setReceipt(value); setReceiptRead(value.readState)
+      // A failed or overlapping read must not undo a receipt already observed for this delivery.
+      setReceipt(current => current && current.state !== 'awaiting' && value.state === 'awaiting' ? current : value)
+      setReceiptRead(value.readState)
       if (value.state !== 'awaiting') setTimedOut(false)
       return value
     } catch (error) {
@@ -255,17 +257,24 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
     const start = Date.parse(attempt.createdAt)
     let delay = 2000
     let inFlight = false
+    let hasRead = false
     const tick = async () => {
       if (stopped || inFlight || document.visibilityState === 'hidden') return
-      if (!Number.isFinite(start) || Date.now() - start >= 300000) { setTimedOut(true); return }
+      const elapsed = !Number.isFinite(start) || Date.now() - start >= 300000
+      if (elapsed) {
+        setTimedOut(true)
+        // History gets one receipt check even after the polling window has closed.
+        if (!recoveredFromHistory || hasRead) return
+      }
+      hasRead = true
       inFlight = true
       try {
         const result = await readReceipt(delivery.delivery.deliveryId, () => !stopped)
         if (stopped) return
-        if (result && ['accepted', 'needs_clarification', 'declined'].includes(result.state)) return
+        if (result && result.state !== 'awaiting') return
       } catch { if (!stopped) setReceiptRead('unavailable') }
       finally { inFlight = false }
-      if (!stopped && !document.hidden) {
+      if (!stopped && !elapsed && !document.hidden) {
         timer = setTimeout(tick, Math.min(delay, Math.max(0, 300000 - (Date.now() - start))))
         delay = Math.min(delay * 2, 30000)
       }
@@ -273,7 +282,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
     const visibility = () => { if (timer) clearTimeout(timer); if (document.visibilityState !== 'hidden') void tick() }
     document.addEventListener('visibilitychange', visibility); void tick()
     return () => { stopped = true; if (timer) clearTimeout(timer); document.removeEventListener('visibilitychange', visibility) }
-  }, [active, view, delivery?.delivery.deliveryId, attempt?.launchAttemptId, ports, sessionId])
+  }, [active, view, delivery?.delivery.deliveryId, attempt?.launchAttemptId, attempt?.state, ports, sessionId, recoveredFromHistory])
   const id = () => crypto.randomUUID()
   const acceptDelivery = (value: DeliverySnapshot, fromHistory = false, expected = source) => {
     const actual = value.delivery.source
@@ -291,7 +300,6 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
       pendingLaunches.current.delete(value.delivery.deliveryId)
     }
     activeDeliveryId.current = value.delivery.deliveryId
-    if (fromHistory && delivery?.delivery.deliveryId !== value.delivery.deliveryId) { setRecoveredFromHistory(true); setConfirmedOriginal(false) }
     if (delivery?.delivery.deliveryId !== value.delivery.deliveryId) {
       setReceipt(undefined); setReceiptRead(undefined); setTimedOut(false)
       const draftKey = value.preflight && preparationKey(value.preflight.preflightId, value.delivery.deliveryId, 'manual')
@@ -383,6 +391,8 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
   const deliveryState = delivery?.delivery.preparationState
   const receiptLabel = receipt ? status(receipt.state, locale) : status('awaiting', locale)
   const receiptConfirmed = receipt?.state === 'accepted'
+  const receiptResolved = receipt !== undefined && receipt.state !== 'awaiting'
+  const canRetryOpened = recoveredFromHistory && receiptRead !== undefined && !receiptResolved
   const preparationStatus = delivery?.delivery.expired ? (locale === 'zh' ? '交接包已过期' : 'The handoff package expired')
     : deliveryState === 'needs_input' ? f.missing
     : deliveryState === 'unknown' || delivery?.delivery.error?.code === 'outcome_unknown' ? f.uncertain
@@ -533,12 +543,13 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
                 acceptDelivery(await api.prepare(pending.preflight, pending.requestId, undefined, delivery.delivery.deliveryId, signal, pending.locale))
                 pendingPreparations.current.delete(key); setManual(false)
               })}>{t.newVersion}</button>}
-            {deliveryState === 'prepared' && !delivery.delivery.expired && !['opened', 'requested'].includes(attempt?.state ?? '') &&
+            {deliveryState === 'prepared' && !delivery.delivery.expired && !receiptResolved
+              && attempt?.state !== 'requested' && (attempt?.state !== 'opened' || canRetryOpened) &&
               <button className="pc-handoff-emphasis" disabled={busy || !canHandoff(delivery.delivery.binding.targetId) || !sourceAllowed}
                 onClick={() => void run(signal => launchDelivery({ ...delivery, launchAttempts: attempt ? [attempt] : [] }, signal))}>{attempt ? t.retry : t.open}</button>}
-            {!attempt || attempt.state !== 'opened' ? <button aria-label={f.refreshDelivery} disabled={busy} onClick={() => void run(async signal => {
+            {(attempt?.state !== 'opened' || canRetryOpened) && <button aria-label={f.refreshDelivery} disabled={busy} onClick={() => void run(async signal => {
               acceptDelivery(await api.get(delivery.delivery.deliveryId, sessionId, signal), true)
-            })}>{t.refresh}</button> : null}
+            })}>{t.refresh}</button>}
           </div>
           <details className="pc-handoff-details"><summary>{f.details}</summary>
             <div className="pc-handoff-row-meta pc-handoff-break">{f.identifier}: <code>{delivery.delivery.deliveryId}</code></div>
@@ -578,7 +589,10 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
             {status(item.preparationState, locale)} {item.pinned ? `· ${t.pinned}` : ''} · <code>{item.deliveryId.slice(-8)}</code>
           </div>
           <div className="pc-handoff-history-actions">
-          <button disabled={busy} onClick={() => void run(async signal => { acceptDelivery(await api.get(item.deliveryId, sessionId, signal), true); setView('flow') })}>{t.recover}</button>
+          <button disabled={busy} onClick={() => void run(async signal => {
+            acceptDelivery(await api.get(item.deliveryId, sessionId, signal), true)
+            setRecoveredFromHistory(true); setConfirmedOriginal(false); setReceiptRead(undefined); setView('flow')
+          })}>{t.recover}</button>
           <button disabled={busy} onClick={() => void run(async signal => {
             const updated = await api.pin(item.deliveryId, sessionId, !item.pinned, signal)
             setHistory(current => current?.map(row => row.deliveryId === updated.deliveryId ? updated : row))

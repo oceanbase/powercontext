@@ -2027,7 +2027,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		try {
 			const value = await ports.readReceipt(id$1, sessionId);
 			if (!isCurrent() || activeDeliveryId.current !== id$1) return void 0;
-			setReceipt(value);
+			setReceipt((current) => current && current.state !== "awaiting" && value.state === "awaiting" ? current : value);
 			setReceiptRead(value.readState);
 			if (value.state !== "awaiting") setTimedOut(false);
 			return value;
@@ -2044,27 +2044,26 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		const start = Date.parse(attempt.createdAt);
 		let delay = 2e3;
 		let inFlight = false;
+		let hasRead = false;
 		const tick = async () => {
 			if (stopped || inFlight || document.visibilityState === "hidden") return;
-			if (!Number.isFinite(start) || Date.now() - start >= 3e5) {
+			const elapsed = !Number.isFinite(start) || Date.now() - start >= 3e5;
+			if (elapsed) {
 				setTimedOut(true);
-				return;
+				if (!recoveredFromHistory || hasRead) return;
 			}
+			hasRead = true;
 			inFlight = true;
 			try {
 				const result = await readReceipt(delivery.delivery.deliveryId, () => !stopped);
 				if (stopped) return;
-				if (result && [
-					"accepted",
-					"needs_clarification",
-					"declined"
-				].includes(result.state)) return;
+				if (result && result.state !== "awaiting") return;
 			} catch {
 				if (!stopped) setReceiptRead("unavailable");
 			} finally {
 				inFlight = false;
 			}
-			if (!stopped && !document.hidden) {
+			if (!stopped && !elapsed && !document.hidden) {
 				timer = setTimeout(tick, Math.min(delay, Math.max(0, 3e5 - (Date.now() - start))));
 				delay = Math.min(delay * 2, 3e4);
 			}
@@ -2085,8 +2084,10 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		view,
 		delivery?.delivery.deliveryId,
 		attempt?.launchAttemptId,
+		attempt?.state,
 		ports,
-		sessionId
+		sessionId,
+		recoveredFromHistory
 	]);
 	const id = () => crypto.randomUUID();
 	const acceptDelivery = (value, fromHistory = false, expected = source) => {
@@ -2098,10 +2099,6 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		const pendingLaunch = pendingLaunches.current.get(value.delivery.deliveryId);
 		if (pendingLaunch && lastAttempt && lastAttempt.launchAttemptId !== pendingLaunch.baseline) pendingLaunches.current.delete(value.delivery.deliveryId);
 		activeDeliveryId.current = value.delivery.deliveryId;
-		if (fromHistory && delivery?.delivery.deliveryId !== value.delivery.deliveryId) {
-			setRecoveredFromHistory(true);
-			setConfirmedOriginal(false);
-		}
 		if (delivery?.delivery.deliveryId !== value.delivery.deliveryId) {
 			setReceipt(void 0);
 			setReceiptRead(void 0);
@@ -2222,6 +2219,8 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 	const deliveryState = delivery?.delivery.preparationState;
 	const receiptLabel = receipt ? status(receipt.state, locale) : status("awaiting", locale);
 	const receiptConfirmed = receipt?.state === "accepted";
+	const receiptResolved = receipt !== void 0 && receipt.state !== "awaiting";
+	const canRetryOpened = recoveredFromHistory && receiptRead !== void 0 && !receiptResolved;
 	const preparationStatus = delivery?.delivery.expired ? locale === "zh" ? "交接包已过期" : "The handoff package expired" : deliveryState === "needs_input" ? f.missing : deliveryState === "unknown" || delivery?.delivery.error?.code === "outcome_unknown" ? f.uncertain : deliveryState === "failed" ? f.unavailable : status(deliveryState, locale);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(__deepseek_ai_dsh_client_ui_primitives.Menu, {
 		open: active,
@@ -2596,7 +2595,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 										}),
 										children: t.newVersion
 									}),
-									deliveryState === "prepared" && !delivery.delivery.expired && !["opened", "requested"].includes(attempt?.state ?? "") && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									deliveryState === "prepared" && !delivery.delivery.expired && !receiptResolved && attempt?.state !== "requested" && (attempt?.state !== "opened" || canRetryOpened) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 										className: "pc-handoff-emphasis",
 										disabled: busy || !canHandoff(delivery.delivery.binding.targetId) || !sourceAllowed,
 										onClick: () => void run((signal) => launchDelivery({
@@ -2605,14 +2604,14 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 										}, signal)),
 										children: attempt ? t.retry : t.open
 									}),
-									!attempt || attempt.state !== "opened" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									(attempt?.state !== "opened" || canRetryOpened) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 										"aria-label": f.refreshDelivery,
 										disabled: busy,
 										onClick: () => void run(async (signal) => {
 											acceptDelivery(await api.get(delivery.delivery.deliveryId, sessionId, signal), true);
 										}),
 										children: t.refresh
-									}) : null
+									})
 								]
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
@@ -2738,6 +2737,9 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 										disabled: busy,
 										onClick: () => void run(async (signal) => {
 											acceptDelivery(await api.get(item.deliveryId, sessionId, signal), true);
+											setRecoveredFromHistory(true);
+											setConfirmedOriginal(false);
+											setReceiptRead(void 0);
 											setView("flow");
 										}),
 										children: t.recover
