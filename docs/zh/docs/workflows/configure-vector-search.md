@@ -77,8 +77,9 @@ apply 命令，即可续用已经完整暂存的版本。只有待处理的 Topi
 apply 要求托管存储已经启用向量。初始化时没有 embedding profile 的托管部署没有共享向量表，也没有存储的 profile
 声明，因此命令会在写入任何暂存数据前拒绝执行；请保留该仅 FTS 部署，或新建一个启用向量的部署。对于托管 SQLite 或
 SeekDB 部署，命令会把已接受的 profile 切换作为待完成转换记录到外部维护日志中，而不会改写已经发布的迁移 release
-checksum；只有配置好的 Server 启动计划接受激活后的存储后，才把该转换标记为完成。如果命令在激活提交后中断，请重新
-执行同一 apply 命令；待完成转换会让它继续完成。
+checksum；只有配置好的 Server 启动计划接受激活后的存储后，才把该转换标记为完成。维护日志不在默认相邻目录时，
+必须传入部署使用的 `--evidence-dir`；如果所选目录缺少维护日志，apply 会在暂存、推理或写入存储前拒绝执行。
+如果命令在激活提交后中断，请重新执行同一 apply 命令；待完成转换会让它继续完成。
 
 激活前发生失败会保留旧形状和旧活跃向量。OceanBase 与 SeekDB 会保留上一代派生向量表，直到激活后的向量和共享存储声明通过验证。
 如果激活后的验证或清理失败，请在维护模式下重新执行同一 apply 命令，完成验证与恢复后才丢弃上一代数据。
@@ -93,7 +94,9 @@ powercontext server topic-memory-reindex --action apply --maintenance-confirmed 
 ```
 
 该选项使用同一目标 provider，根据保留的权威历史重建当前 Atomic 投影，不改变 Atomic Artifact 的身份、版本或状态。
-Topic 暂存先提交，Atomic 重建随后独立提交；保留证据投影和当前 Atomic 投影都通过验证后，才允许激活 Topic 或清理恢复世代。
+嵌入式 SeekDB 不支持修改现有 Atomic VECTOR 维度：即使指定该选项，命令也会在检查阶段、暂存或 DDL 之前拒绝该切换。
+请保持当前维度，或创建启用向量的新部署；同维重建仍然受支持。Topic 暂存先提交，Atomic 重建随后独立提交；
+保留证据投影和当前 Atomic 投影都通过验证后，才允许激活 Topic 或清理恢复世代。
 如果后续 Topic 激活失败，
 权威数据和旧 Topic 世代仍然保留，但 Atomic 可能已经使用目标 profile，而共享声明和活跃 Topic 形状仍是旧 profile。
 此时必须保持停服，并使用相同选项重新执行同一 apply 命令；不要重启旧服务 profile，也不要改为仅执行 Atomic 迁移。

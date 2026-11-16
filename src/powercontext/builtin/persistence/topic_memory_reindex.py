@@ -50,11 +50,6 @@ TOPIC_MEMORY_REINDEX_TOPIC_VEC_TABLE = "pc_topic_memory_reindex_topic_vec"
 TOPIC_MEMORY_REINDEX_CHUNK_VEC_TABLE = "pc_topic_memory_reindex_chunk_vec"
 TOPIC_MEMORY_REINDEX_PREVIOUS_PREFIX = "pc_topic_memory_reindex_previous_"
 
-_NATIVE_DIMENSION_CHANGE_ERROR = (
-    "Topic Memory reindex does not support changing the native Atomic Memory VECTOR dimension; "
-    "keep the current dimension or create a new vector-enabled deployment"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class TopicMemoryReindexChunk:
@@ -449,7 +444,10 @@ async def _atomic_profile_error(connection: AsyncConnection, profile: EmbeddingP
             )
         )
         if str(actual).upper() != f"VECTOR({profile.dimension})":
-            return _NATIVE_DIMENSION_CHANGE_ERROR
+            return (
+                "Atomic Memory's physical vector column is not target-compatible; "
+                "explicit Atomic Memory rebuild is required"
+            )
     return None
 
 
@@ -493,10 +491,13 @@ async def _inspect_atomic_rebuild(
     *,
     requested: bool,
 ) -> tuple[bool, str | None]:
+    if connection.dialect.name == "mysql":
+        from powercontext.builtin.persistence.oceanbase.atomic_memory_index import seekdb_vector_dimension_error
+
+        if error := await seekdb_vector_dimension_error(connection, profile):
+            return False, error
     atomic_error = await _atomic_profile_error(connection, profile)
-    rebuild_can_address = atomic_error is None or not (
-        atomic_error.startswith("managed Atomic Memory storage") or atomic_error == _NATIVE_DIMENSION_CHANGE_ERROR
-    )
+    rebuild_can_address = atomic_error is None or not atomic_error.startswith("managed Atomic Memory storage")
     if atomic_error is None:
         from powercontext.builtin.runtime.atomic_memory_rebuild import verify_atomic_memory_current
 

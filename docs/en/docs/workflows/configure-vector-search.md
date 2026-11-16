@@ -86,8 +86,9 @@ shared vector tables or stored profile declaration, so the command rejects it be
 FTS-only deployment or create a new vector-enabled one. For a managed SQLite or SeekDB deployment, the command records
 the accepted profile switch in the external maintenance journal as a pending transition instead of rewriting the release
 checksums of already-published migrations, and marks it complete only after the configured Server startup plan admits the
-activated storage. If the command stops after activation commits, rerun the same apply command; the pending transition
-lets it finish.
+activated storage. Pass the deployment's `--evidence-dir` when its journal is outside the default adjacent directory.
+Apply rejects a missing journal in the selected directory before staging, inference, or storage writes. If the command
+stops after activation commits, rerun the same apply command; the pending transition lets it finish.
 
 A failure before activation preserves the old shape and active vectors. OceanBase and SeekDB retain the previous derived
 vector tables until the activated vectors and shared storage declaration validate. If post-activation validation or
@@ -105,9 +106,11 @@ powercontext server topic-memory-reindex --action apply --maintenance-confirmed 
 ```
 
 The option rebuilds the current Atomic projection from retained authoritative history with the same target provider; it
-does not change Atomic Artifact identities, revisions, or state. Topic staging commits first, the Atomic rebuild commits
-separately, and both retained-evidence and current Atomic projections are verified before Topic activation or recovery
-cleanup. If later Topic activation fails,
+does not change Atomic Artifact identities, revisions, or state. Embedded SeekDB does not support changing an existing
+Atomic VECTOR dimension: the command rejects that transition during inspection before staging or DDL, even with this
+option. Keep the current dimension or create a new vector-enabled deployment; same-dimension rebuilds remain supported.
+Topic staging commits first, the Atomic rebuild commits separately, and both retained-evidence and current Atomic
+projections are verified before Topic activation or recovery cleanup. If later Topic activation fails,
 authoritative data and the old Topic generation remain, but Atomic may already use the target profile while the shared
 declaration and active Topic shape still use the old one. Keep service stopped and resume the same apply command with
 the same option; do not restart the old service profile or switch to an Atomic-only migration.

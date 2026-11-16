@@ -305,10 +305,12 @@ tags in that transaction. With vectors disabled, it retains body/full-text
 data and clears embedding, profile and input hashes. SQLite refreshes its derived FTS helper using stable
 Scope/Artifact identity tokens, independent of rowids changed by `VACUUM`.
 
-For OceanBase and seekDB, a changed vector dimension first clears the derived vectors, replaces the native
-vector index and reconfigures the current column offline. This DDL can commit independently; keep maintenance
-in force throughout the operation. Matching dimensions still require all active rows to be embedded with
-the target profile. No historical vector cache is retained.
+For OceanBase, a changed vector dimension first clears the derived vectors, replaces the native vector index
+and reconfigures the current column offline. Embedded SeekDB does not support changing an existing native VECTOR
+dimension; the command rejects that transition before vector-index or column DDL. Keep the current dimension or
+create a new vector-enabled deployment. OceanBase DDL can commit independently; keep maintenance in force throughout
+the operation. Matching dimensions still require all active rows to be embedded with the target profile. No historical
+vector cache is retained.
 
 Rows commit separately. An interrupted run can leave a partial projection; repeat the same command while
 writes remain stopped. It prepares every active row again rather than resuming through a progress table.

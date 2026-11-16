@@ -23,16 +23,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.dialects import mysql
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryStorageInvariantError
 from powercontext.builtin.persistence import topic_memory_reindex as shared_reindex_module
+from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexError
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import topic_memory_reindex as reindex_module
+from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
-from powercontext.builtin.persistence.topic_memory_reindex import reindex_topic_memory
+from powercontext.builtin.persistence.topic_memory_reindex import plan_topic_memory_reindex, reindex_topic_memory
 
 
 def _profile() -> EmbeddingProfile:
@@ -176,11 +179,7 @@ def test_oceanbase_activation_requires_every_registered_vector_index(monkeypatch
     asyncio.run(scenario())
 
 
-def test_native_dimension_change_is_rejected_before_ddl_and_reopens_safely(monkeypatch) -> None:
-    """Exercise the native planner without claiming embedded SeekDB execution."""
-
-    source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
-    target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
+def _patch_native_planner(monkeypatch: pytest.MonkeyPatch, source: EmbeddingProfile) -> None:
     old_fingerprint = topic_memory_embedding_profile_fingerprint(source)
     monkeypatch.setattr(
         shared_reindex_module,
@@ -211,6 +210,36 @@ def test_native_dimension_change_is_rejected_before_ddl_and_reopens_safely(monke
     monkeypatch.setattr(shared_reindex_module, "declared_storage_profile", AsyncMock(return_value=source))
     monkeypatch.setattr(shared_reindex_module, "staged_fingerprint", AsyncMock(return_value=None))
 
+
+def _native_connection(drivername: str, vector_type: str, incompatible: int | None) -> MagicMock:
+    connection = MagicMock()
+    connection.dialect = mysql.dialect()
+    connection.engine.url.drivername = drivername
+    connection.execute = AsyncMock()
+    connection.exec_driver_sql = AsyncMock()
+
+    async def scalar(statement, _parameters=None):
+        if "information_schema.columns" in str(statement):
+            return vector_type
+        if "information_schema.statistics" in str(statement):
+            return 1
+        return incompatible
+
+    connection.scalar = AsyncMock(side_effect=scalar)
+    return connection
+
+
+@pytest.mark.parametrize("incompatible", [None, 1], ids=["empty-projection", "populated-projection"])
+def test_seekdb_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    incompatible: int | None,
+) -> None:
+    """Exercise fresh native connections without claiming embedded SeekDB execution."""
+
+    source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
+    target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
+    _patch_native_planner(monkeypatch, source)
+
     class _Database:
         def __init__(self, connection) -> None:
             self.connection = connection
@@ -220,23 +249,11 @@ def test_native_dimension_change_is_rejected_before_ddl_and_reopens_safely(monke
             yield self.connection
 
     async def scenario() -> None:
-        # Each attempt uses a new connection and backend, matching a close and
-        # reopen after the rejected command. Neither attempt may reach DDL.
         for _attempt in range(2):
             backend = OceanBaseTopicMemoryReindexBackend(target)
             backend.validate_active = AsyncMock()
             backend.prepare = AsyncMock(side_effect=AssertionError("persistent DDL must not be reached"))
-            connection = MagicMock()
-            connection.dialect = mysql.dialect()
-            connection.execute = AsyncMock()
-            connection.exec_driver_sql = AsyncMock()
-
-            async def scalar(statement, _parameters=None):
-                if "information_schema.columns" in str(statement):
-                    return "VECTOR(2)"
-                return None
-
-            connection.scalar = AsyncMock(side_effect=scalar)
+            connection = _native_connection("mysql+aseekdb", "VECTOR(2)", incompatible)
             report = await reindex_topic_memory(
                 cast(AsyncDatabase, _Database(connection)),
                 backend,
@@ -247,15 +264,68 @@ def test_native_dimension_change_is_rejected_before_ddl_and_reopens_safely(monke
 
             assert not report.ready and not report.activated
             assert not report.atomic_memory_rebuild_required
-            assert any(
-                "does not support changing the native Atomic Memory VECTOR dimension" in error
-                for error in report.errors
-            )
+            assert any("embedded SeekDB does not support changing" in error for error in report.errors)
             backend.prepare.assert_not_awaited()
             connection.execute.assert_not_called()
             connection.exec_driver_sql.assert_not_called()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("drivername", "vector_type", "incompatible"),
+    [
+        pytest.param("mysql+aiomysql", "VECTOR(2)", None, id="remote-oceanbase-cross-dimension"),
+        pytest.param("mysql+aseekdb", "VECTOR(3)", 1, id="seekdb-same-dimension-row-rebuild"),
+    ],
+)
+def test_supported_native_atomic_rebuilds_remain_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    drivername: str,
+    vector_type: str,
+    incompatible: int | None,
+) -> None:
+    source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
+    target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
+    _patch_native_planner(monkeypatch, source)
+
+    async def scenario() -> None:
+        backend = OceanBaseTopicMemoryReindexBackend(target)
+        backend.validate_active = AsyncMock()
+        connection = _native_connection(drivername, vector_type, incompatible)
+        report = await plan_topic_memory_reindex(connection, backend, rebuild_atomic_memory=True)
+
+        assert report.ready and not report.activated
+        assert report.atomic_memory_rebuild_required
+        assert report.errors == ()
+        connection.execute.assert_not_called()
+        connection.exec_driver_sql.assert_not_called()
+
+    asyncio.run(scenario())
+
+
+def test_seekdb_vector_reconfiguration_rejects_before_index_or_column_ddl() -> None:
+    target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
+    connection = _native_connection("mysql+aseekdb", "VECTOR(2)", None)
+    statements: list[str] = []
+
+    async def ddl(statement, *_args, **_kwargs) -> None:
+        statements.append(str(statement))
+        if str(statement).startswith("ALTER TABLE"):
+            raise SQLAlchemyError("1235")
+
+    connection.exec_driver_sql = AsyncMock(side_effect=ddl)
+
+    async def scenario() -> None:
+        with pytest.raises(AtomicMemoryIndexError) as caught:
+            await OceanBaseAtomicMemoryIndex(target).reconfigure_vector_column(connection)
+        assert "embedded SeekDB does not support changing" in str(caught.value)
+
+    asyncio.run(scenario())
+    assert statements == []
+    observed = [str(call.args[0]) for call in connection.scalar.await_args_list]
+    assert any("information_schema.columns" in statement for statement in observed)
+    assert not any("information_schema.statistics" in statement for statement in observed)
 
 
 @pytest.mark.skipif(
