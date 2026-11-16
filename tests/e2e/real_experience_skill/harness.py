@@ -30,7 +30,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -297,6 +297,11 @@ class Recorder:
         )
 
 
+_SERVER_STARTUP_SECONDS = 15
+_CONFIGURED_SERVER_STARTUP_SECONDS = 60
+_SERVER_SHUTDOWN_WAIT_SECONDS = 15
+
+
 @dataclass(slots=True)
 class RunningServer:
     server: uvicorn.Server
@@ -376,7 +381,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             "embedding_dimension": configured_settings.inference.embedding_dimension,
             "database": configured_settings.database.kind,
             "database_isolated": isinstance(configured_settings.database, SQLiteConfig),
-            "experience_incubation": "APScheduler with the configured real generation model",
+            "experience_incubation": "artifact processing supervisor with the configured real generation model",
             "experience_schedule_seconds": CONFIGURED_EXPERIENCE_SCHEDULE_SECONDS,
         })
     recorder.write_report()
@@ -393,10 +398,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             validation_command="python test_config.py" if configured_settings is None else "python3 test_config.py",
         )
         if configured_settings is None:
-            server = _start_server(
-                recorder.directory / "runtime.db",
-                recorder.directory / "scheduler.db",
-            )
+            server = _start_server(recorder.directory / "runtime.db")
         else:
             external_skill = _prepare_external_skill(recorder.directory / "work" / "external-skills")
             configured_server_settings = _configured_server_settings(
@@ -404,10 +406,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
                 recorder.directory,
                 external_skill.parent,
             )
-            server = _start_configured_server(
-                configured_server_settings,
-                recorder.directory / "configured-scheduler.db",
-            )
+            server = _start_configured_server(configured_server_settings)
         recorder.environment["server_url"] = server.base_url
         recorder.write_report()
         if configured_settings is None:
@@ -447,10 +446,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             )
             server.stop()
             server = None
-            server = _start_configured_server(
-                _without_scheduled_processing(configured_server_settings),
-                recorder.directory / "configured-scheduler.db",
-            )
+            server = _start_configured_server(_without_scheduled_processing(configured_server_settings))
             asyncio.run(
                 _verify_configured_restart(
                     database=configured_settings.database,
@@ -912,7 +908,7 @@ async def _run_configured_journey(
             )
 
         with recorder.scenario(
-            "configured LLM and APScheduler incubate one gated Experience Candidate",
+            "configured LLM and automatic processing incubate one gated Experience Candidate",
             "api/experience-source.json",
             "api/experience-candidate.json",
             "api/experience-approved.json",
@@ -2031,7 +2027,7 @@ def _prepare_repositories(
     return repositories
 
 
-def _start_server(database: Path, scheduler: Path) -> RunningServer:
+def _start_server(database: Path) -> RunningServer:
     with ExitStack() as resources:
         endpoint = resources.enter_context(_task_outcome_provider())
         app = create_server_app(
@@ -2044,7 +2040,6 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
                 ),
                 mcp=McpConfig(enabled=False),
             ),
-            scheduler_path=scheduler,
         )
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         resources.callback(listener.close)
@@ -2055,22 +2050,21 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
-        deadline = time.monotonic() + 15
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        if not server.started:
-            _fail("PowerContext Server did not start")
+        owned = resources.pop_all()
+        _wait_for_server_start(
+            server, thread, timeout=_SERVER_STARTUP_SECONDS, description="PowerContext Server", release=owned.close
+        )
         return RunningServer(
             server=server,
             thread=thread,
             listener=listener,
             base_url=f"http://127.0.0.1:{port}",
-            resources=resources.pop_all(),
+            resources=owned,
         )
 
 
-def _start_configured_server(settings: ServerSettings, scheduler_path: Path) -> RunningServer:
-    app = create_server_app(settings=settings, scheduler_path=scheduler_path)
+def _start_configured_server(settings: ServerSettings) -> RunningServer:
+    app = create_server_app(settings=settings)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))
@@ -2079,13 +2073,51 @@ def _start_configured_server(settings: ServerSettings, scheduler_path: Path) -> 
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 60
+    _wait_for_server_start(
+        server,
+        thread,
+        timeout=_CONFIGURED_SERVER_STARTUP_SECONDS,
+        description="configured PowerContext Server",
+        release=listener.close,
+    )
+    return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
+
+
+def _wait_for_server_start(
+    server: uvicorn.Server,
+    thread: threading.Thread,
+    *,
+    timeout: float,
+    description: str,
+    release: Callable[[], object],
+) -> None:
+    """Fail an unstarted Server without releasing its listener or resources while its thread can still use them."""
+    started_at = time.monotonic()
+    deadline = started_at + timeout
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
-    if not server.started:
-        listener.close()
-        _fail("configured PowerContext Server did not start")
-    return RunningServer(server=server, thread=thread, listener=listener, base_url=f"http://127.0.0.1:{port}")
+    if server.started:
+        return
+    if not thread.is_alive():
+        release()
+        _fail(f"{description} did not start; its thread exited after {time.monotonic() - started_at:.1f} s")
+    # Uvicorn finishes lifespan startup before it honors should_exit, then adopts the listener and shuts down.
+    # Releasing earlier makes a late startup raise EBADF in an unrelated later test.
+    server.should_exit = True
+    thread.join(timeout=_SERVER_SHUTDOWN_WAIT_SECONDS)
+    if not thread.is_alive():
+        release()
+        _fail(f"{description} did not start within {timeout:g} s; it stopped after shutdown was requested")
+    threading.Thread(target=_release_after_exit, args=(thread, release), daemon=True).start()
+    _fail(
+        f"{description} did not start within {timeout:g} s and was still starting "
+        f"{_SERVER_SHUTDOWN_WAIT_SECONDS:g} s after shutdown was requested; it is released once its thread exits"
+    )
+
+
+def _release_after_exit(thread: threading.Thread, release: Callable[[], object]) -> None:
+    thread.join()
+    release()
 
 
 def _validate_configured_settings(settings: ServerSettings) -> None:

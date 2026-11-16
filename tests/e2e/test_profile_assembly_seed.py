@@ -108,7 +108,7 @@ def test_topic_seed_preserves_configured_profile_and_remains_searchable(
                 pytest.fail("An incompatible default processing profile must remain rejected")
 
         await _seed_topics(config, [shared.scope_id, current.scope_id], embedding)
-        async with open_builtin_runtime(config, scheduler_path=migration_backend.directory / "scheduler.db") as runtime:
+        async with open_builtin_runtime(config) as runtime:
             prepared = await runtime.context.for_scope(current.scope_id).prepare(
                 PrepareContextRequest.model_validate({
                     "query": "OpenAPI client",

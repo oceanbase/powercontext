@@ -53,6 +53,23 @@ Useful preparatory steps include:
 - After merge, keep the RFC as a durable design record.
 - If a dedicated implementation issue already exists, it may be linked from the RFC as an optional `Tracking Issue`.
 
+## Public content and references
+
+An RFC is a permanent, public design record. Its motivation and every reference must be usable by readers outside the organization, because the RFC process builds consensus in the open. Check these rules before submitting an RFC PR:
+
+- **No external names.** Do not include the name of an external customer, user, partner, or their internal project — in the body, header fields, link text, examples, or commit messages. State the requirement in neutral terms. Do not redact only one locale: `docs/en/` and `docs/zh/` must carry the same wording and the same references.
+- **No internal links.** Do not link to Ant Group / Alibaba internal documents or anything that requires corporate SSO, in particular links to `yuque.antfin.com/...`. The same applies to other intranet domains, private document IDs, and internal chat or ticket links. A reviewer who cannot open a source cannot verify a design that claims to be based on it.
+- **Use public references.** Link a public GitHub issue, PR, RFC, or upstream public documentation. If the underlying requirement is not public, summarize the relevant part in the Summary and Motivation of both locales instead of pointing at it.
+- **Keep the header to the template.** Use only the fields in [`0000_example.md`](0000_example.md) (`Proposal Name`, `Start Date`, `RFC PR`) plus the optional `Tracking Issue` described above. Do not invent header fields for requirement sources or business catalogs; extra provenance belongs in the body or in a linked public issue.
+
+Real internal URLs can be checked mechanically (the bare domain quoted above is a forbidden example, not a link); external names need a manual read of both locales:
+
+```bash
+git grep -n -E 'https?://[^ ]*(antfin|yuque)[^ ]*' -- docs/en docs/zh
+```
+
+These rules apply repository-wide; see the "Write Documentation" section of [CONTRIBUTING.md](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md).
+
 ## Implementing an RFC
 
 A merged RFC does not imply implementation priority, assignment, or completion.

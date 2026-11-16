@@ -801,7 +801,8 @@ class PowerContextClient:
 
     async def query_artifact_tags(self, scope_id: str, request: QueryArtifactTagsRequest) -> ArtifactTagPage:
         """Find visible targets by exact tags within a Scope."""
-        if "memory" in (request.families or ()) or "memory_entry" in (request.target_types or ()):
+        families = {family.root for family in request.families or ()}
+        if "memory" in families or "memory_entry" in (request.target_types or ()):
             raise ValueError("legacy Memory tag queries are unsupported; use atomic-memory Artifact tags")  # noqa: TRY003
         return await self._request(QUERY_ARTIFACT_TAGS, request, path_parameters={"scope_id": scope_id})
 
@@ -1082,11 +1083,23 @@ class PowerContextClient:
             raise InvalidResponseError(PREPARE_CONTEXT.path, request_id=None)
         return result.root
 
-    async def check_context(self, request: CheckContextRequest) -> ContextCheckResult:
-        """Check final bytes; only a complete allow permits the requested phase."""
-        result = await self._request(CHECK_CONTEXT, request)
-        if result.phase != request.root.phase or (
-            result.decision == "allow" and (not result.coverage.complete or not result.binding)
+    async def check_context(self, request: CheckContextRequest, *, resolve_target: bool = False) -> ContextCheckResult:
+        """Check final bytes; privileged target resolution is opt-in on before_send only."""
+        if resolve_target and request.root.phase != "before_send":
+            raise ValueError("target resolution requires before_send")  # noqa: TRY003
+        result = await self._request(
+            CHECK_CONTEXT,
+            request,
+            extra_headers={"X-PowerContext-Resolve-Target": "true"} if resolve_target else None,
+        )
+        if (
+            result.phase != request.root.phase
+            or (result.decision == "allow" and (not result.coverage.complete or not result.binding))
+            or (
+                resolve_target
+                and result.decision == "allow"
+                and (not result.target_endpoint or not result.target_protocol)
+            )
         ):
             raise InvalidResponseError(CHECK_CONTEXT.path, request_id=None)
         return result
@@ -1434,25 +1447,8 @@ def _prepare_request(
         if not isinstance(payload, dict):
             message = "Request must serialize to an object."
             raise TypeError(message)
-        if (
-            operation is PREPARE_CONTEXT
-            and isinstance(request, PrepareContextRequest)
-            and "assembly" not in request.model_fields_set
-        ):
-            payload.pop("assembly", None)
-        if (
-            operation is PREPARE_CONTEXT
-            and isinstance(request, PrepareContextRequest)
-            and not payload.get("include_receipt", False)
-        ):
-            # ``PREPARE_CONTEXT`` serializes its defaults because an older Server needs the fields
-            # it already knows about. ``include_receipt`` is not one of them: an older Server
-            # rejects the key with ``422 invalid_request``, so a client upgraded ahead of its
-            # Server must not volunteer a flag whose default means "say nothing extra". ``false``
-            # and absence are the same request.
-            payload.pop("include_receipt", None)
-        if operation is PREPARE_CONTEXT and not payload.get("include_reuse", False):
-            payload.pop("include_reuse", None)
+        if operation is PREPARE_CONTEXT:
+            _trim_prepare_context_payload(request, payload)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:
@@ -1461,6 +1457,27 @@ def _prepare_request(
         request_query.update({key: value for key, value in query_parameters.items() if value is not None})
     path = _bind_operation_path(operation, path_parameters)
     return path, json_payload, request_query or None
+
+
+def _trim_prepare_context_payload(request: object, payload: dict[str, Any]) -> None:
+    """Send only the Prepared Context fields an older Server already accepts, unless they are used."""
+
+    if isinstance(request, PrepareContextRequest) and "assembly" not in request.model_fields_set:
+        payload.pop("assembly", None)
+    if isinstance(payload.get("assembly"), dict):
+        # Plugin search fields are new; omit them when unused so an older Server accepts the request.
+        for section in payload["assembly"].get("sections", []):
+            if section.get("search") is None:
+                section.pop("search", None)
+    if isinstance(request, PrepareContextRequest) and not payload.get("include_receipt", False):
+        # ``PREPARE_CONTEXT`` serializes its defaults because an older Server needs the fields
+        # it already knows about. ``include_receipt`` is not one of them: an older Server
+        # rejects the key with ``422 invalid_request``, so a client upgraded ahead of its
+        # Server must not volunteer a flag whose default means "say nothing extra". ``false``
+        # and absence are the same request.
+        payload.pop("include_receipt", None)
+    if not payload.get("include_reuse", False):
+        payload.pop("include_reuse", None)
 
 
 def _bind_operation_path(

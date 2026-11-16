@@ -107,23 +107,17 @@ async def load_notes(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -
             ctx["notes_pager"] = cursor_links(request, ctx, "notes", result["next_cursor"])
 
 
-def present_search(result, request, ctx):
-    items = memory_view({
-        "items": [{**hit["memory"], "matched_by": hit["matched_by"], "score": hit["score"]} for hit in result["hits"]]
-    })
-    window = list_page(items, request.query_params.get("notes_page"))
-    ctx["data"]["notes"] = window["items"]
-    ctx["notes_pager"] = list_links(ctx, "notes", window)
-    ctx["search_limited"] = len(result["hits"]) == 50
-    ctx["search_used_mode"] = result["mode"]
-
-
 async def load_stats(api: DashboardAPI, ctx: dict[str, Any]) -> None:
     try:
-        usage, recall = await api.usage(ctx["scope"], ctx["period"])
-        ctx["stats"] = usage_view(usage, recall)
+        result = await api.statistics(ctx["scope"], ctx["period"])
     except ReadError as error:
         ctx["errors"]["usage"] = error
+        if ctx["page"] == "home":
+            ctx["errors"]["inventory"] = error
+        return
+    if ctx["page"] == "home":
+        ctx["inventory"] = result["inventory"]
+    ctx["stats"] = usage_view(result["usage"], result["recall"])
 
 
 async def select_note(api: DashboardAPI, ctx: dict[str, Any]) -> None:
@@ -136,6 +130,16 @@ async def select_note(api: DashboardAPI, ctx: dict[str, Any]) -> None:
         )
         if current and "matched_by" in current:
             ctx["selected_note"].update(matched_by=current["matched_by"], score=current["score"])
+    note_sources(ctx)
+
+
+def note_sources(ctx: dict[str, Any]) -> None:
+    """Bind source reading to the opened immutable memory revision."""
+    note = ctx.get("selected_note")
+    ctx["source_record"] = note
+    ctx["related_sources"] = (
+        [] if note is None else [source for source in note["sources"] if source["source_type"] == "content"]
+    )
 
 
 async def load_record(api: DashboardAPI, request: Request, ctx: dict[str, Any], *, include_history=True) -> None:
@@ -173,7 +177,7 @@ async def load_home(api: DashboardAPI, request: Request, ctx: dict[str, Any]) ->
     )
 
 
-async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:  # noqa: C901
     page = ctx["page"]
     if page == "home":
         await load_home(api, request, ctx)
@@ -193,6 +197,10 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_profile(api, request, ctx)
     elif page == "prompts":
         await load_prompts(api, request, ctx)
+    elif page == "processing":
+        from powercontext.server.dashboard.processing import load_processing
+
+        await load_processing(api, request, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
 
@@ -339,3 +347,14 @@ async def load_profile(api: DashboardAPI, request: Request, ctx: dict[str, Any],
     ctx["profile_html"] = profile_html(record["content"])
     ctx["source_record"] = record
     ctx["related_sources"] = [source for source in record["sources"] if source["source_type"] == "content"]
+
+
+def present_search(result, request, ctx):
+    items = memory_view({
+        "items": [{**hit["memory"], "matched_by": hit["matched_by"], "score": hit["score"]} for hit in result["hits"]]
+    })
+    window = list_page(items, request.query_params.get("notes_page"))
+    ctx["data"]["notes"] = window["items"]
+    ctx["notes_pager"] = list_links(ctx, "notes", window)
+    ctx["search_limited"] = len(result["hits"]) == 50
+    ctx["search_used_mode"] = result["mode"]

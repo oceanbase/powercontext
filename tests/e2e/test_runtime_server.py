@@ -683,6 +683,119 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
     asyncio.run(scenario())
 
 
+def test_sdk_records_and_reads_structured_stop_reasons(tmp_path: Path) -> None:
+    app = create_server_app(settings=_server_settings(tmp_path / "stop-reasons.db"))
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Stop reasons", summary="Structured stop reasons", idempotency_key="stop-reasons"
+                )
+            )
+            captured = await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id=scope.scope_id,
+                    source_id="evidence-1",
+                    content="Required condition is absent.",
+                    metadata={},
+                )
+            )
+            for kind, status, basis in (
+                ("safety", "blocked", "declared"),
+                ("scope", "cancelled", "declared"),
+                ("authorization", "blocked", "verified"),
+                ("capability", "cancelled", "verified"),
+                ("missing_evidence", "blocked", "verified"),
+            ):
+                reason = {
+                    "kind": kind,
+                    "condition": "继续执行需要先确认前提条件。",
+                    "basis": basis,
+                    "evidence": []
+                    if basis == "declared"
+                    else [{"kind": "source", "source_ref": captured.source.model_dump(mode="json")}],
+                }
+                request = RecordTaskOutcomeRequest.model_validate({
+                    "scope_id": scope.scope_id,
+                    "source_id": f"outcome-{kind}",
+                    "outcome": {
+                        "schema": "powercontext.task-outcome.v1",
+                        "trust": "untrusted_observation",
+                        "objective": "Attempt an action.",
+                        "status": status,
+                        "summary": "The caller deliberately stopped.",
+                        "stop_reason": reason,
+                        "observations": [
+                            {"text": "The caller reported stopping.", "basis": "declared", "evidence": []}
+                        ],
+                        "checks": [],
+                        "produced_artifacts": [],
+                        "remaining_work": [],
+                    },
+                })
+                receipt = await client.record_task_outcome(request)
+                stored = await client.get_source(scope.scope_id, receipt.source.name, receipt.source.source_id)
+                content = json.loads(stored.content)
+                assert content["status"] == status
+                assert content["stop_reason"] == {
+                    **reason,
+                    "evidence": []
+                    if basis == "declared"
+                    else [
+                        {
+                            "kind": "source",
+                            "source_ref": {"source_type": captured.source.name, "source_id": captured.source.source_id},
+                        }
+                    ],
+                }
+
+    asyncio.run(scenario())
+
+
+def test_http_rejects_invalid_stop_reason_combinations_before_writing(tmp_path: Path) -> None:
+    app = create_server_app(settings=_server_settings(tmp_path / "invalid-stop-reasons.db"))
+    with TestClient(app) as transport:
+        scope = transport.get("/v1/scopes/default")
+        scope.raise_for_status()
+        scope_id = scope.json()["scope_id"]
+        declared = {"kind": "safety", "condition": "Cannot guarantee completion.", "basis": "declared", "evidence": []}
+        citation = {"kind": "source", "source_ref": {"name": "content", "source_id": "evidence-1"}}
+        for index, (status, reason) in enumerate([
+            *((status, declared) for status in ("succeeded", "partial", "failed", "unknown")),
+            ("blocked", {**declared, "basis": "verified"}),
+            ("cancelled", {**declared, "evidence": [citation]}),
+        ]):
+            response = transport.post(
+                "/v1/work/outcomes/record",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": f"invalid-{index}",
+                    "outcome": {
+                        "schema": "powercontext.task-outcome.v1",
+                        "trust": "untrusted_observation",
+                        "objective": "Attempt an action.",
+                        "status": status,
+                        "summary": "The caller stopped.",
+                        "stop_reason": reason,
+                        "observations": [
+                            {"text": "The caller reported stopping.", "basis": "declared", "evidence": []}
+                        ],
+                        "checks": [],
+                        "produced_artifacts": [],
+                        "remaining_work": [],
+                    },
+                },
+            )
+            assert response.status_code == 422
+            readback = transport.get(f"/v1/scopes/{scope_id}/sources/content/invalid-{index}")
+            assert readback.status_code == 404
+
+
 def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> None:
     app = create_server_app(settings=_server_settings(tmp_path / "work-continuity.db", handoff_report=True))
 

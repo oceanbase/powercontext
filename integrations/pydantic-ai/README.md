@@ -79,8 +79,9 @@ to create an ID. A callback is evaluated once per run.
 ## Recall, capture, and trust
 
 Automatic recall uses the latest textual user prompt and prepends one current-run system request containing bounded
-prepared context. That block is explicitly labeled untrusted historical evidence. Recall, capture, and flush fail
-open when the Server is unavailable; explicit Memory tools still surface `ModelRetry` so the model can recover.
+prepared context. That block starts with `PowerContext host-supplied context`, followed by the Server's prepared
+content, whose trust policy at the top labels it untrusted historical evidence. Recall, capture, and flush fail open
+when the Server is unavailable; explicit Memory tools still surface `ModelRetry` so the model can recover.
 
 Capture is disabled by default. Enabling `CAPTURE_EVENTS=true` means you consent to sending the initial user text,
 visible model text and tool calls, and completed tool arguments and results to the configured PowerContext scope.

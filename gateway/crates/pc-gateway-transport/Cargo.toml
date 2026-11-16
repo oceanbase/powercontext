@@ -17,12 +17,11 @@ name = "pc-gateway-transport"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "PowerContext Gateway: transport — send admitted bytes, cancel, bounded retry with single owner"
+description = "PowerContext Gateway: transport — single admitted send and cancellation; retries owned by Executor"
 
 [dependencies]
 pc-gateway-types = { workspace = true }
 pc-gateway-protocol = { workspace = true }
-pc-gateway-evidence = { workspace = true }
 bytes = { workspace = true }
 futures-core = { workspace = true }
 serde_json = { workspace = true }
@@ -32,3 +31,6 @@ reqwest = { workspace = true }
 tempfile = { workspace = true }
 uuid = { workspace = true }
 libc = "0.2"
+
+[dev-dependencies]
+pc-gateway-evidence = { workspace = true }

@@ -127,13 +127,13 @@ export type OpsSessionObservation = { action: OpsAction,
  */
 operationId: string, attempt: number | null, phase: OpsServicePhase | null, attemptPhase: OpsAttemptPhase | null, outcome: OpsOutcome, errorCode: OpsErrorCode | null, bridgeError: OpsBridgeError | null, observedAtMs: number, };
 export type OpsSessionSummary = { capacity: number, evicted: number, droppedSinceStart: number, recent: Array<OpsSessionObservation>, };
-export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
 export type AccessControlMode = "disabled" | "enforced";
 export type AccessMeResponse = { principal: AccessPrincipal, mode: AccessControlMode, resource_kinds: Array<AccessResourceType>, provider_capabilities: AccessProviderCapabilities, artifact_families: Array<ArtifactFamilyAccessCapability>, };
 export type AccessPrincipal = { type: Type, id: string, description?: string | null, };
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
-export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
 export type ActualAdoption = "unobserved";
 export type AllScopeSelection = { mode: AllScopeSelectionMode, };
 export type AllScopeSelectionMode = "all";
@@ -142,11 +142,7 @@ export type ArtifactFamilyAccessCapability = { family: string, enabled: boolean,
 export type ArtifactInventoryStatistics = { total: number, by_family: Array<FamilyCount>, };
 export type ArtifactReadFamily = string;
 export type ArtifactReference = { family: string, artifact_id: string, revision: number, };
-export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string,
-/**
- * Persisted schema version for a custom Artifact family.
- */
-schema_version?: string | null, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
+export type ArtifactRevision = { scope_id: string, family: string, artifact_id: string, revision: number, content: Record<string, unknown>, sources: Array<SourceTypeReference>, artifacts: Array<ArtifactReference>, content_digest: string,
 /**
  * When this revision was committed. Absent for revisions stored before this field existed.
  */
@@ -186,7 +182,7 @@ export type BuiltinProfile = "coding" | "conversation";
 export type CandidateFamily = "experience" | "skill" | "profile" | "atomic-memory" | "topic-memory" | "handoff" | "prompt";
 export type CandidateFamilyCount = { family: CandidateFamily, total: number, pending: number, approved: number, rejected: number, };
 export type CandidateInventoryStatistics = { total: number, pending: number, approved: number, rejected: number, by_family: Array<CandidateFamilyCount>, };
-export type Capabilities = { custom_artifact_schemas?: Array<CustomArtifactFamilySchema>, prompts?: { [key in string]: PromptCapability },
+export type Capabilities = { prompts?: { [key in string]: PromptCapability },
 /**
  * Whether asynchronous Artifact Dream execution is configured.
  */
@@ -221,15 +217,6 @@ export type ConnectionIdentity = { server_id: string, authentication: Connection
 export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
 export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
 export type ContractVersion = { major: number, minor: number, };
-export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
-/**
- * Legacy persisted text fields; new plugins use search.
- */
-search_fields: Array<string>,
-/**
- * Persistent declarative indexes and supported search modes.
- */
-search?: Record<string, unknown>, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
 export type ExactScopeSelection = { mode: ExactScopeSelectionMode, scope_ids: Array<string>, };

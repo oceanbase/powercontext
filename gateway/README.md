@@ -22,10 +22,10 @@ Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for late
 
 ## Run
 
-From `gateway/`, build the executable:
+From the repository root, build the executable:
 
 ```bash
-cargo build --release
+cargo build --locked --manifest-path gateway/Cargo.toml --release
 ```
 
 For a combined deployment, start Core on a private Unix socket and configure an approved upstream profile and an accessible Scope:
@@ -37,7 +37,7 @@ PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider.example/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
-./target/release/pc-gateway
+./gateway/target/release/pc-gateway
 ```
 
 The Rust process owns the public listener and forwards other routes to Core over UDS. For a standalone Gateway, set `PC_GATEWAY_CORE_BASE` to the Core HTTP URL instead; standalone mode does not reverse-proxy Core routes.
@@ -67,10 +67,10 @@ See [OAuth subscriptions](SUBSCRIPTIONS.md) for login steps, credential renewal,
 
 ## Tests
 
-Run controlled tests from `gateway/`:
+Run controlled tests from the repository root:
 
 ```bash
-cargo test --locked --workspace -- --skip live_
+cargo test --locked --manifest-path gateway/Cargo.toml --workspace -- --skip live_
 ```
 
 These tests use local HTTP peers, synthetic credentials and subprocess fixtures. They cover admission, release, protocol conversion, credential rotation and cancellation. [OAuth fixtures](../tests/fixtures/oauth/README.md) and [protocol fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) record their sources and scope.
@@ -87,3 +87,35 @@ The harness uses GPT-6 Luna for Codex and Claude Haiku 5.5 for Copilot Chat, spe
 The four `live_context_check` tests require a separate Core configured with enforcing protection and a `coding` profile. Their current helper targets `127.0.0.1:8000` without a Bearer token; use an isolated test deployment rather than an authenticated personal service.
 
 `make gateway-tck`, run from the repository root, checks pinned upstream SDKs and Open Responses behavior against a direct baseline and the Gateway. Its prerequisites and coverage are in the [TCK README](tck/README.md). Controlled tests do not establish live provider, account or CLI compatibility.
+
+## Execution deadline and cancellation
+
+Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body. Intake, parsing, preparation, admission, provider sending, release checks, capture, response handoff, and local delivery consume that budget. Admission refreshes and permitted retries keep the original deadline. HTTP and UDS Core RPCs run inline under this control, including connection/pool waits and response framing; repeated reads cannot extend the deadline. Startup capabilities discovery retains its separate 10-second bound. Provider attempts retain their existing 120-second limit, further bounded by remaining call time. Core admission validity and correlation windows remain separate authorization constraints.
+
+Rust callers supply `RequestControl::new(deadline, request_id)`, retain its `lifecycle()`, `cancellation()`, and `observation()` handles, and pass the one-shot control to `Executor::run`. `cancel()` stops pending local execution; `cancel_with(LifecycleStopReason::GatewayShutdown)` also supports the service owner's shutdown cause. `ManagedOutcome::Stopped { reason, model_send }` agrees with the retained execution snapshot. Cancellation intent alone does not rewrite completed terminals. A known interrupted execution has `ExecutionTerminal::Stopped(reason)`; dropping unknown unfinished execution still records `Abandoned`. Before Executor startup, lifecycle interruption retains `NotStarted`.
+
+Ingress attaches the same `RequestLifecycle`, `RequestCancellation`, and `ExecutionObservation` to response extensions for the next local owner. The Executor and ingress own their futures inline and create no request cleanup tasks. Embedding owners that spawn tasks must cancel and join them themselves. The app explicitly drives Hyper HTTP/1 connection futures. Model responses declare `Connection: close`; normal completion of that connection records local completion. The original deadline also bounds pending response writes; expiration can truncate output, and error JSON is best effort. Framework-observed client disconnects stop local work with `request_cancelled`. Unobserved network loss remains bounded by the deadline. Neither observation establishes client receipt, provider billing cancellation, or remote rollback.
+
+The model concurrency permit transfers to the connection owner before ingress starts and is released after Hyper's connection, inline request work, body, and pending write buffers end. Body EOF/drop and response extensions do not establish connection completion. `ExecutionSnapshot::local_delivery` distinguishes `NotStarted`, `InProgress`, `Completed`, and `Interrupted(reason)`; delivery interruption preserves completed execution terminals and model-send facts. Retaining an observation does not retain the permit or payload. Fallback retains its independent quota, body lifetime, authentication, and keep-alive behavior, without the model deadline or forced connection closure. UDS Core connections retain their idle pool. HTTP Core/provider requests use fresh HTTP/1 connections to prevent hidden stale-connection resends. Service-level bounded drain and process exit follow the shutdown policy below.
+
+When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint or nonstandard cancellation status. The lifecycle JSON contains independent `decision` and `model_send` fields, registered in `openapi/powercontext.yaml`. Stopping preserves possible sending and complete response facts; it does not establish zero cost, remote rollback, safe resend, release authorization, or delivery.
+
+## Retry and Core RPC recovery
+
+The production Executor is the only model retry owner. Each provably unsent attempt may retry up to the configured attempt limit, obtains a new before-send admission, and validates its binding and validity. The original deadline and cancellation apply throughout. `Executor::close_model_admission()` permanently closes new attempts, including retries and degraded sends; handed-off calls can still finish within their original lifecycle. `Executor::model_admission()` exposes a one-way atomic closure handle for signal handlers; `close_model_admission()` also synchronizes with committed transport handoffs before the service inspects sending facts. A timeout, partial response, or disconnect after request handoff retains possibly-sent facts and never triggers an automatic resend or fallback. The transport no longer exports `BoundedRetry` or `RetryOutcome`; embedding callers that used them must route model retries through the Executor.
+
+Both Core clients allow at most one eligible transport retry. Check and capabilities are read-only. Capture serializes once and replays the same Scope, content Source identity, body, and full metadata; an existing equal capture returns its original journal position, while changed content or metadata remains conflicting. Prepare reconnects only on proof that zero request bytes were handed off. Missing response headers, EOF, and timeouts do not prove non-execution. Authentication failures, explicit rejections, malformed responses, and capture conflicts are not retried.
+
+HTTP Core operations have one 10-second local budget and UDS operations one 30-second local budget, including connection acquisition, writes, both attempts, response bodies and trailers. Managed calls may stop earlier under their shared deadline/cancellation; startup capabilities keeps its independent 10-second bound. The UDS pool bounds idle connections, not active concurrency, and has no capacity-wait queue. Reqwest automatic retries and redirects are disabled. HTTP Core/provider clients use fresh HTTP/1 connections, also preventing hyper's implicit stale-pool replay; this increases connection and TLS setup cost. UDS retains operation-aware keep-alive reuse.
+
+`cargo test --locked --manifest-path gateway/Cargo.toml --workspace` requires an installed project Python at `.venv/bin/python` (override with `PC_TEST_PYTHON`) for mandatory real-Core UDS recovery acceptance. Core startup failure fails that test. The older optional TCP binding tests still use their separate port-8000 availability check.
+
+## Staged process shutdown
+
+On Unix, SIGTERM or Ctrl-C closes model-attempt admission directly in the signal handler. The first handler invocation records a monotonic timestamp; repeated signals never restart the budget. Before listening, the app installs the handlers and starts a native watchdog thread independent of Tokio. The listener then closes and existing HTTP/1 connections enter graceful shutdown. Established or buffered requests cannot bypass closed model admission. Calls still in intake, prepare, admission, or retry admission stop with `gateway_shutdown` when no model request is outstanding.
+
+Already handed-off calls may finish response checks, capture, and local delivery under their original 180-second request deadline and a common drain deadline 25 seconds after the first signal. Normally drained calls retain their business result without a shutdown stop reason. Explicit cancellation and observable disconnect still stop work. A transport attempt subsequently proved unsent cannot retry. Fallback keeps its Core authentication, independent quota, and long connections during normal service; its connections share shutdown deadlines, including long MCP SSE streams.
+
+At drain expiry, the service ends remaining connections, cancels managed tasks, and joins their actual owners. Hyper, inline request/body work, and pending output are destroyed before connection-held permits and controls are released. Owner joins and Tokio runtime destruction must finish before the same signal's 30-second total exit deadline. The watchdog remains armed after the owner set empties. If cleanup cannot finish, it invokes Unix `_exit(1)` without further logging, destructors, atexit hooks, or joins. This covers non-yielding request work and already-running `spawn_blocking` tasks; Tokio cannot preempt them. As with any process deadline, OS scheduling has a finite measurement tolerance.
+
+Abnormal process exit is not proof of per-request cleanup, provider rollback, or client receipt. Known or uncertain remote operations retain their meaning. This executable does not start a Python supervisor, close the Python Core database, or implement restart generations. The RFC 2199 parent must own those responsibilities and confirm the old Rust PID has exited before restart. The Rust embedding API still leaves service signals and process lifetime to its host.

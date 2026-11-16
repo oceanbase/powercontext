@@ -1,0 +1,139 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/artifact-type.html' import artifact_type %}
+{% from 'components/pagination.html' import pagination %}
+<div class="processing-view">
+  <style>
+    me .processing-reference { overflow-wrap: anywhere; }
+    me .processing-document + .processing-document { border-top: 1px solid var(--tblr-border-color); padding-top: 1rem; margin-top: 1rem; }
+    me .processing-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .75rem 1rem; }
+    me .processing-facts dt { font-weight: normal; color: var(--tblr-secondary-color); }
+    me .processing-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+    me .processing-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.25rem; }
+    me .processing-step { border: 1px solid var(--tblr-border-color); border-radius: .65rem; background: var(--tblr-bg-surface); overflow: hidden; }
+    me .processing-step-heading { display: flex; align-items: center; gap: .75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--tblr-border-color); }
+    me .processing-step-number { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: var(--tblr-primary-lt); color: var(--tblr-primary); font-weight: 600; flex-shrink: 0; }
+    me .processing-step-heading h2 { font-size: 1rem; margin: 0; }
+    me .processing-step { border-color: color-mix(in srgb, var(--tblr-primary) 22%, var(--tblr-border-color)); }
+    me .processing-step:nth-child(1) .processing-step-heading { background: color-mix(in srgb, var(--tblr-primary) 7%, var(--tblr-bg-surface)); }
+    me .processing-step:nth-child(2) .processing-step-heading { background: color-mix(in srgb, var(--tblr-primary) 12%, var(--tblr-bg-surface)); }
+    me .processing-step:nth-child(3) .processing-step-heading { background: color-mix(in srgb, var(--tblr-primary) 18%, var(--tblr-bg-surface)); }
+    me .processing-step-body { padding: 1.25rem; }
+    me .processing-step .processing-outcome { border: 0; border-radius: 0; padding: 0; }
+    me .processing-output-entry { padding: 1rem 0; }
+    me .processing-output-entry:first-child { padding-top: 0; }
+    me .processing-output-entry:last-child { padding-bottom: 0; }
+    me .processing-output-entry + .processing-output-entry { border-top: 1px solid var(--tblr-border-color); }
+    me .processing-output-text { margin: .75rem 0 0; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+    me .processing-reading { max-width: 960px; margin-inline: auto; padding-top: .5rem; }
+    me .processing-back { display: inline-block; margin: 0 0 1.5rem; font-size: .875rem; }
+    me .processing-outcome { padding: 2rem 2.25rem; background: var(--tblr-bg-surface); border: 1px solid var(--tblr-border-color); border-radius: 10px; }
+    me .processing-section-title { margin: 0 0 .75rem; font-size: 1rem; font-weight: 650; color: var(--tblr-body-color); line-height: 1.5; }
+    me .processing-caption { margin-bottom: 0; color: var(--tblr-secondary-color); font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
+    me .processing-input-body { margin: 0; border-left: 3px solid var(--tblr-border-color); padding: .25rem 0 .25rem 1.25rem; color: var(--tblr-body-color); font-size: 1.0625rem; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+    me .processing-record-details { border-top: 1px solid var(--tblr-border-color); margin-top: 1.75rem; padding-top: 1rem; }
+    me .processing-record-details > summary, me .processing-more > summary { color: var(--tblr-secondary-color); font-size: .875rem; cursor: pointer; }
+    me .processing-details-body { margin-top: 1.25rem; color: var(--tblr-secondary-color); font-size: .8125rem; line-height: 1.8; overflow-wrap: anywhere; }
+    me .processing-more { margin-top: 1rem; }
+    @media (max-width: 575px) {
+      me .processing-outcome { padding: 1.5rem 1.25rem; }
+      me .processing-facts { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+      me .processing-facts dd { margin-bottom: .75rem; }
+    }
+
+    me .dream-run-reading { max-width: 960px; margin-inline: auto; font-size: .8125rem; line-height: 1.7; }
+    me .dream-run-reading .processing-step-heading h2 { font-size: inherit; margin: 0; }
+    me .dream-run-reading .dream-input-text { font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+    me .dream-run-reading :is(.processing-caption, .document-meta, .processing-details-body) { font-size: .75rem; }
+
+    me .processing-reading { font-size: .875rem; line-height: 1.8; }
+    me .processing-reading-title { font-size: 1.5rem; line-height: 1.4; font-weight: 600; }
+    me .processing-reading .processing-step-heading h2 { font-size: 1.25rem; line-height: 1.5; font-weight: 600; }
+    me .processing-reading .processing-section-title { font-size: 1rem; line-height: 1.5; font-weight: 600; }
+    me .processing-reading h3.processing-section-title { font-size: 1.125rem; }
+    me .processing-reading .processing-input-body,
+    me .processing-reading .processing-output-text { font-size: .875rem; line-height: 1.8; font-weight: 400; }
+    me .processing-reading .processing-caption,
+    me .processing-reading .processing-details-body,
+    me .processing-reading .document-meta { font-size: .75rem; line-height: 1.7; }
+    me .processing-reading .processing-more > summary,
+    me .processing-reading .processing-record-details > summary { font-size: .875rem; }
+    me .processing-reading > .processing-outcome > h2.processing-section-title {
+      margin: -2rem -2.25rem 1.25rem;
+      padding: 1rem 2.25rem;
+      background: var(--tblr-primary-lt);
+      border-bottom: 1px solid var(--tblr-border-color);
+      border-radius: 9px 9px 0 0;
+    }
+    @media (max-width: 575px) {
+      me .processing-reading > .processing-outcome > h2.processing-section-title {
+        margin: -1.5rem -1.25rem 1rem;
+        padding: .875rem 1.25rem;
+      }
+    }
+  </style>
+  {% if not processing_source and not processing_run %}
+    {% include 'components/observation-header.html' %}
+    {% if processing_kind == 'sources' %}{% if processing_show_topic_status %}{% include 'components/processing-topic-status.html' %}{% endif %}
+    {% else %}{% include 'components/processing-filters.html' %}{% endif %}
+  {% endif %}
+  {% if errors.get('processing') %}{{ read_error(errors.processing, t.processing) }}{% endif %}
+  {% if processing_source %}
+    {% set source = processing_source %}
+    <div class="processing-reading">
+      <a class="processing-back" href="{{ link(source_id=none, artifact_family=none, processing_artifacts_cursor=none, processing_artifacts_history=none) }}">← {{ t.processing_sources }}</a>
+      <h1 class="processing-reading-title mb-4">{{ t.source_label }} #{{ source.position }}</h1>
+      <section class="processing-outcome">
+        <h2 class="processing-section-title">{{ t.source_original }}</h2>
+        <p class="processing-input-body">{{ source.text }}</p>
+        {% if source.saved_at %}<p class="processing-caption mt-3">{{ t.processing_source_saved_time }} {{ source.saved_at|display_time }}</p>{% endif %}
+      </section>
+      {% if request.query_params.get('artifact_family') %}<a class="d-inline-block mt-4" href="{{ link(artifact_family=none, processing_artifacts_cursor=none, processing_artifacts_history=none) }}">{{ t.processing_all_types }}</a>{% endif %}
+      {% for family, refs in (source_artifacts or [])|groupby('family') %}
+      <section class="processing-outcome mt-4" id="artifact-{{ family }}">
+        <h2 class="processing-section-title">{{ artifact_type(family) }}</h2>
+        {% for ref in refs %}
+          {% set preview = processing_memory_previews.get(ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision) %}
+          <div class="processing-output-entry">
+            {% if preview and preview.error %}{{ read_error(preview.error, artifact_type(family)) }}
+            {% elif preview %}
+              {% if preview.title %}<h3 class="processing-section-title">{{ preview.title }}</h3>{% endif %}
+              {% if preview.description %}<p class="processing-output-text">{{ preview.description }}</p>{% endif %}
+              {% if preview.text and preview.text != preview.title %}<p class="processing-output-text">{{ preview.text }}</p>{% endif %}
+            {% endif %}
+            {% set destination = artifact_destination(ref) %}
+            {% if destination %}<a href="{{ destination }}">{{ t.home_record_details }} →</a>{% endif %}
+            <div class="processing-caption mt-2">{{ t.revision }} {{ ref.revision }} · {{ ref.artifact_id }}</div>
+          </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
+      {% if processing_artifacts_pager %}{{ pagination(processing_artifacts_pager, t) }}{% endif %}
+    </div>
+  {% elif processing_run %}
+    {% include 'components/dream-run-detail.html' %}
+  {% else %}
+    {% if processing_items %}
+      {% if processing_kind == 'sources' %}{% include 'components/processing-sources-table.html' %}
+      {% else %}{% include 'components/processing-runs-table.html' %}{% endif %}
+    {% elif not errors.get('processing') %}
+      <div class="empty"><h2 class="empty-title">{{ t.processing_sources_empty if processing_kind == 'sources' else t.processing_runs_filtered_empty if processing_status else t.processing_runs_empty }}</h2></div>
+    {% endif %}
+    {% if processing_pager %}<div class="card-footer">{{ pagination(processing_pager, t, always=true) }}</div>{% endif %}
+  {% endif %}
+</div>

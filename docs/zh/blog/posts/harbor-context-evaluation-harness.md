@@ -5,6 +5,7 @@ description: 从编程任务出发，复用 Harbor 的执行与验证机制，�
 cover: assets/blog/harbor-context-evaluation-harness/cover.png
 cover_alt: 任务执行、上下文服务与独立评价通过清晰的接口连接，形成可复用的测评架构。
 date: 2026-11-05
+updated: 2026-11-11
 authors:
   - chojan-shang
 categories:
@@ -33,7 +34,7 @@ pin: false
 
 ## 定制放在 Harbor 的哪些接口上
 
-编程任务的最终分数反映任务是否达到验收要求，并不能充分解释上下文系统的功用。因此，需要依据采集和召回记录来判断 PowerContext 实际参与了哪些环节的运行。
+任务评分反映代码是否通过验收，采集和召回记录则帮助分析 PowerContext 在任务中的作用。
 
 相比实现另一套执行框架，直接复用原生的执行流程是更简单的方式：任务仍采用 Harbor 的环境和 Agent 接口，由 Harbor Job 执行，Verifier 按原来的方式检查产出。任务清单声明要观察的上下文行为，定制层负责 PowerContext 接入和额外的上下文评价。
 
@@ -57,7 +58,9 @@ Harbor 的多步骤任务适合承载这类场景。前面的步骤提供信息�
 
 *图 3：新会话通过同一 Scope 准备上下文，最终由任务的验证器检查答案是否分清了新旧值。*
 
-为了扩展持续编程协作的场景，我们也适配了 MemoryCode。数据中的指导交流包含编码约定、规则更新和无关内容。每次交流对应一个独立会话，最终会话按此前约定编写代码，再通过上游的对象提取与规则检查评价产出。与原始论文的约定不同，在我们的测试中，最终会话不再提供原始对话。因此，这些任务考察的是 Agent 能否借助跨会话上下文遵循此前的约定。前置阶段结束后，任务会重置工作区，减少 Agent 通过工作区笔记恢复要求的机会。[MemoryCode 任务设计](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
+我们也适配了 MemoryCode，用来测试持续编程协作。数据中的指导交流包含编码约定、规则更新和无关内容，每次交流对应一个独立会话。最终会话按此前约定编写代码，再沿用 MemoryCode 的验证方法检查产出。
+
+与原始论文的约定不同，我们的最终会话不再提供原始对话，考察 Agent 能否借助跨会话上下文遵循约定。前置阶段结束后，任务会重置工作区，减少 Agent 通过工作区笔记恢复要求的机会。[MemoryCode 任务设计](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
 
 这些任务还能用于 OFF／ON 对照，比较接入 PowerContext 前后 Agent 的表现。OFF 组运行未接入 PowerContext 的原生 Agent；ON 组启用对应宿主的 PowerContext 集成，采集前置会话的信息，并在续接时准备相关上下文。两组使用相同的任务、宿主和模型配置，分别在独立容器中运行。
 
@@ -65,18 +68,16 @@ Harbor 的多步骤任务适合承载这类场景。前面的步骤提供信息�
 
 任务集合扩展后，重复启动环境和安装依赖会增加运行成本。一个很短的验收任务，也可能花费不少时间准备环境。对于环境一致、状态干扰能够控制的任务，可以合并这部分准备工作。
 
-Runner 支持将显式分组、配置兼容的本地验收任务组合成一个 Harbor 多步骤任务，在同一容器中顺序执行。这种复用仍会共享文件系统和进程状态，只是使用独立 Scope 区分上下文数据。加入分组前，需要明确任务允许保留哪些状态，并由任务与宿主适配层处理会话记录、临时文件等残留。能够控制相互影响的任务可以合并，要求独立环境的任务则继续单独运行。[Runner 的任务分组实现](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/src/powercontext_e2e/runner.py)
+Runner 把预先声明为同组、配置兼容的本地验收任务组合成一个 Harbor 多步骤任务，在同一容器中顺序执行。各任务使用独立 Scope 区分上下文数据，文件系统和进程状态仍然共享。任务与宿主适配层按各任务的状态保留规则清理会话记录、临时文件等残留；需要独立环境的任务继续单独运行。[Runner 的任务分组实现](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/src/powercontext_e2e/runner.py)
 
 [![兼容任务的顺序执行、共享容器与分别记录的评价结果](../../../assets/blog/harbor-context-evaluation-harness/task-batching.png)](../../../assets/blog/harbor-context-evaluation-harness/task-batching.png "查看大图")
 
 *图 4：兼容任务共用一次环境准备，按顺序执行，每个任务分别保存上下文、证据和评分。*
 
-PowerContext 的记忆质量、性能等专项测评仍有各自的执行流程。适合实际 Agent 工作过程的场景，可以逐步组织为 Harbor 任务；依赖专门数据处理和评价协议的实验，继续由相应套件负责。共同底座承担重复的执行工作，任务本身则明确规定要验证什么，以及什么样的结果才算完成。
+PowerContext 的记忆质量、性能等专项测评仍有各自的执行流程。适合实际 Agent 工作过程的场景，可以逐步组织为 Harbor 任务；依赖专门数据处理和评价协议的实验，继续由相应套件负责。
 
 ## 总结
 
-我们最初想验证的是，上下文系统能否帮助 Agent 延续较长的编程工作。随着任务和接入方式增加，Harbor 提供的执行机制让这些尝试有了共同的基础。我们沿着它已有的接口补充上下文评价和运行支持，也保留了继续使用原生任务的方式。
-
-这套 harness 让我们更容易组织实验，但具体结果仍要放回任务条件中理解。我们因此分别记录任务评分和上下文行为，并保留运行配置与证据，方便回看一次成功或失败是怎样发生的。
+这套 harness 沿用 Harbor 的任务执行与验证机制，补充了 PowerContext 接入、跨会话任务和上下文评价。任务评分和上下文评价分别保存，并保留运行配置和证据供复查。
 
 感谢 [Fengzdadi](https://github.com/Fengzdadi)、[knqiufan](https://github.com/knqiufan)、[Russell Lin](https://github.com/russell001209-ai)、[ThunGuo](https://github.com/thunguo)，以及参与 E2E harness 设计、实现和验证的贡献者。

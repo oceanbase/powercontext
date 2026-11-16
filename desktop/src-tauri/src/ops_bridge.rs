@@ -39,6 +39,35 @@ const APPROVAL_TTL: Duration = Duration::from_secs(600);
 const MAX_APPROVALS: usize = 32;
 pub const PROGRESS_EVENT: &str = "ops-progress";
 
+pub(crate) fn resolve_local_data_dir(
+    local_data: Option<PathBuf>,
+    home: Option<&std::path::Path>,
+) -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        resolve_local_data_dir_from(
+            local_data,
+            home,
+            std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = home;
+        local_data
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_local_data_dir_from(
+    local_data: Option<PathBuf>,
+    home: Option<&std::path::Path>,
+    configured_data_home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let _ = local_data;
+    trust::trusted_linux_data_home_from(home, configured_data_home)
+}
+
 #[derive(Clone)]
 pub struct OpsHost(Arc<Host>, Option<SessionObservations>);
 struct Host {
@@ -527,5 +556,5 @@ fn request(action: OpsAction, mut fields: Value) -> Value {
     fields["action"] = action.wire_name().into();
     fields
 }
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod tests;

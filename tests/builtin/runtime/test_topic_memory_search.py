@@ -164,9 +164,9 @@ def test_topic_service_requires_declared_public_search_capabilities():
 @pytest.mark.parametrize("mode", [None, "text", "vector", "hybrid"])
 def test_topic_empty_scope_rejects_a_supplied_context_without_authority(mode):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.builtin.authz import AccessDeniedError
     from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
     from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
-    from powercontext.server.authz import AccessDeniedError
 
     async def scenario():
         embedding = Embedding()

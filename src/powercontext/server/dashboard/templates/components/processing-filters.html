@@ -1,0 +1,23 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<div class="processing-filter-toolbar">
+  <span class="processing-filter-context">{{ data.title }} · UTC</span>
+  <form class="processing-filter-form" method="get" action="/dashboard/processing" aria-label="{{ t.processing_filter_action }}">
+    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}"><input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="record_type" value="{{ processing_kind }}">
+    <div class="processing-filter-field"><label for="run-status">{{ t.processing_filter_status }}</label><select class="form-select" id="run-status" name="run_status"><option value="">{{ t.processing_status_all }}</option>{% for status in ['queued','running','succeeded','failed'] %}<option value="{{ status }}" {% if processing_status == status %}selected{% endif %}>{{ t.get('processing_status_' ~ status,status) }}</option>{% endfor %}</select></div>
+    <button class="btn btn-primary" type="submit">{{ t.processing_filter_action }}</button>
+  </form>
+</div>

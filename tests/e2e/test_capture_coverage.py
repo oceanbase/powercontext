@@ -36,7 +36,7 @@ from powercontext.builtin.runtime.config import BuiltinConfig, RuntimeConfig
 from powercontext.builtin.sources import ContentCapture, ContentSource, ContentTextEvidenceProjection
 from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline
-from tests.e2e.test_artifact_plugins import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
+from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
 from tests.integrations.test_hermes_provider import hermes_modules as hermes_modules
 
 FIXTURE = json.loads(

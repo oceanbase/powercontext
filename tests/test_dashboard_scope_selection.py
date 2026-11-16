@@ -22,9 +22,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+from powercontext.builtin.authz import AccessAction, PrincipalRef
+from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
 from powercontext.builtin.persistence.tables import SCOPE_SETTINGS_TABLE
-from powercontext.server.authz import AccessAction, PrincipalRef
-from powercontext.server.authz.casbin import CasbinAuthorizationProvider
 from tests.test_dashboard import create_scope
 from tests.test_dashboard import dashboard as dashboard
 

@@ -199,8 +199,9 @@ def test_selected_scopes_have_a_complete_terminal_result_contract():
     main = workflow("master.yml")["jobs"]
     assert RULES["checks"].keys() == RULES["suites"].keys()
     covered = {job for table in ("checks", "nightly_checks") for jobs in RULES[table].values() for job in jobs}
-    assert covered | {"quality", "upgrade-release-gate", "ci-result"} == set(main)
-    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result"}
+    assert covered | {"quality", "upgrade-release-gate", "ci-result"} <= set(main)
+    assert "managed-resource-candidates-linux" in set(main) - set(main["ci-result"]["needs"])
+    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result", "managed-resource-candidates-linux"}
 
 
 def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
@@ -289,9 +290,63 @@ def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
     upgrade = workflow("upgrade-release.yml")["jobs"]["cases"]["strategy"]
     assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
-    native = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]["strategy"]
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    native = jobs["candidate"]["strategy"]
+    native_job = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]
     assert int(native["max-parallel"]) <= 2
-    assert {row["target"] for row in native["matrix"]["include"]} == {"windows-x86_64", "macos-arm64", "macos-x86_64"}
+    assert native["matrix"] == "${{ fromJSON(needs.select-targets.outputs.matrix) }}"
+    selector = jobs["select-targets"]
+    assert selector["outputs"]["matrix"] == "${{ steps.select.outputs.matrix }}"
+    assert native_job["continue-on-error"] == "${{ matrix.optional }}"
+
+
+def test_managed_resource_linux_is_outside_required_main_result_gate():
+    main = workflow("master.yml")["jobs"]
+    required = main["managed-resource-candidates"]
+    optional = main["managed-resource-candidates-linux"]
+    assert required["with"]["targets"] == '["windows-x86_64","macos-arm64","macos-x86_64"]'
+    assert optional["with"]["targets"] == '["linux-x86_64"]'
+    assert required["with"]["concurrency_suffix"] == "required"
+    assert optional["with"]["concurrency_suffix"] == "linux"
+    assert "managed-resource-candidates-linux" not in main["ci-result"]["needs"]
+    assert main["ci-result"]["needs"].count("managed-resource-candidates") == 1
+
+
+def test_managed_resource_workflow_filters_called_targets():
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    candidate = jobs["candidate"]
+    assert "matrix.target" not in candidate["if"]
+    assert "inputs.targets" in jobs["select-targets"]["steps"][0]["env"]["TARGETS"]
+    assert "inputs.concurrency_suffix" in workflow("managed-resource-candidates.yml")["concurrency"]["group"]
+
+
+def test_ci_result_ignores_only_the_separate_optional_linux_call():
+    script = workflow("master.yml")["jobs"]["ci-result"]["steps"][0]["run"]
+    script = script.split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
+    required = ["quality", "upgrade-release-gate", "managed-resource-candidates"]
+    results = {job: {"result": "success"} for job in required}
+    # The optional caller is intentionally absent because GitHub only exposes
+    # jobs listed in ci-result.needs to the terminal aggregation script.
+    run = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "RESULTS": json.dumps(results), "REQUIRED": json.dumps(required)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_linux_desktop_only_is_an_optional_platform_gate():
+    desktop = workflow("desktop.yml")["jobs"]
+    native = workflow("native-service.yml")["jobs"]
+
+    assert desktop["linux"]["continue-on-error"] is True
+    assert "continue-on-error" not in desktop["windows"]
+    assert "continue-on-error" not in desktop["macos"]
+    assert "continue-on-error" not in native["linux-systemd-user"]
+    assert "continue-on-error" not in native["macos-launchagent"]
+    assert "continue-on-error" not in native["windows-task-scheduler"]
 
 
 def test_cancelled_or_draft_runs_cannot_start_terminal_runner_jobs():

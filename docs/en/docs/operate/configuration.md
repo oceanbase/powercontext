@@ -59,8 +59,9 @@ changes authoritative history. For a hosted decision backend, set `MEMORY_WRITE_
 and explicitly select `MEMORY_WRITE_GATE_SANITIZER=known_secrets`. The sanitizer covers known sensitive environment/Codex
 values and a bounded set of provider-key prefixes; it is not a general PII or password detector. The sanitizer selection
 defaults to `none`, and hosted-redacted composition fails with a named configuration error until one is selected.
-The existing limit of 32 tags per Artifact still applies. If merged input tags exceed it, the whole merge fails;
-Source processing also retains the window without partial publication or cursor advancement.
+The existing limit of 32 tags per Artifact still applies to a merge result. When its inputs carry more than 32 distinct
+normalized labels, the result keeps a deterministic selection of 32, and the merge and its Source window commit
+normally. See [Organize with tags](../workflows/manage-artifact-tags.md#label-rules-and-storage) for the selection order.
 
 ## User data
 
@@ -117,6 +118,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
+| `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
+| `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | JSON object overriding plugins' declared `host_processes` by plugin name, such as `{"knowledge-base": 4}`; each value is the most host processes of that plugin in each Server process |
+| `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | unset | The most host processes of all plugins in each Server process; at the limit, no process is added for load and requests queue on existing ones. Each plugin's first, always-running process is exempt |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
@@ -202,9 +206,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Total Profile Scope timeout |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Accepted model-usage records a Runtime holds in memory; further records are dropped with a diagnostic |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Budget for one usage record's own statistics transaction, spent in slices so a busy writer gets several attempts |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted usage at an operation-completion or statistics-read boundary |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per usage batch; only provably unapplied attempts may retry within it |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local usage at statistics reads and explicit flush boundaries; ordinary requests do not wait |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |
@@ -278,20 +282,33 @@ transaction's native cleanup before propagating, preserving a shared in-memory S
 databases gain the missing relation through the normal additive table-creation path.
 
 Model usage accounting is best-effort and never gates a model call. Each Runtime owns one bounded recorder that accepts a
-record without any I/O and writes it in an independent short transaction, so a statistics outage, a full queue, or a lock
-that outlives the record's own budget drops that record with a diagnostic instead of failing the operation that produced it.
-Already-accepted usage is drained within a bounded wait when an operation completes or statistics are read, and again at
-shutdown. Contended business writes fail by design once they have waited this long: SQLite admits one writer at a time, so a
-concurrent writer holding the lock for longer than the configured value makes the waiting business write report
-`database is locked`. That is why multi-scope deployments raise `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS`; the same
-lock pressure no longer reaches usage accounting, and usage records are dropped rather than failing the operation that
-produced them.
+record without I/O. Its consumer takes up to 32 already-queued records into one independent transaction, without delaying
+an idle queue to fill a batch. Matching Scope/date/purpose/operation records are coalesced while preserving known token
+subtotals and incomplete-usage flags. A statistics outage, a full queue, or an expired batch budget produces a safe diagnostic
+instead of failing the business operation. Failed or indeterminate batches are counted by their original record count;
+transactions whose commit outcome is unknown are not retried.
+OceanBase gives the initial transaction the full write budget because a deadline can lose the commit acknowledgement.
+SQLite starts with a shorter attempt and may retry a proven rollback within the remaining budget.
+
+Ordinary Scope operations, including HTTP queries and Source captures, return without waiting for usage persistence.
+Statistics reads drain the already-accepted local prefix within the flush budget before opening their read snapshot;
+explicit worker flushes and shutdown retain bounded draining. A timed-out flush can return incomplete statistics, and a
+read on one Server does not flush another Server's queue. Shutdown stops producers first and allows one write budget plus
+one flush budget to drain, then drops queued records and waits up to one more write budget for native cleanup. Queue
+gauges exclude the in-flight batch; drop and write-failure counters describe original records, not coalesced groups.
+
+Business writes still share database resources with the consumer. SQLite admits one writer at a time; a competing writer
+holding its lock past the business busy timeout can make that business write report `database is locked`. Configure
+`POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` for the deployment's contention budget independently of usage flushing.
 
 Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
 characters including metadata; nested input is also bounded. Exhaustion preserves Sources, Cursor, Pending, and the
 same-Scope tail, and stops further provider calls. Flush and restart do not reset it; inspect
-`pc_topic_memory_work_budgets` and structured errors for operator remediation.
+`pc_topic_memory_work_budgets` and structured errors for operator remediation. A head conflict, where a concurrent
+replace or Dream moves a Topic head after the Worker read it, does not spend an attempt: the Worker records
+`head_conflict` as that attempt's last error, rereads the head and recomputes. Its reserved requests and token capacity
+stay charged, so a head that keeps moving stops at `window_provider_budget_exceeded` instead of retrying indefinitely.
 
 Topic generation accepts `max_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `presence_penalty`, `frequency_penalty`,
 `timeout`, `openai_reasoning_effort`, `openai_text_verbosity`, `service_tier`, `openai_service_tier`,

@@ -39,6 +39,32 @@ from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
 BINDING = "topic-memory-source-window"
 
 
+def test_dirty_batches_preserve_scope_binding_and_increment_boundaries() -> None:
+    async def scenario() -> None:
+        intents = ArtifactProcessingIntentRepository()
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            for scope_id in ("scope-a", "scope-b"):
+                await intents.mark_dirty_many(connection, scope_id, (BINDING, "other-binding"), increment=2)
+            await intents.mark_dirty_many(connection, "scope-a", (BINDING, BINDING), increment=3)
+            await intents.mark_dirty_many(connection, "scope-b", ("other-binding",), increment=5)
+            await intents.mark_dirty_many(connection, "scope-a", (), increment=7)
+            for scope_id, binding, expected in (
+                ("scope-a", BINDING, 5),
+                ("scope-a", "other-binding", 2),
+                ("scope-b", BINDING, 2),
+                ("scope-b", "other-binding", 7),
+            ):
+                stored = await intents.load(connection, scope_id, binding)
+                assert stored is not None
+                assert stored.dirty_generation == expected
+                assert stored.requested_generation == stored.clean_generation == stored.handled_generation == 0
+
+    asyncio.run(scenario())
+
+
 def test_late_requests_and_dirty_survive_partial_and_duplicate_acknowledgement() -> None:
     async def scenario() -> None:
         intents = ArtifactProcessingIntentRepository()

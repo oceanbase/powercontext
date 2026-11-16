@@ -284,6 +284,41 @@ def test_context_reference_order_does_not_change_scope_creation() -> None:
     asyncio.run(scenario())
 
 
+def test_exact_scope_reads_refresh_values_and_keep_requested_id_sets_separate() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            scopes = ScopeApplication(profile.database)
+            first = await scopes.create(ScopeDraft(title="First", summary="Shared", idempotency_key="first"))
+            second = await scopes.create(
+                ScopeDraft(
+                    title="Second",
+                    summary="Uses First",
+                    context_references=(first.scope_id,),
+                    idempotency_key="second",
+                )
+            )
+
+            assert await scopes.list(scope_ids=(first.scope_id,)) == (first,)
+            assert await scopes.list(scope_ids=(second.scope_id,)) == (second,)
+            assert set(await scopes.list(scope_ids=(second.scope_id, first.scope_id))) == {first, second}
+            assert await scopes.list(scope_ids=()) == ()
+
+            changed = await scopes.update(
+                second.scope_id,
+                ScopeMutation(expected_version=second.version, title="Changed", summary="New summary"),
+            )
+            assert changed.context_references == ()
+            assert await scopes.get(second.scope_id) == changed
+            assert await scopes.list(scope_ids=(first.scope_id,)) == (first,)
+            assert set(await scopes.list(scope_ids=(first.scope_id, second.scope_id))) == {first, changed}
+            concurrent = await asyncio.gather(
+                *(scopes.get(scope.scope_id) for scope in (first, changed, changed, first))
+            )
+            assert concurrent == [first, changed, changed, first]
+
+    asyncio.run(scenario())
+
+
 def test_exact_selection_is_a_canonical_set() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:

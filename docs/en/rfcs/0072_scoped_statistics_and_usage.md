@@ -137,6 +137,12 @@ field, that field is `null`. A period total is `null` when any included non-empt
 Usage recording is best-effort and must not change the generation or embedding result. The implementation must not
 retry a recording operation when doing so could double-count.
 
+Ordinary operations enqueue usage without waiting for persistence at completion. A bounded consumer may batch records,
+preserving the original Scope, date, purpose, operation, known token subtotals, and completeness flags. Statistics reads
+flush the local recorder's accepted prefix within a bounded budget before opening their snapshot; shutdown also drains
+within a bounded budget. Neither boundary guarantees visibility of queues owned by other processes. Queue and loss
+observations count original records, including every record in a failed or indeterminate batch.
+
 ## Recall token semantics
 
 Recall accounting runs after final selection and truncation in `prepare_context`. The baseline is the primary text of

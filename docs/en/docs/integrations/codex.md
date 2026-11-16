@@ -21,8 +21,21 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data
-directory. It is safe to run again. Pass the same `--ref` used to install the PowerContext tool.
+The command adds the repository as a Codex marketplace, installs the PowerContext plugin, builds the plugin's Python
+environment, and creates the user data directory. It is safe to run again. Pass the same `--ref` used to install the
+PowerContext tool.
+
+The plugin's hooks and its MCP credential helper run through `uv` from `PATH`, so setup needs `uv` and, on a first
+install, access to the package index. Building the environment at setup keeps the first session from building it
+while Codex starts the hooks and MCP together. If the plugin is installed or updated by other means, `powercontext
+doctor codex` reports `plugin_runtime` as degraded until you rerun setup.
+
+PowerContext's MCP server is optional to Codex, so an unavailable Server never blocks a session. Codex waits for
+optional servers for one second by default (`mcp_optional_startup_grace_ms`) before it lists a session's first tools;
+on a slow or busy machine that first turn can run without PowerContext's MCP tools. For non-interactive runs such as
+`codex exec`, where the first turn may be the only one, set `mcp_optional_startup_grace_ms = 0` at the top level of
+Codex's `config.toml`, not under a server table, to wait up to the server's `startup_timeout_sec` (10 seconds by
+default) instead.
 
 When refreshing setup, client endpoint declarations in the setup `.env` file or process environment supersede saved
 client settings and the previously installed MCP URL. Without a new declaration, setup reuses saved endpoints.
@@ -76,6 +89,30 @@ The plugin has two paths to the same Server:
 - a prompt hook asks the Runtime to prepare one final, bounded context value, then independently captures the
   user's prompt as Source evidence;
 - MCP gives Codex explicit tools to read and maintain Memory, plus an explicit Handoff workflow.
+
+### Approve MCP tools that change data
+
+Codex asks for approval before it runs an MCP tool that the server does not mark read-only. PowerContext marks its
+reading tools, such as `search_memory`, read-only; tools that change data, such as `remember_memory` and
+`handoff_current_work`, need approval. The plugin's `PreToolUse` hook answers `allow` only to bind each call to the
+session's Scope. In Codex that rewrites the call without approving it, so the approval is still asked for.
+
+In an interactive session, approve the call when Codex asks. A non-interactive run has no one to answer: under
+`codex exec` with `approval_policy = "never"`, the call fails with "MCP tool call requires approval, but approval
+policy is never" and nothing reaches the Server. For unattended runs, approve the tools the task needs in Codex's
+`config.toml`, one tool at a time:
+
+```toml
+[plugins."powercontext@powercontext".mcp_servers.powercontext.tools.remember_memory]
+approval_mode = "approve"
+```
+
+Use the plugin ID that `codex plugin list` reports, `powercontext@<marketplace>`. An approved tool runs whenever the
+model calls it, without asking, in every session that uses this Codex configuration, interactive ones included. The
+call still uses the saved credential, and while the plugin's hooks are trusted it stays in the session's bound Scope;
+approval does not let the model choose another Scope. Setting `default_tools_approval_mode = "approve"` in the
+server's table, `[plugins."powercontext@powercontext".mcp_servers.powercontext]`, instead approves every PowerContext
+MCP tool, including tools added by later plugin versions. Setup never grants either approval.
 
 ## Hand off the current work in one turn
 

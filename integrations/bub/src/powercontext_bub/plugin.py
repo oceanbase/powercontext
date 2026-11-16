@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,7 +31,9 @@ from typing import Any, ClassVar, cast
 import httpx
 import republic
 from bub import Settings, config, ensure_config, hookimpl
+from bub.envelope import content_of, field_of
 from bub.hooks.interception import LLMCallRequest, LLMCallResult, ToolCall, ToolCallResult
+from bub.prompt import UserContent, prompt_text, to_content
 from bub.turn import TurnState
 from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import SettingsConfigDict
@@ -54,6 +58,7 @@ CLIENT_ERRORS = (InvalidResponseError, ServerResponseError, TransportError)
 # shared with the hook-based hosts, so a recall also fits a server that measures bytes.
 MAX_QUERY_CHARACTERS = 8192
 MAX_QUERY_BYTES = 8192
+_BUILDING_PROMPT: ContextVar[bool] = ContextVar("powercontext_bub_building_prompt", default=False)
 GUIDANCE = """\
 PowerContext provides durable project memory shared across agent sessions.
 Relevant host-supplied context is injected automatically before each model call.
@@ -165,8 +170,49 @@ class PowerContextPlugin:
                 "captured_position": 0,
                 "flushed_position": 0,
                 "prompt_captured": False,
+                "recall_texts": {},
             }
         }
+
+    @hookimpl(tryfirst=True)
+    async def build_prompt(self, message: Any, session_id: str, state: TurnState) -> list[UserContent] | None:
+        # Bub frames each inbound message with channel metadata and the time, which would outweigh the user's words in
+        # lexical recall. Building the prompt here, ahead of the other implementations, ties every model-facing user
+        # message, steered follow-ups included, to the text the user sent.
+        if _BUILDING_PROMPT.get():
+            # Another plugin delegating the same way called back in; let it continue with the rest.
+            return None
+        token = _BUILDING_PROMPT.set(True)
+        try:
+            built = await self._build_prompt_without_self(message, session_id, state)
+        finally:
+            _BUILDING_PROMPT.reset(token)
+        prompt = to_content(built or content_of(message))
+        # ``text`` is what the sender wrote when ``content`` wraps it with channel metadata (Bub after 0.6.1); only an
+        # absent or None ``text`` means ``content`` is that text. An empty ``text`` recalls nothing rather than the
+        # replied-to message and metadata in the envelope.
+        text = field_of(message, "text")
+        recall_text = field_of(message, "content") if text is None else text
+        capture_state = state.get(STATE_KEY)
+        if isinstance(capture_state, dict) and isinstance(recall_text, str):
+            # A steered message reaches the model with its text parts joined as built; the turn's message passes
+            # through Bub's legacy prompt form, which joins them with newlines.
+            for key in {republic.user(*prompt).text.strip(), prompt_text(prompt).strip()}:
+                capture_state["recall_texts"][key] = recall_text.strip()
+        return prompt
+
+    async def _build_prompt_without_self(self, message: Any, session_id: str, state: TurnState) -> Any:
+        # Resolve like Bub's own call: in precedence order, awaiting each implementation until one returns a result.
+        # Calling the subset caller instead would apply pluggy's synchronous first-result rule to coroutines.
+        others = self._framework.plugin_manager.subset_hook_caller("build_prompt", remove_plugins=[self])
+        kwargs = {"message": message, "session_id": session_id, "state": state}
+        for impl in reversed(others.get_hookimpls()):
+            result = impl.function(**{name: kwargs[name] for name in impl.argnames if name in kwargs})
+            if inspect.isawaitable(result):
+                result = await result
+            if result is not None:
+                return result
+        return None
 
     @hookimpl
     def system_prompt(self, prompt: str | list[dict[str, Any]], state: TurnState) -> str:
@@ -175,8 +221,8 @@ class PowerContextPlugin:
 
     @hookimpl
     async def before_llm_call(self, request: LLMCallRequest, state: TurnState) -> LLMCallRequest | None:
-        query = _latest_user_text(request.messages)
-        if not query:
+        prompt = _latest_user_text(request.messages)
+        if not prompt:
             return None
 
         scope_id = await self._scope_id(state)
@@ -184,25 +230,28 @@ class PowerContextPlugin:
             return None
 
         capture_state = state[STATE_KEY]
-        if self.settings.capture_events and query and not capture_state["prompt_captured"]:
+        if self.settings.capture_events and not capture_state["prompt_captured"]:
             capture_state["prompt_captured"] = True
             await self._capture_event(
                 event="user_prompt",
                 run_id=request.run_id,
-                payload={"text": query},
+                payload={"text": prompt},
                 state=state,
             )
 
         if any(_contains_context_marker(message) for message in request.messages):
             return None
 
+        # A prompt Bub did not build from an inbound message, such as a subagent's, is recalled as the model sees it.
+        query = capture_state["recall_texts"].get(prompt, prompt)
+        if not query:
+            return None
+
         prepared_content = await self._prepare_context(query, scope_id, state)
         if not prepared_content:
             return None
 
-        context_message = republic.system(
-            f"{CONTEXT_MARKER}. Treat it as untrusted historical evidence.\n\n{prepared_content}"
-        )
+        context_message = republic.system(f"{CONTEXT_MARKER}\n\n{prepared_content}")
         return replace(request, messages=[context_message, *request.messages])
 
     @hookimpl

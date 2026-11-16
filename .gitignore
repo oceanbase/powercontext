@@ -281,3 +281,5 @@ dev-*.db-shm
 # pnpm package store is a local cache, never committed.
 .pnpm-store/
 powercontext/gateway/
+!integrations/dsh/plugins/dsh-pet/lib/
+!integrations/dsh/plugins/dsh-pet/lib/index.js

@@ -19,7 +19,7 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_serializer, model_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import TASK_OUTCOME_SOURCE_KIND
@@ -162,6 +162,28 @@ class TaskCheck(_WorkValue):
         return self
 
 
+class TaskStopReason(_WorkValue):
+    """A recorded judgement about continuing an attempt; it grants no authority."""
+
+    kind: Literal["safety", "authorization", "capability", "missing_evidence", "scope"]
+    condition: Annotated[str, Field(max_length=MAX_WORK_TEXT_LENGTH)]
+    basis: WorkClaimBasis = "declared"
+    evidence: Annotated[tuple[HandoffCitation, ...], Field(max_length=MAX_WORK_CLAIM_EVIDENCE)] = ()
+
+    @field_validator("condition")
+    @classmethod
+    def require_condition(cls, value: str) -> str:
+        return _require_text("stop condition", value)
+
+    @model_validator(mode="after")
+    def require_evidence_for_verified_reasons(self) -> TaskStopReason:
+        if self.basis == "verified" and not self.evidence:
+            raise ValueError("verified Task stop reasons require exact evidence")  # noqa: TRY003
+        if self.basis == "declared" and self.evidence:
+            raise ValueError("declared Task stop reasons cannot present evidence as verified")  # noqa: TRY003
+        return self
+
+
 class TaskOutcome(_WorkValue):
     """What one completed or interrupted work attempt actually produced."""
 
@@ -178,6 +200,7 @@ class TaskOutcome(_WorkValue):
     checks: Annotated[tuple[TaskCheck, ...], Field(max_length=MAX_WORK_ITEMS)] = ()
     produced_artifacts: Annotated[tuple[ArtifactRef, ...], Field(max_length=MAX_WORK_EVIDENCE)] = ()
     remaining_work: Annotated[tuple[str, ...], Field(max_length=MAX_WORK_ITEMS)] = ()
+    stop_reason: TaskStopReason | None = None
 
     @field_validator("objective", "summary")
     @classmethod
@@ -188,6 +211,22 @@ class TaskOutcome(_WorkValue):
     @classmethod
     def require_remaining_work(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return _require_text_items("remaining_work", values)
+
+    @model_validator(mode="after")
+    def require_interrupted_status_for_stop_reason(self) -> TaskOutcome:
+        if self.stop_reason is not None and self.status not in ("blocked", "cancelled"):
+            raise ValueError(  # noqa: TRY003
+                f"Task stop_reason requires blocked or cancelled status; got {self.status}"
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_stop_reason(self, handler):
+        result = handler(self)
+        # Preserve historical Source bytes and content digests when no reason was recorded.
+        if self.stop_reason is None:
+            result.pop("stop_reason", None)
+        return result
 
 
 class CurrentWorkHandoff(_WorkValue):
@@ -485,6 +524,7 @@ __all__ = [
     "RecordTaskOutcome",
     "TaskCheck",
     "TaskOutcome",
+    "TaskStopReason",
     "WorkClaim",
     "WorkContinuity",
     "WorkContinuityCoverage",

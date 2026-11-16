@@ -1580,6 +1580,7 @@ class ArtifactProcessingSupervisor:
                     ArtifactProcessingWorkerOutcome.HEAD_CONFLICT,
                 }:
                     observed_outcome = "conflict"
+                    diagnostic_code = completion.outcome.value
                     previous = state.retries.get(scope)
                     self._defer(
                         state,

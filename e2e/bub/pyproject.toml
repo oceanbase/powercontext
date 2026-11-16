@@ -32,7 +32,7 @@ dependencies = [
 powercontext-e2e = "powercontext_e2e.__main__:main"
 
 [dependency-groups]
-dev = ["pytest>=9,<10"]
+dev = ["agent-client-protocol==0.10.0", "pytest>=9,<10"]
 
 [build-system]
 requires = ["hatchling"]

@@ -20,6 +20,7 @@ import json
 import pytest
 
 from powercontext.artifacts import ArtifactLineage, ArtifactRef
+from powercontext.builtin import processing_diagnostics
 from powercontext.builtin.artifacts.handoff import (
     Handoff,
     HandoffArtifactDraft,
@@ -27,6 +28,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffDisposition,
     HandoffDraft,
     HandoffEvidenceUnavailableError,
+    HandoffGenerationRequest,
     HandoffGenerationUnavailableError,
     HandoffOmission,
     HandoffRolloverReason,
@@ -39,7 +41,15 @@ from powercontext.builtin.artifacts.handoff import (
     PrepareHandoff,
     PrepareHandoffHint,
 )
+from powercontext.builtin.inference import InferenceTimeoutError, InvalidInferenceOutputError
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.errors import RevisionConflictError
+from powercontext.limits import MAX_SCOPE_ID_LENGTH
+from powercontext.server.logging import OperationalContextFilter
 from powercontext.sources import Source, SourceMaterialization, SourceRef
 
 SOURCE_REF = SourceRef(source_type="content", source_id="turn-1")
@@ -365,6 +375,7 @@ def test_prepare_rejects_pipeline_contract_violations(
     max_bytes: int,
     code: str,
     rollover_reasons: tuple[HandoffRolloverReason, ...],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     async def scenario() -> None:
         service, _, _ = _service(_GenerationPipeline(draft))
@@ -380,6 +391,22 @@ def test_prepare_rejects_pipeline_contract_violations(
             )
 
         assert caught.value.code == code
+        diagnostics = classify_processing_error(caught.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+        assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+        assert diagnostics.failure_location == code
+        assert await service.latest() is None
+        (record,) = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+        fields = vars(record)
+        assert (fields["family"], fields["operation"], fields["outcome"]) == ("handoff", "handoff.generate", "failure")
+        assert (fields["processing_stage"], fields["failure_reason"], fields["failure_location"]) == (
+            "business_validation",
+            "invalid_output",
+            code,
+        )
+        assert fields["input_item_count"] == 1
+        assert record.exc_info is None
 
     asyncio.run(scenario())
 
@@ -679,5 +706,62 @@ def test_continue_latest_reports_empty_without_a_committed_milestone() -> None:
         assert continued.status == "empty"
         assert continued.content is None
         assert continued.selection is None
+
+    asyncio.run(scenario())
+
+
+def test_prepare_limits_repeated_failures_and_keeps_evidence_based_classification(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elapsed = 0.0
+    monkeypatch.setattr(processing_diagnostics, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(processing_diagnostics, "_failure_log_times", {})
+
+    class FailingPipeline:
+        def __init__(self) -> None:
+            self.error: Exception = InferenceTimeoutError("handoff-generate", 0.5)
+
+        async def generate(self, request: HandoffGenerationRequest, /) -> HandoffDraft:
+            raise self.error
+
+    async def scenario() -> None:
+        nonlocal elapsed
+        pipeline = FailingPipeline()
+        service = HandoffService(
+            scope_id="x" * (MAX_SCOPE_ID_LENGTH + 1),
+            artifact_id="handoff",
+            backend=_HandoffBackend(),
+            evidence_resolver=_EvidenceResolver(),
+            generation_pipeline=pipeline,
+        )
+        action = PrepareHandoff(objective="Continue the work", evidence=(_citation(),))
+        for _ in range(24):
+            with pytest.raises(InferenceTimeoutError) as caught:
+                await service.prepare(action)
+            assert caught.value is pipeline.error
+
+        records = [record for record in caplog.records if getattr(record, "event", None) == "artifact.operation.failed"]
+        assert len(records) == 16
+        for record in records:
+            assert OperationalContextFilter().filter(record)
+            fields = vars(record)
+            assert fields["scope"] is None
+            assert (fields["error_code"], fields["error_category"], fields["failure_reason"]) == (
+                "model_timeout",
+                "timeout",
+                "timeout",
+            )
+
+        pipeline.error = InvalidInferenceOutputError("handoff-generate", "Malformed output; token budget is irrelevant")
+        with pytest.raises(InvalidInferenceOutputError):
+            await service.prepare(action)
+        assert vars(caplog.records[-1])["failure_reason"] == "invalid_output"
+
+        elapsed = 1.0
+        pipeline.error = InferenceTimeoutError("handoff-generate", 0.5)
+        with pytest.raises(InferenceTimeoutError):
+            await service.prepare(action)
+        assert vars(caplog.records[-1])["failure_reason"] == "timeout"
+        assert await service.latest() is None
 
     asyncio.run(scenario())

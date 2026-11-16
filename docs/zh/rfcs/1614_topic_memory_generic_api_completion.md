@@ -11,7 +11,6 @@ description: Topic Memory 通用接口的设计提案，补齐创建、替换、
 - Status: Proposed
 - 代码核对基线：`9ff03eedffe6e73a54bb3adf40d42badd7cacdf7`
 - 关联实现：[Topic Memory 标准读取接口 #1550](https://github.com/oceanbase/powercontext/pull/1550)
-- 业务目录：[货拉拉记忆需求](https://yuque.antfin.com/obopensrc/knowledge_sharing/tccng2l0qzc6iuw0)
 
 ## 1. 摘要
 

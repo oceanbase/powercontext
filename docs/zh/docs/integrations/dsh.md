@@ -23,12 +23,12 @@ status: community
 
 同一个包还导出独立的浏览器入口 `./client`。重启后，DSH Web 和 Desktop 会在账号区域上方显示 PowerContext
 状态控件。没有显示时说明宿主没有加载浏览器入口；已有工具和生命周期行为仍可用，因此这不是 Server 故障。
-这个控件不是 Dashboard 替代品：点击只打开连接诊断，Dashboard 内嵌属于后续工作。
+点击控件可查看连接诊断、检查版本更新，并选择“打开 Dashboard”；选中会话时，现有 Dashboard 会在 DSH 右侧栏打开。
 
 npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
 正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
-本次实现验收使用的官方最新版本是 `0.2.2-rc.1`（2026-11-04 发布的预发布版）；只在对应真实 Web 和
-Desktop 自带 runtime 上验证过，不能据此推断其他 DSH 版本兼容。
+P1/P2 在官方 `0.2.2-rc.1`（2026-11-04 发布的预发布版）的 Web 和 Desktop 自带 runtime 上验收；
+不能据此推断其他 DSH 版本兼容。
 
 ## 启动 PowerContext Server
 
@@ -124,6 +124,56 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
 [远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
 
+## 可选：为 dsh-pet 开启长期记忆
+
+DSH Web 和 Desktop 的桌宠聊天可以从独立的 PowerContext Scope 查找旧偏好，原有的人设、近期窗口和本地聊天记录照常使用。
+适配器与普通 DSH Agent 插件分开，默认关闭。首个组合是 DSH `0.2.2-rc.1`、dsh-pet `0.4.8`，
+以及来自同一个 PowerContext checkout 或发行版本的适配器与 Server。Desktop 验收覆盖 macOS arm64 应用。
+独立桌宠模式不使用此适配器。
+
+先在 Server 上为每只宠物创建一个[独立 Scope](../workflows/scopes-and-access.md)。使用确切的宠物实例 ID
+（内置默认宠物是 `main`）和 Scope ID。选定的 profile 必须已经包含一条启用的 dsh-pet 条目。
+在 Server 配置生成模型和 [Memory 处理](../get-started/configure-models.md)，文字问答才有机会变成可查找的记忆。
+
+第一次配置时，在终端运行 `powercontext setup dsh`。如果所选 profile 已启用兼容的 dsh-pet，setup 会询问是否开启长期记忆。
+确认后，填写宠物实例 ID（回车使用 `main`），再按编号选择专用 Scope，或输入准确的 Scope ID。
+跳过时长期记忆保持关闭，普通 DSH 安装照常完成。已经配置过的桌宠记忆，重新运行 setup 时省略桌宠选项会保留原配置。
+
+在脚本、管道或 `--json` 模式中开启时，必须同时显式传入以下两个选项：
+
+```bash
+powercontext setup dsh --profile web --server-url http://127.0.0.1:8000 \
+  --dsh-pet-memory on --dsh-pet-bind main=<PET_SCOPE_ID>
+```
+
+Desktop 请改用 `--profile desktop`。先打开已安装的 DSH Desktop 初始化 profile，再完全退出，然后用
+Desktop 自带的命令运行 setup。Web 和 Desktop 分别保存桌宠绑定与待上传队列；
+需要使用哪个 profile，就对哪个 profile 配置。
+
+把 `<PET_SCOPE_ID>` 换成真实 ID，不保留尖括号。多只宠物可重复传入 `--dsh-pet-bind`，每只使用不同的 Scope。
+每次 `on` 指定的是这个 profile 的完整绑定列表。远程 Server 必须使用 HTTPS 和鉴权，沿用绑定到地址的 DSH 凭据配置。
+关闭鉴权的环回 Server 必须允许无凭据访问；宠物记忆不会向该 Server 发送已保存的 DSH 凭据。
+启用访问控制时，凭据需要有目标 Scope 的读取和贡献权限。setup 使用所选 profile 已启用的 dsh-pet，只安装 PowerContext 记忆适配器。
+桌宠缺失、禁用、配置有歧义或版本不兼容时，不影响普通 DSH 安装。查看单独的 `dsh_pet_memory` 结果可确认适配器是否已开启。
+
+重启所选宿主后，运行 `powercontext doctor dsh --profile web` 或 `powercontext doctor dsh --profile desktop`。provider 注册、召回、待上传和 Source 接收各自有状态。
+Server 接收了 Source，不代表已经提取 Memory。召回只查已绑定的 Scope；空结果、断网或超时都保留原始聊天输入。
+若记忆单槽已有其它 provider，适配器不抢占。
+
+开启后，新完成的文字问题和回复会发送到配置的 Server。Server 可能使用配置的模型服务处理这些文本；
+召回的旧事会传给桌宠聊天模型。附件和旧本地历史不会上传。私有队列每个绑定最多保留 128 条，
+超过七天的记录不会发送。重试已入队记录时沿用原 Source 身份和载荷。更换 Server 身份或 Scope 时，
+旧队列不会发往新目标。
+
+```bash
+powercontext setup dsh --profile web --dsh-pet-memory off
+powercontext setup dsh --profile web --dsh-pet-memory off --discard-dsh-pet-pending
+```
+
+第一条命令停止召回、采集和上传，第二条还会丢弃该 profile 的未发送记录。要操作 Desktop 的配置，请把命令中的 profile 改为 `desktop`。两条命令都不能撤回已被 Server 接收的请求。
+清空桌宠聊天不会清空这个队列，也不会删除远端 Source 或 Memory。重启后或用完全相同的绑定重新启用时，
+未过期的待上传记录可能继续重试。同一个 profile 请只运行一个 DSH Host。
+
 ## 侧栏状态与诊断
 
 侧栏控件位于账号区域上方，颜色始终配有无障碍标签：
@@ -135,10 +185,10 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 | 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
 | 红色 | 连接、DSH 认证或必要能力失败 |
 
-点击后打开只读诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
+点击后打开诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
 本地存储中，无法读取偏好时回退到中文。默认视图保留连接状态、Server 地址、工作目录和 Scope；会话 ID、
 部署方式、认证配置来源（不显示认证值）、就绪依赖、context schema 和自动处理观测放在可展开的“技术详情”中。
-页脚通过 Host 读取 `GET /v1/server-info` 的 `package_version`，显示当前 Server 包版本。旧 Server 不支持该接口、
+页脚显示正在运行的 DSH 插件版本。“技术详情”从 `GET /v1/server-info` 读取连接的 Server 包版本。旧 Server 不支持该接口、
 读取失败或连接观测过期时显示“未知”，不会替换为插件版本或 API 合约版本。版本读取有界且不影响就绪判断。
 面板复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、发送诊断 prompt 或轮询 `/pc doctor`。
 
@@ -166,15 +216,54 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 ```
 
-不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install、target 或 Dashboard 路由。
+不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install 或 target 路由。
 
 页面可见时每十秒刷新；隐藏时暂停，恢复可见后立即重新核对；失败后从 2 秒退避到 30 秒；成功观测超过 30 秒
 会标为过期而不是继续显示绿色。DSH 的 401/403、Server 离线、readiness 依赖失败或缺少 context schema 分别显示
 不同诊断。面板只展示允许字段，不打印启动 token、Authorization 值或 Bearer header。切换会话会更新观测会话并
 丢弃上一会话的迟到响应；没有会话时如实显示，不创建会话。
 
-更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
-订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
+更新并重启插件会保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status`、
+`/powercontext/dashboard` 和 `/powercontext/updates` 路由、订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
+
+### 检查 PowerContext 更新
+
+本机 DSH Host 启动后会检查一次 PowerContext 的正式发布版本，之后每小时检查一次。面板关闭或 Server 离线时也会检查。
+要立即检查，可点击页脚的刷新图标。页脚提供发布说明链接，按钮的提示文字会说明检查或安装状态。
+检查不会自动安装。默认仅检查稳定版本；可在插件补丁中设置 `updateChannel: preview` 以包含预览版本，
+或设置 `updateHold: true` 以锁定当前插件版本。
+
+如果正在运行的 Server 已与目标版本匹配，且 DSH 能在符合条件的 npm 源中确认该版本可用且兼容，图标会变为 **更新**。
+点击后，DSH 会在当前 profile 后台安装。请先等待正在运行的会话结束。安装期间可关闭面板，再打开查看进度。
+如 DSH 提示重新加载或重启，只有加载新插件后才会显示新的运行版本。如果 registry 尚未提供该版本，请稍后重试。
+本地源码链接、Git、压缩包和自定义 registry 安装沿用各自的更新流程。测试用模拟的插件管理器覆盖了
+DSH `0.2.2-rc.2` 报告的 npm 更新能力，尚未验证从公共 npm registry 安装，也未在真实 rc.2 宿主上验证完整流程。
+
+“技术详情”提供 [Server 升级指引](../get-started/install-and-run.md#更新或替换安装)。请按当前部署方式更新和重启
+Server，并在需要时按现有流程迁移数据库。
+
+## 在 DSH 中打开 Dashboard
+
+先明确开启 [PowerContext Server Dashboard](../operate/configuration.md)。在选中的 DSH 会话里，点击账号区域上方的
+**PowerContext**，再点击**打开 Dashboard**。现有 Dashboard 会进入右侧栏：DSH Web 使用自带 Browser iframe，
+0.2.2-rc.1 Desktop 发行版使用隔离的 Browser webview。同一 PowerContext 控件仍可打开连接诊断；Dashboard
+原有的权限和写操作确认继续生效。
+
+当前会话的工作区绑定决定 Scope。切换会话后再次打开 Dashboard，会选择新会话的 Scope。没有选中会话时，面板提供
+**在浏览器中打开**，进入 Server 的默认 Dashboard；插件不会创建空会话。Host 通过经 DSH 认证的
+`GET /powercontext/dashboard` 检查可用性，返回 URL 只包含 Dashboard 路径和所选 Scope，不包含 token。Server
+启用 token 认证时，用户直接在 Dashboard 浏览器容器内登录；DSH 的 Server 凭据不会注入页面。登录后返回
+所选 Scope；登录失败可在原登录页更正。
+
+在本地使用 DSH Web 时，DSH 与 Server Dashboard 应使用相同的协议和回环主机名，端口可以不同。例如，两者都用
+`http://127.0.0.1`。若一边用 `localhost`、另一边用 `127.0.0.1`，内嵌页面无法保持 Dashboard 登录。
+面板会提示地址不匹配，并提供**在浏览器中打开**，保留所选 Scope。
+
+Dashboard 未开启时，面板提示在 Server 配置中开启。Host 凭据被拒绝或 Server 不可用会分别提示；Dashboard
+可用性不会改变 API 连接状态。DSH Browser 容器不可用时，面板保留诊断入口、提示无法打开侧栏，并提供
+**在浏览器中打开**。Browser 导航失败由 DSH Browser 标签页显示，恢复 Server 后可刷新。PowerContext Server 不支持 Dashboard 与自定义认证
+Provider 同时启动；应将该 Server 启动错误与 Browser 加载失败分开排查。插件不会自行开启 Dashboard 或降低认证要求。
+此浏览器入口已在官方 DSH 0.2.2-rc.1 Web 和 Desktop 发行版中实测；其他宿主版本需要分别验收容器。
 
 ## 诊断运行中的配置
 
@@ -286,6 +375,11 @@ flush 或修改绑定。Doctor 探测和手动操作也不会覆盖自动执行�
 - 每轮模型开口前，先请求 Runtime 准备一个最终、有界的上下文值，再把用户输入采集为 Source 证据；
 - DSH 原生 MCP client 连接 `/mcp/`，并将 Server 工具以 `mcp__powercontext__<operation>` 暴露给模型；
 - `/pc` 命令和自动生命周期阶段使用有界 HTTP client 执行宿主控制与诊断。
+
+自动路径遵循[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。上下文准备前，召回查询中识别出的凭据会替换为 `[REDACTED]`，
+包括 `api_key=…`、`password: …` 等凭据赋值，`Authorization` 和 `Cookie` 头，bearer 与服务商 token，私钥，
+以及插件配置的 Server token。含有其中任一项的提示词不会被采集。只是包含标记字样的普通词语，例如 `task-runner`
+或 `token budgets`，会原样采集。该规则识别常见形态，不能覆盖所有 secret。
 
 MCP 面覆盖完整 PowerContext profile：Memory 读写、Source 采集、Work Contract、Handoff 与确认、任务结果、
 Experience、托管和外部 Skill、候选审查、Scope 管理、持久 Scope binding 以及 Artifact 发布；同时还暴露

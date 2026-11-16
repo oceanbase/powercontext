@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 传输层：发送获准字节、取消、归属明确的有界重试。
+//! 传输层：发送获准字节、取消、单次发送边界。模型重试由 Executor 独占。
 //!
 //! RFC 失败语义：
 //! - 准入后正文/目标/设置变化 → 重新准入后才能发送；
@@ -22,11 +22,9 @@
 
 mod claude;
 mod reqwest_transport;
-mod retry;
 mod sender;
 mod subscription;
 
 pub use reqwest_transport::*;
-pub use retry::*;
 pub use sender::*;
 pub use subscription::*;

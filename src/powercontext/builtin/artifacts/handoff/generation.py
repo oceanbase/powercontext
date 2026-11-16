@@ -36,6 +36,12 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffStatement,
 )
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, StructuredGenerator
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.sources import Source
 
 HandoffGenerationEvidenceType: TypeAlias = Literal["source", "artifact"]
@@ -146,9 +152,17 @@ class LLMHandoffGenerationPipeline:
                 omissions=tuple(_omission(value, citations) for value in output.omissions),
             )
         except ValidationError as error:
-            raise InvalidInferenceOutputError(
-                "handoff-generate",
-                "generated content violates the Handoff Draft contract",
+            raise attach_diagnostics(
+                InvalidInferenceOutputError(
+                    "handoff-generate",
+                    "generated content violates the Handoff Draft contract",
+                ),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="handoff-generate-contract",
+                    cause_exception_type=type(error).__name__,
+                ),
             ) from error
 
 
@@ -230,7 +244,7 @@ def _statement(
     citations: Mapping[str, HandoffCitation],
 ) -> HandoffStatement:
     if not value.evidence_ids:
-        raise InvalidInferenceOutputError("handoff-generate", "statement does not cite evidence")
+        raise _invalid_handoff_output("statement does not cite evidence", "handoff-generation-citation")  # noqa: TRY003
     return HandoffStatement(
         text=value.text,
         citations=tuple(_citation(evidence_id, citations) for evidence_id in dict.fromkeys(value.evidence_ids)),
@@ -251,10 +265,20 @@ def _citation(evidence_id: str, citations: Mapping[str, HandoffCitation]) -> Han
     try:
         return citations[evidence_id]
     except KeyError:
-        raise InvalidInferenceOutputError(
-            "handoff-generate",
-            "generated content cites evidence outside the request",
+        raise _invalid_handoff_output(  # noqa: TRY003
+            "generated content cites evidence outside the request", "handoff-generation-citation"
         ) from None
+
+
+def _invalid_handoff_output(detail: str, location: str) -> InvalidInferenceOutputError:
+    return attach_diagnostics(
+        InvalidInferenceOutputError("handoff-generate", detail),
+        ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location=location,
+        ),
+    )
 
 
 def _validated_json(value: object) -> JsonValue:
