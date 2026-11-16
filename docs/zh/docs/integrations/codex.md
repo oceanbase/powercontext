@@ -119,7 +119,9 @@ host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会�
 binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
-Hook 会为每个指定了 Scope 的 PowerContext 工具调用绑定 Scope。无法绑定时会拒绝该调用，包括：无法解析 binding、
+Hook 会为每个指定了 Scope 的 PowerContext 工具调用绑定 Scope。值为 null 的 `scope_id` 或 `selection` 与省略相同，
+不指定 Scope：data-plane 工具仍使用 Session 的 Scope，Source 实例 control 视图等 Server 级调用保持不限定 Scope。
+无法绑定时会拒绝该调用，包括：无法解析 binding、
 调用载荷不完整、Hook 意外失败，或插件模块无法加载。只有 Hook 完全没有给出决定时，Codex 才会按 Agent 自己的参数执行
 这类调用：Hook 进程无法启动、在 Hook 代码运行前出错退出，或超过 Hook 的 10 秒超时。此时调用仍只能访问已保存凭据
 有权访问的 Scope。

@@ -513,6 +513,49 @@ def test_pre_tool_hook_leaves_other_tools_alone(
     assert output.getvalue() == ""
 
 
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one", "scope_id": None}),
+        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one"}),
+        ("future_selection_tool", {"selection": None}),
+    ],
+    ids=["null-scope", "omitted-scope", "null-selection"],
+)
+def test_pre_tool_hook_leaves_a_call_that_names_no_scope_unbound(
+    tool: str,
+    tool_input: dict[str, object],
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A null Scope argument names no Scope, so an unscoped call such as an instance control view stays unscoped."""
+
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
+    payload = {"session_id": "session-a", "cwd": "/workspace", "tool_name": f"mcp__powercontext__{tool}"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**payload, "tool_input": tool_input})))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert bind_tools_module.main() == 0
+    assert output.getvalue() == ""
+
+
+def test_pre_tool_hook_binds_a_current_scope_operation_whose_scope_is_null(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
+    payload = {"session_id": "session-a", "cwd": "/workspace", "tool_name": "mcp__powercontext__search_memory"}
+    tool_input = {"scope_id": None, "query": "current state"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**payload, "tool_input": tool_input})))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert bind_tools_module.main() == 0
+    updated = json.loads(output.getvalue())["hookSpecificOutput"]["updatedInput"]
+    assert updated == {"scope_id": "bound-scope", "query": "current state"}
+
+
 @pytest.mark.parametrize("error", [RuntimeError("unexpected"), KeyError("scope_id"), TypeError("unexpected")])
 def test_pre_tool_hook_denies_when_binding_fails_unexpectedly(
     error: Exception,

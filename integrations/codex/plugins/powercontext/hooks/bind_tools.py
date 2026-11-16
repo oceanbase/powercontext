@@ -174,11 +174,12 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             _allow(dict(tool_input))
             return 0
         # An operation outside the contract's current and selection modes may still take a Scope argument; bind any
-        # Scope the Agent names rather than letting it pick one.
+        # Scope the Agent names rather than letting it pick one. A null argument names none, so such a call keeps its
+        # unscoped meaning, such as an instance control view.
         selection = operation in _SELECTION_OPERATIONS or (
-            operation not in _CURRENT_OPERATIONS and "selection" in tool_input
+            operation not in _CURRENT_OPERATIONS and tool_input.get("selection") is not None
         )
-        if not selection and operation not in _CURRENT_OPERATIONS and "scope_id" not in tool_input:
+        if not selection and operation not in _CURRENT_OPERATIONS and tool_input.get("scope_id") is None:
             return 0
         settings = CodexPluginSettings() if settings is None else settings
         scope_id = resolve_scope_id(
