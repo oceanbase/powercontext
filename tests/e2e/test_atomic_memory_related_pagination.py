@@ -106,6 +106,12 @@ class _RecordingConnection:
         self.executed.append((str(statement), dict(parameters or {})))
         return await self.connection.scalar(statement, parameters)
 
+    # The native OceanBase/seekDB index reads the engine pool through the
+    # connection to find its cached FULLTEXT capability before ranking. That
+    # call runs no SQL on this path, so there is nothing to record.
+    async def run_sync(self, function, *args, **kwargs):
+        return await self.connection.run_sync(function, *args, **kwargs)
+
 
 @pytest.mark.parametrize("page_size", [7, 10, 100, 101, 102])
 def test_related_pages_cover_every_qualified_memory(migration_backend: MigrationBackend, page_size: int) -> None:

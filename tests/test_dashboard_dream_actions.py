@@ -20,10 +20,10 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig
 from powercontext.server.app import create_app
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.dashboard.routes import router
 from tests.builtin.runtime.test_topic_memory_terminal_frontier import _seed
 from tests.e2e.dream_support import atomic_memory_pipeline, open_dream_runtime, process_pending

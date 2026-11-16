@@ -388,6 +388,51 @@ def test_archive_preserves_revision_metadata_after_restart(tmp_path: Path, targe
     asyncio.run(scenario())
 
 
+# Exported by the released v1.5.1 runtime: one profile with two revisions, written before revision metadata
+# existed, so its Artifact revision records use schema version 2.
+RELEASED_ARCHIVE = Path(__file__).parents[1] / "fixtures" / "portable_archives" / "v1_5_1_profile_history.pcb"
+RELEASED_SCOPE = "scp_3fqz0yrh8ybj3cbav4ek3hfxee"
+
+
+def test_archive_exported_by_a_released_version_restores_and_restores_again(
+    tmp_path: Path, target_config: BuiltinConfig
+) -> None:
+    async def authorize(_scopes: tuple[str, ...]) -> None:
+        pass
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(target_config) as target:
+            assert (await target.portability.validate(RELEASED_ARCHIVE)).compatible
+            restored = await target.portability.restore(RELEASED_ARCHIVE)
+            assert (restored.inserted, restored.already_present) == (14, 0)
+            # The same records already present, now stored with unknown metadata, are not conflicts.
+            again = await target.portability.restore(RELEASED_ARCHIVE)
+            assert (again.inserted, again.already_present) == (0, 14)
+        async with open_builtin_contexts(target_config) as target:
+            [profile] = (await target.records.query_artifacts(RELEASED_SCOPE, "profile", limit=10, cursor=None)).items
+            page = await target.records.list_artifact_revisions(
+                RELEASED_SCOPE, "profile", profile.artifact_id, limit=10, cursor=None
+            )
+            assert [item.content and item.content["content"] for item in page.items] == [
+                "# Profile\n\nUse a different choice.\n",
+                "# Profile\n\nKeep the original choice.\n",
+            ]
+            assert all(item.created_at is not None for item in page.items)
+            async with target.database.transaction() as connection:
+                metadata = (
+                    await connection.execute(
+                        select(ARTIFACTS_TABLE.c.metadata).where(ARTIFACTS_TABLE.c.scope_id == RELEASED_SCOPE)
+                    )
+                ).scalars()
+                assert set(metadata) == {None}
+            # Re-exported at the current schema, the history is the same records the target already holds.
+            reexport = tmp_path / "reexport.pcb"
+            await target.portability.export([RELEASED_SCOPE], reexport, authorize=authorize)
+            assert (await target.portability.restore(reexport)).inserted == 0
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [("created_at", None), ("created_by", '{"type":"user","id":"another-operator"}')],

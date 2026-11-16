@@ -119,7 +119,7 @@ do not point them at a production catalog. No paid-provider call is part of a no
        ),
        inference=configured_inference,
    )
-   app = create_server_app(settings=settings, scheduler_path=temporary_scheduler)
+   app = create_server_app(settings=settings)
    ```
 
 3. For each entry in `cases.json`, create a new Scope using `POST /v1/scopes`. For each `sources` string, call

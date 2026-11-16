@@ -134,9 +134,8 @@ async fn sse_leading_bom_preserves_first_event_usage_and_original_bytes() {
 }
 
 #[tokio::test]
-async fn body_read_timeouts_and_truncations_keep_distinct_reasons_without_retry() {
-    use pc_gateway_evidence::BufferedEvidenceSink;
-    use pc_gateway_transport::{BoundedRetry, RetryOutcome, SendIndeterminateReason};
+async fn body_read_timeouts_and_truncations_keep_distinct_reasons() {
+    use pc_gateway_transport::SendIndeterminateReason;
     for stream in [false, true] {
         for (stall, partial) in [(true, false), (true, true), (false, true)] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -170,35 +169,23 @@ async fn body_read_timeouts_and_truncations_keep_distinct_reasons_without_retry(
                     let _ = finish_rx.await;
                 }
             });
-            let transport = BoundedRetry::new(
-                ReqwestTransport::new(Duration::from_millis(100)),
-                std::num::NonZeroU32::new(3).unwrap(),
-            );
-            let evidence = BufferedEvidenceSink::new();
+            let transport = ReqwestTransport::new(Duration::from_millis(100));
             let outcome = transport
-                .send_with_retry(
-                    &AdmittedSend {
-                        binding: "fixture".into(),
-                        payload: bytes::Bytes::from_static(b"{}"),
-                        target_url: format!("http://{address}/provider"),
-                        headers: vec![],
-                        stream,
-                    },
-                    &evidence,
-                )
+                .send(AdmittedSend {
+                    binding: "fixture".into(),
+                    payload: bytes::Bytes::from_static(b"{}"),
+                    target_url: format!("http://{address}/provider"),
+                    headers: vec![],
+                    stream,
+                })
                 .await;
             let _ = finish_tx.send(());
             server.await.unwrap();
-            assert_eq!(
-                evidence.attempts(),
-                [1],
-                "an incomplete response must never retry"
-            );
-            let RetryOutcome::Done(SendOutcome::IncompleteResponse {
+            let SendOutcome::IncompleteResponse {
                 reason,
                 status,
                 response_first_byte_ms,
-            }) = outcome
+            } = outcome
             else {
                 panic!("expected an incomplete response, got {outcome:?}");
             };

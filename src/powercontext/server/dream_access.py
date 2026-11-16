@@ -12,57 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Current-principal authorization for durable Dream and Review evidence."""
+"""Bind Dream and Review authorization to the current Server request principal."""
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.authz.dream import DreamAuthorization, evidence_resource, principal_identity
+from powercontext.builtin.authz.errors import AccessControlError, AccessDeniedError, AccessIdentityRequiredError
+from powercontext.builtin.authz.models import AccessAction, ResourceRef
+from powercontext.builtin.authz.service import AccessAuditContext
 from powercontext.builtin.catalog_changes.models import TagDreamTarget
-from powercontext.builtin.dream.models import DreamError, DreamRecord
-from powercontext.builtin.dream.service import DreamPermission
+from powercontext.builtin.dream.models import DreamError
 from powercontext.builtin.evidence.resolver import EvidenceReference
 from powercontext.builtin.review.models import Candidate
-from powercontext.server.authz.errors import AccessControlError, AccessDeniedError, AccessIdentityRequiredError
-from powercontext.server.authz.models import AccessAction, PrincipalRef, ResourceRef
-from powercontext.server.authz.service import AccessAuditContext, AccessControlService
 from powercontext.server.context import current_principal, current_request_id
 
 if TYPE_CHECKING:
     from powercontext.builtin.runtime.application import BuiltinRuntime
 
 
-def principal_identity(principal: PrincipalRef) -> str:
-    return json.dumps({"type": principal.type, "id": principal.id}, ensure_ascii=False, separators=(",", ":"))
-
-
-def _principal(identity: str) -> PrincipalRef:
-    try:
-        value = json.loads(identity)
-    except (ValueError, TypeError) as error:
-        raise DreamError("access_revoked") from error
-    if not isinstance(value, dict) or set(value) != {"type", "id"}:
-        raise DreamError("access_revoked")
-    try:
-        return PrincipalRef(type=value["type"], id=value["id"])
-    except (ValueError, TypeError, AccessControlError) as error:
-        raise DreamError("access_revoked") from error
-
-
-def _resource(scope_id: str, ref: EvidenceReference | None) -> ResourceRef:
-    if isinstance(ref, ArtifactRef) and ref.family != "topic-memory":
-        return ResourceRef.artifact(scope_id, family=ref.family, artifact_id=ref.artifact_id)
-    # Sources and Topic Memory reads belong to the Scope.
-    return ResourceRef.scope(scope_id)
-
-
-class DreamAccess:
-    def __init__(self, access: AccessControlService) -> None:
-        self.access = access
+class DreamAccess(DreamAuthorization):
+    """Add request-principal Review checks to Dream authorization."""
 
     def bind(self, runtime: BuiltinRuntime) -> None:
         runtime.configure_evidence_authorization(
@@ -76,39 +49,9 @@ class DreamAccess:
             review_action=self.review_action,
         )
 
-    async def authorize(
-        self,
-        scope_id: str,
-        principal_id: str,
-        permission: DreamPermission,
-        ref: EvidenceReference | None,
-    ) -> None:
-        principal = _principal(principal_id)
-        resource = _resource(scope_id, ref)
-        if permission == "contribute":
-            action = AccessAction.SCOPE_CONTRIBUTE
-        elif permission in {"write", "write_tags"}:
-            if isinstance(ref, ArtifactRef) and ref.family in {"prompt", "topic-memory"}:
-                action, resource = AccessAction.SCOPE_ADMIN, ResourceRef.scope(scope_id)
-            else:
-                action = AccessAction.ARTIFACT_WRITE
-        else:
-            action = AccessAction.SCOPE_READ if resource == ResourceRef.scope(scope_id) else AccessAction.ARTIFACT_READ
-        try:
-            await self.access.require(
-                principal,
-                action,
-                resource,
-                context=AccessAuditContext(
-                    request_id=current_request_id(),
-                    transport="background",
-                    operation="artifact_dreaming",
-                ),
-            )
-        except AccessDeniedError as error:
-            raise DreamError("access_revoked") from error
-        except AccessControlError as error:
-            raise DreamError("access_unavailable") from error
+    @override
+    def _request_id(self) -> str | None:
+        return current_request_id()
 
     async def review(self, scope_id: str, ref: EvidenceReference) -> None:
         principal = current_principal()
@@ -129,7 +72,7 @@ class DreamAccess:
             raise AccessIdentityRequiredError
         checks = {}
         for ref in refs:
-            resource = _resource(scope_id, ref)
+            resource = evidence_resource(scope_id, ref)
             action = AccessAction.SCOPE_READ if resource == ResourceRef.scope(scope_id) else AccessAction.ARTIFACT_READ
             checks[action, resource.key] = (action, resource)
         try:
@@ -144,41 +87,6 @@ class DreamAccess:
             raise DreamError("access_revoked") from error
         except AccessControlError as error:
             raise DreamError("access_unavailable") from error
-
-    async def attest_candidate(
-        self, connection: AsyncConnection, record: DreamRecord, candidate_id: str, family: str
-    ) -> None:
-        bound = DreamAccess(self.access.with_connection(connection))
-        await bound.authorize(record.run.scope_id, record.principal_id, "contribute", None)
-        await bound.access.attest_candidate_owner(
-            scope_id=record.run.scope_id,
-            candidate_id=candidate_id,
-            family=family,
-            proposed_owner=_principal(record.principal_id),
-            target=None
-            if record.run.target is None
-            else ResourceRef.artifact(
-                record.run.scope_id, family=record.run.target.family, artifact_id=record.run.target.artifact_id
-            ),
-            idempotency_key=f"dream-candidate-owner:{record.run.run_id}",
-        )
-
-    async def authorize_candidate(
-        self, connection: AsyncConnection, record: DreamRecord, candidate_id: str, family: str
-    ) -> None:
-        bound = DreamAccess(self.access.with_connection(connection))
-        await bound.authorize(record.run.scope_id, record.principal_id, "read", record.run.target)
-        if record.run.operation == "revise_tags" and record.run.tag_target is not None:
-            await bound.authorize(
-                record.run.scope_id,
-                record.principal_id,
-                "read",
-                record.run.tag_target.basis_ref,
-            )
-            return
-        owner = await bound.access.candidate_owner(record.run.scope_id, candidate_id)
-        if owner is None or owner.proposed_owner != _principal(record.principal_id):
-            raise DreamError("access_revoked")
 
     async def catalog_action(self, scope_id: str, action: str, target: TagDreamTarget) -> None:
         principal = current_principal()

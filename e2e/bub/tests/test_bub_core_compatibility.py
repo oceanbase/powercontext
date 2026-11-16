@@ -103,7 +103,12 @@ for value in [None, {}, {"sections": []}, {"sections": [{"family": "memory", "li
             if value is None:
                 assert "assembly" not in payload
             else:
-                assert payload["assembly"] == settings.context_assembly.model_dump(mode="json")
+                expected = settings.context_assembly.model_dump(mode="json")
+                # The client omits unused plugin search fields so an older Server accepts the request.
+                for section in expected["sections"]:
+                    if section.get("search") is None:
+                        section.pop("search", None)
+                assert payload["assembly"] == expected
 """
 
 

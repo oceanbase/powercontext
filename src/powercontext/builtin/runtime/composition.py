@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
 from datetime import timedelta
@@ -122,7 +123,6 @@ from powercontext.builtin.persistence.atomic_memory_readiness import (
     ensure_supported_atomic_memory_schema,
 )
 from powercontext.builtin.persistence.bootstrap_receipts import BootstrapReceiptRepository
-from powercontext.builtin.persistence.custom_artifacts import ensure_artifact_plugin_schema
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
 from powercontext.builtin.persistence.lexical_projection import refresh_lexical_projections
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
@@ -161,8 +161,6 @@ from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import (
     BuiltinRuntime,
     RecallEffortSink,
-    ScheduledExperienceRunner,
-    ScheduledSourceRunner,
 )
 from powercontext.builtin.runtime.artifact_merge import (
     ArtifactMergeAccess,
@@ -531,10 +529,10 @@ def _validate_protected_inference(protection: InferenceProtectionConfig, *depend
 
 
 @asynccontextmanager
-async def open_builtin_runtime(
+async def open_builtin_runtime(  # noqa: C901
     config: BuiltinConfig,
     *,
-    scheduler_path: str | Path = "powercontext.scheduler.db",
+    scheduler_path: str | Path | None = None,
     candidate_pipeline: CandidatePipeline | AtomicMemoryGenerationPipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
@@ -566,8 +564,6 @@ async def open_builtin_runtime(
     processing_observer: Callable[[str, str, float], None] | None = None,
     worker_initializer: Callable[[], None] | WorkerInitializerPreparation | None = None,
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
-    scheduled_source_runner: ScheduledSourceRunner | None = None,
-    scheduled_experience_runner: ScheduledExperienceRunner | None = None,
     scheduled_profile_runner: Any = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
@@ -591,7 +587,17 @@ async def open_builtin_runtime(
     a context manager yielding the picklable child bootstrap. Its resources remain
     open until spawn or cancellation cleanup finishes. Custom bindings own their
     launchers and initialization. The default does not configure process logging.
+
+    ``scheduler_path`` is deprecated and ignored.
     """
+
+    if scheduler_path is not None:
+        warnings.warn(
+            "scheduler_path is ignored and will be removed; automatic processing is scheduled by the "
+            "artifact processing supervisor",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
     async with AsyncExitStack() as resources:
         _validate_protected_inference(
@@ -870,8 +876,6 @@ async def open_builtin_runtime(
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,
                 scope_cache_observer=scope_cache_observer,
-                scope_ids=contexts.scope_ids,
-                source_scope_ids=contexts.unconsumed_source_scope_ids,
                 review_service=contexts.review,
                 catalog_change_service=contexts.catalog_changes,
                 profiles=contexts.profiles,
@@ -929,8 +933,6 @@ async def open_builtin_runtime(
                     disabled_dependencies=(name for name, probe in inference_readiness if probe is None),
                 ),
                 tracing=tracing,
-                scheduled_source_runner=scheduled_source_runner,
-                scheduled_experience_runner=scheduled_experience_runner,
                 remote_ingestion=contexts,
                 archive_service=contexts.portability,
             )
@@ -1184,12 +1186,8 @@ async def _open_artifact_processing_supervisor(
 
 def compose_artifact_search(contexts, embedding_model=None, *, observer=None):
     """Use the same Family-owned Searchers in Server, SDK and generation Workers."""
-    from powercontext.builtin.runtime.custom_artifact_search import CustomArtifactSearcher
-
-    artifact_search = ArtifactSearchService(
-        known_families=contexts.repositories.artifacts.families,
-        fallback=lambda family: CustomArtifactSearcher(contexts.database, family, embedding_model),
-    )
+    # Plugin families are searched by their plugins through the Server, not here.
+    artifact_search = ArtifactSearchService(known_families=contexts.repositories.artifacts.families)
     artifact_search.register(
         ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, contexts.experience_index)
     )
@@ -1276,7 +1274,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                         validate_only=True,
                     )
                 else:
-                    await ensure_artifact_plugin_schema(connection)
                     await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                     await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                     await ensure_skill_distribution_schema(connection)
@@ -1367,7 +1364,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                     connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery, validate_only=True
                 )
             else:
-                await ensure_artifact_plugin_schema(connection)
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await ensure_skill_distribution_schema(connection)
@@ -2579,8 +2575,8 @@ __all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_r
 
 async def _initialize_atomic_memory_authority(connection) -> None:
     """Create formal authority storage without importing legacy business data."""
+    from powercontext.builtin.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
     from powercontext.builtin.persistence.schema import create_tables
-    from powercontext.server.authz.repository import ACCESS_POLICY_HEADS_TABLE, ACCESS_TABLES
 
     await create_tables(connection, ACCESS_TABLES)
     if connection.dialect.name == "sqlite":

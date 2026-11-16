@@ -37,6 +37,8 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBas
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.plugins.families import plugin_artifact_repository
+from powercontext.builtin.plugins.manifest import check_plugin_directory
 from powercontext.builtin.portability import (
     BundleCompatibilityError,
     BundleConflictError,
@@ -51,7 +53,6 @@ from powercontext.builtin.portability import (
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.builtin.runtime.relational import BUILTIN_ARTIFACT_TYPES, BUILTIN_CANDIDATE_PROPOSAL_TYPES
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
-from powercontext.paths import default_scheduler_path
 from powercontext.server.configuration import server_settings_context
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -139,11 +140,12 @@ async def _run_archive(
             handoff_report=settings.handoff_report,
             external_skills=settings.external_skills,
         )
-        async with open_builtin_runtime(
-            config, scheduler_path=default_scheduler_path(), _archive_recovery=recovery
-        ) as runtime:
+        async with open_builtin_runtime(config, _archive_recovery=recovery) as runtime:
             if runtime.archive is None:
                 raise RuntimeError("portable archive service is unavailable")  # noqa: TRY003
+            # Backups need only stored core records, even if a configured plugin cannot load.
+            if recovery:
+                await _register_plugins(runtime.archive, settings.plugins_dir)
             return await operation(runtime.archive)
 
 
@@ -160,23 +162,25 @@ async def _validate_only(source: Path, /, *, env_file: Path | None) -> BundleVal
             existing = database.is_persistent and await asyncio.to_thread(_database_file_exists, database.url)
             if existing:
                 async with SQLiteProfile.open_readonly(database) as profile:
-                    return await _validate_with_database(profile.database, source)
+                    return await _validate_with_database(profile.database, source, settings.plugins_dir)
             engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=database.echo, hide_parameters=True)
             validation_database = AsyncDatabase.own(engine, shared_connection=True)
             try:
-                return await _validate_with_database(validation_database, source)
+                return await _validate_with_database(validation_database, source, settings.plugins_dir)
             finally:
                 await validation_database.close()
         if isinstance(database, OceanBaseConfig):
             async with OceanBaseProfile.open(database, tables=()) as profile:
-                return await _validate_with_database(profile.database, source)
+                return await _validate_with_database(profile.database, source, settings.plugins_dir)
         if isinstance(database, SeekDBConfig):
             async with SeekDBProfile.open(database, tables=()) as profile:
-                return await _validate_with_database(profile.database, source)
+                return await _validate_with_database(profile.database, source, settings.plugins_dir)
         assert_never(database)
 
 
-async def _validate_with_database(database: AsyncDatabase, source: Path, /) -> BundleValidation:
+async def _validate_with_database(
+    database: AsyncDatabase, source: Path, plugins_dir: Path | None = None, /
+) -> BundleValidation:
     async def projection_capability(_scopes: tuple[str, ...], /) -> None:
         return None
 
@@ -190,7 +194,29 @@ async def _validate_with_database(database: AsyncDatabase, source: Path, /) -> B
         candidate_decoder=CandidateRepository(BUILTIN_CANDIDATE_PROPOSAL_TYPES).decode_candidate,
         source_decoder=SourceRepository(BUILTIN_SOURCE_REGISTRY).decode_source,
     )
+    await _register_plugins(archive, plugins_dir)
     return await archive.validate(source, progress=_emit_progress)
+
+
+async def _register_plugins(archive: PortableBundleService, directory: Path | None) -> None:
+    """Load only declarations; observation Sources carry their immutable manifests in the bundle."""
+
+    if directory is None:
+        return
+    try:
+        entries = await asyncio.to_thread(
+            lambda: sorted(path.resolve() for path in directory.expanduser().iterdir() if path.is_dir())
+        )
+        families: set[str] = set()
+        for entry in entries:
+            manifest = await check_plugin_directory(entry)
+            family = manifest.spec.family
+            if family in families:
+                raise ValueError("family is provided by multiple plugins")  # noqa: TRY003, TRY301
+            families.add(family)
+            archive.register_artifact_family(family, plugin_artifact_repository(family).decode_content)
+    except (OSError, ValueError) as error:
+        raise BundleCompatibilityError("configured plugin declarations could not be loaded") from error  # noqa: TRY003
 
 
 def _database_file_exists(value: str, /) -> bool:
