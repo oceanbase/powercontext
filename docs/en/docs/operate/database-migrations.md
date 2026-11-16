@@ -15,7 +15,7 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.1 target (stored compatibility IDs shown below):
+1.5.2 target (stored compatibility IDs shown below):
 
 - **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006`.
 - **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006` through a separate frozen source bridge.
@@ -93,6 +93,8 @@ Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metad
 
 Revision `v1_5_0_004` registers `pc_artifact_source_locators`, an optional relation keyed by the existing Artifact Revision and Source-edge ordinal. Existing managed databases require explicit migration before Server startup. The migration preserves existing lineage rows, exact identities and historical payloads without rewriting them or backfilling locators. Atomic Memory embeddings remain unchanged; no re-embedding is required. See [Source citation locators](../workflows/sources.md) for locator behavior.
 
+Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and adds nullable `pc_artifacts.metadata`. The upgrade refuses to proceed while old plugin registrations or data remain. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The immutable revision keeps its original `1.5.0` numbering.
+
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
 index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
@@ -145,7 +147,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.1**. Migration names use
+The target release is **PowerContext 1.5.2**. Migration names use
 `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
 Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
 
@@ -163,7 +165,7 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
 | `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
-| `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Plugin storage cleanup and revision metadata |
+| `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_0_006` | 1.5.0 | 6 | `v1_5_0_006` | Independent prepare diagnostics |
 
 Both registered source paths reach `v1_5_0_006`; only 1.3.0 is selected for CI upgrade acceptance:
