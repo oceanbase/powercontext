@@ -81,7 +81,12 @@ Repeated launches activate the existing window for this channel. Profile storage
 
 Use Windows 11 x64, Visual Studio C++ Build Tools with a Windows SDK, Node **24.14.1**, pnpm **11.13.1**, Rust **1.95.0 MSVC**, **JDK 11 or newer with `java` available on `PATH`**, and WebView2. `desktop/.mise.toml`, `rust-toolchain.toml`, `pnpm-lock.yaml` and `src-tauri/Cargo.lock` pin the tools and dependencies independently of Python and the website.
 
-The OpenAPI Generator used by `generate` and `generate:check` runs on Java. On the first run, `openapi-generator-cli` may download the pinned generator JAR from Maven Central, so the first generation or drift check requires network access. Subsequent runs can reuse the downloaded JAR.
+The OpenAPI Generator used by `generate` and `generate:check` runs on Java. Its version is pinned in
+`openapitools.json` and its SHA-256 in `openapi-generator-checksum.json`; update both when upgrading the generator.
+Preparation verifies the cached JAR, or downloads it with `curl` and bounded retries for transient failures such as HTTP
+429. A download is used only after its checksum matches. Network access is needed when no verified JAR is available.
+Desktop CI restores a separate JAR cache and saves verified downloads before lint, tests, and build, so a later failure
+does not discard the download. This applies to Windows, macOS, and Linux jobs.
 
 Some machines default to Rust's GNU host. In PowerShell, explicitly select the pinned MSVC host for this process:
 
@@ -253,7 +258,7 @@ pnpm **11.13.1**, Rust **1.95.0**, and **JDK 11 or newer with `java` available o
 Build on the target architecture (Apple Silicon or Intel).
 
 `generate:check`, included in `lint` and `build`, runs the Java OpenAPI Generator. The first run
-may download its pinned JAR from Maven Central and requires network access; later runs can reuse it.
+may download its pinned JAR from Maven Central using `curl`; later runs verify and reuse it as described above.
 
 ```sh
 cd desktop
