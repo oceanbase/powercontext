@@ -106,6 +106,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.records import BaseOperationNotSupportedError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
+from powercontext.builtin.runtime.diagnostic_text import memory_text
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.source_eligibility import (
@@ -1140,7 +1141,7 @@ class ScopedAtomicMemory:
                     available.append(candidate)
         return tuple(available)
 
-    async def _rerank(
+    async def _rerank(  # noqa: C901 -- Keep authorization, one rank call and its observed result together.
         self,
         query,
         mode,
@@ -1156,7 +1157,12 @@ class ScopedAtomicMemory:
     ):
         application = self.application
         reranker = application.reranker
+        evidence = current_receipt_evidence()
         if reranker is None or not candidates:
+            if evidence is not None:
+                evidence.text_snapshot(
+                    "search", "atomic-memory", self.scope_id, lambda: (memory_text(hit) for hit in candidates)
+                )
             return AtomicMemorySearchPage(
                 mode,
                 candidates[:limit],
@@ -1172,6 +1178,10 @@ class ScopedAtomicMemory:
             if artifact_request is None:
                 raise
             raise ArtifactSearchContractError("atomic-memory", "Selected exact revision is unavailable") from exc
+        if evidence is not None:
+            evidence.text_snapshot(
+                "search", "atomic-memory", self.scope_id, lambda: (memory_text(hit) for hit in candidates)
+            )
         if not candidates:
             return AtomicMemorySearchPage(
                 mode,
@@ -1179,6 +1189,10 @@ class ScopedAtomicMemory:
                 query_embedding,
                 embedding_calls,
                 embedding_fallback=embedding_fallback,
+            )
+        if evidence is not None:
+            evidence.text_snapshot(
+                "rerank-input", "atomic-memory", self.scope_id, lambda: (memory_text(hit) for hit in candidates)
             )
         complete_artifacts = []
         if artifact_request is not None:
@@ -1192,6 +1206,8 @@ class ScopedAtomicMemory:
         binding = nullcontext() if prompt is None else prompt.service.bind(self.scope_id, "memory.rerank")
         started = perf_counter()
         evidence = current_receipt_evidence()
+        if evidence is not None:
+            evidence.active_stage = "atomic-memory.rerank"
         async with binding as selected_prompt:
             try:
                 decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
@@ -1199,16 +1215,30 @@ class ScopedAtomicMemory:
                 _validate_rerank_ranks(ranks, limit, len(candidates))
             except Exception as error:
                 if evidence is not None:
+                    evidence.text_snapshot("rerank-output", "atomic-memory", self.scope_id, None, outcome="failed")
                     evidence.rerank(
                         configuration=_rerank_receipt_configuration(reranker, evidence),
                         prompt=selected_prompt,
                         outcome="failed",
                         fallback=_rerank_receipt_failure(error),
+                        input_count=len(candidates),
+                        scope_id=self.scope_id,
                     )
                 raise
             else:
                 if evidence is not None:
-                    _record_rerank_decision(evidence, reranker, selected_prompt, decision, len(candidates))
+                    _record_rerank_decision(
+                        evidence, reranker, selected_prompt, decision, len(candidates), self.scope_id
+                    )
+        if evidence is not None:
+            evidence.text_snapshot(
+                "rerank-output",
+                "atomic-memory",
+                self.scope_id,
+                lambda: (memory_text(candidates[rank - 1]) for rank in ranks),
+            )
+        if evidence is not None:
+            evidence.active_stage = "atomic-memory.search"
         trace = AtomicMemoryRerankTrace(
             reranker.policy_id,
             candidates,
@@ -1321,7 +1351,9 @@ def _rerank_receipt_configuration(reranker, evidence):
         return None
 
 
-def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_count: int) -> None:
+def _record_rerank_decision(
+    evidence, reranker, prompt, decision, candidate_count: int, scope_id: str | None = None
+) -> None:
     if decision.used_fallback and decision.fallback_reason is None:
         evidence.incomplete = "rerank-fallback-reason-missing"
         return
@@ -1331,6 +1363,9 @@ def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_coun
         outcome="fallback" if decision.used_fallback else "selected",
         fallback=(decision.fallback_reason or "none") if decision.used_fallback else "none",
         omitted_count=candidate_count - len(decision.selected_ranks),
+        input_count=candidate_count,
+        output_count=len(decision.selected_ranks),
+        scope_id=scope_id,
     )
 
 

@@ -14,8 +14,10 @@ For the Desktop host's process-local measurements and native safe export, use th
 
 ## Read-only processing inspection
 
-`ProcessingStatusApplication` is a backend inspection layer, not a Dashboard or HTTP endpoint.
-Its caller must enforce the existing selected-Scope read authorization. It opens a consistent
+`ProcessingStatusApplication` is a backend inspection layer without a public HTTP endpoint. The Dashboard automatic
+processing section supplies the current request context for snapshot-bound Scope authorization and completed audit,
+and uses `include_dream=False` to exclude Dream work and history. Embedded callers without a request context must
+still enforce the existing selected-Scope read authorization. It opens a consistent
 read snapshot under the Runtime lifecycle guard, without entering the usage-flushing scoped
 operation, dispatching work, invoking readiness or models, or materializing legacy diagnostics.
 
@@ -181,3 +183,9 @@ budget excludes first-run schema and index creation. CI retains
 so the log is in shard `0`. Startup failures include the child return code and a
 bounded log tail. Backend acceptance requires this step to pass. Without the backend
 setting, default test runs skip that lifecycle test.
+
+## Opt-in prepared-context history
+
+`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED` enables the separate durable diagnostic store described in
+[Context diagnostics](dashboard.md#context-diagnostics). It can retain the original prepare query, exact final prepared text and actual stage candidate text. It does not
+permit bodies or queries in logs, metrics or traces, and it does not change the public Receipt schema or host response.

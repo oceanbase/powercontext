@@ -1,0 +1,36 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% if context_history is defined and context_history is not none %}
+<section class="card mb-3" aria-labelledby="context-history-heading">
+  <style>
+    .context-query-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 28rem; min-width: 12rem; margin: 0; font: inherit; }
+    .context-query-cell summary { cursor: pointer; max-width: 28rem; overflow-wrap: anywhere; }
+  </style>
+  <div class="card-header"><h2 class="card-title" id="context-history-heading">{{ t.context_history }}</h2><span class="badge ms-auto {{ 'bg-green-lt' if context_capture_enabled else 'bg-secondary-lt' }}">{{ t.context_capture_on if context_capture_enabled else t.context_capture_off }}</span></div>
+  <form class="card-body d-flex flex-wrap gap-3 align-items-end" action="/dashboard/context-diagnostics" method="get">
+    <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}">
+    <div><label class="form-label" for="diagnostic-status">{{ t.context_result }}</label><select class="form-select" id="diagnostic-status" name="diagnostic_status"><option value="">{{ t.context_all_results }}</option>{% for status in ['ready', 'empty', 'failed', 'cancelled'] %}<option value="{{ status }}" {% if context_history_filters.status == status %}selected{% endif %}>{{ t['context_' ~ status] }}</option>{% endfor %}</select></div>
+    <div><label class="form-label" for="diagnostic-since">{{ t.context_since }}</label><input class="form-control" type="date" id="diagnostic-since" name="diagnostic_since" value="{{ context_history_filters.since or '' }}"></div>
+    <div><label class="form-label" for="diagnostic-until">{{ t.context_until }}</label><input class="form-control" type="date" id="diagnostic-until" name="diagnostic_until" value="{{ context_history_filters.until or '' }}"></div>
+    <button class="btn btn-outline-primary" type="submit">{{ t.context_filter }}</button>
+  </form>
+  <div class="table-responsive"><table class="table table-vcenter mb-0"><thead><tr><th>{{ t.context_query }}</th><th>{{ t.context_result }}</th><th>{{ t.context_selected }}</th><th>{{ t.context_budget }}</th><th>{{ t.context_total_duration }}</th><th>{{ t.context_finished_at }}</th><th></th></tr></thead>
+    <tbody>{% for item in context_history['items'] %}<tr data-context-record="{{ item.record_id }}"><td class="context-query-cell">{% if item.query_text is not none %}{% if item.query_text|length > 160 %}<details><summary>{{ item.query_text[:160] }}…</summary><div class="context-query-text mt-2" data-query-text>{{ item.query_text }}</div></details>{% else %}<div class="context-query-text" data-query-text>{{ item.query_text if item.query_text else t.context_query_empty }}</div>{% endif %}{% else %}<span class="text-secondary">{{ t.context_query_not_recorded }}</span>{% endif %}</td><td><span class="badge {{ 'bg-red-lt' if item.status == 'failed' else 'bg-green-lt' if item.status == 'ready' else 'bg-secondary-lt' }}">{{ t['context_' ~ item.status] }}</span>{% if item.error_code and item.status in ['ready', 'empty'] %}<span class="text-warning ms-1">{{ t.context_degraded }}</span>{% endif %}</td><td>{{ item.selected_count if item.selected_count is not none else t.unknown_value }}</td><td>{{ item.content_bytes if item.content_bytes is not none else t.unknown_value }} / {{ item.requested_max_bytes }} B</td><td>{{ '%.2f'|format(item.duration_ms) }} ms</td><td>{{ item.finished_at|display_time }}</td><td><a href="{{ link('context-diagnostic-detail', diagnostic=item.record_id, lang=language, diagnostic_status=context_history_filters.status, diagnostic_since=context_history_filters.since, diagnostic_until=context_history_filters.until, diagnostic_cursor=request.query_params.get('diagnostic_cursor')) }}">{{ t.context_view }}</a></td></tr>{% else %}<tr><td colspan="7" class="text-secondary">{{ t.context_history_empty }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if context_history.next_cursor %}<div class="card-footer"><a class="btn btn-outline-secondary" href="{{ link(diagnostic_cursor=context_history.next_cursor, diagnostic=None) }}">{{ t.context_next }}</a></div>{% endif %}
+  {% if request.query_params.get('diagnostic_cursor') %}<div class="card-footer"><a href="{{ link(diagnostic_cursor=None, diagnostic=None) }}">{{ t.context_latest }}</a></div>{% endif %}
+</section>
+{% endif %}

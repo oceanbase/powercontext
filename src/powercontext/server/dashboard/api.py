@@ -172,6 +172,25 @@ class DashboardAPI:
         except Exception as error:
             raise ReadError.from_exception(error) from error
 
+    async def processing_status(self, scope, family):
+        """Read source-only evidence with snapshot-bound authorization and completed audit."""
+        from powercontext.builtin.processing_status import ProcessingStatusApplication
+        from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+        from powercontext.server.app import _atomic_execution_context
+
+        if self.builtin is None:
+            raise ReadError(503, "operation_not_supported")
+        context = _atomic_execution_context(self.request, "dashboard_processing_status")
+        try:
+            async with asyncio.timeout(5), deferred_decision_audit(context):
+                return (
+                    await ProcessingStatusApplication(self.builtin)
+                    .for_scope(scope)
+                    .status(family, include_dream=False, context=context)
+                )
+        except Exception as error:
+            raise ReadError.from_exception(error) from error
+
     async def candidates(self, payload):
         if self.builtin is None:
             return await self.read("/v1/candidates/list", payload)

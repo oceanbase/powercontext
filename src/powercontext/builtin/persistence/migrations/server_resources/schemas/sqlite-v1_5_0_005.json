@@ -1,0 +1,7 @@
+{
+  "statements": [
+    "CREATE TABLE pc_context_prepare_diagnostics (\n\trecord_id VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tstarted_at DATETIME NOT NULL, \n\tfinished_at DATETIME NOT NULL, \n\tduration_ms FLOAT NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tprincipal_type VARCHAR(16), \n\tprincipal_id VARCHAR(255), \n\trequest_id VARCHAR(128), \n\ttrace_id VARCHAR(64), \n\tquery_digest VARCHAR(71) NOT NULL, \n\trequested_max_bytes INTEGER NOT NULL, \n\tcontent_bytes BIGINT, \n\tselected_count INTEGER, \n\terror_code VARCHAR(64), \n\treceipt_payload BLOB, \n\tprepared_content TEXT, \n\tdiagnostics_payload BLOB NOT NULL, \n\tPRIMARY KEY (record_id), \n\tCONSTRAINT ck_pc_context_prepare_status CHECK (status IN ('ready', 'empty', 'failed', 'cancelled')), \n\tCONSTRAINT ck_pc_context_prepare_duration CHECK (duration_ms >= 0), \n\tCONSTRAINT ck_pc_context_prepare_budget CHECK (requested_max_bytes >= 512 AND requested_max_bytes <= 32768), \n\tCONSTRAINT ck_pc_context_prepare_content_bytes CHECK (content_bytes IS NULL OR content_bytes >= 0), \n\tCONSTRAINT ck_pc_context_prepare_selected_count CHECK (selected_count IS NULL OR selected_count >= 0)\n)",
+    "CREATE INDEX ix_pc_context_prepare_scope_finished ON pc_context_prepare_diagnostics (scope_id, finished_at, record_id)",
+    "CREATE INDEX ix_pc_context_prepare_scope_status_finished ON pc_context_prepare_diagnostics (scope_id, status, finished_at, record_id)"
+  ]
+}

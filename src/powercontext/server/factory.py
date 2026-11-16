@@ -465,6 +465,7 @@ def create_server_app(  # noqa: C901
         metrics=metrics,
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
+        context_diagnostics_enabled=resolved.context_diagnostics_enabled,
         access_control=configured_access_control,
         access_mode=resolved.access.mode,
         authentication_provider=configured_authentication,

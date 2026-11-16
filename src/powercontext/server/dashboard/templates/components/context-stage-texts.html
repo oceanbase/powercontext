@@ -1,0 +1,26 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% macro candidate_text(snapshot) %}
+{% if snapshot is none %}<div class="text-secondary">{{ t.context_text_not_recorded }}</div>{% else %}
+          {% if snapshot['items'] is none %}<div class="text-secondary mt-2">{{ t['context_outcome_' ~ snapshot.outcome] }} · {{ t.context_text_not_recorded }}</div>
+          {% else %}
+            {% for item in snapshot['items'] %}<div class="pt-3{% if not loop.first %} border-top mt-3{% endif %}">
+              <div class="text-secondary small context-reference">{{ loop.index }}{% if item.get('artifact') %} · {% if item.get('url') %}<a href="{{ item.url }}">{{ item.artifact.artifact_id }} @{{ item.artifact.revision }}</a>{% else %}{{ item.artifact.artifact_id }} @{{ item.artifact.revision }}{% endif %}{% elif item.get('code_evidence') %} · {{ item.code_evidence.path }}:{{ item.code_evidence.start_line }}–{{ item.code_evidence.end_line }}{% endif %}</div>
+              <pre class="context-candidate-text" data-candidate-text>{{ item.text }}</pre>
+            </div>{% else %}<div class="text-secondary mt-2">{{ t.context_text_no_results }}</div>{% endfor %}
+          {% endif %}
+{% endif %}
+{% endmacro %}

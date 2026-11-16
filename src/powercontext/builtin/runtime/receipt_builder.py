@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Request-local execution evidence; no content or extra retrieval is stored."""
+"""Same-execution public Receipt evidence and separate opt-in diagnostic snapshots."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import json
 import math
 import re
 from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from hashlib import sha256
 from typing import Any
@@ -141,7 +142,14 @@ def _rerank_record(
 class ReceiptEvidence:
     """Collect bounded summaries during the same prepare that produces the injection."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, diagnostics: bool = False) -> None:
+        self.diagnostics = diagnostics
+        self.prepared_receipt: PreparedContextReceipt | None = None
+        self.receipt_error: str | None = None
+        self.selected_count: int | None = None
+        self.selected_by_family: dict[str, int] = {}
+        self.final_candidates: dict[str, int] = {}
+        self.active_stage: str | None = None
         self.round = 0
         self.rounds: list[RecallRound] = []
         self.searches: Counter[tuple[int, str, str, str, str]] = Counter()
@@ -151,9 +159,47 @@ class ReceiptEvidence:
         self.stages: dict[str, tuple[float, int]] = {}
         self.incomplete: str | None = None
         self.fallback_scopes: set[tuple[str, str]] = set()
+        self.text_snapshots: list[dict[str, Any]] = []
+        self.text_capture_complete = True
+        self.search_results: list[dict[str, Any]] = []
+        self.rerank_results: list[dict[str, Any]] = []
+
+    def text_snapshot(
+        self,
+        stage: str,
+        family: str,
+        scope_id: str | None,
+        items: Callable[[], Iterable[dict[str, Any]]] | None,
+        *,
+        outcome: str = "completed",
+    ) -> None:
+        """Never expose snapshot bodies in Receipt.build(), logs or traces."""
+        if not self.diagnostics:
+            return
+        try:
+            self.text_snapshots.append({
+                "stage": stage,
+                "round": None if stage == "assembly" else self.round,
+                "family": family,
+                "scope_id": scope_id,
+                "outcome": outcome,
+                "items": None if items is None else list(items()),
+            })
+        except Exception:
+            self.text_capture_complete = False
 
     def search(
-        self, family: str, mode: str | None, outcome: str, fallback: str = "none", *, scope_id: str | None = None
+        self,
+        family: str,
+        mode: str | None,
+        outcome: str,
+        fallback: str = "none",
+        *,
+        scope_id: str | None = None,
+        result_count: int | None = None,
+        duration_ms: float | None = None,
+        configured: bool | None = None,
+        error_code: str | None = None,
     ) -> None:
         try:
             if outcome == "completed" and mode is None:
@@ -166,6 +212,21 @@ class ReceiptEvidence:
                 elif fallback == "none" and mode in {"fts", "text"} and self.round > 0 and key in self.fallback_scopes:
                     fallback = "reused_fts_fallback"
             self.searches[(self.round, family, "fts" if mode == "text" else mode or "none", outcome, fallback)] += 1
+            if self.diagnostics:
+                self.search_results.append({
+                    "round": self.round,
+                    "family": family,
+                    "scope_id": scope_id,
+                    "mode": "fts" if mode == "text" else mode,
+                    "outcome": outcome,
+                    "fallback_reason": fallback,
+                    "result_count": result_count if outcome == "completed" else None,
+                    "duration_ms": duration_ms,
+                    "configured": configured,
+                    "error_code": error_code,
+                })
+                if outcome != "completed":
+                    self.text_snapshot("search", family, scope_id, None, outcome=outcome)
         except Exception as error:
             self.incomplete = type(error).__name__
 
@@ -181,7 +242,19 @@ class ReceiptEvidence:
         outcome: str,
         fallback: str,
         omitted_count: int = 0,
+        input_count: int | None = None,
+        output_count: int | None = None,
+        scope_id: str | None = None,
     ) -> None:
+        if self.diagnostics:
+            self.rerank_results.append({
+                "round": self.round,
+                "outcome": outcome,
+                "fallback_reason": fallback,
+                "scope_id": scope_id,
+                "input_count": input_count,
+                "output_count": output_count,
+            })
         if configuration is None:
             self.incomplete = "rerank-config-missing"
             return

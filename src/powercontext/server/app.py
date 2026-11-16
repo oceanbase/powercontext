@@ -1063,6 +1063,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -1445,6 +1446,7 @@ def create_app(
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
     handoff_report_enabled: bool = False,
+    context_diagnostics_enabled: bool = False,
     access_control: AccessControlService | None = None,
     access_mode: Literal["disabled", "enforced"] | None = None,
     authentication_provider: AuthenticationProvider | None = None,
@@ -1466,6 +1468,7 @@ def create_app(
     app.state.artifact_plugin_manager = None
     app.state.artifact_declaration_provider = None
     app.state.artifact_access_refresher = None
+    app.state.context_diagnostics_enabled = context_diagnostics_enabled
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
@@ -3562,6 +3565,12 @@ async def prepare_context(
     prepared_request = mapping.prepare_context_request(request)
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    if http_request.app.state.context_diagnostics_enabled:
+        from powercontext.server.context_diagnostics import diagnostic_sink
+
+        sink = diagnostic_sink(application)
+        if sink is not None:
+            reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,

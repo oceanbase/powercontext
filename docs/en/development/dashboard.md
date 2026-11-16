@@ -79,6 +79,70 @@ The processing page reads Content Sources from the existing Source journal and c
 
 Dream details show the persisted status, outcome, reason, attempt count and timestamps, plus saved input-manifest references and a link to the recorded candidate. Candidate publication and current review state are checked in Review. Input-manifest nodes can supply resolved upstream Source references; these execution inputs are not automatically direct evidence for every output. Per-attempt timings, errors and missing history are not invented. Dream records cover only recorded Dream executions, not all automatic Source processing.
 
+### Automatic processing status
+
+Runtime data → Automatic processing shows current-Scope evidence for Memory, Topic Memory, Profile and Experience above the Source directory. Input consumption and local-process execution observations are separate. Input positions and request acknowledgement do not prove publication; missing execution observations do not prove that workers stopped. Dream pending work is excluded; Dream records keep their separate entry.
+
+Expand a type in place to see cursor / input head, the current bottleneck or stage, the latest recorded processing event and the blocked or unconsumed range. These facts remain visible in a compact panel. Cursor positions are not a generated-artifact count or completion percentage. The processing-event time uses a matching durable block or the latest exact-Scope/binding local failure observation, with its source labeled; it does not establish the last successful processing time. No record is shown explicitly when neither is available. Read time is never substituted for processing time. A matching persisted block may provide the last failure in that window, shown using bounded vocabulary; missing or unknown causes are not invented. Request generations and read/observation times stay in a collapsed technical-evidence section. Runtime configuration and the diagnostic guide have separate links. Historical errors do not imply a current failure. The status section offers no retry or budget reset. The Source table's Related artifacts column represents exact Artifact revision lineage. No lineage does not establish processing failure.
+
+Inspection uses selected-Scope read authorization and completed audit, without model calls, work dispatch or business writes. One type's inspection failure preserves other types and independently authorized Source reads. A non-built-in Runtime without a public inspection operation reports unavailable status while Sources remain readable through existing public operations. This is not service-wide monitoring, per-Source execution history or an artifact-completion percentage.
+
+
+### Context diagnostics
+
+“Observability → Context diagnostics” lists actual Server prepare calls when
+`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED=true`. The default is false; restart the Server after changing it.
+The one setting covers all Scopes, families and actual rounds. It has no expiry, capture filter, retention limit or
+cleanup action. Standalone SDK use does not enable this Server store.
+
+Each authorized prepare writes one independent `pc_context_prepare_diagnostics` record: UTC start/end, monotonic total
+milliseconds, ready/empty/failed/cancelled result, existing principal/request/trace identities, exact original prepare query and its normalized digest,
+byte budget/use, selected count, optional Receipt, exact final prepared text, actual stage candidate text and versioned execution evidence. Evidence
+includes actual per-Scope/round family result counts, configured/not-run states, rerank input/output counts and final
+assembly counts. A successful zero is distinct from an unknown failed count. Search counts in public Receipt groups
+remain call counts. Missing Receipt evidence does not discard the record or change the prepare result.
+
+Capture observes the same execution. It never repeats prepare, search, reranking or model calls, changes host requests,
+adds a Receipt to an unrequested response or changes reuse. An independent best-effort transaction has a two-second
+write deadline; it does not limit capture lifetime or retention. Write failures emit only a content-free notification;
+cancellation continues to propagate. Crashes and unavailable storage can leave missing records, so this is not a
+lossless audit ledger. The enabled diagnostic store retains the original query and stage text. Authentication credentials, vectors and raw model outputs are not collected. Query text is retained verbatim. Ordinary logs and
+traces remain body-free. Receipt v1 itself remains content-free and bounded to 8 KiB and 32 selected references.
+
+The default list has no date restriction. It selects the original query and summary columns without loading stage payloads, at most 25 rows per page, ordered by finish time
+and record ID. Signed cursors bind the Scope, result/date filters and current subject. Details load the exact stored
+record and retain the compact summary, family counts, exact references, omissions and folded final text. Total duration
+uses the stored monotonic measurement; the separate Receipt stage sum is not total request time. Dashboard reads finish
+existing authorization/audit and reauthorize referenced Scopes before releasing stored content. Exact Artifact links
+also require their ordinary current exact-revision reads; denied or unavailable references remain anonymous.
+The exact selected references table also shows candidate text retained for that revision during assembly; missing historical text stays unavailable rather than being filled from current content. Pages use
+`Cache-Control: no-store`. Reading never prepares again or writes business data.
+
+Recall details run from top to bottom: original query, memory retrieval, reranking, budget assembly and final context.
+Each stage uses one summary table for counts, modes, outcomes and reasons, with retrieval and assembly candidate text in an Original text column on the same row. Reranking shows separate Input text and Output text columns.
+Technical evidence can expand in place.
+Text and ordering come from the same execution. Topic text is limited to the title, summary and snippet
+actually returned; no additional Artifact read or model call is made to fill the capture. Failure leaves output unknown,
+and records created before text capture show unavailable stage text. Stage text stays outside the public Receipt,
+operational logs and tracing. Current Artifact read authorization also covers retained candidate references.
+
+The list shows the original query; long queries can expand in place. Query text also appears beside the stage text in details. Records created before query capture show “Query text not recorded” without reconstruction.
+
+The history list and recall details are separate pages. Selecting Details opens
+`/dashboard/context-diagnostic-detail` for the chosen record; the detail page does not repeat the history table.
+The detail page has no return button; browser history returns to the list. Stored prepared text is
+escaped and the Receipt is validated against its UTF-8 bytes and content digest. Missing or invalid Receipt leaves
+valid final text readable. Reference reads share a ten-second limit; Code has no supported exact-revision reader here
+and remains unavailable. A diagnostic record does not prove host delivery, model adoption or task benefit.
+
+Migration `v1_5_0_005` only adds the independent table and indexes. It preserves Bootstrap receipts, Sources, Artifacts
+and existing statistics and does not backfill past calls. Disabling capture stops new records after restart and keeps
+history readable. Scope deletion has no new cascade or restriction from this table; stored content does not gain a
+new permission path after deletion. Existing managed databases require the ordinary explicit migration workflow before
+startup. Rollback uses the existing verified backup workflow; disabling capture never drops the table.
+
+Revision `v1_5_0_006` adds nullable `query_text` to the diagnostic table, without backfilling old records. It uses UTF-8 text on MySQL-compatible backends. Only the existing diagnostic setting enables writes; neither public Receipt JSON nor logs/traces gain query text.
+
 ### Review explains the proposal and the saved result
 
 The inbox directory uses existing reasons and family labels; an opened candidate can use its saved content as its title. The built-in directory keeps its metadata-only reads rather than loading every proposal for a title. Details put readable content fields before raw data. Updates compare the candidate with its recorded target revision, which may no longer be current. An unavailable baseline is shown as an unavailable comparison, not as unchanged content or an empty base.

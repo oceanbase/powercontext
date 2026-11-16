@@ -1,0 +1,123 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/artifact-type.html' import artifact_type %}
+{{ page_heading(t['context-diagnostic-detail']) }}
+<section class="context-diagnostics">
+  <style>
+    me .context-phase { margin-top: 1.5rem; }
+    me .context-phase-heading { display: flex; align-items: center; gap: .75rem; font-size: 1rem; margin: 0 0 .75rem; }
+    me .context-phase-heading > span { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: var(--tblr-primary-lt); color: var(--tblr-primary); font-size: .875rem; flex-shrink: 0; }
+    me .context-summary { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 1rem; margin: 0; }
+    me .context-summary dt { color: var(--tblr-secondary-color); font-weight: normal; font-size: .85rem; margin-bottom: .5rem; }
+    me .context-summary dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
+    me .context-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow-y: auto; font-size: .875rem; }
+    me .context-candidate-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow-y: auto; font-family: inherit; font-size: .875rem; line-height: 1.6; background: transparent; color: inherit; padding: 0; margin: .5rem 0 0; }
+    me [data-search-summary] { table-layout: fixed; min-width: 58rem; }
+    me [data-search-summary] th { white-space: normal; }
+    me [data-search-summary] th:nth-child(1) { width: 5%; }
+    me [data-search-summary] th:nth-child(2) { width: 9%; }
+    me [data-search-summary] th:nth-child(3) { width: 8%; }
+    me [data-search-summary] th:nth-child(4) { width: 6%; }
+    me [data-search-summary] th:nth-child(5) { width: 6%; }
+    me [data-search-summary] th:nth-child(6) { width: 7%; }
+    me [data-search-summary] th:nth-child(7) { width: 10%; }
+    me [data-search-summary] th:nth-child(8) { width: 6%; }
+    me [data-search-summary] th:nth-child(9) { width: 43%; }
+    me [data-search-summary] td { vertical-align: top; }
+    me [data-rerank-summary] { table-layout: fixed; min-width: 64rem; }
+    me [data-rerank-summary] th { white-space: normal; }
+    me [data-rerank-summary] th:nth-child(3), me [data-rerank-summary] th:nth-child(5) { width: 28%; }
+    me [data-assembly-summary] { table-layout: fixed; min-width: 52rem; }
+    me [data-assembly-summary] th { white-space: normal; }
+    me [data-assembly-summary] th:last-child { width: 40%; }
+    me [data-selected-summary] { table-layout: fixed; min-width: 52rem; }
+    me [data-selected-summary] th:nth-child(2) { width: 28%; }
+    me [data-selected-summary] th:last-child { width: 40%; }
+    me [data-selected-summary] td { vertical-align: top; }
+    me .context-inline-text { vertical-align: top; white-space: normal; }
+    me [data-rerank-summary] td, me [data-assembly-summary] td { vertical-align: top; }
+    me .context-search-text { min-width: 20rem; width: 36%; vertical-align: top; white-space: normal; }
+    me .context-reference { overflow-wrap: anywhere; }
+    me .context-details > summary { cursor: pointer; }
+    @media (max-width: 767px) { me .context-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; } }
+  </style>
+  {% set diagnostic = context_diagnostic %}
+  {% set prepared = diagnostic.prepared %}
+  {% set receipt = diagnostic.receipt %}
+{% from 'components/context-stage-texts.html' import candidate_text with context %}
+<section class="context-phase" data-context-phase="context_query"><h2 class="context-phase-heading"><span>1</span>{{ t.context_query }}</h2>
+<div class="card mb-3"><div class="card-body">{% if diagnostic.record.query_text is not none %}<pre class="context-candidate-text" data-query-text>{{ diagnostic.record.query_text if diagnostic.record.query_text else t.context_query_empty }}</pre>{% else %}<div class="text-secondary">{{ t.context_query_not_recorded }}</div>{% endif %}</div><div class="card-footer d-flex flex-wrap gap-3 text-secondary small"><span>{{ t.context_finished_at }} · {{ diagnostic.record.finished_at|display_time }}</span><span>{{ t.context_total_duration }} · {{ '%.2f'|format(diagnostic.record.duration_ms) }} ms</span></div></div>
+</section>
+{% if diagnostic.record.diagnostics_payload.get('text_capture_complete') == false %}<div class="alert alert-warning">{{ t.context_text_incomplete }}</div>{% endif %}
+<section class="context-phase" data-context-phase="context_searches"><h2 class="context-phase-heading"><span>2</span>{{ t.context_flow_search }}</h2>
+<div class="card mb-3"><div class="table-responsive"><table class="table table-vcenter mb-0" data-search-summary>
+<thead><tr><th>{{ t.context_round }}</th><th>{{ t.auto_family }}</th><th>{{ t.context_mode }}</th><th>{{ t.context_outcome }}</th><th>{{ t.context_retrieved }}</th><th>{{ t.context_total_duration }}</th><th>{{ t.context_reason }}</th><th>{{ t.context_calls }}</th><th>{{ t.context_original_text }}</th></tr></thead>
+<tbody>{% for group in context_search_rows %}<tr>
+<td>{{ group.round }}</td><td>{{ artifact_type(group.family) }}</td><td>{{ t.get('context_mode_' ~ group.mode, t.unknown_value) if group.mode else t.unknown_value }}</td>
+<td>{{ t['context_outcome_' ~ group.outcome] }}</td><td>{{ group.result_count if group.result_count|default(none) is not none else t.unknown_value }}</td><td>{{ '%.2f'|format(group.duration_ms) ~ ' ms' if group.duration_ms|default(none) is not none else t.unknown_value }}</td>
+<td>{% if group.error_code|default(none) %}{{ t.get('context_error_' ~ group.error_code, group.error_code) }}{% elif group.configured|default(none) == false %}{{ t.context_not_configured }}{% else %}{{ t['context_fallback_' ~ group.fallback_reason] }}{% endif %}{% if group.error_code|default(none) and group.fallback_reason != 'none' %}<div class="small text-secondary">{{ t['context_fallback_' ~ group.fallback_reason] }}</div>{% endif %}</td><td>{{ group.count if group.count is not none else t.unknown_value }}</td><td class="context-search-text">{{ candidate_text(group.text_snapshot) }}</td>
+</tr>{% else %}<tr><td colspan="9">{{ t.context_no_path }}</td></tr>{% endfor %}</tbody></table></div></div>
+</section>
+<section class="context-phase" data-context-phase="context_reranks"><h2 class="context-phase-heading"><span>3</span>{{ t.context_flow_rerank }}</h2>
+<div class="card mb-3"><div class="table-responsive"><table class="table table-vcenter mb-0" data-rerank-summary>
+<thead><tr><th>{{ t.context_round }}</th><th>{{ t.context_rerank_input }}</th><th>{{ t.context_text_stage_rerank_input }}</th><th>{{ t.context_rerank_output }}</th><th>{{ t.context_text_stage_rerank_output }}</th><th>{{ t.context_outcome }}</th><th>{{ t.context_reason }}</th><th>{{ t.context_calls }}</th></tr></thead>
+<tbody>{% for group in context_rerank_rows %}<tr><td>{{ group.round }}</td><td>{{ group.input_count if group.input_count|default(none) is not none else t.unknown_value }}</td><td class="context-inline-text">{{ candidate_text(group.input_text) }}</td><td>{{ group.output_count if group.output_count|default(none) is not none else t.unknown_value }}</td><td class="context-inline-text">{{ candidate_text(group.output_text) }}</td><td>{{ t['context_outcome_' ~ group.outcome] if group.outcome else t.unknown_value }}</td><td>{{ t['context_fallback_' ~ group.fallback_reason] if group.fallback_reason else t.unknown_value }}</td><td>{{ group.count if group.count is not none else t.unknown_value }}</td></tr>{% else %}<tr><td colspan="8">{{ t.context_no_path }}</td></tr>{% endfor %}</tbody>
+</table></div></div>
+</section>
+<section class="context-phase" data-context-phase="context_assembly_evidence"><h2 class="context-phase-heading"><span>4</span>{{ t.context_flow_assembly }}</h2>
+<div class="card mb-3"><div class="table-responsive"><table class="table table-vcenter mb-0" data-assembly-summary>
+<thead><tr><th>{{ t.auto_family }}</th><th>{{ t.context_assembly_candidates }}</th><th>{{ t.context_selected }}</th><th>{{ t.context_omitted }}</th><th>{{ t.context_original_text }}</th></tr></thead>
+<tbody>{% for row in context_assembly_rows %}<tr><td>{{ artifact_type(row.family) }}</td><td>{{ row.candidates if row.candidates is not none else t.unknown_value }}</td><td>{{ row.selected if row.selected is not none else t.unknown_value }}</td><td>{% for group in row.omitted %}<div>{{ t['context_omit_' ~ group.reason] }} · {{ group.count }}</div>{% else %}{{ t.context_no_omissions if row.omissions_known else t.unknown_value }}{% endfor %}</td><td class="context-inline-text">{% for snapshot in row.text_snapshots %}{% if snapshot.scope_id and snapshot.scope_id != scope %}<div class="small text-secondary context-reference">{{ snapshot.scope_id }}</div>{% endif %}{{ candidate_text(snapshot) }}{% else %}{{ candidate_text(none) }}{% endfor %}</td></tr>{% else %}<tr><td colspan="5">{{ t.unknown_value }}</td></tr>{% endfor %}</tbody>
+</table></div><div class="card-footer text-secondary small">{{ t.context_omitted_hint }}</div></div>
+</section>
+<section class="context-phase" data-context-phase="context_text_stage_final"><h2 class="context-phase-heading"><span>5</span>{{ t.context_text_stage_final }}</h2>
+  <section class="card mb-3" id="context-result" aria-label="{{ t.context_result }}">
+    <dl class="card-body context-summary">
+      <div><dt>{{ t.context_result }}</dt><dd>{{ t['context_' ~ prepared.status] }}{% if diagnostic.record.error_code and prepared.status in ['ready', 'empty'] %} · <span class="text-warning">{{ t.context_degraded }}</span>{% endif %}</dd></div>
+      <div><dt>{{ t.context_selected }}</dt><dd>{{ diagnostic.record.selected_count if diagnostic.record.selected_count is not none else receipt.selected|length if receipt else t.unknown_value }}</dd></div>
+      <div><dt>{{ t.context_budget }}</dt><dd data-context-bytes="{{ prepared.content_bytes }}">{{ prepared.content_bytes if prepared.content_bytes is not none else t.unknown_value }} / {{ diagnostic.record.requested_max_bytes }} B</dd></div>
+      <div><dt>{{ t.context_fallbacks }}</dt><dd>{{ diagnostic.fallbacks if receipt else t.unknown_value }}</dd></div>
+    <div><dt>{{ t.context_reason }}</dt><dd>{% if diagnostic.record.diagnostics_payload.failed_stage %}{{ diagnostic.record.diagnostics_payload.failed_stage }} · {% endif %}{{ t.get('context_error_' ~ diagnostic.record.error_code, diagnostic.record.error_code) or t.context_fallback_none }}</dd></div>
+    </dl>
+  </section>
+  {% if diagnostic.error %}<div class="alert alert-warning" role="status"><strong>{{ t.context_partial }}</strong> · {{ t['context_' ~ diagnostic.error] }}</div>{% endif %}
+<section class="card mb-3" id="context-text-final"><div class="card-body">{% if prepared.content %}<pre class="context-candidate-text" data-stage-final>{{ prepared.content }}</pre>{% else %}<span class="text-secondary">{{ t.context_empty if prepared.status == 'empty' else t.context_text_not_recorded }}</span>{% endif %}</div></section>
+{% if receipt %}
+  <section class="card mb-3" aria-labelledby="context-selected-heading">
+    <div class="card-header"><h2 class="card-title" id="context-selected-heading">{{ t.context_references }}</h2></div>
+    <div class="table-responsive"><table class="table table-vcenter mb-0" data-selected-summary>
+      <thead><tr><th>{{ t.auto_family }}</th><th>{{ t.context_revision }}</th><th>{{ t.context_bytes }}</th><th>{{ t.context_outcome }}</th><th>{{ t.context_original_text }}</th></tr></thead>
+      <tbody>{% for item in diagnostic.selected %}<tr>{% if item.available %}
+        <td>{{ artifact_type(item.family) }}</td><td class="context-reference" data-selected-reference><a href="{{ item.url }}">{{ item.ref.artifact_id }} @{{ item.ref.revision }}</a>{% if item.scope_id != scope %}<div class="small text-secondary">{{ item.scope_id }}</div>{% endif %}</td><td>{{ item.bytes }}</td><td>{{ t.context_truncated if item.truncated else t.context_full }}</td><td class="context-inline-text">{% if item.text is not none %}<pre class="context-candidate-text" data-selected-text>{{ item.text }}</pre>{% else %}<span class="text-secondary">{{ t.context_text_not_recorded }}</span>{% endif %}</td>
+        {% else %}<td colspan="5" class="text-secondary">{{ t.context_reference_unavailable }}</td>{% endif %}</tr>
+      {% else %}<tr><td colspan="5" class="text-secondary">{{ t.context_no_selected }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+{% endif %}
+</section>
+<details class="context-details mt-4"><summary class="mb-3 text-secondary">{{ t.context_evidence }}</summary>
+  <div class="card mb-3"><dl class="card-body context-summary">
+    <div><dt>{{ t.context_request_id }}</dt><dd class="context-reference">{{ diagnostic.record.request_id or t.unknown_value }}</dd></div>
+  </dl></div>
+  <details class="card mb-3 context-details"><summary class="card-header">{{ t.context_stage_evidence }}</summary>
+    <div class="table-responsive"><table class="table mb-0"><thead><tr><th>{{ t.context_stage }}</th><th>{{ t.context_duration }}</th><th>{{ t.context_calls }}</th></tr></thead>
+    <tbody>{% for stage, value in diagnostic.record.diagnostics_payload.stages.items() %}<tr><td>{{ stage }}</td><td>{{ '%.2f'|format(value[0]) }} ms</td><td>{{ value[1] }}</td></tr>{% else %}<tr><td colspan="3">{{ t.unknown_value }}</td></tr>{% endfor %}</tbody></table></div>
+  </details>
+  {% if receipt %}<details class="card mb-3 context-details"><summary class="card-header">{{ t.context_evidence }}</summary><div class="card-body"><dl class="row mb-0"><dt class="col-sm-3">Receipt ID</dt><dd class="col-sm-9">{{ receipt.receipt_id }}</dd><dt class="col-sm-3">{{ t.context_duration }}</dt><dd class="col-sm-9">{{ '%.2f'|format(receipt.stages|sum(attribute='duration_ms')) }} ms</dd></dl></div></details>{% endif %}
+</details>
+  <p class="text-secondary small mt-3">{{ t.context_boundary }}</p>
+</section>
