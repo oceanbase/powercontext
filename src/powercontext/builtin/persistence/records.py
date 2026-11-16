@@ -33,7 +33,6 @@ from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConf
 from powercontext.builtin.persistence.artifact_handles import ArtifactHandleRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, with_artifact_content
 from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
-from powercontext.builtin.persistence.custom_artifacts import StoredArtifactContent, custom_artifact_repository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
@@ -60,14 +59,15 @@ from powercontext.builtin.persistence.rollback import (
 )
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_FAMILY_SCHEMAS_TABLE,
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_REVISION_COLUMNS,
     ARTIFACTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
 from powercontext.builtin.persistence.tags import RelationalTagService, tag_predicate
+from powercontext.builtin.plugins.families import PluginArtifactContent
 from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactCreated,
@@ -478,7 +478,7 @@ class RelationalRecordService:
     async def get_artifact(
         self, scope_id: str, family: str, artifact_id: str, /, *, execution_context=None
     ) -> ArtifactRecord:
-        repository = await self._read_repository(family)
+        repository = self._read_repository(family)
         if family == "atomic-memory" and execution_context is not None:
             return await self._get_authorized_atomic_artifact(scope_id, artifact_id, None, execution_context)
         async with self._database.transaction() as connection:
@@ -504,7 +504,7 @@ class RelationalRecordService:
         *,
         execution_context=None,
     ) -> ArtifactRecord:
-        repository = await self._read_repository(family)
+        repository = self._read_repository(family)
         if family == "atomic-memory" and execution_context is not None:
             return await self._get_authorized_atomic_artifact(scope_id, artifact_id, revision, execution_context)
         async with self._database.transaction() as connection:
@@ -547,14 +547,14 @@ class RelationalRecordService:
             rows, _, next_cursor = await self.revision_rows(
                 connection, scope_id, family, artifact_id, limit=limit, cursor=cursor
             )
-            repository = await self._read_repository(family, connection=connection)
+            repository = self._read_repository(family)
             artifacts = await repository.decode_many(connection, scope_id, rows)
             items = tuple(_artifact_collection_item(scope_id, artifact) for artifact in artifacts)
         return ArtifactRevisionPage(items=items, next_cursor=next_cursor)
 
     async def revision_rows(self, connection, scope_id, family, artifact_id, *, limit, cursor, columns=()):
         """Read a bounded immutable revision page through a borrowed transaction."""
-        await self._read_repository(family, connection=connection)
+        self._read_repository(family)
         _require_limit(limit)
         expected_cursor = {
             "version": 1,
@@ -588,7 +588,7 @@ class RelationalRecordService:
         revisions = tuple(
             (
                 await connection.execute(
-                    select(*(columns or ARTIFACTS_TABLE.c))
+                    select(*(columns or ARTIFACT_REVISION_COLUMNS))
                     .where(
                         ARTIFACTS_TABLE.c.scope_id == scope_id,
                         ARTIFACTS_TABLE.c.family == family,
@@ -634,7 +634,7 @@ class RelationalRecordService:
         cursor: str | None,
         tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage:
-        repository = await self._read_repository(family)
+        repository = self._read_repository(family)
         _require_limit(limit)
         reader = self._topic_memory_list_reader
         if reader is not None and family == reader.family:
@@ -837,22 +837,16 @@ class RelationalRecordService:
         if source_type != CONTENT_SOURCE_NAME:
             raise InvalidBaseAccessRequestError("source_type", "must be content")
 
-    async def _read_repository(self, family: str, *, connection: AsyncConnection | None = None) -> ArtifactRepository:
+    def _read_repository(self, family: str) -> ArtifactRepository:
         if family == "memory":
             raise BaseOperationNotSupportedError("artifact_family", family, "legacy Memory collection read")
         if family in self._artifacts.families:
             return self._artifacts
-        if connection is None:
-            async with self._database.transaction() as borrowed:
-                return await self._read_repository(family, connection=borrowed)
-        known = await connection.scalar(
-            select(ARTIFACT_FAMILY_SCHEMAS_TABLE.c.family)
-            .where(ARTIFACT_FAMILY_SCHEMAS_TABLE.c.family == family)
-            .limit(1)
-        )
-        if known is None:
-            raise InvalidBaseAccessRequestError("family", "must be a registered Artifact family")
-        return custom_artifact_repository(family)
+        from powercontext.builtin.plugins.families import is_plugin_family, plugin_artifact_repository
+
+        if is_plugin_family(family):
+            return plugin_artifact_repository(family, self._sources)
+        raise InvalidBaseAccessRequestError("family", "must be a registered Artifact family")
 
     async def _get_source(
         self,
@@ -931,14 +925,11 @@ def _artifact_record(
     artifact: Artifact[Any],
 ) -> ArtifactRecord:
     content = cast(dict[str, JsonValue], artifact.content.model_dump(mode="json", by_alias=True))
-    schema_version = None
-    if isinstance(artifact.content, StoredArtifactContent):
-        schema_version = artifact.content.schema_version
+    if isinstance(artifact.content, PluginArtifactContent):
         content = artifact.content.content
     return ArtifactRecord(
         scope_id=scope_id,
         family=cast(Any, artifact.family),
-        schema_version=schema_version,
         artifact_id=artifact.artifact_id,
         revision=artifact.revision,
         content=content,
@@ -962,14 +953,11 @@ def _artifact_created(scope_id: str, artifact: Artifact[Any]) -> ArtifactCreated
 
 def _artifact_collection_item(scope_id: str, artifact: Artifact[Any]) -> ArtifactCollectionItem:
     content = cast(dict[str, JsonValue], artifact.content.model_dump(mode="json", by_alias=True))
-    schema_version = None
-    if isinstance(artifact.content, StoredArtifactContent):
-        schema_version = artifact.content.schema_version
+    if isinstance(artifact.content, PluginArtifactContent):
         content = artifact.content.content
     return ArtifactCollectionItem(
         scope_id=scope_id,
         family=cast(Any, artifact.family),
-        schema_version=schema_version,
         artifact_id=artifact.artifact_id,
         revision=artifact.revision,
         sources=artifact.lineage.sources,

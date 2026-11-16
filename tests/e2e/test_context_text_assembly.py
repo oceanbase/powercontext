@@ -230,7 +230,7 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
             prepared = await client.prepare_context(request.model_copy(update={"include_receipt": True}))
             assert prepared.content is not None
             assert prepared.receipt is not None
-            assert [item.kind.value for item in prepared.receipt.selected] == [
+            assert [item.kind for item in prepared.receipt.selected] == [
                 "profile",
                 "topic-memory",
                 "experience",

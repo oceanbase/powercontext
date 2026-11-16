@@ -62,8 +62,9 @@ Goals:
 3. Plugins can declare their own HTTP APIs; core handles routing, authentication, authorization, request size, and time
    limits, and the plugin writes only handlers.
 4. Writes to core data through plugin APIs follow the same permission and provenance rules as user changes in RFC #2549.
-5. Plugin pages never get the user's PowerContext session and cannot use it to call any Server API other than their own
-   plugin's APIs.
+5. Plugin pages never get the user's PowerContext session. A page can only ask the Dashboard to call, as the current
+   user, its own plugin's APIs and the generic Artifact APIs of its plugin's family; it cannot use the session to call any
+   other Server API.
 
 # Guide-level explanation
 
@@ -221,6 +222,11 @@ plugin = ArtifactPlugin(
 - A page can link to, navigate to, or open external sites in a new window, for example handing search results to an
   external RAG service's page. Plugins are trusted code, so pages may reach external sites freely; core guarantees only
   that a page cannot borrow the user's PowerContext session.
+- An Artifact plugin's page can also call the generic Artifact APIs (RFC #2549) of its plugin's family: read, history,
+  governance state, create, edit, merge, forget, restore, and tags. The Dashboard forwards these calls as the signed-in
+  user in the same way, and they are equivalent to calling the generic APIs directly: core handles permissions, version
+  preconditions, and provenance, and passes changes to the plugin's user change methods. The page declares no routes for
+  them.
 - Pages can only be static files (HTML, JavaScript, CSS, images, fonts), which core serves directly from the plugin's
   current version snapshot without running plugin code.
 
@@ -230,6 +236,10 @@ Calls from a page:
 const client = powercontextPluginClient();            // a small script from core that wraps postMessage
 const { scopeId } = await client.context();
 const result = await client.request("GET", `/knowledge-bases/${scopeId}/documents/${sourceId}/original`);
+
+// generic Artifact APIs of this plugin's family; the path follows /v1/scopes/{scopeId}/artifacts/{family}
+const document = await client.artifacts("GET", `/${artifactId}`, { scopeId });
+await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, ifMatch: document.etag });
 ```
 
 # Reference-level explanation
@@ -440,7 +450,7 @@ in RFC #2549). Besides the RFC #2549 context (dedicated storage, models, logger)
 
 | Capability | Description |
 | --- | --- |
-| `ctx.require(action, scope_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), or `server.admin`, and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations |
+| `ctx.require(action, scope_id=None, *, artifact_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), `server.admin`, or `artifact.write` on an Artifact of this plugin's family (with `scope_id` and `artifact_id`), and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations; `artifact.write` is for APIs that accept a request and let `generate` change an existing Artifact later: that write happens in the background with no caller identity, so the check belongs at acceptance |
 | `ctx.reads(scope_id)` | A read-only Artifact view of the given Scope, checked against the caller's permissions before reading; `reads(...).reads(family)` reads other families |
 | `ctx.writer(scope_id)` | The Artifact plugin's writer, scoped to the given Scope and the plugin's family; usable only for a Scope whose `scope.contribute` was confirmed in this request |
 | `ctx.sources.submit(scope_id, definition, value)` | Submits one Source of a definition this plugin provides (a Source plugin, or an Artifact plugin that declares `definitions`), with the same validation, `resolve`, and Projections as the Source write APIs, and returns a `SourceRef`; usable only for a Scope whose `scope.contribute` was confirmed in this request |
@@ -538,11 +548,20 @@ class PluginPages(BaseModel):
 
 - **Hosting page**: `/dashboard/plugins/{name}` is a core Dashboard page that requires sign-in. It loads the plugin page
   in a sandboxed iframe and, after the iframe's first load, sends the page the current Scope, locale, and theme; it then
-  accepts request messages only from that iframe, requires the path to match a route the plugin declared, forwards the
-  request through a same-origin server-side call, and returns the result as a message (binary responses as a Blob).
+  accepts request messages only from that iframe, requires the path to match a route the plugin declared or to be a
+  generic Artifact API of the plugin's family, forwards the request through a same-origin server-side call, and returns
+  the result as a message (binary responses as a Blob).
 - **Server-side forwarding**: `/dashboard/plugins/{name}/api/...` is a Dashboard server route. It requires a Dashboard
   session and a `Sec-Fetch-Site` of `same-origin` (checking that `Origin` matches Server when the header is missing), and
   follows the Dashboard's existing approach of calling `/v1/plugins/{name}/api/...` as the session's identity.
+- **Forwarding generic Artifact APIs**: `/dashboard/plugins/{name}/artifacts/{scope_id}/...` is a second Dashboard server
+  route with the same session and same-origin requirements. It calls `/v1/scopes/{scope_id}/artifacts/{family}/...` as
+  the session's identity, where the Dashboard fills in the family from the plugin's declaration and the page cannot
+  choose it. Create (`POST /dashboard/plugins/{name}/artifacts/{scope_id}`) becomes the plugin branch of the generic
+  create API, with the family also filled in by the Dashboard. The request's `If-Match` and body pass to the generic API
+  unchanged, and the response's status code, `ETag`, `Location`, and body are returned unchanged. The forwarding layer
+  makes no authorization decision and does not interpret content. A plugin that declares no family (a Source plugin) has
+  no such route.
 - **Session isolation**: the Dashboard session cookie is `HttpOnly`, `SameSite=Strict`, with path `/dashboard`. A plugin
   page is in an opaque origin, so its scripts cannot read the cookie, and Server does not accept forwarding requests with
   `Origin: null`.
@@ -550,8 +569,9 @@ class PluginPages(BaseModel):
   prevent. The external page can also send `postMessage` to the hosting page and passes the `event.source` check. The
   hosting page therefore stops forwarding after the iframe's second load, so an external page cannot borrow the user's
   session. Plugin pages should be single-page applications; navigating between plugin pages also stops forwarding.
-- **Scope**: the hosting page forwards only to routes the plugin declared; forwarded requests are still checked by core
-  against the caller's permissions, so a plugin page cannot use forwarding to reach Scopes the caller cannot access.
+- **Scope**: the hosting page forwards only to routes the plugin declared and to the generic Artifact APIs of the
+  plugin's family; forwarded requests are still checked by core against the caller's permissions, so a plugin page cannot
+  use forwarding to reach Scopes the caller cannot access or Artifacts of another family.
 - **Page client script**: core serves a small script at `/dashboard/plugins/_client.js` that wraps this message protocol,
   and plugin pages can reference it directly.
 
@@ -582,7 +602,7 @@ the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins
 | --- | --- |
 | Added | `/v1/plugins/{name}/api/...`: routes plugins declare |
 | Added | `GET /v1/plugins/{name}/openapi.json` |
-| Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/_client.js` |
+| Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/{name}/artifacts/{scope_id}/...`, `/dashboard/plugins/_client.js` |
 | Added | Routes a plugin declares with `mcp=True` appear as MCP tools on Server's MCP endpoint |
 | Added | `powercontext.plugins`: `PluginApi`, `Route`, `ApiRequest`, `BinaryResponse`, `ApiError`, `Caller`, `PluginPages`; the context's `require`, `reads`, `writer`, `sources`, and `scopes` |
 | Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, and `upgrade_timeout_seconds` fields |
