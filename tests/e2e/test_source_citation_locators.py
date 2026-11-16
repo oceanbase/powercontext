@@ -74,6 +74,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         (Path(migrations.__file__).parent / "server_resources/schemas/sqlite-v1_5_0_001.json").read_text()
     )
     with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE pc_atomic_memory_alias")
         connection.execute("ALTER TABLE pc_artifacts DROP COLUMN metadata")
         for statement in retired["statements"]:
             connection.execute(statement)
@@ -82,7 +83,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005")
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

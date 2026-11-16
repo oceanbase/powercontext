@@ -259,30 +259,74 @@ API、宿主、Worker、自动重启和输入写入，然后使用目标部署�
 powercontext server atomic-memory-rebuild-projection --env-file .env --maintenance-confirmed
 ```
 
-命令检查公共表中的旧对象、旧列和外键已清理，且 Atomic 的 head、正文 revision 和 head 生命周期数据有效。它只重建 active 的
-current 行，清除非 active 或孤立的 current 行；head、正文 revision、生命周期状态、保留历史及
+命令检查公共表中的旧对象、旧列和外键已清理，且 Atomic 的 head、正文 revision 和 head 生命周期数据有效。它重建 active 的
+current 行和 merged 的历史别名，清除非 active 或孤立的 current 行，并删除身份已不再 merged 的别名；head、正文 revision、生命周期状态、保留历史及
 Source/处理进度保持原身份和原值。重建不读取归档或旧 entry 表；旧历史是否已完整导入，由停服迁移的
 `verify` 负责核验，投影重建不能补做缺失的历史导入。
 
-每条 active 正文在写事务外准备向量。提交前锁定并重新核对精确 revision、state_version 和部署
+active 和 merged 正文缺失或不兼容的向量在写事务外准备。提交前锁定并重新核对精确 revision、state_version 和部署
 profile，再在同一个事务中读取最新正式标签。关闭向量时保留正文与全文检索，
 清除 embedding、profile 和输入摘要。SQLite 的全文辅助索引使用稳定的 Scope/Artifact 身份 token，
 不依赖 `VACUUM` 可能改变的 rowid。
 
 OceanBase 和 seekDB 的向量维度改变时，先在停服状态下清除派生向量、替换原生向量索引并调整
-current 列的维度。该 DDL 可能独立提交，整个过程必须保持维护条件。维度相同但 profile 改变时，
-也会按目标 profile 为全部 active 行重新准备向量；不保留历史向量缓存。
+current 和 alias 列的维度。该 DDL 可能独立提交，整个过程必须保持维护条件。维度相同但 profile 改变时，
+也会按目标 profile 为 active 和 merged 行重新准备向量；兼容的已存历史别名向量会保留。别名是派生状态，不是不可变向量归档。
 
-各行分别提交。中断后可能留下部分投影，保持停写并重复执行相同命令即可；重试会重新准备全部
-active 行，不使用进度表续跑。`--batch-size` 控制每批读取的身份数量（1–1000，默认 100），不是
-向量结果上限。JSON 输出包含 `profile_fingerprint`、`active_rows`、`obsolete_rows`、`rebuilt_rows`、
-`removed_rows`、`embedding_calls` 和 `elapsed_ms`。完整 current 核验返回 `ready: true`，且普通启动
+各行分别提交。中断后可能留下部分投影，保持停写并重复执行相同命令即可；重试复用兼容的已存向量，重新生成缺失或不兼容的向量，不使用进度表续跑。`--batch-size` 控制每批读取的身份数量（1–1000，默认 100），不是
+向量结果上限。JSON 输出包含 `profile_fingerprint`、`active_rows`、`obsolete_rows`、`alias_rows`、`obsolete_alias_rows`、
+`rebuilt_rows`、`removed_rows`、`embedding_calls` 和 `elapsed_ms`。`embedding_calls` 统计生成向量的正文数量。完整 current 核验返回 `ready: true`，且普通启动
 检查成功后再恢复服务。错误不会悄悄启用另一种检索模式。
 
 当前有结果上限的普通向量搜索，也会对满足资格的 current 行计算精确 L2；资格过滤先于排序和截断。
 相关记忆完整枚举使用同一精确计算，不设结果上限，返回阈值内全部合格结果。计算量随合格行数与向量
 维度的乘积增长。原生向量索引已配置，但这些路径没有使用 ANN；本实现不承诺 ANN 性能，也不代表
 已完成生产后端验收。
+
+
+## 协调阶段的历史别名
+
+`pc_atomic_memory_alias` 是格式为 `powercontext.atomic-memory.alias.v1` 的可丢弃投影，以
+`(scope_id, alias_artifact_id)` 为主键。merged 身份保留最新历史正文的精确文本、revision、直接合并目标和
+合并状态版本。增量合并发布在删除 active current 行之前保留原始已存向量以及 embedding profile 和输入哈希。
+重复退出索引时，若 current 行已不存在，保留已有别名。身份恢复 active 时删除其出向别名；forgotten 和 retired
+身份也删除其出向别名。current 投影仍然只包含 active 记忆。
+
+`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_ALIAS_RECALL`（`RuntimeConfig` 中的 `atomic_memory_alias_recall`）
+默认 `true`，控制协调阶段的别名召回。设为 `false` 时完全不查询别名。别名维护和显式重建独立于此开关。开启时，别名复用请求的
+FTS/vector/hybrid 模式、embedding profile 和距离阈值。匹配历史表述只提出与当前 active 后继记忆比较的候选，
+不强制合并，也不证明语义等同。公开搜索、生命周期状态、内容、协调动作和提示词保持现有语义。
+
+解析沿同一 Scope 内的当前权威合并关系进行，检测循环，拒绝非法链路和超过 64 条合并边的链路。终点为 forgotten
+或 retired 时不返回命中。终点的类型/标签过滤以及现有读取/比较授权在当前正文进入协调之前执行。直接命中保持原顺序，
+精确 revision/状态版本一致后，优先于重复的别名命中。别名通道故障可以降级到已验证的直接结果；取消、授权失败和
+失效快照不会转为成功回退。每请求比较批次和 token 限额继续生效，但不限制总候选数、flush token 或链路解析工作量。
+开启后，匹配正文保留到快照内授权完成，因此保留内容峰值随完整匹配集合增长，而不是仅随一个比较页增长。
+
+未受管数据库通过受支持的索引初始化创建此派生表。受管 Server 数据库需要通过 `db-migrate --bundle server`
+显式升级到 `v1_5_0_006`；普通启动保持只读，在升级完成前报告 `migration_required`。schema 升级创建空别名表。
+安装不会回填早先的合并记录：保持停写，
+按上面的维护流程显式重建投影。重建读取每个 merged 身份最新的权威正文 revision，发布前复核 revision/状态以及
+配置的 embedding profile，修复过期别名元数据、清理过期别名并验证结果集合。空投影和 profile 变化时使用配置模型
+重新生成向量。若 embedding 服务不确定，仅凭权威记录无法逐字节恢复已删除的向量；身份、历史文本、直接目标和
+合并状态版本会精确保留。确定性测试向量相同，并不能证明真实模型可以逐字节恢复历史向量。
+
+人工编写的 SQLite 回归用例包含三个初始权威身份（两个 merged 输入和一个 active 后继），使用确定性的三维单位向量，
+profile `related-query-test` / 模型标签 `embo-01`，最大 L2 距离为 `0.1`。模型标签是测试元数据；没有调用真实
+embedding 或生成模型。每个用例执行一次协调。下表通过 `character:weighted/v1` 对完整选定指令和请求 JSON
+估算输入 token，不代表提供方的计费测量。
+
+| 观察 | 开关 | 直接命中 | 别名命中 | 动作 | Active 身份数 | 提取输入 token | 协调输入 token | 总输入 token |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 历史表述 | 关闭 | 0 | 0 | create | 2 | 1338 | 1980 | 3318 |
+| 历史表述 | 开启 | 0 | 1 | noop | 1 | 1338 | 2197 | 3535 |
+| 无关事实 | 关闭 | 0 | 0 | create | 2 | 1337 | 1978 | 3315 |
+| 无关事实 | 开启 | 0 | 0 | create | 2 | 1337 | 1978 | 3315 |
+
+历史表述增加 217 个估算输入 token；无关对照增量为零，并保留新身份。两个用例均未产生 `revise` 或 `merge` 动作。
+这些小规模人工用例只验证本地机制，
+不能证明大规模集合的成本、真实 OceanBase 执行或真实 embedding/模型验收。即使 SQL 计算距离，精确向量距离
+计算仍然是扫描；做出性能结论前，应在与部署规模相当的备份上测量别名候选、链路读取、模型调用和总 token。
 
 ## 资源记录
 

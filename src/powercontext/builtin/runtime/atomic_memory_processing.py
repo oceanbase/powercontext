@@ -111,6 +111,7 @@ class AtomicMemoryProcessingConfig:
     related_max_distance: float = 1.0
     related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
+    alias_recall: bool = True
     comparison_batch_size: int = 20
     input_tokens_limit: int = 24_000
 
@@ -136,6 +137,7 @@ class AtomicMemoryProcessingConfig:
             related_max_distance=runtime.atomic_memory_related_max_distance,
             related_page_size=runtime.atomic_memory_related_page_size,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
+            alias_recall=runtime.atomic_memory_alias_recall,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
         )
@@ -675,6 +677,10 @@ class AtomicMemorySourceWindowProcessor:
         return await self._related_request(query, filters)
 
     async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
+        if self.config.alias_recall:
+            return await self._recall_aliased_items(
+                scope_id, context, workset, compare_page, request=request, local_policy=local_policy
+            )
         application = self.application
         cursor = None
         while True:
@@ -712,6 +718,62 @@ class AtomicMemorySourceWindowProcessor:
                 workset.release(loaded, keep=key)
             if cursor is None:
                 break
+
+    async def _recall_aliased_items(self, scope_id, context, workset, compare_page, *, request, local_policy):
+        application = self.application
+        while True:
+            async with (
+                deferred_decision_audit(context),
+                application.database.transaction(consistent_snapshot=True) as connection,
+            ):
+                try:
+                    direct, heads = await application.index.enumerate_related_with_heads(connection, scope_id, request)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    continue
+                try:
+                    # Roll back alias-only SQL failures without invalidating direct
+                    # results or the surrounding read/authorization snapshot.
+                    async with connection.begin_nested():
+                        aliases, alias_heads = await application.index.enumerate_aliased_related(
+                            connection, scope_id, request
+                        )
+                except Exception as error:
+                    _require_alias_snapshot(connection, error)
+                    aliases, alias_heads = (), {}
+                hits, heads = _combine_related_hits(direct, heads, aliases, alias_heads)
+                loaded = []
+                values = tuple(hits.values())
+                for offset in range(0, len(values), request.page_size):
+                    page = values[offset : offset + request.page_size]
+                    async with self._prefetch_artifact_policy(
+                        connection,
+                        scope_id,
+                        context,
+                        tuple(hit.artifact_ref for hit in page),
+                        include_scope=local_policy,
+                    ):
+                        if local_policy:
+                            await application.security.authorize(connection, scope_id, context, "read")
+                        loaded.extend(
+                            await self._load_related_items(
+                                connection, scope_id, page, context, workset, joined_heads=heads
+                            )
+                        )
+            break
+        # Model calls remain outside the database snapshot and keep the existing
+        # per-comparison token and batch budgets.
+        for offset in range(0, len(loaded), request.page_size):
+            page = loaded[offset : offset + request.page_size]
+            key = await compare_page(tuple(page))
+            workset.release(page, keep=key)
 
     async def _window_comparisons(self, workset, key, request, vectors, *, related_only):
         items = tuple(item for item in workset.items.values() if item.key != key and item.changed and item.retain)
@@ -819,7 +881,7 @@ class AtomicMemorySourceWindowProcessor:
             # inputs retain a short transaction across bounded observation chunks.
             connection_manager = (
                 self.application.database.engine.connect()
-                if len(generation_sources) <= 100
+                if len(generation_sources) <= 100 and not self.config.alias_recall
                 else self.application.database.transaction(consistent_snapshot=True)
             )
             async with deferred_decision_audit(context), connection_manager as connection:
@@ -1142,3 +1204,29 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _combine_related_hits(direct, heads, aliases, alias_heads):
+    """Direct rank order wins only when both channels agree on the exact version."""
+    hits = {hit.artifact_ref.artifact_id: hit for hit in direct}
+    for hit in aliases:
+        identity = hit.artifact_ref.artifact_id
+        previous = hits.get(identity)
+        if previous is not None:
+            if previous.artifact_ref != hit.artifact_ref or previous.state_version != hit.state_version:
+                _conflict("Related channels returned different memory versions")
+            continue
+        hits[identity] = hit
+        heads[identity] = alias_heads[identity]
+    return hits, heads
+
+
+def _require_alias_snapshot(connection, error):
+    """Degradation cannot reuse direct results after the owner snapshot is lost."""
+    if isinstance(error, AtomicMemoryIndexError) and error.code == "stale-recall":
+        _conflict("Related channels returned different memory versions")
+    if connection.invalidated or getattr(error, "connection_invalidated", False):
+        raise error
+    message = str(error).lower() if isinstance(error, OperationalError) else ""
+    if "savepoint" in message and ("no such" in message or "does not exist" in message):
+        raise error

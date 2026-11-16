@@ -370,6 +370,7 @@ class MySQLSchema:
         tables = dict(_parse_table(sql) for sql in definitions.values())
         atomic_name = "pc_atomic_memory_current"
         atomic = tables.pop(atomic_name)
+        self._extend_alias_vectors(atomic["columns"]["embedding"], profile.profile.dimension)
         source, target, *later = self.revisions
         for revision in self.revisions:
             for state in [*self._prefixes[revision], self._schemas[revision]]:
@@ -401,6 +402,22 @@ class MySQLSchema:
             for state in [*self._prefixes[revision], self._schemas[revision]]:
                 state["tables"][declaration_name] = copy.deepcopy(declaration)
         self.affected_objects = tuple(dict.fromkeys([*self.affected_objects, *tables, declaration_name]))
+
+    def _extend_alias_vectors(self, embedding_column: dict[str, Any], dimension: int) -> None:
+        alias_name = "pc_atomic_memory_alias"
+        # Alias vectors share the deployment's exact native embedding type.
+        # Keep the released profile resource unchanged; only revisions which
+        # introduce the alias relation receive this specialization.
+        for revision in self.revisions:
+            for state in [*self._prefixes[revision], self._schemas[revision]]:
+                if alias_name in state["tables"]:
+                    state["tables"][alias_name]["columns"]["embedding"] = copy.deepcopy(embedding_column)
+            self._statements[revision] = tuple(
+                re.sub(r"\bembedding BLOB\b", f"embedding VECTOR({dimension})", sql)
+                if sql.startswith(f"CREATE TABLE {alias_name} (")
+                else sql
+                for sql in self._statements[revision]
+            )
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
         actual = {**inventory, "tables": dict(inventory["tables"])}

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -49,8 +50,10 @@ from powercontext.builtin.persistence.atomic_memory_evidence import (
 )
 from powercontext.builtin.persistence.atomic_memory_evidence_schema import ATOMIC_MEMORY_EVIDENCE_TABLES
 from powercontext.builtin.persistence.atomic_memory_index_schema import (
+    ATOMIC_MEMORY_ALIAS_FORMAT,
     ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
     ATOMIC_MEMORY_PROJECTION_FORMAT,
+    atomic_memory_alias_table,
 )
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
@@ -222,6 +225,7 @@ class AtomicMemoryIndex(Protocol):
     """Caller-owned projection transactions, including initialization and current-row validation."""
 
     table: Table
+    alias_table: Table
     tables: tuple[Table, ...]
     capabilities: AtomicMemoryIndexCapabilities
 
@@ -280,6 +284,10 @@ class AtomicMemoryIndex(Protocol):
         ...
 
     async def enumerate_related_with_heads(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
+
+    async def enumerate_aliased_related(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
 
@@ -374,7 +382,7 @@ class AtomicMemoryProjectionPublisher:
     ) -> None:
         artifact = record.artifact
         if record.state.state != "active":
-            await self.remove(connection, scope_id, artifact.artifact_id)
+            await self.retire(connection, scope_id, record)
             return
         tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
         await self.index.replace_many(connection, scope_id, (self._projection(record, prepared, tags),))
@@ -411,6 +419,108 @@ class AtomicMemoryProjectionPublisher:
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
         await self.index.delete(connection, scope_id, artifact_id)
+
+    async def retire(self, connection: AsyncConnection, scope_id: str, record: Any) -> None:
+        """Retire in the authority transaction, preserving the original stored vector."""
+        artifact_id = record.artifact.artifact_id
+        alias = self.index.alias_table
+        if record.state.state == "merged":
+            current = self.index.table
+            row = (
+                (
+                    await connection.execute(
+                        select(current).where(current.c.scope_id == scope_id, current.c.artifact_id == artifact_id)
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is not None:
+                await self._save_alias(connection, scope_id, record, row)
+        else:
+            await connection.execute(
+                delete(alias).where(alias.c.scope_id == scope_id, alias.c.alias_artifact_id == artifact_id)
+            )
+        await self.remove(connection, scope_id, artifact_id)
+
+    async def rebuild_alias(
+        self, connection: AsyncConnection, scope_id: str, record: Any, prepared: PreparedAtomicMemoryProjection
+    ) -> None:
+        """Publish authority-derived historical content prepared outside the write."""
+        if record.state.state != "merged":
+            raise AtomicMemoryIndexError("state", "Alias publication requires merged authority")
+        self.validate_prepared(prepared)
+        if prepared.kind != record.artifact.content.kind or prepared.text != record.artifact.content.text:
+            raise AtomicMemoryIndexError("prepared-content", "Alias preparation differs from authority")
+        values = {
+            "kind": prepared.kind,
+            "text": prepared.text,
+            "searchable_text": prepared.searchable_text,
+            "embedding": None
+            if prepared.embedding is None
+            else (
+                struct.pack(f"<{len(prepared.embedding)}f", *prepared.embedding)
+                if connection.dialect.name == "sqlite"
+                else prepared.embedding
+            ),
+            "profile_fingerprint": prepared.profile_fingerprint,
+            "embedding_input_hash": prepared.embedding_input_hash,
+        }
+        await self.retire(connection, scope_id, record)
+        await self._save_alias(connection, scope_id, record, values)
+
+    async def rebuild_alias_from_row(self, connection: AsyncConnection, scope_id: str, record: Any, row: Any) -> None:
+        """Repair alias authority metadata while retaining compatible vector bytes."""
+        content = record.artifact.content
+        expected_hash = (
+            None if self.profile_fingerprint is None else atomic_memory_embedding_input_hash(content.kind, content.text)
+        )
+        if record.state.state != "merged":
+            raise AtomicMemoryIndexError("state", "Alias publication requires merged authority")
+        if (
+            row["kind"] != content.kind
+            or row["text"] != content.text
+            or row["searchable_text"] != analyze_text(atomic_memory_embedding_input(content.kind, content.text))
+            or row["profile_fingerprint"] != self.profile_fingerprint
+            or row["embedding_input_hash"] != expected_hash
+            or (row["embedding"] is None) != (self.profile_fingerprint is None)
+        ):
+            raise AtomicMemoryIndexError("embedding-profile", "Retained alias content or embedding profile changed")
+        await self.retire(connection, scope_id, record)
+        await self._save_alias(connection, scope_id, record, row)
+
+    async def _save_alias(self, connection: AsyncConnection, scope_id: str, record: Any, row: Any) -> None:
+        table = self.index.alias_table
+        values = {
+            name: row[name]
+            for name in ("kind", "text", "searchable_text", "embedding", "profile_fingerprint", "embedding_input_hash")
+        }
+        values.update(
+            scope_id=scope_id,
+            alias_artifact_id=record.artifact.artifact_id,
+            target_artifact_id=record.state.merged_into_id,
+            alias_revision=record.artifact.revision,
+            merged_state_version=record.state.state_version,
+            projection_format=ATOMIC_MEMORY_ALIAS_FORMAT,
+        )
+        if connection.dialect.name == "sqlite":
+            statement = sqlite_insert(table).values(**values)
+            statement = statement.on_conflict_do_update(
+                index_elements=("scope_id", "alias_artifact_id"),
+                set_={
+                    name: getattr(statement.excluded, name)
+                    for name in values
+                    if name not in {"scope_id", "alias_artifact_id"}
+                },
+            )
+        else:
+            statement = mysql_insert(table).values(**values)
+            statement = statement.on_duplicate_key_update(**{
+                name: getattr(statement.inserted, name)
+                for name in values
+                if name not in {"scope_id", "alias_artifact_id"}
+            })
+        await connection.execute(statement)
 
 
 async def load_atomic_memory_tags(connection: AsyncConnection, scope_id: str, artifact_id: str) -> tuple[str, ...]:
@@ -810,8 +920,10 @@ class RelationalAtomicMemoryIndex:
         if profile is not None and (profile.dimension < 1 or profile.distance != "l2"):
             raise AtomicMemoryIndexError("embedding-profile", "Atomic Memory requires a positive L2 embedding profile")
         self.table = table
+        self.alias_table = atomic_memory_alias_table(table.c.embedding.type)
         self.tables: tuple[Table, ...] = (
             table,
+            self.alias_table,
             ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
             *ATOMIC_MEMORY_EVIDENCE_TABLES,
         )
@@ -909,6 +1021,27 @@ class RelationalAtomicMemoryIndex:
         else:
             raise AtomicMemoryIndexError("dialect", "Atomic Memory projection needs SQLite or MySQL")
         await connection.execute(statement, values)
+        if self.alias_table not in self.tables:
+            # Frozen historical conversion publishes before the alias revision.
+            # Only the registered current layout owns outgoing alias cleanup.
+            return
+        for offset in range(0, len(projections), 900):
+            await connection.execute(
+                delete(self.alias_table).where(
+                    self.alias_table.c.scope_id == scope_id,
+                    self.alias_table.c.alias_artifact_id.in_([
+                        item.artifact_ref.artifact_id for item in projections[offset : offset + 900]
+                    ]),
+                )
+            )
+
+    async def enumerate_aliased_related(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+        from powercontext.builtin.persistence.atomic_memory_alias import enumerate_aliased_related
+
+        self.validate_request(request)
+        return await enumerate_aliased_related(self, connection, scope_id, request)
 
     def _projection_values(self, scope_id: str, projection: AtomicMemoryProjection) -> dict[str, object]:
         if projection.artifact_ref.family != "atomic-memory":

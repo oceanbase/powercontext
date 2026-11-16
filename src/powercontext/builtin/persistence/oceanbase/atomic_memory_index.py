@@ -66,7 +66,7 @@ _INDEX_EXISTS = text(
 )
 _VECTOR_TYPE = text(
     "SELECT data_type FROM information_schema.columns "
-    "WHERE table_schema = DATABASE() AND table_name = 'pc_atomic_memory_current' AND column_name = 'embedding'"
+    "WHERE table_schema = DATABASE() AND table_name = :table_name AND column_name = 'embedding'"
 )
 _HIT_COLUMNS = "artifact_id, revision, state_version, kind, text"
 _NATIVE_FTS_PROBE = (
@@ -228,14 +228,17 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
     async def _initialize_vectors(self, connection: AsyncConnection) -> None:
         if self.profile is None:
             return
-        column_type = await connection.scalar(_VECTOR_TYPE)
         expected = f"VECTOR({self.profile.dimension})"
-        if str(column_type).upper() != expected:
-            raise AtomicMemoryIndexError(
-                "vector-schema",
-                f"Atomic Memory uses {column_type!r}; expected {expected}. "
-                "Reconfigure the current vector column offline and rebuild vectors before vector search.",
-            )
+        for table in (self.table, self.alias_table):
+            if table not in self.tables:
+                continue
+            column_type = await connection.scalar(_VECTOR_TYPE, {"table_name": table.name})
+            if str(column_type).upper() != expected:
+                raise AtomicMemoryIndexError(
+                    "vector-schema",
+                    f"Atomic Memory {table.name} uses {column_type!r}; expected {expected}. "
+                    "Reconfigure the vector columns offline and rebuild vectors before vector search.",
+                )
         if self._vector_index is not None and not await connection.scalar(
             _INDEX_EXISTS, {"index_name": _VECTOR_INDEX_NAME}
         ):
@@ -251,25 +254,28 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         """Offline derived-schema operation, followed by authoritative vector rebuild.
 
         Caller must stop normal writes before DDL, which OceanBase may commit
-        independently. Current bodies, identities and permissions are retained;
+        independently. Current and alias bodies, identities and permissions are retained;
         invalidated vectors are never retained as a historical cache.
         """
 
         if connection.dialect.name != "mysql" or self.profile is None:
             raise AtomicMemoryIndexError("vector-schema", "Vector reconfiguration requires an OceanBase vector profile")
-        if await connection.scalar(_INDEX_EXISTS, {"index_name": _VECTOR_INDEX_NAME}):
-            await connection.exec_driver_sql(f"DROP INDEX {_VECTOR_INDEX_NAME} ON pc_atomic_memory_current")
-        await connection.exec_driver_sql(
-            "UPDATE pc_atomic_memory_current SET embedding = NULL, profile_fingerprint = NULL, embedding_input_hash = NULL"
-        )
         try:
-            await connection.exec_driver_sql(
-                f"ALTER TABLE pc_atomic_memory_current MODIFY COLUMN embedding VECTOR({self.profile.dimension}) NULL"
-            )
+            expected = f"VECTOR({self.profile.dimension})"
+            for table in (self.table, self.alias_table):
+                column_type = await connection.scalar(_VECTOR_TYPE, {"table_name": table.name})
+                if str(column_type).upper() == expected:
+                    continue
+                if table is self.table and await connection.scalar(_INDEX_EXISTS, {"index_name": _VECTOR_INDEX_NAME}):
+                    await connection.exec_driver_sql(f"DROP INDEX {_VECTOR_INDEX_NAME} ON pc_atomic_memory_current")
+                await connection.exec_driver_sql(
+                    f"UPDATE {table.name} SET embedding = NULL, profile_fingerprint = NULL, embedding_input_hash = NULL"  # noqa: S608 -- Backend-owned schema names.
+                )
+                await connection.exec_driver_sql(f"ALTER TABLE {table.name} MODIFY COLUMN embedding {expected} NULL")
         except SQLAlchemyError as error:
             raise AtomicMemoryIndexError(
                 "vector-schema",
-                "OceanBase could not change the current vector type; rebuild the derived current table offline",
+                "OceanBase could not change the vector types; rebuild the derived projection tables offline",
             ) from error
         await self.initialize(connection)
 
