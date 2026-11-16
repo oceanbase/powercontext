@@ -10,7 +10,7 @@ PowerContext v1.5.2 makes Agent long-term memory more efficient, transparent and
 
 - Improve Desktop local Server installation, recovery and management, package independent Ops resources, and add Linux systemd --user service integration. Protocol checks and local setup support do not replace signed-installer or clean-machine platform acceptance. ([#2306](https://github.com/oceanbase/powercontext/pull/2306), [#2503](https://github.com/oceanbase/powercontext/pull/2503), [#2471](https://github.com/oceanbase/powercontext/pull/2471))
 
-- Load directory plugins that generate, render, search and change their own Artifacts, with plugin APIs and sandboxed Dashboard pages. Plugins can declare their own Source types. Hot reload, plugin data upgrades, plugin MCP tools and standalone Source collection are not included. ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
+- Load directory plugins that generate, render, search and change their own Artifacts, with plugin APIs and sandboxed Dashboard pages. Plugins can declare their own Source types. Plugins also gain per-plugin databases on OceanBase and seekdb (`powercontext_plugin_<name>`), Dashboard forwarding to their own Artifact API, Scope listing limited to their own readable Scopes, and fixes for user-change evidence and write/governance consistency. Hot reload, plugin data upgrades, plugin MCP tools and standalone Source collection are not included. ([#2616](https://github.com/oceanbase/powercontext/pull/2616), [#2660](https://github.com/oceanbase/powercontext/pull/2660))
 
 - Add Gateway alpha OAuth subscription transports and improve request deadlines, cancellation and bounded shutdown. Provider capabilities differ: Gemini context injection is disabled, and Claude CLI is single-turn/text-only and unavailable under enforcing or unknown Core protection. Gateway continues to buffer complete responses for inspection. ([#2563](https://github.com/oceanbase/powercontext/pull/2563), [#2538](https://github.com/oceanbase/powercontext/pull/2538), [#2578](https://github.com/oceanbase/powercontext/pull/2578))
 
@@ -40,7 +40,7 @@ PowerContext v1.5.2 让 Agent 的长期记忆更高效、更透明，也更易�
 
 - 完善 Desktop 本地 Server 的安装、恢复与管理，打包独立 Ops 资源，并新增 Linux systemd --user 服务集成。协议检查与本地安装支持不替代签名安装包和各平台干净机器验收。 ([#2306](https://github.com/oceanbase/powercontext/pull/2306), [#2503](https://github.com/oceanbase/powercontext/pull/2503), [#2471](https://github.com/oceanbase/powercontext/pull/2471))
 
-- 支持从目录加载插件，由插件生成、展示、搜索和修改自身 Artifact，并提供插件 API 与沙箱化 Dashboard 页面。插件可声明自身 Source 类型；本次不包含热重载、插件数据升级、插件 MCP 工具和独立 Source 采集。 ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
+- 支持从目录加载插件，由插件生成、展示、搜索和修改自身 Artifact，并提供插件 API 与沙箱化 Dashboard 页面。插件可声明自身 Source 类型。 插件还支持 OceanBase 与 seekdb 独立数据库（`powercontext_plugin_<name>`）、Dashboard 转发自身 Artifact API，以及仅列出自身可读 Scope，并修复用户修改证据和写入与治理状态的一致性问题。本次不包含热重载、插件数据升级、插件 MCP 工具和独立 Source 采集。 ([#2616](https://github.com/oceanbase/powercontext/pull/2616), [#2660](https://github.com/oceanbase/powercontext/pull/2660))
 
 - Gateway alpha 新增 OAuth 订阅传输支持，完善请求超时、取消和有界关闭。各 Provider 能力不同：Gemini 不启用上下文注入，Claude CLI 仅支持单轮文本，且在 Core 保护处于强制执行或未知状态时不可用。Gateway 仍缓冲完整响应以完成检查。 ([#2563](https://github.com/oceanbase/powercontext/pull/2563), [#2538](https://github.com/oceanbase/powercontext/pull/2538), [#2578](https://github.com/oceanbase/powercontext/pull/2578))
 
