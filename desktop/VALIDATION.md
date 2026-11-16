@@ -3629,6 +3629,24 @@ upgrades or release publication. The probe does not send `idempotency_key`; the 
 idempotency suite covers keyed writes, replay, conflict and authorization.
 
 
+Reproduce using the recorded wheel and a client containing this bundled profile:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-gateway-dc99352f-v1 \
+  --wheel desktop/.artifacts/pr2583-nov15/server-wheel/powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约和 wheel，799 个运行时文件与源码归档一致。远端容器中的匿名、
+Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 模式全部通过，产品连接管理器选中同一内置记录。
+合同测试 69 项、幂等端到端测试 18 项、原生 session 测试 9 项及完整代码质量检查通过。
+历史资格与已认证客户端映射保留各自证据。本记录验证 Desktop 协议，不代替 Rust Gateway 生命周期、
+安装版界面、凭据持久化、其他平台、外部数据库、升级或发布验收；幂等 key 由独立端到端测试覆盖。
+
 ## Server 3427cee7 plugin interfaces protocol qualification
 
 `sqlite-plugin-interfaces-3427cee7-v1` qualifies all thirteen Desktop protocol operations against
@@ -3656,22 +3674,10 @@ Reproduce against the recorded artifact:
 ```sh
 cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
 uv run --no-sync python desktop/tests/real_server.py \
-  --product-qualification sqlite-memory-gateway-dc99352f-v1 \
-  --wheel desktop/.artifacts/pr2583-nov15/server-wheel/powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl
-cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
-make contract-test
-uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
-```
-
-本记录绑定上述精确源码、组合契约和 wheel，799 个运行时文件与源码归档一致。远端容器中的匿名、
-Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 模式全部通过，产品连接管理器选中同一内置记录。
-合同测试 69 项、幂等端到端测试 18 项、原生 session 测试 9 项及完整代码质量检查通过。
-历史资格与已认证客户端映射保留各自证据。本记录验证 Desktop 协议，不代替 Rust Gateway 生命周期、
-安装版界面、凭据持久化、其他平台、外部数据库、升级或发布验收；幂等 key 由独立端到端测试覆盖。
-
   --product-qualification sqlite-plugin-interfaces-3427cee7-v1 \
   --wheel desktop/.artifacts/plugin-interfaces/powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl
 ```
+
 
 ## Server b496cc22 memory plugins protocol qualification
 
