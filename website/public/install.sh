@@ -320,7 +320,7 @@ resolve_latest_version() {
     printf 'powercontext\n' >"$TEMP_DIR/release.in"
     # Ignore the invoking project's settings while retaining user and explicit uv configuration.
     : >"$TEMP_DIR/uv.toml"
-    local resolve_args=(pip compile --project "$TEMP_DIR" --no-deps --upgrade --prerelease disallow
+    local resolve_args=(pip compile --project "$TEMP_DIR" --no-deps --upgrade --resolution highest --prerelease disallow
         --python "$PYTHON_BIN" --no-python-downloads --no-header --no-annotate --no-generate-hashes
         --output-file "$TEMP_DIR/release.txt" "$TEMP_DIR/release.in")
     [[ -z "$INDEX_URL" ]] || resolve_args+=(--default-index "$INDEX_URL")

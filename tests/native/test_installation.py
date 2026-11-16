@@ -232,7 +232,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             if sys.platform == "win32":
                 executable = os.path.join(os.environ["SYSTEMROOT"], "System32", "whoami.exe")
             name = "python3.exe" if sys.platform == "win32" else "python3"
-            shutil.copy2(executable, unusable_python / name)
+            shutil.copy(executable, unusable_python / name)
             env["PATH"] = str(unusable_python) + os.pathsep + env["PATH"]
         env.update(TZ="Asia/Shanghai", LC_ALL="C", LANG="en_US.UTF-8")
         if environment == "bootstrap-global":
@@ -323,9 +323,11 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
         for key, value in os.environ.items()
         if not key.startswith(("UV_", "PIP_", "PYTHON", "POWERCONTEXT_")) and key != "VIRTUAL_ENV"
     }
+    config = tmp_path / "uv.toml"
+    config.write_text('[pip]\nresolution = "lowest-direct"\n', encoding="utf-8")
     env.update(
         PYTHONIOENCODING="utf-8",
-        UV_NO_CONFIG="1",
+        UV_CONFIG_FILE=str(config),
         UV_TOOL_DIR=str(tmp_path / "tools"),
         UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces"),
         UV_CACHE_DIR=str(tmp_path / "cache"),

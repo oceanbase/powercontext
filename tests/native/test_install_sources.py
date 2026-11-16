@@ -266,6 +266,22 @@ def test_latest_ignores_calling_project_configuration(installation, filename, co
 
 
 @pytest.mark.parametrize("configuration", ["user", "explicit"])
+def test_latest_ignores_pip_resolution(installation, configuration):
+    install, version, index, env = installation
+    project = Path(env["HOME"]).parent
+    config = Path(env["XDG_CONFIG_HOME"]) / "uv/uv.toml" if configuration == "user" else project / "selected.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        f'[[index]]\nurl = "{index.base_url}/global/simple"\ndefault = true\n\n[pip]\nresolution = "lowest-direct"\n',
+        encoding="utf-8",
+    )
+
+    install("--region", "global", extra={"UV_CONFIG_FILE": config.name} if configuration == "explicit" else {})
+
+    assert version() == "1.1.0"
+
+
+@pytest.mark.parametrize("configuration", ["user", "explicit"])
 @pytest.mark.parametrize("generate_hashes", [False, True])
 def test_latest_preserves_configured_index_over_project_index(installation, configuration, generate_hashes):
     install, version, index, env = installation
