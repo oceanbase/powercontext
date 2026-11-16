@@ -390,8 +390,9 @@ do not assume all requests reach the same process.
 - A host process handles several requests at once on one event loop. When a call runs past its time limit, core cancels
   only that request (its write transaction rolls back) and returns 504; other requests in the process are unaffected.
 - Blocking the event loop keeps cancellation from taking effect and also stops the host process's heartbeat. Five seconds
-  after the heartbeat stops, core terminates the process: the timed-out request returns 504, the process's other requests
-  return 503, and the process restarts after a backoff. Put CPU-heavy or synchronously blocking code in
+  after the heartbeat stops, core terminates the process: requests that passed their own time limit before then return
+  504, requests still in flight at termination (including the one that blocked) return 503, and the process restarts
+  after a backoff. Put CPU-heavy or synchronously blocking code in
   `await asyncio.to_thread(...)`, and leave work that takes minutes to the background `generate`.
 - In Prepared Context, a plugin section is left out when the plugin is unavailable (a timeout, no available host process,
   or a failed search); the receipt records the family's failed search, and the other sections are returned as usual.
