@@ -120,13 +120,20 @@ class _HostProcess:
         group = self.group
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=True)
+        spawned = group.spec
         self.process = context.Process(
-            target=run_plugin_host, args=(child, group.spec), name=f"powercontext-plugin-host-{group.name}"
+            target=run_plugin_host, args=(child, spawned), name=f"powercontext-plugin-host-{group.name}"
         )
         try:
             await asyncio.to_thread(self.process.start)
             child.close()
             channel = self.channel = PipeChannel(parent, name=f"powercontext-plugin-host-{group.name}")
+            current = group.spec
+            if (current.plugin_families, current.source_bindings) != (spawned.plugin_families, spawned.source_bindings):
+                # Registrations changed while the process was being spawned; it reads this before any call.
+                await channel.send(
+                    HostRegistry(plugin_families=current.plugin_families, source_bindings=current.source_bindings)
+                )
             log_safely(logger, logging.INFO, f"Plugin host {group.name} started")
             while self._received(await channel.recv()):
                 pass
@@ -411,12 +418,16 @@ class PluginHost:
     def update_registry(
         self, families: tuple[str, ...], bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
     ) -> None:
-        """New processes start with these registrations; running ones replace theirs."""
+        """New processes start with these registrations; spawned ones replace theirs.
+
+        A process still starting was spawned with earlier registrations. It reads this message
+        once it is ready, before the first call, because calls are sent only to ready processes.
+        """
 
         self.spec = replace(self.spec, plugin_families=families, source_bindings=bindings)
         message = HostRegistry(plugin_families=families, source_bindings=bindings)
         for process in self._processes:
-            if process.ready:
+            if process.channel is not None and process.accepting:
                 self.spawn_task(_send_quietly(process, message))
 
     async def retire(self) -> None:
