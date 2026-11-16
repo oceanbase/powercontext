@@ -1,0 +1,173 @@
+/*
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+body {
+  background: var(--ob-color-bg-primary);
+  color: var(--ob-color-text-default);
+  font-family: var(--ob-font-family-default);
+}
+* {
+  box-sizing: border-box;
+}
+.kb-app {
+  min-height: 100vh;
+}
+.space-bar {
+  padding: var(--ob-space-300) var(--ob-space-600);
+  background: var(--ob-color-bg-default);
+  border-bottom: 1px solid var(--ob-color-divider);
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  flex: 1;
+}
+.library-nav {
+  padding: var(--ob-space-600) var(--ob-space-400);
+  border-right: 1px solid var(--ob-color-divider);
+}
+.workspace-main {
+  min-width: 0;
+}
+.workspace-empty {
+  padding: var(--ob-space-800);
+  display: grid;
+  place-items: center;
+  min-height: 340px;
+}
+.kb-page .ant-pro-page-container-warp-page-header .ant-page-header-heading-title {
+  font-family: var(--ob-font-h1-family);
+  font-size: var(--ob-font-h1-size);
+  font-weight: var(--ob-font-h1-weight);
+  line-height: var(--ob-font-h1-line-height);
+}
+.reader-grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--ob-space-400);
+  align-items: start;
+}
+.chunk-directory {
+  max-height: 70vh;
+  overflow: auto;
+}
+.chunk-link {
+  height: auto;
+  min-height: 52px;
+  text-align: left;
+  justify-content: start;
+  white-space: normal;
+}
+.reader-content {
+  min-width: 0;
+}
+.file-path {
+  overflow-wrap: anywhere;
+}
+.settings-form {
+  max-width: 480px;
+}
+.markdown-body,
+.markdown-source {
+  overflow-wrap: anywhere;
+  font-size: var(--ob-font-body1-size);
+  line-height: var(--ob-line-height-600);
+}
+.markdown-body {
+  min-height: 160px;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: var(--ob-space-600) 0 var(--ob-space-300);
+  font-weight: var(--ob-font-h3-weight);
+  line-height: var(--ob-font-h3-line-height);
+}
+.markdown-body h1 {
+  font-size: var(--ob-font-h1-size);
+}
+.markdown-body h2 {
+  font-size: var(--ob-font-h2-size);
+}
+.markdown-body h3 {
+  font-size: var(--ob-font-h3-size);
+}
+.markdown-body p {
+  margin: var(--ob-space-300) 0;
+}
+.markdown-body a {
+  color: var(--ob-color-text-link);
+}
+.markdown-body pre,
+.markdown-source {
+  white-space: pre-wrap;
+  padding: var(--ob-space-400);
+  background: var(--ob-color-bg-secondary);
+  border-radius: var(--ob-radius-sm);
+}
+.markdown-body code,
+.markdown-source {
+  font-family: var(--ob-font-family-code);
+}
+.markdown-body blockquote {
+  margin-inline: 0;
+  padding-left: var(--ob-space-400);
+  border-left: 2px solid var(--ob-color-divider);
+  color: var(--ob-color-text-description);
+}
+.markdown-body table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.markdown-body th,
+.markdown-body td {
+  padding: var(--ob-space-200) var(--ob-space-300);
+  border: 1px solid var(--ob-color-divider);
+}
+@media (max-width: 1000px) {
+  .workspace {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+  .reader-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chunk-directory {
+    max-height: 220px;
+  }
+}
+@media (max-width: 640px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--ob-color-divider);
+  }
+}
+
+.library-link {
+  justify-content: flex-start;
+  text-align: left;
+}

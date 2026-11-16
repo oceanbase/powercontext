@@ -22,7 +22,7 @@ ignore = [
 
 [suites]
 
-knowledge_base = ["plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
+knowledge_base = ["frontend/knowledge-base/**", "plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
 
 gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 

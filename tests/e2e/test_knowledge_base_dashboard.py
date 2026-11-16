@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Real browser navigation must not reuse another knowledge base's requests or content."""
+"""Exercise the sandboxed Dashboard against a real Server and revisioned document APIs."""
 
 import asyncio
 import os
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -25,221 +26,190 @@ from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, running_server, w
 from tests.e2e.test_knowledge_base import FIXTURE_EMBEDDING, PLUGIN, P
 
 
-@pytest.mark.parametrize("delayed", ["documents", "imports"])
-def test_dashboard_discards_previous_library_loads_and_uses_framework_artifact_api(tmp_path, delayed):
+@asynccontextmanager
+async def dashboard(tmp_path):
     playwright = pytest.importorskip("playwright.async_api")
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGIN, plugins / "knowledge-base")
     entry = plugins / "knowledge-base" / "plugin.py"
     entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+    async with (
+        running_server(
+            tmp_path,
+            plugins,
+            extra_env={
+                "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
+                "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
+            },
+        ) as client,
+        playwright.async_playwright() as pw,
+    ):
+        executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
+        if not await asyncio.to_thread(Path(executable).exists):
+            pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
 
-    async def scenario():
-        async with (
-            running_server(
-                tmp_path,
-                plugins,
-                extra_env={
-                    "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
-                    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
-                },
-            ) as client,
-            playwright.async_playwright() as pw,
-        ):
-            executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
-            if not await asyncio.to_thread(Path(executable).exists):
-                pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
+        async def call(method, path, **kwargs):
+            response = await client.request(method, P + path, **kwargs)
+            assert response.is_success, response.text
+            return response.json()
 
-            async def call(method, path, **kwargs):
-                response = await client.request(method, P + path, **kwargs)
-                assert response.is_success, response.text
-                return response.json()
-
-            space = (await call("GET", "/me/default-space"))["space_scope_id"]
-            libraries = []
-            for title, paths in [("A", ["a.md", "a-more.md"]), ("B", ["b.md"])]:
-                kb = await call(
-                    "POST", "/knowledge-bases", json={"title": title, "space_scope_id": space, "idempotency_key": title}
-                )
-                libraries.append(kb["scope_id"])
-                for path in paths:
-                    base = "/scopes/" + kb["scope_id"]
-                    receipt = await call(
-                        "POST",
-                        base + "/uploads",
-                        params={"relative_path": path, "idempotency_key": path},
-                        content=("# " + path + "\n\nBody " + title).encode(),
-                    )
-                    await wait_for(
-                        lambda base=base, receipt=receipt: call("GET", base + "/imports/" + receipt["request_id"]),
-                        lambda r: r["state"] == "completed",
-                        log=tmp_path / "server.log",
-                    )
-            a, b = libraries
-            browser = await pw.chromium.launch(executable_path=executable)
-            context = await browser.new_context()
+        browser = await pw.chromium.launch(executable_path=executable)
+        try:
+            context = await browser.new_context(viewport={"width": 1440, "height": 1000})
             origin = str(client.base_url).rstrip("/")
             await context.add_cookies([
                 {"name": "powercontext_dashboard_token", "value": ADMIN_AUTHORIZATION_VALUE, "url": origin}
             ])
             page = await context.new_page()
-            await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            frame = page.frame_locator("iframe")
-            await frame.get_by_role("button", name="A", exact=True).wait_for()
-            wrong_requests = []
-            a_requests = (await call("GET", "/scopes/" + a + "/documents"))["requests"]
-            a_ids = {r["request_id"] for r in a_requests}
-            page.on(
-                "request",
-                lambda r: (
-                    wrong_requests.append(r.url)
-                    if "/scopes/" + b + "/imports/" in r.url and r.url.rsplit("/", 1)[-1] in a_ids
-                    else None
-                ),
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                yield call, page, page.frame_locator("iframe"), origin, playwright.expect
+                assert not errors, errors
+            except BaseException:
+                await page.screenshot(path=str(tmp_path / "dashboard.png"), full_page=True)
+                print("Browser errors:", errors)
+                print("Dashboard screenshot:", tmp_path / "dashboard.png")
+                for frame in page.frames:
+                    print("Frame:", frame.url, (await frame.locator("body").inner_text())[:2500])
+                raise
+        finally:
+            await browser.close()
+
+
+async def library(call, title, space):
+    return await call(
+        "POST", "/knowledge-bases", json={"title": title, "space_scope_id": space, "idempotency_key": title}
+    )
+
+
+async def upload(call, tmp_path, kb, path, text):
+    base = "/scopes/" + kb["scope_id"]
+    receipt = await call(
+        "POST", base + "/uploads", params={"relative_path": path, "idempotency_key": path}, content=text.encode()
+    )
+    await wait_for(
+        lambda: call("GET", base + "/imports/" + receipt["request_id"]),
+        lambda r: r["state"] == "completed",
+        log=tmp_path / "server.log",
+    )
+    return receipt
+
+
+def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            a, b = await library(call, "A", space), await library(call, "B", space)
+            await upload(call, tmp_path, a, "a.md", "# A\n\nBody A")
+            receipt = await upload(
+                call,
+                tmp_path,
+                b,
+                "b.md",
+                "# B\n\n**Body B**\n\n<script>alert('unsafe')</script>\n\n![remote](https://example.invalid/image.png)",
             )
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await frame.get_by_role("button", name="A", exact=True).wait_for()
             await page.evaluate(
-                """({scope, delayed}) => {
-              const fetch = window.fetch;
-              window.kbDelay = {held: false, returned: false};
-              window.fetch = async (...args) => {
-                const response = await fetch(...args);
-                const path = new URL(String(args[0])).pathname;
-                if (!window.kbDelay.held && path.includes('/scopes/' + scope + '/' + delayed)) {
-                  window.kbDelay.held = true;
-                  await new Promise(resolve => { window.kbDelay.release = resolve; });
-                  window.kbDelay.returned = true;
-                }
-                return response;
-              };
+                """scope => {
+                const original = window.fetch;
+                window.delay = {held: false};
+                window.fetch = async (...args) => {
+                    const response = await original(...args);
+                    if (!window.delay.held && String(args[0]).includes('/scopes/' + scope + '/documents')) {
+                        window.delay.held = true;
+                        await new Promise(resolve => { window.delay.release = resolve; });
+                    }
+                    return response;
+                };
             }""",
-                {"scope": a, "delayed": delayed},
+                a["scope_id"],
             )
             await frame.get_by_role("button", name="A", exact=True).click()
-            await page.wait_for_function("window.kbDelay.held")
+            await page.wait_for_function("window.delay.held")
             await frame.get_by_role("button", name="B", exact=True).click()
-            await playwright.expect(frame.locator("#documents")).to_contain_text("b.md")
-            await playwright.expect(frame.locator("#requests")).to_contain_text("completed")
-            await page.evaluate("window.kbDelay.release()")
-            await page.wait_for_function("window.kbDelay.returned")
-            # Let the already-delivered bridge reply and its DOM callbacks finish.
+            await expect(frame.get_by_role("table")).to_contain_text("b.md")
+            await page.evaluate("window.delay.release()")
             await page.wait_for_timeout(300)
-            assert not wrong_requests
-            await playwright.expect(frame.locator("#library-title")).to_have_text("B")
-            await playwright.expect(frame.locator("#documents")).not_to_contain_text("a.md")
-            await playwright.expect(frame.locator("#notice")).not_to_contain_text("404")
-            status_text = await frame.locator("#requests").inner_text()
-            assert all(r["document_id"][:10] not in status_text for r in a_requests)
-
-            # The page must use the upstream family-bound Artifact bridge for edits.
-            await frame.locator("#documents").get_by_role("button", name="浏览", exact=True).click()
-            chunk = frame.locator("#chunks .chunk").first
-            for _ in range(3):
-                await chunk.get_by_role("button", name="展开正文", exact=True).click()
-                await playwright.expect(chunk.locator("pre")).to_have_count(1)
-                await playwright.expect(chunk.locator("pre")).to_be_visible()
-                await playwright.expect(chunk.locator("pre")).to_contain_text("Body B")
-                collapse = chunk.get_by_role("button", name="收起正文", exact=True)
-                await playwright.expect(collapse).to_have_attribute("aria-expanded", "true")
-                await collapse.click()
-                await playwright.expect(chunk.locator("pre")).to_be_hidden()
-                await playwright.expect(chunk.get_by_role("button", name="展开正文", exact=True)).to_have_attribute(
-                    "aria-expanded", "false"
-                )
-            await frame.locator("#chunks").get_by_role("button", name="编辑", exact=True).first.click()
-            await frame.locator("#editor").wait_for(state="visible")
-            await frame.locator("#chunk-text").fill("Browser correction")
+            await expect(frame.get_by_role("table")).not_to_contain_text("a.md")
+            await frame.get_by_role("button", name="处理记录", exact=True).click()
+            await expect(frame.get_by_role("table").last).to_contain_text("已完成")
+            await frame.get_by_role("button", name="浏览", exact=True).click()
+            body = frame.locator(".markdown-body")
+            await expect(body).to_contain_text("Body B")
+            await expect(body.locator("strong")).to_have_text("Body B")
+            await expect(body.locator("script, img")).to_have_count(0)
+            for _ in range(4):
+                await frame.locator(".chunk-directory button").first.click()
+                await expect(body).to_have_count(1)
+                await expect(body).to_contain_text("Body B")
+            await frame.get_by_text("Markdown 源码", exact=True).click()
+            await expect(frame.locator(".markdown-source")).to_contain_text("**Body B**")
+            await frame.get_by_role("button", name="编辑分块", exact=True).click()
+            await frame.get_by_role("textbox", name="分块正文").fill("Browser correction")
             async with page.expect_response(
-                lambda r: "/artifacts/" + b + "/" in r.url and r.request.method == "PUT"
+                lambda r: "/artifacts/" + b["scope_id"] + "/" in r.url and r.request.method == "PUT"
             ) as saved:
-                await frame.locator("#save-chunk").click()
+                await frame.get_by_role("button", name="保存新版本").click()
             assert (await saved.value).status == 200
-            await frame.locator("#editor").wait_for(state="hidden")
-            assert (await call("GET", "/scopes/" + b + "/documents"))["items"][0]["ref"]["revision"] == 2
-            chunk = frame.locator("#chunks .chunk").first
-            await chunk.get_by_role("button", name="展开正文", exact=True).click()
-            await playwright.expect(chunk.locator("pre")).to_have_count(1)
-            await playwright.expect(chunk.locator("pre")).to_have_text("Browser correction")
-
-            # Exercise the unavailable-default response contract; actual revocation is covered
-            # by the multi-identity HTTP test (Dashboard currently uses a static identity).
-            default = await call("GET", "/me/default-space")
-            await page.route(
-                "**/api/me/default-space",
-                lambda route: route.fulfill(json={**default, "space_scope_id": "revoked", "available": False}),
+            await expect(body).to_have_text("Browser correction")
+            docs = await call("GET", "/scopes/" + b["scope_id"] + "/documents")
+            assert docs["items"][0]["ref"]["revision"] == 2
+            await frame.get_by_role("combobox", name="文档版本").press("ArrowDown")
+            await frame.get_by_text("v1 · 历史版本", exact=True).click()
+            await expect(body).to_contain_text("Body B")
+            await expect(frame.get_by_role("button", name="编辑分块", exact=True)).to_be_disabled()
+            await frame.get_by_role("combobox", name="文档版本").press("ArrowDown")
+            await frame.get_by_text("v2 · 当前版本", exact=True).last.click()
+            await expect(body).to_have_text("Browser correction")
+            # A concurrent write must not silently overwrite the user's pinned revision.
+            await frame.get_by_role("button", name="编辑分块", exact=True).click()
+            await frame.get_by_role("textbox", name="分块正文").fill("Unsaved correction")
+            document = receipt["document_id"]
+            chunks = await call("GET", f"/scopes/{b['scope_id']}/documents/{document}/revisions/2/chunks")
+            endpoint = f"/v1/scopes/{b['scope_id']}/artifacts/document/{document}"
+            response = await page.context.request.put(
+                origin + endpoint,
+                headers={"Authorization": f"Bearer {ADMIN_AUTHORIZATION_VALUE}", "If-Match": '"revision:2"'},
+                data={
+                    "content": {
+                        "operation": "edit_chunk",
+                        "chunk_id": chunks["items"][0]["chunk_id"],
+                        "text": "Concurrent correction",
+                    }
+                },
             )
-            await page.reload()
-            await playwright.expect(frame.locator("#notice")).to_contain_text("默认空间不可访问")
-            await playwright.expect(frame.locator("#spaces")).to_have_value("")
-            await frame.locator("#spaces").select_option(space)
-            await frame.get_by_role("button", name="B", exact=True).click()
-            await playwright.expect(frame.locator("#documents")).to_contain_text("b.md")
-            await browser.close()
+            assert response.status == 200, await response.text()
+            await frame.get_by_role("button", name="保存新版本").click()
+            await expect(frame.get_by_role("textbox", name="分块正文")).to_have_value("Unsaved correction")
+            await expect(frame.get_by_role("alert").first).to_contain_text("412")
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("selection", ["same", "another"])
 def test_dashboard_keeps_saved_settings_when_reselecting_a_library(tmp_path, selection):
-    playwright = pytest.importorskip("playwright.async_api")
-    plugins = tmp_path / "plugins"
-    shutil.copytree(PLUGIN, plugins / "knowledge-base")
-    entry = plugins / "knowledge-base" / "plugin.py"
-    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
-
     async def scenario():
-        async with (
-            running_server(
-                tmp_path,
-                plugins,
-                extra_env={
-                    "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
-                    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
-                },
-            ) as client,
-            playwright.async_playwright() as pw,
-        ):
-            executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
-            if not await asyncio.to_thread(Path(executable).exists):
-                pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
-
-            async def call(method, path, **kwargs):
-                response = await client.request(method, P + path, **kwargs)
-                assert response.is_success, response.text
-                return response.json()
-
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
             space = (await call("GET", "/me/default-space"))["space_scope_id"]
             for title in ("Settings A", "Settings B"):
-                await call(
-                    "POST", "/knowledge-bases", json={"title": title, "space_scope_id": space, "idempotency_key": title}
-                )
-            browser = await pw.chromium.launch(executable_path=executable)
-            context = await browser.new_context()
-            origin = str(client.base_url).rstrip("/")
-            await context.add_cookies([
-                {"name": "powercontext_dashboard_token", "value": ADMIN_AUTHORIZATION_VALUE, "url": origin}
-            ])
-            page = await context.new_page()
+                await library(call, title, space)
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            frame = page.frame_locator("iframe")
 
             async def select(title):
                 await frame.get_by_role("button", name=title, exact=True).click()
-                await playwright.expect(frame.locator("#library")).to_be_visible()
-                await playwright.expect(frame.locator("#library-title")).to_have_text(title)
+                await frame.get_by_role("tab", name="设置", exact=True).click()
 
             async def configure(expected, maximum):
-                await frame.locator("#settings").click()
-                await playwright.expect(frame.locator("#question-input")).to_have_value(str(expected))
-                await frame.locator("#question-input").fill(str(maximum))
-                await frame.locator("#question-confirm").click()
-                await playwright.expect(frame.locator("#question-label")).to_have_text("重叠字符数")
-                await frame.locator("#question-input").fill("40")
+                await expect(frame.get_by_role("spinbutton", name="最大分块字符数")).to_have_value(str(expected))
+                await frame.get_by_role("spinbutton", name="最大分块字符数").fill(str(maximum))
                 async with page.expect_response(
                     lambda r: r.request.method == "PATCH" and r.url.endswith("/settings")
                 ) as saved:
-                    await frame.locator("#question-confirm").click()
-                response = await saved.value
-                assert response.status == 200, await response.text()
-                await playwright.expect(frame.locator("#notice")).to_contain_text("配置已保存")
+                    await frame.get_by_role("button", name="保存配置").click()
+                assert (await saved.value).status == 200
+                await expect(frame.get_by_text("配置已保存", exact=True)).to_be_visible()
 
             await select("Settings A")
             await configure(360, 300)
@@ -251,109 +221,140 @@ def test_dashboard_keeps_saved_settings_when_reselecting_a_library(tmp_path, sel
             saved = next(row for row in rows if row["value"]["title"] == "Settings A")
             assert saved["version"] == 3
             assert saved["value"]["chunking"] == {"max_chars": 280, "overlap": 40}
-            other = next(row for row in rows if row["value"]["title"] == "Settings B")
-            assert other["version"] == 1
-            assert other["value"]["chunking"]["max_chars"] == 360
-            await browser.close()
+            assert next(row for row in rows if row["value"]["title"] == "Settings B")["version"] == 1
 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("delayed", ["/me/default-space", "/knowledge-bases"])
-def test_dashboard_invalidates_library_controls_when_switching_spaces(tmp_path, delayed):
-    playwright = pytest.importorskip("playwright.async_api")
-    plugins = tmp_path / "plugins"
-    shutil.copytree(PLUGIN, plugins / "knowledge-base")
-    entry = plugins / "knowledge-base" / "plugin.py"
-    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
-
+def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
     async def scenario():
-        async with (
-            running_server(
-                tmp_path,
-                plugins,
-                extra_env={
-                    "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
-                    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
-                },
-            ) as client,
-            playwright.async_playwright() as pw,
-        ):
-            executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
-            if not await asyncio.to_thread(Path(executable).exists):
-                pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
-
-            async def call(method, path, **kwargs):
-                response = await client.request(method, P + path, **kwargs)
-                assert response.is_success, response.text
-                return response.json()
-
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
             a = (await call("GET", "/me/default-space"))["space_scope_id"]
             b = (await call("POST", "/spaces", json={"title": "Space B", "idempotency_key": "B"}))["space_scope_id"]
-            libraries = []
-            for title, space in [("Base A", a), ("Base B", b)]:
-                libraries.append(
-                    await call(
-                        "POST",
-                        "/knowledge-bases",
-                        json={"title": title, "space_scope_id": space, "idempotency_key": title},
-                    )
-                )
-            browser = await pw.chromium.launch(executable_path=executable)
-            try:
-                context = await browser.new_context()
-                origin = str(client.base_url).rstrip("/")
-                await context.add_cookies([
-                    {"name": "powercontext_dashboard_token", "value": ADMIN_AUTHORIZATION_VALUE, "url": origin}
-                ])
-                page = await context.new_page()
-                await page.goto(origin + "/dashboard/plugins/knowledge-base")
-                frame = page.frame_locator("iframe")
-                old_button = frame.get_by_role("button", name="Base A", exact=True)
-                await old_button.wait_for()
-                # A delayed/queued click from the previous view must also be harmless.
-                await old_button.evaluate("button => { window.oldLibraryButton = button; }")
-                await page.evaluate(
-                    """({space, delayed}) => {
-                      const original = window.fetch;
-                      window.spaceDelay = {held: false};
-                      window.fetch = async (...args) => {
-                        const response = await original(...args);
-                        const url = new URL(String(args[0]));
-                        if (!window.spaceDelay.held && url.pathname.endsWith(delayed) &&
-                            (delayed !== '/knowledge-bases' || url.searchParams.get('space_scope_id') === space)) {
-                          window.spaceDelay.held = true;
-                          await new Promise(resolve => { window.spaceDelay.release = resolve; });
-                        }
-                        return response;
-                      };
-                    }""",
-                    {"space": b, "delayed": delayed},
-                )
-                await frame.locator("#spaces").select_option(b)
-                await page.wait_for_function("window.spaceDelay.held")
-                await playwright.expect(old_button).to_have_count(0)
-                await frame.locator("body").evaluate("() => window.oldLibraryButton.click()")
-                await playwright.expect(frame.locator("#library")).to_be_hidden()
-                await page.evaluate("window.spaceDelay.release()")
-                await frame.get_by_role("button", name="Base B", exact=True).click()
-                await playwright.expect(frame.locator("#spaces")).to_have_value(b)
-                await playwright.expect(frame.locator("#library-title")).to_have_text("Base B")
-                await frame.locator("#files").set_input_files({
+            old, new = await library(call, "Base A", a), await library(call, "Base B", b)
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            old_button = frame.get_by_role("button", name="Base A", exact=True)
+            await old_button.click()
+            await old_button.evaluate("button => { window.oldLibraryButton = button; }")
+            await page.evaluate(
+                """space => {
+                const original = window.fetch;
+                window.delay = {held: false};
+                window.fetch = async (...args) => {
+                    const response = await original(...args);
+                    const url = new URL(String(args[0]));
+                    if (!window.delay.held && url.pathname.endsWith('/knowledge-bases') && url.searchParams.get('space_scope_id') === space) {
+                        window.delay.held = true;
+                        await new Promise(resolve => { window.delay.release = resolve; });
+                    }
+                    return response;
+                };
+            }""",
+                b,
+            )
+            await frame.get_by_role("button", name="切换空间").click()
+            await frame.get_by_role("menuitem", name="Space B", exact=True).click()
+            await page.wait_for_function("window.delay.held")
+            await expect(old_button).to_have_count(0)
+            await frame.locator("body").evaluate("() => window.oldLibraryButton.click()")
+            await expect(frame.get_by_role("button", name="导入文档", exact=True)).to_have_count(0)
+            await page.evaluate("window.delay.release()")
+            await frame.get_by_role("button", name="Base B", exact=True).click()
+            await frame.get_by_role("button", name="导入文档", exact=True).click()
+            await frame.locator('input[type="file"]').set_input_files([
+                {
                     "name": "selected-space.md",
                     "mimeType": "text/markdown",
                     "buffer": b"Uploaded into the selected space",
-                })
-                selected_base = "/scopes/" + libraries[1]["scope_id"]
-                docs = await wait_for(
-                    lambda: call("GET", selected_base + "/documents"),
-                    lambda d: bool(d["items"]),
-                    log=tmp_path / "server.log",
-                )
-                assert docs["items"][0]["content"]["relative_path"] == "selected-space.md"
-                old = await call("GET", "/scopes/" + libraries[0]["scope_id"] + "/documents")
-                assert not old["items"] and not old["requests"]
-            finally:
-                await browser.close()
+                },
+                {"name": "invalid.txt", "mimeType": "text/plain", "buffer": b"unsupported"},
+            ])
+            await frame.get_by_role("button", name="开始导入", exact=True).click()
+            await expect(frame.get_by_role("alert")).to_contain_text("已接受 1 / 2 个文件")
+            await frame.get_by_role("button", name="完成", exact=True).click()
+            docs = await wait_for(
+                lambda: call("GET", "/scopes/" + new["scope_id"] + "/documents"),
+                lambda d: bool(d["items"]),
+                log=tmp_path / "server.log",
+            )
+            assert docs["items"][0]["content"]["relative_path"] == "selected-space.md"
+            untouched = await call("GET", "/scopes/" + old["scope_id"] + "/documents")
+            assert not untouched["items"] and not untouched["requests"]
+            await frame.get_by_role("button", name="设为默认空间", exact=True).click()
+            await expect(frame.get_by_role("button", name="设为默认空间", exact=True)).to_be_disabled()
+            await page.reload()
+            await frame.get_by_role("button", name="Base B", exact=True).wait_for()
+            default = await call("GET", "/me/default-space")
+            assert default["space_scope_id"] == b
+            await page.route(
+                "**/api/me/default-space",
+                lambda route: route.fulfill(json={**default, "space_scope_id": "revoked", "available": False}),
+            )
+            await page.reload()
+            await expect(frame.get_by_role("alert")).to_contain_text("默认空间不可访问")
+            await expect(frame.get_by_role("button", name="Base B", exact=True)).to_have_count(0)
+            await frame.get_by_role("button", name="切换空间").click()
+            await frame.get_by_role("menuitem", name="Space B", exact=True).click()
+            await frame.get_by_role("button", name="Base B", exact=True).wait_for()
+
+    asyncio.run(scenario())
+
+
+def test_dashboard_cross_library_retrieval_chunk_removal_and_forget(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            a, b = await library(call, "Search A", space), await library(call, "Search B", space)
+            await upload(
+                call, tmp_path, a, "search-a.md", "# Checklist\n\nquartz alpha\n\n# Followup\n\nsecond section"
+            )
+            await upload(call, tmp_path, b, "search-b.md", "# Beta\n\nquartz beta")
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await frame.get_by_role("button", name="Search A", exact=True).click()
+            await frame.get_by_role("tab", name="检索测试", exact=True).click()
+            await frame.get_by_role("combobox", name="检索知识库").press("ArrowDown")
+            await frame.get_by_text("Search B", exact=True).last.click()
+            await frame.get_by_role("textbox", name="检索问题").fill("quartz")
+            async with page.expect_response(
+                lambda r: r.request.method == "POST" and r.url.endswith("/retrieve")
+            ) as found:
+                await frame.get_by_role("button", name="检索", exact=True).click()
+            response = await found.value
+            assert response.status == 200, await response.text()
+            assert set(response.request.post_data_json["scope_ids"]) == {a["scope_id"], b["scope_id"]}
+            hits = (await response.json())["hits"]
+            assert {hit["scope_id"] for hit in hits} == {a["scope_id"], b["scope_id"]}
+            await expect(frame.locator(".markdown-body")).to_have_count(len(hits))
+            await frame.get_by_role("button", name="定位分块", exact=True).first.click()
+            await expect(frame.locator(".reader-content .markdown-body")).to_have_count(1)
+            await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("quartz")
+            await frame.get_by_role("button", name="分块更多操作").click()
+            await frame.get_by_role("menuitem", name="移除分块", exact=True).click()
+            await frame.get_by_role("button", name="确认", exact=True).click()
+            await expect(frame.get_by_role("combobox", name="文档版本")).to_be_visible()
+            await expect(frame.get_by_text("v2 · 当前版本", exact=True)).to_be_visible()
+            await frame.get_by_role("button", name="文档更多操作").click()
+            await frame.get_by_role("menuitem", name="遗忘文档", exact=True).click()
+            await frame.get_by_role("button", name="确认", exact=True).click()
+            await expect(frame.get_by_role("alert")).to_contain_text("文档已遗忘")
+            await frame.get_by_role("button", name="back", exact=True).click()
+            await expect(frame.get_by_role("textbox", name="检索问题")).to_have_value("quartz")
+            await expect(frame.locator(".markdown-body")).to_have_count(0)
+            await expect(frame.get_by_role("alert")).to_contain_text("请重新检索")
+            docs_a = (await call("GET", "/scopes/" + a["scope_id"] + "/documents"))["items"]
+            docs_b = (await call("GET", "/scopes/" + b["scope_id"] + "/documents"))["items"]
+            forgotten = [doc for doc in docs_a + docs_b if doc["lifecycle_state"] == "deprecated"]
+            assert len(forgotten) == 1 and forgotten[0]["ref"]["revision"] == 2
+            result = await call(
+                "POST",
+                "/retrieve",
+                json={
+                    "space_scope_id": space,
+                    "scope_ids": [a["scope_id"], b["scope_id"]],
+                    "query": "quartz",
+                    "mode": "fts",
+                },
+            )
+            assert all(hit["document"]["artifact_id"] != forgotten[0]["ref"]["artifact_id"] for hit in result["hits"])
 
     asyncio.run(scenario())

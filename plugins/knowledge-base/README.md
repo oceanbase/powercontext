@@ -14,3 +14,6 @@ copy-installed rather than automatically enabled by installing the Python extra.
 Requires a Server version containing the framework contracts from [#2659](https://github.com/oceanbase/powercontext/pull/2659)
 and [#2660](https://github.com/oceanbase/powercontext/pull/2660). The plugin does not bundle framework patches.
 It uses `ctx.storage`, the framework writer, and the Dashboard `client.artifacts` bridge.
+
+The bundled Dashboard provides a document table, separate chunk reader, retrieval testing and settings.
+Frontend development and rebuild instructions are in [frontend/knowledge-base](../../frontend/knowledge-base/README.md).
