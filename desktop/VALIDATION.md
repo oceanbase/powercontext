@@ -3801,3 +3801,51 @@ record was not yet committed. Historical profiles retain their original evidence
 These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
+
+## Server efd4be07 memory release protocol qualification
+
+`sqlite-memory-release-efd4be07-v1` qualifies all thirteen bundled Desktop protocol operations against
+Server source `efd4be0731bc4683be4e2a66fc045cd808d00eb8`, combining API version `1.5.2` and keyed Memory creation.
+
+- Normalized OpenAPI SHA-256: `f41106d8716b5acc5212afcf515b45d58f963d6b10c0c158b85afe54a7acd731`.
+- Wheel: `powercontext-1.5.2.dev216+gefd4be073-py3-none-any.whl`.
+- Wheel SHA-256: `c9d384e215bd1d5e433e2b948654c9d1586bf5bfda6da719df3086b53ef48ff7`.
+- Native debug probe SHA-256: `6dc5179afaa963f74e2c9ed3f41c15a90fe61725ad6e05d4900def354d0693db`.
+
+All 808 packaged runtime files match the exact Git source archive after CRLF
+normalization. The wheel was built from the clean recorded commit with its actual VCS
+version. Rust 1.95.0 built the ordinary product probe with `cargo build --locked`, without
+`ci-fixtures`; the client working tree contained the added qualification record.
+
+On 2026-11-16, the unchanged real-Server harness passed anonymous loopback, static Bearer,
+HTTPS with explicit CA/base path and enforced Provider modes on a dedicated remote Linux
+x86_64 server in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and Python 3.12.3.
+All four modes selected this bundled product record with matching client and Server
+contract digests. Checks cover identity, Scope selection, Memory save/search/exact reads,
+statistics, committed writes with lost responses without replay, and Server survival
+after client exit. Provider mode additionally checks Principal changes, revocation,
+51 same-title Scopes, and scoped authorization without Server observation permission.
+Statistics usage is controlled fixture input.
+
+The exact wheel, source comparison, probe checksum and four-mode report are retained
+on the validation server under ignored `desktop/.artifacts/pr2583-release/`.
+Historical profiles and authenticated-client mappings retain their original identities.
+This record qualifies the Desktop HTTP/SQLite protocol; it does not establish installed
+WebView behavior, credential persistence, arbitrary plugin execution, Gateway lifecycle
+routes, other platforms, external databases, installed-release upgrades or publication.
+The probe does not send `idempotency_key`; separate end-to-end tests cover keyed writes.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-release-efd4be07-v1 \
+  --wheel desktop/.artifacts/pr2583-release/server-wheel/powercontext-1.5.2.dev216+gefd4be073-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、API 1.5.2 与幂等写入组合契约及 wheel；808 个运行时文件与源码归档一致。
+远端容器中的匿名、Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 连接模式全部通过，
+产品连接管理器选中对应内置记录。历史记录保持不变。本记录不代替安装版界面、凭据持久化、
+任意插件执行、Gateway 生命周期、其他平台、外部数据库、已安装发行版升级或发布验收。
