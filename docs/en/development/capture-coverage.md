@@ -100,12 +100,13 @@ step is omitted. Injected prepare content, provider reasoning ciphertext, IDs, s
 are outside the profile, and `data:` binary content becomes a placeholder with its media type and size. Excluding
 them does not itself make this projection partial.
 
-So that Core's normal extraction can process each Source on its own (default input budget 24,000 estimated tokens),
-a turn over 12,000 tokens by Core's character estimate (of the escaped text: one token per 4 ASCII characters or per
-other character) is split, in order, into several Sources. Each part is a
-complete JSON document with `part` and `parts`. A single step that does not fit has its longest text field split into
-consecutive steps of the same type, and the later pieces carry `"continued": true`. Splitting loses nothing, so every
-part declares `complete`. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal
+So that Core's normal extraction can process each Source on its own (default input budget 64,000 estimated tokens,
+which also holds the instructions and the comparison input), a turn over 50,000 tokens by Core's character estimate
+(of the escaped text: one token per 4 ASCII characters or per other character) is split, in order, into several
+Sources. Each part is a complete JSON document with `part` and `parts`, and ends at a step boundary. A single step
+that does not fit has its longest text field split into consecutive steps of the same type, cut at a line break
+unless one line alone does not fit, and the later pieces carry `"continued": true`. Splitting loses nothing, so every
+part declares `complete`. Parts are captured in order, and none is captured after one that fails. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal
 response detection is the same as in v1.
 
 ### Gateway normalized turn (v1)

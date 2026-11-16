@@ -346,9 +346,11 @@ needs both sides:
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
   call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
   reasoning, IDs, and other transport metadata are left out, and binary data becomes a placeholder with its size.
-  Injected memory blocks are not in the Source. Each Source must fit Core's default extraction input on its own, so
-  a turn over about 12,000 tokens by Core's character estimate is captured as consecutive Sources. Their metadata
-  `turn` names the turn and the part, and the handle is on the last part.
+  Injected memory blocks are not in the Source. A Source holds at most 50,000 tokens by Core's character estimate, so
+  that it fits the Server's default Atomic Memory input (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`,
+  64,000) together with the instructions; keep that setting at its default or higher when the gateway captures turns.
+  A larger turn is captured as consecutive Sources that end at step boundaries. Their metadata `turn` names the turn
+  and the part, and the handle is on the last part. If capturing a part fails, the later parts are not captured.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
@@ -358,7 +360,8 @@ such turn, the Server first estimates both requests. The prefixed request costs 
 response's output tokens at the full rate, plus the cached input tokens multiplied by
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` (default `0.1`). Normal extraction costs its
 instructions plus the Source evidence. The window must hold exactly one whole turn: one Source, or every part of one
-turn in order. The Server uses the prefix only when that estimate is lower. This usually
+turn in order. A turn whose parts do not fit one extraction input together is therefore extracted part by part through
+normal extraction. The Server uses the prefix only when that estimate is lower. This usually
 holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
 kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields

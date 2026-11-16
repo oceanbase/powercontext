@@ -4355,6 +4355,52 @@ async fn an_injected_turn_keeps_its_prefix_and_a_source_without_the_injection() 
     assert!(!gate.captured.lock().unwrap()[0]
         .1
         .contains("memory-snapshot-1"));
+    // 抽取请求要凭原绑定通过检查：前缀连同注入块的绑定与位置一起保留。
+    let sent: serde_json::Value = serde_json::from_slice(&prefix.request_body).unwrap();
+    let [prepared] = prefix.prepared_contexts.as_slice() else {
+        panic!("one injected block: {:?}", prefix.prepared_contexts);
+    };
+    let injected = sent
+        .pointer(&prepared.location.pointer)
+        .and_then(|text| text.as_str())
+        .unwrap();
+    assert!(injected.len() as u64 >= prepared.location.end_byte);
+}
+
+#[tokio::test]
+async fn a_turn_whose_part_fails_to_capture_stores_no_later_part() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
+    // 只有第一段被拒绝；其后的段若继续沉淀，会连同句柄一起留下一个缺了开头的回合。
+    *gate.capture_error.lock().unwrap() = Some(GateError::GateUnavailable("down".into()));
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
+    c.inject_context = false;
+    c.sediment = true;
+    c.capture_prefix = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &evidence,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let attempted = gate.captured.lock().unwrap().clone();
+    assert_eq!(attempted.len(), 1, "capture stops at the failed part");
+    assert!(attempted[0].0.contains("-1of"));
+    assert!(gate.captured_metadata.lock().unwrap()[0]
+        .get("prefix_handle")
+        .is_none());
+    assert!(evidence
+        .not_sent()
+        .iter()
+        .any(|(_, reason)| reason.starts_with("sediment_failed:")));
 }
 
 #[tokio::test]

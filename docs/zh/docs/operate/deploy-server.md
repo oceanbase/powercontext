@@ -310,8 +310,10 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
   元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
   沉淀的 Source 完整记录这一回合（投影 `gateway-turn-text.v2`）：字段不截断、步骤不省略，工具调用的全部参数字段、
   工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
-  的占位文本。注入的记忆块不在 Source 里。每段 Source 都要能被 Core 的普通抽取单独处理，因此一个回合按 Core 的字符
-  估算超过约 12,000 个 token 时，按顺序拆成几段 Source，元数据的 `turn` 标明所属回合与段号，句柄在最后一段上。
+  的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token，连同指令能放进 Server
+  默认的 Atomic Memory 输入（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，64,000）；网关沉淀回合时，
+  该设置应保持默认值或更高。更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
+  句柄在最后一段上。某一段沉淀失败时，其后的段不再沉淀。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。
@@ -319,7 +321,8 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
 命中缓存的输入并非免费，服务商仍按较低的价格计费。处理窗口恰好只含一个这样的回合时，Server 先估算两种请求的成本：
 前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO`（默认 `0.1`）；普通抽取为其指令加上 Source
-证据。处理窗口须恰好含一个完整回合：一段 Source，或同一回合按顺序排列的全部分段。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
+证据。处理窗口须恰好含一个完整回合：一段 Source，或同一回合按顺序排列的全部分段；各段合起来放不进一次抽取输入的回合，
+因此逐段走普通抽取。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
 `POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，把 `tool_choice` 设为 `none`，
 发往 Agent 自己的目标和账号。工具、`prompt_cache_key`、推理设置、响应格式等会改变缓存前缀的字段保持不变。该请求
 照常经过 Server 的 `before_send` 和 `before_release` 检查。前缀里含有网关注入的记忆块，抽取指令说明

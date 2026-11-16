@@ -168,8 +168,8 @@ pub struct ExtractRequest {
 
 const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
 
-/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查；不注入、不沉淀、
-/// 不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
+/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查，沿用原请求里注入块的
+/// 绑定与位置；不再注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
 pub async fn extract(
     State((state, _)): State<SharedProxy>,
     headers: HeaderMap,
@@ -213,7 +213,7 @@ pub async fn extract(
         capture_prefix: false,
         conversation_id: Some(prefix.conversation_id.clone()),
         sediment: false,
-        prepared_contexts: Vec::new(),
+        prepared_contexts: prefix.prepared_contexts.clone(),
     };
     let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
     match state
@@ -1561,6 +1561,7 @@ pub(crate) mod tests {
             conversation_id: "codex-thread:a".into(),
             request_body: serde_json::to_vec(&sent).unwrap().into(),
             response_output: output,
+            prepared_contexts: Vec::new(),
         };
         let request = ExtractRequest {
             handle: "h".into(),

@@ -697,7 +697,12 @@ where
                                 Err(GateError::GateRejected(409)) => {
                                     evidence.record_not_sent(0, "sediment_duplicate")
                                 }
-                                Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
+                                // 后面的段不再沉淀：已存的段始终是这一回合的前几段，带句柄的最后一段不在其中，
+                                // Core 不会把残缺的回合当成完整的一轮。
+                                Err(_) => {
+                                    evidence.record_not_sent(0, "sediment_failed:gate_error");
+                                    break;
+                                }
                             }
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
@@ -765,6 +770,7 @@ where
                 conversation_id,
                 request_body: sent.clone(),
                 response_output,
+                prepared_contexts: call.prepared_contexts.clone(),
             },
             now_ms(),
         )?;

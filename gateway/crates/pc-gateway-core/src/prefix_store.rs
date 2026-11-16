@@ -36,6 +36,8 @@ pub struct PrefixEntry {
     pub request_body: bytes::Bytes,
     /// 终止响应的 output 条目。
     pub response_output: Vec<serde_json::Value>,
+    /// 原请求里注入块的绑定与位置。抽取请求原样沿用，前缀里的注入块才能凭原绑定通过检查。
+    pub prepared_contexts: Vec<pc_gateway_types::PreparedContextLocation>,
 }
 
 #[derive(Default)]
@@ -84,6 +86,7 @@ mod tests {
             conversation_id: "codex-thread:a".into(),
             request_body: bytes::Bytes::from_static(b"{}"),
             response_output: Vec::new(),
+            prepared_contexts: Vec::new(),
         }
     }
 

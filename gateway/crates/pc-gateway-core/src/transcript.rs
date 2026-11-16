@@ -29,9 +29,10 @@ use serde_json::{Map, Value};
 
 /// 投影名称，见捕获覆盖声明契约。
 pub(crate) const PROJECTION: &str = "gateway-turn-text.v2";
-/// 一段 Source 的估算 token 上限。Core 的 Atomic Memory 抽取默认只接受 24,000 个估算 token 的输入，其中还有
-/// 指令和输出格式；Source 正文在输入里是转义后的 JSON 字符串，这里按转义后的文本估算，留出余量。
-pub(crate) const MAX_SOURCE_TOKENS: usize = 12_000;
+/// 一段 Source 的估算 token 上限。Core 的 Atomic Memory 输入默认最多 64,000 个估算 token，其中还有指令、候选和
+/// 对账时的一批相关记忆，这里留出 14,000。Source 正文在输入里是转义后的 JSON 字符串，这里按转义后的文本估算；
+/// 50,000 个 token 至多 200,000 个字符，不超过 Source 正文的契约上限。
+pub(crate) const MAX_SOURCE_TOKENS: usize = 50_000;
 /// Core 的字符估算：ASCII 字符 4 个单位，其他字符 16 个单位，每 16 个单位一个 token（与
 /// `character_token_estimator` 一致：ASCII 4 字符一个 token，非 ASCII 1 字符一个 token）。
 const UNITS_PER_TOKEN: usize = 16;
@@ -137,8 +138,8 @@ pub(crate) fn turn_transcript(
 
 /// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段，每段的估算规模都不超过 [`MAX_SOURCE_TOKENS`]：每段是
 /// `{"kind": "gateway_turn", "part": i, "parts": n, "steps": [...]}`，用户文本作为第一段的第一个步骤（`user`），
-/// 助手文本作为最后一段的最后一个步骤；单个步骤放不下时，它最长的文本字段按字符拆成连续的几个同类步骤，
-/// 后续部分带 `"continued": true`。
+/// 助手文本作为最后一段的最后一个步骤；单个步骤放不下时，它最长的文本字段拆成连续的几个同类步骤，后续部分带
+/// `"continued": true`，断点优先落在换行处。
 fn split(transcript: &Transcript) -> Option<Vec<String>> {
     let budget = MAX_SOURCE_TOKENS * UNITS_PER_TOKEN;
     let whole = serde_json::to_string(transcript).ok()?;
@@ -183,7 +184,8 @@ fn split(transcript: &Transcript) -> Option<Vec<String>> {
         .collect()
 }
 
-/// 把一个放不下的步骤按其最长的字符串字段拆成连续的几个步骤，每个的估算单位数都不超过 `budget`。
+/// 把一个放不下的步骤按其最长的字符串字段拆成连续的几个步骤，每个的估算单位数都不超过 `budget`。断点落在
+/// 最后一个换行之后；只有一行自身就放不下时才在行内断开。
 fn fit(entry: Value, budget: usize) -> Vec<Value> {
     if units(&entry.to_string()) < budget {
         return vec![entry];
@@ -211,8 +213,21 @@ fn fit(entry: Value, budget: usize) -> Vec<Value> {
     for c in text.chars() {
         let size = cost(c);
         if used + size > room && !chunks.last().is_some_and(String::is_empty) {
-            chunks.push(String::new());
-            used = 0;
+            let line = chunks
+                .last_mut()
+                .and_then(|chunk| chunk.rfind('\n').map(|at| chunk.split_off(at + 1)))
+                .unwrap_or_default();
+            used = line.chars().map(cost).sum();
+            if used + size > room {
+                // 这一行自身放不下：留在原处，从行内断开。
+                if let Some(chunk) = chunks.last_mut() {
+                    chunk.push_str(&line);
+                }
+                chunks.push(String::new());
+                used = 0;
+            } else {
+                chunks.push(line);
+            }
         }
         used += size;
         if let Some(chunk) = chunks.last_mut() {
@@ -647,7 +662,7 @@ mod tests {
         for (index, part) in projection.parts.iter().enumerate() {
             assert!(
                 units(part) <= MAX_SOURCE_TOKENS * UNITS_PER_TOKEN,
-                "each part fits Core's default extraction budget"
+                "each part fits the Source size limit"
             );
             let part: Value = serde_json::from_str(part).unwrap();
             assert_eq!(part["kind"], "gateway_turn");
@@ -675,6 +690,10 @@ mod tests {
             outputs[12..].concat(),
             huge,
             "the oversized output is kept whole, in order"
+        );
+        assert!(
+            outputs[12..].iter().all(|piece| piece.ends_with('\n')),
+            "an oversized output is cut at line breaks"
         );
         assert!(entries
             .iter()
