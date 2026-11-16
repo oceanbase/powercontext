@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from dataclasses import replace
 from functools import cache
 from pathlib import Path
@@ -102,6 +103,15 @@ def test_the_pinned_run_manifest_records_a_clean_source_tree() -> None:
     record = json.loads((_PINNED / "run-manifest.json").read_text(encoding="utf-8"))
 
     assert record["git_worktree_dirty"] is False
+    assert record["source_sha256"]
+    for source, recorded_hash in record["source_sha256"].items():
+        committed = subprocess.run(  # noqa: S603
+            ["git", "show", f"HEAD:{source}"],  # noqa: S607
+            cwd=_SUITE.parents[2],
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert recorded_hash == hashlib.sha256(committed).hexdigest(), source
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
