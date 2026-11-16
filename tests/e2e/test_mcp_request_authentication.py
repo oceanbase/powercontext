@@ -34,16 +34,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.middleware import Middleware
 from typing_extensions import override
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryPage
-from powercontext.server.app import create_app
-from powercontext.server.authentication import (
-    AuthenticationRejectedError,
-    AuthenticationRequest,
-    AuthenticationResult,
-    ProviderReadiness,
-)
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAuditContext,
     AccessBinding,
     AccessBindingState,
@@ -55,8 +46,17 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryPage
+from powercontext.server.app import create_app
+from powercontext.server.authentication import (
+    AuthenticationRejectedError,
+    AuthenticationRequest,
+    AuthenticationResult,
+    ProviderReadiness,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -368,7 +368,6 @@ def test_mcp_client_writes_reconnects_and_preserves_memory_after_server_restart(
             def server_app() -> FastAPI:
                 return create_server_app(
                     settings=settings,
-                    scheduler_path=tmp_path / "scheduler.db",
                     access_control=access,
                     authentication_provider=authentication,
                 )

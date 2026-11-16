@@ -214,7 +214,7 @@ def test_invalidated_root_is_named_without_blaming_the_unchanged_root(change, re
 
 def test_denied_revalidation_reveals_nothing_about_changed_roots(tmp_path):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
-    from powercontext.server.authz import AccessDeniedError, PrincipalRef
+    from powercontext.builtin.authz import AccessDeniedError, PrincipalRef
     from tests.e2e.test_access_control_regressions import AUDIT, _grant, _server
     from tests.e2e.test_access_control_regressions import _scope as http_scope
     from tests.e2e.test_atomic_memory_prepare_lifecycle import _change, _remember, _revoke
@@ -552,7 +552,7 @@ def test_scope_reference_change_invalidates_old_binding_and_rejects_new_freezing
 
 def test_reuse_rechecks_current_scope_authority_even_when_artifact_grant_remains(tmp_path):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
-    from powercontext.server.authz import AccessDeniedError, PrincipalRef
+    from powercontext.builtin.authz import AccessDeniedError, PrincipalRef
     from tests.e2e.test_access_control_regressions import AUDIT, _grant, _server
     from tests.e2e.test_access_control_regressions import _scope as http_scope
     from tests.e2e.test_atomic_memory_prepare_lifecycle import _remember, _revoke
@@ -593,8 +593,8 @@ def test_reuse_rechecks_current_scope_authority_even_when_artifact_grant_remains
 @pytest.mark.parametrize("mutation", ["forget", "revoke"])
 def test_reuse_revalidation_keeps_authority_and_evidence_in_one_snapshot(tmp_path, monkeypatch, mutation):
     from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.builtin.authz import AccessDeniedError, PrincipalRef
     from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess
-    from powercontext.server.authz import AccessDeniedError, PrincipalRef
     from tests.e2e.test_access_control_regressions import AUDIT, _grant, _server
     from tests.e2e.test_access_control_regressions import _scope as http_scope
     from tests.e2e.test_atomic_memory_prepare_lifecycle import _change, _finish_read, _Pause, _remember, _revoke

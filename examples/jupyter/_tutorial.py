@@ -184,7 +184,7 @@ class Tutorial:
         )
         if self.settings_overrides:
             settings = ServerSettings.model_validate({**dict(settings), **self.settings_overrides})
-        app = create_server_app(settings=settings, scheduler_path=self.directory / "scheduler.db", **self.app_options)
+        app = create_server_app(settings=settings, **self.app_options)
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
         self._listener = listener

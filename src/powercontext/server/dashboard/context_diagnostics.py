@@ -40,6 +40,57 @@ def _receipt_value(raw, prepared):
     return receipt
 
 
+def _candidate_refs(record):
+    for snapshot in record["diagnostics_payload"].get("text_snapshots", []):
+        for item in snapshot.get("items") or []:
+            ref = item.get("artifact")
+            if ref is not None:
+                yield snapshot["scope_id"], item, ref
+
+
+def _retained_text(record):
+    return {
+        (
+            snapshot["scope_id"],
+            item["artifact"]["family"],
+            item["artifact"]["artifact_id"],
+            item["artifact"]["revision"],
+        ): item["text"]
+        for snapshot in record["diagnostics_payload"].get("text_snapshots", [])
+        if snapshot["stage"] == "assembly"
+        for item in snapshot.get("items") or []
+        if item.get("artifact") is not None
+    }
+
+
+async def _reference_links(api, ctx, record, receipt):
+    """Authorize distinct exact revisions once within a shared read deadline."""
+    references = {}
+    for selected in receipt.selected if receipt is not None else ():
+        address = selected.artifact_address
+        if address is not None:
+            ref = address.artifact.model_dump(mode="json")
+            references[(address.scope_id, ref["family"], ref["artifact_id"], ref["revision"])] = ref
+    for scope_id, _item, ref in _candidate_refs(record):
+        references[(scope_id, ref["family"], ref["artifact_id"], ref["revision"])] = ref
+    urls = {}
+    try:
+        async with asyncio.timeout(10):
+            for key, ref in references.items():
+                scope_id, family, artifact_id, revision = key
+                try:
+                    await api.artifact_revision(scope_id, family, artifact_id, revision)
+                except ReadError as error:
+                    if error.status == 401:
+                        raise
+                    urls[key] = None
+                else:
+                    urls[key] = artifact_destination(ctx, ref, scope=scope_id)
+    except TimeoutError:
+        pass
+    return urls
+
+
 async def inspect_record(api, ctx, record):
     prepared = PreparedContext(
         status=record["status"], content=record["prepared_content"], content_bytes=record["content_bytes"]
@@ -53,63 +104,29 @@ async def inspect_record(api, ctx, record):
         except (ValueError, RecursionError):
             error = "invalid"
     selected = []
-    retained_text = {}
-    for snapshot in record["diagnostics_payload"].get("text_snapshots", []):
-        if snapshot["stage"] != "assembly":
-            continue
-        for candidate in snapshot.get("items") or []:
-            ref = candidate.get("artifact")
-            if ref is not None:
-                key = (snapshot.get("scope_id"), ref["family"], ref["artifact_id"], ref["revision"])
-                retained_text[key] = candidate["text"]
-    urls = {}
-
-    async def reference_url(scope_id, ref):
-        key = (scope_id, ref["family"], ref["artifact_id"], ref["revision"])
-        if key not in urls:
-            try:
-                await api.artifact_revision(scope_id, ref["family"], ref["artifact_id"], ref["revision"])
-            except ReadError as read_error:
-                if read_error.status == 401:
-                    raise
-                urls[key] = None
-            else:
-                urls[key] = artifact_destination(ctx, ref, scope=scope_id)
-        return urls[key]
-
-    try:
-        async with asyncio.timeout(10):
-            for item in receipt.selected if receipt is not None else ():
-                address = item.artifact_address
-                row = {"available": False}
-                if address is not None:
-                    ref = address.artifact.model_dump(mode="json")
-                    url = await reference_url(address.scope_id, ref)
-                    if url is not None:
-                        row = {
-                            "available": True,
-                            "family": item.kind,
-                            "scope_id": address.scope_id,
-                            "ref": ref,
-                            "bytes": item.rendered_bytes,
-                            "truncated": item.truncated,
-                            "text": retained_text.get((
-                                address.scope_id,
-                                ref["family"],
-                                ref["artifact_id"],
-                                ref["revision"],
-                            )),
-                            "url": url,
-                        }
-                selected.append(row)
-            for snapshot in record["diagnostics_payload"].get("text_snapshots", []):
-                for item in snapshot.get("items") or []:
-                    ref = item.get("artifact")
-                    if ref is not None:
-                        item["url"] = await reference_url(snapshot["scope_id"], ref)
-    except TimeoutError:
-        if receipt is not None:
-            selected.extend({"available": False} for _ in range(len(receipt.selected) - len(selected)))
+    retained_text = _retained_text(record)
+    urls = await _reference_links(api, ctx, record, receipt)
+    for item in receipt.selected if receipt is not None else ():
+        address = item.artifact_address
+        row = {"available": False}
+        if address is not None:
+            ref = address.artifact.model_dump(mode="json")
+            key = (address.scope_id, ref["family"], ref["artifact_id"], ref["revision"])
+            url = urls.get(key)
+            if url is not None:
+                row = {
+                    "available": True,
+                    "family": item.kind,
+                    "scope_id": address.scope_id,
+                    "ref": ref,
+                    "bytes": item.rendered_bytes,
+                    "truncated": item.truncated,
+                    "text": retained_text.get(key),
+                    "url": url,
+                }
+        selected.append(row)
+    for scope_id, item, ref in _candidate_refs(record):
+        item["url"] = urls.get((scope_id, ref["family"], ref["artifact_id"], ref["revision"]))
     ctx["context_diagnostic"] = {
         "prepared": prepared,
         "receipt": receipt,

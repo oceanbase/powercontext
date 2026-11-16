@@ -172,8 +172,8 @@ def test_non_builtin_runtime_keeps_sources_when_status_is_unsupported(dashboard,
 
 
 def test_inspection_enforces_scope_read_before_returning_evidence(dashboard, monkeypatch):
+    from powercontext.builtin.authz import AccessDeniedError
     from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess
-    from powercontext.server.authz import AccessDeniedError
 
     scope = create_scope(dashboard, "Restricted inspection")["scope_id"]
     dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Independently authorized source."})

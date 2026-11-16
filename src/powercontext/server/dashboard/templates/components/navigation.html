@@ -24,8 +24,9 @@ limitations under the License.
     <a class="navbar-brand" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
     <div class="collapse d-lg-flex flex-column flex-fill w-100" id="dashboard-navigation">
     <div class="navbar-collapse">
-    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form my-3 px-3 w-100"
-          hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
+    {% set form_path = plugin_page.path if plugin_page else '/dashboard/' ~ (parent_page or page) %}
+    <form action="{{ form_path }}" method="get" class="scope-form my-3 px-3 w-100"
+          hx-get="{{ form_path }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
       <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
       {% if page == 'processing' %}<input type="hidden" name="record_type" value="{{ processing_kind }}">{% endif %}
@@ -45,6 +46,13 @@ limitations under the License.
         {{ icon(item) }}<span class="nav-link-title">{{ t.processing_dream_tab if item == 'dream_records' else t.processing_sources_title if item == 'source_records' else t[item] }}</span>
       </a></li>
       {% endfor %}
+      {% endfor %}
+      {% if plugin_pages %}<li class="nav-section" role="presentation">{{ t.nav_plugins }}</li>{% endif %}
+      {% for item in plugin_pages %}
+      {% set active = plugin_page and plugin_page.name == item.name %}
+      <li class="nav-item {% if active %}active{% endif %}"><a href="{{ item.path }}?{{ {'scope': scope or '', 'lang': language}|urlencode }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+        {{ icon('plugin') }}<span class="nav-link-title">{{ item.title }}</span>
+      </a></li>
       {% endfor %}
     </ul>
     </div>

@@ -22,9 +22,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import event
 
-from powercontext.builtin.persistence.database import AsyncDatabase
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -41,8 +39,10 @@ from powercontext.server.authz import (
     ResourceRef,
     ResourceSearchRequest,
 )
-from powercontext.server.authz.models import ArtifactOwnerRelation
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.models import ArtifactOwnerRelation
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 
 ADMIN = PrincipalRef(type="service", id="admin")
 ALICE = PrincipalRef(type="user", id="alice")

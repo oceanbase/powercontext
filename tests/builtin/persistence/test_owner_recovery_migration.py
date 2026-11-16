@@ -74,7 +74,8 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
         )
         expected_plugins = [("tickets", b"retained definition")] if previous_revision == "v1_4_1_006" else []
         assert connection.execute("SELECT * FROM pc_source_write_plugins").fetchall() == expected_plugins
-        assert connection.execute("SELECT COUNT(*) FROM pc_artifact_family_schemas").fetchone() == (0,)
+        # v1_5_0_005 drops the empty storage of the removed Artifact plugin framework.
+        assert not connection.execute("SELECT 1 FROM sqlite_schema WHERE name='pc_artifact_family_schemas'").fetchall()
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", current, configuration=configuration(embedding))
     apply(fresh)
     assert upgraded.plan().schema_fingerprint == fresh.plan().schema_fingerprint

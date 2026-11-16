@@ -3,167 +3,107 @@
   "revisions": {
     "v1_5_0_005": {
       "statements": [
-        "CREATE TABLE pc_context_prepare_diagnostics (\n\trecord_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tstarted_at DATETIME(6) NOT NULL, \n\tfinished_at DATETIME(6) NOT NULL, \n\tduration_ms FLOAT NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tprincipal_type VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tprincipal_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\trequest_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttrace_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tquery_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trequested_max_bytes INTEGER NOT NULL, \n\tcontent_bytes BIGINT, \n\tselected_count INTEGER, \n\terror_code VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\treceipt_payload MEDIUMBLOB, \n\tprepared_content MEDIUMTEXT, \n\tdiagnostics_payload MEDIUMBLOB NOT NULL, \n\tPRIMARY KEY (record_id), \n\tCONSTRAINT ck_pc_context_prepare_status CHECK (status IN ('ready', 'empty', 'failed', 'cancelled')), \n\tCONSTRAINT ck_pc_context_prepare_duration CHECK (duration_ms >= 0), \n\tCONSTRAINT ck_pc_context_prepare_budget CHECK (requested_max_bytes >= 512 AND requested_max_bytes <= 32768), \n\tCONSTRAINT ck_pc_context_prepare_content_bytes CHECK (content_bytes IS NULL OR content_bytes >= 0), \n\tCONSTRAINT ck_pc_context_prepare_selected_count CHECK (selected_count IS NULL OR selected_count >= 0)\n)",
-        "CREATE INDEX ix_pc_context_prepare_scope_finished ON pc_context_prepare_diagnostics (scope_id, finished_at, record_id)",
-        "CREATE INDEX ix_pc_context_prepare_scope_status_finished ON pc_context_prepare_diagnostics (scope_id, status, finished_at, record_id)"
+        "DROP TABLE pc_artifact_search_text",
+        "DROP TABLE pc_artifact_index_changes",
+        "DROP TABLE pc_artifact_index_coverage",
+        "DROP TABLE pc_artifact_search_states",
+        "DROP TABLE pc_artifact_vector_indexes",
+        "DROP TABLE pc_artifact_vector_spaces",
+        "DROP TABLE pc_artifact_family_schemas",
+        "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN plugin_id, DROP COLUMN plugin_family, DROP COLUMN plugin_spec, DROP COLUMN binding_generation, DROP COLUMN desired_state, DROP COLUMN phase, DROP COLUMN last_error",
+        "ALTER TABLE pc_artifacts ADD COLUMN metadata MEDIUMBLOB"
       ],
       "changes": [
         {
-          "pc_context_prepare_diagnostics": {
+          "pc_artifact_search_text": null
+        },
+        {
+          "pc_artifact_index_changes": null
+        },
+        {
+          "pc_artifact_index_coverage": null
+        },
+        {
+          "pc_artifact_search_states": null
+        },
+        {
+          "pc_artifact_vector_indexes": null
+        },
+        {
+          "pc_artifact_vector_spaces": null
+        },
+        {
+          "pc_artifact_family_schemas": null
+        },
+        {
+          "pc_artifact_processing_binding_states": {
             "columns": {
-              "record_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "scope_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "256"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "started_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "finished_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "duration_ms": {
-                "type": [
-                  "float",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "status": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_type": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "255"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "request_id": {
+              "binding_name": {
                 "type": [
                   "varchar",
                   [
                     "128"
                   ]
                 ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "trace_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "query_digest": {
-                "type": [
-                  "varchar",
-                  [
-                    "71"
-                  ]
-                ],
                 "nullable": false,
                 "default": null,
                 "charset": "utf8mb4",
                 "collation": "utf8mb4_bin",
                 "extra": []
               },
-              "requested_max_bytes": {
+              "last_auto_wave_completed_at": {
                 "type": [
-                  "int",
+                  "datetime",
                   []
                 ],
-                "nullable": false,
+                "nullable": true,
                 "default": null,
                 "charset": null,
                 "collation": null,
                 "extra": []
               },
-              "content_bytes": {
+              "last_schedule_checkpoint_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": [
+                  "number",
+                  0
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_in_progress": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": [
+                  "literal",
+                  "0"
+                ],
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scan_upper_pending_sequence": {
                 "type": [
                   "bigint",
                   []
@@ -173,196 +113,28 @@
                 "charset": null,
                 "collation": null,
                 "extra": []
-              },
-              "selected_count": {
-                "type": [
-                  "int",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "error_code": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "receipt_payload": {
-                "type": [
-                  "mediumblob",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "prepared_content": {
-                "type": [
-                  "mediumtext",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "diagnostics_payload": {
-                "type": [
-                  "mediumblob",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
               }
             },
             "primary_key": [
               [
-                "record_id",
+                "binding_name",
                 null,
                 "asc"
               ]
             ],
             "foreign_keys": [],
             "checks": {
-              "ck_pc_context_prepare_status": {
-                "expression": [
-                  "in",
-                  [
-                    "column",
-                    "status"
-                  ],
-                  [
-                    [
-                      "literal",
-                      "ready"
-                    ],
-                    [
-                      "literal",
-                      "empty"
-                    ],
-                    [
-                      "literal",
-                      "failed"
-                    ],
-                    [
-                      "literal",
-                      "cancelled"
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_duration": {
+              "ck_pc_processing_scan_generation": {
                 "expression": [
                   "binary",
                   ">=",
                   [
                     "column",
-                    "duration_ms"
+                    "scan_generation"
                   ],
                   [
                     "number",
                     0
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_budget": {
-                "expression": [
-                  "binary",
-                  "and",
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      512
-                    ]
-                  ],
-                  [
-                    "binary",
-                    "<=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      32768
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_content_bytes": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "content_bytes"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "content_bytes"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_selected_count": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "selected_count"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "selected_count"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
                   ]
                 ],
                 "enforced": true
@@ -372,21 +144,8 @@
           }
         },
         {
-          "pc_context_prepare_diagnostics": {
+          "pc_artifacts": {
             "columns": {
-              "record_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
               "scope_id": {
                 "type": [
                   "varchar",
@@ -400,113 +159,24 @@
                 "collation": "utf8mb4_bin",
                 "extra": []
               },
-              "started_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "finished_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "duration_ms": {
-                "type": [
-                  "float",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "status": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_type": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "255"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "request_id": {
+              "family": {
                 "type": [
                   "varchar",
                   [
                     "128"
                   ]
                 ],
-                "nullable": true,
+                "nullable": false,
                 "default": null,
                 "charset": "utf8mb4",
                 "collation": "utf8mb4_bin",
                 "extra": []
               },
-              "trace_id": {
+              "artifact_id": {
                 "type": [
                   "varchar",
                   [
-                    "64"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "query_digest": {
-                "type": [
-                  "varchar",
-                  [
-                    "71"
+                    "128"
                   ]
                 ],
                 "nullable": false,
@@ -515,7 +185,7 @@
                 "collation": "utf8mb4_bin",
                 "extra": []
               },
-              "requested_max_bytes": {
+              "revision": {
                 "type": [
                   "int",
                   []
@@ -526,10 +196,23 @@
                 "collation": null,
                 "extra": []
               },
-              "content_bytes": {
+              "content": {
                 "type": [
-                  "bigint",
+                  "mediumblob",
                   []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "created_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
                 ],
                 "nullable": true,
                 "default": null,
@@ -537,7 +220,20 @@
                 "collation": null,
                 "extra": []
               },
-              "selected_count": {
+              "created_by": {
+                "type": [
+                  "varchar",
+                  [
+                    "2048"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "restored_from_revision": {
                 "type": [
                   "int",
                   []
@@ -548,47 +244,25 @@
                 "collation": null,
                 "extra": []
               },
-              "error_code": {
+              "rollback_reason": {
                 "type": [
                   "varchar",
                   [
-                    "64"
+                    "1024"
                   ]
                 ],
                 "nullable": true,
                 "default": null,
                 "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
+                "collation": null,
                 "extra": []
               },
-              "receipt_payload": {
+              "metadata": {
                 "type": [
                   "mediumblob",
                   []
                 ],
                 "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "prepared_content": {
-                "type": [
-                  "mediumtext",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "diagnostics_payload": {
-                "type": [
-                  "mediumblob",
-                  []
-                ],
-                "nullable": false,
                 "default": null,
                 "charset": null,
                 "collation": null,
@@ -597,571 +271,29 @@
             },
             "primary_key": [
               [
-                "record_id",
+                "scope_id",
                 null,
                 "asc"
-              ]
-            ],
-            "foreign_keys": [],
-            "checks": {
-              "ck_pc_context_prepare_status": {
-                "expression": [
-                  "in",
-                  [
-                    "column",
-                    "status"
-                  ],
-                  [
-                    [
-                      "literal",
-                      "ready"
-                    ],
-                    [
-                      "literal",
-                      "empty"
-                    ],
-                    [
-                      "literal",
-                      "failed"
-                    ],
-                    [
-                      "literal",
-                      "cancelled"
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_duration": {
-                "expression": [
-                  "binary",
-                  ">=",
-                  [
-                    "column",
-                    "duration_ms"
-                  ],
-                  [
-                    "number",
-                    0
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_budget": {
-                "expression": [
-                  "binary",
-                  "and",
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      512
-                    ]
-                  ],
-                  [
-                    "binary",
-                    "<=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      32768
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_content_bytes": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "content_bytes"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "content_bytes"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_selected_count": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "selected_count"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "selected_count"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
-                  ]
-                ],
-                "enforced": true
-              }
-            },
-            "indexes": {
-              "ix_pc_context_prepare_scope_finished": {
-                "columns": [
-                  [
-                    "scope_id",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "finished_at",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "record_id",
-                    null,
-                    "asc"
-                  ]
-                ],
-                "unique": false
-              }
-            }
-          }
-        },
-        {
-          "pc_context_prepare_diagnostics": {
-            "columns": {
-              "record_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "scope_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "256"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "started_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "finished_at": {
-                "type": [
-                  "datetime",
-                  [
-                    "6"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "duration_ms": {
-                "type": [
-                  "float",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "status": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_type": {
-                "type": [
-                  "varchar",
-                  [
-                    "16"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "principal_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "255"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "request_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "128"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "trace_id": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "query_digest": {
-                "type": [
-                  "varchar",
-                  [
-                    "71"
-                  ]
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "requested_max_bytes": {
-                "type": [
-                  "int",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "content_bytes": {
-                "type": [
-                  "bigint",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "selected_count": {
-                "type": [
-                  "int",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "error_code": {
-                "type": [
-                  "varchar",
-                  [
-                    "64"
-                  ]
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": "utf8mb4",
-                "collation": "utf8mb4_bin",
-                "extra": []
-              },
-              "receipt_payload": {
-                "type": [
-                  "mediumblob",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "prepared_content": {
-                "type": [
-                  "mediumtext",
-                  []
-                ],
-                "nullable": true,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              },
-              "diagnostics_payload": {
-                "type": [
-                  "mediumblob",
-                  []
-                ],
-                "nullable": false,
-                "default": null,
-                "charset": null,
-                "collation": null,
-                "extra": []
-              }
-            },
-            "primary_key": [
+              ],
               [
-                "record_id",
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
                 null,
                 "asc"
               ]
             ],
             "foreign_keys": [],
-            "checks": {
-              "ck_pc_context_prepare_status": {
-                "expression": [
-                  "in",
-                  [
-                    "column",
-                    "status"
-                  ],
-                  [
-                    [
-                      "literal",
-                      "ready"
-                    ],
-                    [
-                      "literal",
-                      "empty"
-                    ],
-                    [
-                      "literal",
-                      "failed"
-                    ],
-                    [
-                      "literal",
-                      "cancelled"
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_duration": {
-                "expression": [
-                  "binary",
-                  ">=",
-                  [
-                    "column",
-                    "duration_ms"
-                  ],
-                  [
-                    "number",
-                    0
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_budget": {
-                "expression": [
-                  "binary",
-                  "and",
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      512
-                    ]
-                  ],
-                  [
-                    "binary",
-                    "<=",
-                    [
-                      "column",
-                      "requested_max_bytes"
-                    ],
-                    [
-                      "number",
-                      32768
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_content_bytes": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "content_bytes"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "content_bytes"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
-                  ]
-                ],
-                "enforced": true
-              },
-              "ck_pc_context_prepare_selected_count": {
-                "expression": [
-                  "binary",
-                  "or",
-                  [
-                    "is_null",
-                    [
-                      "column",
-                      "selected_count"
-                    ]
-                  ],
-                  [
-                    "binary",
-                    ">=",
-                    [
-                      "column",
-                      "selected_count"
-                    ],
-                    [
-                      "number",
-                      0
-                    ]
-                  ]
-                ],
-                "enforced": true
-              }
-            },
-            "indexes": {
-              "ix_pc_context_prepare_scope_finished": {
-                "columns": [
-                  [
-                    "scope_id",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "finished_at",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "record_id",
-                    null,
-                    "asc"
-                  ]
-                ],
-                "unique": false
-              },
-              "ix_pc_context_prepare_scope_status_finished": {
-                "columns": [
-                  [
-                    "scope_id",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "status",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "finished_at",
-                    null,
-                    "asc"
-                  ],
-                  [
-                    "record_id",
-                    null,
-                    "asc"
-                  ]
-                ],
-                "unique": false
-              }
-            }
+            "checks": {},
+            "indexes": {}
           }
         }
       ]

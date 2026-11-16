@@ -56,6 +56,10 @@
     "v1_5_0_006": [
       "schemas/sqlite-v1_5_0_006.json",
       "schemas/mysql-v1_5_0_006.json"
+    ],
+    "v1_5_0_007": [
+      "schemas/sqlite-v1_5_0_007.json",
+      "schemas/mysql-v1_5_0_007.json"
     ]
   },
   "sqlite_baselines": {
@@ -96,10 +100,13 @@
       "cfafc8c1d4f0207e5d04febca1e3f9f9a91948d15fb85678de3765d8e772efdc"
     ],
     "v1_5_0_005": [
-      "253573aaf7a629b4c4a0bb35f066d4466b558be2435bee09a784968fda959272"
+      "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
     "v1_5_0_006": [
-      "0cd8f097ef2cb68ebbe8bf96d3a39d50d86ff144f89b04e2e3554125787853ce"
+      "4afa8e2474806be46ce9cde1d74b4c50a194440ddaecdbc24fbf6e5a68ebbf12"
+    ],
+    "v1_5_0_007": [
+      "e23ba109da6d710a7a3f468a00a0ce8fcba1132248819a07de0afaaa1d1478fe"
     ]
   },
   "affected_objects": [
@@ -308,6 +315,27 @@
         "seekdb",
         "oceanbase"
       ]
+    },
+    {
+      "id": "plugin_artifacts",
+      "revision": "v1_5_0_005",
+      "kind": "data",
+      "module": "plugin_artifact_readiness.py",
+      "resources": [
+        "server_domain.py",
+        "server_vector_domain.py",
+        "atomic_memory_readiness_1300.py",
+        "dream/upgrade.py",
+        "dream/schema.json"
+      ],
+      "depends_on": [
+        "artifact_storage"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
     }
   ],
   "domain_readiness": {
@@ -353,12 +381,17 @@
       "atomic_memory_evidence_projection"
     ],
     "v1_5_0_005": [
-      "artifact_storage",
+      "plugin_artifacts",
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
     "v1_5_0_006": [
-      "artifact_storage",
+      "plugin_artifacts",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
+    "v1_5_0_007": [
+      "plugin_artifacts",
       "portable_storage",
       "atomic_memory_evidence_projection"
     ]
@@ -384,7 +417,8 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
-    "schemas/mysql-v1_5_0_006.json"
+    "schemas/mysql-v1_5_0_006.json",
+    "schemas/mysql-v1_5_0_007.json"
   ],
   "mysql_history": "mysql",
   "mysql_schema_extensions": {

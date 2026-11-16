@@ -135,13 +135,13 @@ escaped and the Receipt is validated against its UTF-8 bytes and content digest.
 valid final text readable. Reference reads share a ten-second limit; Code has no supported exact-revision reader here
 and remains unavailable. A diagnostic record does not prove host delivery, model adoption or task benefit.
 
-Migration `v1_5_0_005` only adds the independent table and indexes. It preserves Bootstrap receipts, Sources, Artifacts
+Migration `v1_5_0_006` only adds the independent table and indexes. It preserves Bootstrap receipts, Sources, Artifacts
 and existing statistics and does not backfill past calls. Disabling capture stops new records after restart and keeps
 history readable. Scope deletion has no new cascade or restriction from this table; stored content does not gain a
 new permission path after deletion. Existing managed databases require the ordinary explicit migration workflow before
 startup. Rollback uses the existing verified backup workflow; disabling capture never drops the table.
 
-Revision `v1_5_0_006` adds nullable `query_text` to the diagnostic table, without backfilling old records. It uses UTF-8 text on MySQL-compatible backends. Only the existing diagnostic setting enables writes; neither public Receipt JSON nor logs/traces gain query text.
+Revision `v1_5_0_007` adds nullable `query_text` to the diagnostic table, without backfilling old records. It uses UTF-8 text on MySQL-compatible backends. Only the existing diagnostic setting enables writes; neither public Receipt JSON nor logs/traces gain query text.
 
 ### Review explains the proposal and the saved result
 

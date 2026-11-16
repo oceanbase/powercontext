@@ -23,11 +23,11 @@ from tests.builtin.persistence.test_portable_storage_migration import apply, con
 
 
 def test_query_column_upgrade_preserves_005_receipts_and_keeps_original_text_unknown(tmp_path):
-    previous = previous_bundle(tmp_path / "old", None, through="v1_5_0_005")
+    previous = previous_bundle(tmp_path / "old", None, through="v1_5_0_006")
     config = configuration(None)
     database = tmp_path / "diagnostics.db"
     old = SQLiteMigrationRunner(database, previous, configuration=config)
-    assert apply(old).revision == "v1_5_0_005"
+    assert apply(old).revision == "v1_5_0_006"
     body = "历史上下文保留 😀\n"
     receipt = b'{"historical":"receipt"}'
     evidence = b'{"historical":"stages"}'
@@ -57,8 +57,8 @@ def test_query_column_upgrade_preserves_005_receipts_and_keeps_original_text_unk
     assert all(current.checksums[key] == value for key, value in previous.checksums.items())
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
     plan = upgraded.plan()
-    assert plan.revisions == ("v1_5_0_006",)
-    assert apply(upgraded).revision == "v1_5_0_006"
+    assert plan.revisions == ("v1_5_0_007",)
+    assert apply(upgraded).revision == "v1_5_0_007"
     assert upgraded.verify().state == "ready" and not apply(upgraded).changed
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(

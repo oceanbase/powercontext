@@ -123,17 +123,17 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
             )
             assert selected.status_code == 200, selected.text
             assert "Budget decision uses the Thursday review." in selected.text
-            search_table = re.search(r'<table[^>]*data-search-summary[^>]*>(.*?)</table>', selected.text, re.S)
+            search_table = re.search(r"<table[^>]*data-search-summary[^>]*>(.*?)</table>", selected.text, re.S)
             assert search_table is not None
             assert "Budget decision uses the Thursday review." in search_table.group(1)
             assert "data-candidate-text" in search_table.group(1)
             assert 'href="/dashboard/notes?' in search_table.group(1)
             assert "&amp;revision=" in search_table.group(1)
             assert 'id="context-text-search"' not in selected.text
-            assembly_table = re.search(r'<table[^>]*data-assembly-summary[^>]*>(.*?)</table>', selected.text, re.S)
+            assembly_table = re.search(r"<table[^>]*data-assembly-summary[^>]*>(.*?)</table>", selected.text, re.S)
             assert assembly_table is not None
             assert "Budget decision uses the Thursday review." in assembly_table.group(1)
-            selected_table = re.search(r'<table[^>]*data-selected-summary[^>]*>(.*?)</table>', selected.text, re.S)
+            selected_table = re.search(r"<table[^>]*data-selected-summary[^>]*>(.*?)</table>", selected.text, re.S)
             assert selected_table is not None
             assert "Budget decision uses the Thursday review." in selected_table.group(1)
             assert "data-selected-text" in selected_table.group(1)
@@ -313,7 +313,7 @@ def test_capture_records_all_five_families_with_code_failure(dashboard):
 
 
 def test_retained_body_reauthorizes_referenced_scope_and_completed_audit(dashboard, monkeypatch):
-    from powercontext.server.authz import PrincipalRef
+    from powercontext.builtin.authz import PrincipalRef
     from tests.test_dashboard_scope_selection import _grant, _revoke
 
     shared = create_scope(dashboard, "Referenced private scope")["scope_id"]
