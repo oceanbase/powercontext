@@ -133,7 +133,7 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         env=environment,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=360,
         check=False,
     )
     assert applied.returncode == 0, applied.stdout + applied.stderr

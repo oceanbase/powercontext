@@ -19,6 +19,8 @@ the installed Server loads and enforces the persisted builtin access policy.
 """
 
 import asyncio
+import importlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -26,9 +28,18 @@ from pathlib import Path
 import httpx
 
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import ServerSettings
+
+# Releases up to 1.4.0 keep access control in the Server package; later releases moved it into the built-in
+# runtime. This script runs under each installed release's own interpreter, so choose by what is installed.
+# find_spec rather than try/except: a broken built-in package must fail loudly, not fall back to the old path.
+_AUTHZ = (
+    "powercontext.builtin.authz"
+    if importlib.util.find_spec("powercontext.builtin.authz")
+    else "powercontext.server.authz"
+)
+PrincipalRef = importlib.import_module(_AUTHZ).PrincipalRef
 
 
 async def verify(historical):

@@ -113,6 +113,10 @@ global definitions are not exported.
 Observation payloads and supplied projections must also satisfy the same manifest schemas checked during normal
 ingestion. Restore does not fetch remote schema references.
 
+For a Server deployment, initialize or migrate the target with the documented `powercontext server db-migrate`
+workflow before the write restore. Logical restoration does not initialize the managed Server schema or transfer
+access bindings; configure target access before using the restored Scopes.
+
 To perform the write, repeat the command with explicit confirmation:
 
 ```bash
@@ -138,6 +142,11 @@ Format version 1 carries the portable relational representation of these support
 | Managed Skill package bytes and manifests; Artifact tags | Download locations and host-local Skill paths |
 | Profile policies, Prompt revisions, and Topic Memory publication metadata | Target-specific embedding configuration |
 | Work contracts, task outcomes, Handoff boundaries and receipts stored as Sources | Credentials, bearer tokens, provider secrets, and host-local Skill installation state |
+
+Source records are preserved verbatim as evidence, including capture metadata such as the absolute working directory
+(`cwd`) that agent integrations record with each prompt. Treat a bundle as containing those paths before sharing it.
+Export and restore reject credential-shaped fields in every record, and absolute host paths in records other than
+Sources.
 
 The archive has a versioned manifest (`format_version`, producer version, scopes, counts, exclusions, and total
 checksum) plus NDJSON records. Per-record digests compare canonical content for conflicts; the total digest verifies
@@ -204,6 +213,13 @@ the Server configuration guide. Dry-run must report no unsupported families and 
 
 ## Format compatibility
 
+For bundles containing plugin Artifacts, configure `POWERCONTEXT_SERVER_PLUGINS_DIR` with the corresponding plugins
+on the restore target, including for `--dry-run`. Restore commands check declarations in child processes without
+starting plugin hosts, running `setup`, or dispatching generation. Core validates the opaque Artifact storage wrapper;
+plugin Source observations are validated against the immutable Source definitions carried in the bundle. Restoring
+preserves revision metadata, history, and provenance. Plugin-owned storage remains outside the archive.
+Export reads stored core records without loading plugins, so an unavailable plugin does not prevent creating a backup.
+
 Bundle IDs must use the canonical lowercase, hyphenated UUID representation. The entire archive file, including ZIP
 prefixes or trailing bytes, is limited to 512 MiB. The manifest limit is 256 KiB; uncompressed records are limited to
 2 GiB, with at most 2,000,000 records and 8 MiB per NDJSON line. Oversized files are rejected before restore copying,
@@ -215,7 +231,10 @@ does not replace the archive schema version or record-type compatibility checks.
 format `0` downgrade. A reader rejects unknown archive or record schema versions before target writes. Keep the old
 binary available until a restore drill succeeds when upgrading across a PowerContext major release.
 
-`artifact_revision`, `artifact_head`, `artifact_lineage_artifact` and `candidate_head` require record schema version `2`.
+`artifact_revision` uses record schema version `3`, which adds `metadata` naming the plugin and plugin version that
+wrote the revision. Readers also accept schema version `2` records exported by earlier releases and restore them with
+null `metadata`; restoring such an archive again does not report them as conflicts. `artifact_head`,
+`artifact_lineage_artifact` and `candidate_head` require record schema version `2`.
 Incomplete schema version `1` representations of these records are rejected rather than discarding revision metadata
 or assigning default merge state or Candidate kind. Legacy database revisions retain explicit null metadata; restore
 does not invent an actor, timestamp or rollback history. A target missing required archive columns must first be

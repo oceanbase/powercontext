@@ -36,7 +36,9 @@ from tests.install_support import configure_opencode
 def _write_plugin(root: Path, *, built: bool = True) -> Path:
     plugin = root / "integrations" / "opencode" / "plugins" / "powercontext"
     (plugin / "skills" / "powercontext-project-context").mkdir(parents=True)
-    (plugin / "package.json").write_text('{"name": "powercontext-opencode"}', encoding="utf-8")
+    (plugin / "package.json").write_text(
+        '{"name": "powercontext-opencode", "powercontext": {"memoryProtocol": "atomic-artifact-v1"}}', encoding="utf-8"
+    )
     (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
         "---\nname: powercontext-project-context\ndescription: test\n---\n",
         encoding="utf-8",
@@ -423,7 +425,12 @@ def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatc
     assert not list(config.rglob("*.tmp"))
     install_plugin("opencode", source=str(package))
     assert target.read_bytes() == (package / "lib/index.js").read_bytes()
-    assert json.loads(manifest.read_text()) == {"schema": 1, "owner": "powercontext", "integration": "opencode-plugin"}
+    assert json.loads(manifest.read_text()) == {
+        "schema": 1,
+        "owner": "powercontext",
+        "integration": "opencode-plugin",
+        "memory_protocol": "atomic-artifact-v1",
+    }
 
 
 def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch, installed_agent_checks) -> None:

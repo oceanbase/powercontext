@@ -35,6 +35,9 @@ def _write_plugin(root: Path, *, guidance: bool = True) -> Path:
     command_plugin.mkdir(parents=True)
     (plugin / "__init__.py").write_text("def register(): pass\n", encoding="utf-8")
     (plugin / "plugin.yaml").write_text("name: powercontext\n", encoding="utf-8")
+    (plugin / "powercontext.json").write_text(
+        '{"powercontext": {"memoryProtocol": "atomic-artifact-v1"}}', encoding="utf-8"
+    )
     (command_plugin / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
     (command_plugin / "plugin.yaml").write_text(
         "name: powercontext-command\nkind: standalone\n",
@@ -55,6 +58,9 @@ def _write_installed_plugins(hermes_home: Path) -> Path:
     command_plugin.mkdir(parents=True)
     (plugin / "__init__.py").write_text("def register(): pass\n", encoding="utf-8")
     (plugin / "plugin.yaml").write_text("name: powercontext\n", encoding="utf-8")
+    (plugin / "powercontext.json").write_text(
+        '{"powercontext": {"memoryProtocol": "atomic-artifact-v1"}}', encoding="utf-8"
+    )
     (command_plugin / "__init__.py").write_text("def register(ctx): pass\n", encoding="utf-8")
     (command_plugin / "plugin.yaml").write_text(
         "name: powercontext-command\nkind: standalone\n",

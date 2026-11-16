@@ -122,7 +122,6 @@ async def source_server(tmp_path, *, management=True):
                 request_seconds=2,
             ),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     async with (
         listen(app) as url,

@@ -109,6 +109,24 @@ def test_stale_generated_contract_cannot_create_fixture_qualification(desktop: P
     assert not (desktop / ".artifacts/ci-compatibility.json").exists()
 
 
+def test_installed_acceptance_rejects_replaced_wheel_before_extraction(
+    desktop: Path, qualification, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.syspath_prepend(str(ROOT / "desktop/tests"))
+    specification = importlib.util.spec_from_file_location(
+        "desktop_installed_fixture", ROOT / "desktop/tests/installed_fixture.py"
+    )
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    module.__file__ = str(desktop / "tests/installed_fixture.py")
+    profile = qualification.build_profile(desktop, "a" * 40)
+    (desktop / ".artifacts/ci-compatibility.json").write_text(json.dumps(profile), encoding="utf-8")
+    (desktop / ".artifacts/server-wheel/powercontext-fixture.whl").write_bytes(b"replacement, not a ZIP archive")
+    with pytest.raises(ValueError, match="fixture_qualification_mismatch"), module.isolated_server():
+        pytest.fail("a replaced wheel reached extraction or startup")
+
+
 def test_product_acceptance_rejects_a_fixture_only_native_probe() -> None:
     specification = importlib.util.spec_from_file_location("desktop_real_server", ROOT / "desktop/tests/real_server.py")
     assert specification is not None and specification.loader is not None

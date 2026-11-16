@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::foundation_info,
             commands::local_diagnostics,
+            commands::connect_local_server,
             commands::ops_references,
             commands::ops_inspect,
             commands::ops_config_validate,
@@ -100,18 +101,19 @@ pub fn run() {
                 .as_ref()
                 .map(|manager| manager.observations().clone())
                 .unwrap_or_default();
+            let home = app.path().home_dir().ok();
+            let local_data = ops_bridge::resolve_local_data_dir(
+                app.path().local_data_dir().ok(),
+                home.as_deref(),
+            );
             app.manage(observations.clone());
             app.manage(commands::HostState { manager });
             app.manage(diagnostics::DiagnosticHost::new(
                 app.path().app_data_dir().ok(),
             ));
             app.manage(
-                ops_bridge::OpsHost::new(
-                    app.path().resource_dir().ok(),
-                    app.path().local_data_dir().ok(),
-                    app.path().home_dir().ok(),
-                )
-                .with_observations(observations),
+                ops_bridge::OpsHost::new(app.path().resource_dir().ok(), local_data, home)
+                    .with_observations(observations),
             );
             let config = &app.config().app.windows[0];
             tauri::WebviewWindowBuilder::from_config(app, config)?

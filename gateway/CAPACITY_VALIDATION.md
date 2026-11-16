@@ -51,7 +51,7 @@ or cryptographic bindings.
 | Renderer expansion, prepared context, Responses steering | Final overflow returns 403 with `request_payload_too_large`; no provider sends |
 | Configuration raised above 1 MiB | Compatibility ceiling still rejects oversized model input |
 | Core check limit lowered after startup | The next Core check rejects before any additional model send |
-| Fixed-length and chunked provider responses at 1 MiB / 1 MiB + 1 | Buffer boundary is inclusive; overflow returns 409, no response prefix, no automatic resend; later small response succeeds |
+| Fixed-length and chunked provider responses at 1 MiB / 1 MiB + 1 | Buffer boundary is inclusive; overflow returns 400, no response prefix, no automatic resend; later small response succeeds |
 | Output larger than the input-only capability | Response buffer uses its own ceiling and still requires a release check |
 | UDS fallback request larger than the model allowance | Fallback retains its separate deployment byte limit |
 | Open UDS SSE with concurrency set to one | Another fallback call is rejected; model call and health probe succeed; dropping SSE allows later fallback work |

@@ -43,6 +43,13 @@ test('release archive installs and loads without checkout files or install scrip
     assert.equal(manifest.version, version)
     assert.equal(manifest.scripts, undefined)
     assert.equal(manifest.devDependencies, undefined)
+    assert.equal(manifest.dsh.client.platform, 'web')
+    assert.match(manifest.exports['./client'].default, /client\.js$/)
+    assert.ok(manifest.files.includes('lib/client.js'))
+    assert.ok(existsSync(join(installed, 'lib/client.js')), 'missing browser client bundle')
+    assert.ok(existsSync(join(installed, 'lib/client.d.ts')), 'missing browser client declarations')
+    assert.ok(existsSync(join(installed, 'lib/assets/powercontext.svg')), 'missing packaged client asset')
+    assert.match(readFileSync(join(installed, 'lib/client.js'), 'utf8'), /react\/jsx-runtime/)
     const plugin = await import(pathToFileURL(join(installed, manifest.main)).href)
     assert.ok(plugin.inject.includes('skills'))
     assert.match(readFileSync(join(installed, 'skills/powercontext-project-context/SKILL.md'), 'utf8'),

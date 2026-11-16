@@ -1,0 +1,43 @@
+{
+  "description": "SessionStart payloads that Claude Code 2.1.277 passed to the plugin's hook in headless runs, one per lifecycle. The session ID, working directory, transcript path, and prompt IDs follow the characterization fixture; every other key and value is as the host sent it.",
+  "payloads": {
+    "startup": {
+      "session_id": "session-a",
+      "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "source": "startup"
+    },
+    "resume": {
+      "session_id": "session-a",
+      "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "source": "resume",
+      "seconds_since_last_response": 24,
+      "context_tokens": 23063,
+      "prompt_cache_likely_expired": false,
+      "estimated_cache_write_usd": 0.0461
+    },
+    "compact": {
+      "session_id": "session-a",
+      "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
+      "cwd": "$CWD",
+      "prompt_id": "prompt-1",
+      "hook_event_name": "SessionStart",
+      "source": "compact",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    "fork": {
+      "session_id": "session-a",
+      "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
+      "cwd": "$CWD",
+      "hook_event_name": "SessionStart",
+      "source": "fork",
+      "seconds_since_last_response": 30,
+      "context_tokens": 2913,
+      "prompt_cache_likely_expired": true,
+      "estimated_cache_write_usd": 0.0058
+    }
+  }
+}

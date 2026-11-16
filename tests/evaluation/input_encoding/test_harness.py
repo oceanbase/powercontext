@@ -226,9 +226,7 @@ def test_attempt_saves_public_approval_and_readable_artifact_without_model_usage
 
     async def scenario():
         config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'local.db'}"))
-        async with open_builtin_runtime(
-            config, experience_generator=Generator(), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(config, experience_generator=Generator()) as runtime:
             await _attempt(
                 runtime,
                 _instance(),
@@ -243,9 +241,7 @@ def test_attempt_saves_public_approval_and_readable_artifact_without_model_usage
         assert record["status"] == "succeeded"
         assert record["lineage_equal"] is True
         assert record["usage"]["requests"] is None
-        async with open_builtin_runtime(
-            config, experience_generator=Generator(), scheduler_path=tmp_path / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(config, experience_generator=Generator()) as runtime:
             saved = await runtime.experience.for_scope(record["scope_id"]).get(
                 GetExperienceRequest.model_validate({"artifact": record["artifact_ref"]})
             )

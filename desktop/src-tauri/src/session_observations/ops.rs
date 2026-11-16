@@ -173,6 +173,7 @@ mod tests {
         let original = serde_json::to_value(&reply).unwrap();
         let capture = OpsCallObservation::new(observations.clone());
         capture.progress(&OpsProgress {
+            approval_id: Some("private-approval-id".into()),
             request_id: "private-request-id".into(),
             operation_id: reply.operation_id.clone(),
             attempt: 1,
@@ -235,6 +236,7 @@ mod tests {
             reply.bridge_error = Some(OpsBridgeError::Timeout);
             let capture = OpsCallObservation::new(observations.clone());
             capture.progress(&OpsProgress {
+                approval_id: None,
                 request_id: "not-exported".into(),
                 operation_id: reply.operation_id.clone(),
                 attempt: 2,

@@ -92,6 +92,11 @@ function invalidCitation(error: unknown) {
 
 function domainFailure(error: unknown, fallbackAction: string) {
   if (!(error instanceof PowerContextRequestError)) return undefined;
+  if (error.status === 422 && error.code === "legacy_memory_operation_unsupported") return {
+    status: "rejected", code: error.code,
+    error: "This request uses the unsupported legacy Memory collection protocol.",
+    action: "Update the PowerContext CLI/SDK and plugin to match the Server; run powercontext setup openclaw, restart the Gateway, and rerun powercontext doctor openclaw. Search again for an Atomic Memory artifact reference. Do not drop collection CAS preconditions or automatically replay writes.",
+  };
   const outcome = error.status === 404
     ? "not_found"
     : error.status === 409 || error.status === 412

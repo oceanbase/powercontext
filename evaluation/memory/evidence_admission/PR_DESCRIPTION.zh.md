@@ -98,7 +98,7 @@
 
 # Are there any user-facing changes?
 
-本 PR 增加评估命令和文档。相对审查的上游基线 `cfdb617cddc77994e5e7033bc3b7ac84d47940c9`，
+本 PR 增加评估命令和文档。相对整合的上游基线 `e725225b103a7b41e601710d352ca3c3d3ae0ea0`，
 生产源码及 Gateway 行为不变。refusal 覆盖修改移出评估差异，在 Git 历史保留用于独立后续；本 PR 不声称修复该上游缺口。
 不增加生产准入策略、功能标志、迁移或 API。
 
@@ -107,13 +107,16 @@
 前次本地评估运行：1460 passed、48 skipped，随后工具恢复套件 104 passed。
 用户随后确认本轮修改之前的 `make check`、`make evaluation-unit-test`、专项离线套件、Ruff check/format、
 evaluation 类型检查、`make test`、`make build` 和 `tox` 已通过。
-这些记录不代表最新文档和范围修改或后续冲突整合树已通过验证。
+这些记录不代表最新文档和范围修改或当前合并树已通过验证。
 
 本轮仅静态核对空白、证据入口、归档身份和 Gateway 差异范围，全量验证由用户执行。
 历史包依赖测试默认跳过；证据包不能替代原运行时和不可用私有响应。默认测试不要求 provider 凭据或网络。
 线上执行、手工费用计算、取消、审计和报告重建见 [英文手册](LIVE_RUNBOOK.md)和[中文手册](LIVE_RUNBOOK.zh.md)。
 
-更新前 PR 相对 `master` 显示 `CONFLICTING` / `DIRTY`。本次不包含上游合并或冲突解决，合并前仍需检查新 Head 的远程可合并状态及 CI。
+已通过普通 merge 整合上游 `master` 的 `e725225b103a7b41e601710d352ca3c3d3ae0ea0`。
+`.gitignore` 同时保留评估结果忽略规则和上游 DSH pet 文件例外；`evaluation-unit-test` 将证据准入测试留在
+evaluation 环境，将 prepared-context 预算与恢复测试留在根项目环境。本次整合未重跑全量检查；
+发布后仍需核对远程可合并状态和 CI，上游也可能继续前进。
 
 # AI usage statement
 

@@ -32,21 +32,52 @@ const LICENSE_HEADER = `/*
  * limitations under the License.
  */\n`
 
-export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    invariant: 'src/invariant.ts',
+const banner = { js: LICENSE_HEADER, dts: LICENSE_HEADER }
+const hostExternal = [/^@deepseek-ai\//, /^node:/]
+
+export default defineConfig([
+  {
+    entry: {
+      index: 'src/index.ts',
+      invariant: 'src/invariant.ts',
+    },
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2022',
+    dts: true,
+    banner,
+    clean: false,
+    fixedExtension: false,
+    external: hostExternal,
   },
-  outDir: 'lib',
-  format: ['esm'],
-  platform: 'node',
-  target: 'es2022',
-  dts: true,
-  banner: {
-    js: LICENSE_HEADER,
-    dts: LICENSE_HEADER,
+  {
+    entry: { index: '../dsh-pet/src/index.ts' },
+    outDir: '../dsh-pet/lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2022',
+    dts: false,
+    banner,
+    fixedExtension: false,
+    external: hostExternal,
   },
-  clean: true,
-  fixedExtension: false,
-  external: [/^@deepseek-ai\//, /^node:/],
-})
+  {
+    // Browser entry: DSH discovers `dsh.client` and serves this bundle under
+    // /plugins. It must be a closure factory, not an ES module; wrap-client.mjs
+    // turns this CJS output into `window.__ModuleLoader__.load({id, factory})`.
+    // React is a shared platform module, never inlined into the plugin.
+    entry: {
+      client: 'src/ui/client.tsx',
+    },
+    outDir: 'lib',
+    format: ['cjs'],
+    platform: 'browser',
+    target: 'es2022',
+    dts: true,
+    banner,
+    clean: false,
+    fixedExtension: true,
+    external: ['react', 'react/jsx-runtime'],
+  },
+])

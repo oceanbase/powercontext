@@ -40,10 +40,19 @@ test('the prepared stable release has a bilingual changelog with matching instal
   assert.equal(release.githubUrl, `https://github.com/oceanbase/powercontext/releases/tag/powercontext-v${version}`);
   assert.match(release.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(new Date(`${release.date}T00:00:00Z`).toISOString().slice(0, 10), release.date);
+  const notes = await readFile(new URL(`../../release/notes/powercontext-v${version}.md`, import.meta.url), 'utf8');
   for (const language of ['en', 'zh'] as const) {
     assert.ok(release.title[language].trim(), `Missing ${language} title`);
     assert.ok(release.summary[language].trim(), `Missing ${language} summary`);
     assert.ok(release.changes[language].length > 0, `Missing ${language} release notes`);
     assert.ok(release.changes[language].every((change) => change.trim()), `Empty ${language} release note`);
+    assert.ok(notes.includes(language === 'en' ? '## English' : '## 中文'), `Missing ${language} GitHub Release notes`);
+    const heading = language === 'en' ? '## English' : '## 中文';
+    const section = notes.split(`${heading}\n`)[1].split('\n## ')[0];
+    const changes = section
+      .split('\n')
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2).replace(/ \(\[#\d+\].*\)$/, ''));
+    assert.deepEqual(release.changes[language], changes, `${language} website changes must match the release notes`);
   }
 });

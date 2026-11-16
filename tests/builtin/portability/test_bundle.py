@@ -920,6 +920,69 @@ def test_export_rejects_secret_fields_without_echoing_values(tmp_path: Path) -> 
     asyncio.run(scenario())
 
 
+def test_bundle_preserves_source_metadata_with_absolute_working_directory(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = tmp_path / "prompt.pcb"
+        payload = (
+            ContentSource(
+                name="prompt-1",
+                materialization=SourceMaterialization.CAPTURED,
+                content="Refactor the parser.",
+                metadata={"origin": "claude-code", "event": "user_prompt_submit", "cwd": "/workspace/powercontext"},
+            )
+            .model_dump_json()
+            .encode()
+        )
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project:one", position=1))
+                await connection.execute(
+                    insert(SOURCES_TABLE).values(
+                        scope_id="project:one",
+                        source_type="content",
+                        source_id="prompt-1",
+                        payload=payload,
+                        journal_position=1,
+                    )
+                )
+            await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            await service.restore(archive, supported_source_types=("content",))
+            async with target.database.transaction() as connection:
+                assert await connection.scalar(select(SOURCES_TABLE.c.payload)) == payload
+
+    asyncio.run(scenario())
+
+
+def test_export_rejects_absolute_host_paths_outside_sources(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = tmp_path / "host-path.pcb"
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                await connection.execute(
+                    insert(ARTIFACTS_TABLE).values(
+                        scope_id="project:one",
+                        family="handoff",
+                        artifact_id="handoff",
+                        revision=1,
+                        content=b'{"content":{"summary":"hello","install_path":"/opt/powercontext/do-not-echo"}}',
+                    )
+                )
+            with pytest.raises(BundleFormatError) as caught:
+                await PortableBundleService(source.database).export(
+                    ["project:one"], archive, authorize=_authorize_export
+                )
+            assert "absolute host path" in str(caught.value)
+            assert "do-not-echo" not in str(caught.value)
+            assert not archive.exists()
+
+    asyncio.run(scenario())
+
+
 def test_restore_accepts_a_valid_bundle_with_records_in_a_different_physical_order(tmp_path: Path) -> None:
     async def scenario() -> None:
         archive = tmp_path / "ordered.pcb"

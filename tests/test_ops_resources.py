@@ -90,6 +90,16 @@ def _spec(archive: bytes, **overrides: object) -> ResourceSpec:
     return ResourceSpec.model_validate(values)
 
 
+def test_linux_resource_paths_are_case_sensitive() -> None:
+    manifest = tuple(
+        resources.ResourceFile(path=path, size=1, sha256="0" * 64)
+        for path in ("bin/python3", "lib/TermInfo", "lib/terminfo")
+    )
+    resources._validate_file_paths(manifest, case_sensitive=True)
+    with pytest.raises(ResourceError, match="resource_invalid"):
+        resources._validate_file_paths(manifest, case_sensitive=False)
+
+
 @pytest.fixture(autouse=True)
 def platform_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(resources, "_current_platform", lambda: ("windows", "x86_64"))

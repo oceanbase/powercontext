@@ -14,6 +14,7 @@ the shared `evaluation/` environment.
 | [Memory write gate](write_gate/README.md) | Offline evidence-sufficiency calibration, held-out checks, and promotion decision. |
 | [Capture ownership](capture_ownership/README.md) | WorkBuddy joined-prompt evidence ownership, candidate contamination and current-fact retention. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |
+| [Prepared-context budget](prepared_context_budget/README.md) | Per-candidate budget dispositions and an offline comparison of the production allocator with an evaluation-only alternative. |
 
 For issue #2074, the [human sample review handoff](evidence_admission/HUMAN_REVIEW.zh.md) links the current PR
 description, bound partial human findings, ambiguous sample locations and separately preserved historical evidence.

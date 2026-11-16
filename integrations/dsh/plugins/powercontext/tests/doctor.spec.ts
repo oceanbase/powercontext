@@ -32,7 +32,7 @@ function contract() {
   for (const [operationId, spec] of Object.entries(OPERATIONS)) {
     (paths[spec.path] ??= {})[spec.method.toLowerCase()] = { operationId }
   }
-  return { openapi: '3.1.0', paths }
+  return { openapi: '3.1.0', paths, 'x-powercontext-feature-contracts': { 'memory.explicit': { major: 1, minor: 0 } } }
 }
 function healthy(path: string) {
   if (path === '/health/live') return Response.json({ status: 'ok' })
@@ -357,5 +357,31 @@ describe('read-only DSH Doctor', () => {
     const result = await h.doctor()
     expect(result.checks.prepare).toMatchObject({ state: 'ok', code: 'ready' })
     expect(JSON.stringify(result)).not.toContain(PRIVATE)
+  })
+})
+
+
+describe('Memory protocol upgrade diagnostics', () => {
+  it.each([undefined, { major: 2, minor: 0 }, { major: 1, minor: '0' }])(
+    'does not report healthy routes as compatible with %j', async version => {
+      const document = { ...contract(), 'x-powercontext-feature-contracts': { 'memory.explicit': version } }
+      const h = fixture(async url => new URL(url).pathname === '/openapi.json'
+        ? Response.json(document) : healthy(new URL(url).pathname))
+      const result = await h.doctor()
+      expect(result).toMatchObject({ ok: false, kind: 'error', checks: {
+        liveness: { state: 'ok' }, readiness: { state: 'ok' }, routes: {
+          code: 'memory_protocol_mismatch', recovery: expect.stringContaining('powercontext setup dsh'),
+        },
+      } })
+      expect(h.calls.every(call => !call.path.includes('/entries/'))).toBe(true)
+    })
+
+  it('rejects a stale native tool catalog even when the Server protocol is current', async () => {
+    const result = await fixture().doctor(undefined, { schemas: () => [
+      { name: 'mcp__powercontext__search_memory' }, { name: 'mcp__powercontext__revise_memory_entry' },
+    ] })
+    expect(result).toMatchObject({ ok: false, checks: { mcp_catalog: {
+      code: 'legacy_memory_operation_unsupported', recovery: expect.stringContaining('fully restart'),
+    } } })
   })
 })

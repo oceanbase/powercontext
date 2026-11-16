@@ -5,12 +5,14 @@ description: A plugin-owned design for DSH connection status, existing dashboard
 
 - Proposal Name: `dsh_plugin_ui_and_agent_handoff`
 - Start Date: 2026-11-06
-- Status: Draft
+- Status: Partially implemented — PR 1-2 only; Dashboard embedding and handoff remain future work
 - RFC PR: [oceanbase/powercontext#2528](https://github.com/oceanbase/powercontext/pull/2528)
 - Tracking Issue: [oceanbase/powercontext#2514](https://github.com/oceanbase/powercontext/issues/2514)
 - Related RFCs: [RFC 0048](0048_handoff_artifact.md), [RFC 1223](1223_human_agent_work_continuity.md), [RFC 1345](1345_scope_organization_and_agent_integration.md), [RFC 1783](1783-handoff-session-rollover.md), and [RFC 1629](1629_dashboard_profile_and_handoff_markdown_export.md)
 
 # Summary
+
+Implementation status: the browser entry, authenticated status bridge, setup capability reporting, and sidebar diagnostics in PR 1-2 are implemented. Dashboard embedding (PR 3), the Handoff workflow (PR 4-7), target launch/adapters, and pet integration are not included.
 
 Extend the PowerContext DSH plugin with a connection-status entry, the existing dashboard embedded in DSH, and a latest-response action that hands work to another agent. Installation continues through `powercontext setup`. The plugin uses existing DSH Client extension points and a plugin-owned Host HTTP bridge. On a qualified local deployment, its Node Host code opens a destination through an allowlisted system opener and the destination's supported deep link.
 

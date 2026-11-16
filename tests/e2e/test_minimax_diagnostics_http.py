@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from powercontext.http._generated.schema import OPENAPI_SCHEMA
+
 ROOT = Path(__file__).parents[2]
 
 
@@ -53,6 +55,11 @@ def diagnostic_http_server():
                     "api_contract_version": {"major": 1, "minor": 0},
                     "feature_contracts": {},
                 }
+            elif self.path == "/openapi.json":
+                if not authorized:
+                    self.send_error(401)
+                    return
+                payload = OPENAPI_SCHEMA
             elif self.path == "/health/live":
                 payload = {"status": "ok"}
             elif self.path == "/health/ready":
@@ -157,7 +164,13 @@ def test_doctor_enforces_consent_before_any_http_request(tmp_path, diagnostic_ht
     checks = json.loads(result.stdout)["hosts"]["minimax"]["checks"]
     if override == "saved":
         assert checks["server_access"]["status"] == "ok", result.stdout
-        assert requests == [("/health/live", False), ("/health/ready", False), ("/v1/server-info", True)]
+        assert checks["server_memory_protocol"]["status"] == "ok", result.stdout
+        assert requests == [
+            ("/health/live", False),
+            ("/health/ready", False),
+            ("/openapi.json", True),
+            ("/v1/server-info", True),
+        ]
     else:
         assert result.returncode != 0, result.stdout
         assert requests == []

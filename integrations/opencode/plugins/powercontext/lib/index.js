@@ -234,83 +234,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_plugins: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	get_artifact_plugin: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins/{binding_name}",
-		location: null,
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	enable_all_artifact_plugins: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/enable-all",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	reload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	enable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	disable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	unload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
@@ -547,7 +470,7 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
+		headerParams: ["X-PowerContext-Resolve-Target"],
 		successStatuses: [200],
 		emptyStatuses: []
 	},
@@ -689,6 +612,95 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugins: {
+		method: "GET",
+		path: "/v1/plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin: {
+		method: "GET",
+		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugin_scopes: {
+		method: "GET",
+		path: "/v1/plugins/{name}/scopes",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: ["cursor", "limit"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	merge_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/merges",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_governance: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance",
+		location: null,
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	forget_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	restore_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1482,6 +1494,21 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_artifact_rendering: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["revision"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_artifact_revisions: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
@@ -2173,6 +2200,10 @@ function resolveConfig(env = process.env) {
 }
 
 //#endregion
+//#region src/memory-compatibility.ts
+const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup opencode for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
+
+//#endregion
 //#region src/memory-operations.ts
 var MemoryOperationError = class extends Error {
 	code;
@@ -2296,6 +2327,14 @@ function errorResult(error) {
 		message: error.message
 	};
 	if (error instanceof ServerResponseError) {
+		if (error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported") return {
+			ok: false,
+			code: error.code,
+			message: "This request uses the unsupported legacy Memory collection protocol.",
+			recovery: MEMORY_PROTOCOL_RECOVERY,
+			status: 422,
+			request_id: error.requestId
+		};
 		if (error.statusCode === 401) return {
 			ok: false,
 			code: "authentication_failed",
@@ -2469,6 +2508,8 @@ Use pc_review_list / pc_review_get for requested candidate inspection. Generatio
 Memory correction requires the requested change, exact current Atomic Memory artifact and real content ETag from pc_memory_get. pc_memory_retire sets recoverable forgotten state using the exact artifact and state_version from search, list or pc_memory_state. Follow next_cursor for later inventory pages. Empty retrieval is normal. On failure, denial, or missing Scope, report the operation and safe returned reason without guessing causes or claiming saved/restored context. Avoid repeated failed calls and continue ordinary work.
 Use powercontext-project-context for a relevant detailed workflow if that Skill is available; no Skill detour is needed before every response.`;
 const CONTEXT_PREFIX = "PowerContext host-supplied context.";
+const PERMISSION = "powercontext";
+const DEFAULT_PERMISSION_KEYS = [...PERMISSION].map((_, index) => `${PERMISSION.slice(0, index)}?${PERMISSION.slice(index + 1)}`).reverse();
 const MAX_SOURCE_BYTES = 2e5;
 const MAX_SESSION_CACHE = 256;
 function promptText(parts, transportEncoded) {
@@ -2737,7 +2778,7 @@ function operationTool(runtime, definition) {
 		args: definition.args,
 		async execute(args, context) {
 			if (operationMutates(definition.operationId)) await context.ask({
-				permission: "powercontext",
+				permission: PERMISSION,
 				patterns: [definition.operationId],
 				always: [],
 				metadata: { operation: definition.operationId }
@@ -3039,6 +3080,19 @@ const PowerContextPlugin = async (input) => {
 		return {};
 	}
 	const hooks = {
+		config: async (config) => {
+			const settings = config;
+			const permission = settings.permission;
+			if (typeof permission === "string") return;
+			const rules = permission ?? {};
+			const [first] = Object.entries(rules);
+			if (first && DEFAULT_PERMISSION_KEYS.includes(first[0]) && first[1] === "ask") return;
+			const key = DEFAULT_PERMISSION_KEYS.find((candidate) => !(candidate in rules));
+			if (key) settings.permission = {
+				[key]: "ask",
+				...rules
+			};
+		},
 		tool: createTools(runtime),
 		"chat.message": async (event, output) => {
 			const messageID = event.messageID ?? output.message.id;

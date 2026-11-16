@@ -26,6 +26,15 @@ Legacy input may be rejected or supported. Neither policy is inherently a defect
 - Do not raise parity notes for internal refactors, tests, or documentation changes with no shared public behavior.
 - Keep possible gaps brief and label them `Possible capability gap (non-blocking)`. A verified failure of an already supported contract is a correctness issue.
 
+## Review Rust gateway changes
+
+- Trace the request through the two-phase gate instead of reviewing the changed function alone. A verdict not bound to the send phase, or a release that runs before `before_release` admits it, is a correctness failure however clean the surrounding code reads.
+- Read the failure path before the success path. Confirm that a block or withhold emits zero bytes, that a refuse releases nothing and cancels upstream, and that an indeterminate outcome after hand-off is surfaced rather than retried.
+- Treat a panic on request input as a defect. Upstream and Core responses are untrusted, so a malformed one must produce a handled error.
+- Verify that injected context is byte-identical to what `prepare` returned, that its declared range matches, and that injection cannot rewrite the client-owned history prefix.
+- Confirm credentials stay in environment variables and out of check payloads and evidence, and that new evidence fields exclude bodies, prompts, output, vectors, and paths.
+- Separate fixtures from acceptance. A green `gateway_behaviors` or workspace run does not establish real-Core, real-provider, or host behavior.
+
 ## Write useful comments
 
 - Write concise English: failure, evidence, required outcome. Attach each finding to the smallest relevant changed range.

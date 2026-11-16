@@ -99,6 +99,18 @@ const taskCheck = Type.Object({
   basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")]),
   evidence: Type.Array(handoffCitation, { maxItems: 32 }),
 }, { additionalProperties: false });
+const taskStopReason = Type.Object({
+  kind: Type.Union([
+    Type.Literal("safety"),
+    Type.Literal("authorization"),
+    Type.Literal("capability"),
+    Type.Literal("missing_evidence"),
+    Type.Literal("scope"),
+  ]),
+  condition: Type.String({ minLength: 1, maxLength: 8192, pattern: ".*\\S.*", description: "The circumstance under which continuing would have been wrong; must be trimmed." }),
+  basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")]),
+  evidence: Type.Array(handoffCitation, { maxItems: 31, description: "Use [] with declared. verified requires exact previously returned same-scope citations." }),
+}, { additionalProperties: false });
 const taskOutcome = Type.Object({
   schema: Type.Literal("powercontext.task-outcome.v1"),
   trust: Type.Literal("untrusted_observation"),
@@ -113,6 +125,7 @@ const taskOutcome = Type.Object({
   ]),
   summary: workText,
   handoff_receipt_ref: Type.Optional(Type.Union([sourceReference, Type.Null()])),
+  stop_reason: Type.Optional(Type.Union([taskStopReason, Type.Null()], { description: "Optional deliberate-stop reason, accepted only with blocked or cancelled status. Records a judgement without granting permission, approval, or retry budget." })),
   observations: Type.Array(workClaim, { minItems: 1, maxItems: 64 }),
   checks: Type.Array(taskCheck, { maxItems: 64 }),
   produced_artifacts: Type.Array(artifactReference, { maxItems: 32 }),
@@ -448,7 +461,7 @@ export function createTaskOutcomeTool(ctx: OpenClawPluginToolContext, deps: Tool
     name: POWERCONTEXT_TASK_OUTCOME_TOOL,
     label: "Record Task Outcome",
     description:
-      "Record the exact outcome, checks, produced artifacts, and remaining work at a completion or interruption boundary. Provide schema powercontext.task-outcome.v1, trust untrusted_observation, objective, status, summary, at least one observation, and all result arrays.",
+      "Record the exact outcome, checks, produced artifacts, and remaining work at a completion or interruption boundary. Provide schema powercontext.task-outcome.v1, trust untrusted_observation, objective, status, summary, at least one observation, and all result arrays. For blocked or cancelled, optionally record stop_reason with kind, condition, basis, and evidence; declared requires [], verified requires exact same-scope citations. A reason grants no authority.",
     parameters: Type.Object({
       outcome: taskOutcome,
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),

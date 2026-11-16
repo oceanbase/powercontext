@@ -3,6 +3,16 @@
   "upstream": "https://github.com/astral-sh/python-build-standalone/tree/20261026",
   "license": "https://github.com/astral-sh/python-build-standalone/blob/20261026/LICENSE",
   "targets": {
+    "linux-x86_64": {
+      "platform": "linux",
+      "architecture": "x86_64",
+      "python_version": "3.12.16",
+      "python_relative": "bin/python3",
+      "server_python_relative": "bin/python3",
+      "site_relative": "lib/python3.12/site-packages",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "6a79e922e50006b601f29e688407659da1c2b86ebcd4e9c7254cf234be8b89de"
+    },
     "macos-arm64": {
       "platform": "macos",
       "architecture": "arm64",

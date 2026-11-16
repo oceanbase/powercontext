@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -42,7 +43,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.records import BaseOperationNotSupportedError
 from powercontext.builtin.sources import validate_scope_id
 from powercontext.builtin.sources.content import ArtifactRestorationOutcome
-from powercontext.builtin.tags import normalize_tags
+from powercontext.builtin.tags import MAX_TARGET_TAGS, normalize_tags
 
 
 class ArtifactMergeAccess:
@@ -64,7 +65,7 @@ class ArtifactMergeAccess:
         action: str,
         ref: ArtifactRef | None = None,
     ) -> None:
-        from powercontext.server.authz import AccessAction, AccessDeniedError, ResourceRef
+        from powercontext.builtin.authz import AccessAction, AccessDeniedError, ResourceRef
 
         if context is None:
             return
@@ -108,7 +109,7 @@ class ArtifactMergeAccess:
     ) -> None:
         if context is None or context.access is None or not artifact_ids:
             return
-        from powercontext.server.authz import ResourceRef
+        from powercontext.builtin.authz import ResourceRef
 
         await context.access.with_connection(connection).establish_artifact_owners(
             tuple(
@@ -157,15 +158,22 @@ class ArtifactMergeApplication:
             raise ValueError(f"Artifact merge Family is already registered: {service.family}")  # noqa: TRY003
         self._services[service.family] = service
 
-    def for_scope(self, scope_id: str, family: str, /) -> ScopedArtifactMerge:
-        scope_id = validate_scope_id(scope_id)
+    def _service(self, family: str) -> ArtifactMergeService:
         try:
-            service = self._services[family]
+            return self._services[family]
         except KeyError:
             raise BaseOperationNotSupportedError(
                 "artifact_family", family, "registered Artifact merge adapter"
             ) from None
-        return ScopedArtifactMerge(self, service, scope_id)
+
+    def for_scope(self, scope_id: str, family: str, /) -> ScopedArtifactMerge:
+        scope_id = validate_scope_id(scope_id)
+        return ScopedArtifactMerge(self, self._service(family), scope_id)
+
+    def content_type(self, family: str) -> type[BaseModel]:
+        """The content model a registered Family's merge results validate against."""
+
+        return self._service(family).artifacts.content_type(family)
 
 
 class ScopedArtifactMerge:
@@ -219,6 +227,25 @@ class ScopedArtifactMerge:
                 lineage=lineage,
             )
         prepared = await self.service.prepare_merge(plan)
+        async with self.application.database.transaction() as connection:
+            return await self.service.commit(connection, prepared, context)
+
+    async def forget(
+        self, artifact_id: str, *, expected_revision: int, expected_state_version: int, context: Any = None
+    ) -> ArtifactMergeMutationResult:
+        """Deprecate one exact current Artifact without a replacement or a new content revision."""
+
+        context = self._context(context)
+        async with self.application.database.transaction() as connection:
+            plan = await self.service.inspect_forget(
+                connection,
+                self.scope_id,
+                artifact_id,
+                context,
+                expected_revision=expected_revision,
+                expected_state_version=expected_state_version,
+            )
+        prepared = await self.service.prepare_forget(plan)
         async with self.application.database.transaction() as connection:
             return await self.service.commit(connection, prepared, context)
 
@@ -311,7 +338,11 @@ async def merge_artifact_tags(
     *,
     family: str,
 ) -> None:
-    """Copy the normalized union of tags within one Scope and Family."""
+    """Assign the result a bounded, deterministic selection from its inputs' tags.
+
+    Labels carried by more inputs come first; normalized key order breaks ties and fills the
+    per-target limit. The inputs keep their complete tag sets, so restoration loses nothing.
+    """
 
     rows = (
         await connection.execute(
@@ -327,9 +358,14 @@ async def merge_artifact_tags(
         )
     ).all()
     labels: dict[str, str] = {}
+    carriers: Counter[str] = Counter()
     for row in rows:
-        labels.setdefault(str(row.tag_key), str(row.tag))
-    for key, label in normalize_tags(tuple(labels.values())).items():
+        key = str(row.tag_key)
+        labels.setdefault(key, str(row.tag))
+        carriers[key] += 1
+    # Independent of input order, so retries and replays of the same merge assign the same tags.
+    retained = sorted(labels, key=lambda key: (-carriers[key], key.encode("utf-8")))[:MAX_TARGET_TAGS]
+    for key, label in normalize_tags(tuple(labels[key] for key in retained)).items():
         await connection.execute(
             insert(ARTIFACT_TAGS_TABLE).values(
                 scope_id=scope_id,

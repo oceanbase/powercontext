@@ -133,7 +133,11 @@ def _owned_plugin(path: Path) -> bool:
         payload = json.loads(_plugin_manifest_path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return payload == {"schema": 1, "owner": "powercontext", "integration": "opencode-plugin"}
+    return isinstance(payload, dict) and {key: value for key, value in payload.items() if key != "memory_protocol"} == {
+        "schema": 1,
+        "owner": "powercontext",
+        "integration": "opencode-plugin",
+    }
 
 
 def _tui_config_path(config_dir: Path) -> Path:
@@ -528,6 +532,8 @@ __all__ = ["OPENCODE_PLUGIN_NAME", "opencode_config_dir", "opencode_executable",
 
 class OpenCodeInstaller:
     def install(self, source):
+        from powercontext.cli.memory_protocol import read_plugin_memory_protocol
+
         opencode_executable()
         _version()
         root = opencode_config_dir()
@@ -545,7 +551,15 @@ class OpenCodeInstaller:
                 _stage_skill(package / OPENCODE_SKILL.parent, skill, candidate)
                 writes = {
                     _plugin_manifest_path(plugin): (
-                        json.dumps({"schema": 1, "owner": "powercontext", "integration": "opencode-plugin"}, indent=2)
+                        json.dumps(
+                            {
+                                "schema": 1,
+                                "owner": "powercontext",
+                                "integration": "opencode-plugin",
+                                "memory_protocol": read_plugin_memory_protocol(package),
+                            },
+                            indent=2,
+                        )
                         + "\n"
                     ).encode(),
                     plugin: (package / OPENCODE_BUNDLE).read_bytes(),
@@ -597,10 +611,20 @@ class OpenCodeInstaller:
                     status=DiagnosticStatus.SKIPPED, detail="not checked because config is unavailable"
                 ),
             }
+        from powercontext.cli.memory_protocol import installed_memory_protocol
+
+        try:
+            manifest = json.loads(
+                _plugin_manifest_path(config_dir / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js").read_text()
+            )
+            protocol = manifest.get("memory_protocol") if isinstance(manifest, dict) else None
+        except (OSError, ValueError):
+            protocol = None
         skill = config_dir / "skills" / "powercontext-project-context"
         skill_ok = _owned_skill(skill) and (skill / "SKILL.md").is_file()
         return {
             "opencode": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} ({actual})"),
+            "plugin_memory_protocol": installed_memory_protocol(protocol, "opencode"),
             "plugin": Diagnostic(
                 status=DiagnosticStatus.OK if configured and activated else DiagnosticStatus.FAILED,
                 detail=(

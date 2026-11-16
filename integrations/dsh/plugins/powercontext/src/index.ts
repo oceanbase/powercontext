@@ -30,6 +30,8 @@ import { resolveScopeId } from './scope.ts'
 import { registerGuidance } from './guidance.ts'
 import { requireService } from './dsh-service.ts'
 import { RuntimeStatus } from './status.ts'
+import { registerStatusBridge } from './status-bridge.ts'
+import { registerUpdateBridge } from './update-bridge.ts'
 
 export const name = PLUGIN_NAME
 
@@ -181,5 +183,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)
+  registerStatusBridge(ctx, runtime)
+  registerUpdateBridge(ctx, runtime)
   await registerMcp(ctx, runtime.config)
 }

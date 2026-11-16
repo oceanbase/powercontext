@@ -1054,8 +1054,9 @@ def test_desktop_registration_does_not_boot_and_requires_an_enabled_bundle(dsh_p
     assert not DshInstaller(dsh_target=target).verify()["plugin"].ok
 
 
-def test_explicit_web_doctor_does_not_read_desktop_environment_profile(dsh_profile, monkeypatch, server_checks):
-    import powercontext.cli.dsh as dsh
+def test_explicit_web_doctor_does_not_read_desktop_environment_profile(
+    dsh_profile, tmp_path, monkeypatch, server_checks
+):
     from powercontext.cli.system import doctor_app
 
     desktop = dsh_profile.parent / "desktop"
@@ -1066,8 +1067,16 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(dsh_profi
         "- insert:\n    - id: powercontext-dsh\n      name: powercontext-dsh\n"
         "      config:\n        baseUrl: http://desktop.example\n",
     )
+    source = plugin_source(tmp_path)
+    metadata = json.loads((source / "package.json").read_text())
+    metadata["powercontext"] = {"memoryProtocol": "atomic-artifact-v1"}
+    (source / "package.json").write_text(json.dumps(metadata))
+    shutil.copytree(source, dsh_profile / "node_modules/powercontext-dsh")
+    (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
     monkeypatch.setenv("DSH_PROFILE", "desktop")
-    monkeypatch.setattr(dsh, "_run_dsh", lambda *_args, **_kwargs: "id: powercontext-dsh\n")
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--profile", "web", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["hosts"]["dsh"]["ok"] is True
+    host = json.loads(result.stdout)["hosts"]["dsh"]
+    assert host["ok"] is True
+    assert host["checks"]["plugin_memory_protocol"]["status"] == "ok"
+    assert host["checks"]["plugin_memory_protocol"]["checks"]["memory_protocol"] == "atomic-artifact-v1"

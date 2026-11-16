@@ -57,7 +57,7 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
-    deny: Option<&'static str>,
+    deny: Option<(&'static str, &'static str)>,
 }
 
 async fn upstream(
@@ -86,8 +86,15 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
     peers.checks.lock().unwrap().push(request);
     Json(json!({
         "schema": "powercontext.context-check.v1", "phase": phase,
-        "decision": if peers.deny == Some(phase.as_str()) { "block" } else { "allow" },
-        "reason_codes": [], "coverage": {"profile": "text-and-tools.v1", "complete": true},
+        "decision": match peers.deny {
+            Some((denied_phase, decision)) if denied_phase == phase => decision,
+            _ => "allow",
+        },
+        "reason_codes": if peers.deny.is_some_and(|(denied_phase, _)| denied_phase == phase) {
+            vec!["target_unsupported"]
+        } else {
+            vec![]
+        }, "coverage": {"profile": "text-and-tools.v1", "complete": true},
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
     }))
@@ -122,7 +129,7 @@ enum Startup {
 }
 
 impl Gateway {
-    async fn start(replies: Vec<Reply>, deny: Option<&'static str>) -> Self {
+    async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
         let peers = Arc::new(Peers {
             replies: Mutex::new(replies.into()),
             deny,
@@ -615,8 +622,11 @@ async fn responses_preserves_refusals_and_call_identity() {
 #[tokio::test]
 async fn denied_send_or_release_never_returns_recorded_content() {
     for phase in ["before_send", "before_release"] {
-        let gateway =
-            Gateway::start(vec![Reply::fixture("fantasy_chat_simple", 0)], Some(phase)).await;
+        let gateway = Gateway::start(
+            vec![Reply::fixture("fantasy_chat_simple", 0)],
+            Some((phase, "block")),
+        )
+        .await;
         let response = gateway
             .post("chat/completions", &request("chat", "simple", false))
             .await;
@@ -626,6 +636,37 @@ async fn denied_send_or_release_never_returns_recorded_content() {
             gateway.peers.sent.lock().unwrap().len(),
             usize::from(phase == "before_release")
         );
+    }
+}
+
+#[tokio::test]
+async fn send_or_release_withhold_returns_bad_request_without_releasing_or_resending_content() {
+    for (route, protocol, fixture) in [
+        ("chat/completions", "chat", "fantasy_chat_simple"),
+        ("responses", "responses", "fantasy_responses_simple"),
+    ] {
+        for phase in ["before_send", "before_release"] {
+            for streaming in [false, true] {
+                let gateway =
+                    Gateway::start(vec![Reply::fixture(fixture, 0)], Some((phase, "withhold")))
+                        .await;
+                let response = gateway
+                    .post(route, &request(protocol, "simple", streaming))
+                    .await;
+                assert_eq!(response.status(), 400);
+                assert_eq!(response.headers()["content-type"], "application/json");
+                assert_eq!(
+                    response.json::<Value>().await.unwrap(),
+                    json!({
+                        "decision": "withhold", "reason_codes": ["target_unsupported"],
+                    })
+                );
+                assert_eq!(
+                    gateway.peers.sent.lock().unwrap().len(),
+                    usize::from(phase == "before_release")
+                );
+            }
+        }
     }
 }
 

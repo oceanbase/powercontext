@@ -176,7 +176,8 @@ Topic Memory 是首个使用者。本 RFC 不迁移现有 Memory、Experience �
 Topic Window Policy 按 Journal 顺序选择 Cursor 后满足以下限制的最大连续前缀：
 
 - Source 数量不超过 `runtime.topic_memory_source_window_limit`，默认 10；
-- Source 估算 token 总量不超过生成模型上下文窗口的 80%。
+- Source 估算 token 总量不超过生成模型上下文窗口的 80%；
+- canonical evidence 不超过下文“累计工作量与证据上限”中的字符上限，并在任何无法投影的 Source 之前结束。
 
 `inference.generation_model_context_window_tokens` 默认 125,000，因此默认 Source Window 上限为 100,000
 tokens。一次实际 generation 请求仍必须满足：
@@ -208,8 +209,10 @@ tokens。一次实际 generation 请求仍必须满足：
 一个 Topic Window 最多接纳 100 条 Source（配置默认值仍为 10），canonical evidence 合计最多 4,194,304 个字符。
 每条 eligible Source 在 canonical JSON 序列化前限制访问的值/键总数不超过 65,536、深度不超过 32、文本字符总数
 不超过 4,194,304；最终序列化内容也必须满足字符上限。这是包含 metadata 的 Topic 处理边界，不是新的 capture
-API 限制。过大或过深的捕获内容仍保留，但 Topic 处理持久记录 `source_complexity_limit`。Selector 无法投影整个
-候选 Window 时先隔离最早的单条 Source，由 Worker 记录拒绝，避免每次发现任务都重复序列化失败内容。
+API 限制。过大或过深的捕获内容仍保留，但 Topic 处理持久记录 `source_complexity_limit`。Selector 在第一条无法
+投影、或加入后会使 Window 超过字符上限的 Source 之前结束 Window；它之前的 Source 仍按数量和 token 上限组成
+Window。只有这条 Source 紧接 Cursor 时，Selector 才把它隔离为单 Source Window，由 Worker 记录拒绝，避免每次
+发现任务都重复序列化失败内容。
 
 所有生成阶段（包括 temporary、reduction）、结构化重试和 Embedding 共用 `(scope_id, binding_name, source_after)`
 上的持久额度：跨全部重试最多 **3 次处理尝试、512 次预留 provider 请求、64,000,000 个预留 token 容量单位**。

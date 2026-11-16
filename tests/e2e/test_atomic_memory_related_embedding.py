@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -37,17 +39,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationOutput,
 )
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.inference import (
-    EmbeddingResult,
-    GenerationResult,
-    InferenceTimeoutError,
-    InferenceUnavailableError,
-    character_token_estimator,
-)
-from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -61,8 +53,19 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.casbin import CasbinAuthorizationProvider
-from powercontext.server.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.inference import (
+    EmbeddingResult,
+    GenerationResult,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
+    character_token_estimator,
+)
+from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend
 from tests.e2e.dream_support import memory_source_text
 
@@ -152,10 +155,25 @@ class _SymmetricEmbedding:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
+class _NumberedEmbedding:
+    """Order fixture memories by the number each text carries."""
+
+    profile = PROFILE
+
+    async def embed(self, texts, /):
+        vectors = []
+        for text in texts:
+            number = int(re.findall(r"\d+", text)[-1])
+            angle = number * 0.01
+            vectors.append((math.cos(angle), math.sin(angle), 0.0))
+        return EmbeddingResult(vectors=tuple(vectors))
+
+
 class _ConfiguredArtifactProvider:
     def __init__(self, repository):
         self.builtin = BuiltinAuthorizationProvider(repository)
         self.denied = None
+        self.denied_ids: set[str] = set()
         self.unavailable = None
 
     async def check(self, request, /):
@@ -163,6 +181,13 @@ class _ConfiguredArtifactProvider:
         if requirement == self.unavailable:
             raise AccessUnavailableError("configured_artifact_authority_unavailable")
         decision = await self.builtin.check(request)
+        identity = request.resource.identity
+        if (
+            identity is not None
+            and identity.artifact_id in self.denied_ids
+            and request.action in {AccessAction.ARTIFACT_READ, AccessAction.ARTIFACT_WRITE}
+        ):
+            return AccessDecision(False, "configured-artifact-denial", decision.policy_revision)
         if requirement == self.denied:
             return AccessDecision(False, "configured-artifact-denial", decision.policy_revision)
         return decision
@@ -191,6 +216,17 @@ class _RecordingCreateReconciler:
                 reason="Retain the independent Source fact after comparing the permitted owned memories.",
             )
         )
+
+
+async def _list_memories(memory):
+    items = []
+    cursor = None
+    while True:
+        page = await memory.list(limit=100, cursor=cursor)
+        items.extend(page.items)
+        if page.next_cursor is None:
+            return tuple(items)
+        cursor = page.next_cursor
 
 
 async def _configured_flush_context(contexts, principal, binding_id="related-contributor", *, expires_at=None):
@@ -682,6 +718,357 @@ def test_related_fts_fallback_does_not_hide_document_embedding_failure(tmp_path,
                 assert recovered.artifact.revision == before[0].artifact.revision + 1
 
     asyncio.run(scenario())
+
+
+def test_source_flush_applies_the_related_page_size_from_runtime_configuration(tmp_path):
+    async def related_pages(database, page_size):
+        reconciler = _RecordingCreateReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+            runtime=RuntimeConfig(
+                atomic_memory_related_mode="vector",
+                atomic_memory_related_max_distance=1.0,
+                atomic_memory_related_page_size=page_size,
+            ),
+        )
+        async with open_builtin_contexts(
+            config, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 5)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=100)
+            reconciler.inputs.clear()
+            await contexts.records.create_source("project", "content", "rollout strategy 0")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+            assert reconciler.inputs
+            return tuple(tuple(item.text for item in request.related) for request in reconciler.inputs)
+
+    async def scenario():
+        for page_size in (1, 2, 100):
+            pages = await related_pages(tmp_path / f"page-{page_size}.db", page_size)
+            compared = [text for page in pages for text in page]
+            assert sorted(compared) == [f"rollout strategy {number}" for number in range(1, 5)]
+            assert all(len(page) <= page_size for page in pages)
+
+    asyncio.run(scenario())
+
+
+def test_source_flush_compares_every_permitted_memory_across_pages(tmp_path):
+    reconciler = _RecordingCreateReconciler()
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+    )
+    configured = _config(tmp_path)
+    configured = configured.model_copy(
+        update={
+            "runtime": configured.runtime.model_copy(
+                update={"atomic_memory_related_page_size": 10, "atomic_memory_related_max_distance": 1.0}
+            )
+        }
+    )
+
+    async def scenario():
+        async with open_builtin_contexts(
+            configured, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 102)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=200)
+            await contexts.records.create_source("project", "content", "rollout strategy 0")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+
+            compared = {
+                original.ref.artifact_id
+                for request in reconciler.inputs
+                for item in request.related
+                for original in item.original_refs
+            }
+            assert compared == {item.artifact_id for item in owned}
+            assert all(len(request.related) <= 10 for request in reconciler.inputs)
+
+    asyncio.run(scenario())
+
+
+def test_source_flush_revises_the_last_page_memory(tmp_path):
+    class ReviseLastPage(_RecordingCreateReconciler):
+        async def generate(self, request):
+            self.inputs.append(request)
+            target = next((item for item in request.related if item.text == "rollout strategy 101"), None)
+            return GenerationResult(
+                output=AtomicMemoryReconciliationOutput(
+                    action="revise" if target is not None else "create",
+                    compared_ids=tuple(item.item_id for item in request.related),
+                    target_ids=(target.item_id,) if target is not None else (),
+                    content=AtomicMemoryReconciliationContent(
+                        kind="fact", text=request.proposal.text, description="Fixture memory summary"
+                    ),
+                    evidence_ids=request.proposal.evidence_ids,
+                    reason="Fixture revision across a related page.",
+                )
+            )
+
+    reconciler = ReviseLastPage()
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+    )
+    configured = _config(tmp_path)
+    configured = configured.model_copy(
+        update={
+            "runtime": configured.runtime.model_copy(
+                update={"atomic_memory_related_page_size": 10, "atomic_memory_related_max_distance": 1.0}
+            )
+        }
+    )
+
+    async def scenario():
+        async with open_builtin_contexts(
+            configured, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            memory = contexts.atomic_memory.for_scope("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 102)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=200)
+            await contexts.records.create_source("project", "content", "rollout strategy 102")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+
+            compared = {
+                original.ref.artifact_id
+                for request in reconciler.inputs
+                for item in request.related
+                for original in item.original_refs
+            }
+            assert owned[-1].artifact_id in compared
+            items = await _list_memories(memory)
+            assert len(items) == 101
+            (revised,) = (item for item in items if item.artifact.content.text == "rollout strategy 102")
+            assert revised.ref.artifact_id == owned[-1].artifact_id
+            assert all(item.artifact.content.text != "rollout strategy 101" for item in items)
+
+    asyncio.run(scenario())
+
+
+def test_authorization_denials_on_early_pages_do_not_hide_later_writable_memories(tmp_path):
+    reconciler = _RecordingCreateReconciler()
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+    )
+    configured = _config(tmp_path)
+    configured = configured.model_copy(
+        update={
+            "runtime": configured.runtime.model_copy(
+                update={"atomic_memory_related_page_size": 10, "atomic_memory_related_max_distance": 1.0}
+            )
+        }
+    )
+
+    async def scenario():
+        async with open_builtin_contexts(
+            configured, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            memory = contexts.atomic_memory.for_scope("project")
+            execution, provider = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 102)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=200)
+            provider.denied_ids = {item.artifact_id for item in owned[:-1]}
+            await contexts.records.create_source("project", "content", "rollout strategy 102")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+
+            compared = {
+                original.ref.artifact_id
+                for request in reconciler.inputs
+                for item in request.related
+                for original in item.original_refs
+            }
+            assert compared == {owned[-1].artifact_id}
+            assert len(await _list_memories(memory)) == 102
+
+    asyncio.run(scenario())
+
+
+def test_released_page_memory_revision_prevents_stale_commit(tmp_path):
+    configured = _config(tmp_path)
+    configured = configured.model_copy(
+        update={
+            "runtime": configured.runtime.model_copy(
+                update={"atomic_memory_related_page_size": 10, "atomic_memory_related_max_distance": 1.0}
+            )
+        }
+    )
+
+    async def scenario():
+        class RewritingComparedPage(_RecordingCreateReconciler):
+            async def generate(self, request):
+                result = await super().generate(request)
+                if len(self.inputs) == 1:
+                    await contexts.records.replace_artifact(
+                        "project",
+                        "atomic-memory",
+                        owned[0].artifact_id,
+                        '"revision:1"',
+                        ArtifactWrite(content={"kind": "fact", "text": "rollout strategy 1 shifted externally"}),
+                    )
+                return result
+
+        reconciler = RewritingComparedPage()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            configured, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            memory = contexts.atomic_memory.for_scope("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 22)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=200)
+            await contexts.records.create_source("project", "content", "rollout strategy 0")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+
+            assert len(reconciler.inputs) > 3
+            assert any(
+                item.text == "rollout strategy 1 shifted externally"
+                for request in reconciler.inputs[3:]
+                for item in request.related
+            )
+            items = await _list_memories(memory)
+            assert len(items) == 22
+            revised = next(item for item in items if item.ref.artifact_id == owned[0].artifact_id)
+            assert revised.ref.revision == 2
+            assert revised.artifact.content.text == "rollout strategy 1 shifted externally"
+            assert sum(item.artifact.content.text == "rollout strategy 0" for item in items) == 1
+
+    asyncio.run(scenario())
+
+
+def test_related_recall_does_not_recompare_a_published_origin_it_revised(tmp_path):
+    first = "Prefer the database deployment plan for primary hosts."
+    second = "Prefer the database deployment plan for standby hosts."
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.requests: list[AtomicMemoryReconciliationInput] = []
+
+        async def generate(self, request: AtomicMemoryReconciliationInput, /):
+            self.requests.append(request)
+            compared = tuple(item.item_id for item in request.related)
+            if not request.related:
+                output = AtomicMemoryReconciliationOutput(
+                    action="create",
+                    compared_ids=(),
+                    content=AtomicMemoryReconciliationContent(
+                        kind=request.proposal.kind,
+                        text=request.proposal.text,
+                        description="Fixture memory summary",
+                    ),
+                    evidence_ids=request.proposal.evidence_ids,
+                    reason="No published memory was recalled.",
+                )
+            elif request.proposal.text == second:
+                output = AtomicMemoryReconciliationOutput(
+                    action="noop",
+                    compared_ids=compared,
+                    target_ids=(request.related[0].item_id,),
+                    reason="The recalled identity already expresses this preference.",
+                )
+            else:
+                output = AtomicMemoryReconciliationOutput(
+                    action="revise",
+                    compared_ids=compared,
+                    target_ids=(request.related[0].item_id,),
+                    content=AtomicMemoryReconciliationContent(
+                        kind=request.proposal.kind, text=first, description="Fixture memory summary"
+                    ),
+                    evidence_ids=request.proposal.evidence_ids,
+                    reason="Retain the revised preference.",
+                )
+            return GenerationResult(output=output)
+
+    recorder = Recorder()
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_Extractor(), reconciler=recorder, estimator=character_token_estimator()
+    )
+
+    async def scenario():
+        async with open_builtin_contexts(
+            _config(tmp_path), embedding_model=_SymmetricEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            await contexts.records.create_source("project", "content", ORIGINAL)
+            await contexts.process_memory("project", 1)
+            await contexts.records.create_source("project", "content", first)
+            await contexts.records.create_source("project", "content", second)
+            await contexts.process_memory("project", 2)
+            return (await contexts.atomic_memory.for_scope("project").list(limit=10)).items
+
+    items = asyncio.run(scenario())
+
+    assert [(request.proposal.text, len(request.related)) for request in recorder.requests] == [
+        (ORIGINAL, 0),
+        (first, 1),
+        (second, 1),
+    ]
+    assert [item.artifact.content.text for item in items] == [first]
 
 
 @pytest.mark.parametrize("failure", [ValueError("query implementation defect"), asyncio.CancelledError()])

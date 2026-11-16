@@ -107,6 +107,7 @@ def native_options(host: str, **options: Any) -> dict[str, Any]:
 
 def doctor_checks(host: str, **options) -> dict[str, Any]:
     """Run native verification and Server checks through the doctor boundary."""
+    from powercontext.cli.authorization import credential_path, read_stored_authorization
     from powercontext.cli.installation import installers
     from powercontext.cli.native_transport import resolve_host_transport
     from powercontext.cli.system import Diagnostic, DiagnosticStatus, server_diagnostics
@@ -122,6 +123,10 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
         installer = installers()[host](**target_options)
         fields = {"kimi-code": ("runtime", "cwd", "session_id", "mcp"), "zcode": ("runtime_data_dir", "prepare")}
         checks = installer.verify(**{key: options[key] for key in fields.get(host, ()) if options.get(key) is not None})
+        if host == "dsh":
+            from powercontext.cli.dsh_pet import pet_memory_diagnostic
+
+            checks["dsh_pet_memory"] = pet_memory_diagnostic(options["dsh_target"])
     except Exception as error:  # Each target must produce a result even when native configuration is malformed.
         return {"verification": Diagnostic(DiagnosticStatus.FAILED, str(error))}
     try:
@@ -130,8 +135,16 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
             return checks
         target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
         endpoint, allowed = resolve_host_transport(host, **target)
+        authorization = None
+        if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
+            authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
         checks.update(
-            server_diagnostics(server_url=endpoint, allow_insecure_http=allowed, readiness=checks.get("server"))
+            server_diagnostics(
+                server_url=endpoint,
+                allow_insecure_http=allowed,
+                readiness=checks.get("server"),
+                authorization=authorization,
+            )
         )
     except Exception as error:  # A failed Server probe must not hide completed installation.
         checks["transport"] = Diagnostic(DiagnosticStatus.FAILED, str(error))
@@ -145,7 +158,8 @@ def diagnostic_result(checks) -> dict[str, Any]:
     required = {
         key: item
         for key, item in checks.items()
-        if item.status is not DiagnosticStatus.SKIPPED or key not in {"runtime", "mcp_session", "mcp_full_profile"}
+        if key != "dsh_pet_memory"
+        and (item.status is not DiagnosticStatus.SKIPPED or key not in {"runtime", "mcp_session", "mcp_full_profile"})
     }
     status = _diagnostics_status(required)
     return {"status": status.value, "checks": {key: item.as_json() for key, item in checks.items()}}
@@ -178,6 +192,11 @@ def report_agents(selected: Sequence[str], action: Callable[[str], dict[str, Any
             ):
                 if key in row.get("result", {}):
                     typer.echo(f"  {key}: {row['result'][key]}")
+            if pet := row.get("result", {}).get("dsh_pet_memory"):
+                typer.echo(f"  dsh_pet_memory: {pet['status']}")
+                for key in ("reason", "server_url", "bindings", "data", "runtime", "discarded_pending"):
+                    if key in pet:
+                        typer.echo(f"    {key}: {pet[key]}")
             if "error" in row:
                 typer.echo(row["error"])
             for key, item in row.get("checks", {}).items():

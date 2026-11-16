@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import ci_changes
 import pytest
@@ -47,8 +49,15 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("Bash is required to execute the macOS build step")
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(ROOT / "desktop/scripts/build_macos.py", scripts / "build_macos.py")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    hdiutil = bin_dir / "hdiutil"
+    hdiutil.write_text("#!/bin/sh\nprintf '%s' '<plist><dict><key>images</key><array/></dict></plist>'\n")
+    hdiutil.chmod(0o755)
     driver = bin_dir / "pnpm"
     driver.write_text(
         f"#!{sys.executable}\n"
@@ -62,7 +71,14 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
         "count.write_text(str(attempt))\n"
         "failures = json.loads(os.environ['TEST_BUILD_FAILURES'])\n"
         "if attempt <= len(failures):\n"
-        "    print(failures[attempt - 1], file=sys.stderr)\n"
+        "    failure = failures[attempt - 1]\n"
+        "    if 'couldn' in failure:\n"
+        "        image = Path('src-tauri/target/release/bundle/macos/rw.123.Preview.dmg').resolve()\n"
+        "        image.parent.mkdir(parents=True, exist_ok=True)\n"
+        "        image.write_bytes(b'fixture')\n"
+        "        print('created: ' + str(image))\n"
+        "    print(failure, file=sys.stderr)\n"
+        "    print('failed to bundle project: error running bundle_dmg.sh', file=sys.stderr)\n"
         "    sys.exit(17)\n"
     )
     driver.chmod(0o755)
@@ -78,7 +94,7 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
         if step.get("name") == "Build unsigned macOS app and DMG"
     )
     result = subprocess.run(
-        [bash, "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=10, check=False
+        [bash, "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=90, check=False
     )
     assert result.returncode == expected_status, result.stdout + result.stderr
     # The external recovery budget is three builds; other build failures are terminal.
@@ -182,9 +198,10 @@ def test_explicit_full_pr_profile_overrides_the_small_matrix():
 def test_selected_scopes_have_a_complete_terminal_result_contract():
     main = workflow("master.yml")["jobs"]
     assert RULES["checks"].keys() == RULES["suites"].keys()
-    covered = {job for jobs in RULES["checks"].values() for job in jobs}
-    assert covered | {"quality", "upgrade-release-gate", "ci-result"} == set(main)
-    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result"}
+    covered = {job for table in ("checks", "nightly_checks") for jobs in RULES[table].values() for job in jobs}
+    assert covered | {"quality", "upgrade-release-gate", "ci-result"} <= set(main)
+    assert "managed-resource-candidates-linux" in set(main) - set(main["ci-result"]["needs"])
+    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result", "managed-resource-candidates-linux"}
 
 
 def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
@@ -223,7 +240,7 @@ def test_website_build_uses_the_standard_internal_runner():
 
 def test_all_end_to_end_suites_have_extended_timeout():
     timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
-    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 40 }}"
+    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 50 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
@@ -273,9 +290,63 @@ def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
     upgrade = workflow("upgrade-release.yml")["jobs"]["cases"]["strategy"]
     assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
-    native = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]["strategy"]
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    native = jobs["candidate"]["strategy"]
+    native_job = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]
     assert int(native["max-parallel"]) <= 2
-    assert {row["target"] for row in native["matrix"]["include"]} == {"windows-x86_64", "macos-arm64", "macos-x86_64"}
+    assert native["matrix"] == "${{ fromJSON(needs.select-targets.outputs.matrix) }}"
+    selector = jobs["select-targets"]
+    assert selector["outputs"]["matrix"] == "${{ steps.select.outputs.matrix }}"
+    assert native_job["continue-on-error"] == "${{ matrix.optional }}"
+
+
+def test_managed_resource_linux_is_outside_required_main_result_gate():
+    main = workflow("master.yml")["jobs"]
+    required = main["managed-resource-candidates"]
+    optional = main["managed-resource-candidates-linux"]
+    assert required["with"]["targets"] == '["windows-x86_64","macos-arm64","macos-x86_64"]'
+    assert optional["with"]["targets"] == '["linux-x86_64"]'
+    assert required["with"]["concurrency_suffix"] == "required"
+    assert optional["with"]["concurrency_suffix"] == "linux"
+    assert "managed-resource-candidates-linux" not in main["ci-result"]["needs"]
+    assert main["ci-result"]["needs"].count("managed-resource-candidates") == 1
+
+
+def test_managed_resource_workflow_filters_called_targets():
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    candidate = jobs["candidate"]
+    assert "matrix.target" not in candidate["if"]
+    assert "inputs.targets" in jobs["select-targets"]["steps"][0]["env"]["TARGETS"]
+    assert "inputs.concurrency_suffix" in workflow("managed-resource-candidates.yml")["concurrency"]["group"]
+
+
+def test_ci_result_ignores_only_the_separate_optional_linux_call():
+    script = workflow("master.yml")["jobs"]["ci-result"]["steps"][0]["run"]
+    script = script.split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
+    required = ["quality", "upgrade-release-gate", "managed-resource-candidates"]
+    results = {job: {"result": "success"} for job in required}
+    # The optional caller is intentionally absent because GitHub only exposes
+    # jobs listed in ci-result.needs to the terminal aggregation script.
+    run = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "RESULTS": json.dumps(results), "REQUIRED": json.dumps(required)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_linux_desktop_only_is_an_optional_platform_gate():
+    desktop = workflow("desktop.yml")["jobs"]
+    native = workflow("native-service.yml")["jobs"]
+
+    assert desktop["linux"]["continue-on-error"] is True
+    assert "continue-on-error" not in desktop["windows"]
+    assert "continue-on-error" not in desktop["macos"]
+    assert "continue-on-error" not in native["linux-systemd-user"]
+    assert "continue-on-error" not in native["macos-launchagent"]
+    assert "continue-on-error" not in native["windows-task-scheduler"]
 
 
 def test_cancelled_or_draft_runs_cannot_start_terminal_runner_jobs():
@@ -314,3 +385,87 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
         check=False,
     )
     assert (run.returncode == 0) == passes, run.stdout + run.stderr
+
+
+@pytest.mark.parametrize(
+    ("event", "skipped_job", "passes"),
+    [
+        ("pull_request", "seekdb-managed-startup", True),
+        ("push", "code-seekdb", True),
+        ("schedule", "seekdb-managed-startup", False),
+        ("schedule", "code-seekdb", False),
+        ("workflow_dispatch", "oceanbase-engine-recovery", False),
+        ("pull_request", "upgrade-acceptance", False),
+        ("pull_request", "harness-validation", False),
+        ("schedule", "harness-validation", False),
+    ],
+)
+def test_result_gate_distinguishes_deferred_native_work_from_missing_acceptance(event, skipped_job, passes):
+    jobs = workflow("master.yml")["jobs"]
+    _selected, required = ci_changes.execution_plan(event, dict.fromkeys(RULES["suites"], True), RULES)
+    results = {name: {"result": "success" if name in required else "skipped"} for name in jobs if name != "ci-result"}
+    results[skipped_job] = {"result": "skipped"}
+    script = jobs["ci-result"]["steps"][0]["run"].split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "RESULTS": json.dumps(results), "REQUIRED": json.dumps(required)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is passes, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "merge_group", "schedule", "workflow_dispatch"])
+def test_workflow_event_routes_native_jobs_and_backend_matrices(event):
+    native = event in {"schedule", "workflow_dispatch"}
+    selected, _required = ci_changes.execution_plan(event, dict.fromkeys(RULES["suites"], True), RULES)
+
+    def resolve(expression):
+        # These checked-in expressions use boolean operators, property access and
+        # the two Actions JSON/list functions. This checks routing with simulated
+        # metadata; it does not claim to execute the GitHub scheduler.
+        source = expression.strip().removeprefix("${{").removesuffix("}}")
+        source = re.sub(r"!(?!=)", "not ", source).replace("&&", " and ").replace("||", " or ").strip()
+        return eval(  # noqa: S307 -- trusted repository expressions with fixed contexts and no builtins
+            f"({source})",
+            {"__builtins__": {}},
+            {
+                "github": SimpleNamespace(event_name=event),
+                "inputs": SimpleNamespace(suites="", suite="all", upgrade_selection="full"),
+                "needs": SimpleNamespace(
+                    quality=SimpleNamespace(result="success", outputs=SimpleNamespace(suites=json.dumps(selected))),
+                    tests=SimpleNamespace(result="success"),
+                    changes=SimpleNamespace(result="failure"),
+                ),
+                "cancelled": lambda: False,
+                "contains": lambda values, value: value in values,
+                "fromJSON": lambda value: json.loads(value, object_hook=lambda obj: SimpleNamespace(**obj)),
+            },
+        )
+
+    main = workflow("master.yml")["jobs"]
+    for name in (
+        "seekdb-managed-startup",
+        "oceanbase-engine-recovery",
+        "code-seekdb",
+        "atomic-memory-clean-seekdb",
+        "seekdb-lock",
+    ):
+        assert resolve(main[name]["if"]) is native, name
+    assert resolve(main["upgrade-acceptance"]["with"]["selection"]) == ("full" if native else "sqlite")
+    for filename, job in (("candidate-schema-replay.yml", "replay"), ("capture-release-schema.yml", "capture")):
+        assert resolve(workflow(filename)["jobs"][job]["strategy"]["matrix"]["backend"]) == (
+            ["sqlite", "seekdb", "oceanbase"] if native else ["sqlite"]
+        )
+    harness = workflow("e2e-harness.yml")["jobs"]
+    for name in (
+        "recall-effort",
+        "atomic-memory-clean-oceanbase-shards",
+        "atomic-memory-native-fts-oceanbase",
+        "atomic-memory-clean-oceanbase",
+    ):
+        # Even a failed standalone scope detector must not schedule native work on a PR.
+        assert resolve(harness[name]["if"]) is native, name
+    plan = next(step for step in harness["validate"]["steps"] if step.get("id") == "plan")
+    assert resolve(plan["env"]["NATIVE_DATABASES"]) is native

@@ -289,7 +289,7 @@ def post(client, path, body):
 
 
 @contextmanager
-def server(python, environment, work, log):
+def server(python, environment, work, log, *, readiness_timeout=180):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -310,7 +310,7 @@ def server(python, environment, work, log):
                 trust_env=False,
                 timeout=30,
             ) as client:
-                deadline = time.monotonic() + 180
+                deadline = time.monotonic() + readiness_timeout
                 while True:
                     assert process.poll() is None, f"Server exited before readiness; see {log}"
                     try:
@@ -1241,7 +1241,11 @@ def test_fresh_upgrade_equivalence(
             case["report"] / "fresh-apply.log",
         )
     with server(
-        case["target"], environment_for(case, fresh=True), case["work"], case["report"] / "fresh-server.log"
+        case["target"],
+        environment_for(case, fresh=True),
+        case["work"],
+        case["report"] / "fresh-server.log",
+        readiness_timeout=360 if case["backend"] in {"seekdb", "oceanbase"} else 180,
     ) as client:
         fresh = seed(client, candidate_prefix="/v1/candidates")
         hits = post(

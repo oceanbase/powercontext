@@ -136,7 +136,7 @@ describe('PowerContextClient', () => {
       expect(init?.redirect).toBe('manual')
       const headers = new Headers(init?.headers)
       expect(headers.get('Authorization')).toBe('Bearer token')
-      expect(headers.get('User-Agent')).toBe('powercontext-dsh/0.0.2')
+      expect(headers.get('User-Agent')).toBe(PLUGIN_USER_AGENT)
       expect(JSON.parse(String(init?.body))).toEqual({ scope_id: 'project:demo', kind: 'decision', text: 'keep API async' })
       return jsonResponse(200, { entry: { text: 'keep API async' } }, { 'X-PowerContext-Request-ID': 'req-1' })
     })

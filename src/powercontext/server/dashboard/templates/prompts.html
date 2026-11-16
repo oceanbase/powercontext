@@ -13,31 +13,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
-{% from 'components/page-heading.html' import page_heading %}
-{{ page_heading(t.prompts, t.prompts_subtitle) }}
 
-{% if errors.get('prompts') %}
-  {{ read_error(errors.prompts, t.prompts) }}
-{% elif not data.prompts %}
-  <section class="card"><div class="empty"><h2>{{ t.prompt_empty }}</h2><p class="empty-subtitle text-secondary">{{ t.prompt_empty_body }}</p></div></section>
-{% else %}
-  <div class="row row-cards">
-  {% for prompt in data.prompts %}
-    {% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}
-    {% set mode = opened.content.mode if opened else prompt.mode %}
-    <section class="col-12 col-xl-6"><article class="card h-100">
-      <div class="card-header"><div><h2 class="card-title mb-1">{{ t.get(prompt.prompt_key, prompt.prompt_key) }}</h2><code class="small d-block mb-1">{{ prompt.prompt_key }}</code><div class="text-secondary small">{{ t.prompt_status }}: {{ prompt.status }}</div></div><span class="badge bg-blue-lt">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</span></div>
-      <div class="card-body">
-        {% if prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}
-        {{ read_error(errors.prompt_selected, t.prompt_revision) }}
-        {% else %}
-        <dl class="row mb-3"><dt class="col-sm-4">{{ t.prompt_revision }}</dt><dd class="col-sm-8">{{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }}</dd><dt class="col-sm-4">{{ t.prompt_demonstrations }}</dt><dd class="col-sm-8">{{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</dd></dl>
-        {% if prompt.artifact %}<p><a href="{{ link('prompts', prompt_key=prompt.prompt_key, prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }}</a></p>{% endif %}
-        {% if opened %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ opened.content.instructions }}</pre>{% elif prompt.effective %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.effective.instructions }}</pre>{% elif prompt.builtin %}<h3 class="h4">{{ t.prompt_instructions }}</h3><pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
-        {% endif %}
-      </div>
-    </article></section>
-  {% endfor %}
-  </div>
-  {% include 'components/revision-history.html' %}
-{% endif %}
+{% from 'components/page-heading.html' import page_heading %}
+{{ page_heading(t.prompts,t.prompts_subtitle) }}
+{% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
+{% if not data.prompts and not errors.get('prompts') %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
+<div class="record-list">{% for prompt in data.prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set mode = opened.content.mode if opened else prompt.mode %}
+<article><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="badge bg-secondary-lt ms-2">{{ t.get('prompt_state_' ~ prompt.status,prompt.status) }}</span><span class="text-secondary small ms-2">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</span></summary>
+<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> · {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} · {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
+{% if prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% else %}<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>{% endif %}
+{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} →</a>{% endif %}
+</details></article>{% endfor %}</div>{% include 'components/revision-history.html' %}

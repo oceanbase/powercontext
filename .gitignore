@@ -288,3 +288,5 @@ powercontext/gateway/
 # Evidence-admission reports, run records, and historical result bundles are
 # published as separately checksummed artifacts rather than committed with code.
 evaluation/memory/evidence_admission/results/
+!integrations/dsh/plugins/dsh-pet/lib/
+!integrations/dsh/plugins/dsh-pet/lib/index.js

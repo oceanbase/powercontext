@@ -1,0 +1,50 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% if candidate.status == 'pending' %}
+{% set permissions = candidate.get('permissions') %}
+{% set decision_url = link('review/decision', candidate_id=candidate.candidate_id, candidate_kind=detail.kind, review_status=review.status, lang=language) %}
+<section class="card mb-3" aria-label="{{ t.review_decide }}">
+  <div class="card-header"><h2 class="card-title mb-0">{{ t.review_decide }}</h2></div>
+  <div class="card-body">
+    <p class="text-secondary small">{{ t.review_decision_version.format(version=candidate.version) }}</p>
+    {% if permissions is none or permissions.can_approve %}
+    <form method="post" action="{{ decision_url }}" hx-boost="false">
+      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
+      <button type="submit" name="action" value="approve" class="btn btn-primary w-100">{{ t.review_approve }}</button>
+    </form>
+    {% endif %}
+    {% if permissions is none or permissions.can_reject %}
+    <details class="mt-3"><summary>{{ t.review_reject }}</summary>
+      <form method="post" action="{{ decision_url }}" hx-boost="false" class="mt-3">
+        <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
+        <label class="form-label" for="rejection-reason">{{ t.review_reject_reason }}</label><textarea id="rejection-reason" class="form-control mb-2" name="reason" maxlength="2000" rows="3" required></textarea><button type="submit" name="action" value="reject" class="btn">{{ t.review_reject }}</button>
+      </form>
+    </details>
+    {% endif %}
+    {% if permissions is none or permissions.can_revise %}
+    <details class="mt-3"><summary>{{ t.review_edit }}</summary>
+      <p class="text-secondary small mt-2">{{ t.review_edit_notice }}</p>
+      <form method="post" action="{{ decision_url }}" hx-boost="false">
+        <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
+        <textarea class="form-control font-monospace my-3" rows="16" name="replacement" aria-label="{{ t.review_content }}" required>{{ detail.revision }}</textarea>
+        <button type="submit" name="action" value="revise" class="btn">{{ t.review_revise }}</button>
+      </form>
+    </details>
+    {% endif %}
+    {% if permissions is not none and not permissions.can_approve and not permissions.can_reject and not permissions.can_revise %}<p class="text-secondary mb-0">{{ t.review_read_only }}</p>{% endif %}
+  </div>
+</section>
+{% endif %}

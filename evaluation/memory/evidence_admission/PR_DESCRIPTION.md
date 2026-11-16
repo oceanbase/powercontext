@@ -117,7 +117,7 @@ remote-backend acceptance, host qualification, or provider cancellation/refund g
 # Are there any user-facing changes?
 
 This PR adds evaluation commands and documentation. Production source and Gateway behavior are unchanged relative
-to the reviewed upstream base `cfdb617cddc77994e5e7033bc3b7ac84d47940c9`.
+to the integrated upstream base `e725225b103a7b41e601710d352ca3c3d3ae0ea0`.
 The refusal-coverage change is excluded from the evaluation diff and retained in Git history for a separate follow-up; this PR
 does not claim to fix that upstream gap. No new production admission policy, feature flag, migration, or API is added.
 
@@ -126,7 +126,7 @@ does not claim to fix that upstream gap. No new production admission policy, fea
 The preceding local evaluation run completed with 1,460 passed and 48 skipped, followed by 104 passed in the included
 tool-recovery suite. The user subsequently reported that `make check`, `make evaluation-unit-test`, the focused
 non-live suite, Ruff lint/format, evaluation types, `make test`, `make build`, and `tox` passed before these local changes.
-Those reports do not establish validation of the latest documentation and scope changes or the eventual conflict-resolved tree.
+Those reports do not establish validation of the latest documentation and scope changes or the current merged tree.
 
 The current changes were checked statically for whitespace, evidence links, archive identities, and Gateway diff scope.
 Full validation is left to the user. Historical bundle-dependent tests skip by default; the bundle does not replace the
@@ -134,8 +134,11 @@ matching historical runtime or unavailable private responses. Default tests need
 Live execution, manual cost calculation, cancellation, audit, and report regeneration are documented in
 [the runbook](LIVE_RUNBOOK.md) and [Chinese instructions](LIVE_RUNBOOK.zh.md).
 
-The PR was reported as `CONFLICTING` / `DIRTY` against `master` before this update. No upstream merge or conflict
-resolution is included in this change; remote mergeability and CI must be checked at the new head before merging.
+Upstream `master` at `e725225b103a7b41e601710d352ca3c3d3ae0ea0` is integrated with a normal merge.
+The `.gitignore` resolution preserves both the evaluation-result ignores and the upstream DSH pet file exceptions.
+The `evaluation-unit-test` target keeps evidence-admission tests in the evaluation environment and prepared-context
+budget/recovery tests in the root environment. Full checks were not rerun for this integration; remote mergeability
+and CI must be checked after publication, because upstream may advance again.
 
 # AI usage statement
 

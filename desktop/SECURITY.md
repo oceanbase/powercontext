@@ -68,6 +68,8 @@ Native code writes private files atomically (0600/0700 on POSIX; current-user pr
 links/reparse points, and validates ownership/protection on existing control files. This same-user bridge is not a
 privilege boundary against another process running as that user.
 
+The native reference file stores operation IDs, binding fingerprints and the approved action/options before dispatch. It stores no outcome, raw plan, endpoint, path or credential. Legacy references without action metadata remain queryable but cannot authorize resume. Resume must match the retained action/options. Progress is correlated to the native approval ID as well as operation/attempt. Ops journals and locks
+
 The native reference file stores only operation IDs and binding fingerprints before dispatch. Ops journals and locks
 remain the sole recovery authority. Four ordinary and two reserved status/cancel helpers bound native concurrency;
 timed-out children retain their slot until exit. Each invocation bounds JSONL messages to 64 KiB, aggregate output to
@@ -84,3 +86,9 @@ See [Local Server Ops](../docs/en/docs/operate/local-server-ops.md#desktop-nativ
 resource configuration, producer pins, stable paths and recovery API. The bridge does not ship production resources or
 an installation wizard. Real service mutations, signing/notarization and clean-machine acceptance require separate
 platform evidence.
+
+## Explicit local connection handoff
+
+`connect_local_server` accepts only the current context generation. It obtains the endpoint through trusted native Ops, requires an owned/current registration, active process, valid configuration, present runtime, responding service and installation identity. It matches the observed resource ID/digest to the pinned catalog and selects only its named bundled Desktop qualification for the current HTTP contract. Known qualification IDs also require the catalog source commit and `wheel-sha256:` reference to match the record's original Server source and qualification wheel; a matching API contract cannot reinterpret historical evidence. Candidate/unrecognized qualifications fail closed. The discovery package version, Principal, basic Memory operation set and exact public default Scope must pass before a local activation is published. Pending or failed qualification/Scope reads expose no active local context and cannot replace a newer context. Existing Bearer/CA profiles are not overwritten. Page opening and application reopen never invoke this command.
+
+Local handoff completion preserves newer navigation and editor intent.

@@ -216,7 +216,15 @@ def capture(args):
             save(output / "manifest.json", manifest)
             if args.backend == "oceanbase" and snapshot(case, "source", "empty")["tables"]:
                 raise RuntimeError("Refusing to initialize a nonempty OceanBase database")  # noqa: TRY003
-            with server(python, env, work, output / "source-server.log") as client:
+            # Released OceanBase initializes the complete native schema on first
+            # startup. Keep this within the capture process's existing 30m bound.
+            with server(
+                python,
+                env,
+                work,
+                output / "source-server.log",
+                readiness_timeout=360 if args.backend == "oceanbase" else 180,
+            ) as client:
                 readiness = client.get("/health/ready")
                 readiness.raise_for_status()
                 save(output / "source-readiness.json", readiness.json())

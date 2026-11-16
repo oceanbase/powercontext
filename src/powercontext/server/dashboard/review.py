@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlsplit
 from fastapi import Request
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
+from powercontext.server.dashboard.review_reading import candidate_title, content_fields, family_label, present_detail
 
 KINDS = {"artifact", "tag"}
 
@@ -50,7 +51,17 @@ async def load_review(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
                 "candidate_kind": None if kind == "all" else kind,
             },
         )
-        view["sections"].append({"kind": kind, **result})
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in result["candidates"]:
+            grouped.setdefault(item["candidate_kind"], []).append(item)
+        # The inbox keeps both group headings visible so an empty group is
+        # distinguishable from a filtered page.
+        for candidate_kind in ("artifact", "tag") if kind == "all" else (kind,):
+            view["sections"].append({
+                "kind": candidate_kind,
+                "candidates": grouped.get(candidate_kind, []),
+                "next_cursor": result.get("next_cursor"),
+            })
     except ReadError as error:
         ctx["errors"]["candidates"] = error
     if selected:
@@ -76,10 +87,21 @@ async def load_review(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
             "history": [],
         }
         view["selected"] = detail
-        await _detail(api, request, ctx["scope"], detail)
+        await _detail(api, request, ctx, detail)
+    for section in view["sections"]:
+        for item in section["candidates"]:
+            opened = view["selected"]
+            value = (
+                opened["candidate"] if opened and item["candidate_id"] == opened["candidate"]["candidate_id"] else item
+            )
+            item.update(
+                display_title=item.get("catalog_title") or candidate_title(value, ctx["t"]),
+                family_label=family_label(item, ctx["t"]),
+            )
 
 
-async def _detail(api: DashboardAPI, request: Request, scope: str, detail: dict[str, Any]) -> None:
+async def _detail(api: DashboardAPI, request: Request, ctx: dict[str, Any], detail: dict[str, Any]) -> None:
+    scope = ctx["scope"]
     candidate, kind = detail["candidate"], detail["kind"]
     proposal = candidate["proposal"]
     baseline: Any = None
@@ -130,6 +152,7 @@ async def _detail(api: DashboardAPI, request: Request, scope: str, detail: dict[
         )
     )
     detail["evidence"] = await _evidence(api, scope, candidate, request.query_params.get("evidence"))
+    present_detail(ctx, detail, baseline)
 
 
 async def _evidence(
@@ -156,10 +179,22 @@ async def _evidence(
         raise ReadError(422, "invalid_request")
     items = []
     for index, (ref, path) in enumerate(evidence):
-        item = {"reference": formatted(ref), "selected": index_to_read == index}
+        item = {
+            "reference": formatted(ref),
+            "selected": index_to_read == index,
+            "ref": ref,
+            "number": index + 1,
+            "kind": "artifact" if "artifact_id" in ref else "source",
+        }
         if item["selected"]:
             try:
-                item["content"] = formatted(await api.read(path))
+                value = await api.read(path)
+                item["content"] = formatted(value)
+                if item["kind"] == "source":
+                    content = value["content"]
+                    item["text"] = content if isinstance(content, str) else formatted(content)
+                else:
+                    item["fields"] = content_fields(ref["family"], value["content"])
             except ReadError as error:
                 item["error"] = error
         items.append(item)
@@ -183,7 +218,7 @@ async def load_review_inspection(api: DashboardAPI, request: Request, ctx: dict[
         raise ReadError(422, "invalid_request")
 
 
-async def submit_review(api: DashboardAPI, request: Request) -> tuple[str, str, str]:
+async def submit_review(api: DashboardAPI, request: Request) -> tuple[str, str, str, str]:
     origin = request.headers.get("origin")
     expected = urlsplit(str(request.base_url))
     if origin != f"{expected.scheme}://{expected.netloc}":
@@ -210,5 +245,5 @@ async def submit_review(api: DashboardAPI, request: Request) -> tuple[str, str, 
         payload.update(scope_id=scope, candidate_id=candidate_id, expected_version=int(form["expected_version"]))
     except (ValueError, KeyError, UnicodeDecodeError) as error:
         raise ReadError(422, "invalid_request") from error
-    await api.read("/v1/candidates/" + action, payload)
-    return scope, kind, candidate_id
+    result = await api.read("/v1/candidates/" + action, payload)
+    return scope, kind, candidate_id, result["status"]

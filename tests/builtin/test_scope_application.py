@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from contextlib import AsyncExitStack
 
@@ -28,6 +29,7 @@ from powercontext.builtin.scope import (
     ScopeBindingKey,
     ScopeBindingNotFoundError,
     ScopeDraft,
+    ScopeExternalReference,
     ScopeIdempotencyConflictError,
     ScopeMutation,
     ScopeRelationshipError,
@@ -284,6 +286,41 @@ def test_context_reference_order_does_not_change_scope_creation() -> None:
     asyncio.run(scenario())
 
 
+def test_exact_scope_reads_refresh_values_and_keep_requested_id_sets_separate() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            scopes = ScopeApplication(profile.database)
+            first = await scopes.create(ScopeDraft(title="First", summary="Shared", idempotency_key="first"))
+            second = await scopes.create(
+                ScopeDraft(
+                    title="Second",
+                    summary="Uses First",
+                    context_references=(first.scope_id,),
+                    idempotency_key="second",
+                )
+            )
+
+            assert await scopes.list(scope_ids=(first.scope_id,)) == (first,)
+            assert await scopes.list(scope_ids=(second.scope_id,)) == (second,)
+            assert set(await scopes.list(scope_ids=(second.scope_id, first.scope_id))) == {first, second}
+            assert await scopes.list(scope_ids=()) == ()
+
+            changed = await scopes.update(
+                second.scope_id,
+                ScopeMutation(expected_version=second.version, title="Changed", summary="New summary"),
+            )
+            assert changed.context_references == ()
+            assert await scopes.get(second.scope_id) == changed
+            assert await scopes.list(scope_ids=(first.scope_id,)) == (first,)
+            assert set(await scopes.list(scope_ids=(first.scope_id, second.scope_id))) == {first, changed}
+            concurrent = await asyncio.gather(
+                *(scopes.get(scope.scope_id) for scope in (first, changed, changed, first))
+            )
+            assert concurrent == [first, changed, changed, first]
+
+    asyncio.run(scenario())
+
+
 def test_exact_selection_is_a_canonical_set() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
@@ -338,5 +375,46 @@ def test_binding_resolution_fails_without_any_binding() -> None:
 
             with pytest.raises(ScopeBindingNotFoundError):
                 await scopes.resolve_binding()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "seekdb"])
+def test_scopes_listed_by_external_reference_match_kind_and_value_exactly(tmp_path, backend: str) -> None:
+    if backend == "seekdb":
+        # seekdb compares string columns without regard to case or accents by default.
+        if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
+            pytest.skip("real seekdb acceptance not enabled")
+        pytest.importorskip("pylibseekdb")
+        from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+
+        opened = SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=BUILTIN_TABLES)
+    else:
+        opened = SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES)
+
+    async def scenario() -> None:
+        async with opened as profile:
+            scopes = ScopeApplication(profile.database)
+
+            def draft(key: str, *references: tuple[str, str]) -> ScopeDraft:
+                return ScopeDraft(
+                    title=key,
+                    summary="Referenced",
+                    idempotency_key=key,
+                    external_references=tuple(
+                        ScopeExternalReference(kind=kind, value=value) for kind, value in references
+                    ),
+                )
+
+            owned = await scopes.create(draft("owned", ("plugin", "rooms"), ("ticket", "OPS-1")))
+            await scopes.create(draft("prefix", ("plugin", "rooms-archive")))
+            await scopes.create(draft("other-case", ("plugin", "ROOMS")))
+            await scopes.create(draft("accented", ("plugin", "róoms")))
+            await scopes.create(draft("other-kind", ("ticket", "rooms")))
+            await scopes.create(draft("plain"))
+
+            reference = ScopeExternalReference(kind="plugin", value="rooms")
+            assert await scopes.list(external_reference=reference) == (owned,)
+            assert await scopes.list(external_reference=ScopeExternalReference(kind="plugin", value="none")) == ()
 
     asyncio.run(scenario())

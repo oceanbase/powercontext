@@ -40,6 +40,14 @@ opencode
 具名 `pc_*` 工具提供精选的 Memory、Handoff、Experience、Skill 和只读 Candidate 操作。持久化变更前
 OpenCode 会要求确认；Candidate 的批准和拒绝仍由用户通过 CLI 显式执行。
 
+这项确认对应 OpenCode 的 `powercontext` 权限，插件将它设为 `ask`。你配置的匹配规则优先，例如 `permission` 或某个
+agent 的 `permission` 中的 `"*": "allow"`。每次请求以操作名作为模式，因此
+`"permission": {"powercontext": {"remember_memory": "allow"}}` 会让保存 Memory 时不再询问，其他写入仍会询问。
+选择 “Allow always” 只批准当前这一次调用。
+
+在 `opencode run` 中，OpenCode 会拒绝每个权限请求并结束当前回合，因此非交互运行会停在第一次 PowerContext 写入。
+请为这类运行允许它需要的操作，例如 `"permission": {"powercontext": "allow"}`，而不是批准这次运行的所有权限。
+
 ## 配置连接
 
 启动 OpenCode 前设置环境变量：

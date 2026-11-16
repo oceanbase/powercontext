@@ -282,6 +282,12 @@ pub struct OpsCancelInput {
 pub struct OpsOperationReference {
     pub operation_id: String,
     pub binding_status: OpsReferenceBindingStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub operation: Option<OpsOperation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub options: Option<OpsOptions>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -296,6 +302,7 @@ pub enum OpsReferenceBindingStatus {
 #[serde(rename_all = "camelCase")]
 pub struct OpsReferences {
     pub binding_available: bool,
+    pub login_start_choice: bool,
     pub operations: Vec<OpsOperationReference>,
 }
 
@@ -523,6 +530,9 @@ status_enum!(OpsRecoveryAction { Inspect => "inspect", Preflight => "preflight",
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct OpsProgress {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub approval_id: Option<String>,
     pub request_id: String,
     pub operation_id: String,
     pub attempt: u32,

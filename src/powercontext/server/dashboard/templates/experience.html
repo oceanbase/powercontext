@@ -32,9 +32,9 @@ limitations under the License.
       {% for field in ['situation', 'action', 'outcome'] %}
       <section><h2>{{ t[field] }}</h2><p>{{ data.experience[field] }}</p></section>
       {% endfor %}
-      {% call record_references(data.experience, 'experience') %}
+<details class="supporting-details"><summary>{{ t.source_references }}</summary>      {% call record_references(data.experience, 'experience') %}
         {% include 'components/record-sources.html' %}
-      {% endcall %}
+      {% endcall %}</details>
     </div>
   </div>
 </article>

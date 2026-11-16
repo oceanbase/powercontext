@@ -66,12 +66,12 @@ def probe_measurement(
 
 
 def fixture_provider(config, admin):
+    from powercontext.builtin.authz import PrincipalRef
     from powercontext.server.authentication import (
         AuthenticationRejectedError,
         AuthenticationResult,
         ProviderReadiness,
     )
-    from powercontext.server.authz import PrincipalRef
 
     class FixtureProvider:
         async def authenticate(self, request):
@@ -255,6 +255,9 @@ def serve(config_path: Path) -> None:
             scope["path"] = scope["path"][len(prefix) :]
             scope["raw_path"] = scope["path"].encode()
             scope["root_path"] = prefix
+            readiness_requests = config.get("readiness_requests_path")
+            if readiness_requests and scope["path"] == "/health/ready":
+                await asyncio.to_thread(record_readiness_request, Path(readiness_requests))
         gate = config.get("response_gate_path")
         if gate and scope["type"] == "http" and scope["path"] == "/v1/memory/remember":
             await forward_with_response_gate(app, scope, receive, send, gate)
@@ -287,9 +290,9 @@ def serve(config_path: Path) -> None:
         if not config.get("provider"):
             await server.serve()
             return
+        from powercontext.builtin.authz import PrincipalRef
+        from powercontext.builtin.authz.composition import open_builtin_access_control
         from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
-        from powercontext.server.authz import PrincipalRef
-        from powercontext.server.authz.composition import open_builtin_access_control
         from powercontext.server.settings import AccessControlConfig
 
         admin = PrincipalRef(type="service", id="desktop-fixture-admin")
@@ -309,6 +312,12 @@ def serve(config_path: Path) -> None:
             await server.serve()
 
     asyncio.run(run())
+
+
+def record_readiness_request(path: Path) -> None:
+    # Count only the fixed synthetic endpoint, without request data.
+    with path.open("a", encoding="utf-8") as observations:
+        observations.write("request\n")
 
 
 def control_pipe(process: subprocess.Popen[bytes]) -> IO[bytes]:

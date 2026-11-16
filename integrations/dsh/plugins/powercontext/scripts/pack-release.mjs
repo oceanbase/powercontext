@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stampPublishManifest } from './stamp-version.mjs'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const root = process.argv[4] ? resolve(process.argv[4]) : join(dirname(fileURLToPath(import.meta.url)), '..')
 const current = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = process.argv[2]?.trim() || current.version
 const packed = stampPublishManifest(current, version)

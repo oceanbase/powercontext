@@ -1,0 +1,44 @@
+{
+  "format_version": 1,
+  "resources": [
+    {
+      "resource_id": "resource-a",
+      "server_version": "1.4.2",
+      "python_version": "3.12.15",
+      "platform": "macos",
+      "architecture": "arm64",
+      "archive_format": "tar.gz",
+      "url": "https://example.invalid/server.tar.gz",
+      "allowed_origins": [
+        "https://example.invalid"
+      ],
+      "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "archive_size": 2,
+      "unpacked_size": 2,
+      "python_relative": "bin/python3",
+      "ops_protocol_min": 1,
+      "ops_protocol_max": 1,
+      "source_refs": [
+        "git+https://example.invalid/repository@dddddddddddddddddddddddddddddddddddddddd",
+        "wheel-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      ],
+      "license_refs": [
+        "synthetic-license"
+      ],
+      "qualification_ref": "qualified-profile-a",
+      "files": [
+        {
+          "path": "bin/python3",
+          "size": 1,
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executable": true
+        },
+        {
+          "path": "README",
+          "size": 1,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    }
+  ]
+}

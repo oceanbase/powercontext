@@ -198,6 +198,11 @@ text in one session conservatively reuses a Source ID and cannot distinguish a n
 capture is enabled by default, while text resembling a secret is not captured automatically. Preparation and capture
 are independent: one can succeed when the other fails.
 
+`UserPromptSubmit` and `SessionStart` share a 4-second internal network budget across their requests, with a
+3-second limit per HTTP request and a 5-second host process timeout. Requests are limited by whichever deadline
+comes first. A timed-out prepare still permits prompt capture if budget remains; an exhausted budget starts no
+new request. Stop retains its separate, shorter budget described below.
+
 ## Session lifecycle and optional boundary processing
 
 `SessionStart` resolves Scope and records the event. `startup`/`clear` add no generic recall or Source; the first ordinary

@@ -57,7 +57,9 @@ from powercontext.builtin.persistence.family_management import FamilyManagementW
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite import topic_memory_index as sqlite_topic_memory_index
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
+    SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE,
     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
     SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
     SQLiteTopicMemoryFTSIndex,
@@ -1244,6 +1246,196 @@ def test_sqlite_fts_reopen_preserves_search_without_reindexing(tmp_path: Path, m
             await repository.initialize(connection)
             result = await repository.search(connection, "scope-b", "survives", limit=10)
             assert [hit.artifact_ref.artifact_id for hit in result.hits] == ["peer-topic"]
+
+    asyncio.run(scenario())
+
+
+_SHARED_FTS_REQUEST = TopicMemorySearchRequest(query="shared amber", candidate_limit=20, mode="fts")
+
+
+async def _publish_shared_topics(
+    repository: TopicMemoryRepository, connection: AsyncConnection, scope_ids: Sequence[str], count: int
+) -> dict[tuple[str, str], TopicMemory]:
+    topics = {}
+    for scope_id in scope_ids:
+        for position in range(count):
+            content = _content(f"Shared {scope_id} {position}", "amber")
+            published = await repository.publish_create(
+                connection, scope_id, f"topic-{position}", _draft(content), prepare_topic_memory_projection(content)
+            )
+            topics[scope_id, f"topic-{position}"] = published.topic
+    return topics
+
+
+async def _revise_shared_topic(
+    repository: TopicMemoryRepository, connection: AsyncConnection, scope_id: str, current: TopicMemory
+) -> TopicMemory:
+    content = _content(f"Shared {scope_id} {current.artifact_id} r{current.revision + 1}", "amber")
+    draft = _draft(content, artifacts=(current.as_ref(),))
+    published = await repository.publish_revision(
+        connection, scope_id, current, draft, prepare_topic_memory_projection(content)
+    )
+    return published.topic
+
+
+def _fts_refs(channels: TopicMemorySearchChannels) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    return (
+        sorted((hit.artifact_ref.artifact_id, hit.artifact_ref.revision) for hit in channels.topic_fts),
+        sorted((hit.artifact_ref.artifact_id, hit.artifact_ref.revision) for hit in channels.detail_fts),
+    )
+
+
+def _ranked_fts(channels: TopicMemorySearchChannels) -> tuple[object, ...]:
+    # bm25 statistics span the whole table, so another Scope's writes may move
+    # raw scores; ranked identities and admission counts must not change.
+    return (
+        tuple((hit.artifact_ref, hit.chunk_ordinal, hit.chunk_text) for hit in channels.topic_fts),
+        tuple((hit.artifact_ref, hit.chunk_ordinal, hit.chunk_text) for hit in channels.detail_fts),
+        channels.topic_fts_retrieved,
+        channels.detail_fts_retrieved,
+        channels.topic_fts_eligible,
+        channels.detail_fts_eligible,
+    )
+
+
+async def _assert_scope_rowid_ranges(connection: AsyncConnection, scope_ids: Sequence[str]) -> None:
+    # Range bounds, not the scope_id filter, are what keep FTS5 from reading
+    # other Scopes, so each test Scope's range must hold exactly its own rows.
+    for statement in (
+        "SELECT rowid, scope_id FROM pc_topic_memory_topic_fts",
+        "SELECT rowid, scope_id FROM pc_topic_memory_chunk_fts",
+    ):
+        rows = (await connection.exec_driver_sql(statement)).all()
+        for scope_id in scope_ids:
+            first, last = sqlite_topic_memory_index._scope_rowid_range(scope_id)
+            own = {rowid for rowid, owner in rows if owner == scope_id}
+            assert own
+            assert own == {rowid for rowid, _ in rows if first <= rowid <= last}
+
+
+def test_sqlite_fts_replacements_leave_other_scopes_results_unchanged(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        index = SQLiteTopicMemoryFTSIndex()
+        repository = TopicMemoryRepository(index=CompositeTopicMemoryIndex(index))
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'fts-scopes.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                topics = await _publish_shared_topics(repository, connection, ("scope-a", "scope-b"), 3)
+                other_before = await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)
+            for _ in range(3):
+                for artifact_id in ("topic-0", "topic-2"):
+                    async with profile.database.transaction() as connection:
+                        topics["scope-a", artifact_id] = await _revise_shared_topic(
+                            repository, connection, "scope-a", topics["scope-a", artifact_id]
+                        )
+            async with profile.database.transaction() as connection:
+                other_after = await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)
+                revised = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
+                await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
+
+        assert _ranked_fts(other_after) == _ranked_fts(other_before)
+        assert _fts_refs(revised) == ([("topic-0", 4), ("topic-1", 1), ("topic-2", 4)],) * 2
+        assert revised.topic_fts_retrieved == revised.detail_fts_retrieved == 3
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_fts_version_1_database_stays_searchable_before_and_after_upgrade(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        index = SQLiteTopicMemoryFTSIndex()
+        repository = TopicMemoryRepository(index=CompositeTopicMemoryIndex(index))
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'fts-v1.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                topics = await _publish_shared_topics(repository, connection, ("scope-a", "scope-b"), 2)
+                expected = {
+                    scope_id: await index.search(connection, scope_id, _SHARED_FTS_REQUEST)
+                    for scope_id in ("scope-a", "scope-b")
+                }
+                # Version 1 numbered every Scope's rows from one global sequence.
+                for statement in (
+                    "CREATE TEMP TABLE v1_topics AS SELECT * FROM pc_topic_memory_topic_fts",
+                    "CREATE TEMP TABLE v1_chunks AS SELECT * FROM pc_topic_memory_chunk_fts",
+                    "DELETE FROM pc_topic_memory_topic_fts",
+                    "DELETE FROM pc_topic_memory_chunk_fts",
+                    "INSERT INTO pc_topic_memory_topic_fts SELECT * FROM v1_topics",
+                    "INSERT INTO pc_topic_memory_chunk_fts SELECT * FROM v1_chunks",
+                ):
+                    await connection.exec_driver_sql(statement)
+                await connection.execute(update(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE).values(schema_version=1))
+            async with profile.database.transaction() as connection:
+                # Managed startup validates only, so version-1 rows must stay usable unconverted.
+                for scope_id, channels in expected.items():
+                    assert await index.search(connection, scope_id, _SHARED_FTS_REQUEST) == channels
+                topics["scope-a", "topic-0"] = await _revise_shared_topic(
+                    repository, connection, "scope-a", topics["scope-a", "topic-0"]
+                )
+                assert (
+                    _fts_refs(await index.search(connection, "scope-a", _SHARED_FTS_REQUEST))
+                    == ([("topic-0", 2), ("topic-1", 1)],) * 2
+                )
+                assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(
+                    expected["scope-b"]
+                )
+        async with (
+            SQLiteProfile.open(config, tables=BUILTIN_TABLES + index.tables) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await repository.initialize(connection)
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
+            upgraded = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
+            assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(
+                expected["scope-b"]
+            )
+            topics["scope-a", "topic-1"] = await _revise_shared_topic(
+                repository, connection, "scope-a", topics["scope-a", "topic-1"]
+            )
+            assert (
+                _fts_refs(await index.search(connection, "scope-a", _SHARED_FTS_REQUEST))
+                == ([("topic-0", 2), ("topic-1", 2)],) * 2
+            )
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
+            assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(
+                expected["scope-b"]
+            )
+        assert _fts_refs(upgraded) == ([("topic-0", 2), ("topic-1", 1)],) * 2
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_fts_scope_keeps_replacing_topics_after_its_rowid_range_fills(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Shrink each Scope's range so repeated appends exhaust it within the test.
+    monkeypatch.setattr(sqlite_topic_memory_index, "_SCOPE_ROWID_BITS", 2)
+
+    async def scenario() -> None:
+        index = SQLiteTopicMemoryFTSIndex()
+        repository = TopicMemoryRepository(index=CompositeTopicMemoryIndex(index))
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await repository.initialize(connection)
+            topics = await _publish_shared_topics(repository, connection, ("scope-a", "scope-b"), 2)
+            other = await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)
+            for _ in range(3):
+                for artifact_id in ("topic-0", "topic-1"):
+                    topics["scope-a", artifact_id] = await _revise_shared_topic(
+                        repository, connection, "scope-a", topics["scope-a", artifact_id]
+                    )
+                    current = sorted(
+                        (topic.artifact_id, topic.revision)
+                        for (scope, _), topic in topics.items()
+                        if scope == "scope-a"
+                    )
+                    revised = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
+                    assert _fts_refs(revised) == (current, current)
+            assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(other)
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
+        assert _fts_refs(revised) == ([("topic-0", 4), ("topic-1", 4)],) * 2
 
     asyncio.run(scenario())
 

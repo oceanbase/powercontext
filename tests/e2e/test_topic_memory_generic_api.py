@@ -74,7 +74,6 @@ def _app(
             mcp=McpConfig(enabled=False),
         ),
         embedding_model=embedding,
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
 
@@ -480,14 +479,16 @@ def test_usage_lock_wait_does_not_expire_successful_topic_embedding(tmp_path, mo
         else:
             saved = client.get(f"/v1/scopes/{source}/artifacts/topic-memory/{response.json()['artifact_id']}")
             assert saved.json()["content"] == _content("updated")
-        # The contender is gone, so the recorder must account for new work again,
-        # and the write's own completion boundary must make that visible before
-        # the client returns rather than only at shutdown.
+        # A statistics read drains the accepted prefix after the contender is
+        # gone; ordinary writes no longer wait for accounting to catch up.
         _create(client, source, "accounting-recovered")
+        statistics = client.post("/v1/stats", json={"selection": {"mode": "exact", "scope_ids": [source]}})
+        assert statistics.status_code == 200, statistics.text
         assert _topic_embedding_requests(tmp_path / "topics.db", source) >= 1
 
 
-def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, monkeypatch):
+@pytest.mark.parametrize("flush_timeout", [0.05, 30.0])
+def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, monkeypatch, flush_timeout):
     """Usage recording is best-effort and runs outside the request's own path.
 
     The recorder is blocked on its own write here. That must not delay or fail
@@ -506,7 +507,12 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
 
         # This test stalls the recorder itself, so the budget must stay far beyond
         # the hold: a record dropped for spending its budget is never entered.
-        app = _app(tmp_path, UsageEmbeddings(), model_usage_write_timeout_seconds=30.0)
+        app = _app(
+            tmp_path,
+            UsageEmbeddings(),
+            model_usage_write_timeout_seconds=30.0,
+            model_usage_flush_timeout_seconds=flush_timeout,
+        )
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
@@ -519,13 +525,41 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
             payload = {"family": "topic-memory", "content": _content("stalled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
-                # The only wait this path may pay is the bounded flush at its own
-                # completion boundary; anything near the record's write budget
-                # would mean bookkeeping is back on the request's critical path.
-                response = await asyncio.wait_for(client.post(path, json=payload), 2)
-                assert response.status_code == 201, response.text
-                assert await asyncio.wait_for(entered.wait(), 5)
-                release.set()
+                try:
+                    # Both statistics budgets exceed the request watchdog. A
+                    # business result must not depend on either budget expiring.
+                    response = await asyncio.wait_for(client.post(path, json=payload), 2)
+                    assert response.status_code == 201, response.text
+                    assert await asyncio.wait_for(entered.wait(), 5)
+                    captured = await asyncio.wait_for(
+                        client.post(
+                            "/v1/sources/content",
+                            json={"scope_id": scope, "source_id": "available", "content": "Still available"},
+                        ),
+                        2,
+                    )
+                    assert captured.status_code == 202, captured.text
+                    searched = await asyncio.wait_for(
+                        client.post(
+                            "/v1/atomic-memory/search",
+                            json={"scope_id": scope, "query": "Still available", "mode": "text"},
+                        ),
+                        2,
+                    )
+                    assert searched.status_code == 200, searched.text
+                    reading = asyncio.create_task(
+                        client.post("/v1/stats", json={"selection": {"mode": "exact", "scope_ids": [scope]}})
+                    )
+                    if flush_timeout == 30.0:
+                        await asyncio.sleep(0.05)
+                        assert not reading.done()
+                        release.set()
+                    statistics = await asyncio.wait_for(reading, 5)
+                    assert statistics.status_code == 200, statistics.text
+                    assert statistics.json()["usage"]["totals"]["embedding"]["requests"] == int(release.is_set())
+                    release.set()
+                finally:
+                    release.set()
             assert len((await client.get(path + "/topic-memory")).json()["items"]) == 1
             await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
             assert (await client.post(path, json=payload)).status_code == 201
@@ -618,7 +652,7 @@ def test_usage_write_failure_logs_no_traceback_and_keeps_the_round(tmp_path, mon
 
 
 @pytest.mark.parametrize("record_fails", [False, True], ids=["normal", "storage-failure"])
-def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(
+def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_runtime_healthy(
     tmp_path, monkeypatch, record_fails
 ):
     """Cancellation may lose a usage record, but later work must still be recorded."""
@@ -630,12 +664,9 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
         original_record = StatisticsRepository.record
         flushing = asyncio.Event()
         original_flush = RelationalScopedStatistics.flush_model_usage
-        request_statistics = None
         record_write_budget = 30.0
 
         async def observed_flush(statistics):
-            nonlocal request_statistics
-            request_statistics = statistics
             flushing.set()
             await original_flush(statistics)
 
@@ -670,10 +701,14 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
                 injected.setattr(RelationalScopedStatistics, "flush_model_usage", observed_flush)
-                pending = asyncio.create_task(client.post(path, json=payload))
+                stats_payload = {"selection": {"mode": "exact", "scope_ids": [scope]}}
+                pending = None
                 try:
-                    # The recorder may start before the business transaction commits.
-                    # Cancel at its completion flush, not inside an arbitrary SQL call.
+                    created = await asyncio.wait_for(client.post(path, json=payload), 2)
+                    assert created.status_code == 201, created.text
+                    pending = asyncio.create_task(client.post("/v1/stats", json=stats_payload))
+                    # Statistics reads still wait for their accepted prefix;
+                    # cancelling the reader must not cancel the owned recorder.
                     await asyncio.wait_for(asyncio.gather(entered.wait(), flushing.wait()), 5)
                     assert not pending.done()
                     pending.cancel()
@@ -683,15 +718,14 @@ def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_he
                         await pending
                 finally:
                     release.set()
-                    if not pending.done():
-                        pending.cancel()
-                    done, _ = await asyncio.wait({pending}, timeout=5)
-                    assert pending in done, "request cleanup did not finish"
-                    await asyncio.gather(pending, return_exceptions=True)
-                # Drain the accepted prefix through the public completion boundary,
-                # including transaction cleanup when the usage row is dropped.
-                assert request_statistics is not None
-                await asyncio.wait_for(original_flush(request_statistics), record_write_budget + 5)
+                    if pending is not None:
+                        if not pending.done():
+                            pending.cancel()
+                        done, _ = await asyncio.wait({pending}, timeout=5)
+                        assert pending in done, "request cleanup did not finish"
+                        await asyncio.gather(pending, return_exceptions=True)
+                drained = await asyncio.wait_for(client.post("/v1/stats", json=stats_payload), record_write_budget + 5)
+                assert drained.status_code == 200, drained.text
             assert failed.is_set() == record_fails
             if not record_fails:
                 await _await_usage_record(tmp_path / "topics.db", scope, record_write_budget)

@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -28,15 +29,18 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    bindparam,
     column,
     delete,
     insert,
     select,
     table,
     text,
+    update,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.sql.elements import TextClause
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
@@ -121,37 +125,72 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pc_topic_memory_chunk_fts USING fts5(
     searchable_text, tokenize='unicode61'
 )
 """
-_DELETE_TOPIC_FTS_SQL = text(
-    "DELETE FROM pc_topic_memory_topic_fts WHERE scope_id = :scope_id AND artifact_id = :artifact_id"
+# Version 2 places each Scope's rows in its own rowid range. FTS5 bounds MATCH
+# cursors and scans by rowid, so writes and searches read one Scope's range
+# instead of every Scope's matches; bm25 keeps its table-wide statistics.
+# Version 1 numbered rows globally from 1. Ranges start at 2**32, so its rows
+# stay recognizable until rebuilt or replaced; while any remain, writes and
+# searches keep the version-1 identity filters.
+_TOPIC_FTS_SCHEMA_VERSION = 2
+_REBUILD_BATCH_SIZE = 500
+_GLOBAL_ROWID_END = 1 << 32
+_SCOPE_ROWID_BITS = 32
+_MAX_ROWID = (1 << 63) - 1
+_TOPIC_FTS_COLUMNS = ("scope_id", "artifact_id", "revision", "title", "summary", "searchable_text")
+_CHUNK_FTS_COLUMNS = (
+    "scope_id",
+    "artifact_id",
+    "revision",
+    "chunk_ordinal",
+    "start_offset",
+    "title",
+    "summary",
+    "chunk_text",
+    "searchable_text",
 )
-_DELETE_CHUNK_FTS_SQL = text(
-    "DELETE FROM pc_topic_memory_chunk_fts WHERE scope_id = :scope_id AND artifact_id = :artifact_id"
+_FTSTable = tuple[str, tuple[str, ...]]
+_TOPIC_FTS_TABLE: _FTSTable = ("pc_topic_memory_topic_fts", _TOPIC_FTS_COLUMNS)
+_CHUNK_FTS_TABLE: _FTSTable = ("pc_topic_memory_chunk_fts", _CHUNK_FTS_COLUMNS)
+_FTS_TABLES = (_TOPIC_FTS_TABLE, _CHUNK_FTS_TABLE)
+_HAS_GLOBAL_ROWS_SQL = text(
+    "SELECT EXISTS (SELECT 1 FROM pc_topic_memory_topic_fts WHERE rowid < :global_end) "
+    "OR EXISTS (SELECT 1 FROM pc_topic_memory_chunk_fts WHERE rowid < :global_end)"
 )
-_INSERT_TOPIC_FTS_SQL = text(
-    """
-    INSERT INTO pc_topic_memory_topic_fts
-        (scope_id, artifact_id, revision, title, summary, searchable_text)
-    VALUES
-        (:scope_id, :artifact_id, :revision, :title, :summary, :searchable_text)
-    """
-)
-_INSERT_CHUNK_FTS_SQL = text(
-    """
-    INSERT INTO pc_topic_memory_chunk_fts
-        (scope_id, artifact_id, revision, chunk_ordinal, start_offset,
-         title, summary, chunk_text, searchable_text)
-    VALUES
-        (:scope_id, :artifact_id, :revision, :chunk_ordinal, :start_offset,
-         :title, :summary, :chunk_text, :searchable_text)
-    """
-)
+
+
+def _scope_rowid_range(scope_id: str) -> tuple[int, int]:
+    """Return the inclusive rowid range shared by a Scope and its rare hash neighbours."""
+
+    size = 1 << _SCOPE_ROWID_BITS
+    digest = int.from_bytes(hashlib.sha256(scope_id.encode("utf-8")).digest()[:8], "big")
+    first = _GLOBAL_ROWID_END + digest % ((_MAX_ROWID + 1 - _GLOBAL_ROWID_END) // size) * size
+    return first, first + size - 1
+
+
+def _insert_fts_sql(table_name: str, columns: tuple[str, ...]) -> TextClause:
+    names = ", ".join(("rowid", *columns))
+    values = ", ".join(f":{name}" for name in ("rowid", *columns))
+    return text(f"INSERT INTO {table_name} ({names}) VALUES ({values})")  # noqa: S608
+
+
+def _delete_fts_sql(table_name: str, *, scoped: bool) -> TextClause:
+    if not scoped:
+        return text(f"DELETE FROM {table_name} WHERE scope_id = :scope_id AND artifact_id = :artifact_id")  # noqa: S608
+    return text(
+        f"DELETE FROM {table_name} WHERE rowid BETWEEN :rowid_first AND :rowid_last "  # noqa: S608
+        "AND scope_id = :scope_id AND artifact_id IN :artifact_ids"
+    ).bindparams(bindparam("artifact_ids", expanding=True))
+
+
+_GLOBAL_SCOPE_FILTER = "scope_id = :scope_id"
+_RANGE_SCOPE_FILTER = "rowid BETWEEN :rowid_first AND :rowid_last AND scope_id = :scope_id"
 _SEARCH_TOPIC_FTS_SQL = """
 WITH scored AS MATERIALIZED (
     SELECT rowid, artifact_id, revision,
            bm25(pc_topic_memory_topic_fts) AS raw_score,
            ({coverage}) AS coverage
     FROM pc_topic_memory_topic_fts
-    WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
+    WHERE pc_topic_memory_topic_fts MATCH :query AND {scope}
 ), candidates AS (
     SELECT rowid, artifact_id, revision, raw_score
     FROM scored
@@ -175,7 +214,7 @@ WITH scored AS MATERIALIZED (
            bm25(pc_topic_memory_chunk_fts) AS raw_score,
            ({coverage}) AS coverage
     FROM pc_topic_memory_chunk_fts
-    WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+    WHERE pc_topic_memory_chunk_fts MATCH :query AND {scope}
 ), ranked AS (
     SELECT scored.*,
            row_number() OVER (
@@ -300,17 +339,17 @@ class SQLiteTopicMemoryFTSIndex:
             )
         )
         marker = await connection.scalar(select(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE.c.schema_version))
-        if marker == 1 and existing == 2:
+        if marker == _TOPIC_FTS_SCHEMA_VERSION and existing == 2:
             return
-        if marker is not None and marker != 1:
+        if marker not in {None, 1, _TOPIC_FTS_SCHEMA_VERSION}:
             raise TopicMemoryCapabilityError("sqlite-fts", "unsupported Topic FTS schema version")
         await connection.exec_driver_sql(_CREATE_TOPIC_FTS_SQL)
         await connection.exec_driver_sql(_CREATE_CHUNK_FTS_SQL)
+        # Version 1 and missing helpers rebuild from the authoritative active rows.
         await connection.exec_driver_sql("DELETE FROM pc_topic_memory_topic_fts")
         await connection.exec_driver_sql("DELETE FROM pc_topic_memory_chunk_fts")
         topics = (await connection.execute(select(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE))).mappings()
-        for row in topics:
-            await connection.execute(_INSERT_TOPIC_FTS_SQL, _topic_fts_values(row))
+        await _insert_rebuilt_rows(connection, _TOPIC_FTS_TABLE, topics)
         chunks = (
             await connection.execute(
                 select(
@@ -325,13 +364,20 @@ class SQLiteTopicMemoryFTSIndex:
                 )
             )
         ).mappings()
-        for row in chunks:
-            await connection.execute(_INSERT_CHUNK_FTS_SQL, _chunk_fts_values(row))
+        await _insert_rebuilt_rows(connection, _CHUNK_FTS_TABLE, chunks)
         await connection.exec_driver_sql(
             "SELECT rowid FROM pc_topic_memory_topic_fts WHERE pc_topic_memory_topic_fts MATCH 'powercontext'"
         )
         if marker is None:
-            await connection.execute(insert(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE).values(singleton=1, schema_version=1))
+            await connection.execute(
+                insert(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE).values(
+                    singleton=1, schema_version=_TOPIC_FTS_SCHEMA_VERSION
+                )
+            )
+        else:
+            await connection.execute(
+                update(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE).values(schema_version=_TOPIC_FTS_SCHEMA_VERSION)
+            )
 
     async def replace(
         self,
@@ -352,14 +398,26 @@ class SQLiteTopicMemoryFTSIndex:
     ) -> None:
         if not items:
             return
-        identities = [{"scope_id": scope_id, "artifact_id": ref.artifact_id} for ref, _ in items]
-        await connection.execute(_DELETE_TOPIC_FTS_SQL, identities)
-        await connection.execute(_DELETE_CHUNK_FTS_SQL, identities)
+        first, last = _scope_rowid_range(scope_id)
+        artifact_ids = [ref.artifact_id for ref, _ in items]
+        global_rows = await _has_global_rows(connection)
+        for table_name, _columns in _FTS_TABLES:
+            if global_rows:
+                await connection.execute(
+                    _delete_fts_sql(table_name, scoped=False),
+                    [{"scope_id": scope_id, "artifact_id": artifact_id} for artifact_id in artifact_ids],
+                )
+            else:
+                await connection.execute(
+                    _delete_fts_sql(table_name, scoped=True),
+                    {"rowid_first": first, "rowid_last": last, "scope_id": scope_id, "artifact_ids": artifact_ids},
+                )
         topics = []
         chunks = []
-        for (ref, projection), identity in zip(items, identities, strict=True):
+        for ref, projection in items:
             values = {
-                **identity,
+                "scope_id": scope_id,
+                "artifact_id": ref.artifact_id,
                 "revision": ref.revision,
                 "title": projection.content.title,
                 "summary": projection.content.summary,
@@ -376,9 +434,14 @@ class SQLiteTopicMemoryFTSIndex:
                 }
                 for chunk in projection.chunks
             )
-        await connection.execute(_INSERT_TOPIC_FTS_SQL, topics)
-        if chunks:
-            await connection.execute(_INSERT_CHUNK_FTS_SQL, chunks)
+        for fts_table, rows in zip(_FTS_TABLES, (topics, chunks), strict=True):
+            if not rows:
+                continue
+            rowid = await _allocate_rowids(connection, fts_table, first, last, len(rows))
+            await connection.execute(
+                _insert_fts_sql(*fts_table),
+                [{**row, "rowid": rowid + offset} for offset, row in enumerate(rows)],
+            )
 
     async def search(
         self,
@@ -399,18 +462,26 @@ class SQLiteTopicMemoryFTSIndex:
             f"CASE WHEN instr(' ' || searchable_text || ' ', :coverage_term_{position}) > 0 THEN 1 ELSE 0 END"
             for position, _term in enumerate(query_terms)
         )
+        first, last = _scope_rowid_range(scope_id)
+        scope = _GLOBAL_SCOPE_FILTER if await _has_global_rows(connection) else _RANGE_SCOPE_FILTER
         parameters = {
             "query": query,
             "scope_id": scope_id,
+            "rowid_first": first,
+            "rowid_last": last,
             "candidate_limit": request.candidate_limit,
             "required_matches": required_matches,
             **{f"coverage_term_{position}": f" {term} " for position, term in enumerate(query_terms)},
         }
         topic_rows = tuple(
-            (await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage)), parameters)).mappings()
+            (
+                await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage, scope=scope)), parameters)
+            ).mappings()
         )
         chunk_rows = tuple(
-            (await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)).mappings()
+            (
+                await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage, scope=scope)), parameters)
+            ).mappings()
         )
         topic_hits = tuple(_channel_hit(row, "topic_fts") for row in topic_rows if not row["is_rejected"])
         chunk_hits = tuple(_channel_hit(row, "detail_fts") for row in chunk_rows if not row["is_rejected"])
@@ -668,25 +739,73 @@ class SQLiteTopicMemoryVectorIndex:
         )
 
 
-def _topic_fts_values(row: Mapping[Any, Any]) -> dict[str, object]:
-    return {key: row[key] for key in ("scope_id", "artifact_id", "revision", "title", "summary", "searchable_text")}
+async def _has_global_rows(connection: AsyncConnection) -> bool:
+    """Whether version-1 rows remain; only the identity filters find them outside Scope ranges."""
+
+    return bool(await connection.scalar(_HAS_GLOBAL_ROWS_SQL, {"global_end": _GLOBAL_ROWID_END}))
 
 
-def _chunk_fts_values(row: Mapping[Any, Any]) -> dict[str, object]:
-    return {
-        key: row[key]
-        for key in (
-            "scope_id",
-            "artifact_id",
-            "revision",
-            "chunk_ordinal",
-            "start_offset",
-            "title",
-            "summary",
-            "chunk_text",
-            "searchable_text",
+async def _insert_rebuilt_rows(
+    connection: AsyncConnection, fts_table: _FTSTable, rows: Iterable[Mapping[Any, Any]]
+) -> None:
+    table_name, columns = fts_table
+    next_rowids: dict[int, int] = {}
+    batch: list[dict[str, object]] = []
+    for row in rows:
+        # Hash neighbours share a range, so allocation is keyed by the range.
+        first, last = _scope_rowid_range(row["scope_id"])
+        rowid = next_rowids.get(first, first)
+        if rowid > last:
+            raise TopicMemoryCapabilityError("sqlite-fts", "a Scope exceeds its Topic FTS rowid range")
+        next_rowids[first] = rowid + 1
+        batch.append({"rowid": rowid, **{name: row[name] for name in columns}})
+        if len(batch) == _REBUILD_BATCH_SIZE:
+            await connection.execute(_insert_fts_sql(table_name, columns), batch)
+            batch = []
+    if batch:
+        await connection.execute(_insert_fts_sql(table_name, columns), batch)
+
+
+async def _allocate_rowids(connection: AsyncConnection, fts_table: _FTSTable, first: int, last: int, count: int) -> int:
+    """Return the first of ``count`` free consecutive rowids in a Scope range."""
+
+    table_name, columns = fts_table
+    bounds = {"rowid_first": first, "rowid_last": last}
+    top = await connection.scalar(
+        text(
+            f"SELECT rowid FROM {table_name} WHERE rowid BETWEEN :rowid_first AND :rowid_last "  # noqa: S608
+            "ORDER BY rowid DESC LIMIT 1"
+        ),
+        bounds,
+    )
+    start = first if top is None else int(top) + 1
+    if start + count - 1 <= last:
+        return start
+    # Replacements always append, so a long-lived Scope can reach the end of
+    # its range while most earlier rowids are free. Renumber its rows densely.
+    names = ", ".join(columns)
+    rows = (
+        await connection.execute(
+            text(
+                f"SELECT {names} FROM {table_name} WHERE rowid BETWEEN :rowid_first AND :rowid_last "  # noqa: S608
+                "ORDER BY rowid"
+            ),
+            bounds,
         )
-    }
+    ).mappings()
+    retained = [dict(row) for row in rows]
+    if len(retained) + count > last - first + 1:
+        raise TopicMemoryCapabilityError("sqlite-fts", "a Scope exceeds its Topic FTS rowid range")
+    await connection.execute(
+        text(f"DELETE FROM {table_name} WHERE rowid BETWEEN :rowid_first AND :rowid_last"),  # noqa: S608
+        bounds,
+    )
+    if retained:
+        await connection.execute(
+            _insert_fts_sql(table_name, columns),
+            [{**row, "rowid": first + offset} for offset, row in enumerate(retained)],
+        )
+    return first + len(retained)
 
 
 def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> TopicMemoryChannelHit:

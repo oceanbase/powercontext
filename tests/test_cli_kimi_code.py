@@ -301,11 +301,23 @@ def test_setup_replaces_legacy_guidance_before_reconfiguration(kimi_home):
         ("ready", False, False, 200, False),
     ],
 )
-def test_doctor_preserves_server_readiness_without_changing_installed_settings(
+def test_doctor_preserves_server_readiness_without_changing_installed_settings(  # noqa: C901 - independent diagnostic outcomes.
     kimi_home, monkeypatch, readiness, old_probe, service_failed, http_status, with_checks
 ):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/openapi.json":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({
+                        "openapi": "3.0.3",
+                        "paths": {},
+                        "x-powercontext-feature-contracts": {"memory.explicit": {"major": 1, "minor": 0}},
+                    }).encode()
+                )
+                return
             self.send_response(http_status)
             self.end_headers()
             response = {"status": readiness}

@@ -57,6 +57,12 @@ REFERENCE_PREFIXES = {
         r"^安装 ",
     ),
     "integrations/dsh/plugins/powercontext/README.md": INSTALL_REFERENCES,
+    "docs/en/docs/operate/database-migrations.md": (
+        r"(?<=for the PowerContext\n)",
+        r"^The target release is \*\*PowerContext ",
+    ),
+    "docs/zh/docs/operate/database-migrations.md": (r"^目标发布版本为 \*\*PowerContext ",),
+    "tests/release_upgrades/README.md": (r"^The declared target release is \*\*",),
 }
 
 

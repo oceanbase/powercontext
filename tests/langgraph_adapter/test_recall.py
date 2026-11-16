@@ -46,7 +46,8 @@ pytest.importorskip("powercontext_langgraph")
 
 from powercontext_langgraph import PowerContextRecall, PowerContextScope
 
-UNTRUSTED_LABEL = "untrusted historical evidence"
+# The recall marker, followed directly by the start of the Server's trust policy.
+CONTEXT_START = "PowerContext host-supplied context\n\nPowerContext prepared untrusted historical context.\n"
 DEPLOY_MEMORY = "Deploy database migrations before rollout."
 
 
@@ -156,7 +157,7 @@ def test_recall_injects_context_labelled_untrusted(tmp_path: Path) -> None:
         model_input = model.inputs[-1]
         system_texts = _system_texts(model_input)
         assert len(system_texts) == 1
-        assert UNTRUSTED_LABEL in system_texts[0]
+        assert system_texts[0].startswith(CONTEXT_START)
         assert "migrations" in system_texts[0]
         # The recall message leads the model input and never enters the persisted history.
         assert model_input[0].type == "system"

@@ -19,10 +19,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, RootModel, ValidationError
-from sqlalchemy import and_, insert, literal, select, true, tuple_, union_all, update
+from sqlalchemy import and_, bindparam, insert, literal, select, true, tuple_, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction
 from sqlalchemy.sql import FromClause, Select
@@ -55,6 +56,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_REVISION_COLUMNS,
     ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACTS_TABLE,
 )
@@ -81,6 +83,92 @@ def with_artifact_content(statement: Select[Any], heads: FromClause = ARTIFACT_H
     ).outerjoin(
         ARTIFACTS_TABLE,
         and_(*(ARTIFACTS_TABLE.c[name] == heads.c[name] for name in ("scope_id", "family", "artifact_id", "revision"))),
+    )
+
+
+@lru_cache(maxsize=1)
+def _lineage_query():
+    """Reuse the bounded lineage query; every execution binds its own selection."""
+    source, artifact, publication = (
+        ARTIFACT_LINEAGE_SOURCES_TABLE.c,
+        ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c,
+        ARTIFACT_PUBLICATIONS_TABLE.c,
+    )
+    located_sources = ARTIFACT_LINEAGE_SOURCES_TABLE.outerjoin(
+        ARTIFACT_SOURCE_LOCATORS_TABLE,
+        and_(
+            *(
+                source[name] == ARTIFACT_SOURCE_LOCATORS_TABLE.c[name]
+                for name in ("scope_id", "family", "artifact_id", "revision", "ordinal")
+            )
+        ),
+    )
+    columns = (
+        "relation",
+        "family",
+        "artifact_id",
+        "revision",
+        "ordinal",
+        "ref_scope",
+        "ref_family",
+        "ref_id",
+        "ref_revision",
+        "digest",
+        "locator",
+    )
+
+    def project(relation, table, *, prefix="", from_clause=None, **references):
+        fields = {
+            "relation": literal(relation),
+            **{name: table[prefix + name] for name in ("family", "artifact_id", "revision")},
+            **references,
+        }
+        statement = select(*(fields.get(name, literal(None)).label(name) for name in columns))
+        if from_clause is not None:
+            statement = statement.select_from(from_clause)
+        return statement.where(
+            table[prefix + "scope_id"] == bindparam("scope_id"),
+            tuple_(*(table[prefix + name] for name in ("family", "artifact_id", "revision"))).in_(
+                bindparam(f"{relation}_keys", expanding=True)
+            ),
+        )
+
+    relations = union_all(
+        project(
+            "source",
+            source,
+            ordinal=source.ordinal,
+            ref_family=source.source_type,
+            ref_id=source.source_id,
+            from_clause=located_sources,
+            locator=ARTIFACT_SOURCE_LOCATORS_TABLE.c.locator,
+        ),
+        project(
+            "artifact",
+            artifact,
+            ordinal=artifact.ordinal,
+            ref_family=artifact.upstream_family,
+            ref_id=artifact.upstream_artifact_id,
+            ref_revision=artifact.upstream_revision,
+        ),
+        project(
+            "publication",
+            publication,
+            prefix="target_",
+            ordinal=literal(0),
+            ref_scope=publication.source_scope_id,
+            ref_family=publication.source_family,
+            ref_id=publication.source_artifact_id,
+            ref_revision=publication.source_revision,
+            digest=publication.content_digest,
+        ),
+    ).subquery("artifact_relations")
+    return select(relations).order_by(
+        relations.c.family,
+        relations.c.artifact_id,
+        relations.c.revision,
+        relations.c.relation,
+        relations.c.ordinal,
     )
 
 
@@ -149,6 +237,11 @@ class ArtifactRepository:
         """Return the registered domain Families whose writes require their owning service."""
 
         return frozenset(self._by_family)
+
+    def content_type(self, family: str) -> type[BaseModel]:
+        """Return the content model this repository validates a Family's revisions against."""
+
+        return self._content_types[family]
 
     @property
     def source_repository(self) -> Any | None:
@@ -512,7 +605,7 @@ class ArtifactRepository:
         _require_scope(scope_id)
         if not for_update:
             return (await self.get_many(connection, scope_id, (ref,)))[0]
-        statement = select(ARTIFACTS_TABLE).where(
+        statement = select(*ARTIFACT_REVISION_COLUMNS).where(
             ARTIFACTS_TABLE.c.scope_id == scope_id,
             ARTIFACTS_TABLE.c.family == ref.family,
             ARTIFACTS_TABLE.c.artifact_id == ref.artifact_id,
@@ -552,7 +645,7 @@ class ArtifactRepository:
         for offset in range(0, len(keys), 100):
             rows = (
                 await connection.execute(
-                    select(ARTIFACTS_TABLE).where(
+                    select(*ARTIFACT_REVISION_COLUMNS).where(
                         ARTIFACTS_TABLE.c.scope_id == scope_id,
                         identity.in_(keys[offset : offset + 100]),
                     )
@@ -696,7 +789,7 @@ class ArtifactRepository:
         ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
         rows = (
             await connection.execute(
-                select(ARTIFACTS_TABLE)
+                select(*ARTIFACT_REVISION_COLUMNS)
                 .where(
                     ARTIFACTS_TABLE.c.scope_id == scope_id,
                     ARTIFACTS_TABLE.c.family == family,
@@ -855,87 +948,10 @@ class ArtifactRepository:
         scope_id: str,
         keys: Sequence[tuple[str, str, int]],
     ) -> dict[tuple[str, str, int], ArtifactLineage]:
-        source, artifact, publication = (
-            ARTIFACT_LINEAGE_SOURCES_TABLE.c,
-            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c,
-            ARTIFACT_PUBLICATIONS_TABLE.c,
-        )
-        located_sources = ARTIFACT_LINEAGE_SOURCES_TABLE.outerjoin(
-            ARTIFACT_SOURCE_LOCATORS_TABLE,
-            and_(
-                *(
-                    source[name] == ARTIFACT_SOURCE_LOCATORS_TABLE.c[name]
-                    for name in ("scope_id", "family", "artifact_id", "revision", "ordinal")
-                )
-            ),
-        )
-        columns = (
-            "relation",
-            "family",
-            "artifact_id",
-            "revision",
-            "ordinal",
-            "ref_scope",
-            "ref_family",
-            "ref_id",
-            "ref_revision",
-            "digest",
-            "locator",
-        )
-
-        def project(relation, table, *, prefix="", from_clause=None, **references):
-            fields = {
-                "relation": literal(relation),
-                **{name: table[prefix + name] for name in ("family", "artifact_id", "revision")},
-                **references,
-            }
-            statement = select(*(fields.get(name, literal(None)).label(name) for name in columns))
-            if from_clause is not None:
-                statement = statement.select_from(from_clause)
-            return statement.where(
-                table[prefix + "scope_id"] == scope_id,
-                tuple_(*(table[prefix + name] for name in ("family", "artifact_id", "revision"))).in_(keys),
-            )
-
-        relations = union_all(
-            project(
-                "source",
-                source,
-                ordinal=source.ordinal,
-                ref_family=source.source_type,
-                ref_id=source.source_id,
-                from_clause=located_sources,
-                locator=ARTIFACT_SOURCE_LOCATORS_TABLE.c.locator,
-            ),
-            project(
-                "artifact",
-                artifact,
-                ordinal=artifact.ordinal,
-                ref_family=artifact.upstream_family,
-                ref_id=artifact.upstream_artifact_id,
-                ref_revision=artifact.upstream_revision,
-            ),
-            project(
-                "publication",
-                publication,
-                prefix="target_",
-                ordinal=literal(0),
-                ref_scope=publication.source_scope_id,
-                ref_family=publication.source_family,
-                ref_id=publication.source_artifact_id,
-                ref_revision=publication.source_revision,
-                digest=publication.content_digest,
-            ),
-        ).subquery("artifact_relations")
         rows = (
             await connection.execute(
-                select(relations).order_by(
-                    relations.c.family,
-                    relations.c.artifact_id,
-                    relations.c.revision,
-                    relations.c.relation,
-                    relations.c.ordinal,
-                )
+                _lineage_query(),
+                {"scope_id": scope_id, "source_keys": keys, "artifact_keys": keys, "publication_keys": keys},
             )
         ).mappings()
         sources: dict[tuple[str, str, int], list[SourceRef]] = {key: [] for key in keys}

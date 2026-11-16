@@ -162,8 +162,17 @@ class PiInstaller:
                 "package": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="package list is unavailable"),
             }
         installed = pi_package_installed(output)
+        from powercontext.cli.memory_protocol import installed_memory_protocol, read_plugin_memory_protocol
+
+        paths = [
+            Path(line.strip())
+            for line in output.splitlines()
+            if line.startswith("    ") and HOST_GUIDANCE["pi"].recognizes(Path(line.strip()))
+        ]
+        protocol = read_plugin_memory_protocol(paths[0]) if len(paths) == 1 else None
         return {
             "pi": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+            "plugin_memory_protocol": installed_memory_protocol(protocol, "pi"),
             "package": Diagnostic(
                 status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
                 detail=(f"{PI_PACKAGE_NAME} is installed" if installed else "PowerContext Pi package is not installed"),

@@ -5,8 +5,10 @@ It does not download a host, deploy a remote service, or operate the desktop UI.
 
 ## Continuous integration
 
-[ZCode acceptance](../../../.github/workflows/zcode-acceptance.yml) runs on every pull request, every push to master,
-weekly on Sunday at 03:23 UTC, and by manual dispatch. It builds the actual open-source CLI on Windows from ZCode commit
+[ZCode acceptance](../../../.github/workflows/zcode-acceptance.yml) is called by
+[Main](../../../.github/workflows/master.yml) for selected pull-request and master-push changes, after quality and Python
+tests pass. Main also selects it in daily validation at 20:17 UTC; the ZCode workflow can be dispatched manually.
+It builds the actual open-source CLI on Windows from ZCode commit
 `29628c9acdb81b703bbd4080c207a0e7ce5e276e` (ZCode 3.14.3 / CLI 0.16.9), using Node 24.21.0, pnpm 10.33.2 and the
 host's frozen lockfile. Dependency install scripts are disabled; only the CLI and its required workspace builds run.
 
@@ -15,8 +17,12 @@ posting to a closing libuv async handle, and the [file-watcher fix](https://gith
 separate path assertion in Node 24.16.0–24.20.0. Both faults can abort with `0xC0000409`; the async-handle fault can occur
 after emitting a CLI result. The acceptance requires a zero process exit code for every invocation.
 
-The job runs all plugin Node tests, including the actual host test, then explicitly selects two independent
-controlled-model acceptances covering P3-01 through P3-09. Host build errors, missing prerequisites and failed scenarios
+The job checks the Skill pin and Python harness before fetching and building the host. It caches the pnpm store using
+the frozen ZCode and Pi lockfiles; the CLI is still built from the pinned source. It then runs all plugin Node tests,
+including actual host discovery, two independent controlled-model acceptances covering P3-01 through P3-09, and all four
+[Pi to ZCode Work Continuity cases](../../../tests/e2e/cross_host_work_continuity/README.md). After a successful host build,
+each acceptance stage runs even if an earlier test stage fails; cancellation and missing build/install prerequisites
+still stop dependent work. There are no automatic acceptance retries or ignored failures. Host build errors and failed scenarios
 fail the job. The controlled inference fixtures need no model keys or repository secrets. This is actual CLI + real
 Server acceptance with controlled inference; it does not establish live-model or official desktop acceptance.
 
@@ -24,10 +30,22 @@ The artifact `zcode-controlled-<run-id>-<attempt>` retains build provenance, eac
 `evidence/*.json` for 14 days, including completed evidence from failed runs. Private profiles, model configuration,
 databases, workspaces and raw transcripts are excluded. The Actions summary lists individual scenario results.
 P3-10 stays `not_run`; compact and reconnect limitations remain explicit in the evidence.
+Resume failures retain the prepare/capture/context-output states in `evidence/session-resume.json` before assertions,
+with distinct codes such as `resume_prepare_not_ready`. The existing Hook deadline remains part of acceptance.
 
 To upgrade the supported host, change `ZCODE_REF` in the workflow to an exact reviewed commit, check its Node/pnpm and
 build requirements, and run the complete job. Keep the host pin and this guide consistent. Scheduled runs check the
 fixed host against current master and dependency availability; they do not silently adopt newer ZCode releases.
+
+Main's Python E2E jobs also run the real Server/SQLite service chain serially before their parallel tests:
+
+```sh
+uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+```
+
+Run this chain when changing Hook deadlines. Its prepare/capture fault responses must exceed the 3-second request
+limit, while Stop faults target its separate 800 ms network budget. It invokes Hook processes directly and complements
+the actual CLI acceptance below; neither suite substitutes for the other.
 
 ## Prerequisites
 

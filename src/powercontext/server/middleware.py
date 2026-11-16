@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
+import re
+
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.authentication import (
     AuthenticationProvider,
@@ -28,7 +31,6 @@ from powercontext.server.authentication import (
     AuthenticationUnavailableError,
     StaticBearerAuthenticationProvider,
 )
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.context import bind_authentication, is_internal_bridge, reset_authentication
 from powercontext.server.dashboard.session import authentication_headers, login_response
 
@@ -42,6 +44,9 @@ _PUBLIC_PATHS = frozenset({
     "/v1/skill/remote/package/download",
     "/v1/skill/remote/receipt",
 })
+
+
+_PLUGIN_ASSET = re.compile(r"^/dashboard/plugins/[a-z][a-z0-9-]*/ui/")
 
 
 class AuthenticationMiddleware:
@@ -118,6 +123,9 @@ def _is_public(scope: Scope) -> bool:
         or scope["path"] in _PUBLIC_PATHS
         or scope["path"] == "/dashboard/session"
         or scope["path"].startswith("/dashboard/static/")
+        # Plugin page files are plugin code and assets, never user data.
+        or scope["path"] == "/dashboard/plugins/_client.js"
+        or _PLUGIN_ASSET.match(scope["path"]) is not None
     )
 
 
