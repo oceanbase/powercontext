@@ -28,7 +28,7 @@ import inspect
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
@@ -71,16 +71,41 @@ def mcp_tool_name(plugin: str, handler: str) -> str:
     return f"{plugin}__{handler}"
 
 
+def version_files(directory: Path) -> list[tuple[PurePosixPath, Path]]:
+    """Every file of a plugin version, by relative path, with the file that holds its content.
+
+    Symbolic links count as the files and directories they lead to, so a version copied from this
+    list holds no links. Links must stay inside the plugin directory: a version never includes
+    files from elsewhere, which plugin pages could otherwise serve.
+    """
+
+    root = directory.resolve()
+    files: list[tuple[PurePosixPath, Path]] = []
+
+    def walk(real: Path, relative: PurePosixPath, ancestors: frozenset[Path]) -> None:
+        for entry in sorted(real.iterdir(), key=lambda item: item.name):
+            if entry.name == "__pycache__":
+                continue
+            target = entry.resolve()
+            if entry.is_symlink() and not target.is_relative_to(root):
+                raise PluginConfigError(f"{relative / entry.name} links outside the plugin directory")  # noqa: TRY003
+            if target.is_dir():
+                if target in ancestors:
+                    raise PluginConfigError(f"{relative / entry.name} links to a directory that contains it")  # noqa: TRY003
+                walk(target, relative / entry.name, ancestors | {target})
+            elif target.is_file():
+                files.append((relative / entry.name, target))
+
+    walk(root, PurePosixPath(), frozenset({root}))
+    return files
+
+
 def code_fingerprint(directory: Path) -> str:
     """SHA-256 over relative paths and contents, so any content change shows, whatever the timestamps."""
 
-    root = directory.resolve()
     digest = hashlib.sha256()
-    files = sorted(
-        path for path in root.rglob("*") if path.is_file() and "__pycache__" not in path.relative_to(root).parts
-    )
-    for path in files:
-        digest.update(str(path.relative_to(root)).encode())
+    for relative, path in version_files(directory):
+        digest.update(str(relative).encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")

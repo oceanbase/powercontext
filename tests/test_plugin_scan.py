@@ -125,3 +125,33 @@ def test_a_failed_version_is_checked_again_after_a_growing_wait(tmp_path, monkey
         assert loaded(manager, "gamma")
 
     asyncio.run(scenario(tmp_path, steps))
+
+
+def test_a_version_snapshot_holds_copies_of_linked_files_and_refuses_links_outside_the_plugin(tmp_path):
+    plugins = tmp_path / "plugins"
+    write(plugins / "delta", "scan-delta", prelude="import helper")
+    shared = plugins / "delta" / "shared"
+    shared.mkdir()
+    (shared / "helper.py").write_text("VERSION = 'v1'\n", encoding="utf-8")
+    # An absolute link into the live plugin directory, as deployment tools often create.
+    (plugins / "delta" / "helper.py").symlink_to(shared / "helper.py")
+    outside = tmp_path / "secret.txt"
+    outside.write_text("not part of any plugin", encoding="utf-8")
+    write(plugins / "epsilon", "scan-epsilon")
+    (plugins / "epsilon" / "secret.txt").symlink_to(outside)
+
+    async def steps(manager):
+        delta = manager.plugins["delta"]
+        assert loaded(manager, "delta")
+        copied = delta.snapshot / "helper.py"
+        assert not copied.is_symlink() and copied.read_text() == "VERSION = 'v1'\n"
+
+        # Deploying the next version through the link leaves the loaded version's files as they were.
+        (shared / "helper.py").write_text("VERSION = 'v2'\n", encoding="utf-8")
+        assert copied.read_text() == "VERSION = 'v1'\n"
+
+        epsilon = manager.plugins["epsilon"]
+        assert not loaded(manager, "epsilon")
+        assert epsilon.last_check_failure == "secret.txt links outside the plugin directory"
+
+    asyncio.run(scenario(tmp_path, steps))

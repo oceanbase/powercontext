@@ -16,9 +16,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from powercontext.builtin.plugins.manifest import PluginManifest
 from powercontext.plugins import ArtifactPluginSpec, PluginApiSpec, RouteSpec
@@ -81,3 +82,82 @@ def test_routes_share_a_model_component_and_a_different_model_of_the_same_name_g
     assert schemas["Child2"]["properties"] == {"count": {"title": "Count", "type": "integer"}}
     assert "$defs" not in _schema(document, "/note")
     assert {"Error", "Child", "Child2"} <= set(schemas)
+
+
+def _v1_request() -> type[BaseModel]:
+    class Metadata(BaseModel):
+        author: str
+
+    class Document(BaseModel):
+        metadata: Metadata
+
+    class Request(BaseModel):
+        document: Document
+
+    return Request
+
+
+def _v2_request() -> type[BaseModel]:
+    class Metadata(BaseModel):
+        authors: list[str]
+
+    class Document(BaseModel):
+        metadata: Metadata
+
+    class Request(BaseModel):
+        document: Document
+
+    return Request
+
+
+def _resolve(document: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    while "$ref" in schema:
+        schema = document["components"]["schemas"][schema["$ref"].removeprefix("#/components/schemas/")]
+    return schema
+
+
+def test_routes_with_same_named_models_of_different_shapes_each_keep_their_own():
+    v1, v2 = _v1_request(), _v2_request()
+    manifest = PluginManifest(
+        name="docs",
+        spec=ArtifactPluginSpec(family="docs-notes", api=PluginApiSpec(routes=(_route("/v1", v1), _route("/v2", v2)))),
+    )
+
+    document = plugin_openapi(manifest)
+
+    def metadata(path: str) -> dict[str, Any]:
+        request = _resolve(document, _schema(document, path))
+        nested = _resolve(document, request["properties"]["document"])
+        return _resolve(document, nested["properties"]["metadata"])
+
+    assert metadata("/v1")["required"] == ["author"]
+    assert metadata("/v2")["required"] == ["authors"]
+
+
+class Cat(BaseModel):
+    kind: Literal["cat"]
+    lives: int
+
+
+class Dog(BaseModel):
+    kind: Literal["dog"]
+    good: bool
+
+
+class Owner(BaseModel):
+    pet: Annotated[Cat | Dog, Field(discriminator="kind")]
+
+
+def test_discriminator_mappings_point_at_document_components():
+    manifest = PluginManifest(
+        name="docs", spec=ArtifactPluginSpec(family="docs-notes", api=PluginApiSpec(routes=(_route("/owner", Owner),)))
+    )
+
+    document = plugin_openapi(manifest)
+    pet = _schema(document, "/owner")["properties"]["pet"]
+
+    assert pet["discriminator"]["mapping"] == {
+        "cat": "#/components/schemas/Cat",
+        "dog": "#/components/schemas/Dog",
+    }
+    assert "$defs" not in json.dumps(document)

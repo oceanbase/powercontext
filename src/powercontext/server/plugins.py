@@ -25,6 +25,7 @@ forwards.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import multiprocessing
 import re
@@ -329,21 +330,7 @@ class PluginManager:
             return
         names = {entry.name for entry in entries}
         for entry in entries:
-            plugin = self.plugins.get(entry.name)
-            if plugin is None:
-                plugin = self.plugins[entry.name] = _Plugin(name=entry.name, directory=entry)
-            plugin.missing_scans = 0
-            try:
-                digest = await asyncio.to_thread(content_digest, plugin.directory)
-            except OSError:
-                continue
-            stable = initial or digest == plugin.last_digest
-            plugin.last_digest = digest
-            current = None if plugin.manifest is None else plugin.manifest.fingerprint
-            retry_due = digest == plugin.failed_digest and time.monotonic() >= plugin.retry_at
-            if digest == current or (digest == plugin.failed_digest and not retry_due) or not stable:
-                continue
-            await self._activate(plugin, digest)
+            await self._scan_entry(entry, initial=initial)
         for name in set(self.plugins) - names:
             plugin = self.plugins[name]
             plugin.missing_scans += 1
@@ -358,6 +345,28 @@ class PluginManager:
                 "Plugin directory scanned",
                 extra={"event": "plugin.scanned", "scan_ms": round((time.perf_counter() - started) * 1000, 3)},
             )
+
+    async def _scan_entry(self, entry: Path, *, initial: bool) -> None:
+        plugin = self.plugins.get(entry.name)
+        if plugin is None:
+            plugin = self.plugins[entry.name] = _Plugin(name=entry.name, directory=entry)
+        plugin.missing_scans = 0
+        try:
+            digest = await asyncio.to_thread(content_digest, plugin.directory)
+        except OSError:
+            return
+        except ValueError as error:
+            # Such as a link leading outside the plugin directory; reported once until the directory changes.
+            if plugin.failed_digest != f"invalid:{error}":
+                self._check_failed(plugin, f"invalid:{error}", str(error))
+            return
+        stable = initial or digest == plugin.last_digest
+        plugin.last_digest = digest
+        current = None if plugin.manifest is None else plugin.manifest.fingerprint
+        retry_due = digest == plugin.failed_digest and time.monotonic() >= plugin.retry_at
+        if digest == current or (digest == plugin.failed_digest and not retry_due) or not stable:
+            return
+        await self._activate(plugin, digest)
 
     def retain(self, snapshot: Path | None, seconds: float) -> None:
         """Keep a snapshot at least ``seconds`` past a Worker dispatched from it."""
@@ -385,9 +394,13 @@ class PluginManager:
         if self._snapshot_directory is None:
             snapshot = None
         else:
-            snapshot = await asyncio.to_thread(
-                make_snapshot, plugin.directory, self._snapshot_directory, plugin.name, digest
-            )
+            try:
+                snapshot = await asyncio.to_thread(
+                    make_snapshot, plugin.directory, self._snapshot_directory, plugin.name, digest
+                )
+            except ValueError as error:
+                self._check_failed(plugin, digest, str(error))
+                return
             if snapshot is None:
                 # The directory changed while it was copied; wait for it to settle again.
                 plugin.last_digest = None
@@ -927,41 +940,67 @@ _ERROR_SCHEMA = {
 }
 
 
-def _hoist_definitions(schema: dict[str, Any], schemas: dict[str, Any]) -> dict[str, Any]:
+def _hoist_definitions(
+    schema: dict[str, Any], schemas: dict[str, Any], hoisted: dict[str, dict[str, str]]
+) -> dict[str, Any]:
     """Move a route schema's ``$defs`` into the document's components and point its references there.
 
     Each route schema stays self-contained for MCP tools, so its references are relative to itself.
-    Embedded in the document they would resolve from the document root. Routes that share a model
-    share its component; a name already used for a different schema gets a numeric suffix.
+    Embedded in the document they would resolve from the document root. A route reuses components
+    only when every one of its definitions matches the component of the same name; otherwise each of
+    its definitions whose name is taken gets a new one, so a shared parent never points at another
+    route's child.
     """
 
     definitions = schema.get("$defs")
     if not isinstance(definitions, dict):
         return schema
+    # The same models, such as a route's request and response, keep the names they were given first.
+    key = json.dumps(definitions, sort_keys=True)
+    if key in hoisted:
+        return _renamed({name: value for name, value in schema.items() if name != "$defs"}, hoisted[key])
     names = {name: name for name in definitions}
-    for name in definitions:
-        number = 1
-        # Reuse a component holding the same schema; otherwise take the first free name.
-        while (names[name] in schemas and schemas[names[name]] != _renamed(definitions[name], names)) or any(
-            names[other] == names[name] for other in definitions if other != name
-        ):
-            number += 1
+    if any(name in schemas and schemas[name] != _renamed(definitions[name], names) for name in definitions):
+        taken = set(schemas)
+        for name in definitions:
+            if name not in schemas:
+                continue
+            number = 2
+            while f"{name}{number}" in taken:
+                number += 1
             names[name] = f"{name}{number}"
+            taken.add(names[name])
     for name, target in names.items():
         schemas[target] = _renamed(definitions[name], names)
-    return _renamed({key: value for key, value in schema.items() if key != "$defs"}, names)
+    hoisted[key] = names
+    return _renamed({name: value for name, value in schema.items() if name != "$defs"}, names)
 
 
 def _renamed(value: Any, names: dict[str, str]) -> Any:
+    """Point ``$ref`` values and discriminator mappings at the renamed components."""
+
     if isinstance(value, dict):
-        reference = value.get("$ref")
-        if isinstance(reference, str) and reference.startswith("#/$defs/"):
-            name = reference.removeprefix("#/$defs/")
-            value = {**value, "$ref": f"#/components/schemas/{names.get(name, name)}"}
-        return {key: _renamed(item, names) for key, item in value.items()}
+        renamed = {key: _renamed(item, names) for key, item in value.items()}
+        if isinstance(value.get("$ref"), str):
+            renamed["$ref"] = _component(value["$ref"], names)
+        discriminator = value.get("discriminator")
+        if isinstance(discriminator, dict) and isinstance(discriminator.get("mapping"), dict):
+            mapping = {
+                key: _component(item, names) if isinstance(item, str) else item
+                for key, item in discriminator["mapping"].items()
+            }
+            renamed["discriminator"] = {**renamed["discriminator"], "mapping": mapping}
+        return renamed
     if isinstance(value, list):
         return [_renamed(item, names) for item in value]
     return value
+
+
+def _component(reference: str, names: dict[str, str]) -> str:
+    if not reference.startswith("#/$defs/"):
+        return reference
+    name = reference.removeprefix("#/$defs/")
+    return f"#/components/schemas/{names.get(name, name)}"
 
 
 def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
@@ -972,6 +1011,7 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
     error = {"$ref": "#/components/schemas/Error"}
     paths: dict[str, dict[str, Any]] = {}
     schemas: dict[str, Any] = {"Error": _ERROR_SCHEMA}
+    hoisted: dict[str, dict[str, str]] = {}
     api = manifest.spec.api
     for route in () if api is None else api.routes:
         parameters = [
@@ -989,7 +1029,9 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
                 "200": {
                     "description": "The handler's result.",
                     "content": {
-                        "application/json": {"schema": _hoist_definitions(route.response_schema or {}, schemas)}
+                        "application/json": {
+                            "schema": _hoist_definitions(route.response_schema or {}, schemas, hoisted)
+                        }
                     },
                 },
                 "204": {"description": "The handler returned nothing."},
@@ -1002,7 +1044,7 @@ def plugin_openapi(manifest: PluginManifest) -> dict[str, Any]:
         if route.description is not None:
             operation["description"] = route.description
         if route.body == "json":
-            schema = _hoist_definitions(route.request_schema or {}, schemas)
+            schema = _hoist_definitions(route.request_schema or {}, schemas, hoisted)
             operation["requestBody"] = {"required": True, "content": {"application/json": {"schema": schema}}}
         elif route.body == "binary":
             content = {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}

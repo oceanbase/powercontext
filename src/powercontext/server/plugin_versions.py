@@ -29,7 +29,7 @@ from uuid import uuid4
 
 from filelock import BaseFileLock, FileLock, Timeout
 
-from powercontext.builtin.plugins.manifest import code_fingerprint
+from powercontext.builtin.plugins.manifest import code_fingerprint, version_files
 
 # Files are read-only so a snapshot never changes; directories stay writable by the owner so
 # deleting the data directory with ordinary tools still works.
@@ -53,15 +53,17 @@ def make_snapshot(source: Path, root: Path, name: str, digest: str) -> Path | No
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
     staging = target.parent / f".tmp-{uuid4().hex}"
-    # Symbolic links stay links: page serving still refuses those that lead outside the plugin.
-    shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__"), symlinks=True)
+    # Contents are copied, links included, so a version never changes with the deployment directory.
+    staging.mkdir()
+    for relative, path in version_files(source):
+        copy = staging.joinpath(*relative.parts)
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, copy)
     if code_fingerprint(staging) != digest:
         remove_snapshot(staging)
         return None
     for path in sorted(staging.rglob("*"), reverse=True):
-        # chmod follows links, which may lead outside the snapshot.
-        if not path.is_symlink():
-            path.chmod(_DIRECTORY_MODE if path.is_dir() else _FILE_MODE)
+        path.chmod(_DIRECTORY_MODE if path.is_dir() else _FILE_MODE)
     staging.chmod(_DIRECTORY_MODE)
     try:
         staging.rename(target)
