@@ -20,7 +20,7 @@ PowerContext v1.5.2 makes Agent long-term memory more efficient, transparent and
 
 - Bound Topic Memory related history, preserve the healthy processing prefix before a failing or oversized look-ahead, and prevent concurrent head conflicts from consuming window attempts. Keep Memory merges within the tag limit and allow portable Source exports to retain recorded absolute working directories. ([#2632](https://github.com/oceanbase/powercontext/pull/2632), [#2530](https://github.com/oceanbase/powercontext/pull/2530), [#2597](https://github.com/oceanbase/powercontext/pull/2597), [#2596](https://github.com/oceanbase/powercontext/pull/2596), [#2572](https://github.com/oceanbase/powercontext/pull/2572))
 
-- Upgrade Server, SDK, CLI and integrations together. The directory-plugin framework replaces the previous managed plugin APIs and configuration. Migration v1_5_0_005 refuses databases that retain old plugin registrations or data; export and remove them using the previous version before upgrading. Portable Artifact revision records use schema version 3 and still restore version 2. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance. ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
+- Upgrade Server, SDK, CLI and integrations together. The directory-plugin framework replaces the previous managed plugin APIs and configuration. Migration v1_5_0_005 refuses databases that retain old plugin registrations or data. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. Portable Artifact revision records use schema version 3 and still restore version 2. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance. ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
 
 ### Installation and compatibility
 
@@ -50,7 +50,7 @@ PowerContext v1.5.2 让 Agent 的长期记忆更高效、更透明，也更易�
 
 - 限制 Topic Memory 相关历史候选规模，在后续内容失败或过大时保留可正常处理的前缀，并避免并发版本冲突消耗窗口尝试次数。保证 Memory 合并不超过标签上限，支持导出记录了绝对工作目录的 Source。 ([#2632](https://github.com/oceanbase/powercontext/pull/2632), [#2530](https://github.com/oceanbase/powercontext/pull/2530), [#2597](https://github.com/oceanbase/powercontext/pull/2597), [#2596](https://github.com/oceanbase/powercontext/pull/2596), [#2572](https://github.com/oceanbase/powercontext/pull/2572))
 
-- Server、SDK、CLI 与集成需协调升级。目录插件框架替换旧的托管插件 API 与配置。迁移 v1_5_0_005 会拒绝仍保留旧插件登记或数据的数据库；升级前需使用旧版本导出并移除这些内容。可移植 Artifact 修订记录使用 schema version 3，并继续支持恢复 version 2。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。 ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
+- Server、SDK、CLI 与集成需协调升级。目录插件框架替换旧的托管插件 API 与配置。迁移 v1_5_0_005 会拒绝仍保留旧插件登记或数据的数据库；这些数据库目前没有受支持的原地升级路径。卸载插件、删除插件目录或导出归档不会清除框架保留的记录，即使没有生成 Artifact 也是如此。请保留数据库并继续使用旧版本，等待受支持的迁移方案。可以使用独立的新数据库运行新版本，但这不会迁移旧插件数据；不要手工删除框架记录来绕过检查。可移植 Artifact 修订记录使用 schema version 3，并继续支持恢复 version 2。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。 ([#2616](https://github.com/oceanbase/powercontext/pull/2616))
 
 ### 安装与兼容性
 
