@@ -241,23 +241,25 @@ async function recallThenCapture(
   observation?.skip('capture', input.signal?.aborted ? cancellationReason(input.signal) : 'no_user_text')
   observation?.skip('flush', 'capture_skipped')
   if (userPrompt && !input.signal?.aborted) {
-    try {
-      await captureUserPrompt({
-        client: input.client,
-        config: input.config,
-        scopeId,
-        prompt: userPrompt,
-        cwd: sessionCwd(input.cwd),
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        signal: input.signal,
-        log: input.log,
-        observation,
-      })
-    } catch (error) {
+    const background = content !== undefined && !input.config.flushOnCapture
+    const capture = captureUserPrompt({
+      client: input.client,
+      config: input.config,
+      scopeId,
+      prompt: userPrompt,
+      cwd: sessionCwd(input.cwd),
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      signal: input.signal,
+      requestTimeoutMs: background ? input.config.timeoutMs : undefined,
+      log: input.log,
+      observation,
+    }).catch((error) => {
       observation?.fail('capture', error, true, input.signal)
       reportFailure(input.log, 'capture_content_source', error)
-    }
+    })
+    // A pending Source write cannot delay context that is already prepared.
+    if (!background) await capture
   }
   return input.signal?.aborted ? {} : { scopeId, content: content ?? undefined }
 }

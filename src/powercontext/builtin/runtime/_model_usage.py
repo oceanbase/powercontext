@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Bounded, best-effort model usage, owned by one relational runtime."""
+"""Bounded background persistence for model usage and recall statistics."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.database import (
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics.models import RecallEffortMeasurement, RecallTokenMeasurement
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +59,16 @@ class _ModelUsageRecord:
     purpose: ModelUsagePurpose
     operation: ModelUsageOperation
     usage: InferenceUsage
+
+
+@dataclass(frozen=True, slots=True)
+class _RecallStatisticsRecord:
+    scope_id: str
+    usage_date: date
+    measurement: RecallTokenMeasurement | RecallEffortMeasurement
+
+
+_StatisticsRecord = _ModelUsageRecord | _RecallStatisticsRecord
 
 
 def _snapshot(
@@ -132,7 +143,7 @@ class _ModelUsageRecorder:
         self._capacity = queue_capacity
         self._write_timeout_seconds = write_timeout_seconds
         self._flush_timeout_seconds = flush_timeout_seconds
-        self._pending: deque[tuple[int, _ModelUsageRecord]] = deque()
+        self._pending: deque[tuple[int, _StatisticsRecord]] = deque()
         self._offered = 0
         self._settled = 0
         self._ready = asyncio.Event()
@@ -159,17 +170,27 @@ class _ModelUsageRecorder:
     ) -> None:
         """Copy and enqueue a record without awaiting or accessing the database."""
 
+        if usage.requests:
+            self._offer(lambda: _snapshot(scope_id, purpose, operation, usage, usage_date))
+
+    def offer_recall(
+        self,
+        scope_id: str,
+        measurement: RecallTokenMeasurement | RecallEffortMeasurement,
+        usage_date: date,
+    ) -> None:
+        self._offer(lambda: _RecallStatisticsRecord(scope_id, usage_date, measurement.model_copy(deep=True)))
+
+    def _offer(self, make_record: Callable[[], _StatisticsRecord]) -> None:
         try:
             if self._closed:
-                return
-            if usage.requests == 0:
                 return
             if len(self._pending) >= self._capacity:
                 self._dropped += 1
                 self._report()
                 log_safely(_LOGGER, logging.WARNING, "Model usage queue full; record dropped")
                 return
-            record = _snapshot(scope_id, purpose, operation, usage, usage_date)
+            record = make_record()
             if self._consumer is None:
                 # Get the loop before constructing the coroutine so a sync caller
                 # outside a loop cannot leave an unawaited coroutine behind.
@@ -256,12 +277,25 @@ class _ModelUsageRecorder:
                     # cancels this consumer: nothing else will ever retry it, and
                     # `_settle` reports it as settled either way.
                     await asyncio.shield(self._write(tuple(record for _, record in batch)))
-                except Exception:
+                except Exception as error:
                     # Count original records, not coalesced groups or physical
                     # transactions, so batching does not conceal usage losses.
                     self._write_failures += len(batch)
                     self._report()
-                    log_safely(_LOGGER, logging.WARNING, "Model usage write failed; record will not be retried")
+                    if any(isinstance(record, _RecallStatisticsRecord) for _, record in batch):
+                        log_safely(
+                            _LOGGER,
+                            logging.WARNING,
+                            "Background statistics write failed; batch will not be retried",
+                            extra={
+                                "event": "statistics.recall.write_failed",
+                                "outcome": "failure",
+                                "unit": "statistics",
+                                "error_type": type(error).__name__,
+                            },
+                        )
+                    else:
+                        log_safely(_LOGGER, logging.WARNING, "Model usage write failed; record will not be retried")
                 finally:
                     self._settle(sequence)
         finally:
@@ -271,7 +305,7 @@ class _ModelUsageRecorder:
             self._report()
             self._settle(self._offered)
 
-    async def _write(self, records: tuple[_ModelUsageRecord, ...]) -> None:
+    async def _write(self, records: tuple[_StatisticsRecord, ...]) -> None:
         """Write one batch, retrying only a failure that rolled back cleanly.
 
         A busy or conflict error leaves nothing applied, so repeating it cannot
@@ -282,7 +316,10 @@ class _ModelUsageRecorder:
         outcome and is never retried.
         """
 
-        grouped = _coalesce(records)
+        usage = _coalesce(tuple(record for record in records if isinstance(record, _ModelUsageRecord)))
+        grouped: tuple[_StatisticsRecord, ...] = (
+            *usage, *(record for record in records if isinstance(record, _RecallStatisticsRecord))
+        )
         scopes = sorted({record.scope_id for record in grouped})
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._write_timeout_seconds
@@ -327,14 +364,23 @@ class _ModelUsageRecorder:
                     for record in grouped:
                         if record.scope_id not in existing:
                             continue
-                        await self._repository.record(
-                            connection,
-                            record.scope_id,
-                            record.usage_date,
-                            record.purpose,
-                            record.operation,
-                            record.usage,
-                        )
+                        if isinstance(record, _ModelUsageRecord):
+                            await self._repository.record(
+                                connection,
+                                record.scope_id,
+                                record.usage_date,
+                                record.purpose,
+                                record.operation,
+                                record.usage,
+                            )
+                        elif isinstance(record.measurement, RecallTokenMeasurement):
+                            await self._repository.record_recall(
+                                connection, record.scope_id, record.usage_date, record.measurement
+                            )
+                        else:
+                            await self._repository.record_recall_effort(
+                                connection, record.scope_id, record.usage_date, record.measurement
+                            )
             except OperationalError as error:
                 if not is_transaction_contention(error):
                     raise

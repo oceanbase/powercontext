@@ -206,6 +206,14 @@ class RelationalScopedStatistics:
                 measurement,
             )
 
+    def offer_recall(self, measurement: RecallTokenMeasurement, usage_date: date, /) -> None:
+        if self._token_estimator != measurement.estimator:
+            raise ValueError("recall measurement estimator does not match the deployment profile")  # noqa: TRY003
+        self._model_usage.offer_recall(self._scope_id, measurement, usage_date)
+
+    def offer_recall_effort(self, effort: RecallEffort, usage_date: date, /) -> None:
+        self._model_usage.offer_recall(self._scope_id, recall_effort_measurement(effort), usage_date)
+
     async def record_recall_effort(self, effort: RecallEffort, usage_date: date, /) -> None:
         """Persist the final trace once, within the normal statistics write budget.
 

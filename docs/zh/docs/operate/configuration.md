@@ -192,7 +192,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量和召回统计记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 每个用量批次的总写入预算；只有确认未应用的尝试才可在剩余预算内重试 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取和显式 flush 等待本进程已接收用量的有界时长；普通请求不等待 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
@@ -250,10 +250,9 @@ Scope、家族、条数限制和上下文预算，并复用已经生成的查询
 搜索报告的额外推理调用，以及最终字节预算造成的截断和丢弃。两个丢弃子类之和等于 `dropped_items`，非法计数在写库前拒绝。
 表中只保存主键维度和计数，不包含条目身份、查询、提示词、引用或正文。该聚合仅供内部使用，不进入统计概览或 HTTP/MCP 响应。
 
-召回工作量记录在 `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` 预算内只尝试一次写入。
-写入失败时记录安全诊断，保持已经准备好的上下文。请求取消会等待该事务完成原生清理后再传播，保护共享的内存 SQLite 数据库。
-调用方显式传入的 `recall_effort_sink` 替代关系型记录器；关闭门控时两者都不调用。已有 SQLite 和 OceanBase 数据库通过正常的
-增量建表路径补建缺失的关系表。
+内置召回工作量与 token 统计将不含正文的计数放入 Runtime 原有的有界后台队列。统计写入等待时，召回结果可以先返回。
+显式配置的 `recall_effort_sink` 仍替代关系型工作量记录器。禁用召回门控时不记录工作量。
+已有 SQLite 和 OceanBase 数据库通过增量建表补建该关系表。
 
 模型用量记账是尽力而为的，且不阻塞模型调用。每个 Runtime 拥有一个有界记账器，接收记录时不产生 I/O。
 消费者每次取出最多 32 条已经排队的记录，在一个独立事务内写入，不为凑满批次而延迟空闲队列。

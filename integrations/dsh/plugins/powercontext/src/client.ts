@@ -226,13 +226,13 @@ export class PowerContextClient {
     id: string,
     payload?: JsonObject,
     signal?: AbortSignal,
-    options: { readinessResponse?: boolean } = {},
+    options: { readinessResponse?: boolean; requestTimeoutMs?: number } = {},
   ): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
-    const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id))
+    const init = this.buildInit(spec, prepared, signal, options.requestTimeoutMs ?? this.requestTimeoutMsFor(id))
     if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(undefined, init.signal))
     try {
       const response = await this.fetchImpl(url, init)

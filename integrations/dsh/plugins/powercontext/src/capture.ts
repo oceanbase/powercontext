@@ -31,6 +31,7 @@ export interface CaptureInput {
   sessionId: string
   turnId: string
   signal?: AbortSignal
+  requestTimeoutMs?: number
   log: (event: Record<string, unknown>) => void
   observation?: StatusAttempt
 }
@@ -97,7 +98,7 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
         session_id: input.sessionId,
         turn_id: input.turnId,
       },
-    }, input.signal)
+    }, input.signal, { requestTimeoutMs: input.requestTimeoutMs })
     position = result.kind === 'json' ? sourcePosition(result.value) : undefined
     captureStatus = result.status
   } catch (error) {

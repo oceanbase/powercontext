@@ -206,7 +206,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Total Profile Scope timeout |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage and recall-statistics records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per usage batch; only provably unapplied attempts may retry within it |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local usage at statistics reads and explicit flush boundaries; ordinary requests do not wait |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
@@ -275,11 +275,10 @@ drops. The two drop subclasses sum to `dropped_items`; invalid counts are reject
 only its key dimensions and counters, without entry identities, queries, prompts, citations, or content bodies. It is an
 internal aggregate and is not included in the statistics overview or HTTP/MCP responses.
 
-Recall-effort recording makes one write attempt within `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS`.
-A failed write logs a safe diagnostic and preserves the prepared context. Request cancellation waits for the owned
-transaction's native cleanup before propagating, preserving a shared in-memory SQLite database. A caller-supplied
-`recall_effort_sink` replaces the relational recorder; a disabled gate invokes neither. Existing SQLite and OceanBase
-databases gain the missing relation through the normal additive table-creation path.
+Relational recall-effort and recall-token accounting enqueue content-free measurements on the Runtime's existing bounded
+statistics writer. Prepared context can return while the writes are pending. A caller-supplied
+`recall_effort_sink` still replaces the relational effort recorder; a disabled gate records no effort. Existing
+SQLite and OceanBase databases gain the relation through the normal additive table-creation path.
 
 Model usage accounting is best-effort and never gates a model call. Each Runtime owns one bounded recorder that accepts a
 record without I/O. Its consumer takes up to 32 already-queued records into one independent transaction, without delaying

@@ -2175,7 +2175,7 @@ var PowerContextClient = class {
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
-		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
+		const init = this.buildInit(spec, prepared, signal, options.requestTimeoutMs ?? this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
 		try {
 			const response = await this.fetchImpl(url, init);
@@ -4135,7 +4135,7 @@ async function captureUserPrompt(input) {
 				session_id: input.sessionId,
 				turn_id: input.turnId
 			}
-		}, input.signal);
+		}, input.signal, { requestTimeoutMs: input.requestTimeoutMs });
 		position = result.kind === "json" ? sourcePosition(result.value) : void 0;
 		captureStatus = result.status;
 	} catch (error) {
@@ -4379,8 +4379,9 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 	const content = await recallContent(input, query, scopeId, observation);
 	observation?.skip("capture", input.signal?.aborted ? cancellationReason(input.signal) : "no_user_text");
 	observation?.skip("flush", "capture_skipped");
-	if (userPrompt && !input.signal?.aborted) try {
-		await captureUserPrompt({
+	if (userPrompt && !input.signal?.aborted) {
+		const background = content !== void 0 && !input.config.flushOnCapture;
+		const capture = captureUserPrompt({
 			client: input.client,
 			config: input.config,
 			scopeId,
@@ -4389,12 +4390,14 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 			sessionId: input.sessionId,
 			turnId: input.turnId,
 			signal: input.signal,
+			requestTimeoutMs: background ? input.config.timeoutMs : void 0,
 			log: input.log,
 			observation
+		}).catch((error) => {
+			observation?.fail("capture", error, true, input.signal);
+			reportFailure(input.log, "capture_content_source", error);
 		});
-	} catch (error) {
-		observation?.fail("capture", error, true, input.signal);
-		reportFailure(input.log, "capture_content_source", error);
+		if (!background) await capture;
 	}
 	return input.signal?.aborted ? {} : {
 		scopeId,
