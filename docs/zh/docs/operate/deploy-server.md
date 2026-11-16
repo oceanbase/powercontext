@@ -217,7 +217,9 @@ Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口�
 `PC_GATEWAY_UPSTREAM_URL*` 变量会导致启动失败，Core 不可用、缺少目标解析或协议不匹配时不发送。
 服务商凭据仍由部署方通过 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES`
 （或共用的 `PC_GATEWAY_UPSTREAM_API_KEY`）管理；此阶段 Core **不校验**账号/区域身份。权限不同的凭据身份
-不能共用一个 profile。离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
+不能共用一个 profile。上游传输直连 Core 批准的 endpoint，不使用进程环境中的 HTTP 代理设置
+（如 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`）；请配置可直达的 Core 批准目标。
+离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
 
 特权发送请求中的模型在所有隐私模式下都必须匹配 Core profile，包括 `disabled`、`shadow` 和 `advisory`。
 关闭隐私强制检查不会授予调用其他模型的权限。

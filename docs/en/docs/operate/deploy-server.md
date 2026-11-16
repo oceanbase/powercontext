@@ -238,8 +238,10 @@ The Gateway uses only the endpoint and protocol returned on an authorized `befor
 or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` (or the shared
 `PC_GATEWAY_UPSTREAM_API_KEY`); account/region identity is **not** validated by Core in this iteration.
-Do not share a profile between provider credential identities with distinct permissions. No offline passthrough
-is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
+Do not share a profile between provider credential identities with distinct permissions. The upstream
+transport connects directly to the approved endpoint and ignores ambient HTTP proxy settings
+(`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, etc.); configure a directly reachable Core-approved endpoint.
+No offline passthrough is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
 
 The model in a privileged send request must match the Core profile in every privacy mode, including `disabled`,
 `shadow` and `advisory`. Turning off privacy enforcement does not authorize a different model.

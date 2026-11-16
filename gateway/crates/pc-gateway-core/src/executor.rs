@@ -255,6 +255,7 @@ where
                     .cancel_with(LifecycleStopReason::GatewayShutdown);
                 execution.checkpoint()?;
             }
+            recording.set_target(&send.target_url);
             recording.begin_attempt();
             execution.model_send(ModelSendState::PossiblySent);
             self.transport.send(send)
@@ -457,7 +458,6 @@ where
                     headers: call.headers.clone(),
                     stream: call.request.stream,
                 };
-                recording.set_target(&current.target_endpoint);
                 let sent_binding = current.binding.clone();
                 let outcome = match self.send_attempt(send, execution, recording).await {
                     Ok(outcome) => outcome,
@@ -995,4 +995,92 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pc_gateway_evidence::{fingerprint, BufferedEvidenceSink};
+    use pc_gateway_transport::NotSentReason;
+    use std::future::Future;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
+    struct RejectingTransport(AtomicUsize);
+
+    impl Transport for RejectingTransport {
+        fn send<'a>(
+            &'a self,
+            _send: AdmittedSend,
+        ) -> impl Future<Output = SendOutcome> + Send + 'a {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            async { SendOutcome::NotSent(NotSentReason::ConnectRefused) }
+        }
+
+        async fn cancel(&self, _send: &AdmittedSend) {}
+    }
+
+    #[tokio::test]
+    async fn shutdown_before_retry_handoff_keeps_the_last_attempt_destination() {
+        let transport = RejectingTransport(AtomicUsize::new(0));
+        let executor = Executor::new(
+            crate::HttpGateClient::with_token("http://127.0.0.1:1", None),
+            transport,
+            NonZeroU32::new(2).unwrap(),
+        );
+        let evidence = BufferedEvidenceSink::new();
+        let control =
+            RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(30), None);
+        let mut recording = CallRecorder::new(
+            &evidence,
+            control.observation(),
+            control.cancellation(),
+            "no-upstream-send",
+            None,
+        );
+        let mut execution = control.start();
+        let send = |target: &str| AdmittedSend {
+            binding: "approved-binding".into(),
+            payload: bytes::Bytes::from_static(b"request"),
+            target_url: target.into(),
+            headers: vec![],
+            stream: false,
+        };
+
+        let first = executor
+            .send_attempt(
+                send("https://first.example/model"),
+                &mut execution,
+                &mut recording,
+            )
+            .await;
+        assert!(matches!(
+            first,
+            Ok(SendOutcome::NotSent(NotSentReason::ConnectRefused))
+        ));
+        recording.not_sent(&NotSentReason::ConnectRefused);
+        execution.model_send(ModelSendState::DefinitelyNotSent);
+
+        executor.close_model_admission();
+        let stopped = executor
+            .send_attempt(
+                send("https://unattempted.example/model"),
+                &mut execution,
+                &mut recording,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(stopped, ManagedOutcome::Stopped { .. }));
+        recording.finish(&stopped);
+        execution.finish(&stopped);
+        drop(recording);
+
+        assert_eq!(executor.transport.0.load(Ordering::SeqCst), 1);
+        let calls = evidence.calls();
+        assert_eq!(calls[0].attempts, 1);
+        assert_eq!(
+            calls[0].target_fingerprint,
+            fingerprint("https://first.example/model")
+        );
+    }
 }

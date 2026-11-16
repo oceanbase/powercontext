@@ -116,6 +116,10 @@ client identities to distinct Core principals or enforce per-client Scope author
 holds the upstream credential as `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` (or `_RESPONSES`); this
 single credential identity per route is an operator-owned assumption, not a Core-verified account
 or region binding. Never reuse one profile across credential identities with different permissions.
+The upstream transport connects directly to the Core-approved endpoint; it ignores ambient
+`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and related proxy settings so that an unapproved proxy
+cannot receive the model payload or provider credential. The Core-approved endpoint must be
+directly reachable; ambient HTTP proxies are not supported for upstream sends.
 The removed `PC_GATEWAY_UPSTREAM_URL*` variables cause a startup error rather than a fallback.
 Credentials are never accepted from request fields and never enter check payloads.
 
