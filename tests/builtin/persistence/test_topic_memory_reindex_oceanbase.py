@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,8 +27,12 @@ from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import TopicMemoryStorageInvariantError
+from powercontext.builtin.persistence import topic_memory_reindex as shared_reindex_module
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import topic_memory_reindex as reindex_module
 from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
+from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
+from powercontext.builtin.persistence.topic_memory_reindex import reindex_topic_memory
 
 
 def _profile() -> EmbeddingProfile:
@@ -166,6 +172,88 @@ def test_oceanbase_activation_requires_every_registered_vector_index(monkeypatch
 
         with pytest.raises(TopicMemoryStorageInvariantError, match="reindex-vector-schema"):
             await backend.validate_staging(connection)
+
+    asyncio.run(scenario())
+
+
+def test_native_dimension_change_is_rejected_before_ddl_and_reopens_safely(monkeypatch) -> None:
+    """Exercise the native planner without claiming embedded SeekDB execution."""
+
+    source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
+    target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
+    old_fingerprint = topic_memory_embedding_profile_fingerprint(source)
+    monkeypatch.setattr(
+        shared_reindex_module,
+        "_table_names",
+        AsyncMock(
+            return_value={
+                "pc_schema_revision",
+                "pc_server_storage_profile",
+                "pc_atomic_memory_current",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        shared_reindex_module,
+        "staging_counts",
+        AsyncMock(
+            return_value={
+                "topics_total": 0,
+                "topics_processed": 0,
+                "topics_remaining": 0,
+                "chunks_total": 0,
+                "chunks_processed": 0,
+                "chunks_remaining": 0,
+            }
+        ),
+    )
+    monkeypatch.setattr(shared_reindex_module, "_active_fingerprint", AsyncMock(return_value=old_fingerprint))
+    monkeypatch.setattr(shared_reindex_module, "declared_storage_profile", AsyncMock(return_value=source))
+    monkeypatch.setattr(shared_reindex_module, "staged_fingerprint", AsyncMock(return_value=None))
+
+    class _Database:
+        def __init__(self, connection) -> None:
+            self.connection = connection
+
+        @asynccontextmanager
+        async def transaction(self):
+            yield self.connection
+
+    async def scenario() -> None:
+        # Each attempt uses a new connection and backend, matching a close and
+        # reopen after the rejected command. Neither attempt may reach DDL.
+        for _attempt in range(2):
+            backend = OceanBaseTopicMemoryReindexBackend(target)
+            backend.validate_active = AsyncMock()
+            backend.prepare = AsyncMock(side_effect=AssertionError("persistent DDL must not be reached"))
+            connection = MagicMock()
+            connection.dialect = mysql.dialect()
+            connection.execute = AsyncMock()
+            connection.exec_driver_sql = AsyncMock()
+
+            async def scalar(statement, _parameters=None):
+                if "information_schema.columns" in str(statement):
+                    return "VECTOR(2)"
+                return None
+
+            connection.scalar = AsyncMock(side_effect=scalar)
+            report = await reindex_topic_memory(
+                cast(AsyncDatabase, _Database(connection)),
+                backend,
+                embedding_model=None,
+                maintenance_confirmed=True,
+                rebuild_atomic_memory=True,
+            )
+
+            assert not report.ready and not report.activated
+            assert not report.atomic_memory_rebuild_required
+            assert any(
+                "does not support changing the native Atomic Memory VECTOR dimension" in error
+                for error in report.errors
+            )
+            backend.prepare.assert_not_awaited()
+            connection.execute.assert_not_called()
+            connection.exec_driver_sql.assert_not_called()
 
     asyncio.run(scenario())
 

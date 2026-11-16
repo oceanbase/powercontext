@@ -35,7 +35,7 @@ from click import unstyle
 from typer.testing import CliRunner
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.persistence.migrations.deployment import server_bundle
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner, server_bundle
 from powercontext.builtin.persistence.migrations.models import MigrationError
 from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema, prepare_server_storage
 from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
@@ -56,22 +56,38 @@ def _managed_database(
     profile: EmbeddingProfile | None,
     *,
     count: int = 2,
+    evidence_dir: Path | None = None,
 ) -> SQLiteMigrationRunner:
     """Initialize the registered Server schema and publish authoritative Topics."""
 
-    bundle = server_bundle(embedding_profile=profile)
-    configuration: dict[str, object] = {
-        "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
-        "embedding_enabled": profile is not None,
-    }
-    if profile is not None:
-        configuration["embedding_profile"] = profile.model_dump(mode="json")
-    runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}", journal_mode="DELETE")
+    if evidence_dir is None:
+        bundle = server_bundle(embedding_profile=profile)
+        configuration: dict[str, object] = {
+            "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
+            "embedding_enabled": profile is not None,
+        }
+        if profile is not None:
+            configuration["embedding_profile"] = profile.model_dump(mode="json")
+        runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
+    else:
+        settings = ServerSettings(
+            database=config,
+            mcp=McpConfig(enabled=False),
+            inference=InferenceConfig(
+                embedding_model=profile.model if profile is not None else None,
+                embedding_profile_id=profile.profile_id if profile is not None else None,
+                embedding_dimension=profile.dimension if profile is not None else None,
+                embedding_normalization=profile.normalization if profile is not None else "unit",
+            ),
+        )
+        selected = deployment_runner(settings, evidence_dir=evidence_dir)
+        assert isinstance(selected, SQLiteMigrationRunner)
+        runner = selected
     plan = runner.plan()
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     async def publish() -> None:
-        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}", journal_mode="DELETE")
         async with SQLiteProfile.open(config, tables=(), load_vector_extension=True) as opened:
             await _publish(opened, profile or _profile("old", 2), count=count, vectorized=profile is not None)
 
@@ -129,9 +145,9 @@ def _staging_tables(database: Path) -> list[str]:
         ]
 
 
-def _journal(database: Path) -> dict[str, Any]:
-    path = database.with_name(database.name + ".pc-migration-state") / "maintenance.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+def _journal(database: Path, evidence_dir: Path | None = None) -> dict[str, Any]:
+    directory = evidence_dir or database.with_name(database.name + ".pc-migration-state")
+    return json.loads((directory / "maintenance.json").read_text(encoding="utf-8"))
 
 
 def _require_restart_admission(database: Path, profile: EmbeddingProfile | None) -> None:
@@ -160,10 +176,10 @@ def _require_restart_admission(database: Path, profile: EmbeddingProfile | None)
     asyncio.run(scenario())
 
 
-def _transitions(database: Path) -> list[tuple[str, str, str]]:
+def _transitions(database: Path, evidence_dir: Path | None = None) -> list[tuple[str, str, str]]:
     return [
         (item["previous"]["profile_id"], item["target"]["profile_id"], item["state"])
-        for item in _journal(database)["embedding_profile_transitions"]
+        for item in _journal(database, evidence_dir)["embedding_profile_transitions"]
     ]
 
 
@@ -265,6 +281,75 @@ def test_cli_apply_preserves_history_for_restart_admission(
     assert _journal(database)["release_checksums"] == recorded
     assert _transitions(database) == [(old_profile.profile_id, new_profile.profile_id, "complete")]
     _require_restart_admission(database, new_profile)
+
+
+def test_cli_apply_honors_custom_evidence_and_rejects_an_unselected_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "custom-evidence.db"
+    evidence_dir = tmp_path / "custom-evidence"
+    journal_path = evidence_dir / "maintenance.json"
+    old_profile, new_profile = _profile("old", 2), _profile("new", 3)
+    _managed_database(database, old_profile, count=1, evidence_dir=evidence_dir)
+    before = _authority(database)
+    recorded = dict(_journal(database, evidence_dir)["release_checksums"])
+    original_journal = journal_path.read_bytes()
+    _configure_target(monkeypatch, database, new_profile)
+    model = _Embedding(new_profile)
+    provider_calls = []
+
+    async def models(*_args, **_kwargs):
+        provider_calls.append(True)
+        return model, model
+
+    monkeypatch.setattr("powercontext.server.cli._embedding_models", models)
+    command = [
+        "server",
+        "topic-memory-reindex",
+        "--action",
+        "apply",
+        "--maintenance-confirmed",
+        "--batch-size",
+        "1",
+    ]
+
+    # A managed database whose only journal is in a custom directory must not
+    # activate while silently skipping that journal. The unsupported location
+    # is rejected before staging, inference, or any authoritative change.
+    missing = CliRunner().invoke(create_cli([app]), command)
+    assert missing.exit_code == 1
+    assert "--evidence-dir" in unstyle(missing.output) + str(missing.exception)
+    assert provider_calls == []
+    assert _authority(database) == before
+    assert _active_fingerprint(database) == topic_memory_embedding_profile_fingerprint(old_profile)
+    assert _staging_tables(database) == []
+    assert journal_path.read_bytes() == original_journal
+
+    applied = CliRunner().invoke(
+        create_cli([app]),
+        [*command, "--evidence-dir", str(evidence_dir)],
+    )
+
+    assert applied.exit_code == 0, applied.exception or applied.output
+    report = json.loads(applied.stdout)
+    assert report["ready"] is True and report["activated"] is True
+    assert provider_calls == [True]
+    assert _authority(database) == before
+    assert _active_fingerprint(database) == topic_memory_embedding_profile_fingerprint(new_profile)
+    assert _staging_tables(database) == []
+    assert journal_path.read_bytes() != original_journal
+    assert _journal(database, evidence_dir)["release_checksums"] == recorded
+    assert _transitions(database, evidence_dir) == [(old_profile.profile_id, new_profile.profile_id, "complete")]
+    assert not database.with_name(database.name + ".pc-migration-state").exists()
+
+    for action in ("plan", "verify"):
+        inspected = CliRunner().invoke(
+            create_cli([app]),
+            ["server", "db-migrate", action, "--evidence-dir", str(evidence_dir)],
+        )
+        assert inspected.exit_code == 0, inspected.exception or inspected.output
+        assert "checksum_conflict" not in inspected.output
 
 
 def test_cli_apply_rejects_fts_only_managed_storage_before_writing(

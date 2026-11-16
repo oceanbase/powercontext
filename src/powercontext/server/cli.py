@@ -583,6 +583,7 @@ def topic_memory_reindex(
         typer.Option(help="Inspect readiness or stage and activate the configured profile."),
     ] = "dry-run",
     env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    evidence_dir: database_migration.EvidenceDir = None,
     maintenance_confirmed: Annotated[
         bool, typer.Option(help="Confirm every API, host and Worker is stopped and Topic writes are paused.")
     ] = False,
@@ -610,6 +611,7 @@ def topic_memory_reindex(
                     batch_size=batch_size,
                     rebuild_atomic_memory=rebuild_atomic_memory,
                     show_progress=progress,
+                    evidence_dir=evidence_dir,
                 )
             )
         except MissingDatabaseError as error:
@@ -632,6 +634,7 @@ async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps
     batch_size: int,
     rebuild_atomic_memory: bool,
     show_progress: bool,
+    evidence_dir: Path | None,
 ) -> bool:
     from powercontext.builtin.artifacts.memory import EmbeddingProfile
     from powercontext.builtin.persistence.migrations.deployment import deployment_runner
@@ -684,7 +687,11 @@ async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps
         if show_progress:
             typer.echo(json.dumps({"progress": counts}, sort_keys=True), err=True)
 
-    runner = deployment_runner(settings) if not dry_run and isinstance(database, (SQLiteConfig, SeekDBConfig)) else None
+    runner = (
+        deployment_runner(settings, evidence_dir=evidence_dir)
+        if not dry_run and isinstance(database, (SQLiteConfig, SeekDBConfig))
+        else None
+    )
     # Only the Server bundle carries the maintenance journal this command extends.
     journal = runner if isinstance(runner, (SQLiteMigrationRunner, MySQLMigrationRunner)) else None
     async with AsyncExitStack() as resources:
@@ -696,16 +703,22 @@ async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps
                 backend,
                 rebuild_atomic_memory=rebuild_atomic_memory,
             )
-        if (
-            not dry_run
-            and not inspection.errors
-            and journal is not None
-            and journal.has_maintenance_evidence()
-            and stored_profile is not None
-        ):
-            # Record the accepted switch before touching storage so an
-            # interrupted activation is explained by the journal it left behind.
-            journal.begin_embedding_profile_transition(stored_profile)
+        if not dry_run and not inspection.errors and journal is not None and stored_profile is not None:
+            if not journal.has_maintenance_evidence():
+                inspection = inspection.model_copy(
+                    update={
+                        "ready": False,
+                        "errors": (
+                            *inspection.errors,
+                            "managed Server maintenance evidence is missing from the selected directory; "
+                            "pass the deployment's --evidence-dir before applying Topic Memory reindex",
+                        ),
+                    }
+                )
+            else:
+                # Record the accepted switch before touching storage so an
+                # interrupted activation is explained by the journal it left behind.
+                journal.begin_embedding_profile_transition(stored_profile)
         if dry_run or inspection.errors:
             report = inspection if dry_run else inspection.model_copy(update={"action": "apply"})
         else:
