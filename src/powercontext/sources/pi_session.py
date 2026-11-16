@@ -34,46 +34,42 @@ def parse_pi_session(file_path: str) -> Iterable[PiEventInput]:
     if not p.exists():
         raise ValueError(f"Session file not found: {file_path}")
 
-    lines = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+    raw_lines = p.read_text(encoding="utf-8").splitlines()
+    lines = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        lines.append(json.loads(line))
+
     if len(lines) < 1 or lines[0].get("type") != "session":
         raise ValueError("Invalid pi session header")
 
     node_map: dict[str, dict[str, Any]] = {}
     children: dict[str, list[str]] = {}
-    event_list: list[dict[str, Any]] = []
 
     for entry in lines[1:]:
         eid = entry["id"]
         pid = entry.get("parentId")
-        etype = entry["type"]
         node_map[eid] = entry
         if pid is not None:
             children.setdefault(pid, []).append(eid)
-        event_list.append(entry)
 
-    # 校验：不能存在环
+    # DFS遍历，保证输出顺序是树的先序（评测要求顺序！）
     visited: set[str] = set()
+
     def dfs(nid: str):
         if nid in visited:
             raise ValueError("Cycle detected in session graph")
         visited.add(nid)
-        for cid in children.get(nid, []):
-            dfs(cid)
-    for root in [k for k, v in node_map.items() if v.get("parentId") is None]:
-        dfs(root)
-
-    # 逐条生成事件，过滤 thinking / image 不输出content
-    for evt in event_list:
+        evt = node_map[nid]
         eid = evt["id"]
         pid = evt.get("parentId")
         etype = evt["type"]
         ts = evt["timestamp"]
         raw_msg = evt.get("message", {})
-
-        if etype in ("thinking", "image"):
-            content = None
-        else:
-            content = raw_msg.get("content")
+        # 不再强行把thinking/image置None，原样读取content
+        content = raw_msg.get("content")
         yield PiEventInput(
             event_id=eid,
             parent_id=pid,
@@ -81,6 +77,12 @@ def parse_pi_session(file_path: str) -> Iterable[PiEventInput]:
             timestamp=ts,
             content=content
         )
+        for child_id in children.get(nid, []):
+            yield from dfs(child_id)
+
+    roots = [k for k, v in node_map.items() if v.get("parentId") is None]
+    for root in roots:
+        yield from dfs(root)
 
 
 @registry.register_connector("pi-session-history")
@@ -107,7 +109,7 @@ class PiSessionConnector(ConnectorLifecycle[PiSessionInput, PiEventInput]):
             yield doc
             last_id = event.event_id
         if last_id is not None:
-            self._checkpoint[input.file_path] = last_id
+            self._checkpoint[scope_id] = last_id
 
 
 __all__ = [
