@@ -56,6 +56,8 @@ builtin = [
     "httpx>=0.28,<1",
     "httpx2>=2.7,<3",
     "jieba==0.42.1",
+    "numpy>=1.26,<3",
+    "orjson>=3.10,<4",
     "packaging>=24,<27",
     "pydantic-ai-slim[anthropic,openai]>=2.64.0,<3",
     "pydantic-settings>=2.7,<3",
@@ -68,6 +70,7 @@ builtin = [
     "sqlalchemy[asyncio]>=2,<3",
     "sqlite-vec>=0.1.9,<0.2",
     "tzdata>=2026.3",
+    "tzlocal>=5.2,<6",
 ]
 seekdb = [
     "powercontext[builtin]",
@@ -151,6 +154,7 @@ resource-build = [
     "jsonschema>=4.23,<5",
     "opentelemetry-api>=1.30,<2",
     "opentelemetry-sdk>=1.30,<2",
+    "orjson>=3.10,<4",
     "packaging>=24,<27",
     "platformdirs>=4,<5",
     "pydantic-settings>=2.7,<3",
@@ -256,6 +260,9 @@ exclude = [
     "evaluation/memory/capture_ownership",
     "evaluation/skills",
     "evaluation/zcode_guidance",
+    # Both plugin directories are search paths, and ty resolves powercontext_lifecycle to the Claude Code copy, so it
+    # cannot resolve the relative imports of this identical generated copy.
+    "integrations/codex/plugins/powercontext/powercontext_lifecycle",
 ]
 
 [tool.ty.rules]
@@ -295,8 +302,7 @@ fix = true
 # The plugins ship generated copies of these modules. Ruff must check each copy like its source, or a fix that it
 # applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
-"integrations/codex/plugins/powercontext/powercontext_client_config.py" = "py39"
-"integrations/codex/plugins/powercontext/hooks/{bootstrap_context,prepared_context,prompt_privacy}.py" = "py39"
+"integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
 "integrations/hermes/plugins/powercontext/powercontext_client_config.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 

@@ -34,6 +34,30 @@ from powercontext.builtin.authz.service import AccessAuditContext, AccessControl
 from powercontext.builtin.persistence.database import AsyncDatabase
 
 
+class HostSecuritySpec(BaseModel):
+    """Authorization reconstructed for requests whose identity is supplied by Server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["builtin"] = "builtin"
+    deployment_id: str
+    static_scope_principal: PrincipalRef | None = Field(default=None, repr=False)
+
+
+def build_host_access(security: dict[str, Any] | None, database: AsyncDatabase) -> AccessControlService | None:
+    if security is None:
+        return None
+    spec = HostSecuritySpec.model_validate(security)
+    repository = RelationalAccessRepository(database)
+    return AccessControlService(
+        BuiltinAuthorizationProvider(repository, deployment_id=spec.deployment_id),
+        relationships=repository,
+        audit=repository,
+        deployment_id=spec.deployment_id,
+        static_scope_principal=spec.static_scope_principal,
+    )
+
+
 class WorkerSecuritySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

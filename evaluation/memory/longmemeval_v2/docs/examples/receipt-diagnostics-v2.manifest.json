@@ -1,0 +1,37 @@
+{
+  "schema": "powercontext.longmemeval-v2-smoke-run.v1",
+  "classification": "synthetic-example-only",
+  "run_id": "synthetic-receipt-run-001",
+  "revisions": {
+    "powercontext": "1111111111111111111111111111111111111111",
+    "integration": "2222222222222222222222222222222222222222"
+  },
+  "experiment_arm": {
+    "id": "query-time-compact-v1",
+    "retrieval_strategy": "prepared-context",
+    "search_mode": null,
+    "memory_projection": "deterministic-compact-v1",
+    "query_projection": "powercontext-prepared-context-v1",
+    "prepared_context_max_bytes": 8000,
+    "temporal_filter": null,
+    "task_lens": null
+  },
+  "diagnostics": {
+    "receipt_diagnostics": true,
+    "receipt_server_revision": "0123456789abcdef0123456789abcdef01234567",
+    "server_revision_basis": "operator_attested"
+  },
+  "synthetic_fixture": {
+    "all_identities_are_synthetic": true,
+    "executed_against_server": false,
+    "source_ref": {
+      "name": "content",
+      "source_id": "synthetic-source-001"
+    },
+    "source_identity_basis": "fixture-setup-only-not-native-memory-lineage",
+    "content_identity_basis": "160 ASCII x bytes; no user content",
+    "config_identity_basis": "SHA-256 of synthetic-rerank-config-001",
+    "config_digest": "sha256:05141c4411bbaed9f006c70130cee462b09be9b6618c511f1b6f180b917565ec",
+    "source_revision_basis": "placeholder SHAs; no deployed build claim"
+  }
+}
