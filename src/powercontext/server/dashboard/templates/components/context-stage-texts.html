@@ -24,3 +24,13 @@ limitations under the License.
           {% endif %}
 {% endif %}
 {% endmacro %}
+{% macro candidate_text_drawer(id) %}
+<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#{{ id }}" aria-controls="{{ id }}">{{ t.context_original_text }}</button>
+<div class="offcanvas offcanvas-end" tabindex="-1" id="{{ id }}" aria-labelledby="{{ id }}-title" aria-hidden="true">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title" id="{{ id }}-title">{{ t.context_original_text }}</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ t.evidence_close }}"></button>
+  </div>
+  <div class="offcanvas-body"><div data-candidate-drawer>{{ caller() }}</div></div>
+</div>
+{% endmacro %}

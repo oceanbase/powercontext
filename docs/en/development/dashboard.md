@@ -90,10 +90,9 @@ Inspection uses selected-Scope read authorization and completed audit, without m
 
 ### Context diagnostics
 
-“Observability → Context diagnostics” lists actual Server prepare calls when
-`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED=true`. The default is false; restart the Server after changing it.
-The one setting covers all Scopes, families and actual rounds. It has no expiry, capture filter, retention limit or
-cleanup action. Standalone SDK use does not enable this Server store.
+“Observability → Context diagnostics” lists actual Server prepare calls. Capture is always on for the Server; there is no
+enable switch and no per-request opt-in. The one store covers all Scopes, families and actual rounds. It has no expiry,
+capture filter, retention limit or cleanup action. Standalone SDK use does not write this Server store.
 
 Each authorized prepare writes one independent `pc_context_prepare_diagnostics` record: UTC start/end, monotonic total
 milliseconds, ready/empty/failed/cancelled result, existing principal/request/trace identities, exact original prepare query and its normalized digest,
@@ -106,7 +105,7 @@ Capture observes the same execution. It never repeats prepare, search, reranking
 adds a Receipt to an unrequested response or changes reuse. An independent best-effort transaction has a two-second
 write deadline; it does not limit capture lifetime or retention. Write failures emit only a content-free notification;
 cancellation continues to propagate. Crashes and unavailable storage can leave missing records, so this is not a
-lossless audit ledger. The enabled diagnostic store retains the original query and stage text. Authentication credentials, vectors and raw model outputs are not collected. Query text is retained verbatim. Ordinary logs and
+lossless audit ledger. The diagnostic store retains the original query and stage text. Authentication credentials, vectors and raw model outputs are not collected. Query text is retained verbatim. Ordinary logs and
 traces remain body-free. Receipt v1 itself remains content-free and bounded to 8 KiB and 32 selected references.
 
 The default list has no date restriction. It selects the original query and summary columns without loading stage payloads, at most 25 rows per page, ordered by finish time
@@ -115,18 +114,23 @@ record and retain the compact summary, family counts, exact references, omission
 uses the stored monotonic measurement; the separate Receipt stage sum is not total request time. Dashboard reads finish
 existing authorization/audit and reauthorize referenced Scopes before releasing stored content. Exact Artifact links
 also require their ordinary current exact-revision reads; denied or unavailable references remain anonymous.
-The exact selected references table also shows candidate text retained for that revision during assembly; missing historical text stays unavailable rather than being filled from current content. Pages use
+The exact selected references table groups rows by artifact family in first-appearance order and shows candidate text retained for that revision during assembly; missing historical text stays unavailable rather than being filled from current content. Pages use
 `Cache-Control: no-store`. Reading never prepares again or writes business data.
 
 Recall details run from top to bottom: original query, memory retrieval, reranking, budget assembly and final context.
-Each stage uses one summary table for counts, modes, outcomes and reasons, with retrieval and assembly candidate text in an Original text column on the same row. Reranking shows separate Input text and Output text columns.
+The query card carries the Receipt ID in its footer when a Receipt exists. Retrieval, reranking and assembly headings show
+their own measured duration and call or record count, so the page has no separate stage-timing table.
+Each stage uses one summary table for counts, modes, outcomes and reasons, with retrieval candidate text in an Original text column on the same row. Reranking shows separate Input text and Output text columns. The budget assembly stage keeps only the candidates that same-execution Receipt selected in its Original text column; without Receipt evidence the selection is unknown and the column shows unavailable text. Original text is collapsed by default and each column button opens it in a drawer.
+The final context's byte budget is counted in UTF-8 bytes, not characters. One CJK character usually takes 3 bytes, so the byte figure is noticeably larger than the visible character count; the page shows an example under that value.
 Technical evidence can expand in place.
-Text and ordering come from the same execution. Topic text is limited to the title, summary and snippet
+Text and ordering come from the same execution. Retrieval counts come from the same-execution candidate snapshot, not the search API output after reranking. Missing historical snapshots leave the Memory retrieval-stage count unknown.
+The budget assembly Omission groups column lists excluded candidates as counts per reason. Not retrieved means the family returned no candidates this time and shows no count; other reasons show their count. A family with nothing excluded shows No omitted candidates.
+Topic text is limited to the title, summary and snippet
 actually returned; no additional Artifact read or model call is made to fill the capture. Failure leaves output unknown,
 and records created before text capture show unavailable stage text. Stage text stays outside the public Receipt,
 operational logs and tracing. Current Artifact read authorization also covers retained candidate references.
 
-The list shows the original query; long queries can expand in place. Query text also appears beside the stage text in details. Records created before query capture show “Query text not recorded” without reconstruction.
+The list shows the original query; long queries can expand in place. In details, original text opens from the column buttons in a drawer. Records created before query capture show “Query text not recorded” without reconstruction.
 
 The history list and recall details are separate pages. Selecting Details opens
 `/dashboard/context-diagnostic-detail` for the chosen record; the detail page does not repeat the history table.
@@ -136,12 +140,12 @@ valid final text readable. Reference reads share a ten-second limit; Code has no
 and remains unavailable. A diagnostic record does not prove host delivery, model adoption or task benefit.
 
 Migration `v1_5_0_006` only adds the independent table and indexes. It preserves Bootstrap receipts, Sources, Artifacts
-and existing statistics and does not backfill past calls. Disabling capture stops new records after restart and keeps
-history readable. Scope deletion has no new cascade or restriction from this table; stored content does not gain a
+and existing statistics and does not backfill past calls. Capture has no switch, so every prepare writes a record and
+history stays readable. Scope deletion has no new cascade or restriction from this table; stored content does not gain a
 new permission path after deletion. Existing managed databases require the ordinary explicit migration workflow before
 startup. Rollback uses the existing verified backup workflow; disabling capture never drops the table.
 
-Revision `v1_5_0_007` adds nullable `query_text` to the diagnostic table, without backfilling old records. It uses UTF-8 text on MySQL-compatible backends. Only the existing diagnostic setting enables writes; neither public Receipt JSON nor logs/traces gain query text.
+Revision `v1_5_0_006` creates the complete table, including nullable `query_text`. MySQL-compatible backends use UTF-8 text. Only the diagnostic setting enables writes; public Receipts and operational telemetry remain body-free.
 
 ### Review explains the proposal and the saved result
 

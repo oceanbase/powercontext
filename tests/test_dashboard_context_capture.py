@@ -30,7 +30,6 @@ from powercontext.builtin.runtime import PrepareContextRequest
 from powercontext.builtin.runtime.application import ScopedContextApplication
 from powercontext.builtin.runtime.receipt_builder import ReceiptEvidence
 from powercontext.server.context_diagnostics import diagnostic_sink
-from powercontext.server.settings import ServerSettings
 from tests.test_dashboard import create_scope, dashboard  # noqa: F401
 
 
@@ -54,13 +53,6 @@ def prepare(client, scope, **kwargs):
     return client.post("/v1/context/prepare", json={"scope_id": scope, "query": "budget", **kwargs})
 
 
-def test_capture_setting_is_one_global_opt_in(monkeypatch):
-    monkeypatch.delenv("POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED", raising=False)
-    assert not ServerSettings().context_diagnostics_enabled
-    monkeypatch.setenv("POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED", "true")
-    assert ServerSettings().context_diagnostics_enabled
-
-
 @pytest.mark.parametrize("reuse", [False, True])
 def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard, monkeypatch, reuse):
     scope = create_scope(dashboard, "Captured recall")["scope_id"]
@@ -73,8 +65,6 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
     )
     ordinary = prepare(dashboard, scope, include_reuse=reuse)
     assert ordinary.status_code == 200, ordinary.text
-    assert records(dashboard, scope) == ()
-    dashboard.app.state.context_diagnostics_enabled = True
     response = prepare(dashboard, scope, include_reuse=reuse)
     assert response.status_code == 200, response.text
     body = response.json()["context"] if reuse else response.json()
@@ -82,7 +72,7 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
     assert set(body) == {"schema", "status", "content", "content_bytes"}
     assert body == baseline
     summaries = records(dashboard, scope)
-    assert len(summaries) == 1
+    assert len(summaries) == 2  # Both prepares are captured; capture no longer toggles at runtime.
     assert "prepared_content" not in summaries[0] and "receipt_payload" not in summaries[0]
     record = detail_record(dashboard, scope, summaries[0]["record_id"])
     assert record["prepared_content"] == body["content"]
@@ -142,6 +132,8 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
 
             assert "返回召回记录" not in selected.text and "Back to recall history" not in selected.text
             assert "data-context-bytes=" in selected.text
+            assert "data-context-bytes-hint" in selected.text
+            assert "UTF-8" in selected.text
             assert selected.headers["Cache-Control"] == "no-store"
         other = create_scope(dashboard, "Another capture scope")["scope_id"]
         denied = dashboard.get(
@@ -154,7 +146,6 @@ def test_real_prepare_capture_preserves_wire_and_reads_without_replay(dashboard,
 
 def test_capture_failure_does_not_change_success_and_receipt_failure_keeps_record(dashboard, monkeypatch):
     scope = create_scope(dashboard, "Fail open capture")["scope_id"]
-    dashboard.app.state.context_diagnostics_enabled = True
     original = ContextPrepareDiagnosticsRepository.append
 
     async def unavailable(*args, **kwargs):
@@ -221,7 +212,6 @@ def test_failed_and_cancelled_prepare_remain_distinct(dashboard, monkeypatch, fa
 
 def test_history_pages_tied_timestamps_and_binds_filters(dashboard):
     scope = create_scope(dashboard, "Paged capture")["scope_id"]
-    dashboard.app.state.context_diagnostics_enabled = True
     assert prepare(dashboard, scope).status_code == 200
     seed = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
 
@@ -289,7 +279,6 @@ def test_capture_records_all_five_families_with_code_failure(dashboard):
         ]
     }
     baseline = prepare(dashboard, scope, assembly=assembly, include_code=True)
-    dashboard.app.state.context_diagnostics_enabled = True
     captured = prepare(dashboard, scope, assembly=assembly, include_code=True)
     assert captured.status_code == 200 and captured.json() == baseline.json()
     record = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
@@ -339,7 +328,6 @@ def test_retained_body_reauthorizes_referenced_scope_and_completed_audit(dashboa
         ).status_code
         == 200
     )
-    dashboard.app.state.context_diagnostics_enabled = True
     assert prepare(dashboard, scope).status_code == 200
     record = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
     assert "private reference content" in record["prepared_content"]
@@ -418,7 +406,6 @@ def test_original_query_round_trips_without_loading_stage_payload_in_list(dashbo
     from markupsafe import escape
 
     scope = create_scope(dashboard, "Original query")["scope_id"]
-    dashboard.app.state.context_diagnostics_enabled = True
     query = "  预算原文\n<诊断> & \"quote\" '单引号' 😀\t"
     response = dashboard.post("/v1/context/prepare", json={"scope_id": scope, "query": query})
     assert response.status_code == 200 and set(response.json()) == {"schema", "status", "content", "content_bytes"}
@@ -450,7 +437,6 @@ def test_original_query_round_trips_without_loading_stage_payload_in_list(dashbo
 
 def test_long_query_can_expand_and_legacy_query_stays_unknown(dashboard):
     scope = create_scope(dashboard, "Long original query")["scope_id"]
-    dashboard.app.state.context_diagnostics_enabled = True
     query = "预算原文 " * 100
     assert dashboard.post("/v1/context/prepare", json={"scope_id": scope, "query": query}).status_code == 200
     saved = records(dashboard, scope)[0]
@@ -470,3 +456,30 @@ def test_long_query_can_expand_and_legacy_query_stays_unknown(dashboard):
         "/dashboard/context-diagnostic-detail", params={"scope": scope, "diagnostic": "pcd_legacy_query", "lang": "en"}
     )
     assert detail.status_code == 200 and "Query text not recorded" in detail.text
+
+
+def test_search_table_counts_candidates_before_reranking(dashboard):
+    from tests.builtin.runtime.test_context_diagnostic_text import SelectLast
+
+    scope = create_scope(dashboard, "Raw search stage count")["scope_id"]
+    for text in ("Budget alpha is reviewed Thursday.", "Budget beta is reviewed Friday."):
+        assert (
+            dashboard.post("/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": text}).status_code
+            == 200
+        )
+    dashboard.app.state.application.atomic_memory._application.reranker = SelectLast()
+    assert prepare(dashboard, scope).status_code == 200
+    record = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
+    memory_search = next(row for row in record["diagnostics_payload"]["searches"] if row["family"] == "atomic-memory")
+    assert memory_search["result_count"] == 1  # The complete search API returns the reranked result.
+    page = dashboard.get(
+        "/dashboard/context-diagnostic-detail", params={"scope": scope, "diagnostic": record["record_id"], "lang": "en"}
+    )
+    assert page.status_code == 200
+    table = re.search(r"<table[^>]*data-search-summary[^>]*>(.*?)</table>", page.text, re.S)
+    assert table is not None
+    row = re.search(r"<tbody>\s*<tr>(.*?)</tr>", table[1], re.S)
+    assert row is not None
+    cells = re.findall(r"<td[^>]*>(.*?)</td>", row[1], re.S)
+    assert cells[4].strip() == "2"  # Retrieval precedes the two-input/one-output rerank stage.
+    assert "Budget alpha" in cells[-1] and "Budget beta" in cells[-1]

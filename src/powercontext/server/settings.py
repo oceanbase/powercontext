@@ -257,7 +257,6 @@ class ServerSettings(BaseSettings):
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
     source_management: SourceManagementConfig = Field(default_factory=SourceManagementConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
-    context_diagnostics_enabled: bool = False
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
     allow_unauthenticated_non_loopback: bool = False
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)

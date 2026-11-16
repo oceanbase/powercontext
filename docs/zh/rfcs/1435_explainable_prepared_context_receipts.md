@@ -309,12 +309,12 @@ reason 为封闭枚举：
 
 ### 显式 Server 诊断扩展
 
-`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED=true` 开启 `pc_context_prepare_diagnostics` 中的独立 prepare 历史。
+Server 始终向 `pc_context_prepare_diagnostics` 写入独立 prepare 历史，没有开启开关。
 它采集同一次已授权执行的原始 prepare query、准确最终正文、可用的 Receipt、各类真实返回数、分阶段候选文本以及失败/取消终态证据。
 不额外采集认证凭据、向量或原始模型输出，查询原文不做改写。Receipt JSON 自身保持无正文，不注入模型。
 扩展不修改宿主请求、响应、reuse 或公开 Receipt 格式，也不重新执行 prepare。
 
-开关默认 false，覆盖全部 Server Scope 和轮次，启动时生效。记录永久保留，没有 TTL、容量淘汰或清理操作。
+采集覆盖全部 Server Scope 和轮次。记录永久保留，没有 TTL、容量淘汰或清理操作。
 读取沿用 Dashboard 授权和完整审计，在返回历史正文前检查引用 Scope 的当前权限。
 持久化尽力执行，不能替换业务结果或压制取消。普通日志和 Trace 仍无正文。
 存储、分页及展示见[上下文诊断](../development/dashboard.md#上下文诊断)。
@@ -399,7 +399,7 @@ schema。
 **不要复用 Memory 搜索的 rerank trace。** 该 trace 包含 candidate hits，且仅在进程内。HTTP 搜索已经不返回它。
 PreparedContext 选择发生在 Memory 搜索和 Experience 搜索之后，并使用不同预算。
 
-**默认不持久化每一次 prepare。** 显式 Server 诊断扩展由一个部署开关开启，在独立诊断记录中保留最终上下文及原始 query；Receipt JSON 和普通运维信号仍排除 query 原文。
+**诊断历史不进入公开契约。** Server 诊断扩展在独立诊断记录中始终保留最终上下文及原始 query；Receipt JSON 和普通运维信号仍排除 query 原文。
 评测可以在 harness 中保留 HTTP 响应。
 
 **不要发明渐进内容缓存。** 通过现有精确读取 API 展开 Receipt 条目，能保持 Artifact 权威。独立诊断历史是历史证据，
@@ -438,5 +438,5 @@ v1 保持 `include_receipt` 仅由请求开启。把 Receipt 附到每一次 pre
 - 把 Receipt 省略原因与任务分数拼接的评测报告。
 - 多分辨率装箱（[#1426](https://github.com/oceanbase/powercontext/issues/1426)）通过同一套 Receipt `omitted` 词表
   报告选中层级。
-- 面向审计的可选耐久 Receipt 存储，只保留 query digest 和短 TTL。
+- 面向审计的 Receipt 存储，与诊断历史分离，只保留 query digest 和短 TTL。
 - 召回为空或被截断时，宿主记录 `receipt_id` 和 `content_digest` 的无正文诊断。

@@ -184,8 +184,8 @@ so the log is in shard `0`. Startup failures include the child return code and a
 bounded log tail. Backend acceptance requires this step to pass. Without the backend
 setting, default test runs skip that lifecycle test.
 
-## Opt-in prepared-context history
+## Prepared-context history
 
-`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED` enables the separate durable diagnostic store described in
+The Server always writes the separate durable diagnostic store described in
 [Context diagnostics](dashboard.md#context-diagnostics). It can retain the original prepare query, exact final prepared text and actual stage candidate text. It does not
 permit bodies or queries in logs, metrics or traces, and it does not change the public Receipt schema or host response.

@@ -19,7 +19,7 @@ limitations under the License.
     .context-query-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 28rem; min-width: 12rem; margin: 0; font: inherit; }
     .context-query-cell summary { cursor: pointer; max-width: 28rem; overflow-wrap: anywhere; }
   </style>
-  <div class="card-header"><h2 class="card-title" id="context-history-heading">{{ t.context_history }}</h2><span class="badge ms-auto {{ 'bg-green-lt' if context_capture_enabled else 'bg-secondary-lt' }}">{{ t.context_capture_on if context_capture_enabled else t.context_capture_off }}</span></div>
+  <div class="card-header"><h2 class="card-title" id="context-history-heading">{{ t.context_history }}</h2></div>
   <form class="card-body d-flex flex-wrap gap-3 align-items-end" action="/dashboard/context-diagnostics" method="get">
     <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="lang" value="{{ language }}">
     <div><label class="form-label" for="diagnostic-status">{{ t.context_result }}</label><select class="form-select" id="diagnostic-status" name="diagnostic_status"><option value="">{{ t.context_all_results }}</option>{% for status in ['ready', 'empty', 'failed', 'cancelled'] %}<option value="{{ status }}" {% if context_history_filters.status == status %}selected{% endif %}>{{ t['context_' ~ status] }}</option>{% endfor %}</select></div>

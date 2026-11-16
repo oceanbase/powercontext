@@ -125,6 +125,12 @@ async def inspect_record(api, ctx, record):
                     "url": url,
                 }
         selected.append(row)
+    # Group rows by family so interleaved Receipt order reads as one block per type.
+    order = {
+        family: index
+        for index, family in enumerate(dict.fromkeys(row.get("family") for row in selected if row.get("family")))
+    }
+    selected.sort(key=lambda row: (order.get(row.get("family"), len(order)), not row["available"]))
     for scope_id, item, ref in _candidate_refs(record):
         item["url"] = urls.get((scope_id, ref["family"], ref["artifact_id"], ref["revision"]))
     ctx["context_diagnostic"] = {
@@ -142,7 +148,6 @@ async def inspect_record(api, ctx, record):
 async def load_history(api, request, ctx):
     from datetime import UTC, date, datetime, time, timedelta
 
-    ctx["context_capture_enabled"] = getattr(request.app.state, "context_diagnostics_enabled", False)
     ctx["context_history"] = None
     if api.builtin is None:
         return
@@ -195,6 +200,13 @@ def _search_text_rows(record, receipt):
         matches = pending[key]
         index = matches.popleft() if matches else None
         row["text_snapshot"] = snapshots[index] if index is not None else None
+        snapshot = row["text_snapshot"]
+        if snapshot is not None and snapshot["items"] is not None:
+            # The public search API count is post-rerank. This table explains
+            # the earlier retrieval stage, whose retained candidates are exact.
+            row["result_count"] = len(snapshot["items"])
+        elif row["family"] == "atomic-memory" and row["outcome"] == "completed":
+            row["result_count"] = None
         if index is not None:
             used.add(index)
     # Keep unmatched historical text visible without inventing execution counts or modes.
@@ -206,6 +218,7 @@ def _search_text_rows(record, receipt):
                 "fallback_reason": "none",
                 "count": None,
                 "text_snapshot": snapshot,
+                "result_count": None if snapshot["items"] is None else len(snapshot["items"]),
             })
     return rows
 
@@ -238,14 +251,41 @@ def _rerank_text_rows(record, receipt):
     return rows
 
 
+def _assembly_text_key(snapshot, item):
+    artifact = item.get("artifact")
+    if artifact is None:
+        return None
+    return (
+        snapshot.get("scope_id"),
+        artifact["family"],
+        artifact["artifact_id"],
+        artifact["revision"],
+    )
+
+
 def _assembly_rows(record, receipt):
     payload = record["diagnostics_payload"]
     candidates = payload.get("final_candidates", {})
     selected = payload.get("selected_by_family", {})
+    selected_keys = set()
+    if receipt is not None:
+        for item in receipt.selected:
+            address = item.artifact_address
+            if address is not None:
+                ref = address.artifact.model_dump(mode="json")
+                selected_keys.add((address.scope_id, ref["family"], ref["artifact_id"], ref["revision"]))
     texts = {}
     for snapshot in payload.get("text_snapshots", []):
-        if snapshot["stage"] == "assembly":
-            texts.setdefault(snapshot["family"], []).append(snapshot)
+        if snapshot["stage"] != "assembly":
+            continue
+        # The stage decided among these candidates; show only what it kept,
+        # identified by the same-execution Receipt. Code has no reference identity.
+        if not selected_keys:
+            continue
+        kept = [item for item in (snapshot.get("items") or []) if _assembly_text_key(snapshot, item) in selected_keys]
+        if not kept:
+            continue
+        texts.setdefault(snapshot["family"], []).append({**snapshot, "items": kept})
     omitted = {}
     if receipt is not None:
         for group in receipt.omitted:
@@ -261,6 +301,24 @@ def _assembly_rows(record, receipt):
         }
         for family in dict.fromkeys((*candidates, *selected, *omitted, *texts))
     ]
+
+
+_PHASE_STAGE_KEYS = {
+    "context_searches": ("memory.search", "experience.search", "topic_memory.search"),
+    "context_reranks": ("memory.rerank",),
+    "context_assembly_evidence": ("context.build",),
+}
+
+
+def _phase_durations(record):
+    stages = record["diagnostics_payload"].get("stages") or {}
+    return {
+        phase: {
+            "duration_ms": sum(stages.get(key, (0.0, 0))[0] for key in keys),
+            "count": sum(stages.get(key, (0.0, 0))[1] for key in keys),
+        }
+        for phase, keys in _PHASE_STAGE_KEYS.items()
+    }
 
 
 async def load_detail(api, request, ctx):
@@ -285,3 +343,4 @@ async def load_detail(api, request, ctx):
     ctx["context_search_rows"] = _search_text_rows(record, receipt)
     ctx["context_rerank_rows"] = _rerank_text_rows(record, receipt)
     ctx["context_assembly_rows"] = _assembly_rows(record, receipt)
+    ctx["context_phase_durations"] = _phase_durations(record)

@@ -19,17 +19,14 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from sqlalchemy import event, update
 
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankDecision
+from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.context_prepare_diagnostics import ContextPrepareDiagnosticsRepository
 from powercontext.builtin.persistence.tables import CONTEXT_PREPARE_DIAGNOSTICS_TABLE
 from powercontext.server.dashboard.api import DashboardAPI
 from powercontext.server.dashboard.errors import ReadError
 from tests.test_dashboard import create_scope
 from tests.test_dashboard import dashboard as dashboard
-
-
-@pytest.fixture(autouse=True)
-def capture_enabled(dashboard):
-    dashboard.app.state.context_diagnostics_enabled = True
 
 
 def prepare(client, scope, query="budget review", *, max_bytes=8000):
@@ -205,3 +202,69 @@ def test_saved_content_is_escaped_on_detail_page(dashboard):
     page = detail_page(dashboard, scope, latest_record_id(dashboard, scope))
     assert page.status_code == 200 and content not in page.text
     assert "&lt;script&gt;window.budget" in page.text
+
+
+class _KeepFirst:
+    policy_id = "test.keep-first.v1"
+    supports_atomic_memory = True
+
+    async def rerank(self, query, candidates, limit, /):
+        selected = tuple(
+            rank for rank, candidate in enumerate(candidates, start=1) if "candidate_alpha" in candidate.text
+        )
+        return MemoryRerankDecision(selected_ranks=selected, usage=InferenceUsage(requests=1))
+
+    def receipt_configuration(self):
+        return {
+            "policy_id": self.policy_id,
+            "model": None,
+            "effective_settings": {"algorithm": "keep-first", "algorithm_version": "1"},
+            "timeout_seconds": 1.0,
+            "max_requests": 1,
+        }
+
+
+def test_assembly_stage_shows_only_receipt_selected_candidates(dashboard):
+    scope = create_scope(dashboard, "Assembly selection filter")["scope_id"]
+    for text in ("Budget candidate_alpha is reviewed Thursday.", "Budget candidate_beta is reviewed Friday."):
+        assert (
+            dashboard.post("/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": text}).status_code
+            == 200
+        )
+    application = dashboard.app.state.application
+    atomic = application.atomic_memory._application
+    assert atomic.reranker is None
+    original = atomic.reranker
+    atomic.reranker = _KeepFirst()
+    try:
+        prepare(dashboard, scope, query="budget candidate", max_bytes=30000)
+    finally:
+        atomic.reranker = original
+    page = detail_page(dashboard, scope, latest_record_id(dashboard, scope))
+    assert page.status_code == 200
+    assembly_table = re.search(r"<table[^>]*data-assembly-summary[^>]*>(.*?)</table>", page.text, re.S)
+    assert assembly_table is not None
+    assert "candidate_alpha" in assembly_table.group(1)
+    assert "candidate_beta" not in assembly_table.group(1)
+    assert assembly_table.group(1).count('data-bs-toggle="offcanvas"') == assembly_table.group(1).count("<tr>") - 1
+    assert page.text.count("data-candidate-drawer") >= 1
+
+
+def test_assembly_omission_rows_omit_placeholder_counts(dashboard):
+    scope = create_scope(dashboard, "Omission wording")["scope_id"]
+    assert (
+        dashboard.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope, "kind": "fact", "text": "Budget review is Thursday."},
+        ).status_code
+        == 200
+    )
+    prepare(dashboard, scope)
+    page = detail_page(dashboard, scope, latest_record_id(dashboard, scope))
+    assert page.status_code == 200
+    assembly = re.search(r"<table[^>]*data-assembly-summary[^>]*>(.*?)</table>", page.text, re.S)
+    assert assembly is not None
+    body = assembly.group(1)
+    assert "No omitted candidates." in body
+    assert re.search(r'data-omission-reason="not_retrieved">Not retrieved</div>', body)
+    assert not re.search(r'data-omission-reason="not_retrieved">Not retrieved · \d+', body)

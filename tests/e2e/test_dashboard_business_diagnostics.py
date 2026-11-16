@@ -40,7 +40,6 @@ def test_source_gap_and_unselected_memory_remain_distinct_after_runtime_reopen(t
         workspace=tmp_path,
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/diagnostics.db"),
         dashboard=DashboardConfig(enabled=True),
-        context_diagnostics_enabled=True,
         access=AccessControlConfig(mode="disabled"),
         mcp=McpConfig(enabled=False),
         runtime=RuntimeConfig(dream_enabled=False, profile_schedule_enabled=False, artifact_processing_families=()),

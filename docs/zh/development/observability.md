@@ -177,7 +177,7 @@ Listener 启动预算不包含首次建表与索引创建。CI 在分片 artifac
 shard `0`。启动失败时输出 child return code 和有界 log tail。此步骤通过后，才能认定
 backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。
 
-## 显式开启的上下文历史
+## 上下文历史
 
-`POWERCONTEXT_SERVER_CONTEXT_DIAGNOSTICS_ENABLED` 开启[上下文诊断](dashboard.md#上下文诊断)说明的独立持久诊断存储，
+Server 始终写入[上下文诊断](dashboard.md#上下文诊断)说明的独立持久诊断存储，
 可以保留原始 prepare query、准确的最终上下文正文及各阶段实际候选文本。它不允许在日志、指标或 Trace 中记录正文和 query，也不改变公开 Receipt 格式或宿主响应。

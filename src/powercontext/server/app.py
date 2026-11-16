@@ -1469,7 +1469,6 @@ def create_app(
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
     handoff_report_enabled: bool = False,
-    context_diagnostics_enabled: bool = False,
     access_control: AccessControlService | None = None,
     access_mode: Literal["disabled", "enforced"] | None = None,
     authentication_provider: AuthenticationProvider | None = None,
@@ -1490,7 +1489,6 @@ def create_app(
     app.openapi_version = OPENAPI_VERSION
     app.state.plugin_manager = None
     app.state.plugin_api_max_body_bytes = 32 * 1024 * 1024
-    app.state.context_diagnostics_enabled = context_diagnostics_enabled
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
@@ -4084,12 +4082,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
-    if http_request.app.state.context_diagnostics_enabled:
-        from powercontext.server.context_diagnostics import diagnostic_sink
+    from powercontext.server.context_diagnostics import diagnostic_sink
 
-        sink = diagnostic_sink(application)
-        if sink is not None:
-            reuse_arguments["diagnostic_sink"] = sink
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
