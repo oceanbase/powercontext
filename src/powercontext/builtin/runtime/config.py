@@ -263,7 +263,7 @@ class RuntimeConfig(BaseModel):
     atomic_memory_related_page_size: int = Field(default=DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE, ge=1, le=1000)
     atomic_memory_related_fts_fallback: bool = False
     atomic_memory_comparison_batch_size: int = Field(default=20, ge=1)
-    atomic_memory_input_tokens_limit: int = Field(default=24000, ge=1)
+    atomic_memory_input_tokens_limit: int = Field(default=64000, ge=1)
     atomic_memory_restore_retry_budget: int = Field(default=3, ge=0, le=10)
     atomic_memory_preview_signing_secret: SecretStr | None = Field(default=None, repr=False, min_length=32)
     atomic_memory_preview_signing_key_id: str = Field(default="atomic-memory-v1", min_length=1, max_length=128)
