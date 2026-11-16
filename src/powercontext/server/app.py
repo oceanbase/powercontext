@@ -48,8 +48,6 @@ from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
 
 from powercontext._logging import current_log_context, error_category, log_context, log_safely
-from powercontext.artifacts import ArtifactAddress, ArtifactRef, StableHandle
-from powercontext._logging import error_category, log_context, log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef, StableHandle
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
@@ -7309,6 +7307,8 @@ def _observe_inference_budget_rejection(error: InferenceBudgetExceededError) -> 
             "estimator_version": decision.estimator_version,
         },
     )
+
+
 def _map_artifact_merge_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
     if isinstance(error, AtomicMemoryIndexError):
         return 503, error.code, str(error), None
