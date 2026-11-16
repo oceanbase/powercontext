@@ -102,8 +102,10 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
         ):
             raise MigrationError(
                 "unsupported_plugin_data",
-                "Plugins of the removed Artifact plugin framework still hold data; export it and remove those"
-                " plugins on the previous version before upgrading.",
+                "Plugins of the removed Artifact plugin framework still hold data; no supported in-place upgrade path"
+                " is available. Unloading plugins or exporting archives does not clear retained framework records."
+                " Keep this database on the previous version; do not manually delete framework records to bypass"
+                " this check.",
             )
     except DBAPIError as error:
         raise MigrationError(

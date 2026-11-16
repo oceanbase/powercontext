@@ -76,6 +76,8 @@ jobs:
           cache-bin: false
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
@@ -195,6 +197,8 @@ jobs:
           key: macos-${{ matrix.runner }}
           cache-bin: false
       - run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
@@ -293,6 +297,8 @@ jobs:
           cache-bin: false
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
