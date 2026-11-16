@@ -19,12 +19,20 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
-from typing import IO
+from typing import IO, TypedDict
+
+
+class _PytestPhase(TypedDict):
+    phase: str
+    started: float
+    pid: int | None
 
 
 def sql(container: str, statement: str, *, database: str = "oceanbase", system: bool = False) -> list[str]:
@@ -171,13 +179,29 @@ def wait_ready(container: str, database: str, output: Path, timeout: float) -> i
 
 
 def run_command(
-    command: list[str], *, container: str, output: Path, timeout: float, stdout: IO[str] | None = None
+    command: list[str],
+    *,
+    container: str | None,
+    output: Path,
+    timeout: float,
+    stdout: IO[str] | None = None,
+    phase_limits: dict[str, float] | None = None,
 ) -> int:
     """Keep GNU timeout's process deadline while collecting evidence before TERM."""
     started = time.monotonic()
     bounded = ["timeout", "--signal=TERM", "--kill-after=10s", f"{timeout:g}s", *command]
     cancelled_signal: int | None = None
-    with subprocess.Popen(bounded, stdout=stdout, stderr=subprocess.STDOUT) as process:  # noqa: S603
+    environment = os.environ.copy()
+    phase_file = output / "phase.json"
+    if phase_limits:
+        output.mkdir(parents=True, exist_ok=True)
+        phase_file.unlink(missing_ok=True)
+        environment["POWERCONTEXT_CI_PHASE_FILE"] = str(phase_file.resolve())
+        environment["PYTHONPATH"] = os.pathsep.join(
+            filter(None, (str(Path(__file__).parent), environment.get("PYTHONPATH")))
+        )
+    phases: list[dict[str, object]] = []
+    with subprocess.Popen(bounded, stdout=stdout, stderr=subprocess.STDOUT, env=environment) as process:  # noqa: S603
         # Forward Actions cancellation to GNU timeout so its normal process-group
         # termination and kill-after grace remain effective through this wrapper.
         def forward_signal(number: int, _frame) -> None:
@@ -189,13 +213,17 @@ def run_command(
         for number in previous:
             signal.signal(number, forward_signal)
         try:
-            try:
-                code = process.wait(timeout=max(0, timeout - min(30, timeout / 2)))
-            except subprocess.TimeoutExpired:
-                # GNU timeout still enforces the original deadline even if a
-                # diagnostic SQL probe is unresponsive. Collection never retries tests.
-                collect(container, output / "before-timeout", budget=min(20, timeout / 3))
-                code = process.wait()
+            if phase_limits:
+                code, phases = _wait_phases(process, phase_file, phase_limits, container, output, started)
+            else:
+                try:
+                    code = process.wait(timeout=max(0, timeout - min(30, timeout / 2)))
+                except subprocess.TimeoutExpired:
+                    # GNU timeout still enforces the original deadline even if a
+                    # diagnostic SQL probe is unresponsive. Collection never retries tests.
+                    if container:
+                        collect(container, output / "before-timeout", budget=min(20, timeout / 3))
+                    code = process.wait()
         finally:
             for number, handler in previous.items():
                 signal.signal(number, handler)
@@ -208,9 +236,45 @@ def run_command(
             "cancelled_signal": cancelled_signal,
             "deadline_seconds": timeout,
             "elapsed_seconds": time.monotonic() - started,
+            "phases": phases,
         },
     )
     return code
+
+
+def _wait_phases(process, phase_file, limits, container, output, started):
+    """Give initialization, execution and finalizers independent bounded windows."""
+    phase: _PytestPhase = {"phase": "collection", "started": started, "pid": None}
+    phases = []
+    captured = False
+    while process.poll() is None:
+        try:
+            observed = json.loads(phase_file.read_text())
+        except (OSError, ValueError):
+            observed = phase
+        if observed != phase:
+            phases.append({**phase, "elapsed_seconds": observed["started"] - phase["started"]})
+            phase = observed
+            captured = False
+        name = phase["phase"]
+        limit = limits[name]
+        remaining = phase["started"] + limit - time.monotonic()
+        if remaining <= 0:
+            phases.append({**phase, "elapsed_seconds": time.monotonic() - phase["started"], "timed_out": True})
+            process.terminate()  # GNU timeout terminates descendants, then applies its kill-after grace.
+            process.wait()
+            return 124, phases
+        if not captured and remaining <= min(30, limit / 2):
+            captured = True
+            if phase["pid"] is not None:
+                with suppress(ProcessLookupError):
+                    os.kill(phase["pid"], signal.SIGUSR1)
+            if container:
+                collect(container, output / f"{name}-before-timeout", budget=min(20, remaining / 2))
+            continue  # Reload the phase after diagnostic probes; cleanup may have started meanwhile.
+        time.sleep(min(0.1, remaining))
+    phases.append({**phase, "elapsed_seconds": time.monotonic() - phase["started"]})
+    return process.returncode, phases
 
 
 def main() -> int:

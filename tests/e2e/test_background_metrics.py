@@ -24,6 +24,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.server.settings import ServerSettings
 from tests.e2e.atomic_memory_migration_backend import migration_profile
+from tests.e2e.oceanbase_process import CLI_BOOTSTRAP, StartupDeadline, run_cli
 
 
 async def _database_objects(config: OceanBaseConfig) -> tuple[tuple[str, str], ...]:
@@ -32,16 +33,11 @@ async def _database_objects(config: OceanBaseConfig) -> tuple[tuple[str, str], .
         return tuple(sorted((row[0], row[1]) for row in rows))
 
 
-@pytest.mark.parametrize("migration_backend", ["oceanbase"], indirect=True)
-def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_path, migration_backend):
+@pytest.fixture
+def initialized_background_cli(tmp_path, migration_backend):
     import os
-    import signal
     import socket
-    import subprocess
     import sys
-    import time
-
-    import httpx
 
     assert isinstance(migration_backend.config, OceanBaseConfig)
     with socket.socket() as candidate:
@@ -59,7 +55,7 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     command = [
         sys.executable,
         "-c",
-        "from powercontext.server.cli import app; app()",
+        CLI_BOOTSTRAP,
         "run",
         "--role",
         "background",
@@ -67,7 +63,9 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     ]
     before = asyncio.run(_database_objects(migration_backend.config))
     assert before == ()
-    rejected = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=60, check=False)
+    reports = os.environ.get("MIGRATION_REPORTS")
+    rejection_dir = Path(reports) / "background-metrics" / "uninitialized" if reports else tmp_path / "uninitialized"
+    rejected = run_cli(command, env=environment, output=rejection_dir, timeout=60)
     assert rejected.returncode != 0, rejected.stdout + rejected.stderr
     assert "migration_required" in rejected.stdout + rejected.stderr
     assert asyncio.run(_database_objects(migration_backend.config)) == before
@@ -91,6 +89,19 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     )
     assert initialized.state == "ready"
     assert initialized.readiness_scope == "server"
+    return command, environment, port
+
+
+@pytest.mark.parametrize("migration_backend", ["oceanbase"], indirect=True)
+def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_path, initialized_background_cli):
+    import os
+    import signal
+    import subprocess
+    import time
+
+    import httpx
+
+    command, environment, port = initialized_background_cli
     reports = os.environ.get("MIGRATION_REPORTS")
     log_path = Path(reports) / "background-metrics" / "background.log" if reports else tmp_path / "background.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,10 +114,10 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
         )
         try:
             base = f"http://127.0.0.1:{port}"
-            deadline = time.monotonic() + 20
+            deadline = StartupDeadline(process, log_path.parent / "startup", timeout=90)
             ready = False
             with httpx.Client(timeout=0.5) as client:
-                while time.monotonic() < deadline and process.poll() is None:
+                while deadline.pending() and process.poll() is None:
                     try:
                         ready = client.get(base + "/health/live").status_code == 200
                     except httpx.TransportError:

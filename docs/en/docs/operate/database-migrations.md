@@ -758,6 +758,15 @@ SQL literals reach the backend unchanged.
 
 Repositories run after schema checks. Both full Server source chains register exact per-statement schema transitions and recovery prefixes through `mysql_state_layouts`. Domain steps attach to the shared revision and use its connection, lock, and recovery point; verification precedes version advancement. Read-only live checks are separate from migration-copy validation. Vector configurations still require separate registration.
 
+Within a revision, registered single-table DDL refreshes the affected table definition while rechecking the database's
+object names, views, triggers, and vector-space declarations. Unchanged definitions are reused only within that
+maintenance operation; conditional operations and statements without a known single-table scope use full reflection.
+A complete schema check still runs at revision entry, before domain transformations and version advancement, and
+after commit. Restart and recovery always inspect the live database again. This optimization requires the same
+stopped-writer maintenance contract; it does not authorize concurrent schema changes. OceanBase startup also reuses
+the layout it just checked on the same connection when validating live data, without caching admission across profile
+opens or process restarts.
+
 During `v1_5_0_002`, an interrupted MySQL-compatible upgrade can resume a registered CREATE-table prefix before the
 final `p0005` evidence marker is inserted. Full evidence validation starts once that marker exists; a completed
 database with missing or incompatible evidence storage still fails admission.

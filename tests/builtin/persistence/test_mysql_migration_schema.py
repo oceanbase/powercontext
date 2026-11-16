@@ -71,8 +71,10 @@ class _ReflectedDatabase:
         self.views: list[str] = []
         self.triggers: list[dict[str, str]] = []
         self.heads: list[str] = []
+        self.queries: list[str] = []
 
     def exec_driver_sql(self, statement: str) -> _Rows:
+        self.queries.append(statement)
         if statement == "SELECT DATABASE()":
             return _Rows([("TestDB",)])
         if statement == "SHOW FULL TABLES":
@@ -550,6 +552,87 @@ def test_baseline_recovery_accepts_only_the_completed_statement_prefix(schema: M
     if 0 < applied < 6:
         with pytest.raises(MigrationError, match="complete layout"):
             schema.identify(inventory)
+
+
+def test_initialization_reflection_budget_grows_with_created_tables() -> None:
+    """Count metadata round trips using scripted SHOW responses, not a backend."""
+    schema = MySQLSchema(server_bundle())
+    source = _ReflectedDatabase({})
+    inventory = _inventory(source)
+    statements = schema.statements("s1300")
+    table_count = 0
+    for position, statement in enumerate(statements):
+        if statement.startswith("CREATE TABLE "):
+            name = statement.split("`", 2)[1]
+            source.tables[name] = statement
+            table_count += 1
+        else:
+            # The registered final operation initializes data without adding
+            # schema. Reflection still covers the complete conditional scope.
+            assert statement.startswith("@")
+        inventory = schema.reflect_after_statement(
+            cast(Connection, source), inventory, revision="s1300", position=position
+        )
+    schema.verify(_inventory(source), "s1300")
+    reflected_tables = sum(query.startswith("SHOW CREATE TABLE ") for query in source.queries)
+    # One read per CREATE, one conservative conditional scan, one final scan.
+    # The budget rejects the former triangular scan after every CREATE.
+    assert reflected_tables <= 3 * table_count
+
+
+def test_conditional_ddl_reinspects_every_table_definition() -> None:
+    schema = MySQLSchema(server_bundle())
+    statements = schema.statements("s1300")
+    assert statements[-1].startswith("@")
+    source = _ReflectedDatabase({
+        statement.split("`", 2)[1]: statement for statement in statements if statement.startswith("CREATE TABLE ")
+    })
+    inventory = _inventory(source)
+    source.tables["pc_scopes"] = source.tables["pc_scopes"].replace("PRIMARY KEY (`scope_id`)", "PRIMARY KEY (`title`)")
+    with pytest.raises(MigrationError, match="completed DDL step"):
+        schema.reflect_after_statement(
+            cast(Connection, source), inventory, revision="s1300", position=len(statements) - 1
+        )
+
+
+@pytest.mark.parametrize("damage", ["changed_table", "missing_table", "extra_table", "view", "trigger"])
+def test_ddl_step_reflection_rejects_incompatible_objects(schema: MySQLSchema, damage: str) -> None:
+    source = _ReflectedDatabase(_show_tables())
+    inventory = _inventory(source)
+    source.tables = _show_tables(citations=1)
+    if damage == "changed_table":
+        source.tables["pc_artifacts"] = source.tables["pc_artifacts"].replace(
+            "memory_citations MEDIUMBLOB", "memory_citations INTEGER"
+        )
+    elif damage == "missing_table":
+        del source.tables["pc_artifact_tags"]
+    elif damage == "extra_table":
+        source.tables["unknown"] = "CREATE TABLE unknown (id INTEGER)"
+    elif damage == "view":
+        source.views.append("unknown")
+    else:
+        source.triggers.append({
+            "Trigger": "unknown",
+            "Table": "pc_artifact_tags",
+            "Timing": "BEFORE",
+            "Event": "INSERT",
+            "Statement": "SET NEW.tag = 'changed'",
+        })
+    with pytest.raises(MigrationError, match="completed DDL step"):
+        schema.reflect_after_statement(cast(Connection, source), inventory, revision="p0002", position=0)
+
+
+def test_interrupted_ddl_recovery_reinspects_unrelated_definitions(schema: MySQLSchema) -> None:
+    source = _ReflectedDatabase(_show_tables())
+    inventory = _inventory(source)
+    source.tables = _show_tables(citations=1)
+    schema.reflect_after_statement(cast(Connection, source), inventory, revision="p0002", position=0)
+    # A new invocation must recover from the actual schema, not the previous
+    # invocation's retained definitions or an assumed completed step count.
+    assert schema.recovery(_inventory(source), "p0001").pending_statements == schema.statements("p0002")[1:]
+    source.tables["pc_artifact_tags"] = _show_tables(drop_family_check=True)["pc_artifact_tags"]
+    with pytest.raises(MigrationError, match="controlled next-revision"):
+        schema.recovery(_inventory(source), "p0001")
 
 
 @pytest.mark.parametrize("applied", range(3))

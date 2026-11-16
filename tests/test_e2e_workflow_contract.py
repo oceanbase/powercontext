@@ -200,7 +200,8 @@ def test_oceanbase_acceptance_reserves_time_for_evidence_and_cleanup(native, rep
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Workflow steps require a POSIX shell")
 def test_native_acceptance_survives_fresh_step_shell_and_uploads_its_report(tmp_path, monkeypatch):
-    steps = {step.get("id"): step for step in yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"] if "id" in step}
+    workflow_steps = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"]
+    steps = {step["id"]: step for step in workflow_steps if "id" in step}
     commands = tmp_path / "bin"
     commands.mkdir()
     # Execute the actual workflow scripts in separate shells and use the real
@@ -240,6 +241,9 @@ elif name == "uv":
         path = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--junitxml=")))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="native"/></testsuite>')
+        diagnostics = Path(os.environ["MIGRATION_REPORTS"])
+        diagnostics.mkdir(parents=True, exist_ok=True)
+        (diagnostics / "probe.json").write_text(json.dumps({"container": os.environ["OCEANBASE_CI_CONTAINER"]}))
     else:
         script = sys.stdin.read()
         if "ET.parse" in script:
@@ -272,10 +276,12 @@ elif name == "uv":
     outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
     env = dict(os.environ)
     env.update(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines())
+    expressions = {
+        "runner.temp": str(tmp_path),
+        **{f"steps.oceanbase_setup.outputs.{key}": value for key, value in outputs.items()},
+    }
     for key, value in steps["native_acceptance"].get("env", {}).items():
-        match = re.fullmatch(r"\$\{\{ steps.oceanbase_setup.outputs.(\w+) }}", value)
-        assert match, value
-        env[key] = outputs[match[1]]
+        env[key] = re.sub(r"\$\{\{\s*(.*?)\s*}}", lambda match: expressions[match[1]], value)
     native = subprocess.run(
         ["/bin/bash", "-e", "-o", "pipefail", "-c", steps["native_acceptance"]["run"]],
         cwd=root,
@@ -291,6 +297,9 @@ elif name == "uv":
     report = Path(steps["native_results"]["with"]["path"].replace("${{ runner.temp }}", str(tmp_path)))
     assert f"--junitxml={report}" in invocation
     assert report.is_file()
+    upload = next(step for step in workflow_steps if step.get("name") == "Upload OceanBase native reports")
+    diagnostics = Path(upload["with"]["path"].replace("${{ runner.temp }}", str(tmp_path)))
+    assert json.loads((diagnostics / "inner-phases" / "probe.json").read_text()) == {"container": "shared-oceanbase"}
 
 
 @pytest.mark.parametrize(
