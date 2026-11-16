@@ -158,3 +158,103 @@ def test_dashboard_discards_previous_library_loads_and_uses_framework_artifact_a
             await browser.close()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("delayed", ["/me/default-space", "/knowledge-bases"])
+def test_dashboard_invalidates_library_controls_when_switching_spaces(tmp_path, delayed):
+    playwright = pytest.importorskip("playwright.async_api")
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+
+    async def scenario():
+        async with (
+            running_server(
+                tmp_path,
+                plugins,
+                extra_env={
+                    "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
+                    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
+                },
+            ) as client,
+            playwright.async_playwright() as pw,
+        ):
+            executable = os.environ.get("POWERCONTEXT_TEST_CHROMIUM", pw.chromium.executable_path)
+            if not await asyncio.to_thread(Path(executable).exists):
+                pytest.skip("Install Chromium with playwright install chromium, or set POWERCONTEXT_TEST_CHROMIUM")
+
+            async def call(method, path, **kwargs):
+                response = await client.request(method, P + path, **kwargs)
+                assert response.is_success, response.text
+                return response.json()
+
+            a = (await call("GET", "/me/default-space"))["space_scope_id"]
+            b = (await call("POST", "/spaces", json={"title": "Space B", "idempotency_key": "B"}))["space_scope_id"]
+            libraries = []
+            for title, space in [("Base A", a), ("Base B", b)]:
+                libraries.append(
+                    await call(
+                        "POST",
+                        "/knowledge-bases",
+                        json={"title": title, "space_scope_id": space, "idempotency_key": title},
+                    )
+                )
+            browser = await pw.chromium.launch(executable_path=executable)
+            try:
+                context = await browser.new_context()
+                origin = str(client.base_url).rstrip("/")
+                await context.add_cookies([
+                    {"name": "powercontext_dashboard_token", "value": ADMIN_AUTHORIZATION_VALUE, "url": origin}
+                ])
+                page = await context.new_page()
+                await page.goto(origin + "/dashboard/plugins/knowledge-base")
+                frame = page.frame_locator("iframe")
+                old_button = frame.get_by_role("button", name="Base A", exact=True)
+                await old_button.wait_for()
+                # A delayed/queued click from the previous view must also be harmless.
+                await old_button.evaluate("button => { window.oldLibraryButton = button; }")
+                await page.evaluate(
+                    """({space, delayed}) => {
+                      const original = window.fetch;
+                      window.spaceDelay = {held: false};
+                      window.fetch = async (...args) => {
+                        const response = await original(...args);
+                        const url = new URL(String(args[0]));
+                        if (!window.spaceDelay.held && url.pathname.endsWith(delayed) &&
+                            (delayed !== '/knowledge-bases' || url.searchParams.get('space_scope_id') === space)) {
+                          window.spaceDelay.held = true;
+                          await new Promise(resolve => { window.spaceDelay.release = resolve; });
+                        }
+                        return response;
+                      };
+                    }""",
+                    {"space": b, "delayed": delayed},
+                )
+                await frame.locator("#spaces").select_option(b)
+                await page.wait_for_function("window.spaceDelay.held")
+                await playwright.expect(old_button).to_have_count(0)
+                await frame.locator("body").evaluate("() => window.oldLibraryButton.click()")
+                await playwright.expect(frame.locator("#library")).to_be_hidden()
+                await page.evaluate("window.spaceDelay.release()")
+                await frame.get_by_role("button", name="Base B", exact=True).click()
+                await playwright.expect(frame.locator("#spaces")).to_have_value(b)
+                await playwright.expect(frame.locator("#library-title")).to_have_text("Base B")
+                await frame.locator("#files").set_input_files({
+                    "name": "selected-space.md",
+                    "mimeType": "text/markdown",
+                    "buffer": b"Uploaded into the selected space",
+                })
+                selected_base = "/scopes/" + libraries[1]["scope_id"]
+                docs = await wait_for(
+                    lambda: call("GET", selected_base + "/documents"),
+                    lambda d: bool(d["items"]),
+                    log=tmp_path / "server.log",
+                )
+                assert docs["items"][0]["content"]["relative_path"] == "selected-space.md"
+                old = await call("GET", "/scopes/" + libraries[0]["scope_id"] + "/documents")
+                assert not old["items"] and not old["requests"]
+            finally:
+                await browser.close()
+
+    asyncio.run(scenario())

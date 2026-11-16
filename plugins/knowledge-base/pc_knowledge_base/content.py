@@ -163,8 +163,8 @@ def parse_image(data):
     result = RapidOCR()(image)
     if not isinstance(result, RapidOCROutput):
         raise TypeError("OCR must return detection and recognition results")  # noqa: TRY003
-    if not result.txts:
-        return []
+    if not result.txts or not any(value.strip() for value in result.txts):
+        raise ContentError("Image contains no recognized text")  # noqa: TRY003
     if result.boxes is None or result.scores is None:
         raise RuntimeError("OCR returned incomplete geometry")  # noqa: TRY003
     blocks = []

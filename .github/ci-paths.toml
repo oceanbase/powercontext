@@ -22,6 +22,8 @@ ignore = [
 
 [suites]
 
+knowledge_base = ["plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
+
 gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
@@ -203,7 +205,7 @@ patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
   "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "codex", "opendal",
   "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
-  "managed_resources",
+  "managed_resources", "knowledge_base",
 ]
 
 [shared.openapi_guidance]
@@ -233,6 +235,7 @@ suites = ["upgrade", "packaging"]
 # A selected scope must produce successful root jobs, not silent skips.
 # Main's result gate consumes this contract; reusable workflows own their children.
 [checks]
+knowledge_base = ["knowledge-base"]
 helm = ["helm"]
 tests = ["tests", "windows-unit-portability"]
 evaluation = ["evaluation-tests"]

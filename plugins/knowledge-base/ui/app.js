@@ -114,6 +114,12 @@ function chunksPath() {
 async function refresh() {
   const version = ++viewVersion;
   state.document = null;
+  state.kbs = [];
+  state.selected.clear();
+  $("libraries").textContent = "正在加载知识库…";
+  $("library").hidden = true;
+  $("new-kb").disabled = true;
+  $("set-default").disabled = true;
   $("document").hidden = true;
   $("editor").close();
   $("hits").replaceChildren();
@@ -172,6 +178,9 @@ async function libraries() {
   }
 }
 function renderLibraries() {
+  const space = state.space;
+  const version = viewVersion;
+  const current = () => space === state.space && version === viewVersion;
   $("libraries").replaceChildren(
     ...state.kbs.map((k) => {
       const row = document.createElement("div");
@@ -182,6 +191,7 @@ function renderLibraries() {
       c.checked = state.selected.has(k.scope_id);
       c.setAttribute("aria-label", "检索 " + k.value.title);
       c.onchange = () => {
+        if (!current()) return;
         searchLoad += 1;
         $("hits").replaceChildren();
         if (c.checked) state.selected.add(k.scope_id);
@@ -190,6 +200,7 @@ function renderLibraries() {
       row.append(
         c,
         button(k.value.title, async () => {
+          if (!current()) return;
           viewVersion += 1;
           state.kb = k;
           state.document = null;

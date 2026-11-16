@@ -261,6 +261,10 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
             {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
         ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
+        ("plugins/knowledge-base/pc_knowledge_base/content.py", {"knowledge-base"}),
+        ("tests/e2e/test_knowledge_base_ocr.py", {"tests", "knowledge-base"}),
+        ("src/powercontext/builtin/plugins/writer.py", {"knowledge-base"}),
+        ("pyproject.toml", {"knowledge-base"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
 )
