@@ -299,7 +299,9 @@ code. Plugin code is therefore imported only from version snapshots:
 
 - **Creation**: once the digest settles, core copies the plugin directory into a read-only snapshot under the data
   directory, named by its content digest, and runs the check on the snapshot. Dependencies are not in the plugin
-  directory, so snapshots are usually small.
+  directory, so snapshots are usually small. Symbolic links inside the plugin directory are copied as the content they
+  lead to, so a snapshot holds no links and later changes to their targets never reach a call in progress; a link that
+  leads outside the plugin directory fails the check, so a snapshot never brings in files from outside the plugin.
 - **Use**: check child processes, host processes, and Workers put the snapshot directory on the import path, and
   `ctx.plugin_dir` points to the snapshot; page static files are also served from the current snapshot. The plugin
   directory itself is used only for scanning.

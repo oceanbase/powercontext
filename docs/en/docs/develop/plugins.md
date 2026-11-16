@@ -397,6 +397,11 @@ plugin = ArtifactPlugin(
   endpoint, named `<plugin name>__<handler>`, whose arguments are the path parameters, `query`, and `body`. Calling the
   tool is calling the route as the MCP session's caller; `GET` routes whose `access` is `scope.read` or `authenticated`
   are marked read-only.
+  - Tool names come from handlers, so routes exposed as separate tools need distinct handlers. When several routes share a
+    handler, mark only one of them `mcp=True` as the tool's entry point; two such routes would appear as a single tool.
+  - `query` and `body` are reserved for the query and request-body arguments. Give the path parameters of MCP routes
+    business names such as `{document_id}` or `{scope_id}`: a route like `/documents/{body}` with a JSON body cannot pass
+    the path value and the body separately.
 - `GET /v1/plugins/<plugin name>/openapi.json` returns an OpenAPI document core generates from the declared routes. The
   plugin owns its routes' compatibility; for an incompatible change, put a version in the path, such as `/v2/notes`.
 
@@ -494,7 +499,9 @@ turns it off) and compares file contents to decide whether a plugin changed:
   within two scan intervals, and a half-written directory never loads. Added directories load the same way; a removed one
   unloads once two scans in a row miss it, so replacing a directory by renames does not take the plugin offline. A plugin
   directory may be a symbolic link; it is resolved again at every scan, so pointing it at another release publishes that
-  release.
+  release. Symbolic links inside a plugin directory are copied into the snapshot as the content they lead to, so later
+  changes to their targets do not reach the loaded version; a link that leads outside the plugin directory fails the
+  check.
 - Plugin code is imported only from snapshots. New requests go to the new version once its host process is ready; the old
   version's host processes finish the requests they hold and stop, and background generation already started finishes on
   the old version.
