@@ -16,7 +16,7 @@ pin: false
 
 Before we start: whether you keep this fat fish in DeepSeek Harness, in your QQ, or somewhere else entirely, you will eventually hit the same two walls — memories that scramble or vanish, and token costs that balloon. In one line: **connect PowerContext**, and both problems ease considerably.
 
-![The fat fish holds up the PowerContext sign](../../../assets/blog/dsh-pet-powercontext-memory/feiyu.png)
+![The fat fish holds up the PowerContext sign](../../../assets/blog/dsh-pet-powercontext-memory/feiyu.en.png)
 
 *Artwork kept as supplied, with its original Chinese text.*
 
@@ -30,7 +30,7 @@ First, she remembers further back than the native chat window does. Second, that
 
 These look contradictory, but they share one cause: **she has long-term memory wired up through PowerContext**. Memory does not stuff more into the prompt. It swaps "restate everything every time" for "fetch it when it is needed".
 
-![A real conversation with the pet inside DeepSeek Harness](../../../assets/blog/dsh-pet-powercontext-memory/dsh-chat.gif)
+![A real conversation with the pet inside DeepSeek Harness](../../../assets/blog/dsh-pet-powercontext-memory/dsh-chat.en.gif)
 
 *The same view keeps the DSH workspace, the agent session and the pet chat panel. A message is actually sent, and the pet replies and animates. Both sides come from real model calls; the project name and drink preference are fictional demo inputs.*
 
@@ -59,23 +59,23 @@ Native mode carries only the last 10 turns. With memory enabled, the pet asynchr
 
 The first-time budget is deliberately small: **4 recent turns**, **6000 bytes** of recent text, and **4096 bytes** of recalled text. Bytes are not tokens, and extraction, output and retries each cost on their own.
 
-![The pet recalls an old fact with zero recent rounds and opens the memory list](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-recall.gif)
+![The pet recalls an old fact with zero recent rounds and opens the memory list](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-recall.en.gif)
 
 *After background extraction, the pet answers with the project name Moonleaf and "unsweetened jasmine tea" again. This recording sets recent chat to **0 rounds**: the actual model request carries recalled memories and the new question, with no earlier turns. Open "Remembered facts" to inspect what was extracted.*
 
 You can check what she actually holds. Every memory carries a revision, and you can read its sources, correct it, or forget it.
 
-![The list of remembered facts in the pet panel](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.png)
+![The list of remembered facts in the pet panel](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.en.png)
 
 "View sources" opens the original exchange behind the fact. This is the part that matters most: **every conclusion traces back to evidence**, instead of the model deciding on its own that you once said it.
 
-![The original dialogue behind a memory](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.png)
+![The original dialogue behind a memory](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.en.png)
 
 Beyond that, "Correct" writes a new revision, and "Forget" moves the atomic memory out of recall while keeping its sources and history. Authoritative records stay separate from derived views, so rebuilding state never stamps today's interpretation onto old data.
 
 On first use, the settings page installs PowerContext 1.5.0 on the DSH host for you and checks both the generation model and the embedding model.
 
-![Managed long-term memory is ready in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-service.png)
+![Managed long-term memory is ready in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-service.en.png)
 
 *Screenshots keep the original product interface and the sample session.*
 
@@ -131,7 +131,7 @@ A fixed 1000-round initial history, then 100 questions, waiting for background m
 
 Known input dropped by **88.9%** and the known cost estimate by **32.3%**, a gap of roughly CNY 2.26. The first recorded point below the full-history control came at question 50; memory startup and initial processing cost about CNY 1.52 and later maintenance about CNY 2.70.
 
-![The pet recalling a shared memory of skewers in a QQ-style chat](../../../assets/blog/dsh-pet-powercontext-memory/3475.jpeg)
+![The pet recalling a shared memory of skewers in a QQ-style chat](../../../assets/blog/dsh-pet-powercontext-memory/3475.en.jpeg)
 
 *Chat screenshot kept as supplied, with its original Chinese interface.*
 
@@ -171,7 +171,7 @@ For the DSH desktop app, swap `--profile web` for `--profile desktop`. If the up
 
 **Restart DSH** afterwards: a running process still holds the old plugin in memory. Then open "Settings -> Pet Config" and chat from "Pet chat" using the DSH model you already have.
 
-![Character, size and position in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.png)
+![Character, size and position in the pet settings](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.en.png)
 
 Want to try it before deciding about memory? Install the plugin and leave long-term memory off. Chat, animations and the persona work as usual, and you can turn memory on later.
 

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-label="Known generation input and estimated known cost after reusing a fixed 1,000-round history for 100 questions">
+  <rect x="0" y="0" width="960" height="420" fill="#fafaf7"/>
+  <g font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" fill="#1f1f1f">
+    <text x="480" y="36" font-size="19" font-weight="700" text-anchor="middle">Reusing memory: 1,000 initial rounds + 100 questions</text>
+    <text x="480" y="58" font-size="11" fill="#555555" text-anchor="middle">Includes initial processing, maintenance and retries; synthetic dialogue with real model calls.</text>
+
+    <text x="250" y="94" font-size="13" font-weight="600" text-anchor="middle">Known generation input (million tokens)</text>
+    <text x="250" y="120" font-size="13" font-weight="700" fill="#108773" text-anchor="middle">88.9% lower known input</text>
+    <text x="64" y="144" font-size="12">Full history</text>
+    <text x="64" y="159" font-size="10" fill="#555555">(model-level control)</text>
+    <rect x="64" y="170" width="318.06" height="34" fill="#c77b39"/>
+    <text x="390" y="192" font-size="13" font-weight="700">≈ 10.26M</text>
+    <text x="64" y="224" font-size="12">PowerContext 1.5.0</text>
+    <rect x="64" y="230" width="35.34" height="34" fill="#108773"/>
+    <text x="107" y="252" font-size="13" font-weight="700">≈ 1.14M</text>
+    <line x1="64" y1="272" x2="436" y2="272" stroke="#1f1f1f" stroke-width="0.8"/>
+    <g font-size="10" fill="#555555" text-anchor="middle">
+      <text x="64" y="286">0</text>
+      <text x="126" y="286">2</text>
+      <text x="188" y="286">4</text>
+      <text x="250" y="286">6</text>
+      <text x="312" y="286">8</text>
+      <text x="374" y="286">10</text>
+      <text x="436" y="286">12</text>
+    </g>
+
+    <text x="710" y="94" font-size="13" font-weight="600" text-anchor="middle">Estimated known cost (CNY)</text>
+    <text x="710" y="120" font-size="13" font-weight="700" fill="#108773" text-anchor="middle">32.3% lower estimated known cost</text>
+    <text x="524" y="144" font-size="12">Full history</text>
+    <text x="524" y="159" font-size="10" fill="#555555">(model-level control)</text>
+    <rect x="524" y="170" width="325.04" height="34" fill="#c77b39"/>
+    <text x="857" y="192" font-size="13" font-weight="700">¥6.99</text>
+    <text x="524" y="224" font-size="12">PowerContext 1.5.0</text>
+    <rect x="524" y="230" width="219.95" height="34" fill="#108773"/>
+    <text x="752" y="252" font-size="13" font-weight="700">¥4.73</text>
+    <line x1="524" y1="272" x2="896" y2="272" stroke="#1f1f1f" stroke-width="0.8"/>
+    <g font-size="10" fill="#555555" text-anchor="middle">
+      <text x="524" y="286">0</text>
+      <text x="617" y="286">2</text>
+      <text x="710" y="286">4</text>
+      <text x="803" y="286">6</text>
+      <text x="896" y="286">8</text>
+    </g>
+
+    <g font-size="10" fill="#555555">
+      <text x="30" y="314">Target checks: PowerContext 95/100; full history 93/100, with 7 unpriced calls. Quality is not matched.</text>
+      <text x="30" y="332">Known usage excludes calls without reported usage; these figures are the known part, not a full bill.</text>
+      <text x="30" y="350">Source: supplied report, pp. 16-17; prices dated 2026-11-05. Not a bill, and not a comparison to native 10-round chat.</text>
+    </g>
+  </g>
+</svg>

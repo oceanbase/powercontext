@@ -17,7 +17,7 @@ pin: false
 写在前面：无论你是在DeepSeek Harness还是在你的QQ里亦或者其他地方养了这只大肥鱼，一定会遇到记忆错乱或者消失和Token消耗巨大的问题。
 **一句话：接入PowerContext**，上述问题就会极大的缓解。
 
-![肥鱼举pc](../../../assets/blog/dsh-pet-powercontext-memory/feiyu.png)
+![肥鱼举pc](../../../assets/blog/dsh-pet-powercontext-memory/feiyu.zh.png)
 
 
 我在 DeepSeek Harness 里养了一条大肥鱼，
@@ -29,7 +29,7 @@ pin: false
 
 这两件事看起来矛盾，其实指向同一个答案：**她接上了 PowerContext 长期记忆**。记忆不是把更多东西塞进提示词，而是把"每次都要重讲一遍"换成"问的时候再取"。
 
-![在 DeepSeek Harness 中与桌宠真实聊天](../../../assets/blog/dsh-pet-powercontext-memory/dsh-chat.gif)
+![在 DeepSeek Harness 中与桌宠真实聊天](../../../assets/blog/dsh-pet-powercontext-memory/dsh-chat.zh.gif)
 
 *同一界面保留 DSH 工作区、Agent 会话和桌宠聊天面板，实际发送消息，观看桌宠回复和动作。两边的回复都来自真实模型调用；项目名和饮品偏好是虚构的演示输入。*
 
@@ -58,24 +58,24 @@ pin: false
 
 首次启用的默认预算很小：近期 **4 轮**、近期正文 **6000 字节**、召回正文 **4096 字节**。字节不是 Token，后台抽取、输出和重试还有各自的花费。
 
-![近期聊天归零后，桌宠仍能召回旧事实并展开记忆列表](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-recall.gif)
+![近期聊天归零后，桌宠仍能召回旧事实并展开记忆列表](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-recall.zh.gif)
 
 *后台抽取完成后，桌宠再次答出项目名 Moonleaf 和"无糖茉莉花茶"。本次演示把近期聊天设为 **0 轮**：实际模型请求只带召回记忆和新问题，没有历史问答。展开「Remembered facts」可以查看抽取后的事实。*
 
 界面里可以直接检查她到底记住了什么。每条记忆带版本号，可以看来源、可以更正、也可以遗忘。
 
-![桌宠面板中的已记住事实列表](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.png)
+![桌宠面板中的已记住事实列表](../../../assets/blog/dsh-pet-powercontext-memory/dsh-facts.zh.png)
 
 
 「View sources」会展开这条事实背后那段原始对话——这是记忆最关键的设计：**每条结论都能追溯到证据**，而不是模型凭感觉编一句"你说过"。
 
-![记忆关联的原始对话来源](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.png)
+![记忆关联的原始对话来源](../../../assets/blog/dsh-pet-powercontext-memory/dsh-sources.zh.png)
 
 再往前一步，"更正"会写入新版本，"遗忘"把这条原子记忆移出召回但保留来源和历史版本。权威记录和派生视图分开存放，所以重建状态不会把今天的解释安到旧数据头上。
 
 首次开启时，设置页会帮你在 DSH 宿主上装好 PowerContext 1.5.0，并检查生成模型和 Embedding 模型。
 
-![桌宠设置中的本机长期记忆已就绪](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-service.png)
+![桌宠设置中的本机长期记忆已就绪](../../../assets/blog/dsh-pet-powercontext-memory/dsh-memory-service.zh.png)
 
 *截图保留产品原始界面与示例会话。*
 
@@ -119,7 +119,7 @@ pin: false
 
 固定 1000 轮初始历史，随后提问 100 次，每十次等后台维护完成，计入初始整理、维护和重试。
 
-![固定千轮历史后的已知生成输入与已知费用估算对比](../../../assets/blog/dsh-pet-powercontext-memory/reuse-cost.en.svg)
+![固定千轮历史后的已知生成输入与已知费用估算对比](../../../assets/blog/dsh-pet-powercontext-memory/reuse-cost.zh.svg)
 
 
 | 100 次计划提问后的指标 | PowerContext | 全历史对照 |
@@ -132,7 +132,7 @@ pin: false
 
 已知输入少了 **88.9%**，已知费用估算低 **32.3%**，差额约 ¥2.26。首次低于全历史对照的记录点是第 50 次提问；记忆启动和初始整理约 ¥1.52，后续维护约 ¥2.70。
 
-![qq](../../../assets/blog/dsh-pet-powercontext-memory/3475.jpeg)
+![qq](../../../assets/blog/dsh-pet-powercontext-memory/3475.zh.jpeg)
 
 ## 不止是养鱼：把 PowerContext 直接接进 DeepSeek Harness
 
@@ -170,7 +170,7 @@ DSH 桌面版把 `--profile web` 换成 `--profile desktop`。如果已经启用
 
 装完**重启 DSH** 才生效：运行中的进程持有内存里的旧插件。然后打开「设置 → 桌宠配置」，在右侧栏的「Pet chat」里用你现有的 DSH 模型聊天。
 
-![桌宠设置中的角色配置、尺寸与位置](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.png)
+![桌宠设置中的角色配置、尺寸与位置](../../../assets/blog/dsh-pet-powercontext-memory/dsh-settings.zh.png)
 
 
 想先试试再决定要不要开记忆，可以只装插件、暂不启用长期记忆；聊天、动画、人设都照常工作，记忆随时再开。
