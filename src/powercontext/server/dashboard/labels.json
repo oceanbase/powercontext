@@ -647,5 +647,8 @@
   "processing_dream_no_output": "本次任务未记录新的产物。",
   "processing_dream_more_inputs": "另有 {count} 项输入，可展开引用查看。",
   "processing_dream_source_inputs": "本次任务记录了 {count} 项资料引用，可展开查看。",
-  "observability": "云原生监控"
+  "observability": "云原生监控",
+  "nav_plugins": "插件",
+  "plugin": "插件",
+  "plugin_page_stopped": "插件页面已离开起始页，已停止为它转发请求。重新打开页面后继续使用。"
 }

@@ -30,6 +30,18 @@ pub enum ModelSendState {
     ResponseReceived,
 }
 
+/// The first cause that actually stopped unfinished local work. This is not a Core verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecycleStopReason {
+    #[error("deadline_exceeded")]
+    DeadlineExceeded,
+    #[error("gateway_shutdown")]
+    GatewayShutdown,
+    #[error("request_cancelled")]
+    RequestCancelled,
+}
+
 /// The local execution terminal; none of these establishes client receipt.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,6 +54,7 @@ pub enum ExecutionTerminal {
     GatePaused,
     Degraded,
     AdmissionExpired,
+    Stopped(LifecycleStopReason),
     #[default]
     Abandoned,
 }

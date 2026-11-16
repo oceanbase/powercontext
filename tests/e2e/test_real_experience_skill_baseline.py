@@ -36,7 +36,7 @@ def test_baseline_server_incubates_task_outcomes_before_review(tmp_path, monkeyp
     for key in tuple(os.environ):
         if key.startswith("POWERCONTEXT_SERVER_"):
             monkeypatch.delenv(key)
-    server = _start_server(tmp_path / "runtime.db", tmp_path / "scheduler.db")
+    server = _start_server(tmp_path / "runtime.db")
 
     async def scenario():
         proposal = ExperienceProposal(

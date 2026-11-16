@@ -56,6 +56,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_REVISION_COLUMNS,
     ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACTS_TABLE,
 )
@@ -236,6 +237,11 @@ class ArtifactRepository:
         """Return the registered domain Families whose writes require their owning service."""
 
         return frozenset(self._by_family)
+
+    def content_type(self, family: str) -> type[BaseModel]:
+        """Return the content model this repository validates a Family's revisions against."""
+
+        return self._content_types[family]
 
     @property
     def source_repository(self) -> Any | None:
@@ -599,7 +605,7 @@ class ArtifactRepository:
         _require_scope(scope_id)
         if not for_update:
             return (await self.get_many(connection, scope_id, (ref,)))[0]
-        statement = select(ARTIFACTS_TABLE).where(
+        statement = select(*ARTIFACT_REVISION_COLUMNS).where(
             ARTIFACTS_TABLE.c.scope_id == scope_id,
             ARTIFACTS_TABLE.c.family == ref.family,
             ARTIFACTS_TABLE.c.artifact_id == ref.artifact_id,
@@ -639,7 +645,7 @@ class ArtifactRepository:
         for offset in range(0, len(keys), 100):
             rows = (
                 await connection.execute(
-                    select(ARTIFACTS_TABLE).where(
+                    select(*ARTIFACT_REVISION_COLUMNS).where(
                         ARTIFACTS_TABLE.c.scope_id == scope_id,
                         identity.in_(keys[offset : offset + 100]),
                     )
@@ -783,7 +789,7 @@ class ArtifactRepository:
         ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
         rows = (
             await connection.execute(
-                select(ARTIFACTS_TABLE)
+                select(*ARTIFACT_REVISION_COLUMNS)
                 .where(
                     ARTIFACTS_TABLE.c.scope_id == scope_id,
                     ARTIFACTS_TABLE.c.family == family,

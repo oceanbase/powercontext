@@ -30,6 +30,7 @@ from powercontext.artifacts import (
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.reranking import MemoryRerankDecision
+from powercontext.builtin.authz import AccessDeniedError, AccessIdentityRequiredError
 from powercontext.builtin.inference import (
     EmbeddingResult,
     InferenceTimeoutError,
@@ -44,7 +45,6 @@ from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
 from powercontext.builtin.tags import ArtifactTagTarget
-from powercontext.server.authz import AccessDeniedError, AccessIdentityRequiredError
 
 
 class Embedding:

@@ -45,11 +45,11 @@ pub(crate) fn resolve_local_data_dir(
 ) -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        return resolve_local_data_dir_from(
+        resolve_local_data_dir_from(
             local_data,
             home,
             std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
-        );
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {

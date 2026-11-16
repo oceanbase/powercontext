@@ -29,7 +29,7 @@ integration-guidance-check: ## Check native Skill copies without modifying files
 	@uv run python scripts/integration_guidance_skills.py --check
 
 .PHONY: integration-lifecycle integration-lifecycle-check
-integration-lifecycle: ## Write the lifecycle helper copies that copy-installed Python plugins ship.
+integration-lifecycle: ## Write the lifecycle helper copies that Python and TypeScript plugins ship.
 	@uv run python scripts/generate_integration_lifecycle.py
 
 integration-lifecycle-check: ## Reject a lifecycle helper copy that has drifted from its source.

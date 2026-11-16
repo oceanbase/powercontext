@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from textwrap import dedent
 from uuid import uuid4
 
 import pytest
@@ -116,8 +117,11 @@ def run_seekdb_scenario(directory: Path, filename: str, *, timeout: int = 90) ->
                 outcome += f" signal={terminated_by}"
             failed = result.returncode != 0
         except subprocess.TimeoutExpired as error:
-            # TimeoutExpired retains bytes even when subprocess.run uses text=True.
-            output = (error.stdout or b"").decode(errors="replace") + (error.stderr or b"").decode(errors="replace")
+            # Timeout output is bytes on POSIX but can already be text on Windows.
+            output = "".join(
+                part.decode(errors="replace") if isinstance(part, bytes) else part or ""
+                for part in (error.stdout, error.stderr)
+            )
             outcome = f"deadline exceeded after {timeout}s; returncode unavailable"
             stalled = True
         finally:
@@ -196,6 +200,44 @@ def test_seekdb_scenario_runner_retries_only_once_after_deadline(
     assert ("deadline exceeded after 1s" if stalls_again else "returncode=0") in second
     assert "child started" in second
     assert not (tmp_path / "attempt-3").exists()
+
+
+def test_seekdb_scenario_diagnostics_report_blocked_event_loop(tmp_path: Path) -> None:
+    script = dedent("""\
+        import asyncio
+        import sys
+        import time
+        from pathlib import Path
+        from threading import Event
+
+        from tests.fixtures import seekdb_legacy_choice as fixture
+
+        class FastEvent(Event):
+            def wait(self, timeout=None):
+                return super().wait(0.05)
+
+        def blocked_startup(**kwargs):
+            time.sleep(1)
+            raise RuntimeError("blocked startup finished")
+
+        fixture.Event = FastEvent
+        fixture.create_server_app = blocked_startup
+        try:
+            asyncio.run(fixture.scenario(Path(sys.argv[1])))
+        except RuntimeError as error:
+            assert str(error) == "blocked startup finished"
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "pending phase: seed: opening test" in result.stderr
+    assert "in blocked_startup" in result.stderr
 
 
 def _bounded_output(output: str) -> str:

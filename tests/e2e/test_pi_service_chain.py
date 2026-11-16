@@ -149,7 +149,7 @@ def pi_stack(tmp_path: Path) -> Iterator[PiStack]:
                 generation_headers={"Authorization": SecretStr("Bearer synthetic-generation-only")},
             ),
         )
-        outage = FlushOutage(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler"))
+        outage = FlushOutage(create_server_app(settings=settings))
         base_url = stack.enter_context(serve(ObserveServer(outage, wire)))
         # Let a held flush answer before the Server stops.
         stack.callback(outage.released.set)

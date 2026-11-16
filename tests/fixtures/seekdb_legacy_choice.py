@@ -21,8 +21,8 @@ import faulthandler
 import json
 import sys
 from collections.abc import Callable
-from contextlib import suppress
 from pathlib import Path
+from threading import Event, Thread
 from types import ModuleType
 from unittest.mock import patch
 
@@ -75,26 +75,32 @@ def database_snapshot(options: dict[str, object]) -> None:
             print(f"diagnostic unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
 
 
-async def diagnose(options: dict[str, object], current_phase: Callable[[], str]) -> None:
-    while True:
-        await asyncio.sleep(30)
+def dump_tasks() -> None:
+    for task in asyncio.all_tasks():
+        waiting = task.get_coro()
+        while waiting is not None:
+            frame = getattr(waiting, "cr_frame", None) or getattr(waiting, "gi_frame", None)
+            if frame is not None:
+                print(
+                    f"await {frame.f_code.co_filename}:{frame.f_lineno} {frame.f_code.co_name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            waiting = getattr(waiting, "cr_await", None) or getattr(waiting, "gi_yieldfrom", None)
+
+
+def diagnose(
+    stopped: Event,
+    options: dict[str, object],
+    current_phase: Callable[[], str],
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    while not stopped.wait(30):
         print(f"pending phase: {current_phase()}", file=sys.stderr, flush=True)
-        # The C watchdog can race frame changes; this synchronous call holds the GIL.
-        faulthandler.dump_traceback()
-        for task in asyncio.all_tasks():
-            if task is asyncio.current_task():
-                continue
-            waiting = task.get_coro()
-            while waiting is not None:
-                frame = getattr(waiting, "cr_frame", None) or getattr(waiting, "gi_frame", None)
-                if frame is not None:
-                    print(
-                        f"await {frame.f_code.co_filename}:{frame.f_lineno} {frame.f_code.co_name}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                waiting = getattr(waiting, "cr_await", None) or getattr(waiting, "gi_yieldfrom", None)
-        await asyncio.to_thread(database_snapshot, options.copy())
+        # Sample with the GIL held even when the event loop cannot schedule tasks.
+        faulthandler.dump_traceback(file=2)
+        loop.call_soon_threadsafe(dump_tasks)
+        database_snapshot(options.copy())
 
 
 async def scenario(directory: Path) -> None:
@@ -125,7 +131,14 @@ async def scenario(directory: Path) -> None:
 
     observer = patch.object(seekdb_profile, "_open_instance", observed_open)
     observer.start()
-    watchdog = asyncio.create_task(diagnose(options, lambda: phase), name="seekdb-bootstrap-diagnostics")
+    stopped = Event()
+    watchdog = Thread(
+        target=diagnose,
+        args=(stopped, options, lambda: phase, asyncio.get_running_loop()),
+        name="seekdb-bootstrap-diagnostics",
+        daemon=True,
+    )
+    watchdog.start()
     try:
         # Two fresh Server databases execute the complete registered migration
         # chain; the other startups verify admission and preserved readback.
@@ -199,9 +212,8 @@ async def scenario(directory: Path) -> None:
             stage("complete")
     finally:
         observer.stop()
-        watchdog.cancel()
-        with suppress(asyncio.CancelledError):
-            await watchdog
+        stopped.set()
+        watchdog.join()
 
 
 if __name__ == "__main__":

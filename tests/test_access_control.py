@@ -21,8 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     ROLE_CARDINALITIES,
     AccessAction,
     AccessAuditContext,
@@ -46,11 +45,12 @@ from powercontext.server.authz import (
     ReplaceBinding,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
-from powercontext.server.authz.repository import (
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.repository import (
     ACCESS_TABLES,
     RelationalAccessRepository,
 )
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 
 ADMIN = PrincipalRef(type="service", id="admin", description="deployment administrator")
 ALICE = PrincipalRef(type="user", id="alice", description="artifact owner")

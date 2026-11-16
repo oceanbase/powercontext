@@ -56,6 +56,8 @@ builtin = [
     "httpx>=0.28,<1",
     "httpx2>=2.7,<3",
     "jieba==0.42.1",
+    "numpy>=1.26,<3",
+    "orjson>=3.10,<4",
     "packaging>=24,<27",
     "pydantic-ai-slim[anthropic,openai]>=2.64.0,<3",
     "pydantic-settings>=2.7,<3",
@@ -68,6 +70,7 @@ builtin = [
     "sqlalchemy[asyncio]>=2,<3",
     "sqlite-vec>=0.1.9,<0.2",
     "tzdata>=2026.3",
+    "tzlocal>=5.2,<6",
 ]
 seekdb = [
     "powercontext[builtin]",
@@ -121,7 +124,7 @@ powercontext = "powercontext.cli.app:main"
 powercontext-ops = "powercontext.ops.__main__:main"
 
 [project.entry-points."powercontext.cli"]
-code = "powercontext.builtin.code.cli:app"
+code = "powercontext.cli.code:app"
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
 observability = "powercontext.observability.cli:app"
@@ -151,6 +154,7 @@ resource-build = [
     "jsonschema>=4.23,<5",
     "opentelemetry-api>=1.30,<2",
     "opentelemetry-sdk>=1.30,<2",
+    "orjson>=3.10,<4",
     "packaging>=24,<27",
     "platformdirs>=4,<5",
     "pydantic-settings>=2.7,<3",
