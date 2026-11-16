@@ -1059,9 +1059,8 @@ class SearchResult(BaseModel):
 Additions and removals ship as **one new migration revision**; the migration resources of released versions stay
 unchanged. Its notes list the tables, columns, and data ranges added and removed. The migration preflight first confirms the old Artifact plugin
 framework left no data behind: Artifacts of old plugin families, and old plugin registrations and invocation intents.
-If it finds any, it refuses the upgrade, lists the plugin names, families, and
-row counts, and leaves the database unchanged; the deployer exports what they need, uninstalls the old plugins, and cleans
-up their data on the old version, then upgrades. The migration drops these tables only when they are empty.
+If it finds any, it refuses the upgrade, identifies the retained storage, and leaves the database unchanged.
+There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The migration drops these tables only when they are empty.
 
 The readiness check of this revision,
 which Server runs against the current database at every startup, differs from the previous one in two ways:
