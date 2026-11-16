@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-id: my-tickets
-plugin: .
-scope_ids: [SCOPE_ID]
-config:
-  file: tickets.json
-  poll_interval: 10
+"""Add Source collection runners and targets through the shared DDL executor."""
+
+from alembic import context
+
+revision = "v1_5_0_006"
+down_revision = "v1_5_0_005"
+
+
+def upgrade() -> None:
+    context.config.attributes["execute_revision"](revision)

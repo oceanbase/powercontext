@@ -382,7 +382,8 @@ def test_source_observation_contract_uses_explicit_connector_scope_and_captured_
     request = schemas["SubmitSourceObservationRequest"]
     observation = schemas["SourceObservation"]
 
-    assert set(request["properties"]) == {"scope_id", "observation"}
+    assert set(request["properties"]) == {"scope_id", "observation", "plugin"}
+    assert "plugin" not in request["required"]
     assert request["properties"]["observation"] == {"$ref": "#/components/schemas/SourceObservation"}
     assert observation["properties"]["materialization"]["enum"] == ["captured"]
     assert "ProjectedSource" not in schemas

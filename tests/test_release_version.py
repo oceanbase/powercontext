@@ -122,7 +122,7 @@ def test_release_updates_installation_references_and_preserves_history(release_r
                 assert "v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005" in content, relative
                 assert '"software_version":"1.5.0"' in content, relative
             else:
-                assert "`v1_5_0_001`–`v1_5_0_005`" in content, relative  # noqa: RUF001 -- Documented range
+                assert "`v1_5_0_001`–`v1_5_0_006`" in content, relative  # noqa: RUF001 -- Documented range
         for relative, original in preserved.items():
             assert (release_repo / relative).read_bytes() == original, relative
             if relative.endswith("development/releasing.md"):
