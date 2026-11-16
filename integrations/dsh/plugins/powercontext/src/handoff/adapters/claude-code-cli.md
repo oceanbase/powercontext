@@ -44,7 +44,16 @@ independently prove the terminal environment or receiver sandbox. Record the exa
 macOS terminal preference (for example, `Terminal` for Terminal.app). The runtime
 requires that recorded preference before preflight and again before launch; it
 rejects user and workspace permission or sandbox overrides and local managed
-settings it cannot qualify. The preflight service compares the observed Server,
+settings it cannot qualify. In a Git linked worktree, the CLI shares the main
+checkout's [local settings](https://code.claude.com/docs/en/settings#where-claude-code-keeps-the-local-file-in-a-git-repository).
+The receiver checks that file as well as the receiving workspace's settings,
+and refuses readiness when it cannot determine the Git layout.
+It also checks the effective project's [MCP opt-out list](https://code.claude.com/docs/en/mcp#disable-a-server-without-removing-it)
+in the active profile: a Git project uses the main checkout's key, and a non-Git
+project uses the receiving directory. The project key and disabled server list
+are part of the configuration generation. If the PowerContext plugin server is
+disabled, the receiver rejects preflight and package access even if the Server
+itself responds. The preflight service compares the observed Server,
 Scope and directory against the source; the delivery service owns its existing
 package and receipt identities.
 

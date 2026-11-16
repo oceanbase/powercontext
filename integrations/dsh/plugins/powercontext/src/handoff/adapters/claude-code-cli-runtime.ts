@@ -25,6 +25,7 @@ import type { ClaudeCliReceiver } from './claude-code-cli.ts'
 import type { TargetEnvironment } from '../targets.ts'
 
 const execute = promisify(execFile)
+const powercontextMcpServer = 'plugin:powercontext:powercontext'
 const PROBE = String.raw`
 import json, os, sys, time
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -141,25 +142,75 @@ const terminalApps: Readonly<Record<string, string>> = {
   WezTerm: '/Applications/WezTerm.app',
 }
 
+interface ClaudeProject {
+  worktreeRoot: string
+  projectRoot: string
+}
+
+/** Claude keys project state by the main checkout, even from a linked worktree or subdirectory. */
+async function observeProject(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<ClaudeProject> {
+  if (await realpath(cwd) !== cwd) throw new Error('Noncanonical working directory')
+  // Claude discovers the project from the working directory, independently of Git environment overrides.
+  const gitEnv = { PATH: env.PATH, HOME: env.HOME, LC_ALL: 'C' }
+  let layout: string
+  try {
+    layout = await command('git', ['rev-parse', '--path-format=absolute', '--show-toplevel',
+      '--git-dir', '--git-common-dir'], gitEnv, signal, cwd)
+  } catch (error) {
+    signal.throwIfAborted()
+    if ((error as { stderr?: string }).stderr?.trim() !== 'fatal: not a git repository (or any of the parent directories): .git') throw error
+    return { worktreeRoot: cwd, projectRoot: cwd }
+  }
+  const lines = layout.split('\n')
+  const [topLevel, gitDir, commonDir, end] = lines
+  if (lines.length !== 4 || end !== ''
+    || !topLevel || !gitDir || !commonDir || ![topLevel, gitDir, commonDir].every(isAbsolute)) {
+    throw new Error('Unknown Git worktree layout')
+  }
+  const worktreeRoot = await realpath(topLevel)
+  let projectRoot = worktreeRoot
+  if (await realpath(gitDir) !== await realpath(commonDir)) {
+    const worktrees = await command('git', ['worktree', 'list', '--porcelain', '-z'], gitEnv, signal, cwd)
+    const [main = ''] = worktrees.split('\0\0', 1)
+    const [worktree, ...fields] = main.split('\0')
+    if (!worktree?.startsWith('worktree ') || !isAbsolute(worktree.slice(9)) || fields.includes('bare')) {
+      throw new Error('Unknown Git main checkout')
+    }
+    projectRoot = await realpath(worktree.slice(9))
+  }
+  return { worktreeRoot, projectRoot }
+}
+
+function observeProjectMcp(preferences: Record<string, any>, projectRoot: string) {
+  const projectKey = projectRoot.normalize('NFC')
+  const projects = object(preferences.projects)
+  if (preferences.projects !== undefined && !projects) return undefined
+  const entry = projects?.[projectKey]
+  const project = object(entry)
+  if (entry !== undefined && !project) return undefined
+  const disabled = project?.disabledMcpServers
+  if (disabled !== undefined && (!Array.isArray(disabled) || disabled.some(name => typeof name !== 'string'))) return undefined
+  if (disabled?.includes(powercontextMcpServer)) return undefined
+  return { projectKey, disabledMcpServers: [...new Set<string>(disabled)].sort() }
+}
+
 /** Reject policy overrides rather than trying to reproduce Claude's Read and sandbox rules. */
-async function observeSettings(configDir: string, cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal) {
+async function observeSettings(configDir: string, cwd: string, { worktreeRoot, projectRoot }: ClaudeProject) {
   const settings = await readObject(join(configDir, 'settings.json'))
   if (Object.hasOwn(settings, 'permissions') || Object.hasOwn(settings, 'sandbox')) return undefined
-  let gitRoot = cwd
-  try {
-    const root = (await command('git', ['rev-parse', '--show-toplevel'], env, signal, cwd)).trim()
-    if (isAbsolute(root)) gitRoot = await realpath(root)
-  } catch { if (signal.aborted) signal.throwIfAborted() }
-  for (const directory of new Set([cwd, gitRoot])) {
-    for (const name of ['settings.json', 'settings.local.json']) {
-      const value = await readObject(join(directory, '.claude', name))
-      if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks
-        || Object.hasOwn(value, 'permissions') || Object.hasOwn(value, 'sandbox')
-        || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers
-        || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return undefined
-    }
+  const workspaceSettings = new Set([join(projectRoot, '.claude', 'settings.local.json')])
+  for (const directory of new Set([cwd, worktreeRoot])) {
+    workspaceSettings.add(join(directory, '.claude', 'settings.json'))
+    workspaceSettings.add(join(directory, '.claude', 'settings.local.json'))
     const mcp = await readObject(join(directory, '.mcp.json'))
     if ((mcp.mcpServers !== undefined && !object(mcp.mcpServers)) || mcp.mcpServers?.powercontext) return undefined
+  }
+  for (const path of workspaceSettings) {
+    const value = await readObject(path)
+    if (value.env || value.pluginConfigs || value.enabledPlugins || value.disableAllHooks
+      || Object.hasOwn(value, 'permissions') || Object.hasOwn(value, 'sandbox')
+      || value.mcpServers || value.deniedMcpServers || value.allowedMcpServers
+      || value.enabledMcpjsonServers || value.disabledMcpjsonServers) return undefined
   }
   for (const name of ['managed-settings.json', 'managed-mcp.json']) {
     if (Object.keys(await readObject(join(managed, name))).length) return undefined
@@ -202,11 +253,10 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
     || !options.environmentEvidence.evidence.trim()) throw new Error('Verified terminal evidence and a persistent generation key are required')
   const key = Buffer.from(options.generationKey)
   const env = { ...options.launchEnvironment }
-  const terminalPreferenceFile = env.CLAUDE_CONFIG_DIR
+  const globalConfigFile = env.CLAUDE_CONFIG_DIR
     ? join(options.configDir, '.claude.json') : join(env.HOME ?? homedir(), '.claude.json')
   const qualifiedTerminal = options.environmentEvidence.terminal
-  const observeTerminal = async () => {
-    const { deepLinkTerminal } = await readObject(terminalPreferenceFile)
+  const observeTerminal = async (deepLinkTerminal: unknown) => {
     // The CLI may otherwise fall back to a different installed emulator.
     if (!Object.hasOwn(terminalApps, qualifiedTerminal) || deepLinkTerminal !== qualifiedTerminal) return undefined
     if (process.platform === 'darwin') {
@@ -218,17 +268,26 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
     }
     return qualifiedTerminal
   }
+  const observeReceiverPolicy = async (cwd: string, signal: AbortSignal) => {
+    signal.throwIfAborted()
+    if (await realpath(options.configDir) !== options.configDir) return undefined
+    const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), '.claude')
+    if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return undefined
+    const preferences = await readObject(globalConfigFile)
+    const terminal = await observeTerminal(preferences.deepLinkTerminal)
+    if (!terminal) return undefined
+    const project = await observeProject(cwd, env, signal)
+    const projectMcp = observeProjectMcp(preferences, project.projectRoot)
+    if (!projectMcp) return undefined
+    const settings = await observeSettings(options.configDir, cwd, project)
+    if (!settings) return undefined
+    return { terminal, projectMcp, settings }
+  }
   const inspect = async (executable: string, cwd: string, signal: AbortSignal): Promise<TargetEnvironment | undefined> => {
     try {
-      const terminal = await observeTerminal()
-      if (!terminal) return undefined
-      const info = await realpath(cwd)
-      if (info !== cwd) return undefined
-      if (await realpath(options.configDir) !== options.configDir) return undefined
-      const selectedConfig = env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), '.claude')
-      if (!isAbsolute(selectedConfig) || await realpath(selectedConfig) !== options.configDir) return undefined
-      const settings = await observeSettings(options.configDir, cwd, env, signal)
-      if (!settings) return undefined
+      const policy = await observeReceiverPolicy(cwd, signal)
+      if (!policy) return undefined
+      const { terminal, projectMcp, settings } = policy
       if (settings.env !== undefined && !object(settings.env)
         || settings.pluginConfigs !== undefined && !object(settings.pluginConfigs)
         || settings.enabledPlugins !== undefined && !object(settings.enabledPlugins)
@@ -282,7 +341,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       const clients = await readObject(clientsFile)
       const generation = createHmac('sha256', key).update(JSON.stringify([await realpath(executable), pluginRoot,
         manifest, mcp, settings, Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
-        credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal])).digest('hex')
+        credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal, projectMcp])).digest('hex')
       return { effectiveCwd: cwd, serverIdentity: parsed.serverIdentity, scopeId: parsed.scopeId,
         configurationGeneration: generation, newSession: true, unsentPrefill: true, packageAccess: roots.length > 0 }
     } catch {
@@ -294,7 +353,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
     async handler(executable, _version, signal) {
       try {
         signal.throwIfAborted()
-        if (!await observeTerminal()) return 'needs_user_action'
+        if (!await observeTerminal((await readObject(globalConfigFile)).deepLinkTerminal)) return 'needs_user_action'
         return await registeredHandler(executable, env, signal)
       } catch {
         signal.throwIfAborted()
@@ -305,8 +364,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
     async canReadPackage(_executable, bundle, signal) {
       try {
         signal.throwIfAborted()
-        if (!await observeTerminal()
-          || !await observeSettings(options.configDir, bundle.binding.effectiveCwd, env, signal)) return false
+        if (!await observeReceiverPolicy(bundle.binding.effectiveCwd, signal)) return false
         const path = await realpath(bundle.packagePath)
         const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
         if (!roots.some(root => { const rel = relative(root, path); return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) })) return false
