@@ -116,7 +116,7 @@ host's overrides. A healthy Server with extraction disabled may return valid emp
 default cold inference probe budget (30 seconds), subsequent access checks (up to 5 seconds), and transport
 headroom. Doctor reports both `request_timeout_ms` and `readiness_request_timeout_ms`. For custom Server
 probe budgets above these defaults, increase `requestTimeoutMs` accordingly. Other requests retain their
-configured deadline (1000 ms by default), and caller cancellation still stops readiness immediately.
+configured deadline (3000 ms by default), and caller cancellation still stops readiness immediately.
 
 The operations table used by the lifecycle client in `src/operations.generated.ts` is generated from the repository
 `openapi/powercontext.yaml`. From the PowerContext root:
