@@ -1,0 +1,53 @@
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_5059dbe8d08b4e 35-36,105-107,116,164-165
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_5059dbe8d08b4e 37-40,206-218
+frontend/knowledge-base/src/actions/RetryProcessing.tsx
+  s_13fec9a57c9104::t_be7c6d829de82a 1-83
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_13fec9a57c9104::t_be7c6d829de82a 19,84,176-177
+  s_13fec9a57c9104::t_ee13a4488eae4e 192
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_460fde0f97d831 188-190,427
+  s_13fec9a57c9104::t_1dd1a478d43329 626-629
+frontend/knowledge-base/src/hooks.ts
+  s_13fec9a57c9104::t_460fde0f97d831 34-40,42,167-168
+  s_13fec9a57c9104::t_b7d084d07fb372 41
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_460fde0f97d831 42,60-65,119-120
+  s_13fec9a57c9104::t_12a24f783cf84a 121-122
+tests/e2e/test_knowledge_base.py
+  s_13fec9a57c9104::t_be7c6d829de82a 145,151
+  s_13fec9a57c9104::t_834d610633b18d 146-150
+frontend/knowledge-base/src/types.ts
+  s_13fec9a57c9104::t_460fde0f97d831 42
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_13fec9a57c9104::t_be7c6d829de82a 1-32,36-43,47-53,58-76,83-95,99-115,119-128,137-139
+  s_13fec9a57c9104::t_5059dbe8d08b4e 33-35,44-46,55-57,77-82,96-98,116-118,129-136
+  s_13fec9a57c9104::t_7b62496369c460 54
+frontend/knowledge-base/src/actions/index.ts
+  s_13fec9a57c9104::t_be7c6d829de82a 21-22
+plugins/knowledge-base/plugin.py
+  s_13fec9a57c9104::t_460fde0f97d831 67
+frontend/knowledge-base/src/App.tsx
+  s_13fec9a57c9104::t_246bb9f0c63b2c 20,29,31,118-119,121-122,124,171-172,174-179,184-188
+  s_13fec9a57c9104::t_a8ef39d7deba5e 125-126,170,173,183
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_0e36cc23efeed3 16-17,20-21,23-27,29-31,36,40,46,48,61-63,80-82,137,139-141,143,148,161-163,180,235,237,248,254,256,263,265,268,271,274,277,280,283,287,291,298,300-301,303,306,311,314,316,319,322,326,329,331-334,337,340-341,346,351,353,355,358-359,372,374,376,379,385,391,397,403,405-408,410,421,424,427,436-437,442,445,448,468,472,481,484,487,498,503,509,514,517,520,523,527,530,534-554,574-595,597-599,601,603,606-611,614-617,622-625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "70fcfea7367237584cd33ab6b7c6a24444e8c407",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
