@@ -53,7 +53,18 @@ const plugin={name:'powercontext',installed:true,enabled:s.enabled,marketplaceNa
 if(a[0]==='plugin'){console.log(JSON.stringify({installed:s.installed?[plugin]:[]}));process.exit()}
 if(a[0]==='mcp'){console.log(JSON.stringify([{name:'powercontext',enabled:true,transport:{url:s.endpoint||'http://127.0.0.1:19123/mcp/',http_headers_helper:s.helper?'[REDACTED]':null,env_http_headers:{Authorization:'POWERCONTEXT_CODEX_AUTHORIZATION'}}}]));process.exit()}
 if(a[0]==='sandbox'){if(!s.sandbox||a[a.indexOf('-P')+1]!== (s.expectedProfile||':workspace'))process.exit(1);let p=a.at(-1);console.log(crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')+'  '+p);process.exit()}
-if(a[0]==='app-server'){
+if(a[0]==='app-server' && s.closeStdin){
+ const chunks=[];
+ for(let byte=Buffer.alloc(1);fs.readSync(0,byte)===1;byte=Buffer.alloc(1)){
+  if(byte[0]===10)break;
+  chunks.push(byte);
+ }
+ const request=JSON.parse(Buffer.concat(chunks));
+ fs.closeSync(0);
+ fs.writeFileSync(${JSON.stringify(state)}+'.stdin-closed','closed');
+ console.log(JSON.stringify({id:request.id,result:{codexHome:home,platformOs:'macos'}}));
+ setInterval(()=>{},1000); // Keep the process alive after closing the input pipe.
+} else if(a[0]==='app-server'){
  const hooks=['sessionStart','preToolUse','userPromptSubmit'].filter(name=>!s.noReceiveHook||name!=='userPromptSubmit').map((eventName,i)=>({pluginId:plugin.pluginId,eventName,source:'plugin',handlerType:'command',command:root+'/hooks/'+['session_binding.py','bind_tools.py','recall.py'][i],sourcePath:root+'/hooks/hooks.json',enabled:true,trustStatus:s.trusted?'trusted':'modified',matcher:['startup|resume|clear|compact','mcp__powercontext__.*',null][i],currentHash:'hash'+i}));
  readline.createInterface({input:process.stdin}).on('line',line=>{let q=JSON.parse(line);if(!q.id)return;let result;
  if(q.method==='plugin/installed' && s.ignorePlugin)return;
@@ -117,6 +128,16 @@ it('observes target tools, trusted hooks, Scope and sandbox package readability'
   await state(f.state, { restrictions: { allowedPermissionProfiles: { ':workspace': true } } })
   await expect(runtime.resolveEnvironment(target, f.cwd, signal)).rejects.toThrow()
 }, 30_000)
+
+it('recovers when the app-server closes stdin after initialization', async () => {
+  const f = await fixture()
+  await state(f.state, { closeStdin: true })
+  const runtime = createCodexDesktopRuntime(f.options)
+  expect(await runtime.checkIntegration(target, AbortSignal.timeout(5_000))).toEqual({ state: 'unknown' })
+  expect(await readFile(f.state + '.stdin-closed', 'utf8')).toBe('closed')
+  await state(f.state, { closeStdin: false })
+  expect(await runtime.checkIntegration(target, signal)).toEqual({ state: 'ready' })
+})
 
 it('rejects missing tools and respects installation, disabled, and sandbox outcomes', async () => {
   const f = await fixture()

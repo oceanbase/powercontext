@@ -213,6 +213,14 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
     const profile = ui.get('profileContext') as Profile | undefined
     const lifetime = new AbortController()
     let catalog: TargetCatalog | undefined
+    let storage: { deliveryRoot: string; generationKey: Buffer } | undefined
+    const getCatalog = () => catalog ??= new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
+      codexHome: process.env.CODEX_HOME ?? join(homedir(), '.codex'),
+      deliveryStorage: () => {
+        if (!storage) throw new HandoffError('integration_unavailable')
+        return storage
+      },
+    })])
     const requireLocal = () => {
       if (!resolveDeployment(facts) || !loopbackHost(ui.webServer.host) || ui.connection.allowsRemoteAuthorities === true) {
         throw new HandoffError('deployment_unsupported')
@@ -231,22 +239,19 @@ export function registerHandoffBridge(ctx: Context, runtime: PluginRuntime, adap
         const root = join(ownerRoot, keyFor(profile.home, profile.name))
         privateDirectory(root)
         const generationKey = connectionKey(root)
-        catalog = new TargetCatalog(adapters ?? [createHostCodexDesktopAdapter({
-          codexHome: process.env.CODEX_HOME ?? join(homedir(), '.codex'),
-          deliveryRoot: join(root, 'deliveries'), generationKey,
-        })])
         services = createHandoffServices({
-          root, catalog, signal: lifetime.signal, client: runtime.client,
+          root, catalog: getCatalog(), signal: lifetime.signal, client: runtime.client,
           authorization: runtime.config.authorization,
           authority: { requireLocal, sourceConnection: sourceConnection(ui, runtime, generationKey),
             verifySource: async (context, source, latest) => verifyHostSource(ui, context, source, latest) },
         })
+        storage = { deliveryRoot: join(root, 'deliveries'), generationKey }
         release = unlock
         return services
       } catch (error) { unlock(); throw error }
     }
     const handler = createHandoffHandler({
-      facts, requireLocal, get catalog() { ensureServices(); return catalog! }, signal: lifetime.signal,
+      facts, requireLocal, get catalog() { return getCatalog() }, signal: lifetime.signal,
       requestRejection: request => ui.connection.requestRejection(request),
       authenticatedOwner: request => {
         const admission = ui.connection.admit?.(request)

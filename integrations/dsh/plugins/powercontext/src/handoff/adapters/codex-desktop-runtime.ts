@@ -40,16 +40,19 @@ export interface CodexDesktopRuntimeOptions {
   readonly setup?: { readonly executable: string; readonly source?: string; readonly serverUrl: string }
 }
 
-/** Compose detection and the runtime against the same app and Host profile. */
+type DeliveryStorage = Pick<CodexDesktopRuntimeOptions, 'deliveryRoot' | 'generationKey'>
+type RuntimeConfig = Omit<CodexDesktopRuntimeOptions, keyof DeliveryStorage>
+
+/** Compose detection and the runtime without opening the Host's delivery store. */
 export function createHostCodexDesktopAdapter(
   options: Pick<CodexDesktopAdapterOptions, 'appPath' | 'buildReceiverPrompt' | 'qualification'>
-    & Omit<CodexDesktopRuntimeOptions, 'cliPath'>,
+    & Omit<RuntimeConfig, 'cliPath'> & { deliveryStorage: () => DeliveryStorage },
 ) {
-  const { appPath = '/Applications/ChatGPT.app', buildReceiverPrompt, qualification, ...runtimeOptions } = options
-  const runtime = createCodexDesktopRuntime({
+  const { appPath = '/Applications/ChatGPT.app', buildReceiverPrompt, qualification, deliveryStorage, ...runtimeOptions } = options
+  const runtime = createRuntime({
     ...runtimeOptions,
     cliPath: join(appPath, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
-  })
+  }, deliveryStorage)
   return createCodexDesktopAdapter({ appPath, runtime, buildReceiverPrompt, qualification })
 }
 
@@ -80,7 +83,7 @@ function validServerUrl(value: string): boolean {
       && !url.username && !url.password && !url.search && !url.hash
   } catch { return false }
 }
-function envFor(options: CodexDesktopRuntimeOptions): NodeJS.ProcessEnv {
+function envFor(options: RuntimeConfig): NodeJS.ProcessEnv {
   return { ...process.env, CODEX_HOME: options.codexHome, PATH: `${dirname(options.cliPath)}:${process.env.PATH ?? '/usr/bin:/bin'}` }
 }
 async function command(file: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<string> {
@@ -92,10 +95,10 @@ type AppServerObservation = { hooks: ObjectValue; config: ObjectValue; mcp: Obje
   requirements: ObjectValue; plugins: ObjectValue }
 
 /** One short-lived app-server, with no thread creation or model calls. */
-async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string, signal: AbortSignal): Promise<AppServerObservation>
-async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string, signal: AbortSignal,
+async function inspectAppServer(options: RuntimeConfig, cwd: string, signal: AbortSignal): Promise<AppServerObservation>
+async function inspectAppServer(options: RuntimeConfig, cwd: string, signal: AbortSignal,
   mode: 'requirements'): Promise<{ requirements: ObjectValue }>
-async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string, signal: AbortSignal,
+async function inspectAppServer(options: RuntimeConfig, cwd: string, signal: AbortSignal,
   mode?: 'requirements'): Promise<AppServerObservation | { requirements: ObjectValue }> {
   signal.throwIfAborted()
   const child = spawn(options.cliPath, ['app-server', '--listen', 'stdio://'], {
@@ -116,6 +119,8 @@ async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string
   signal.addEventListener('abort', abort, { once: true })
   child.once('error', fail)
   child.once('exit', fail)
+  // A broken stdin pipe emits on the stream, including during cleanup.
+  child.stdin.on('error', fail)
   lines.on('line', line => {
     size += Buffer.byteLength(line)
     if (size > MAX_OUTPUT) { abort(); return }
@@ -129,12 +134,15 @@ async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string
       else request.resolve(message.result)
     } catch { abort() }
   })
+  const write = (message: ObjectValue) => {
+    child.stdin.write(`${JSON.stringify(message)}\n`, error => { if (error) fail() })
+  }
   const call = (method: string, params: ObjectValue): Promise<unknown> => {
     if (failure || signal.aborted) return Promise.reject(failure ?? new Error('Cancelled'))
     const id = ++sequence
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject })
-      child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => { if (error) fail() })
+      write({ id, method, params })
     })
   }
   try {
@@ -143,7 +151,7 @@ async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string
     if (await realpath(text(initialized.codexHome)) !== await realpath(options.codexHome) || initialized.platformOs !== 'macos') {
       throw new Error('Codex runtime profile mismatch')
     }
-    child.stdin.write('{"method":"initialized","params":{}}\n')
+    write({ method: 'initialized', params: {} })
     if (mode === 'requirements') {
       return { requirements: object(await call('configRequirements/read', {})) }
     }
@@ -163,7 +171,7 @@ async function inspectAppServer(options: CodexDesktopRuntimeOptions, cwd: string
 }
 
 /** Version-qualified Desktop stores its local composer selection separately from config.toml. */
-async function desktopPermission(options: CodexDesktopRuntimeOptions, requirements: ObjectValue): Promise<{ profile: string; selection: string }> {
+async function desktopPermission(options: RuntimeConfig, requirements: ObjectValue): Promise<{ profile: string; selection: string }> {
   const state = object(JSON.parse(await readFile(join(options.codexHome, '.codex-global-state.json'), 'utf8')))
   const selections = Object.entries(state).filter(([key]) => key.startsWith('electron-owner-atoms:'))
     .map(([, value]) => object(value)['permission-selection-by-host-id:local']).filter(value => value != null)
@@ -283,7 +291,7 @@ fingerprint=hmac.new(bytes.fromhex(os.environ["PC_HANDOFF_OBSERVATION_KEY"]),val
 print(json.dumps({"scope":scope,"identity":identity,"endpoint":s.server_url,"generation":fingerprint,"hasHelper":bool(helper)},separators=(",",":")))
 `
 
-async function scopeObservation(options: CodexDesktopRuntimeOptions, cwd: string, root: string, key: string, signal: AbortSignal) {
+async function scopeObservation(options: RuntimeConfig, cwd: string, root: string, key: string, signal: AbortSignal) {
   const python = join(root, '.venv/bin/python')
   const env = { ...envFor(options), PC_HANDOFF_OBSERVATION_KEY: key }
   const result = object(JSON.parse(await command(python, ['-c', SCOPE_PROBE, root, cwd], cwd, env, signal)))
@@ -301,7 +309,7 @@ async function scopeObservation(options: CodexDesktopRuntimeOptions, cwd: string
   return { serverIdentity, scopeId, identity, endpoint: text(result.endpoint), generation: text(result.generation), hasHelper: result.hasHelper }
 }
 
-async function sandboxHash(options: CodexDesktopRuntimeOptions, profile: string, cwd: string, path: string, signal: AbortSignal): Promise<string> {
+async function sandboxHash(options: RuntimeConfig, profile: string, cwd: string, path: string, signal: AbortSignal): Promise<string> {
   const output = await command(options.cliPath, ['sandbox', '-P', profile, '--include-managed-config',
     '-C', cwd, '--', '/usr/bin/shasum', '-a', '256', '--', path],
     cwd, envFor(options), signal)
@@ -311,13 +319,20 @@ async function sandboxHash(options: CodexDesktopRuntimeOptions, profile: string,
 }
 
 export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): CodexDesktopRuntime {
-  if (![options.cliPath, options.codexHome, options.deliveryRoot].every(isAbsolute)
-    || options.cliPath.includes(':') || !Buffer.isBuffer(options.generationKey) || options.generationKey.length !== 32
+  const { deliveryRoot, generationKey, ...config } = options
+  if (!isAbsolute(deliveryRoot) || !Buffer.isBuffer(generationKey) || generationKey.length !== 32) {
+    throw new Error('Invalid Codex runtime storage')
+  }
+  const storage = { deliveryRoot, generationKey: Buffer.from(generationKey) }
+  return createRuntime(config, () => storage)
+}
+
+function createRuntime(options: RuntimeConfig, deliveryStorage: () => DeliveryStorage): CodexDesktopRuntime {
+  if (![options.cliPath, options.codexHome].every(isAbsolute) || options.cliPath.includes(':')
     || (options.setup && (!isAbsolute(options.setup.executable) || (options.setup.source !== undefined && !isAbsolute(options.setup.source))
       || !validServerUrl(options.setup.serverUrl)))) {
     throw new Error('Invalid Codex runtime paths')
   }
-  const key = Buffer.from(options.generationKey).toString('hex')
   const configurationKey = `codex:${options.codexHome}`
   return {
     configurationKey,
@@ -356,6 +371,9 @@ export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): 
     },
     async resolveEnvironment(_target, cwd, signal): Promise<TargetEnvironment> {
       try {
+        signal.throwIfAborted()
+        const { deliveryRoot, generationKey } = deliveryStorage()
+        const key = generationKey.toString('hex')
         const observed = await inspectAppServer(options, cwd, signal)
         const plugin = installedPlugin(observed.plugins)
         if (!plugin?.enabled) throw new Error('Plugin unavailable')
@@ -397,7 +415,7 @@ export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): 
         if (url.username || url.password || url.search || url.hash || url.href.replace(/\/$/u, '') !== expected.href.replace(/\/$/u, '')) {
           throw new Error('MCP and hook endpoints differ')
         }
-        const temporary = await mkdtemp(join(options.deliveryRoot, '.codex-probe-'))
+        const temporary = await mkdtemp(join(deliveryRoot, '.codex-probe-'))
         let packageAccess = false
         try {
           const path = join(temporary, 'probe')
@@ -405,7 +423,7 @@ export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): 
           await writeFile(path, contents, { mode: 0o600, flag: 'wx' })
           packageAccess = await sandboxHash(options, permission.profile, cwd, path, signal) === createHash('sha256').update(contents).digest('hex')
         } finally { await rm(temporary, { recursive: true, force: true }) }
-        const configurationGeneration = createHmac('sha256', Buffer.from(key, 'hex')).update(configurationJson([
+        const configurationGeneration = createHmac('sha256', generationKey).update(configurationJson([
           plugin, hooks, receiverHash, scope.generation, scope.endpoint, scope.identity, scope.serverIdentity, scope.scopeId,
           permission, observed.config, observed.requirements,
         ])).digest('hex')
@@ -418,7 +436,7 @@ export function createCodexDesktopRuntime(options: CodexDesktopRuntimeOptions): 
     },
     async canReadPackage(_target, bundle: LaunchBundle, signal): Promise<boolean> {
       try {
-        const root = await realpath(options.deliveryRoot)
+        const root = await realpath(deliveryStorage().deliveryRoot)
         const observed = await inspectAppServer(options, bundle.binding.effectiveCwd, signal, 'requirements')
         const permission = await desktopPermission(options, observed.requirements)
         const path = await realpath(bundle.packagePath)
