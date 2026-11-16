@@ -31,6 +31,15 @@ export const useDocumentChanges = () =>
   useQuery({ queryKey: keys.documentChanges, initialData: 0, enabled: false, gcTime: Infinity });
 export const useSpaces = () => useQuery({ queryKey: keys.spaces, queryFn: service.spaces });
 export const useDefault = () => useQuery({ queryKey: keys.defaults, queryFn: service.defaultSpace });
+export const useHostContext = () =>
+  useQuery({ queryKey: ["host-context"], queryFn: service.context, staleTime: Infinity });
+export const useLibrary = (scope: string | null | undefined) =>
+  useQuery({
+    queryKey: ["host-library", scope],
+    queryFn: () => service.library(scope!),
+    enabled: !!scope,
+    retry: false,
+  });
 export const useLibraries = (space: string) =>
   useQuery({ queryKey: keys.libraries(space), queryFn: () => service.libraries(space), enabled: !!space });
 export const useDocuments = (scope: string) =>
@@ -155,7 +164,8 @@ export function useDocumentAction(target: Target) {
 export function useRetry(scope: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ request, key }: { request: string; key: string }) => service.retry(scope, request, key),
+    mutationFn: ({ request, key, replace }: { request: string; key: string; replace: boolean }) =>
+      service.retry(scope, request, key, replace),
     onSuccess: (data) => {
       trackProcessing(client, scope, data);
       return client.invalidateQueries({ queryKey: keys.documents(scope) });

@@ -16,7 +16,7 @@ limitations under the License.
 import { useState } from "react";
 import { Badge, Button, Card, Empty, Flex, Input, Select, Space, Table, Typography } from "@oceanbase/design";
 import { FileTextOutlined, PictureOutlined, ReloadOutlined, SearchOutlined } from "@oceanbase/icons";
-import { useDocuments, useRetry } from "../hooks";
+import { useDocuments } from "../hooks";
 import type { Document, KB, Location, Processing } from "../types";
 import { Failure } from "../components/Feedback";
 import * as Actions from "../actions";
@@ -28,7 +28,6 @@ const statusNames: Record<string, string> = {
 };
 export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): void }) {
   const query = useDocuments(kb.scope_id);
-  const retry = useRetry(kb.scope_id);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [records, setRecords] = useState(false);
@@ -82,7 +81,7 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
           />
         </Space>
       </Flex>
-      <Failure error={query.error || retry.error} />
+      <Failure error={query.error} />
       <Card styles={{ body: { padding: 0 } }}>
         <Table<Document>
           rowKey={(row) => row.ref.artifact_id}
@@ -174,7 +173,8 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
             columns={[
               {
                 title: "文档",
-                render: (_, row) => names.get(row.document_id) || `未发布文档 · ${row.document_id.slice(0, 10)}`,
+                render: (_, row) =>
+                  row.relative_path || names.get(row.document_id) || `未发布文档 · ${row.document_id.slice(0, 10)}`,
               },
               {
                 title: "处理状态",
@@ -189,17 +189,7 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
               {
                 title: "操作",
                 render: (_, row) =>
-                  row.state === "failed" ? (
-                    <Button
-                      size="small"
-                      loading={retry.isPending}
-                      onClick={() => retry.mutate({ request: row.request_id, key: crypto.randomUUID() })}
-                    >
-                      重新提交解析
-                    </Button>
-                  ) : (
-                    "—"
-                  ),
+                  row.state === "failed" ? <Actions.RetryProcessing scope={kb.scope_id} request={row} /> : "—",
               },
             ]}
           />

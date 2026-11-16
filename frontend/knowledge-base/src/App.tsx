@@ -17,7 +17,7 @@ import { useState } from "react";
 import { Alert, Button, Dropdown, Empty, Flex, Space, Spin, Typography } from "@oceanbase/design";
 import { BookOutlined, ReloadOutlined, SwapOutlined } from "@oceanbase/icons";
 import { PageContainer } from "@oceanbase/ui";
-import { useDefault, useLibraries, useRefresh, useSetDefault, useSpaces } from "./hooks";
+import { useDefault, useHostContext, useLibrary, useLibraries, useRefresh, useSetDefault, useSpaces } from "./hooks";
 import { ProcessingWatcher } from "./components/ProcessingWatcher";
 import { Failure } from "./components/Feedback";
 import { Create } from "./actions";
@@ -26,9 +26,9 @@ import { Reader } from "./pages/Reader";
 import { Retrieval } from "./pages/Retrieval";
 import { Settings } from "./pages/Settings";
 import type { Location } from "./types";
-function Workspace({ space }: { space: string }) {
+function Workspace({ space, initialScope = "" }: { space: string; initialScope?: string }) {
   const libraries = useLibraries(space);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialScope);
   const [tab, setTab] = useState("documents");
   const [location, setLocation] = useState<Location>();
   const items = libraries.data?.items || [];
@@ -115,9 +115,15 @@ export function App() {
   const defaults = useDefault();
   const changeDefault = useSetDefault();
   const refresh = useRefresh();
+  const host = useHostContext();
+  const hostLibrary = useLibrary(host.data?.scopeId);
   const [selected, setSelected] = useState<string>();
-  const preferred = selected ?? (defaults.data?.available ? defaults.data.space_scope_id : "");
+  const preferred =
+    selected ?? hostLibrary.data?.space_scope_id ?? (defaults.data?.available ? defaults.data.space_scope_id : "");
   const space = spaces.data?.items.find((item) => item.space_scope_id === preferred);
+  const initialScope = selected === undefined ? hostLibrary.data?.scope_id : undefined;
+  const resolvingHost = selected === undefined && (host.isPending || (!!host.data?.scopeId && hostLibrary.isPending));
+  const hostError = selected === undefined ? host.error || hostLibrary.error : null;
   return (
     <Flex vertical className="kb-app">
       <ProcessingWatcher />
@@ -161,13 +167,25 @@ export function App() {
           </Space>
         </Flex>
       </header>
-      <Failure error={spaces.error || defaults.error || changeDefault.error} />
-      {spaces.isPending || defaults.isPending ? (
+      <Failure error={spaces.error || defaults.error || changeDefault.error || hostError} />
+      {selected === undefined && host.data?.scopeId && hostLibrary.data === null && (
+        <Alert
+          role="status"
+          type="info"
+          showIcon
+          message="当前内容范围未关联可访问的知识库。下方显示默认空间，请选择知识库或切换空间。"
+        />
+      )}
+      {spaces.isPending || defaults.isPending || resolvingHost ? (
         <div className="workspace-empty">
           <Spin />
         </div>
-      ) : space ? (
-        <Workspace key={space.space_scope_id} space={space.space_scope_id} />
+      ) : hostError ? null : space ? (
+        <Workspace
+          key={`${space.space_scope_id}:${initialScope || ""}`}
+          space={space.space_scope_id}
+          initialScope={initialScope}
+        />
       ) : (
         <div className="workspace-empty">
           <Alert type="info" showIcon message="默认空间不可访问，请选择其他空间并设置默认空间。" />

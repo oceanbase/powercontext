@@ -142,6 +142,13 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             assert results["hits"]
             assert all(hit["scope_id"] == scope for hit in results["hits"])
             assert (await call("POST", base + "/retrieve", json={"query": "重启"}))["hits"]
+            assert (await call("GET", base + "/settings"))["scope_id"] == scope
+            conflicting = [
+                await client.post(P + base + "/retrieve", json={"query": "重启", "scope_ids": selection})
+                for selection in ([], [second["scope_id"]], [scope, second["scope_id"]])
+            ]
+            assert all(response.status_code == 422 for response in conflicting)
+            assert (await call("POST", base + "/retrieve", json={"query": "重启", "scope_ids": [scope]}))["hits"]
             assert not (await call("POST", "/retrieve", json={"query": "重启", "scope_ids": []}))["hits"]
             assert not (await call("POST", "/retrieve", json={"query": "重启"}))["hits"]
             wrong = await client.post(P + "/retrieve", json={"query": "重启", "scope_ids": [scope]})

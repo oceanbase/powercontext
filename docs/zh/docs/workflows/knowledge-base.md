@@ -32,6 +32,8 @@ uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 ```
 
 沿用部署的认证与权限配置，登录后打开 `/dashboard/plugins/knowledge-base`。
+Dashboard 使用宿主选择的知识库 Scope 定位所属空间并打开知识库，不改变用户默认空间。
+普通或不可访问的知识库 Scope 会显示提示，用户可在默认空间中选择知识库或切换空间。
 空间创建／重命名、知识库创建和处理配置要求 `server.admin`；导入要求 Scope contribute，检索要求 Scope read；
 编辑与遗忘还检查 Artifact 权限。插件页面拿不到会话凭据；Dashboard 桥接仅转发已声明的插件路由，以及显式启用的本插件 family 操作，
 保留调用者身份和版本前置条件。
@@ -100,6 +102,9 @@ Content-Type: application/octet-stream
 
 `GET P/scopes/{s}/imports/{request_id}` 显示 pending／processing／failed，或经核心历史验证的完成状态，同时单独展示可用版本。
 `POST .../imports/{request_id}/retry` 接收**新的** `idempotency_key`，创建新处理请求。
+状态响应及文档列表的 `requests` 包含 `relative_path`，未发布文档也能按文件名识别。
+Dashboard 的“重新提交解析”使用该请求保存的快照；默认保护人工修改，只有勾选确认才发送
+`manual_edits_policy:"replace"`。这也支持人工编辑后上传新版原文产生的处理冲突。
 `GET P/scopes/{s}/documents` 返回的近期请求采用相同的发布校验；即使处理观察记录仍为 processing，已提交的任务也返回 completed。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
 否则冲突的重解析失败。重解析同时固定原文快照及其对应的 document revision。并发上传、编辑或遗忘会阻止过期处理结果发布，
@@ -108,6 +113,7 @@ Content-Type: application/octet-stream
 Source 登记中断时也从原先固定的输入和版本基准继续，不以当前 revision 重新确定基准；同键改用其他文档、策略或操作会返回冲突。
 同步 chunk 编辑在发布时也检查治理版本；向量准备期间发生遗忘时，编辑会被拒绝。
 
+`GET P/scopes/{s}/settings` 返回知识库归属、配置及配置版本，要求 Scope read 权限。
 `PATCH P/scopes/{s}/settings` 接收 `{version,chunking:{max_chars,overlap}}`；已有文档只在重解析后改变。
 部署使用插件独立、固定版本的 `BAAI/bge-small-zh-v1.5` 512 维模型，不继承核心模型。
 本期不支持在线切换模型，配置指纹不一致时拒绝处理。后续解析器可实现内部解析协议并在
@@ -155,7 +161,8 @@ chunk 正文保存在独立不可变记录中，通过以下插件接口读取�
 
 提交到 `POST P/retrieve`。省略空间时解析当前默认空间；省略 `scope_ids` 选择其中可读知识库，明确传空数组则不选择任何库。
 明确选择不可读或其他空间的知识库会使整个请求失败。最多选择 20 个库、返回 50 个命中。
-`POST P/scopes/{s}/retrieve` 直接查询单库，不受默认空间影响。通用 document 搜索与 Prepared Context 复用当前版本过滤。
+`POST P/scopes/{s}/retrieve` 直接查询单库，不受默认空间影响；若传 `scope_ids`，必须只包含路径中的知识库，
+空数组或其他知识库返回 422，不会静默忽略。通用 document 搜索与 Prepared Context 复用当前版本过滤。
 插件检索接口逐块返回结果。通用 Artifact 搜索适配层最多召回 50 个排序后的 chunk，按 document revision 汇总，limit 按文档计数；
 文档得分取其最佳命中 chunk 的得分。Prepared Context 接收汇总片段，文本中保留 chunk ID、标题路径、原始 Source 引用、位置和人工修改标记，
 避免 Artifact 级去重丢掉同一文档的其他命中片段；输出仍受上下文字节预算限制。

@@ -39,6 +39,7 @@ type Response = { ok: boolean; status: number; json: any };
 declare global {
   interface Window {
     powercontextPluginClient(): {
+      context(): Promise<{ scopeId: string | null }>;
       request(method: string, path: string, options?: Options): Promise<Response>;
       artifacts(method: string, path: string, options?: Options): Promise<Response>;
     };
@@ -56,6 +57,12 @@ const artifact = <T>(scope: string, id: string, suffix = "", options: Options = 
 const chunks = (scope: string, id: string, revision: number) =>
   `/scopes/${scope}/documents/${id}/revisions/${revision}/chunks`;
 export const service = {
+  context: () => bridge.context(),
+  library: async (scope: string) => {
+    const response = await bridge.request("GET", `/scopes/${encodeURIComponent(scope)}/settings`);
+    if (response.status === 404 || response.status === 403) return null;
+    return result<KB>(Promise.resolve(response));
+  },
   spaces: () => api<{ items: Space[] }>("GET", "/spaces"),
   defaultSpace: () => api<DefaultSpace>("GET", "/me/default-space"),
   libraries: (space: string) => api<{ items: KB[] }>("GET", "/knowledge-bases", { query: { space_scope_id: space } }),
@@ -109,8 +116,10 @@ export const service = {
     api("POST", `/scopes/${target.scope}/documents/${target.id}/reprocess`, {
       json: { idempotency_key: key, manual_edits_policy: replace ? "replace" : "reject" },
     }),
-  retry: (scope: string, request: string, key: string) =>
-    api("POST", `/scopes/${scope}/imports/${request}/retry`, { json: { idempotency_key: key } }),
+  retry: (scope: string, request: string, key: string, replace: boolean) =>
+    api("POST", `/scopes/${scope}/imports/${request}/retry`, {
+      json: { idempotency_key: key, manual_edits_policy: replace ? "replace" : "reject" },
+    }),
   retrieve: (space: string, scopes: string[], query: string, mode: string) =>
     api<{ hits: Hit[] }>("POST", "/retrieve", {
       json: { space_scope_id: space, scope_ids: scopes, query, mode, limit: 10 },

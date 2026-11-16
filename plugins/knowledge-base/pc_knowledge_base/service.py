@@ -185,6 +185,9 @@ class KnowledgeBase:
             fail("Embedding profile changed; restore the configured model. Online model switching is not supported")
         return row
 
+    async def settings_get(self, request):
+        return await self.settings(request.scope_id)
+
     async def settings_update(self, request):
         await self.ctx.require("server.admin")
         row = await self.settings(request.scope_id)
@@ -421,6 +424,7 @@ class KnowledgeBase:
         return {
             "request_id": key,
             "document_id": document,
+            "relative_path": state["pinned"]["relative_path"],
             "state": "completed" if completed else "failed" if conflicted else state["state"],
             "error": None if completed else "Document changed during processing" if conflicted else state.get("error"),
         }
@@ -619,8 +623,10 @@ class KnowledgeBase:
         body = request.body
         if request.scope_id is not None:
             space = (await self.settings(request.scope_id))["space_scope_id"]
-            if body.space_scope_id is not None and body.space_scope_id != space:
-                fail("Knowledge base does not belong to the selected space", 422)
+            if (body.space_scope_id is not None and body.space_scope_id != space) or (
+                body.scope_ids is not None and set(body.scope_ids) != {request.scope_id}
+            ):
+                fail("Selected space or knowledge bases do not match the request path", 422)
         else:
             space = body.space_scope_id or (await self.default())["space_scope_id"]
         await self.visible_space(space)

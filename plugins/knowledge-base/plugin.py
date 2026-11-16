@@ -64,6 +64,7 @@ plugin = ArtifactPlugin(
             route("PUT", "/me/default-space", "default_set", DefaultUpdate),
             route("GET", "/knowledge-bases", "kb_list"),
             route("POST", "/knowledge-bases", "kb_create", KBCreate),
+            route("GET", "/scopes/{scope_id}/settings", "settings_get"),
             route("PATCH", "/scopes/{scope_id}/settings", "settings_update", Settings, write=True),
             route("POST", "/scopes/{scope_id}/imports", "imports", ImportFiles, write=True),
             route("POST", "/scopes/{scope_id}/uploads", "upload", write=True, binary=True),

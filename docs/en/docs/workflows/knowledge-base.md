@@ -34,6 +34,10 @@ uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 ```
 
 Use the deployment's normal authentication and authorization configuration. Open `/dashboard/plugins/knowledge-base`
+The Dashboard opens the knowledge base selected by the host Scope picker in its owning space, without changing the
+user's default space. An ordinary or inaccessible knowledge-base Scope shows a notice and lets the user choose a
+knowledge base from the default space or switch spaces.
+
 after signing in. Space creation/renaming, knowledge-base creation and processing configuration require `server.admin`;
 imports require Scope contribution and searches require Scope read. Editing and forgetting also enforce Artifact authority.
 New replacement requests for an existing document, including changed-file uploads, retries and explicit reprocessing, also
@@ -199,3 +203,16 @@ The default end-to-end test uses deterministic embeddings only in its temporary 
 embedding fallback. Set `POWERCONTEXT_TEST_KB_MODELS` to a prepared local data directory to also run real embedding acceptance.
 Set `POWERCONTEXT_TEST_KB_SQL` to an isolated OceanBase/SeekDB configuration for native projection tests, and
 `POWERCONTEXT_TEST_KB_SERVER_DATABASE` to an isolated core database configuration for the full Server/Worker workflow.
+
+## Scope navigation and processing retries
+
+`GET P/scopes/{s}/settings` requires Scope read permission and returns the knowledge base's owning space,
+configuration and configuration version. Processing status responses and the document list's `requests` include
+`relative_path`, so a file remains identifiable even when it has no published document revision.
+
+The Dashboard's processing retry dialog uses the original snapshot saved for that request and a new idempotency key.
+Manual edits are protected by default. Only explicit confirmation sends `manual_edits_policy:"replace"`, including
+when uploading new file bytes conflicts with an existing manual edit. Historical revisions remain available.
+
+For `POST P/scopes/{s}/retrieve`, an optional `scope_ids` must contain only the Scope in the path. An empty list or
+another knowledge base returns 422 rather than silently ignoring the caller's selection.

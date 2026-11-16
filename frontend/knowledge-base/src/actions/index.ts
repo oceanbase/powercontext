@@ -18,3 +18,5 @@ export { Import } from "./Import";
 export { EditChunk, DocumentMenu } from "./Document";
 
 export { RemoveChunks } from "./RemoveChunks";
+
+export { RetryProcessing } from "./RetryProcessing";

@@ -39,6 +39,7 @@ export type Head = { artifact_id: string; revision: number; content: Content };
 export type Processing = {
   request_id: string;
   document_id: string;
+  relative_path: string;
   state: string;
   error?: string | null;
   current_revision?: number | null;
