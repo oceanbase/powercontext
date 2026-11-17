@@ -150,6 +150,10 @@ def test_server_and_device_runners_collect_assigned_targets(tmp_path):
             assert (await admin.post(base, json=other)).json()["error"]["code"] == "target_conflict"
             invalid = await admin.post(base, json={**target, "parameters": {"namespace": "x"}})
             assert (invalid.status_code, invalid.json()["error"]["code"]) == (422, "invalid_parameters")
+            # Targets are stored centrally and exported with the Scope, so they hold no credentials.
+            for secret in ({"api_key": "k"}, {"auth": {"session_token": "t"}}):
+                keyed = await admin.post(base, json={**target, "parameters": {"file": "/other.json", **secret}})
+                assert (keyed.status_code, keyed.json()["error"]["code"]) == (422, "invalid_parameters")
 
             # Adding a target collects right away; the Source and the status commit together.
             await wait_for(lambda: sources(admin, scope, "example-ticket"), lambda items: len(items) == 1, log=log)

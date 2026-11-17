@@ -4385,6 +4385,7 @@ def _source_target_response(target: Any) -> SourceTarget:
 
 
 def _target_key(manager: Any, capability: str, parameters: dict[str, Any]) -> str:
+    from powercontext.builtin.portability.bundle import BundleFormatError, require_exportable_target_parameters
     from powercontext.sources.collection import InvalidTargetParameters, target_key, validate_parameters
 
     found = manager.source_plugin(capability)
@@ -4393,9 +4394,17 @@ def _target_key(manager: Any, capability: str, parameters: dict[str, Any]) -> st
         raise InvalidBaseAccessRequestError("capability", "must be a loaded Source plugin that collects")
     try:
         validate_parameters(declared.target.parameters_schema, parameters)
-        return target_key(capability, parameters, declared.target.identity)
+        key = target_key(capability, parameters, declared.target.identity)
     except InvalidTargetParameters as error:
         raise PluginCallError(422, "invalid_parameters", str(error)) from None
+    try:
+        # Targets are stored centrally, shown to the Scope's readers, and exported with the Scope.
+        require_exportable_target_parameters(parameters)
+    except BundleFormatError:
+        raise PluginCallError(
+            422, "invalid_parameters", "Target parameters cannot hold credentials; the plugin reads them on its runner."
+        ) from None
+    return key
 
 
 async def create_source_target(

@@ -34,7 +34,9 @@ Source 插件与 Artifact 插件放在同一个插件目录中（`POWERCONTEXT_S
 设备 runner 用设备的凭据、网络位置和本机文件采集，所以让它采集什么由注册它的主体决定：只有某个 Scope 写权限的用户
 不能给别人的设备分配目标，但可以停用或删除写入自己 Scope 的目标。团队共用的 runner 由运行它的账号或 `server.admin`
 分配目标。`server` runner 用 Server 环境中的凭据访问外部系统，决定它采集什么等同于运维决定，所以需要 `server.admin`。插件访问
-外部系统的凭据由插件自己读取（例如环境变量），不替代 PowerContext 的权限。
+外部系统的凭据由插件自己读取（例如环境变量），不替代 PowerContext 的权限。目标的参数保存在中心、对 Scope 的读者可见，
+并随 Scope 一起导出，所以不能放凭据：名为 `api_key`、`password` 或以 `_token`、`_secret` 等结尾的参数有值时，目标会被
+`invalid_parameters` 拒绝。runner 上的绝对路径可以作为参数。
 
 ## 只提供 Source 类型
 

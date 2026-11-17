@@ -642,7 +642,8 @@ def test_bundle_restores_collection_targets_with_their_runner_and_without_status
                         runner=runner,
                         capability="tickets",
                         target_key=hashlib.sha256(runner.encode()).hexdigest(),
-                        parameters={"file": runner},
+                        # A path on the runner is what a target is; it is not this host's configuration.
+                        parameters={"file": runner, "path": f"/var/lib/{runner}/tickets.json"},
                         actor="service:admin",
                     )
                     await repository.record_status(
@@ -668,6 +669,11 @@ def test_bundle_restores_collection_targets_with_their_runner_and_without_status
             ("server", "server", True, 1),
             ("spare-robot", "spare-robot", True, 1),
         ]
+        assert {item.parameters["path"] for item in restored} == {
+            "/var/lib/robot-7/tickets.json",
+            "/var/lib/server/tickets.json",
+            "/var/lib/spare-robot/tickets.json",
+        }
         # A runner keeps the principal its name is bound to; what it reports returns at its next sync.
         assert runner is not None and (runner.principal, runner.capabilities, runner.last_seen_at) == (robot, (), None)
         assert spare is not None and (spare.display_name, spare.registration_id) == ("spare robot", "registration-0001")

@@ -39,7 +39,10 @@ from the account that runs it or from `server.admin`.
 
 The `server` runner reaches external systems with credentials from the Server environment, so deciding what it collects
 is an operator decision and requires `server.admin`. Plugins read their own credentials for external systems (for
-example from environment variables); those do not replace PowerContext permissions.
+example from environment variables); those do not replace PowerContext permissions. A target's parameters are stored
+centrally, shown to the Scope's readers, and exported with the Scope, so they cannot hold credentials: a target with a
+value under a parameter named `api_key` or `password`, or ending in `_token`, `_secret`, and the like, is refused with
+`invalid_parameters`. Absolute paths on the runner are fine as parameters.
 
 ## Only provide Source types
 

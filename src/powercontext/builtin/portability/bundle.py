@@ -1914,7 +1914,8 @@ def _validate_record_safe(record: _Record, /) -> None:
     """Reject secret-shaped configuration and host paths without echoing content."""
 
     # Source payloads are preserved evidence: capture metadata such as `cwd` is history, not host configuration.
-    host_paths = record.record_type != "source"
+    # A collection target's parameters name what its runner reads, which is often a path on the runner.
+    host_paths = record.record_type not in {"source", "source_collect_target"}
     for field, value in record.payload.items():
         encoded = cast(dict[str, object], value).get("base64") if isinstance(value, dict) else None
         if isinstance(encoded, str):
@@ -1927,6 +1928,12 @@ def _validate_record_safe(record: _Record, /) -> None:
             _validate_safe_value(decoded, field, host_paths=host_paths)
         else:
             _validate_safe_value(value, field, host_paths=host_paths)
+
+
+def require_exportable_target_parameters(parameters: Mapping[str, object], /) -> None:
+    """Refuse target parameters a bundle would refuse, so an accepted target never blocks its Scope's export."""
+
+    _validate_safe_value(dict(parameters), "parameters", host_paths=False)
 
 
 def _validate_safe_value(value: object, key: str | None = None, *, host_paths: bool) -> None:
