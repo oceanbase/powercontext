@@ -68,6 +68,11 @@ TYPESCRIPT_COPIES = {
         f"{_OPENCLAW}/src/flush-progress.ts",
         f"{_PI}/src/flush-progress.ts",
     ),
+    "prompt-privacy.ts": (
+        f"{_DSH}/src/prompt-privacy.ts",
+        f"{_OPENCODE}/src/prompt-privacy.ts",
+        f"{_PI}/src/prompt-privacy.ts",
+    ),
     "transport.ts": (
         f"{_DSH}/src/transport.ts",
         f"{_OPENCLAW}/src/transport.ts",
