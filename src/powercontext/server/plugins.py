@@ -624,6 +624,10 @@ class PluginManager:
             self._retiring[snapshot] = self._retiring.get(snapshot, 0) + 1
         try:
             await host.retire()
+        except asyncio.CancelledError:
+            # Shutdown cancels the wait for the old version's calls; its processes still stop before its snapshot goes.
+            await host.close()
+            raise
         finally:
             if snapshot is not None:
                 self._retiring[snapshot] -= 1

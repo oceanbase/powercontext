@@ -367,9 +367,9 @@ plugin = ArtifactPlugin(
   `<插件名>__<handler>`，参数由路径参数、`query` 和 `body` 组成。调用工具等同于以 MCP 会话的身份调用该路由；`GET` 且
   `access` 为 `scope.read` 或 `authenticated` 的路由标为只读工具。
   - 工具名取自 handler，作为不同工具暴露的路由要使用不同的 handler。多个路由共用一个 handler 时，只给其中一个声明
-    `mcp=True` 作为工具入口；两个都声明时只会出现一个工具。
-  - `query` 和 `body` 是查询参数和请求体的保留参数名。MCP 路由的路径参数使用 `{document_id}`、`{scope_id}` 这类业务名称：
-    像 `/documents/{body}` 这样带 JSON 请求体的路由，无法分别传入路径参数和请求体。
+    `mcp=True` 作为工具入口；两个都声明时插件检查失败。
+  - `query` 和 `body` 是查询参数和请求体的保留参数名。MCP 路由的路径参数使用 `{document_id}`、`{scope_id}` 这类业务名称；
+    路径参数名为 `query` 或 `body` 的 MCP 路由（例如 `/documents/{body}`）插件检查失败。
 - `GET /v1/plugins/<插件名>/openapi.json` 返回 core 根据路由声明生成的 OpenAPI 文档。接口的兼容性由插件自己负责，需要不兼容
   的变更时可以在路径中带上版本，例如 `/v2/notes`。
 

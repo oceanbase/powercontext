@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -171,3 +173,64 @@ def test_a_plugin_with_a_loop_of_links_fails_alone(tmp_path):
         assert manager.plugins["looped"].last_check_failure == "a is a link that cannot be resolved"
 
     asyncio.run(scenario(tmp_path, steps))
+
+
+@pytest.mark.parametrize(
+    ("routes", "message"),
+    [
+        (
+            [
+                {"method": "GET", "path": "/items", "handler": "items", "mcp": True, "description": "List items."},
+                {"method": "POST", "path": "/items", "handler": "items", "mcp": True, "description": "Add an item."},
+            ],
+            "MCP routes need distinct handlers; each handler is one tool",
+        ),
+        (
+            [{"method": "POST", "path": "/items/{body}", "handler": "put", "mcp": True, "description": "Put an item."}],
+            "MCP routes cannot name a path parameter query or body",
+        ),
+        (
+            [{"method": "GET", "path": "/items/{query}", "handler": "find", "mcp": True, "description": "Find items."}],
+            "MCP routes cannot name a path parameter query or body",
+        ),
+    ],
+    ids=["shared-handler", "body-parameter", "query-parameter"],
+)
+def test_mcp_routes_that_cannot_be_called_as_tools_fail_the_check(tmp_path, routes, message):
+    from powercontext.builtin.plugins.manifest import PluginConfigError, load_plugin
+    from tests.plugin_support import write_plugin
+
+    api = {"routes": [{"access": "authenticated", **route} for route in routes]}
+    directory = write_plugin(tmp_path, "tools", "async def setup(ctx):\n    return object()\n", api=api)
+    with pytest.raises(PluginConfigError, match=message):
+        load_plugin(directory)
+    # The same routes are fine when only one of them, or none, is a tool.
+    for route in api["routes"][1:] or api["routes"]:
+        route["mcp"] = False
+    directory = write_plugin(tmp_path, "plain", "async def setup(ctx):\n    return object()\n", api=api)
+    assert load_plugin(directory)[0].spec.api is not None
+
+
+def test_a_cancelled_wait_for_a_retiring_version_still_stops_its_processes(tmp_path):
+    """Shutdown cancels the wait for an old version's calls; its host must close before its snapshot is released."""
+
+    events = []
+
+    class Host:
+        async def retire(self):
+            await asyncio.Event().wait()
+
+        async def close(self):
+            # The snapshot is still held while the old version's processes stop.
+            events.append(("closed", dict(manager._retiring)))
+
+    async def scenario():
+        retiring = asyncio.create_task(PluginManager._retire(cast(Any, manager), cast(Any, Host()), tmp_path))
+        await asyncio.sleep(0)
+        retiring.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await retiring
+
+    manager = SimpleNamespace(_retiring={})
+    asyncio.run(scenario())
+    assert events == [("closed", {tmp_path: 1})] and manager._retiring == {tmp_path: 0}

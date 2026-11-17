@@ -398,10 +398,10 @@ plugin = ArtifactPlugin(
   tool is calling the route as the MCP session's caller; `GET` routes whose `access` is `scope.read` or `authenticated`
   are marked read-only.
   - Tool names come from handlers, so routes exposed as separate tools need distinct handlers. When several routes share a
-    handler, mark only one of them `mcp=True` as the tool's entry point; two such routes would appear as a single tool.
+    handler, mark only one of them `mcp=True` as the tool's entry point; a plugin with two such routes fails its check.
   - `query` and `body` are reserved for the query and request-body arguments. Give the path parameters of MCP routes
-    business names such as `{document_id}` or `{scope_id}`: a route like `/documents/{body}` with a JSON body cannot pass
-    the path value and the body separately.
+    business names such as `{document_id}` or `{scope_id}`; a plugin with an MCP route whose path parameter is named
+    `query` or `body`, such as `/documents/{body}`, fails its check.
 - `GET /v1/plugins/<plugin name>/openapi.json` returns an OpenAPI document core generates from the declared routes. The
   plugin owns its routes' compatibility; for an incompatible change, put a version in the path, such as `/v2/notes`.
 

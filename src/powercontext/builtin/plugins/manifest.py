@@ -213,9 +213,20 @@ async def check_plugin_directory(directory: Path, name: str | None = None) -> Pl
 
 
 def _check_routes_and_pages(directory: Path, name: str, spec: ArtifactPluginSpec) -> None:
+    tools: set[str] = set()
     for route in () if spec.api is None else spec.api.routes:
-        if route.mcp and len(mcp_tool_name(name, route.handler)) > MCP_TOOL_NAME_LIMIT:
+        if not route.mcp:
+            continue
+        tool = mcp_tool_name(name, route.handler)
+        if len(tool) > MCP_TOOL_NAME_LIMIT:
             raise PluginConfigError(f"MCP tool names are at most {MCP_TOOL_NAME_LIMIT} characters")  # noqa: TRY003
+        if tool in tools:
+            # A tool is named after its handler, so a second route would never be reachable through MCP.
+            raise PluginConfigError("MCP routes need distinct handlers; each handler is one tool")  # noqa: TRY003
+        tools.add(tool)
+        if {"query", "body"} & set(re.findall(r"{([A-Za-z_][A-Za-z0-9_]*)}", route.path)):
+            # A tool's arguments are its path parameters next to `query` and `body`.
+            raise PluginConfigError("MCP routes cannot name a path parameter query or body")  # noqa: TRY003
     if spec.pages is not None:
         pages = (directory.resolve() / spec.pages.directory).resolve()
         if not pages.is_relative_to(directory.resolve()) or not (pages / spec.pages.entry).is_file():
