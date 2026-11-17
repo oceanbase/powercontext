@@ -432,15 +432,25 @@ class PluginContext:
         return self._request_host().caller()
 
     async def require(
-        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
+        self,
+        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
+        scope_id: str | None = None,
+        *,
+        artifact_id: str | None = None,
     ) -> None:
-        await self._request_host().require(action, scope_id)
+        """``artifact.write`` checks one Artifact of this plugin's family and needs ``scope_id`` and ``artifact_id``."""
+
+        await self._request_host().require(action, scope_id, artifact_id=artifact_id)
 
     async def allowed(
-        self, action: Literal["scope.read", "scope.contribute", "server.admin"], scope_id: str | None = None
+        self,
+        action: Literal["scope.read", "scope.contribute", "server.admin", "artifact.write"],
+        scope_id: str | None = None,
+        *,
+        artifact_id: str | None = None,
     ) -> bool:
         try:
-            await self.require(action, scope_id)
+            await self.require(action, scope_id, artifact_id=artifact_id)
         except AccessDenied:
             return False
         return True

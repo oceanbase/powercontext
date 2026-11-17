@@ -3013,11 +3013,6 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 
 //#endregion
 //#region src/secrets.ts
-const SECRET_MARKERS = [
-	"sk-",
-	"api_key",
-	"BEGIN PRIVATE"
-];
 const PAYLOAD_WRITES = new Set([
 	"remember_memory",
 	"capture_content_source",
@@ -3067,20 +3062,18 @@ function scrubSecrets(text, authorization) {
 function containsSecret(text, authorization) {
 	return scrubSecrets(text, authorization) !== text;
 }
-function containsSecretMarker(text) {
-	return SECRET_MARKERS.some((marker) => text.includes(marker));
-}
-function containsSecretValue(value) {
-	if (typeof value === "string") return containsSecretMarker(value);
+function containsSecretValue(value, authorization) {
+	if (typeof value === "string") return containsSecret(value, authorization);
 	if (!value || typeof value !== "object") return false;
-	return Object.values(value).some(containsSecretValue);
+	return Object.values(value).some((item) => containsSecretValue(item, authorization));
 }
-function hasSecretContent(operation, payload) {
-	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload);
+/** Detect secret content in an explicit write with the same rule as automatic capture. */
+function hasSecretContent(operation, payload, authorization) {
+	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload, authorization);
 	const fields = CONTENT_FIELDS.get(operation);
 	if (!fields || !payload || typeof payload !== "object") return false;
 	const content = payload;
-	return fields.some((field) => containsSecretValue(content[field]));
+	return fields.some((field) => containsSecretValue(content[field], authorization));
 }
 
 //#endregion
@@ -3334,7 +3327,7 @@ async function invokeOperation(client, operationId, payload, scopeId, signal, on
 	if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId));
 	const id = operationId;
 	const body = injectScope(id, payload, scopeId);
-	if (hasSecretContent(id, body)) return toToolResult(new SecretRejectedError());
+	if (hasSecretContent(id, body, client.authorization)) return toToolResult(new SecretRejectedError());
 	try {
 		if (signal?.aborted) throw new TransportError("", signal.reason);
 		return encodeSuccess(await requestMemoryOperation(client, id, body, scopeId, signal) ?? await client.request(id, body, signal));
@@ -3671,7 +3664,7 @@ const DEFAULTS = {
 	authorization: void 0,
 	scopeId: void 0,
 	timeoutMs: 4e3,
-	requestTimeoutMs: 1e3,
+	requestTimeoutMs: 3e3,
 	maxBytes: 8e3,
 	capturePrompts: true,
 	flushOnCapture: false,
@@ -3994,14 +3987,14 @@ function matchesScope(argumentsValue, mode, scopeId) {
 	if (!isRecord(selection) || selection.mode !== "exact" || !Array.isArray(selection.scope_ids)) return false;
 	return selection.scope_ids.length === 1 && selection.scope_ids[0] === scopeId;
 }
-function registerMcpPolicy(ctx, resolveScope) {
+function registerMcpPolicy(ctx, resolveScope, authorization) {
 	ctx.on("tools/pre-execute", (async (exec, next) => {
 		const operation = rawOperation(exec.name);
 		if (!operation) return exec.name.startsWith(MCP_TOOL_PREFIX) ? {
 			kind: "deny",
 			reason: "This PowerContext MCP operation is unavailable in the plugin catalog. No MCP request was sent; install a matching plugin and Server."
 		} : next();
-		if (hasSecretContent(operation, exec.arguments)) return {
+		if (hasSecretContent(operation, exec.arguments, authorization)) return {
 			kind: "deny",
 			reason: "secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent."
 		};
@@ -4318,12 +4311,13 @@ async function runRecallPreStep(input) {
 	}
 	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
 	if (recalled.content) observation?.record("injection", { state: "running" });
-	if (!recalled.scopeId && !recalled.content || signal.aborted) {
-		observation?.skip("injection", signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+	const cancelled = input.signal?.aborted === true;
+	if (!recalled.scopeId && !recalled.content || cancelled) {
+		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
 		return downstream;
 	}
 	try {
-		if (signal.aborted) throw new TransportError("", signal.reason);
+		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const additions = [];
 		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
 		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
@@ -4377,6 +4371,10 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 	}
 	observation?.scope(scopeId);
 	const content = await recallContent(input, query, scopeId, observation);
+	const settled = input.signal?.aborted ? {} : {
+		scopeId,
+		content: content ?? void 0
+	};
 	observation?.skip("capture", input.signal?.aborted ? cancellationReason(input.signal) : "no_user_text");
 	observation?.skip("flush", "capture_skipped");
 	if (userPrompt && !input.signal?.aborted) try {
@@ -4396,10 +4394,7 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 		observation?.fail("capture", error, true, input.signal);
 		reportFailure(input.log, "capture_content_source", error);
 	}
-	return input.signal?.aborted ? {} : {
-		scopeId,
-		content: content ?? void 0
-	};
+	return settled;
 }
 
 //#endregion
@@ -5635,7 +5630,7 @@ async function apply(ctx, config) {
 	const llmMod = await loadPeer("@deepseek-ai/dsh-llm");
 	const runtime = createRuntime(ctx, config);
 	const sessionScope = createSessionScopeResolver(runtime);
-	registerMcpPolicy(ctx, sessionScope.forTool);
+	registerMcpPolicy(ctx, sessionScope.forTool, runtime.config.authorization);
 	registerSkill(ctx);
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);

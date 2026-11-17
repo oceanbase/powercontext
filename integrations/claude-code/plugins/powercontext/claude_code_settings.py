@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
 
 # Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
 # isolated and cannot import powercontext.

@@ -48,6 +48,7 @@ def _expand(segments: list[dict[str, Any]]) -> str:
 
 class RecordingClient:
     prepared: ClassVar[list[Any]] = []
+    captured: ClassVar[list[Any]] = []
 
     def __init__(self, base_url: str, **options: object) -> None:
         del base_url, options
@@ -66,6 +67,10 @@ class RecordingClient:
         self.prepared.append(request)
         return SimpleNamespace(content="remembered context", content_bytes=18, status=SimpleNamespace(value="ready"))
 
+    async def capture_content_source(self, request: Any) -> SimpleNamespace:
+        self.captured.append(request)
+        return SimpleNamespace(position=len(self.captured))
+
 
 def _cli_message(content: str, **fields: Any) -> ChannelMessage:
     return ChannelMessage(
@@ -82,6 +87,7 @@ def _cli_message(content: str, **fields: Any) -> ChannelMessage:
 def framework(monkeypatch, tmp_path: Path) -> BubFramework:
     """Bub's builtin hooks with the PowerContext plugin registered after them, as Bub loads it."""
     RecordingClient.prepared.clear()
+    RecordingClient.captured.clear()
     settings = PowerContextSettings(base_url="http://127.0.0.1:8000")
     monkeypatch.setattr(plugin_module, "ensure_config", lambda _: settings)
     monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
@@ -317,3 +323,59 @@ def test_context_message_carries_the_prepared_content_after_the_marker(monkeypat
     assert result.messages[0].text == "PowerContext host-supplied context\n\nremembered context"
     assert asyncio.run(plugin.before_llm_call(result, state)) is None
     assert len(RecordingClient.prepared) == 1
+
+
+# A file name decoded with ``surrogateescape`` keeps its undecodable byte as an unpaired surrogate.
+UNENCODABLE_PROMPT = "Summarize caf\udce9.txt for the release notes."
+QUERY_TAIL = "Check the migration order before the deploy. " * 200
+
+
+def _capturing_plugin(monkeypatch, tmp_path: Path) -> PowerContextPlugin:
+    RecordingClient.prepared.clear()
+    RecordingClient.captured.clear()
+    settings = PowerContextSettings(
+        base_url="http://127.0.0.1:8000",
+        capture_events=True,
+        capture_checkpoint_every=100,
+        capture_log=tmp_path / "capture.jsonl",
+    )
+    monkeypatch.setattr(plugin_module, "ensure_config", lambda _: settings)
+    monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
+    return PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [UNENCODABLE_PROMPT, f"{QUERY_TAIL}{UNENCODABLE_PROMPT}"],
+    ids=["short", "in-the-kept-tail"],
+)
+def test_recall_is_skipped_when_the_query_has_no_utf8_form(monkeypatch, tmp_path: Path, prompt: str) -> None:
+    plugin = _capturing_plugin(monkeypatch, tmp_path)
+    state = plugin.load_state(message=None, session_id="session-1")
+    request = LLMCallRequest(run_id="run-1", model="test-model", messages=[republic.user(prompt)])
+
+    result = asyncio.run(plugin.before_llm_call(request, state))
+
+    # The model call proceeds as Bub built it: no prepare request can carry the query, so nothing is injected.
+    assert result is None
+    assert RecordingClient.prepared == []
+    # Capture renders the prompt as escaped JSON, so the initial task is still recorded.
+    assert [captured.metadata["event"] for captured in RecordingClient.captured] == ["user_prompt"]
+    assert RecordingClient.captured[0].content.isascii()
+    records = [json.loads(line) for line in (tmp_path / "capture.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(record["event"], record["status"]) for record in records] == [
+        ("user_prompt", "captured"),
+        ("context", "skipped"),
+    ]
+
+
+def test_recall_keeps_the_tail_when_the_unencodable_text_falls_before_it(monkeypatch, tmp_path: Path) -> None:
+    plugin = _capturing_plugin(monkeypatch, tmp_path)
+    state = plugin.load_state(message=None, session_id="session-1")
+    prompt = f"{UNENCODABLE_PROMPT} {QUERY_TAIL}"
+    request = LLMCallRequest(run_id="run-1", model="test-model", messages=[republic.user(prompt)])
+
+    result = asyncio.run(plugin.before_llm_call(request, state))
+
+    assert result is not None
+    assert [prepared.query for prepared in RecordingClient.prepared] == [prompt.strip()[-8192:].strip()]

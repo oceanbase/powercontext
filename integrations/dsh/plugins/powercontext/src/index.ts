@@ -178,7 +178,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   const sessionScope = createSessionScopeResolver(runtime)
-  registerMcpPolicy(ctx, sessionScope.forTool)
+  registerMcpPolicy(ctx, sessionScope.forTool, runtime.config.authorization)
   registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
