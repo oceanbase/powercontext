@@ -47,7 +47,6 @@ class ProcessingStage(StrEnum):
     OUTPUT_PARSING = "output_parsing"
     BUSINESS_VALIDATION = "business_validation"
     PERSISTENCE = "persistence"
-    # Reserved for usage reporting or persistence failures.
     USAGE_ACCOUNTING = "usage_accounting"
 
 
@@ -387,8 +386,8 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
     return "processing_failed"
 
 
-def _allow_failure_log(family: str, operation: str, code: str, reason: str | None) -> bool:
-    # The operation and family come from fixed call sites, and the code and reason are bounded.
+def allow_processing_failure_log(family: str, operation: str, code: str, reason: str | None) -> bool:
+    """Apply the process log limit to a bounded diagnostic signature."""
     key = (family, operation, code, reason)
     with _failure_log_lock:
         times = _failure_log_times.setdefault(key, deque(maxlen=_FAILURE_LOG_BURST))
@@ -427,7 +426,7 @@ async def observe_processing_failure(
             fields = safe_log_fields(diagnostics)
             code = processing_error_code(type(error))
             reason = diagnostics.reason if diagnostics is not None else None
-            if _allow_failure_log(family, operation, code, reason):
+            if allow_processing_failure_log(family, operation, code, reason):
                 log_safely(
                     _logger,
                     logging.WARNING,
@@ -667,6 +666,7 @@ __all__ = [
     "ProcessingDiagnostics",
     "ProcessingFailureReason",
     "ProcessingStage",
+    "allow_processing_failure_log",
     "attach_diagnostics",
     "classify_block_code",
     "classify_processing_error",
