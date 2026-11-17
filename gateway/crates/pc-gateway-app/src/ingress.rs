@@ -173,6 +173,7 @@ const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
 pub async fn extract(
     State((state, _)): State<SharedProxy>,
     headers: HeaderMap,
+    owner: Option<axum::Extension<crate::connection::ModelConnection>>,
     Json(request): Json<ExtractRequest>,
 ) -> Response {
     let error = |status: StatusCode, code: &str| {
@@ -216,17 +217,17 @@ pub async fn extract(
         prepared_contexts: prefix.prepared_contexts.clone(),
     };
     let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
+    // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
+    let control = match owner {
+        Some(axum::Extension(owner)) => owner.take_control(),
+        None => RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+            None,
+        ),
+    };
     match state
         .executor
-        .run(
-            RequestControl::new(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(180),
-                None,
-            ),
-            call,
-            &renderer,
-            state.evidence.as_ref(),
-        )
+        .run(control, call, &renderer, state.evidence.as_ref())
         .await
     {
         ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
