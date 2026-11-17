@@ -339,6 +339,11 @@ database before adding Topic tables; it does not treat the maintenance output as
 objects, unexpected business tables and retained Atomic evidence are rejected before writes. This continuation is
 specific to the registered SQLite layout and does not register additional OceanBase or seekDB baselines.
 
+The Topic recovery bundle checksum includes the relative paths and exact contents of all files in its resource
+directory, including the alias-bearing initialization layout. Resource changes invalidate reviewed plans. A retained
+migration journal can only be resumed with its matching resource set; a different checksum requires recovery with
+the original resources, not rewriting the journal checksum to bypass verification.
+
 The conversion revokes every old processing lease once by advancing its generation, expiring it in UTC, and assigning
 the maintenance-window holder. Repeating an interrupted conversion does not advance that holder again. This follows
 the existing processing-maintenance fence transition and requires all workflows sharing those leases to be stopped.

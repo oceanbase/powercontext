@@ -106,7 +106,13 @@ _BACKUP_OBJECTS = (
 
 
 def _resource_checksum() -> str:
-    return hashlib.sha256(RESOURCE.read_bytes()).hexdigest()
+    """Bind plans and journals to every resource controlling DDL or accepted layouts."""
+    root = RESOURCE.parent
+    return digest({
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    })
 
 
 def _canonical(row: Mapping[Any, Any]) -> dict[str, Any]:

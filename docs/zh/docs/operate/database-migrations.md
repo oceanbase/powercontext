@@ -289,6 +289,10 @@ SQLite 的 `server atomic-memory-migrate --action apply --maintenance-confirmed`
 会先备份已有数据库再添加 Topic 表，不将维护产物视为空库。缺失或改变的对象、额外业务表及已有 Atomic 证据仍在
 写入前拒绝。此续建路径仅适用于登记的 SQLite 布局，不新增 OceanBase 或 seekDB 基线。
 
+Topic 恢复 bundle 的校验和覆盖资源目录内全部文件的相对路径和精确内容，包括含别名表的初始化布局。
+资源变化会使已审阅计划失效。保留的迁移日志只能使用与其匹配的资源集合恢复；校验和不同时，需要使用
+原始资源进行恢复，不能改写日志中的校验和来绕过验证。
+
 转换通过递增 generation、按 UTC 使 lease 过期并设置维护窗口 holder，一次性撤销所有旧 processing lease；中断
 恢复时不重复推进这个 holder。这沿用既有 processing 维护的 fence 转换，要求共享这些 lease 的所有工作流均停写。
 已知尝试 owner 保留在预算，未知结束时间仍为 null。即使处理继续禁用、没有新 Supervisor 启动，查询也能固化已停止

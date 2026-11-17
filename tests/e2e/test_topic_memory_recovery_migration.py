@@ -31,6 +31,7 @@ from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.migrations import MigrationError
+from powercontext.builtin.persistence.migrations import topic_memory_recovery as recovery_migration
 from powercontext.builtin.persistence.migrations.topic_memory_recovery import TopicMemoryRecoveryMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
@@ -692,3 +693,57 @@ def test_real_mysql_recovery_upgrade_preserves_receipt_and_resumes_registered_dd
                     ).one() == (3, 9, 1000)
 
     asyncio.run(scenario())
+
+
+def test_alias_layout_change_invalidates_checksum_and_reviewed_plan(atomic_maintenance_database, tmp_path, monkeypatch):
+    path, config = atomic_maintenance_database
+    resources = tmp_path / "resources"
+    shutil.copytree(recovery_migration.RESOURCE.parent, resources)
+    monkeypatch.setattr(recovery_migration, "RESOURCE", resources / "schema.json")
+    runner = TopicMemoryRecoveryMigrationRunner(config)
+    plan = runner.plan()
+    original = path.read_bytes()
+    alias_layout = resources / "atomic_maintenance_sqlite_v2.json"
+    alias_layout.write_bytes(alias_layout.read_bytes() + b"\n")
+
+    with pytest.raises(MigrationError, match="plan_changed"):
+        runner.plan()
+    replacement = TopicMemoryRecoveryMigrationRunner(config)
+    changed = replacement.plan()
+    assert replacement.checksum != runner.checksum
+    assert changed.plan_id != plan.plan_id
+    assert path.read_bytes() == original
+    assert not runner.directory.exists()
+
+
+def test_alias_layout_change_rejects_original_interrupted_journal(atomic_maintenance_database, tmp_path, monkeypatch):
+    path, config = atomic_maintenance_database
+    resources = tmp_path / "resources"
+    shutil.copytree(recovery_migration.RESOURCE.parent, resources)
+    monkeypatch.setattr(recovery_migration, "RESOURCE", resources / "schema.json")
+    runner = TopicMemoryRecoveryMigrationRunner(config)
+
+    def interrupt(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().startswith("CREATE TABLE pc_topic_memory_work_budgets") and any(
+            row[1] == "main" and row[2] == str(path) for row in _connection.exec_driver_sql("PRAGMA database_list")
+        ):
+            raise RuntimeError("injected initialization interruption")  # noqa: TRY003
+
+    event.listen(Engine, "before_cursor_execute", interrupt)
+    try:
+        with pytest.raises(RuntimeError, match="injected initialization interruption"):
+            _apply(runner)
+    finally:
+        event.remove(Engine, "before_cursor_execute", interrupt)
+    journals = list(runner.directory.rglob("topic-memory-recovery.json"))
+    assert len(journals) == 1
+    original_journal = journals[0].read_bytes()
+    original = path.read_bytes()
+    alias_layout = resources / "atomic_maintenance_sqlite_v2.json"
+    alias_layout.write_bytes(alias_layout.read_bytes() + b"\n")
+
+    replacement = TopicMemoryRecoveryMigrationRunner(config)
+    with pytest.raises(MigrationError, match="recovery_required"):
+        replacement.plan()
+    assert journals[0].read_bytes() == original_journal
+    assert path.read_bytes() == original
