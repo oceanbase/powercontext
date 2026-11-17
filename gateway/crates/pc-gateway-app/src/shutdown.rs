@@ -316,12 +316,17 @@ mod tests {
                 let _ = self.0.wait();
             }
         }
+        // With one test thread (one available CPU or RUST_TEST_THREADS=1),
+        // libtest prints `test <name> ... ` without a newline before the test
+        // body runs, so the first marker shares that line. Pin it so every
+        // host produces the same output.
         let mut child = Child(
             Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "shutdown::tests::stalled_process_child",
                     "--nocapture",
+                    "--test-threads=1",
                 ])
                 .env("PC_TEST_SHUTDOWN_CHILD", kind)
                 .stdout(Stdio::piped())
@@ -340,7 +345,7 @@ mod tests {
         });
         let address = loop {
             let line = output.recv_timeout(Duration::from_secs(5)).unwrap();
-            if let Some(address) = line.strip_prefix("LISTEN ") {
+            if let Some((_, address)) = line.split_once("LISTEN ") {
                 break address.to_owned();
             }
         };
