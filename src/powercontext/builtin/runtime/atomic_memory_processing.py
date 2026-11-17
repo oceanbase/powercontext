@@ -541,9 +541,14 @@ class AtomicMemorySourceWindowProcessor:
             compared_keys.clear()
 
             def pending_comparisons(pending: list[str], current: str) -> list[str]:
-                known = {workset.resolve(value) for value in compared_keys}
-                known.add(workset.resolve(current))
-                return [value for value in dict.fromkeys(pending) if workset.resolve(value) not in known]
+                current = workset.resolve(current)
+                # Only this proposal and newly admitted targets can acquire aliases.
+                # Previously compared non-proposal roots therefore remain stable.
+                return [
+                    value
+                    for value in dict.fromkeys(pending)
+                    if (resolved := workset.resolve(value)) != current and resolved not in compared_keys
+                ]
 
             async def compare_pending(pending: list[str], *, required: bool) -> bool:
                 nonlocal key, prompt_refs
@@ -555,15 +560,14 @@ class AtomicMemorySourceWindowProcessor:
                     batch = pending[: self.config.comparison_batch_size]
                     related = workset.related(key, batch)
                     selected_count = len(batch)
-                    while related and not self._fits(
-                        pipeline, workset.request(key, related), "atomic_memory.reconcile"
-                    ):
+                    value = workset.request(key, related)
+                    estimated = self._estimate(pipeline, value, "atomic_memory.reconcile")
+                    while related and estimated > self.config.input_tokens_limit and selected_count > 1:
                         selected_count = max(1, selected_count // 2)
                         related = workset.related(key, pending[:selected_count])
-                        if selected_count == 1:
-                            self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
-                    value = workset.request(key, related)
-                    self._require_budget(pipeline, value, "atomic_memory.reconcile")
+                        value = workset.request(key, related)
+                        estimated = self._estimate(pipeline, value, "atomic_memory.reconcile")
+                    self._require_budget(pipeline, value, "atomic_memory.reconcile", estimated=estimated)
                     looked = pending[:selected_count]
                     reconciliation_prompt = current_prompt("atomic_memory.reconcile")
                     if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
@@ -964,11 +968,9 @@ class AtomicMemorySourceWindowProcessor:
         payload = value.model_dump_json() if pipeline.input_renderer is None else pipeline.input_renderer(value)
         return pipeline.estimator.estimate(f"{instructions}\n{payload}")
 
-    def _fits(self, pipeline, value, key):
-        return self._estimate(pipeline, value, key) <= self.config.input_tokens_limit
-
-    def _require_budget(self, pipeline, value, key):
-        estimated = self._estimate(pipeline, value, key)
+    def _require_budget(self, pipeline, value, key, *, estimated=None):
+        if estimated is None:
+            estimated = self._estimate(pipeline, value, key)
         if estimated <= self.config.input_tokens_limit:
             return
         error = InvalidInferenceOutputError(

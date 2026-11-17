@@ -50,6 +50,7 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
+from powercontext.builtin.sources.content import ContentCapture
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     AdapterSourceDefinition,
@@ -84,6 +85,83 @@ async def _commit(contexts, scope_id, artifact_id, text_value, *, sources=(), ar
     async with contexts.database.transaction() as connection:
         result = await application.service.commit(connection, prepared, None)
     return result.primary
+
+
+def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migration_backend) -> None:
+    config = BuiltinConfig(database=migration_backend.config)
+    count = 600
+    shared = SourceRef(source_type="content", source_id="shared")
+    refs = tuple(SourceRef(source_type="content", source_id=f"fact-{index:04}") for index in range(count))
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(config) as contexts:
+            await contexts.get("batch-evidence")
+            await contexts.records.capture_sources(
+                "batch-evidence",
+                tuple(
+                    ContentCapture(source_id=ref.source_id, content=f"Accepted material {ref.source_id}.", metadata={})
+                    for ref in (shared, *refs)
+                ),
+            )
+            application = contexts.atomic_memory
+            async with contexts.database.transaction() as connection:
+                read_set = await contexts.repositories.sources.preload(connection, "batch-evidence", (shared, *refs))
+                plans = tuple([
+                    await application.service.inspect_change(
+                        connection,
+                        "batch-evidence",
+                        f"memory-{index:04}",
+                        AtomicMemoryContent(kind="fact", text=f"Accepted fact {index}."),
+                        None,
+                        lineage=ArtifactLineage(sources=(shared, ref)),
+                        source_read_set=read_set,
+                    )
+                    for index, ref in enumerate(refs)
+                ])
+            prepared = tuple([await application.service.prepare_change(plan) for plan in plans])
+
+            async def commit() -> None:
+                async with contexts.database.transaction() as connection:
+                    read_set = await contexts.repositories.sources.preload(
+                        connection, "batch-evidence", (shared, *refs)
+                    )
+                    await application.service.commit_window(
+                        connection, "batch-evidence", prepared, None, source_read_set=read_set
+                    )
+
+            def reject_last_evidence(connection, cursor, statement, parameters, execution, executemany):
+                if statement.lstrip().upper().startswith("INSERT INTO PC_ATOMIC_MEMORY_EVIDENCE_HISTORY") and any(
+                    row.get("artifact_id") == f"memory-{count - 1:04}" for row in execution.compiled_parameters
+                ):
+                    raise SQLAlchemyError("evidence-failure")
+
+            engine = contexts.database.engine.sync_engine
+            event.listen(engine, "before_cursor_execute", reject_last_evidence)
+            try:
+                with pytest.raises(SQLAlchemyError, match="evidence-failure"):
+                    await commit()
+            finally:
+                event.remove(engine, "before_cursor_execute", reject_last_evidence)
+            assert (await application.for_scope("batch-evidence").list()).items == ()
+            await commit()
+
+        async with open_builtin_contexts(config) as contexts:
+            memory = contexts.atomic_memory.for_scope("batch-evidence")
+            found = []
+            cursor = None
+            while True:
+                page = await memory.list(limit=100, cursor=cursor)
+                found.extend(item.ref.artifact_id for item in page.items)
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            assert set(found) == {f"memory-{index:04}" for index in range(count)}
+            for index in (0, count // 2, count - 1):
+                evidence = await memory.evidence(f"memory-{index:04}", revision=1)
+                assert tuple(item.source_ref for item in evidence.sources) == (shared, refs[index])
+                assert all(item.declaration == MemoryEvidenceDeclaration() for item in evidence.sources)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("representation", ["native", "observation"])

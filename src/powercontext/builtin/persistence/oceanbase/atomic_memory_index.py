@@ -296,6 +296,8 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         if not terms or not await self._supports_native_fts(connection, terms=terms):
             return await super().probe_recoverable(connection, scope_id, request, floor)
         _, lower_required = fts_query_requirements(request.query, floor=floor)
+        if request.mode == "fts" and (lower_required >= required or lower_required > len(terms)):
+            return False
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "mysql")
         parameters["scope_id"] = scope_id
         eligible = f"scope_id = :scope_id AND ({eligibility})"

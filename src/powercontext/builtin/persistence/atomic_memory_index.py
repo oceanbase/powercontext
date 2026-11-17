@@ -55,6 +55,7 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
 from powercontext.builtin.tags import TagFilter
+from powercontext.sources import SourceRef
 from powercontext.sources.evidence import SourceEvidence
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
@@ -244,6 +245,16 @@ class AtomicMemoryIndex(Protocol):
         /,
     ) -> AtomicMemoryEvidenceAnnotation: ...
 
+    async def capture_evidence_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        revisions: Sequence[tuple[ArtifactRef, Sequence[SourceRef]]],
+        /,
+        *,
+        sources: SourceRepository,
+    ) -> None: ...
+
     async def read_evidence(
         self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
     ) -> AtomicMemoryEvidenceAnnotation | None: ...
@@ -353,17 +364,15 @@ class AtomicMemoryProjectionPublisher:
             embedding_input_hash=None if vector is None else atomic_memory_embedding_input_hash(kind, body),
         )
 
-    async def capture_evidence(self, connection: AsyncConnection, scope_id: str, record: Any) -> None:
-        """Accept history only for a committed body write, never state-only republishing."""
-
-        artifact = record.artifact
-        if (
-            self._sources is not None
-            and await self.index.read_evidence(connection, scope_id, artifact.as_ref()) is None
-        ):
-            evidence = await self._sources.evidence(connection, scope_id, artifact.lineage.sources)
-            annotation = await self.index.save_evidence(connection, scope_id, artifact.as_ref(), evidence)
-            await self.index.project_evidence(connection, annotation)
+    async def capture_evidence_many(self, connection: AsyncConnection, scope_id: str, records: Sequence[Any]) -> None:
+        if self._sources is None or not records:
+            return
+        await self.index.capture_evidence_many(
+            connection,
+            scope_id,
+            tuple((record.artifact.as_ref(), record.artifact.lineage.sources) for record in records),
+            sources=self._sources,
+        )
 
     async def publish(
         self,
@@ -831,6 +840,17 @@ class RelationalAtomicMemoryIndex:
     ) -> AtomicMemoryEvidenceAnnotation:
         return await self._evidence.save(connection, scope_id, artifact_ref, sources)
 
+    async def capture_evidence_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        revisions: Sequence[tuple[ArtifactRef, Sequence[SourceRef]]],
+        /,
+        *,
+        sources: SourceRepository,
+    ) -> None:
+        await self._evidence.capture_many(connection, scope_id, revisions, sources=sources)
+
     async def read_evidence(
         self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
     ) -> AtomicMemoryEvidenceAnnotation | None:
@@ -990,11 +1010,11 @@ class RelationalAtomicMemoryIndex:
         if request.mode in {"fts", "hybrid"}:
             terms, required = fts_query_requirements(request.query, floor=request.admission)
             _, lower_required = fts_query_requirements(request.query, floor=floor)
+            if request.mode == "fts" and (lower_required >= required or lower_required > len(terms)):
+                return False
             if terms:
-                if dialect == "sqlite":
-                    lexical, coverage_parameters = sqlite_fts_coverage_sql(terms)
-                else:
-                    lexical, coverage_parameters = oceanbase_fts_coverage_sql(terms)
+                coverage_sql = sqlite_fts_coverage_sql if dialect == "sqlite" else oceanbase_fts_coverage_sql
+                lexical, coverage_parameters = coverage_sql(terms)
                 parameters.update(coverage_parameters)
                 parameters.update(probe_required=required, probe_lower_required=lower_required)
                 current.append(f"(({lexical}) >= :probe_required)")

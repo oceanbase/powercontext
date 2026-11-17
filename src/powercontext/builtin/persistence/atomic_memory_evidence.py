@@ -24,7 +24,7 @@ from typing import Literal, cast
 import rfc8785
 from aiosqlite import Connection as SQLiteConnection
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, tuple_
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -42,6 +42,9 @@ from powercontext.sources.evidence import (
     SourceEvidence,
     log_evidence_neutralized,
 )
+
+_EVIDENCE_BATCH_SIZE = 200
+_EVIDENCE_WRITE_BYTES = 1024 * 1024
 
 
 class AtomicMemoryEvidenceAnnotation(BaseModel):
@@ -73,24 +76,8 @@ class AtomicMemoryEvidenceRepository:
         payload = await self._payload(connection, scope_id, artifact_ref)
         if payload is not None:
             return self._decode(scope_id, artifact_ref, payload) or self._neutral(scope_id, artifact_ref, sources)
-        accepted = []
-        for source in sources:
-            value = source.model_dump(mode="json")
-            try:
-                declaration = MemoryEvidenceDeclaration.model_validate(value.get("declaration"))
-            except ValidationError:
-                log_evidence_neutralized("invalid_declaration", unit="declaration", level=logging.WARNING)
-                declaration = MemoryEvidenceDeclaration()
-            accepted.append(SourceEvidence.model_validate({**value, "declaration": declaration}))
-        annotation = AtomicMemoryEvidenceAnnotation(
-            scope_id=scope_id, artifact_ref=artifact_ref, sources=tuple(accepted)
-        )
-        if connection.dialect.name == "sqlite":
-            driver = (await connection.get_raw_connection()).driver_connection
-            if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
-                # SQLite legacy transaction mode does not BEGIN on SELECT;
-                # SAVEPOINT must not accidentally own and commit the write.
-                await connection.exec_driver_sql("BEGIN")
+        annotation = self._annotation(scope_id, artifact_ref, sources)
+        await self._ensure_transaction(connection)
         try:
             async with connection.begin_nested():
                 await connection.execute(
@@ -107,6 +94,100 @@ class AtomicMemoryEvidenceRepository:
                 raise
             return self._decode(scope_id, artifact_ref, payload) or self._neutral(scope_id, artifact_ref, sources)
         return annotation
+
+    async def capture_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        revisions: Sequence[tuple[ArtifactRef, Sequence[SourceRef]]],
+        *,
+        sources: SourceRepository,
+    ) -> None:
+        """Capture committed revisions in bounded batches inside the caller's transaction."""
+
+        unique = {}
+        for reference, refs in revisions:
+            reference = self._reference(scope_id, reference)
+            unique.setdefault((reference.artifact_id, reference.revision), (reference, refs))
+        batch = []
+        source_ids = set()
+        for reference, refs in unique.values():
+            identifiers = {(ref.source_type, ref.source_id) for ref in refs}
+            if batch and (len(batch) == _EVIDENCE_BATCH_SIZE or len(source_ids | identifiers) > _EVIDENCE_BATCH_SIZE):
+                await self._capture_batch(connection, scope_id, batch, sources)
+                batch = []
+                source_ids.clear()
+            batch.append((reference, refs))
+            source_ids.update(identifiers)
+        if batch:
+            await self._capture_batch(connection, scope_id, batch, sources)
+
+    @staticmethod
+    async def _payloads(connection, scope_id, references, *, current=False):
+        table = ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE
+        statement = select(table.c.artifact_id, table.c.revision, table.c.sources).where(
+            table.c.scope_id == scope_id,
+            tuple_(table.c.artifact_id, table.c.revision).in_(
+                tuple((ref.artifact_id, ref.revision) for ref in references)
+            ),
+        )
+        if current:
+            statement = statement.with_for_update()
+        rows = (await connection.execute(statement)).mappings()
+        return {(row["artifact_id"], row["revision"]): row["sources"] for row in rows}
+
+    async def _capture_batch(self, connection, scope_id, revisions, sources) -> None:
+        table = ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE
+        payloads = await self._payloads(connection, scope_id, tuple(ref for ref, _ in revisions))
+        pending = tuple(
+            (ref, refs)
+            for ref, refs in revisions
+            if (payload := payloads.get((ref.artifact_id, ref.revision))) is None
+            or self._decode(scope_id, ref, payload) is None
+        )
+        if not pending:
+            return
+        materials = await sources.evidence(connection, scope_id, tuple(ref for _, refs in pending for ref in refs))
+        by_source = {(item.source_ref.source_type, item.source_ref.source_id): item for item in materials}
+        accepted = {}
+        annotations = {}
+        inserts = []
+        for ref, refs in pending:
+            key = (ref.artifact_id, ref.revision)
+            identities = dict.fromkeys((source.source_type, source.source_id) for source in refs)
+            # Historical evidence deliberately excludes server-owned Content witnesses.
+            accepted[key] = tuple(by_source[identity] for identity in identities if identity in by_source)
+            payload = payloads.get(key)
+            if payload is not None:
+                annotation = self._decode(scope_id, ref, payload) or self._neutral(scope_id, ref, accepted[key])
+            else:
+                annotation = self._annotation(scope_id, ref, accepted[key])
+                inserts.append({
+                    "scope_id": scope_id,
+                    "artifact_id": ref.artifact_id,
+                    "revision": ref.revision,
+                    "sources": rfc8785.dumps([source.model_dump(mode="json") for source in annotation.sources]),
+                })
+            annotations[key] = annotation
+        if inserts:
+            if connection.dialect.name == "sqlite":
+                statement = sqlite_insert(table).on_conflict_do_nothing(
+                    index_elements=("scope_id", "artifact_id", "revision")
+                )
+            else:
+                statement = mysql_insert(table)
+                statement = statement.on_duplicate_key_update(artifact_id=statement.inserted.artifact_id)
+            await self._execute_rows(connection, statement, inserts)
+            new_refs = tuple(ref for ref, _ in pending if payloads.get((ref.artifact_id, ref.revision)) is None)
+            # Locking reads retain first-writer history even under repeatable-read isolation.
+            retained = await self._payloads(connection, scope_id, new_refs, current=True)
+            for ref in new_refs:
+                key = (ref.artifact_id, ref.revision)
+                payload = retained.get(key)
+                if payload is None:
+                    raise AtomicMemoryEvidenceError
+                annotations[key] = self._decode(scope_id, ref, payload) or self._neutral(scope_id, ref, accepted[key])
+        await self._replace_projections(connection, tuple(annotations.values()))
 
     async def read(
         self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef
@@ -130,9 +211,23 @@ class AtomicMemoryEvidenceRepository:
         return None if payload is None else self._decode(scope_id, artifact_ref, payload)
 
     async def replace_projection(self, connection: AsyncConnection, annotation: AtomicMemoryEvidenceAnnotation) -> None:
-        reference = self._reference(annotation.scope_id, annotation.artifact_ref)
+        await self._replace_projections(connection, (annotation,))
+
+    async def _replace_projections(
+        self, connection: AsyncConnection, annotations: Sequence[AtomicMemoryEvidenceAnnotation]
+    ) -> None:
+        if not annotations:
+            return
         table = ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE
-        payload = rfc8785.dumps([source.model_dump(mode="json") for source in annotation.sources])
+        values = []
+        for annotation in annotations:
+            reference = self._reference(annotation.scope_id, annotation.artifact_ref)
+            values.append({
+                "scope_id": annotation.scope_id,
+                "artifact_id": reference.artifact_id,
+                "revision": reference.revision,
+                "sources": rfc8785.dumps([source.model_dump(mode="json") for source in annotation.sources]),
+            })
         if connection.dialect.name == "sqlite":
             statement = sqlite_insert(table)
             statement = statement.on_conflict_do_update(
@@ -141,15 +236,45 @@ class AtomicMemoryEvidenceRepository:
         else:
             statement = mysql_insert(table)
             statement = statement.on_duplicate_key_update(sources=statement.inserted.sources)
-        await connection.execute(
-            statement,
-            {
-                "scope_id": annotation.scope_id,
-                "artifact_id": reference.artifact_id,
-                "revision": reference.revision,
-                "sources": payload,
-            },
-        )
+        await self._execute_rows(connection, statement, values)
+
+    @staticmethod
+    async def _execute_rows(connection, statement, values) -> None:
+        batch = []
+        size = 0
+        for value in values:
+            payload_size = len(value["sources"])
+            if batch and size + payload_size > _EVIDENCE_WRITE_BYTES:
+                await connection.execute(statement, batch)
+                batch = []
+                size = 0
+            batch.append(value)
+            size += payload_size
+        if batch:
+            await connection.execute(statement, batch)
+
+    @staticmethod
+    def _annotation(
+        scope_id: str, artifact_ref: ArtifactRef, sources: Sequence[SourceEvidence]
+    ) -> AtomicMemoryEvidenceAnnotation:
+        accepted = []
+        for source in sources:
+            value = source.model_dump(mode="json")
+            try:
+                declaration = MemoryEvidenceDeclaration.model_validate(value.get("declaration"))
+            except ValidationError:
+                log_evidence_neutralized("invalid_declaration", unit="declaration", level=logging.WARNING)
+                declaration = MemoryEvidenceDeclaration()
+            accepted.append(SourceEvidence.model_validate({**value, "declaration": declaration}))
+        return AtomicMemoryEvidenceAnnotation(scope_id=scope_id, artifact_ref=artifact_ref, sources=tuple(accepted))
+
+    @staticmethod
+    async def _ensure_transaction(connection: AsyncConnection) -> None:
+        if connection.dialect.name == "sqlite":
+            driver = (await connection.get_raw_connection()).driver_connection
+            if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
+                # A SAVEPOINT must not own and commit a legacy-mode SQLite write.
+                await connection.exec_driver_sql("BEGIN")
 
     async def verify(
         self,

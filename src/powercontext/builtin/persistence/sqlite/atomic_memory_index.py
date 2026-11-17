@@ -57,6 +57,13 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
 from powercontext.builtin.persistence.schema import create_tables
 
 _FTS_TABLE = "pc_atomic_memory_current_fts"
+# Range probes use the current table's Scope-leading key. A shared corpus must
+# intersect Scope postings; a single-Scope corpus needs no identity expansion.
+_FTS_MATCH_SQL = (
+    "CASE WHEN EXISTS (SELECT 1 FROM pc_atomic_memory_current WHERE scope_id < :scope_id "
+    "UNION ALL SELECT 1 FROM pc_atomic_memory_current WHERE scope_id > :scope_id LIMIT 1) "
+    "THEN :fts_scope_query ELSE :fts_query END"
+)
 
 
 _FTS_COLUMNS = (
@@ -443,9 +450,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         return (
             f"SELECT artifact_id, revision, state_version, kind, -{rank} AS score, "  # noqa: S608
             f"{rank} AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+            f"WHERE {_FTS_TABLE} MATCH ({_FTS_MATCH_SQL}) AND scope_id = :scope_id "
             f"AND ({eligibility}) AND {coverage} >= :fts_required"
         )
 
@@ -531,17 +536,13 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                     fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
                     fts_required=required,
                 )
-                # Prefix expansion is cheap only for a small Scope. The PK probe
-                # reads at most 65 identities; both branches have identical ranks.
                 rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
                 rows = (
                     await connection.execute(
                         text(
                             f"SELECT {_HIT_COLUMNS}, -{rank} AS score, "  # noqa: S608
                             f"{rank} AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-                            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-                            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-                            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+                            f"WHERE {_FTS_TABLE} MATCH ({_FTS_MATCH_SQL}) AND scope_id = :scope_id "
                             f"AND ({eligibility}) AND {coverage} >= :fts_required "
                             f"ORDER BY score DESC, artifact_id{limit_sql}"
                         ),

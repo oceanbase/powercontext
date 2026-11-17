@@ -204,6 +204,8 @@ class AtomicMemoryWindowWorkset:
 
     def resolve(self, key: str) -> str:
         while key in self.aliases:
+            parent = self.aliases[key]
+            self.aliases[key] = self.aliases.get(parent, parent)
             key = self.aliases[key]
         return key
 

@@ -158,6 +158,69 @@ class _SupportedCreateReconciler(_RevisionReconciler):
         )
 
 
+@pytest.mark.parametrize("page_size", [1, 4])
+def test_noop_and_merge_aliases_keep_later_source_changes_across_pages(tmp_path: Path, page_size: int) -> None:
+    latest = POLICY + " Only approved releases may deploy."
+
+    class Reconciler:
+        async def generate(self, request: AtomicMemoryReconciliationInput, /):
+            target = request.related[0]
+            noop = not request.proposal.original_refs and request.proposal.text == POLICY
+            return GenerationResult(
+                output=AtomicMemoryReconciliationOutput(
+                    action="noop" if noop else "merge",
+                    compared_ids=tuple(item.item_id for item in request.related),
+                    target_ids=(target.item_id,),
+                    content=None
+                    if noop
+                    else AtomicMemoryReconciliationContent(
+                        kind="constraint", text=request.proposal.text, description="Current rollout policy"
+                    ),
+                    evidence_ids=() if noop else tuple(item.evidence_id for item in request.evidence),
+                    reason="Keep the expressed policy or consolidate identities with the new approval condition.",
+                )
+            )
+
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'aliases.db'}"),
+        runtime=RuntimeConfig(
+            atomic_memory_related_mode="fts",
+            atomic_memory_related_page_size=page_size,
+            atomic_memory_comparison_batch_size=1,
+        ),
+    )
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_PolicyExtractor(), reconciler=Reconciler(), estimator=character_token_estimator()
+    )
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+            await contexts.get(SCOPE)
+            memory = contexts.atomic_memory.for_scope(SCOPE)
+            await contexts.records.create_atomic_memories(
+                SCOPE, tuple({"kind": "constraint", "text": POLICY} for _ in range(6))
+            )
+            originals = (await memory.list()).items
+            await contexts.process_memory(SCOPE, 6)
+            await contexts.records.capture_source(SCOPE, "content", "confirmation", POLICY, {})
+            last = await contexts.records.capture_source(SCOPE, "content", "approval", latest, {})
+            result = await contexts.process_memory(SCOPE, 2)
+            assert result.source_count == 2 and result.current_cursor == last.position
+            (published,) = (await memory.list()).items
+            assert published.artifact.content.text == latest
+            assert {(ref.family, ref.artifact_id, ref.revision) for ref in published.artifact.lineage.artifacts} == {
+                (item.ref.family, item.ref.artifact_id, item.ref.revision) for item in originals
+            }
+            assert {ref.source_id for ref in published.artifact.lineage.sources} == {"confirmation", "approval"}
+            for item in originals:
+                assert (await memory.get(item.ref.artifact_id)).state.state == "merged"
+        async with open_builtin_contexts(config) as contexts:
+            (retained,) = (await contexts.atomic_memory.for_scope(SCOPE).list()).items
+            assert retained == published
+
+    asyncio.run(scenario())
+
+
 def test_public_flush_derives_merge_creation_from_model_owned_content(tmp_path: Path) -> None:
     reconciler = _PolicyReconciler()
     pipeline = AtomicMemoryGenerationPipeline(
