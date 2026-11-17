@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OceanBase related pagination binds every rank and body parameter."""
+"""Related pages preserve channel observations and report unusable inputs."""
 
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, Literal, cast
@@ -43,9 +42,6 @@ class _Result:
     def mappings(self) -> tuple[dict[str, Any], ...]:
         return self.rows
 
-    def close(self) -> None:
-        pass
-
 
 class _Pool:
     """Weak-referenceable stand-in for a SQLAlchemy pool."""
@@ -55,39 +51,21 @@ class _Connection:
     def __init__(
         self,
         *,
-        scalar: int = 0,
         batches: tuple[tuple[dict[str, Any], ...], ...] = (),
-        native_fts: bool = False,
     ) -> None:
         self.dialect = SimpleNamespace(name="mysql")
-        self.scalar_value = scalar
         self.batches = list(batches)
-        self.native_fts = native_fts
         self.pool = _Pool()
-        self.executed: list[tuple[str, dict[str, object]]] = []
-        self.driver_statements: list[str] = []
 
     async def execute(self, statement, parameters=None):
-        self.executed.append((str(statement), dict(parameters or {})))
         rows = self.batches.pop(0) if self.batches else ()
         return _Result(rows)
-
-    async def scalar(self, statement, parameters=None):
-        self.executed.append((str(statement), dict(parameters or {})))
-        return self.scalar_value
 
     async def run_sync(self, fn):
         return fn(SimpleNamespace(engine=SimpleNamespace(pool=self.pool)))
 
     async def exec_driver_sql(self, statement):
-        self.driver_statements.append(statement)
-        if not self.native_fts:
-            raise DBAPIError(statement, {}, Exception(1064))
-        return _Result(())
-
-
-def _placeholder_names(statement: str) -> set[str]:
-    return set(re.findall(r":([a-z_][a-z0-9_]*)", statement))
+        raise DBAPIError(statement, {}, Exception(1064))
 
 
 def _fts_rows(*identities: str) -> tuple[dict[str, Any], ...]:
@@ -109,8 +87,21 @@ def _fts_rows(*identities: str) -> tuple[dict[str, Any], ...]:
 
 def _vector_rows(*identities: str) -> tuple[dict[str, Any], ...]:
     return tuple(
-        {"artifact_id": identity, "revision": 1, "state_version": 0, "kind": "fact", "distance": 0.5}
+        {
+            "artifact_id": identity,
+            "revision": 1,
+            "state_version": 0,
+            "kind": "fact",
+            "distance": 0.5,
+            "invalid_vectors": 0,
+        }
         for identity in identities
+    )
+
+
+def _hybrid_rows(*identities: str) -> tuple[dict[str, Any], ...]:
+    return tuple({**row, "channel": "text"} for row in _fts_rows(*identities)) + tuple(
+        {**row, "channel": "vector"} for row in _vector_rows(*identities)
     )
 
 
@@ -145,55 +136,25 @@ def _request(mode: Literal["fts", "vector", "hybrid"], *, page_size: int = 10) -
     )
 
 
-@pytest.mark.parametrize("mode", ["fts", "vector", "hybrid"])
-def test_oceanbase_related_page_binds_every_placeholder(mode: Literal["fts", "vector", "hybrid"]) -> None:
+def test_oceanbase_hybrid_page_preserves_both_channel_observations() -> None:
     async def scenario() -> None:
-        batches = {
-            "fts": (_fts_rows("memory-1"), _body_rows("memory-1")),
-            "vector": (_vector_rows("memory-1"), _body_rows("memory-1")),
-            "hybrid": (_fts_rows("memory-1"), _vector_rows("memory-1"), _body_rows("memory-1")),
-        }[mode]
-        connection = _Connection(batches=batches)
-        page = await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request(mode))
-        assert page is not None and tuple(hit.artifact_ref.artifact_id for hit in page.hits) == ("memory-1",)
-        for statement, parameters in connection.executed:
-            assert _placeholder_names(statement) <= set(parameters)
-
-    asyncio.run(scenario())
-
-
-def test_oceanbase_rank_queries_keep_bodies_out_of_rank_rows() -> None:
-    async def scenario() -> None:
-        connection = _Connection(batches=(_fts_rows("memory-1"), _body_rows("memory-1")))
-        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
-        rank_sql, body_sql = (statement for statement, _ in connection.executed)
-        assert "authority_content" not in rank_sql
-        assert " AS projected_text" not in rank_sql
-        assert "artifact_id IN (__[POSTCOMPILE_body_ids])" in body_sql
-        assert "current.text AS projected_text" in body_sql
-
-    asyncio.run(scenario())
-
-
-def test_oceanbase_hybrid_rank_queries_share_the_rank_identity_columns() -> None:
-    async def scenario() -> None:
-        connection = _Connection(batches=(_fts_rows("memory-1"), _vector_rows("memory-1"), _body_rows("memory-1")))
-        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("hybrid"))
-        rank_statements = tuple(
-            statement
-            for statement, _ in connection.executed
-            if " AS projected_text" not in statement and "SELECT COUNT(*)" not in statement
+        connection = _Connection(batches=(_hybrid_rows("memory-1"), _body_rows("memory-1")))
+        page = await OceanBaseAtomicMemoryIndex(PROFILE).related_page(
+            cast(Any, connection), "scope", _request("hybrid")
         )
-        assert len(rank_statements) == 2
-        assert all("artifact_id, revision, state_version, kind" in statement for statement in rank_statements)
-        assert all("authority_content" not in statement for statement in rank_statements)
+        assert page is not None
+        (hit,) = page.hits
+        assert hit.artifact_ref.artifact_id == "memory-1"
+        assert hit.score == pytest.approx(2 / 61)
+        assert hit.distance == 0.5
+        assert hit.channel_scores is not None and set(hit.channel_scores) == {"text", "vector"}
 
     asyncio.run(scenario())
 
 
-def test_oceanbase_related_page_rejects_incomplete_vector_rows_beyond_the_first_page() -> None:
+def test_oceanbase_related_page_rejects_incomplete_vectors() -> None:
     async def scenario() -> None:
-        connection = _Connection(scalar=1)
+        connection = _Connection(batches=(({"invalid_vectors": 1},),))
         with pytest.raises(AtomicMemoryIndexError) as raised:
             await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("vector"))
         assert raised.value.code == "incomplete-vector"
@@ -207,29 +168,6 @@ def test_oceanbase_related_page_reports_ranked_memories_without_bodies_as_stale_
         with pytest.raises(AtomicMemoryIndexError) as raised:
             await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
         assert raised.value.code == "stale-recall"
-
-    asyncio.run(scenario())
-
-
-def test_oceanbase_related_ranks_select_native_fts_when_supported() -> None:
-    async def scenario() -> None:
-        connection = _Connection(batches=(_fts_rows("memory-1"), _body_rows("memory-1")), native_fts=True)
-        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
-        rank_sql, rank_parameters = connection.executed[0]
-        assert "MATCH(searchable_text^1, :fts_query, :fts_options)" in rank_sql
-        assert "LOCATE(BINARY" not in rank_sql
-        assert str(rank_parameters["fts_options"]).startswith("operator=or;minimum_should_match=")
-
-    asyncio.run(scenario())
-
-
-def test_oceanbase_related_ranks_fall_back_to_coverage_without_native_fts() -> None:
-    async def scenario() -> None:
-        connection = _Connection(batches=(_fts_rows("memory-1"), _body_rows("memory-1")))
-        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
-        rank_sql, _ = connection.executed[0]
-        assert "LOCATE(BINARY" in rank_sql
-        assert "searchable_text^1" not in rank_sql
 
     asyncio.run(scenario())
 

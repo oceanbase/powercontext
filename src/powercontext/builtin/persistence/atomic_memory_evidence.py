@@ -77,7 +77,11 @@ class AtomicMemoryEvidenceRepository:
         if payload is not None:
             return self._decode(scope_id, artifact_ref, payload) or self._neutral(scope_id, artifact_ref, sources)
         annotation = self._annotation(scope_id, artifact_ref, sources)
-        await self._ensure_transaction(connection)
+        if connection.dialect.name == "sqlite":
+            driver = (await connection.get_raw_connection()).driver_connection
+            if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
+                # A SAVEPOINT must not own and commit a legacy-mode SQLite write.
+                await connection.exec_driver_sql("BEGIN")
         try:
             async with connection.begin_nested():
                 await connection.execute(
@@ -159,7 +163,7 @@ class AtomicMemoryEvidenceRepository:
             accepted[key] = tuple(by_source[identity] for identity in identities if identity in by_source)
             payload = payloads.get(key)
             if payload is not None:
-                annotation = self._decode(scope_id, ref, payload) or self._neutral(scope_id, ref, accepted[key])
+                annotation = self._neutral(scope_id, ref, accepted[key])
             else:
                 annotation = self._annotation(scope_id, ref, accepted[key])
                 inserts.append({
@@ -267,14 +271,6 @@ class AtomicMemoryEvidenceRepository:
                 declaration = MemoryEvidenceDeclaration()
             accepted.append(SourceEvidence.model_validate({**value, "declaration": declaration}))
         return AtomicMemoryEvidenceAnnotation(scope_id=scope_id, artifact_ref=artifact_ref, sources=tuple(accepted))
-
-    @staticmethod
-    async def _ensure_transaction(connection: AsyncConnection) -> None:
-        if connection.dialect.name == "sqlite":
-            driver = (await connection.get_raw_connection()).driver_connection
-            if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
-                # A SAVEPOINT must not own and commit a legacy-mode SQLite write.
-                await connection.exec_driver_sql("BEGIN")
 
     async def verify(
         self,

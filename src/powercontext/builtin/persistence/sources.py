@@ -766,7 +766,8 @@ class SourceRepository:
         """Prepare the immutable evidence binding within the accepting transaction."""
 
         if isinstance(source, SourceObservation):
-            manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
+            identity = (ref.source_type, source.definition_version)
+            manifest = (await SourceDefinitionManifestRepository().evidence_many(connection, (identity,))).get(identity)
             if manifest is not None and manifest.fingerprint != source.definition_fingerprint:
                 log_evidence_neutralized("digest_mismatch", unit="manifest", level=logging.WARNING)
                 manifest = None
@@ -1107,15 +1108,6 @@ def _management_write_source(source: Source) -> bool:
         and source.internal.role == "lineage_only"
         and source.internal.operation in {"artifact_create", "artifact_replace"}
     )
-
-
-async def _find_evidence_manifest(
-    connection: AsyncConnection, name: str, version: str
-) -> SourceDefinitionManifest | None:
-    try:
-        return await SourceDefinitionManifestRepository().find(connection, name, version)
-    except (IdentityMismatchError, InvalidStoredColumnError, InvalidStoredPayloadError):
-        return None
 
 
 def _source_material_digest_material(material: Mapping[str, JsonValue]) -> str:

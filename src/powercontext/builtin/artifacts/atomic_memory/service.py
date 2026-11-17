@@ -470,6 +470,14 @@ class AtomicMemoryService:
             raise AtomicMemoryConflictError("Related memory changed before comparison")  # noqa: TRY003
         return read
 
+    async def authorize_comparison_reads(
+        self, connection: AsyncConnection, scope_id: str, reads: Sequence[AtomicMemoryRead], context: Any
+    ) -> None:
+        """Recheck mutable heads and authority; exact bodies already belong to the Workset."""
+        await self.shared._check_dependencies(
+            connection, scope_id, tuple(_common_read(read) for read in reads), context, full_records=set()
+        )
+
     async def read_state(self, connection, scope_id: str, artifact_id: str, context) -> AtomicMemoryRead:
         """Read the current reference and lifecycle from one authoritative head."""
         ref = ArtifactRef(family="atomic-memory", artifact_id=artifact_id, revision=1)

@@ -105,7 +105,6 @@ def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migr
             )
             application = contexts.atomic_memory
             async with contexts.database.transaction() as connection:
-                read_set = await contexts.repositories.sources.preload(connection, "batch-evidence", (shared, *refs))
                 plans = tuple([
                     await application.service.inspect_change(
                         connection,
@@ -114,7 +113,6 @@ def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migr
                         AtomicMemoryContent(kind="fact", text=f"Accepted fact {index}."),
                         None,
                         lineage=ArtifactLineage(sources=(shared, ref)),
-                        source_read_set=read_set,
                     )
                     for index, ref in enumerate(refs)
                 ])
@@ -122,12 +120,7 @@ def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migr
 
             async def commit() -> None:
                 async with contexts.database.transaction() as connection:
-                    read_set = await contexts.repositories.sources.preload(
-                        connection, "batch-evidence", (shared, *refs)
-                    )
-                    await application.service.commit_window(
-                        connection, "batch-evidence", prepared, None, source_read_set=read_set
-                    )
+                    await application.service.commit_window(connection, "batch-evidence", prepared, None)
 
             def reject_last_evidence(connection, cursor, statement, parameters, execution, executemany):
                 if statement.lstrip().upper().startswith("INSERT INTO PC_ATOMIC_MEMORY_EVIDENCE_HISTORY") and any(

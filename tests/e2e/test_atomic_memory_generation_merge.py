@@ -628,10 +628,14 @@ def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_
                     SCOPE, target, labels[original.artifact.content.text], expected_etag=current.etag
                 )
 
+            independent = "Release checks require green integration tests."
+            await contexts.records.capture_source(SCOPE, "content", "release-checks", independent, {})
             await contexts.records.capture_source(SCOPE, "content", "consolidate-rules", CONSOLIDATION, {})
-            result = await context.triggers.flush(limit=1)
-            assert result.previous_cursor == 2 and result.current_cursor == 3
-            (merged,) = (await memory.list()).items
+            result = await context.triggers.flush(limit=2)
+            assert result.previous_cursor == 2 and result.current_cursor == 4
+            items = (await memory.list()).items
+            assert {item.artifact.content.text for item in items} == {POLICY, independent}
+            merged = next(item for item in items if item.artifact.content.text == POLICY)
             assert merged.artifact.content.text == POLICY
             # Labels shared by more inputs come first, then normalized key order fills the 32-label limit.
             tags = await contexts.records.get_tags(
@@ -650,6 +654,13 @@ def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_
                     SCOPE, ArtifactTagTarget(family="atomic-memory", artifact_id=original.ref.artifact_id)
                 )
                 assert set(retained.tags) == set(labels[original.artifact.content.text])
+
+        async with open_builtin_contexts(config) as reopened:
+            memory = reopened.atomic_memory.for_scope(SCOPE)
+            assert (await memory.list()).items == items
+            assert (await (await reopened.get(SCOPE)).triggers.cursor()).sequence == 4
+            hits = (await memory.search("Database rollout", tag_filter=TagFilter(tags=(shared[0],)))).hits
+            assert tuple(hit.hit.artifact_ref for hit in hits) == (merged.ref,)
 
     asyncio.run(scenario())
 

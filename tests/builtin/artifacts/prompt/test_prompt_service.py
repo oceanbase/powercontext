@@ -120,6 +120,33 @@ def test_concurrent_scopes_and_retries_use_frozen_prompt_selections() -> None:
     asyncio.run(scenario())
 
 
+def test_operation_snapshot_preserves_absent_heads_and_restores_nested_scopes() -> None:
+    async def scenario() -> None:
+        heads: dict[str, Prompt] = {}
+
+        async def read(scope: str, keys: tuple[str, ...]) -> dict[str, Prompt]:
+            return {key: heads[scope] for key in keys if scope in heads}
+
+        service = PromptService(
+            PromptRegistry(builtin_prompt_definitions(), supported=frozenset({"memory.extract"})), read
+        )
+        async with service.snapshot("a", ("memory.extract",)):
+            heads["a"] = _prompt("Use new guidance after this operation.")
+            async with service.bind("a", "memory.extract") as initial:
+                assert initial is not None and initial.selection == "built_in"
+                heads["b"] = _prompt("Scope Beta guidance.")
+                async with service.snapshot("b", ("memory.extract",)), service.bind("b", "memory.extract") as nested:
+                    assert nested is not None and nested.instructions == "Scope Beta guidance."
+                assert current_prompt("memory.extract") == initial
+            selection = await service.resolve("a", "memory.extract")
+            assert selection is not None and selection.selection == "built_in"
+        selection = await service.resolve("a", "memory.extract")
+        assert selection is not None and selection.instructions == "Use new guidance after this operation."
+        assert current_prompt("memory.extract") is None
+
+    asyncio.run(scenario())
+
+
 def test_prompt_traces_include_identity_but_exclude_custom_content() -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)

@@ -52,6 +52,7 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
     ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
     ATOMIC_MEMORY_PROJECTION_FORMAT,
 )
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
 from powercontext.builtin.tags import TagFilter
@@ -290,6 +291,12 @@ class AtomicMemoryIndex(Protocol):
         """
         ...
 
+    async def related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
+        """Observe complete ranks in one statement; later body admission uses their exact versions."""
+        ...
+
     async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
@@ -385,8 +392,7 @@ class AtomicMemoryProjectionPublisher:
         if record.state.state != "active":
             await self.remove(connection, scope_id, artifact.artifact_id)
             return
-        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
-        await self.index.replace_many(connection, scope_id, (self._projection(record, prepared, tags),))
+        await self.publish_many(connection, scope_id, ((record, prepared),))
 
     async def publish_many(
         self,
@@ -394,11 +400,16 @@ class AtomicMemoryProjectionPublisher:
         scope_id: str,
         records: Sequence[tuple[Any, PreparedAtomicMemoryProjection]],
     ) -> None:
-        """Publish independent, newly created and untagged revisions in one transaction."""
+        """Publish active revisions with their current tags in the caller's transaction."""
+        tags = await load_atomic_memory_tags_many(
+            connection, scope_id, tuple(record.artifact.artifact_id for record, _ in records)
+        )
         await self.index.replace_many(
             connection,
             scope_id,
-            tuple(self._projection(record, prepared, ()) for record, prepared in records),
+            tuple(
+                self._projection(record, prepared, tags[record.artifact.artifact_id]) for record, prepared in records
+            ),
         )
 
     def _projection(
@@ -423,21 +434,32 @@ class AtomicMemoryProjectionPublisher:
 
 
 async def load_atomic_memory_tags(connection: AsyncConnection, scope_id: str, artifact_id: str) -> tuple[str, ...]:
-    rows = (
-        await connection.execute(
-            select(ARTIFACT_TAGS_TABLE.c.tag_key)
-            .where(
-                ARTIFACT_TAGS_TABLE.c.scope_id == scope_id,
-                ARTIFACT_TAGS_TABLE.c.family == "atomic-memory",
-                ARTIFACT_TAGS_TABLE.c.artifact_id == artifact_id,
-                ARTIFACT_TAGS_TABLE.c.target_type == "artifact",
-                ARTIFACT_TAGS_TABLE.c.target_id == artifact_id,
+    return (await load_atomic_memory_tags_many(connection, scope_id, (artifact_id,)))[artifact_id]
+
+
+async def load_atomic_memory_tags_many(
+    connection: AsyncConnection, scope_id: str, artifact_ids: Sequence[str]
+) -> dict[str, tuple[str, ...]]:
+    tags: dict[str, list[str]] = {identity: [] for identity in artifact_ids}
+    identities = tuple(tags)
+    for offset in range(0, len(identities), SELECTION_BATCH_SIZE):
+        rows = (
+            await connection.execute(
+                select(ARTIFACT_TAGS_TABLE.c.artifact_id, ARTIFACT_TAGS_TABLE.c.tag_key)
+                .where(
+                    ARTIFACT_TAGS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_TAGS_TABLE.c.family == "atomic-memory",
+                    ARTIFACT_TAGS_TABLE.c.artifact_id.in_(identities[offset : offset + SELECTION_BATCH_SIZE]),
+                    ARTIFACT_TAGS_TABLE.c.target_type == "artifact",
+                    ARTIFACT_TAGS_TABLE.c.target_id == ARTIFACT_TAGS_TABLE.c.artifact_id,
+                )
+                .order_by(ARTIFACT_TAGS_TABLE.c.artifact_id, ARTIFACT_TAGS_TABLE.c.tag_key)
+                .with_for_update()
             )
-            .order_by(ARTIFACT_TAGS_TABLE.c.tag_key)
-            .with_for_update()
-        )
-    ).scalars()
-    return tuple(str(row) for row in rows)
+        ).mappings()
+        for row in rows:
+            tags[row["artifact_id"]].append(str(row["tag_key"]))
+    return {identity: tuple(values) for identity, values in tags.items()}
 
 
 def atomic_memory_embedding_input(kind: str, body: str, /) -> str:
@@ -769,6 +791,25 @@ def atomic_memory_checked_vector_ranks(rows: Any, /) -> tuple[AtomicMemoryRelate
             "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
         )
     return atomic_memory_channel_ranks(rows, vector=True)
+
+
+def atomic_memory_related_hybrid_sql(fts: str, vector: str, /) -> str:
+    """Observe both channels and vector completeness at the same statement snapshot."""
+    return (
+        f"WITH text_ranks AS ({fts}), vector_ranks AS ({vector}) "  # noqa: S608
+        "SELECT 'text' AS channel, artifact_id, revision, state_version, kind, "
+        "score, raw_score, score_metric, NULL AS distance, 0 AS invalid_vectors FROM text_ranks "
+        "UNION ALL SELECT 'vector' AS channel, artifact_id, revision, state_version, kind, "
+        "NULL AS score, NULL AS raw_score, NULL AS score_metric, distance, invalid_vectors FROM vector_ranks "
+        "ORDER BY channel, score DESC, distance, artifact_id"
+    )
+
+
+def atomic_memory_hybrid_ranks(rows: Any, /) -> tuple[AtomicMemoryRelatedRank, ...]:
+    rows = tuple(rows)
+    vectors = atomic_memory_checked_vector_ranks(row for row in rows if row["channel"] == "vector")
+    lexical = atomic_memory_channel_ranks(row for row in rows if row["channel"] == "text")
+    return combine_atomic_memory_related_ranks(lexical, vectors)
 
 
 def atomic_memory_channel_ranks(rows: Any, /, *, vector: bool = False) -> tuple[AtomicMemoryRelatedRank, ...]:

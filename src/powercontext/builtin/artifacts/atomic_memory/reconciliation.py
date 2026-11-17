@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from functools import cached_property
 from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -32,6 +33,7 @@ from powercontext.builtin.artifacts.atomic_memory.temporal import (
     source_time_literals,
     text_time_literals,
 )
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
@@ -181,6 +183,11 @@ class AtomicMemoryWorkingItem:
     artifacts: tuple[ArtifactRef, ...] = ()
     changed: bool = False
     retain: bool = True
+
+    @cached_property
+    def lexical_terms(self) -> frozenset[str]:
+        """Derived from this immutable body; replacing or releasing the item drops it."""
+        return frozenset(analyze_text(f"{self.content.kind}\n{self.content.text}").split())
 
     def comparison(self) -> AtomicMemoryComparisonItem:
         return AtomicMemoryComparisonItem(

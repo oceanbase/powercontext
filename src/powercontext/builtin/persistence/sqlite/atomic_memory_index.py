@@ -44,9 +44,11 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_channel_ranks,
     atomic_memory_checked_vector_ranks,
     atomic_memory_filter_sql,
+    atomic_memory_hybrid_ranks,
     atomic_memory_page_from_ranks,
     atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_hybrid_sql,
     atomic_memory_related_vector_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
@@ -346,62 +348,43 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         cursor: AtomicMemoryRelatedCursor | None = None,
         /,
     ) -> AtomicMemoryRelatedPage | None:
-        self.validate_request(request)
-        eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
-        parameters["scope_id"] = scope_id
-        ranks = (
-            await self._related_ranks(connection, scope_id, request, eligibility, parameters)
-            if cursor is None
-            else cursor.ranks
-        )
+        if cursor is None:
+            ranks = await self.related_ranks(connection, scope_id, request)
+        else:
+            self.validate_request(request)
+            ranks = cursor.ranks
         sliced = atomic_memory_page_slice(ranks, cursor, request.page_size)
         if sliced is None:
             return None
         page_ranks, next_cursor = sliced
         return await self._related_page_from_ranks(connection, scope_id, page_ranks, next_cursor)
 
-    async def _related_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
+    async def related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        """Rank the complete eligible set once; later pages never re-rank it."""
-
+        """Observe complete ranks once; bodies and authority are admitted per page."""
+        self.validate_request(request)
+        eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
+        parameters["scope_id"] = scope_id
+        if request.mode != "fts":
+            self._prepare_related_vectors(request, parameters)
+        lexical = (
+            self._related_fts_rank_sql(scope_id, request, eligibility, parameters) if request.mode != "vector" else None
+        )
         if request.mode == "fts":
-            return await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
-        if request.mode == "vector":
-            return await self._related_vector_ranks(connection, request, eligibility, parameters)
-        return await self._related_hybrid_ranks(connection, scope_id, request, eligibility, parameters)
-
-    async def _related_fts_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        rank_sql = self._related_fts_rank_sql(scope_id, request, eligibility, parameters)
-        if rank_sql is None:
-            return ()
-        sql = f"{rank_sql} ORDER BY score DESC, artifact_id"
-        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        return atomic_memory_channel_ranks(rows)
-
-    async def _related_vector_ranks(
-        self,
-        connection: AsyncConnection,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        self._prepare_related_vectors(request, parameters)
-        sql = self._related_vector_rank_sql(eligibility)
-        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        return atomic_memory_checked_vector_ranks(rows)
+            if lexical is None:
+                return ()
+            rows = (
+                await connection.execute(text(f"{lexical} ORDER BY score DESC, artifact_id"), parameters)
+            ).mappings()
+            return atomic_memory_channel_ranks(rows)
+        vector = self._related_vector_rank_sql(eligibility)
+        statement = text(atomic_memory_related_hybrid_sql(lexical, vector) if lexical is not None else vector)
+        rows = (await connection.execute(statement, parameters)).mappings()
+        if lexical is not None:
+            return atomic_memory_hybrid_ranks(rows)
+        vectors = atomic_memory_checked_vector_ranks(rows)
+        return combine_atomic_memory_related_ranks((), vectors) if request.mode == "hybrid" else vectors
 
     def _related_vector_rank_sql(self, eligibility: str) -> str:
         invalid = (
@@ -410,18 +393,6 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             "OR projection_format <> :projection_format OR LENGTH(embedding) <> :embedding_bytes"
         )
         return atomic_memory_related_vector_sql(eligibility, "vec_distance_l2(embedding, :query_vector)", invalid)
-
-    async def _related_hybrid_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        vector_ranks = await self._related_vector_ranks(connection, request, eligibility, parameters)
-        fts_ranks = await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
-        return combine_atomic_memory_related_ranks(fts_ranks, vector_ranks)
 
     def _related_fts_rank_sql(
         self,
