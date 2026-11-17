@@ -876,7 +876,9 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._record_trace_event(
             "powercontext_injection",
             session_id=session_key,
-            query=_redact_secrets(recall_query),
+            # Redact the whole prompt before bounding it: a cut inside ``api_key=<value>`` would leave a bare value
+            # that redaction no longer recognizes.
+            query=_automatic_recall_query(_redact_secrets(query)),
             injected_text=_redact_secrets(content.strip()),
             status=trace_status,
             content_bytes=len(content.encode("utf-8")),
