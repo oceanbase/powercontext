@@ -58,6 +58,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    observe_processing_failure,
 )
 from powercontext.builtin.records import BaseValueConflictError, BaseValueNotFoundError
 from powercontext.builtin.scope.errors import ScopeNotFoundError
@@ -284,111 +285,115 @@ class RelationalProfileService:
                     ) from error
                 if current is not None and current.content.content == markdown:
                     markdown = None
-        try:
-            async with self.database.transaction() as connection:
-                if processing is not None:
-                    await processing.guard(connection)
-                locked = await self.policies.get(connection, scope_id, for_update=True)
-                actual_cursor = await self.cursors.load(
-                    connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True
-                )
-                actual = await self.latest(connection, scope_id)
-                if (
-                    locked != policy
-                    or actual_cursor != cursor
-                    or (None if actual is None else actual.as_ref()) != (None if current is None else current.as_ref())
-                ):
-                    raise BaseValueConflictError("profile_processing", (scope_id,))  # noqa: TRY301
-                if authorize_commit is not None:
-                    await authorize_commit(connection, current)
-                # CAS also serializes SQLite, whose SELECT FOR UPDATE is a no-op.
-                updated = await self.policies.update(connection, policy)
-                refs = tuple(item.ref for item in evidence)
-                parents = () if current is None else (current.as_ref(),)
-                artifacts = (*parents, *prompt_refs)
-                source_window = SourceWindow(after=after, through=through)
-                candidate_id = None
-                candidate = None
-                artifact = None
-                if markdown is not None and policy.activation_mode == "review_required":
-                    candidate_id = self.id_factory("candidate")
-                    candidate = await self.candidates.create(
-                        connection,
-                        scope_id,
-                        candidate_id,
-                        "profile",
-                        ProfileCandidateProposal(
-                            content=markdown,
-                            source_window=source_window,
-                            generator_id=PROFILE_SOURCE_WINDOW_BINDING,
-                            generator_version="1",
-                            created_at=datetime.now(UTC),
-                        ),
-                        sources=refs,
-                        artifacts=artifacts,
-                        target=None if current is None else current.as_ref(),
-                        reason="New source evidence",
+        async with observe_processing_failure(
+            "profile", "profile.commit_generated", scope_id, storage_location="profile-generation-storage"
+        ):
+            try:
+                async with self.database.transaction() as connection:
+                    if processing is not None:
+                        await processing.guard(connection)
+                    locked = await self.policies.get(connection, scope_id, for_update=True)
+                    actual_cursor = await self.cursors.load(
+                        connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True
                     )
-                    await self.policies.update(connection, updated, pending_candidate_id=candidate_id)
-                else:
-                    if markdown is not None:
-                        draft = ProfileDraft(
-                            content=ProfileContent(
+                    actual = await self.latest(connection, scope_id)
+                    if (
+                        locked != policy
+                        or actual_cursor != cursor
+                        or (None if actual is None else actual.as_ref())
+                        != (None if current is None else current.as_ref())
+                    ):
+                        raise BaseValueConflictError("profile_processing", (scope_id,))  # noqa: TRY301
+                    if authorize_commit is not None:
+                        await authorize_commit(connection, current)
+                    # CAS also serializes SQLite, whose SELECT FOR UPDATE is a no-op.
+                    updated = await self.policies.update(connection, policy)
+                    refs = tuple(item.ref for item in evidence)
+                    parents = () if current is None else (current.as_ref(),)
+                    artifacts = (*parents, *prompt_refs)
+                    source_window = SourceWindow(after=after, through=through)
+                    candidate_id = None
+                    candidate = None
+                    artifact = None
+                    if markdown is not None and policy.activation_mode == "review_required":
+                        candidate_id = self.id_factory("candidate")
+                        candidate = await self.candidates.create(
+                            connection,
+                            scope_id,
+                            candidate_id,
+                            "profile",
+                            ProfileCandidateProposal(
                                 content=markdown,
-                                generation=ProfileGeneration(
-                                    mode="automatic",
-                                    created_at=datetime.now(UTC),
-                                    generator_id=PROFILE_SOURCE_WINDOW_BINDING,
-                                    generator_version="1",
-                                    source_window=source_window,
-                                ),
+                                source_window=source_window,
+                                generator_id=PROFILE_SOURCE_WINDOW_BINDING,
+                                generator_version="1",
+                                created_at=datetime.now(UTC),
                             ),
                             sources=refs,
                             artifacts=artifacts,
+                            target=None if current is None else current.as_ref(),
+                            reason="New source evidence",
                         )
-                        artifact = (
-                            await self.artifacts.create(connection, scope_id, PROFILE_ARTIFACT_ID, draft)
-                            if current is None
-                            else await self.artifacts.revise(connection, scope_id, current, draft)
+                        await self.policies.update(connection, updated, pending_candidate_id=candidate_id)
+                    else:
+                        if markdown is not None:
+                            draft = ProfileDraft(
+                                content=ProfileContent(
+                                    content=markdown,
+                                    generation=ProfileGeneration(
+                                        mode="automatic",
+                                        created_at=datetime.now(UTC),
+                                        generator_id=PROFILE_SOURCE_WINDOW_BINDING,
+                                        generator_version="1",
+                                        source_window=source_window,
+                                    ),
+                                ),
+                                sources=refs,
+                                artifacts=artifacts,
+                            )
+                            artifact = (
+                                await self.artifacts.create(connection, scope_id, PROFILE_ARTIFACT_ID, draft)
+                                if current is None
+                                else await self.artifacts.revise(connection, scope_id, current, draft)
+                            )
+                        await self.cursors.save(
+                            connection,
+                            scope_id,
+                            PROFILE_SOURCE_WINDOW_BINDING,
+                            SourceCursor(sequence=through),
+                            expected_generation=None if cursor is None else cursor.generation,
                         )
-                    await self.cursors.save(
-                        connection,
-                        scope_id,
-                        PROFILE_SOURCE_WINDOW_BINDING,
-                        SourceCursor(sequence=through),
-                        expected_generation=None if cursor is None else cursor.generation,
+                    if on_commit is not None:
+                        await on_commit(connection, artifact, candidate)
+                    if processing is not None:
+                        await processing.complete(connection, remaining_work=candidate_id is not None or through < high)
+                    return ProfileFlushResult(
+                        status="review_pending" if candidate_id else ("updated" if artifact else "noop"),
+                        previous_cursor=after,
+                        current_cursor=after if candidate_id else through,
+                        high_watermark=high,
+                        processed_source_count=len(evidence),
+                        candidate_id=candidate_id,
+                        artifact=None if artifact is None else artifact.as_ref(),
                     )
-                if on_commit is not None:
-                    await on_commit(connection, artifact, candidate)
-                if processing is not None:
-                    await processing.complete(connection, remaining_work=candidate_id is not None or through < high)
+            except (
+                BaseValueConflictError,
+                GenerationConflictError,
+                RevisionConflictError,
+                IntegrityError,
+                OperationalError,
+            ) as error:
+                if isinstance(error, OperationalError) and not is_transaction_contention(error):
+                    raise
+                async with self.database.transaction() as connection:
+                    refreshed = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
                 return ProfileFlushResult(
-                    status="review_pending" if candidate_id else ("updated" if artifact else "noop"),
+                    status="conflict",
                     previous_cursor=after,
-                    current_cursor=after if candidate_id else through,
+                    current_cursor=0 if refreshed is None else refreshed.cursor.sequence,
                     high_watermark=high,
                     processed_source_count=len(evidence),
-                    candidate_id=candidate_id,
-                    artifact=None if artifact is None else artifact.as_ref(),
                 )
-        except (
-            BaseValueConflictError,
-            GenerationConflictError,
-            RevisionConflictError,
-            IntegrityError,
-            OperationalError,
-        ) as error:
-            if isinstance(error, OperationalError) and not is_transaction_contention(error):
-                raise
-            async with self.database.transaction() as connection:
-                refreshed = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
-            return ProfileFlushResult(
-                status="conflict",
-                previous_cursor=after,
-                current_cursor=0 if refreshed is None else refreshed.cursor.sequence,
-                high_watermark=high,
-                processed_source_count=len(evidence),
-            )
 
     async def scan(self, *, max_concurrency: int = 4) -> None:
         # Page policies; each scope gets a fixed high watermark and bounded work.

@@ -711,10 +711,11 @@ def test_scope_response_body_respects_the_per_request_timeout(
 def test_stop_budget_stays_below_the_host_deadline(token_savings_module: ModuleType) -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     host_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+    bounded = token_savings_module.host_bounded_http_budget
 
-    assert token_savings_module.stop_http_budget(float(host_timeout)) == host_timeout - 2.0
-    assert token_savings_module.stop_http_budget(4.0) < host_timeout
-    assert token_savings_module.stop_http_budget(0.2) == 0.2
+    assert bounded(float(host_timeout)) == host_timeout - 2.0
+    assert bounded(4.0) < host_timeout
+    assert bounded(0.2) == 0.2
 
 
 def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_path: Path) -> None:

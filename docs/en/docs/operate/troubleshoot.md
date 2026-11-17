@@ -402,7 +402,7 @@ contract as Codex, with component `powercontext.claude_code.recall`:
 | Outcome | Action |
 | --- | --- |
 | `empty` | No relevant Memory was prepared; no action is required |
-| `authentication_failed` | Export the complete `POWERCONTEXT_CLAUDE_AUTHORIZATION` header before starting Claude Code |
+| `authentication_failed` | Rerun setup with the complete `POWERCONTEXT_CLAUDE_AUTHORIZATION` header, or export it before starting Claude Code |
 | `version_mismatch` | Install the package and plugin from the same ref, then restart both processes |
 | `server_unavailable` | Start the Server or correct `POWERCONTEXT_CLAUDE_SERVER_URL` |
 | `invalid_response` | Check for a proxy, redirect, incompatible schema, malformed JSON, or an oversized response; `error_code: scope_not_found` means the configured Scope does not exist or no binding resolves |
@@ -413,14 +413,19 @@ the current Scope, so a `scope_resolve` event means that the prompt was neither 
 
 ## Claude Code MCP authentication fails
 
-The Hook reads `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the environment that starts Claude Code, and the MCP
-configuration expands the same value into its `Authorization` header. Stop the current process, export the complete
-header, and start it again:
+The Hook and the MCP `headersHelper` read the credential that setup saved for the configured `server_url`. The Hook
+prefers an explicit `POWERCONTEXT_CLAUDE_AUTHORIZATION` in the environment that starts Claude Code; MCP uses that
+value only when no credential is saved for its endpoint, so a token changed only in the environment leaves MCP on the
+old saved token. Save the complete header again, then restart Claude Code:
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-claude
+powercontext setup claude-code
 ```
+
+A saved credential is not sent when the plugin's `server_url` differs from the URL it was saved for, when the file is
+malformed, when its POSIX permissions allow group or other access, or when the Server uses non-loopback HTTP; MCP then
+sends only the exported value. The helper runs with the `python3` on `PATH`.
 
 Do not add the token to `.mcp.json`, the Server URL, or plugin options. Use `/mcp` after restart to confirm that the
 `powercontext` Server is connected.

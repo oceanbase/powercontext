@@ -52,10 +52,12 @@ export async function resolveScopeId(
   cwd: string | undefined,
   configuredScopeId?: string,
   signal?: AbortSignal,
+  allowDefault = true,
 ): Promise<string | undefined> {
   const workspace = sessionCwd(cwd)
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: configuredScopeId,
+    ...(allowDefault ? {} : { allow_default: false }),
     binding_keys: workspace ? [workspaceBindingKey(workspace)] : [],
   }, signal)
   const value = response.value
