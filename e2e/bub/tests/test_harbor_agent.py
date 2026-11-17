@@ -142,8 +142,13 @@ for line in sys.stdin:
 
 def test_codex_plugin_accepts_the_server_url_the_harness_writes(monkeypatch, tmp_path: Path) -> None:
     # The plugin validates its .mcp.json strictly, so load the rewritten copy with the plugin's own settings.
-    for name in ("settings.py", "powercontext_client_config.py", ".mcp.json"):
+    for name in ("settings.py", ".mcp.json"):
         shutil.copy2(_CODEX_PLUGIN / name, tmp_path / name)
+    shutil.copytree(
+        _CODEX_PLUGIN / "powercontext_lifecycle",
+        tmp_path / "powercontext_lifecycle",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     server_url = "http://host-gateway:8000"
     subprocess.run(  # noqa: S603 - fixed interpreter and arguments
         [sys.executable, "-c", MCP_URL_REWRITE, str(tmp_path / ".mcp.json"), plugin_mcp_url(server_url)],
@@ -156,7 +161,7 @@ def test_codex_plugin_accepts_the_server_url_the_harness_writes(monkeypatch, tmp
     monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
     monkeypatch.setenv("POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP", "true")
     monkeypatch.syspath_prepend(str(tmp_path))
-    for module in ("settings", "powercontext_client_config"):
+    for module in ("settings", "powercontext_lifecycle", "powercontext_lifecycle.client_config"):
         monkeypatch.delitem(sys.modules, module, raising=False)
 
     plugin_settings = importlib.import_module("settings")

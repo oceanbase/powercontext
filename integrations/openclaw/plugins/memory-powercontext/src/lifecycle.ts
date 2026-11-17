@@ -15,7 +15,6 @@
  */
 
 
-import { createHash } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import type { PowerContextConfig } from "./config.js";
@@ -30,6 +29,7 @@ import {
 } from "./content.js";
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
+import { type FlushProgress, nonNegativeInteger, readFlushProgress, scopeCorrelation } from "./flush-progress.js";
 import { resolvePowerContextScope } from "./scope.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
@@ -43,11 +43,6 @@ type LifecycleDependencies = {
 const MAX_SESSION_SCOPES = 32;
 const MAX_TRACKED_RUNS = 64;
 const CLOSING_BUDGET_MS = 1000;
-
-type FlushProgress = {
-  currentCursor: number;
-  remainingWork: boolean;
-};
 
 type CheckpointResult = {
   acknowledged: boolean;
@@ -66,10 +61,6 @@ function agentIdFromSessionKey(sessionKey: string | undefined): string | undefin
   return agentId ? normalizeAgentId(agentId) : undefined;
 }
 
-function nonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
 function sourcePosition(value: unknown): number {
   if (!value || typeof value !== "object") {
     throw new Error("PowerContext returned an invalid Source capture payload");
@@ -82,28 +73,11 @@ function sourcePosition(value: unknown): number {
 }
 
 function flushProgress(value: unknown): FlushProgress {
-  if (!value || typeof value !== "object") {
+  const progress = readFlushProgress(value);
+  if (!progress) {
     throw new Error("PowerContext returned an invalid flush payload");
   }
-  const result = value as Record<string, unknown>;
-  if (
-    !["idle", "processed"].includes(String(result.status))
-    || !nonNegativeInteger(result.previous_cursor)
-    || !nonNegativeInteger(result.current_cursor)
-    || !nonNegativeInteger(result.high_watermark)
-    || !nonNegativeInteger(result.processed_source_count)
-    || (result.remaining_work !== undefined && typeof result.remaining_work !== "boolean")
-  ) {
-    throw new Error("PowerContext returned an invalid flush payload");
-  }
-  return {
-    currentCursor: result.current_cursor,
-    remainingWork: result.remaining_work === true,
-  };
-}
-
-function scopeCorrelation(scopeId: string): string {
-  return createHash("sha256").update(scopeId).digest("hex").slice(0, 16);
+  return progress;
 }
 
 export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: LifecycleDependencies) {

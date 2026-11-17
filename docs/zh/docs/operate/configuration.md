@@ -104,6 +104,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_HTTP_UDS` | 未设置 | Linux/macOS 上 `server run` 的 HTTP Unix socket 路径；仅监听 UDS，不创建 TCP listener；必须是绝对路径，不含 `..` 或 NUL，按文件系统编码计算不超过 103 字节 |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | 未设置 | 私有 UDS 上可信代理的外部协议，只接受 `http` 或 `https`，必须同时设置 `HTTP_UDS`；仅在可信代理终止 TLS 时设置 `https`。仍忽略转发的协议与客户端 IP header |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | 解析前允许的外部 HTTP 请求体字节数，包括分块上传 |
+| `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | 插件接口（`/v1/plugins/{name}/api/...` 及 Dashboard 插件页面的转发）的请求体和响应体上限，替代上一项；插件路由可以声明更小的上限，不能超过此值 |
+| `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | 按插件名覆盖插件声明的 `host_processes`，JSON 对象，例如 `{"knowledge-base": 4}`；值是每个 Server 进程中该插件宿主进程数的上限 |
+| `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | 未设置 | 每个 Server 进程中所有插件的宿主进程总数上限；达到上限时不再为负载增加进程，请求在已有进程上排队。每个插件常驻的第一个进程不受此限制 |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | 每进程进行中的外部 HTTP 请求上限，包括完整流式响应 |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
@@ -165,7 +168,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 FTS 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 FTS 的候选 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 vector 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 vector 的候选 |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时，其中默认值最短的是 Kimi Code 和 DSH 的 1 秒；ZCode 单次请求允许 3 秒，并受 4 秒 Hook 总预算限制 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时。默认值最短的是 Cindy 的 prompt hook：它在 1.8 秒 hook 预算内最多给上下文准备 1.3 秒；OpenClaw 单次请求 2.5 秒；Kimi Code、ZCode 和 DSH 单次请求允许 3 秒，并受 4 秒总预算限制 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |

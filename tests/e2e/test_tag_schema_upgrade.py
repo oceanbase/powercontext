@@ -81,7 +81,7 @@ def test_real_legacy_tags_survive_repeated_server_startup(backend, topic_family,
 
             @asynccontextmanager
             async def client():
-                app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+                app = create_server_app(settings=settings)
                 async with (
                     app.router.lifespan_context(app),
                     httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http,

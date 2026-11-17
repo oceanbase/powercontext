@@ -21,9 +21,13 @@ import { startObservation } from '../shared/observations.mjs'
 import { scrubSecrets } from '../shared/prompt-privacy.mjs'
 
 const MAX_SOURCE_CHARACTERS = 200000
-const signal = AbortSignal.timeout(4000)
+const HOOK_DEADLINE_MS = 4000
+// Requests stop early enough for the Hook to write its output and runtime history before the hard exit.
+const signal = AbortSignal.timeout(HOOK_DEADLINE_MS - 300)
 let emitted = false
 let observation
+// Output becomes final once preparation settles; a later capture cannot withdraw it.
+let prepared = ''
 function emit(message = '') {
   if (emitted) return
   emitted = true
@@ -31,9 +35,9 @@ function emit(message = '') {
 }
 const deadline = setTimeout(() => {
   diagnostic(emitted ? 'observation' : 'hook', new Failure(emitted ? 'runtime_unavailable' : 'server_unavailable'))
-  emit()
+  emit(prepared)
   process.exit(0)
-}, 4000)
+}, HOOK_DEADLINE_MS)
 
 function promptText(value) {
   if (typeof value === 'string') return value
@@ -77,6 +81,10 @@ async function run(input) {
     context = preparedText(value)
     observation?.record('prepare', context ? 'ready' : 'empty', { content_bytes: value.content_bytes })
   } catch (error) { observation?.fail('prepare', error); diagnostic('context_prepare', error) }
+  const binding = 'PowerContext current-request binding metadata:\n' +
+    JSON.stringify({ schema: 'powercontext.kimi-code.request-binding.v1', scope_id: scopeId,
+      cwd: input.cwd, scope_script: fileURLToPath(new URL('../scripts/scope.mjs', import.meta.url)) }) + '\n\n'
+  prepared = binding + context
   if (settings.capturePrompts && prompt.length <= MAX_SOURCE_CHARACTERS && safePrompt === prompt && !signal.aborted) {
     const sourceId = 'kimi-user-prompt:' + randomUUID()
     try {
@@ -96,10 +104,7 @@ async function run(input) {
     observation?.record('capture', 'skipped', { reason: !settings.capturePrompts ? 'disabled' :
       prompt.length > MAX_SOURCE_CHARACTERS ? 'too_large' : signal.aborted ? 'deadline_exceeded' : 'sensitive' })
   }
-  const binding = 'PowerContext current-request binding metadata:\n' +
-    JSON.stringify({ schema: 'powercontext.kimi-code.request-binding.v1', scope_id: scopeId,
-      cwd: input.cwd, scope_script: fileURLToPath(new URL('../scripts/scope.mjs', import.meta.url)) }) + '\n\n'
-  emit(binding + context)
+  emit(prepared)
   observation?.record('injection', context ? 'emitted' : 'skipped', context ? { content_bytes: Buffer.byteLength(context) } : { reason: 'no_context' })
 }
 

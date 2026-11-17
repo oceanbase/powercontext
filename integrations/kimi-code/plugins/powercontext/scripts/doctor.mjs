@@ -59,4 +59,5 @@ if (values.runtime) {
       .includes(error.code ?? error.message) ? error.code ?? error.message : 'runtime_unavailable' }
   }
 }
-process.stdout.write(JSON.stringify({ schema: 'powercontext.kimi-code.diagnostics.v2', checks, ...(runtime ? { runtime } : {}) }) + '\n')
+process.stdout.write(JSON.stringify({ schema: 'powercontext.kimi-code.diagnostics.v2', checks,
+  ...(runtime ? { runtime } : {}) }) + '\n', () => process.exit(0))

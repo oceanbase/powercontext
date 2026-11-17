@@ -266,83 +266,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_plugins: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	get_artifact_plugin: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins/{binding_name}",
-		location: null,
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	enable_all_artifact_plugins: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/enable-all",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	reload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	enable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	disable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	unload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
@@ -721,6 +644,95 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugins: {
+		method: "GET",
+		path: "/v1/plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin: {
+		method: "GET",
+		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugin_scopes: {
+		method: "GET",
+		path: "/v1/plugins/{name}/scopes",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: ["cursor", "limit"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	merge_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/merges",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_governance: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance",
+		location: null,
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	forget_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	restore_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1514,6 +1526,21 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_artifact_rendering: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["revision"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_artifact_revisions: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
@@ -2195,6 +2222,7 @@ function containsSecret(text, authorization$1) {
 const CONTEXT_START = "<!-- powercontext:cindy-context:v1 -->";
 const CONTEXT_END = "<!-- /powercontext:cindy-context:v1 -->";
 const HOOK_BUDGET_MS = 1800;
+const CAPTURE_RESERVE_MS = 500;
 function authorization(config, raw) {
 	if (config.allow_insecure_http !== void 0 && typeof config.allow_insecure_http !== "boolean") throw new Error("invalid_transport_consent");
 	const baseUrl = normalizeServerUrl(config.server_url ?? "http://127.0.0.1:8000", config.allow_insecure_http ?? false);
@@ -2346,6 +2374,7 @@ async function runHook(input, credential, fetchImpl) {
 		code: "hook_deadline",
 		capture: "not_sent"
 	};
+	const hookEnd = Date.now() + remaining;
 	if (typeof input.text !== "string" || !input.text.trim() || typeof input.session_id !== "string" || !input.session_id.trim() || input.session_id.length > 256 || typeof input.hook_id !== "string" || !input.hook_id.trim() || input.hook_id.length > 256) return {
 		...outcome,
 		ok: false,
@@ -2399,9 +2428,11 @@ async function runHook(input, credential, fetchImpl) {
 				code: failureCode(error)
 			};
 		}
+		const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now();
 		if (input.text.length > 8192) outcome.prepare = "query_too_long";
+		else if (prepareMs <= 0) outcome.prepare = "not_sent";
 		else try {
-			const signal = combineSignals([controller.signal, AbortSignal.timeout(800)]);
+			const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)]);
 			const response = await client.request("prepare_context", {
 				scope_id: scopeId,
 				query: input.text,

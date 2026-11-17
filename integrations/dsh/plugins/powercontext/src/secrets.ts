@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-// Explicit writes still use these markers; automatic paths follow the shared prompt-privacy rule below.
-const SECRET_MARKERS = ['sk-', 'api_key', 'BEGIN PRIVATE']
 const PAYLOAD_WRITES = new Set([
   'remember_memory', 'capture_content_source', 'capture_working_note', 'revise_memory_entry',
   'replace_artifact', 'change_atomic_memory_lifecycle',
@@ -62,20 +60,17 @@ export function containsSecret(text: string, authorization?: string): boolean {
   return scrubSecrets(text, authorization) !== text
 }
 
-function containsSecretMarker(text: string): boolean {
-  return SECRET_MARKERS.some((marker) => text.includes(marker))
-}
-
-function containsSecretValue(value: unknown): boolean {
-  if (typeof value === 'string') return containsSecretMarker(value)
+function containsSecretValue(value: unknown, authorization?: string): boolean {
+  if (typeof value === 'string') return containsSecret(value, authorization)
   if (!value || typeof value !== 'object') return false
-  return Object.values(value).some(containsSecretValue)
+  return Object.values(value).some(item => containsSecretValue(item, authorization))
 }
 
-export function hasSecretContent(operation: string, payload: unknown): boolean {
-  if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload)
+/** Detect secret content in an explicit write with the same rule as automatic capture. */
+export function hasSecretContent(operation: string, payload: unknown, authorization?: string): boolean {
+  if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload, authorization)
   const fields = CONTENT_FIELDS.get(operation)
   if (!fields || !payload || typeof payload !== 'object') return false
   const content = payload as Record<string, unknown>
-  return fields.some(field => containsSecretValue(content[field]))
+  return fields.some(field => containsSecretValue(content[field], authorization))
 }
