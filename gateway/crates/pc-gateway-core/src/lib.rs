@@ -31,6 +31,7 @@ mod gate_client;
 mod http_gate_client;
 mod lifecycle;
 mod replay_cache;
+pub mod replay_epoch;
 mod transcript;
 mod uds_gate_client;
 

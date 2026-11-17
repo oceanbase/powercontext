@@ -32,6 +32,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 hyper = { workspace = true }
+base64 = "0.22.1"
+getrandom = "0.2.17"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
