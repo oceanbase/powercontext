@@ -18,8 +18,9 @@ the central Server.
   provides only `definitions` extends the Source types; a plugin that declares `collect` reads from external systems per
   collection target.
 - **Collection runtimes (runners)**: the processes that run `collect`. The central Server has a built-in runner named
-  `server`; a process started on a device with `powercontext source-agent` is also a runner, named after the subject of its
-  credential.
+  `server`; a process started on a device with `powercontext source-agent` is also a runner. It registers with the
+  central Server before it syncs: the Server assigns its name from a suggestion, or registers the fixed name it asks
+  for, and records the principal (type and identifier) that registered it as the owner.
 - **Targets live centrally**: targets are stored on the central Server in `pc_source_collect_targets`. Each belongs to a
   Scope and names the runner and the plugin that collect it. Users add, change, and remove them through the Source
   management APIs or the Dashboard without logging in to the device.
@@ -329,8 +330,10 @@ compared with it; the plugin is responsible for data format compatibility.
   keeps declaring the old definitions (RFC #2579). The only thing a device reads from the central Server is target
   parameters. They are filled in under the central version's format and may carry fields an older device does not know, so
   device-side parameter models must ignore unknown fields (Pydantic's default; do not set `extra="forbid"`). When a new
-  parameter must take effect on every device, raise `min_compatible_version`. Checkpoints are written and read by the same
-  device and never cross between the central Server and devices.
+  parameter must take effect on every device, raise `min_compatible_version`. A checkpoint is normally written and read
+  by the runner its target is assigned to. A transfer keeps the checkpoint by default, also between a device runner and
+  the `server` runner, which is right when the destination runs a plugin version that can read it; otherwise transfer
+  with `reset_checkpoint` so that the destination starts from the beginning.
 - **Data upgrades**: the central Server calls `upgrade(ctx)` each time it loads a plugin version, under the rules of RFC
   #2579. Devices do not call `upgrade`: core keeps no plugin data on devices, and a plugin checks and migrates its own
   local files in `setup(ctx)`.

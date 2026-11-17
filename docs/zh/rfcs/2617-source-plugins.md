@@ -16,7 +16,8 @@ Source 类型，需要时从外部系统持续采集。采集可以在中心 Ser
 - **Source 插件**：一个目录加 `plugin.py`，把 `SourcePlugin` 声明赋给 `plugin`。只提供 `definitions` 的插件扩展 Source
   类型；声明了 `collect` 的插件按采集目标从外部系统读取数据。
 - **采集运行时（runner）**：执行 `collect` 的进程。中心 Server 自带一个名为 `server` 的 runner；设备上以
-  `powercontext source-agent` 启动的进程也是 runner，名字取自它的凭据主体。
+  `powercontext source-agent` 启动的进程也是 runner。它在同步之前先向中心注册：中心根据它建议的名字分配一个名字，
+  或者登记它指定的固定名字，并把完成注册的主体（类型和标识）记为这个 runner 的所有者。
 - **采集目标集中存放**：目标保存在中心的 `pc_source_collect_targets` 中，属于某个 Scope，指定由哪个 runner、用哪个插件
   采集。用户通过 Source 管理接口或 Dashboard 增删改，不需要登录设备。
 - **拉取同步**：runner 定时到中心同步，一次取回分配给自己的全部目标，并上报自己加载的插件及其版本；中心不向设备推送，
@@ -258,7 +259,9 @@ Source；中心在写入 Source 时执行 Projection，可以读取插件存储�
 - **兼容的含义**：插件声明 `min_compatible_version` 时，承诺中心的新版本能处理范围内设备提交的 Source；新版本仍需读取
   旧版本的 Source 时，继续声明旧版本的定义（RFC #2579）。设备从中心读取的只有目标参数：参数按中心版本的格式填写，可能
   带有旧设备不认识的字段，设备端的参数模型必须忽略未知字段（Pydantic 的默认行为，不能设置 `extra="forbid"`）。新参数
-  必须在所有设备上生效时，提高 `min_compatible_version`。checkpoint 由同一台设备写入和读取，不跨中心与设备。
+  必须在所有设备上生效时，提高 `min_compatible_version`。checkpoint 通常由目标所属的 runner 写入和读取。转移目标时默认
+  保留 checkpoint，在设备 runner 和 `server` runner 之间转移也一样；这适用于接收方的插件版本能读懂它的情况，否则转移时
+  指定 `reset_checkpoint`，让接收方从头采集。
 - **数据升级**：中心每次加载一个插件版本时调用 `upgrade(ctx)`，规则与 RFC #2579 相同。设备不调用 `upgrade`：core 不在
   设备上为插件保存数据，插件自己的本地文件在 `setup(ctx)` 中检查和迁移。
 
