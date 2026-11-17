@@ -22,32 +22,57 @@ import { withBasePath } from '@/lib/urls';
 
 type Contributor = { login: string; avatar: string };
 
+const VISIBLE = 5;
+/** One avatar width minus the overlap, matching size-7 and -space-x-2. */
+const STEP = 'calc(1.75rem - 0.5rem)';
+const FLIP_MS = 560;
+const HOLD_MS = 2400;
+
 export function HomeContributors({ contributors, url, label }: {
   contributors: Contributor[];
   url: string;
   label: string;
 }) {
-  const [visible, setVisible] = useState(() => contributors.slice(0, 5));
+  const [start, setStart] = useState(0);
+  const [advancing, setAdvancing] = useState(false);
+  const cycling = contributors.length > VISIBLE;
 
-  // Keep exported HTML deterministic, then choose a fresh sample after hydration.
   useEffect(() => {
-    const shuffled = [...contributors];
-    for (let index = 0; index < Math.min(5, shuffled.length); index++) {
-      const other = index + Math.floor(Math.random() * (shuffled.length - index));
-      [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
-    }
-    setVisible(shuffled.slice(0, 5));
-  }, [contributors]);
+    if (!cycling) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let reset = 0;
+    const tick = window.setInterval(() => {
+      setAdvancing(true);
+      reset = window.setTimeout(() => {
+        setStart((value) => (value + 1) % contributors.length);
+        setAdvancing(false);
+      }, FLIP_MS);
+    }, HOLD_MS);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(reset);
+    };
+  }, [contributors.length, cycling]);
+
+  const shown = cycling ? VISIBLE + 1 : contributors.length;
+  const avatars = Array.from({ length: shown }, (_, index) => contributors[(start + index) % contributors.length]);
 
   return <div className="flex -space-x-2">
-    {visible.map((contributor) => <img
-      key={contributor.login}
-      src={withBasePath(contributor.avatar)}
-      alt={contributor.login}
-      width={28}
-      height={28}
-      className="size-7 rounded-full border-2 border-[var(--home-hero-background)] object-cover"
-    />)}
+    <span className={advancing ? 'pc-contrib-avatars is-advancing' : 'pc-contrib-avatars'}>
+      <span
+        className="pc-contrib-track flex -space-x-2"
+        style={advancing ? { transform: `translateX(calc(-1 * ${STEP}))` } : undefined}
+      >
+        {avatars.map((contributor) => <img
+          key={contributor.login}
+          src={withBasePath(contributor.avatar)}
+          alt={contributor.login}
+          width={28}
+          height={28}
+          className="size-7 rounded-full border-2 border-[var(--home-hero-background)] object-cover"
+        />)}
+      </span>
+    </span>
     <a
       href={url}
       target="_blank"
