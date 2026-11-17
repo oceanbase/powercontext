@@ -158,7 +158,15 @@ async function observeProject(cwd: string, env: NodeJS.ProcessEnv, signal: Abort
       '--git-dir', '--git-common-dir'], gitEnv, signal, cwd)
   } catch (error) {
     signal.throwIfAborted()
-    if ((error as { stderr?: string }).stderr?.trim() !== 'fatal: not a git repository (or any of the parent directories): .git') throw error
+    // Git reports an ordinary non-repository differently if discovery stops at a mount.
+    const { code, stderr } = error as { code?: number | string; stderr?: string }
+    const [reason, detail, extra] = stderr?.trimEnd().split('\n') ?? []
+    const noRepository = reason === 'fatal: not a git repository (or any of the parent directories): .git'
+      && detail === undefined
+    const stoppedAtMount = /^fatal: not a git repository \(or any parent up to mount point [^\r\n]+\)$/.test(reason ?? '')
+      && detail === 'Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).'
+      && extra === undefined
+    if (code !== 128 || (!noRepository && !stoppedAtMount)) throw error
     return { worktreeRoot: cwd, projectRoot: cwd }
   }
   const lines = layout.split('\n')

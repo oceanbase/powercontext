@@ -31,6 +31,7 @@ interface ReceiverFixture {
   executable: string
   endpoint: string
   receiver: ReturnType<typeof createClaudeCodeCliReceiver>
+  createReceiver: (path?: string) => ReturnType<typeof createClaudeCodeCliReceiver>
   signal: AbortSignal
   launch: LaunchBundle
   setHandoffToolsAvailable: (available: boolean) => void
@@ -72,14 +73,17 @@ async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
     await writeFile(join(config, 'settings.json'), JSON.stringify({ pluginConfigs: { 'powercontext@powercontext': { options: { server_url: endpoint } } } }))
     const output = JSON.stringify([{ id: 'powercontext@powercontext', enabled: true, installPath: plugin }])
     await writeFile(executable, `#!/bin/sh\nprintf '%s' '${output}'\n`, { mode: 0o755 })
-    const receiver = createClaudeCodeCliReceiver({ configDir: config, pythonExecutable: '/usr/bin/python3',
-      generationKey: Buffer.alloc(32, 1), environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' }, launchEnvironment: { HOME: root, PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: config }, qualifiedPackageRoots: [packages] })
+    const createReceiver = (path = '/usr/bin:/bin') => createClaudeCodeCliReceiver({
+      configDir: config, pythonExecutable: '/usr/bin/python3', generationKey: Buffer.alloc(32, 1),
+      environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
+      launchEnvironment: { HOME: root, PATH: path, CLAUDE_CONFIG_DIR: config }, qualifiedPackageRoots: [packages],
+    })
     const signal = new AbortController().signal
     const packagePath = join(packages, 'handoff.json')
     await writeFile(packagePath, 'handoff')
     const packageSha256 = createHash('sha256').update('handoff').digest('hex')
     const launch = { packagePath, packageSha256, binding: { effectiveCwd: workspace } } as LaunchBundle
-    await use({ root, config, workspace, executable, endpoint, receiver, signal, launch,
+    await use({ root, config, workspace, executable, endpoint, receiver: createReceiver(), createReceiver, signal, launch,
       setHandoffToolsAvailable: available => { handoffToolsAvailable = available } })
   } finally {
     await new Promise<void>(resolveServer => server.close(() => resolveServer()))
@@ -151,6 +155,26 @@ test('resolves the installed plugin against the Server and rejects routing and a
   await rm(join(workspace, '.mcp.json'))
   await mkdir(join(workspace, '.claude'))
   await writeFile(join(workspace, '.claude', 'settings.json'), JSON.stringify({ env: { POWERCONTEXT_CLAUDE_SCOPE_ID: 'different' } }))
+  expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
+}, 30_000)
+
+test('qualifies a non-Git workspace when discovery stops at a filesystem boundary', async ({ fixture }) => {
+  const { root, config, workspace, executable, signal, launch, createReceiver } = fixture
+  const bin = join(root, 'bin')
+  await mkdir(bin)
+  // Reproduce the C-locale Git diagnostic even if the test's temp directory is on the root filesystem.
+  await writeFile(join(bin, 'git'), `#!/bin/sh
+printf '%s\\n' 'fatal: not a git repository (or any parent up to mount point /Volumes/Project Drive)' \\
+  'Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).' >&2
+exit 128
+`, { mode: 0o755 })
+  const receiver = createReceiver(`${bin}:/usr/bin:/bin`)
+  expect(await receiver.environment(executable, workspace, signal)).toMatchObject({
+    effectiveCwd: workspace, scopeId: 'scope-one', packageAccess: true,
+  })
+  expect(await receiver.canReadPackage(executable, launch, signal)).toBe(true)
+  await writeFile(join(config, '.claude.json'), JSON.stringify({ deepLinkTerminal: 'Terminal',
+    projects: { [workspace]: { disabledMcpServers: ['plugin:powercontext:powercontext'] } } }))
   expect(await receiver.environment(executable, workspace, signal)).toBeUndefined()
 }, 30_000)
 
