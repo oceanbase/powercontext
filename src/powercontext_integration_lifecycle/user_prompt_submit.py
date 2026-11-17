@@ -20,7 +20,7 @@ import json
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from http.client import HTTPException
 from time import monotonic
@@ -86,11 +86,12 @@ class UserPromptEvent:
     """One UserPromptSubmit event, translated from the host's payload.
 
     ``prompt`` and ``cwd`` are ``None`` when the payload carries no string for them. ``prompt_id`` is the host's
-    identifier for the prompt, which a capture records in the metadata field that the host's profile names.
+    identifier for the prompt, which a capture records in the metadata field that the host's profile names. The prompt
+    and the working directory stay out of ``repr``.
     """
 
-    prompt: str | None
-    cwd: str | None
+    prompt: str | None = field(repr=False)
+    cwd: str | None = field(repr=False)
     session_id: str | None
     prompt_id: str | None
 
