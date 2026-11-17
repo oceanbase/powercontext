@@ -124,12 +124,13 @@ from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new*
 The recent requests returned by `GET P/scopes/{s}/documents` use the same publication check, so committed work is reported as
 completed even if its processing observation still says processing.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
-permits replacing manual edits; otherwise conflicting reprocessing fails. Reprocessing pins the original snapshot and its
+permits replacing manual edits; otherwise conflicting reprocessing fails. Optional `expected_revision` rejects a new request
+with HTTP 409 if the document has changed since selection; the Dashboard always supplies it. Reprocessing pins the original snapshot and its
 document revision together. A concurrent upload, edit or forget prevents stale publication, including changes while the snapshot
 is being read; submit a new reprocessing request to use the latest original.
-Replaying the same reprocessing key and explicit document/policy returns the accepted request's receipt, even if the document's
+Replaying the same reprocessing key and explicit document/policy/revision condition returns the accepted request's receipt, even if the document's
 original file or processing settings have since changed. Interrupted Source registration resumes from the original pinned input
-and base; it never rebases onto the current revision. Reusing the key for another document, policy or operation is a conflict.
+and base; it never rebases onto the current revision. Reusing the key for another document, policy, revision condition or operation is a conflict.
 Synchronous chunk edits also check the governance version at publication, so forgetting during embedding preparation rejects the edit.
 
 `PATCH P/scopes/{s}/settings` accepts `{version,chunking:{max_chars,overlap}}`; existing documents change only after reprocessing.
@@ -162,6 +163,13 @@ rechunking generates new IDs. Removing the last chunk creates a valid empty revi
 For bulk removal, use `{"content":{"operation":"remove_chunks","chunk_ids":["<ID1>","<ID2>"]}}`
 with the same revision precondition. A request accepts 1–100 unique chunk IDs belonging to that revision; an invalid ID or
 revision conflict rejects the whole operation. One successful batch creates one document revision and one edit evidence Source.
+The document overview supports multi-selection for batch forget and reprocessing. Select-all includes only active documents
+matching the current filter among loaded rows. Changing the space, library or filter clears selection; changed revisions are
+removed from selection. Confirmation captures each document's Scope and revision. Operations run sequentially through the
+single-document APIs and report per-document results; a failure does not roll back successful items. Reprocessing protects
+manual edits unless explicitly allowed in the confirmation dialog. A submitted request is not a completed parse: follow its
+final state in processing records. Refresh after errors before selecting items again; batches are not automatically retried.
+
 The Dashboard supports selection across loaded chunk pages, clears selection when switching revisions, and disables editing
 of historical versions. Use **Settings** to change chunking parameters, then **Document → More → Reparse** to rebuild chunks
 from the saved original snapshot. This also rebuilds the new result's search projections; manual edits require replacement confirmation.

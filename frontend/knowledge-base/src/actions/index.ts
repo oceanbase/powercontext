@@ -20,3 +20,5 @@ export { EditChunk, DocumentMenu } from "./Document";
 export { RemoveChunks } from "./RemoveChunks";
 
 export { RetryProcessing } from "./RetryProcessing";
+
+export { BatchDocuments } from "./BatchDocuments";

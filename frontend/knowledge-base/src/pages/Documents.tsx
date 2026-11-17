@@ -31,6 +31,7 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [records, setRecords] = useState(false);
+  const [selected, setSelected] = useState<Document[]>([]);
   const rows = query.data?.pages.flatMap((page) => page.items) || [];
   const requests = query.data?.pages[0]?.requests || [];
   const latest = new Map<string, Processing>();
@@ -42,6 +43,13 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
       (status === "all" ||
         (status === "failed" ? latest.get(doc.ref.artifact_id)?.state === "failed" : doc.lifecycle_state === status)),
   );
+  const checked = selected.filter((doc) =>
+    visible.some((row) =>
+      row.ref.artifact_id === doc.ref.artifact_id &&
+      row.ref.revision === doc.ref.revision &&
+      row.lifecycle_state === "active",
+    ),
+  );
   const open = (doc: Document) => onOpen({ scope: kb.scope_id, id: doc.ref.artifact_id });
   return (
     <Flex vertical gap="middle">
@@ -51,14 +59,20 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
             aria-label="筛选文档"
             prefix={<SearchOutlined aria-hidden />}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setSelected([]);
+            }}
             allowClear
             placeholder="筛选已加载文档"
           />
           <Select
             aria-label="文档状态"
             value={status}
-            onChange={setStatus}
+            onChange={(value) => {
+              setStatus(value);
+              setSelected([]);
+            }}
             style={{ minWidth: 140 }}
             options={[
               { value: "all", label: "全部状态" },
@@ -81,11 +95,29 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
           />
         </Space>
       </Flex>
+      <Flex justify="space-between" align="center" gap="middle" wrap>
+        <Space wrap>
+          <Typography.Text>已选择 {checked.length} 篇文档</Typography.Text>
+          <Typography.Text type="secondary">全选仅包含当前筛选后已加载的可检索文档</Typography.Text>
+          {checked.length > 0 && <Button size="small" onClick={() => setSelected([])}>清空选择</Button>}
+        </Space>
+        <Actions.BatchDocuments scope={kb.scope_id} documents={checked} onCompleted={() => setSelected([])} />
+      </Flex>
       <Failure error={query.error} />
       <Card styles={{ body: { padding: 0 } }}>
         <Table<Document>
           rowKey={(row) => row.ref.artifact_id}
           size="middle"
+          rowSelection={{
+            fixed: true,
+            columnWidth: 48,
+            selectedRowKeys: checked.map((doc) => doc.ref.artifact_id),
+            onChange: (_, documents) => setSelected(documents),
+            getCheckboxProps: (doc) => ({
+              disabled: doc.lifecycle_state !== "active",
+              "aria-label": `选择文档 ${doc.content.relative_path}`,
+            }),
+          }}
           dataSource={visible}
           loading={query.isPending}
           pagination={false}

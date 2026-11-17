@@ -354,6 +354,8 @@ class KnowledgeBase:
             "document_id": request.path_params["document_id"],
             "manual_edits_policy": request.body.manual_edits_policy,
         }
+        if request.body.expected_revision is not None:
+            command["expected_revision"] = request.body.expected_revision
         key = identity("import-v1", self.ctx.caller.principal_id, request.scope_id, request.body.idempotency_key)
         existing = await self.store.resource(request.scope_id, "request", key)
         if existing is not None:
@@ -363,6 +365,8 @@ class KnowledgeBase:
         snapshot = await self.ctx.reads(request.scope_id).get(request.path_params["document_id"])
         if snapshot is None:
             fail("Document not found", 404)
+        if request.body.expected_revision is not None and snapshot.ref.revision != request.body.expected_revision:
+            fail("Document revision changed; refresh before reprocessing")
         content = snapshot.content
         data = await asyncio.to_thread(self.snapshots.read, content["snapshot"], content["content_digest"])
         return await self.accept(

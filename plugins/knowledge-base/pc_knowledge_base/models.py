@@ -71,9 +71,13 @@ class ImportFiles(Model):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
-class Reprocess(Model):
+class RetryImport(Model):
     idempotency_key: str = Field(min_length=1, max_length=128)
     manual_edits_policy: Literal["reject", "replace"] = "reject"
+
+
+class Reprocess(RetryImport):
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class Retrieve(Model):

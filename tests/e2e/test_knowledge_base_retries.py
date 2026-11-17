@@ -74,7 +74,7 @@ def test_reprocess_replay_keeps_the_accepted_snapshot_after_head_changes(tmp_pat
             requests = (await call("GET", base + "/documents"))["requests"]
             assert next(item for item in requests if item["request_id"] == first["request_id"])["state"] == "completed"
             path = base + "/documents/" + first["document_id"] + "/reprocess"
-            body = {"idempotency_key": "reprocess"}
+            body = {"idempotency_key": "reprocess", "expected_revision": 1}
             receipt = await call("POST", path, json=body)
             assert (await settled(receipt))["current_revision"] == 2
             changed = await upload("changed", "# Second\n\nChanged original content.")
@@ -91,8 +91,10 @@ def test_reprocess_replay_keeps_the_accepted_snapshot_after_head_changes(tmp_pat
             assert (await settled(other))["state"] == "completed"
             for target, parameters in (
                 (path, {**body, "manual_edits_policy": "replace"}),
+                (path, {**body, "expected_revision": 3}),
+                (path, {**body, "idempotency_key": "stale-revision"}),
                 (base + "/documents/" + other["document_id"] + "/reprocess", body),
-                (base + "/imports/" + first["request_id"] + "/retry", body),
+                (base + "/imports/" + first["request_id"] + "/retry", {"idempotency_key": body["idempotency_key"]}),
             ):
                 conflict = await client.post(P + target, json=parameters)
                 assert conflict.status_code == 409, conflict.text

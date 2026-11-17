@@ -198,3 +198,36 @@ export function trackProcessing(client: ReturnType<typeof useQueryClient>, scope
       : [...(previous ?? []), target],
   );
 }
+
+export type BatchDocument = { target: Target; title: string; key: string; modified: boolean };
+export function useBatchDocuments() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (command: { kind: "forget" | "reprocess"; items: BatchDocument[]; replace: boolean }) => {
+      const results: { id: string; title: string; status: string; error?: string }[] = [];
+      // Each request retains the confirmed Scope and revision, even if the user navigates away.
+      // Sequential submission bounds load and isolates partial failures.
+      for (const { target, title, key, modified } of command.items) {
+        try {
+          if (command.kind === "reprocess" && modified && !command.replace)
+            throw new Error("文档包含人工修改，请明确允许覆盖后再重新解析");
+          const data = command.kind === "forget"
+            ? await service.forget(target)
+            : await service.reprocess(target, command.replace, key);
+          if (command.kind === "reprocess") trackProcessing(client, target.scope, data);
+          results.push({ id: target.id, title, status: command.kind === "forget" ? "已遗忘" : "已提交解析" });
+        } catch (error) {
+          results.push({ id: target.id, title, status: "失败", error: String(error) });
+        } finally {
+          // A lost response may still have committed: refresh authoritative state on every outcome.
+          client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
+          await Promise.all([
+            keys.documents(target.scope), keys.head(target.scope, target.id),
+            keys.governance(target.scope, target.id), keys.revisions(target.scope, target.id),
+          ].map((queryKey) => client.invalidateQueries({ queryKey })));
+        }
+      }
+      return results;
+    },
+  });
+}

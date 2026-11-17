@@ -114,7 +114,11 @@ export const service = {
   },
   reprocess: (target: Target, replace: boolean, key: string) =>
     api("POST", `/scopes/${target.scope}/documents/${target.id}/reprocess`, {
-      json: { idempotency_key: key, manual_edits_policy: replace ? "replace" : "reject" },
+      json: {
+        idempotency_key: key,
+        expected_revision: target.revision,
+        manual_edits_policy: replace ? "replace" : "reject",
+      },
     }),
   retry: (scope: string, request: string, key: string, replace: boolean) =>
     api("POST", `/scopes/${scope}/imports/${request}/retry`, {
