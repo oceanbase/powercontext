@@ -9496,7 +9496,11 @@ async function observeProject(cwd, env, signal) {
 		], gitEnv, signal, cwd);
 	} catch (error) {
 		signal.throwIfAborted();
-		if (error.stderr?.trim() !== "fatal: not a git repository (or any of the parent directories): .git") throw error;
+		const { code, stderr } = error;
+		const [reason, detail, extra] = stderr?.trimEnd().split("\n") ?? [];
+		const noRepository = reason === "fatal: not a git repository (or any of the parent directories): .git" && detail === void 0;
+		const stoppedAtMount = /^fatal: not a git repository \(or any parent up to mount point [^\r\n]+\)$/.test(reason ?? "") && detail === "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set)." && extra === void 0;
+		if (code !== 128 || !noRepository && !stoppedAtMount) throw error;
 		return {
 			worktreeRoot: cwd,
 			projectRoot: cwd
