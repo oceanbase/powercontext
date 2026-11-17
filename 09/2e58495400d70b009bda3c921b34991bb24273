@@ -1,0 +1,54 @@
+frontend/knowledge-base/src/actions/index.ts
+  s_13fec9a57c9104::t_787e9915e147e1 23-24
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_a749d6dc92875d 357-358,368-369
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_e3e5913f8e6260 16-17,20-21,23-27,29-33,36-37,40,46,48,61-63,80-82,137,139-141,143,148,161-163,180,235,237,248,254,256-257,263,265,268,271,274,277,280,283,287,291,298,300-301,303,306,311,314,316,319,322,326,329,331-334,337,340-341,346,351,353,355,358-359,372,374,376,379-385,391,394,397,403,405-408,410,421,424,427,436-437,442,445,448,468,472,481,484,487,494,497-498,503,509,514,517,520,523,527,530,534-556,565,574-590,592-593,595,597-599,601,603,606-611,614-617,622-625
+  s_13fec9a57c9104::t_80801a24d54b46 591
+  s_13fec9a57c9104::t_fa3fc133214ce2 594
+tests/e2e/test_knowledge_base_retries.py
+  s_13fec9a57c9104::t_e3e5913f8e6260 77,94-95
+  s_13fec9a57c9104::t_ace7ea7cec2e49 97
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_fa9f816b9ad0d9 112-113,115-116,150-154
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_13fec9a57c9104::t_787e9915e147e1 34,46-52,62-65,72-75,98-105
+  s_13fec9a57c9104::t_6c4d088e177f8b 111-120
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_a749d6dc92875d 117
+  s_13fec9a57c9104::t_526252bcb992f5 118-121
+frontend/knowledge-base/src/hooks.ts
+  s_13fec9a57c9104::t_a749d6dc92875d 201,203-209,211-233
+  s_13fec9a57c9104::t_7eef115eca9faf 202,210
+frontend/knowledge-base/src/actions/BatchDocuments.tsx
+  s_13fec9a57c9104::t_e3e5913f8e6260 109
+  s_13fec9a57c9104::t_787e9915e147e1 1-108,110-129
+  s_13fec9a57c9104::t_3156609be775d6 130
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_fa9f816b9ad0d9 127-128,131,133,166-172
+plugins/knowledge-base/pc_knowledge_base/models.py
+  s_13fec9a57c9104::t_b5434f339dd659 74,79-80
+  s_13fec9a57c9104::t_e2d0c3ce47c6db 81-82
+plugins/knowledge-base/plugin.py
+  s_13fec9a57c9104::t_b5434f339dd659 24,73
+tests/e2e/test_knowledge_base_dashboard_batch.py
+  s_13fec9a57c9104::t_e3e5913f8e6260 1-27,29-70,73-109,112-132,135-143,146-156
+  s_13fec9a57c9104::t_cba6a3dd29fe86 71-72,110-111,133-134,144-145
+  s_13fec9a57c9104::t_6bb474990295f3 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "092e58495400d70b009bda3c921b34991bb24273",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

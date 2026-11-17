@@ -1,0 +1,33 @@
+tests/test_managed_resource_producer.py
+  s_98c1bb9fbaf7be::t_ce95cbc4661e41 33,250-274,276-293
+  s_98c1bb9fbaf7be::t_2c0baca637ce9d 275
+  s_7c0b51fab11807::t_f941ccb949e8f5 294-295
+scripts/prepare_managed_resources.py
+  s_98c1bb9fbaf7be::t_74659d4eafb050 37,42,109-148,150,172,174-177
+.github/workflows/managed-resource-candidates.yml
+  s_98c1bb9fbaf7be::t_74659d4eafb050 79-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c63f9b42e6a15ce9d69fc61e56fe6b01d2b6184f",
+  "prompts": {},
+  "sessions": {
+    "s_7c0b51fab11807": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bbd7-30a5-7f43-a26a-4bbde1b74cec",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    },
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

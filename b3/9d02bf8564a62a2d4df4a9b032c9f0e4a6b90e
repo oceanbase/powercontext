@@ -1,0 +1,23 @@
+tests/e2e/test_atomic_memory_read_snapshot.py
+  s_98c1bb9fbaf7be::t_67f2115008066c 43-46,73-74,77-78,80,94
+tests/e2e/test_server_metrics_oceanbase.py
+  s_98c1bb9fbaf7be::t_9e75375da5e4ff 136
+tests/release_upgrades/test_full_server.py
+  s_98c1bb9fbaf7be::t_2819358af663b4 1244-1248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b39d02bf8564a62a2d4df4a9b032c9f0e4a6b90e",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

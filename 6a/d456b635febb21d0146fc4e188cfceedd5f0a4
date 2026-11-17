@@ -1,0 +1,49 @@
+docs/zh/docs/develop/plugins.md
+  s_13fec9a57c9104::t_fa91ddf57af5f3 156-157,345-346
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_fa91ddf57af5f3 34-35,71,98
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_13fec9a57c9104::t_c3771235f73a9d 119
+src/powercontext/builtin/plugins/host.py
+  s_13fec9a57c9104::t_c3771235f73a9d 487,489,491-492,503-507
+tests/e2e/test_knowledge_base.py
+  s_13fec9a57c9104::t_9c52346ef887d4 237-238,242,269-271,282
+  s_13fec9a57c9104::t_3a3b829d88f606 236,239-241,243-253
+  s_13fec9a57c9104::t_3831964ec4c2fb 258,267-268
+tests/e2e/test_knowledge_base_changes.py
+  s_13fec9a57c9104::t_9c52346ef887d4 27,69,77-79,89-96,98-99,104-105,109-111,115-121,140-142,144-148,156-161,164-170,172-174,176-181
+  s_13fec9a57c9104::t_3831964ec4c2fb 1-19,21,23-26,28-61,67-68,70-76,85-88,100-103,106-108,112-114,122-139,143,149-155,162-163,171,175,182-208
+  s_13fec9a57c9104::t_a33cd880b26fc0 80-84
+  s_13fec9a57c9104::t_dc6db8f918cc53 20,22,62-66,97
+src/powercontext/plugins.py
+  s_13fec9a57c9104::t_c3771235f73a9d 437-441,443-444,447-451,454,532
+src/powercontext/builtin/plugins/writer.py
+  s_13fec9a57c9104::t_c3771235f73a9d 423,432-435,464
+docs/en/docs/develop/plugins.md
+  s_13fec9a57c9104::t_fa91ddf57af5f3 165-167,370-372
+tests/knowledge_base/test_content_store.py
+  s_13fec9a57c9104::t_3a3b829d88f606 46-54
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_fa91ddf57af5f3 35-36,78,107
+.github/workflows/knowledge-base.yml
+  s_13fec9a57c9104::t_3a3b829d88f606 11,32
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_467f68dc324c01 198-200,202
+  s_13fec9a57c9104::t_c3771235f73a9d 201,203-204,449,499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ad456b635febb21d0146fc4e188cfceedd5f0a4",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

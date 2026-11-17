@@ -1,0 +1,35 @@
+.github/ci-paths.toml
+  s_c25bbb8049f0fd::t_cfa980a8412c3e 45
+.github/workflows/master.yml
+  s_c25bbb8049f0fd::t_43f053ca4eba96 961-965
+docs/en/blog/.authors.yml
+  s_c25bbb8049f0fd::t_9d1561aa980f58 1-15
+docs/zh/blog/.authors.yml
+  s_c25bbb8049f0fd::t_f6f6bddd2b8747 1-15
+scripts/generate_blog_localized_figures.py
+  s_c25bbb8049f0fd::t_e761b38a4e6d31 1-15
+tests/e2e/test_blog_site.py
+  s_c25bbb8049f0fd::t_97c6b9768f98c3 1-15,22,29-30,35-51,71,78
+tests/test_ci_changes.py
+  s_c25bbb8049f0fd::t_803411f7f70041 38
+website/src/components/blog.module.css
+  s_c25bbb8049f0fd::t_2534d7b3d3d4fb 1-16
+website/tests/blog-author-socials.test.ts
+  s_c25bbb8049f0fd::t_6176d1263aa4cf 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a5eb72430a1b4d88910bef1f21845a025066f768",
+  "prompts": {},
+  "sessions": {
+    "s_c25bbb8049f0fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18168-9880-78e2-83da-0957b01fb2e3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "chenguo.zh@oceanbase.com <chenguo.zh@oceanbase.com>"
+    }
+  }
+}

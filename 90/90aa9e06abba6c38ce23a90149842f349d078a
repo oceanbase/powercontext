@@ -1,0 +1,30 @@
+tests/test_migration_revision_names.py
+  s_7ef64a2bfbe178::t_c8cecee82f941c 133-170
+  s_7ef64a2bfbe178::t_2603c82dfc1c5f 18,21,26,171-194
+docs/en/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_c8cecee82f941c 150-158,191-198,208-230
+src/powercontext/builtin/persistence/migrations/revision_names.py
+  s_7ef64a2bfbe178::t_c8cecee82f941c 39-41,46-47,53
+AGENTS.md
+  s_7ef64a2bfbe178::t_c8cecee82f941c 79-98
+docs/zh/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_c8cecee82f941c 122-128,161-168,176-193
+release/upgrade-support.json
+  s_7ef64a2bfbe178::t_3b07818e7dbbde 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9090aa9e06abba6c38ce23a90149842f349d078a",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

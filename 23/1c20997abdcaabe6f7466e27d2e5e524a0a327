@@ -1,0 +1,27 @@
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_13fec9a57c9104::t_523133632705a1 113-117
+frontend/knowledge-base/src/App.tsx
+  s_13fec9a57c9104::t_523133632705a1 54,60
+frontend/knowledge-base/src/styles.scss
+  s_13fec9a57c9104::t_523133632705a1 174-180
+plugins/knowledge-base/ui/app.css
+  s_13fec9a57c9104::t_523133632705a1 16
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_523133632705a1 27,139,148,180,254,256,291,301,303,329,355,358-359,385,391,403,410,424,436,514,549,575,585,591,593,624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "231c20997abdcaabe6f7466e27d2e5e524a0a327",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

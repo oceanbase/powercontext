@@ -1,0 +1,23 @@
+tests/test_project_tools_recovery.py
+  s_98c1bb9fbaf7be::t_68ca5263d59a79 77-82
+  s_98c1bb9fbaf7be::t_a0ed3336c4c299 1-54,56-76,83-97
+  s_98c1bb9fbaf7be::t_eb3699613e20f1 55
+.github/actions/setup-project-tools/action.yml
+  s_98c1bb9fbaf7be::t_f7eef21cebd9fd 33-40,43-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b7fc8bdb3f4529cee2eb287b0921e74db0deae56",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

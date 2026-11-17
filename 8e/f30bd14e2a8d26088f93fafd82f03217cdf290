@@ -1,0 +1,353 @@
+desktop/openapi-generator-checksum.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1-4
+integrations/claude-code/plugins/powercontext/claude_code_host.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-30
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/bootstrap_context.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-161
+integrations/codex/plugins/powercontext/powercontext_lifecycle/client_config.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-129
+tests/codex_plugin/test_bootstrap.py
+  s_13fec9a57c9104::t_f75c4d553582a1 26,30,87,99,119,132,225,229,231,256,259,275,287,306,314,334,344-345,352,358,378,390,410,413,419,423,434,439,446,465,478,481,502,511,513,547,559,579-623,626,649,651-659,662-663
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_13fec9a57c9104::t_f75c4d553582a1 2225,2377,2431,2433,2435
+tests/test_release_version.py
+  s_13fec9a57c9104::t_f75c4d553582a1 122,125
+docs/zh/docs/integrations/cindy.md
+  s_13fec9a57c9104::t_f75c4d553582a1 90-91
+integrations/codex/plugins/powercontext/codex_host.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-31
+docs/zh/docs/get-started/install-and-run.md
+  s_13fec9a57c9104::t_f75c4d553582a1 3,85,88,93,147,150-151,161,167,225,328,332,348
+src/powercontext_integration_lifecycle/scope_binding_errors.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-43
+docs/zh/docs/get-started/manual-start.md
+  s_13fec9a57c9104::t_f75c4d553582a1 52,182,217
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/retrieval_smoke.py
+  s_13fec9a57c9104::t_f75c4d553582a1 22,117-118,131-135,211,226-230,421-440
+  s_13fec9a57c9104::t_c25f09122634d5 441-442
+docs/zh/docs/operate/configuration.md
+  s_13fec9a57c9104::t_f75c4d553582a1 171
+integrations/codex/plugins/powercontext/hooks/token_savings.py
+  s_13fec9a57c9104::t_f75c4d553582a1 35,44,49-50,258
+src/powercontext_integration_lifecycle/__init__.py
+  s_13fec9a57c9104::t_f75c4d553582a1 18-21,24-26
+desktop/README.md
+  s_13fec9a57c9104::t_f75c4d553582a1 84-89,261
+integrations/dsh/plugins/powercontext/tests/shipped-config.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-32
+integrations/dsh/plugins/powercontext/README.md
+  s_13fec9a57c9104::t_f75c4d553582a1 49-50,88-89,120
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-41
+integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py
+  s_13fec9a57c9104::t_f75c4d553582a1 37,39-41,46-47,170-171,505
+docs/zh/docs/integrations/kimi-code.md
+  s_13fec9a57c9104::t_f75c4d553582a1 54
+e2e/bub/tests/test_bub_recall_query.py
+  s_13fec9a57c9104::t_f75c4d553582a1 51,70-73,90,326-381
+docs/en/rfcs/2549-plugin-interfaces.md
+  s_13fec9a57c9104::t_f75c4d553582a1 1062-1063
+integrations/kimi-code/plugins/powercontext/shared/runtime.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 75-77,79
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_cli.py
+  s_13fec9a57c9104::t_f75c4d553582a1 36-143,200-201,482-483
+integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 32,76-77,80
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_13fec9a57c9104::t_f75c4d553582a1 31,36
+evaluation/memory/longmemeval_v2/docs/examples/receipt-diagnostics-v2.query.jsonl
+  s_13fec9a57c9104::t_f75c4d553582a1 1
+integrations/dsh/plugins/powercontext/src/invoke.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 244
+docs/en/docs/operate/configuration.md
+  s_13fec9a57c9104::t_f75c4d553582a1 185
+docs/zh/docs/operate/database-migrations.md
+  s_13fec9a57c9104::t_f75c4d553582a1 17-18,79-80,122,140,142,145-146,165
+integrations/codex/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-50
+scripts/generate_integration_lifecycle.py
+  s_13fec9a57c9104::t_f75c4d553582a1 40-44,50-51,53,55-58,66-72,78-88,120-123,125-126,129-131,134-142,153-216,224-227
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/run_smoke.py
+  s_13fec9a57c9104::t_f75c4d553582a1 79,192-193,231-238,303-307,474-475
+.github/actions/setup-openapi-generator/action.yml
+  s_13fec9a57c9104::t_f75c4d553582a1 1-31
+src/powercontext_integration_lifecycle/transport.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-132
+tests/e2e/test_bub_service_chain.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-322
+tests/test_session_start_shells.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-122
+docs/en/docs/get-started/manual-start.md
+  s_13fec9a57c9104::t_f75c4d553582a1 52,182,217
+src/powercontext/http/_generated/schema.py
+  s_13fec9a57c9104::t_f75c4d553582a1 10
+integrations/dsh/plugins/powercontext/src/recall.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 191-195,199,243-244,266
+tests/e2e/test_dream_usage.py
+  s_13fec9a57c9104::t_f75c4d553582a1 276-284
+src/powercontext/builtin/persistence/migrations/server_resources/plugin_artifact_readiness.py
+  s_13fec9a57c9104::t_f75c4d553582a1 67-69
+tests/claude_code_plugin/conftest.py
+  s_13fec9a57c9104::t_f75c4d553582a1 29,31-41,92-93,104-106
+  s_13fec9a57c9104::t_2f9a9faa6c85e3 107-108
+integrations/claude-code/plugins/powercontext/hooks/session_start.py
+  s_13fec9a57c9104::t_f75c4d553582a1 24,31,33-37,39,59-60,66-79,81-82,86-101,111
+release/upgrade-support.json
+  s_13fec9a57c9104::t_f75c4d553582a1 3,6-7
+desktop/src-tauri/src/transport/operations.json
+  s_13fec9a57c9104::t_f75c4d553582a1 2
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_report.py
+  s_13fec9a57c9104::t_f75c4d553582a1 18,48-50,110-111,764-1149
+  s_13fec9a57c9104::t_6d3da70029db12 1150-1151
+integrations/bub/src/powercontext_bub/plugin.py
+  s_13fec9a57c9104::t_f75c4d553582a1 340-350,353
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_13fec9a57c9104::t_f75c4d553582a1 2
+integrations/dsh/plugins/powercontext/tests/doctor.spec.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 103,111
+integrations/codex/plugins/powercontext/powercontext_lifecycle/diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-124
+.github/workflows/desktop.yml
+  s_13fec9a57c9104::t_f75c4d553582a1 79-80,200-201,300-301
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/report.py
+  s_13fec9a57c9104::t_f75c4d553582a1 53-94,159,193,723-725,728-745,747-926,957-976,1008-1009,1032-1042
+  s_13fec9a57c9104::t_561da3ce3e4784 1043-1044
+desktop/scripts/generate.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 17,21,25,151
+tests/test_ci_changes.py
+  s_13fec9a57c9104::t_f75c4d553582a1 103,144-145,196,293-294,297
+integrations/dsh/plugins/powercontext/src/config.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 68
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/adapter.py
+  s_13fec9a57c9104::t_f75c4d553582a1 35-36,38,85,227-236,271,394,399-406,409-410,478,516,526-544
+  s_13fec9a57c9104::t_920c5cb32d1827 545
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/transport.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-135
+desktop/src-tauri/src/connections/compatibility.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1709-1730
+src/powercontext_integration_lifecycle/session_start.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-378
+docs/zh/rfcs/2549-plugin-interfaces.md
+  s_13fec9a57c9104::t_f75c4d553582a1 901-902
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_retrieval_smoke.py
+  s_13fec9a57c9104::t_f75c4d553582a1 43-44,48,52,116,449-452,494-496,498,507-615
+desktop/scripts/prepare-openapi-generator.test.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 1-107
+integrations/codex/plugins/powercontext/powercontext_lifecycle/scope_binding_errors.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-46
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_receipt_http.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-168
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/prepared_context.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-92
+tests/fixtures/recorded_host_payloads/claude-code.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1-43
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/client_config.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-129
+tests/codex_plugin/conftest.py
+  s_13fec9a57c9104::t_f75c4d553582a1 18,52-53,78-82
+evaluation/memory/longmemeval_v2/docs/receipt-diagnostics.md
+  s_13fec9a57c9104::t_f75c4d553582a1 1-207
+docs/zh/docs/integrations/dsh.md
+  s_13fec9a57c9104::t_f75c4d553582a1 397-399,539-543,547
+src/powercontext/builtin/persistence/migrations/mysql_schema.py
+  s_13fec9a57c9104::t_f75c4d553582a1 105-108
+tests/claude_code_plugin/test_bootstrap.py
+  s_13fec9a57c9104::t_f75c4d553582a1 26,30,87,100,195,199,201,226,229,245,257,276-279,287,311,321-322,329,335,355,367,387,390,396,400,411-414,419,426,445,458,461,482,491,493,527,539,559-603,606,629,631-639,642-643
+tests/e2e/test_atomic_memory_related_pagination.py
+  s_13fec9a57c9104::t_f75c4d553582a1 109-114
+src/powercontext/http/_generated/operations.py
+  s_13fec9a57c9104::t_f75c4d553582a1 252
+desktop/package.json
+  s_13fec9a57c9104::t_f75c4d553582a1 16
+docs/en/docs/get-started/quickstart.md
+  s_13fec9a57c9104::t_f75c4d553582a1 8,15,83
+tests/release_upgrades/README.md
+  s_13fec9a57c9104::t_f75c4d553582a1 9,11-12
+integrations/dsh/plugins/powercontext/tests/invoke.spec.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 127
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/__init__.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-31
+tests/codex_plugin/test_mcp_headers.py
+  s_13fec9a57c9104::t_f75c4d553582a1 35,37-41
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_receipt_diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-450
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/scope_binding_errors.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-46
+evaluation/memory/longmemeval_v2/docs/examples/receipt-diagnostics-v2.manifest.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1-37
+desktop/ui/src/generated/operations.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 18
+integrations/codex/plugins/powercontext/powercontext_lifecycle/__init__.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-31
+website/tests/releases.test.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 50-56
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-124
+docs/zh/development/releasing.md
+  s_13fec9a57c9104::t_f75c4d553582a1 187,235
+tests/builtin/persistence/test_plugin_storage_migration.py
+  s_13fec9a57c9104::t_f75c4d553582a1 157
+website/src/lib/releases.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 32-70
+  s_13fec9a57c9104::t_c94dad86cbc955 31
+README_CN.md
+  s_13fec9a57c9104::t_f75c4d553582a1 130,143,173
+tests/test_hook_diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 24,63-65
+integrations/dsh/plugins/powercontext/tests/automatic-path.spec.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 23,234-286
+  s_13fec9a57c9104::t_d1dc7cfd5112d6 287-288
+integrations/dsh/plugins/powercontext/src/secrets.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 63-64,66,69-71,75
+desktop/VALIDATION.md
+  s_13fec9a57c9104::t_f75c4d553582a1 3467-3526
+pyproject.toml
+  s_13fec9a57c9104::t_f75c4d553582a1 273-275,315
+tests/e2e/test_codex_host_service_chain.py
+  s_13fec9a57c9104::t_f75c4d553582a1 271,289-290
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_f75c4d553582a1 1148-1185,1484
+gateway/crates/pc-gateway-app/src/shutdown.rs
+  s_13fec9a57c9104::t_f75c4d553582a1 319-322,329,348
+integrations/kimi-code/plugins/powercontext/hooks/user_prompt_submit.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 24-26,29-30,38,40,84-87,107
+integrations/claude-code/plugins/powercontext/claude_code_settings.py
+  s_13fec9a57c9104::t_f75c4d553582a1 27
+README_JP.md
+  s_13fec9a57c9104::t_f75c4d553582a1 130,143,173
+integrations/dsh/plugins/powercontext/src/client.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 209-210
+evaluation/memory/longmemeval_v2/docs/receipt-diagnostics.zh.md
+  s_13fec9a57c9104::t_f75c4d553582a1 1-156
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/bootstrap_state.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-186
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/receipt_diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-311
+integrations/openclaw/plugins/memory-powercontext/src/flush-progress.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-57
+integrations/cindy/tests/hooks.test.cjs
+  s_13fec9a57c9104::t_f75c4d553582a1 27-31,172-237
+  s_13fec9a57c9104::t_cc5c94d411e0cd 238
+src/powercontext_integration_lifecycle/host_profile.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-38
+tests/codex_plugin/test_recall.py
+  s_13fec9a57c9104::t_f75c4d553582a1 713,725
+integrations/codex/plugins/powercontext/powercontext_lifecycle/bootstrap_state.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-186
+evaluation/memory/longmemeval_v2/README.md
+  s_13fec9a57c9104::t_f75c4d553582a1 109-127
+docs/zh/docs/get-started/quickstart.md
+  s_13fec9a57c9104::t_f75c4d553582a1 8,15,83
+tests/test_integration_lifecycle.py
+  s_13fec9a57c9104::t_f75c4d553582a1 17-19,34,45-46,50,58
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-50
+integrations/codex/plugins/powercontext/settings.py
+  s_13fec9a57c9104::t_f75c4d553582a1 27
+integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+  s_13fec9a57c9104::t_f75c4d553582a1 27,31,33,39,45
+integrations/lifecycle/flush-progress.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-54
+integrations/pi/plugins/powercontext/src/flush.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 20,30-32
+integrations/codex/plugins/powercontext/powercontext_lifecycle/prepared_context.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-92
+integrations/claude-code/plugins/powercontext/scripts/statusline.py
+  s_13fec9a57c9104::t_f75c4d553582a1 38,43-44
+evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/cli.py
+  s_13fec9a57c9104::t_f75c4d553582a1 194-202,221-222,442-450,500-501
+docs/en/docs/integrations/dsh.md
+  s_13fec9a57c9104::t_f75c4d553582a1 476-481,629-634,638
+integrations/capabilities.toml
+  s_13fec9a57c9104::t_f75c4d553582a1 1119
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_13fec9a57c9104::t_f75c4d553582a1 3065-3066,3068,3070-3072,3076,3330,3667,3990,3997,4314-4316,4320,4374-4377,4397,5633
+integrations/dsh/plugins/powercontext/tests/bundle-patch.spec.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-30
+integrations/pi/plugins/powercontext/src/flush-progress.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-57
+docs/en/docs/get-started/install-and-run.md
+  s_13fec9a57c9104::t_f75c4d553582a1 3,85,88,93,147,150-151,161,167,225,335,339,355
+integrations/dsh/plugins/powercontext/cordis.patch.yml
+  s_13fec9a57c9104::t_f75c4d553582a1 20
+docs/en/docs/integrations/kimi-code.md
+  s_13fec9a57c9104::t_f75c4d553582a1 54
+docs/en/docs/operate/database-migrations.md
+  s_13fec9a57c9104::t_f75c4d553582a1 18,20-21,96-97,150,168,170,173-174,196
+integrations/codex/plugins/powercontext/powercontext_lifecycle/transport.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-135
+docs/zh/docs/integrations/codex.md
+  s_13fec9a57c9104::t_f75c4d553582a1 28-32
+integrations/codex/plugins/powercontext/powercontext_lifecycle/bootstrap_context.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-161
+e2e/bub/tests/test_harbor_agent.py
+  s_13fec9a57c9104::t_f75c4d553582a1 145,147-151,164
+integrations/codex/plugins/powercontext/hooks/recall.py
+  s_13fec9a57c9104::t_f75c4d553582a1 39,41-43,48-49,174-175,583
+integrations/codex/plugins/powercontext/scripts/scope_binding.py
+  s_13fec9a57c9104::t_f75c4d553582a1 27,33,39-45
+integrations/dsh/plugins/powercontext/src/mcp.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 95,106
+docs/en/docs/integrations/codex.md
+  s_13fec9a57c9104::t_f75c4d553582a1 30-35
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 280-328
+tests/fixtures/recorded_host_payloads/codex.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1-32
+integrations/codex/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-41
+.github/ci-paths.toml
+  s_13fec9a57c9104::t_f75c4d553582a1 80-84,149,211-213,254
+desktop/scripts/prepare-openapi-generator.mjs
+  s_13fec9a57c9104::t_f75c4d553582a1 1-121
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/session_start.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-381
+openapi/powercontext.yaml
+  s_13fec9a57c9104::t_f75c4d553582a1 19
+tests/claude_code_plugin/test_hook.py
+  s_13fec9a57c9104::t_f75c4d553582a1 726,736
+integrations/cindy/src/worker.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 27-28,160,195,197,199
+integrations/codex/plugins/powercontext/powercontext_lifecycle/session_start.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-381
+README.md
+  s_13fec9a57c9104::t_f75c4d553582a1 132,145,175
+evaluation/memory/longmemeval_v2/docs/examples/receipt-diagnostics-v2.aggregate.json
+  s_13fec9a57c9104::t_f75c4d553582a1 1-105
+release/notes/powercontext-v1.5.2.md
+  s_13fec9a57c9104::t_f75c4d553582a1 1-69
+integrations/dsh/plugins/powercontext/src/index.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 181
+docs/en/development/releasing.md
+  s_13fec9a57c9104::t_f75c4d553582a1 203,263
+integrations/codex/plugins/powercontext/hooks/session_binding.py
+  s_13fec9a57c9104::t_f75c4d553582a1 25,32-37,39,63-64,70-83,86-87,91-106,116
+docs/en/docs/integrations/cindy.md
+  s_13fec9a57c9104::t_f75c4d553582a1 98-103
+evaluation/memory/longmemeval_v2/tests/test_longmemeval_v2_run_smoke.py
+  s_13fec9a57c9104::t_f75c4d553582a1 129-131,376,391-450
+integrations/dsh/plugins/powercontext/tests/explicit-write-privacy.spec.ts
+  s_13fec9a57c9104::t_f75c4d553582a1 1-100
+src/powercontext_integration_lifecycle/bootstrap_state.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-183
+src/powercontext_integration_lifecycle/diagnostics.py
+  s_13fec9a57c9104::t_f75c4d553582a1 1-121
+desktop/README.zh.md
+  s_13fec9a57c9104::t_f75c4d553582a1 147-152,231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8ef30bd14e2a8d26088f93fafd82f03217cdf290",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

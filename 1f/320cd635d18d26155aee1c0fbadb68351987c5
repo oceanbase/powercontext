@@ -1,0 +1,39 @@
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_595ae1fc927c61 80-84,119,135,137,208,243-244,246,270,298,307,310,325
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_13fec9a57c9104::t_595ae1fc927c61 20,33,42,51,134-150,152-171
+  s_13fec9a57c9104::t_e79b6e0f28f7a7 151
+  s_13fec9a57c9104::t_6c4690fc1841b0 172-173
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_e79b6e0f28f7a7 85-87
+frontend/knowledge-base/src/App.tsx
+  s_13fec9a57c9104::t_595ae1fc927c61 46,74-75
+  s_13fec9a57c9104::t_abd6a00f356dc6 29-34,53-64,66,68-73,90,98,121-127,132,149-189,201
+  s_13fec9a57c9104::t_21be96184adbb0 16,18,23,35-39,48-52,76-81,83-84,190,194-200,220-221
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_13fec9a57c9104::t_595ae1fc927c61 20,41,85,94,143
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_f02d64d927839e 74-75
+frontend/knowledge-base/src/styles.scss
+  s_13fec9a57c9104::t_46d3d5df8a9dfa 40,152-154
+plugins/knowledge-base/ui/app.css
+  s_13fec9a57c9104::t_d8e42e364e6597 16
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_224a517ea508ef 16,20-21,23-27,29-30,40,46,48,61-63,80-82,137,139-141,143,148,180,235,237,248,254,256,263,265,268,271,274,277,280,283,287,291,298,300-301,303,314,319,329,331-332,334,340-341,355,358-359,372,374,376,379,385,391,397,403,405-408,410,421,424,427,436,445,448,468,472,481,484,487,498,503,509,514,517,520,523,527,534-554,574-592,594-595,597-599,601,603,606-611,614-617,622-623,625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1f320cd635d18d26155aee1c0fbadb68351987c5",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
