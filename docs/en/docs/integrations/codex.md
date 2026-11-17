@@ -306,7 +306,77 @@ This adds inference latency to each prompt and is not the normal interactive set
 
 When Codex sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
 each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and
-rejects a prepared-context block that the gateway did not inject, so a turn that also carries the plugin's block fails.
+rejects a prepared-context block that the gateway did not inject. Codex adds the plugin's prepared context to the
+thread as a developer message, so once the plugin's recall adds context to a thread, Core rejects the check for that
+request and every later request in the thread with HTTP 422, even in a non-enforcing mode. The gateway returns HTTP
+503 `gate_paused`, and the turn fails before the model receives it.
+
+Keep the plugin defaults where Codex calls its model directly or signs in with a subscription account, because the
+gateway does not carry that traffic. To route Codex through the gateway, configure Core, Codex, the plugin, and the
+gateway as follows.
+
+### Run Core in a non-enforcing mode
+
+Codex does not send an output limit (`max_output_tokens`). An enforcing Core requires a token budget on the target and
+an output limit on every generation request, so it withholds each Codex request (for example with
+`output_limit_required`), the gateway returns HTTP 400, and the turn fails before the model receives it. Run Core with
+inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile that
+`PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Core withholds a check for an unknown target in every
+mode. For example:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
+  "mode": "advisory",
+  "targets": {
+    "default": {
+      "endpoint": "https://models.example/v1/responses",
+      "model": "approved-model",
+      "protocol": "openai-responses"
+    }
+  }
+}'
+```
+
+None of these modes stops delivery for a privacy rule. Core reports incomplete privacy coverage, which the gateway
+accepts only when it discovered a non-enforcing Core at startup, so restart the gateway after changing the mode. See
+[Context reuse and final admission](../operate/context-protection.md) and
+[Inference privacy protection](../operate/inference-protection.md) before choosing a mode.
+
+Codex sends `prompt_cache_key` with every request. A non-enforcing Core does not withhold the request for it, so
+adding `provider-default` to the target's `allowed_cache_retention` is optional.
+
+### Point Codex at the gateway
+
+Add a provider for the gateway's `/gateway/v1` to `~/.codex/config.toml` and select it. Codex 0.167 accepts only
+`wire_api = "responses"` for a custom provider, and on the Responses route the gateway identifies the conversation
+from Codex's `thread-id` header:
+
+```toml
+model = "approved-model"
+model_provider = "powercontext-gateway"
+
+[model_providers.powercontext-gateway]
+name = "PowerContext gateway"
+base_url = "http://127.0.0.1:8787/gateway/v1"
+wire_api = "responses"
+env_key = "PC_GATEWAY_KEY"
+```
+
+Keys at the top level of `~/.codex/config.toml` send every Codex session through the gateway. To choose per session,
+put the same keys in `~/.codex/powercontext-gateway.config.toml` and start Codex with
+`codex --profile powercontext-gateway`; Codex 0.167 rejects a `[profiles.<name>]` table in `config.toml`.
+
+Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` in the environment that starts Codex; Codex sends
+it as the bearer token. While `PC_GATEWAY_KEY` is unset, Codex stops with `Missing environment variable` before it
+sends a request. A gateway on a loopback listener may run without `PC_GATEWAY_API_KEY` and then accepts any token, but
+Codex still needs the variable.
+
+In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API and MCP requests to Core with the
+client's own credentials, so the plugin can use the gateway's address as its Server URL
+(`powercontext setup codex --server-url`).
+
+### Turn the plugin's prompt recall and capture off
+
 Turn the plugin's prompt-time recall and prompt capture off before starting Codex:
 
 ```bash
@@ -315,15 +385,37 @@ export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
 codex
 ```
 
+Start a new thread after changing these settings. Codex resends the thread's history with each request, so a thread
+that already carries the plugin's context keeps failing through the gateway after recall is turned off.
+
 With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
 `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
-context, MCP tools, and diagnostics keep their own settings. Keep the default where Codex calls its model directly or
-signs in with a subscription account, because the gateway does not carry that traffic.
+context, MCP tools, and diagnostics keep their own settings.
+
+### Configure the gateway
+
+Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects requests that carry a conversation by
+default. Set:
+
+- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
+  provider key. The gateway sends to this URL itself, and without it the Responses route returns HTTP 501
+  `responses_route_disabled`.
+- `PC_GATEWAY_API_KEY` to the key that Codex sends as `PC_GATEWAY_KEY`. A non-loopback listener requires it.
+- `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
+- `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace. Running `scope_binding.py` without
+  `--bind-scope`, as described in [Hand off the current work in one turn](#hand-off-the-current-work-in-one-turn),
+  prints that Scope.
+
+The gateway reads these settings at startup. For its authentication and injection settings, see
+[Deploy the Server](../operate/deploy-server.md#gateway-authentication-boundaries). A model request body through the
+gateway is limited to at most 1 MiB, so a long thread can be refused before it is sent; see
+[Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity).
 
 With recall off, prompt-time context comes only from the gateway, with two differences:
 
-- The gateway prepares and captures in the Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin
-  resolves for the Session or workspace. Set it to the same Scope.
+- The gateway prepares and captures every conversation in the one Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in
+  the Scope this plugin resolves for each Session or workspace.
 - The gateway does not send the bootstrap receipt, so Memory already injected by
   [Session bootstrap context](#opt-in-to-session-bootstrap-context) can appear again in the gateway's context.
 
