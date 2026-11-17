@@ -15,12 +15,15 @@
 """Release-based names preserve the existing upgrade and recovery identities."""
 
 import json
+import shutil
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from powercontext.builtin.persistence.migrations import MigrationBundle, SQLiteMigrationRunner
 from powercontext.builtin.persistence.migrations.revision_names import describe_revision
 from powercontext.cli.app import create_cli
 from powercontext.server.cli import app
@@ -127,3 +130,65 @@ def test_unregistered_legacy_revisions_do_not_claim_a_software_release():
         "software_version": None,
         "sequence": None,
     }
+
+
+@pytest.mark.parametrize(
+    "revision, sequence",
+    [
+        ("v1_5_3_pr2674_01", 1),
+        ("v1_5_3_pr2674_02", 2),
+        ("v1_5_3_pr2688_01", 1),
+        ("v1_5_3_pr1_99", 99),
+    ],
+)
+def test_pr_scoped_revisions_describe_target_release_and_local_sequence(revision, sequence):
+    assert describe_revision(revision) == {
+        "revision": revision,
+        "name": revision,
+        "software_version": "1.5.3",
+        "sequence": sequence,
+    }
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        "v1_5_3_pr0_01",
+        "v1_5_3_pr02674_01",
+        "v1_5_3_pr2674_00",
+        "v1_5_3_pr2674_1",
+        "v1_5_3_pr2674_001",
+        "v1_5_3_pr2674_01_extra",
+    ],
+)
+def test_malformed_pr_names_remain_opaque(revision):
+    assert describe_revision(revision) == {
+        "revision": revision,
+        "name": revision,
+        "software_version": None,
+        "sequence": None,
+    }
+
+
+def test_pr_scoped_ids_follow_dependencies_and_survive_database_round_trip(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "database_migrations"
+    resources = shutil.copytree(fixture, tmp_path / "bundle")
+    # The smaller PR number deliberately follows the larger one in the chain.
+    revisions = ["v1_5_3_pr2688_01", "v1_5_3_pr2674_01", "v1_5_3_pr2674_02"]
+    for path in [resources / "manifest.json", *sorted((resources / "versions").glob("*.py"))]:
+        content = path.read_text()
+        for original, revision in zip(("p0001", "p0002", "p0003"), revisions, strict=True):
+            content = content.replace(f'"{original}"', f'"{revision}"')
+        path.write_text(content)
+
+    database = tmp_path / "new.sqlite3"
+    runner = SQLiteMigrationRunner(database, MigrationBundle(resources))
+    plan = runner.plan()
+    assert list(plan.revisions) == revisions
+    result = runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+    assert result.changed
+    assert runner.verify().revision == revisions[-1]
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [(revisions[-1],)]
+        assert "memory_citations" in {row[1] for row in connection.execute("PRAGMA table_info(pc_artifacts)")}
+    assert not runner.apply().changed
