@@ -121,10 +121,11 @@ Streaming and interrupt/resume were also exercised with that real model: `astrea
 Source, and an `interrupt_on` run paused before the tool, then stored exactly one Source after
 `Command(resume={"decisions": [{"type": "approve"}]})`.
 
-Automatic Source-to-Memory extraction was configured against local models but did not produce Memory: Qwen2.5-0.5B
-returned a structured result the Server rejected (`InvalidInferenceOutputError`) and Qwen3-0.6B returned an empty
-candidate list. Extraction needs a generation model that reliably follows the extraction schema, and semantic ranking
-needs an embedding model; neither was available here, so both paths stay unvalidated.
+Automatic Source-to-Memory extraction and semantic recall were validated with two vLLM-served models: Qwen3-4B for
+generation and bge-small-en-v1.5 (`--runner pooling`) for embeddings. A captured turn was flushed into Memory, and a
+paraphrased query ("What deployment command should we use?") returned a non-empty prepared context that the agent
+recalled in a new session. With only Qwen2.5-0.5B or Qwen3-0.6B the extraction produced an unusable or empty result,
+so these models are too small for the extraction schema.
 
 JavaScript and Managed Deep Agents were not exercised: the JavaScript `deepagents` package exists (1.16.5) but
 PowerContext ships no JavaScript adapter, and Managed Deep Agents is a hosted LangSmith deployment.
