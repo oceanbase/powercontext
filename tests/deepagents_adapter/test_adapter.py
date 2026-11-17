@@ -24,6 +24,7 @@ from typing import Any
 import deepagents
 import httpx
 import pytest
+from deepagents.middleware.subagents import DEFAULT_SUBAGENT_PROMPT
 from fastapi import FastAPI
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
@@ -102,6 +103,39 @@ SUBAGENT = {
 }
 
 
+GENERAL_PURPOSE_PROBE = DEFAULT_SUBAGENT_PROMPT.split("\n", 1)[0]
+
+
+class _DelegatingModel(_ScriptedModel):
+    """Delegate once to ``target_subagent``, then answer; the target answers directly."""
+
+    target_subagent: str = "general-purpose"
+
+    def _generate(self, messages: Sequence[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
+        self.calls.append(list(messages))
+        if GENERAL_PURPOSE_PROBE in "\n".join(_system_texts(messages)):
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Delegated answer."))])
+        if any(isinstance(message, ToolMessage) for message in messages):
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Final answer."))])
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "id": "call-gp",
+                                "args": {"description": "find deployment steps", "subagent_type": self.target_subagent},
+                                "type": "tool_call",
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+
+
 def _system_texts(messages: Sequence[BaseMessage]) -> list[str]:
     return [message.text for message in messages if message.type == "system"]
 
@@ -126,25 +160,61 @@ def test_declarative_subagents_get_recall_only_middleware() -> None:
     original = dict(SUBAGENT)
     augmented = powercontext_subagents([original])
 
-    assert augmented is not None
-    assert len(augmented) == 1
-    middleware = augmented[0]["middleware"]
+    assert [spec["name"] for spec in augmented] == ["general-purpose", "researcher"]
+    middleware = augmented[1]["middleware"]
     assert len(middleware) == 1
     assert isinstance(middleware[0], PowerContextMiddleware)
     assert middleware[0].auto_capture is False
     assert "middleware" not in original, "the caller's spec must not be mutated"
 
 
+def test_default_general_purpose_subagent_gets_recall() -> None:
+    """Deep Agents creates this subagent implicitly, so it must be supplied with recall."""
+    augmented = powercontext_subagents(None)
+
+    assert [spec["name"] for spec in augmented] == ["general-purpose"]
+    general = augmented[0]
+    assert general["description"], "the built-in description must be preserved"
+    assert general["system_prompt"], "the built-in system prompt must be preserved"
+    assert [item.auto_capture for item in general["middleware"]] == [False]
+    assert "model" not in general, "Deep Agents must inherit the parent model"
+    assert "tools" not in general, "Deep Agents must inherit the parent tools"
+
+
+def test_explicit_general_purpose_subagent_is_not_duplicated() -> None:
+    spec = {"name": "general-purpose", "description": "custom", "system_prompt": "custom prompt"}
+    augmented = powercontext_subagents([spec])
+
+    assert [item["name"] for item in augmented] == ["general-purpose"]
+    assert augmented[0]["middleware"][0].auto_capture is False
+
+
+def test_capture_middleware_on_a_subagent_is_normalized_to_recall() -> None:
+    """A delegated turn must never be captured, even if the caller asked for it."""
+    capturing = PowerContextMiddleware(auto_capture=True, trace_content=True)
+    spec = {**SUBAGENT, "middleware": [capturing]}
+    augmented = powercontext_subagents([spec])
+
+    normalized = augmented[1]["middleware"][0]
+    assert isinstance(normalized, PowerContextMiddleware)
+    assert normalized.auto_capture is False
+    assert normalized.trace_content is True, "unrelated options must survive normalization"
+    assert normalized is not capturing
+    assert capturing.auto_capture is True, "the caller-owned middleware must not be mutated"
+    assert spec["middleware"] == [capturing], "the caller-owned spec must not be mutated"
+
+
 def test_compiled_subagents_are_left_alone() -> None:
     compiled = {"name": "compiled", "description": "owns its graph", "runnable": object()}
+    augmented = powercontext_subagents([compiled])
+
+    assert augmented[1] == compiled
+    assert [spec["name"] for spec in augmented] == ["general-purpose", "compiled"]
+
+
+def test_compiled_general_purpose_subagent_is_not_duplicated() -> None:
+    compiled = {"name": "general-purpose", "description": "owns its graph", "runnable": object()}
     assert powercontext_subagents([compiled]) == [compiled]
-
-
-def test_subagents_with_powercontext_middleware_are_not_duplicated() -> None:
-    existing = PowerContextMiddleware(auto_capture=False)
-    spec = {**SUBAGENT, "middleware": [existing]}
-    augmented = powercontext_subagents([spec])
-    assert augmented == [spec]
 
 
 def test_create_deep_agent_defaults_context_schema(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,6 +292,31 @@ def test_deep_agent_recalls_for_main_agent_and_subagents(monkeypatch: pytest.Mon
     assert all(CONTEXT_MARKER not in message.text for message in result["messages"]), (
         "recalled context must not enter agent state"
     )
+
+
+def test_default_general_purpose_delegation_recalls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deep Agents' implicit general-purpose subagent must receive bounded recall too."""
+
+    async def fake_prepare(self: PowerContextMiddleware, query: str, scope: Any) -> str:
+        return RECALL_TEXT
+
+    monkeypatch.setattr(PowerContextMiddleware, "_prepare", fake_prepare)
+
+    model = _DelegatingModel()
+    agent = create_powercontext_deep_agent(model, tools=[], system_prompt="You are a deployment assistant.")
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": "How should we deploy?"}]},
+        context=PowerContextScope(),
+    )
+
+    general_purpose_calls = [
+        messages for messages in model.calls if GENERAL_PURPOSE_PROBE in "\n".join(_system_texts(messages))
+    ]
+    assert general_purpose_calls, "the task tool must invoke the built-in general-purpose subagent"
+    assert all(CONTEXT_MARKER in "\n".join(_system_texts(messages)) for messages in general_purpose_calls), (
+        "the delegated general-purpose model call must receive bounded recall"
+    )
+    assert result["messages"][-1].text == "Final answer."
 
 
 def test_deep_agent_skips_capture_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,7 +10,8 @@ status: community
 
 `create_powercontext_deep_agent` 把 [Deep Agents](https://github.com/langchain-ai/deepagents) 的
 `create_deep_agent` agent 连接到单独运行的 PowerContext Server。它只是 `powercontext-langchain` 中
-`PowerContextMiddleware` 的薄适配层：召回和可选采集仍由 middleware 完成，适配层只负责让每个声明式 subagent 也拿到它。
+`PowerContextMiddleware` 的薄适配层：召回和可选采集仍由 middleware 完成，适配层只负责让内置的 `general-purpose`
+subagent 和每个声明式 subagent 也拿到它。
 
 Deep Agents 会自行组装 middleware 栈，并把每个声明式 subagent 编译成独立图，因此传给 `create_deep_agent` 的
 middleware 只包住主 agent 的模型调用。经由 `context=` 传入的 `PowerContextScope` 仍会到达 subagent，因为 Deep Agents
@@ -18,7 +19,7 @@ middleware 只包住主 agent 的模型调用。经由 `context=` 传入的 `Pow
 
 ## 安装
 
-先安装 LangChain 集成；适配层位于同一个包中，并以延迟导入的方式使用 `deepagents`。
+安装适配层包；它依赖 `powercontext-langchain` 与 `deepagents`。
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
@@ -26,15 +27,14 @@ powercontext server run
 ```
 
 ```bash
-uv pip install ./integrations/langchain
-uv pip install "deepagents>=0.7,<0.8"
+uv pip install ./integrations/deepagents
 ```
 
 ## 创建 agent
 
 ```python
 from powercontext_langchain import PowerContextScope
-from powercontext_langchain.deepagents import create_powercontext_deep_agent
+from powercontext_deepagents import create_powercontext_deep_agent
 
 agent = create_powercontext_deep_agent(
     model,
@@ -63,8 +63,11 @@ result = await agent.ainvoke(
 
 - 主 agent 获得一个 `PowerContextMiddleware(auto_capture=...)`。如果 `middleware=` 中已有
   `PowerContextMiddleware`，则复用该实例，不再重复添加。
-- 每个声明式 subagent 的 `middleware` 列表末尾追加一个 `PowerContextMiddleware(auto_capture=False)`。适配层会复制
-  规格，不会修改调用方传入的映射。
+- 内置的 `general-purpose` subagent 会获得一个 `PowerContextMiddleware(auto_capture=False)`；否则 Deep Agents 会
+  在不带召回的情况下创建该 subagent。
+- 每个声明式 subagent 的 `middleware` 列表末尾追加一个 `PowerContextMiddleware(auto_capture=False)`。已有的
+  `PowerContextMiddleware(auto_capture=True)` 会被替换为等价的 recall-only 副本，因此被委派的轮次绝不会被采集。
+  适配层会复制规格与 middleware，不会修改调用方传入的对象。
 - `context_schema` 默认取 `PowerContextScope`。传入其他值时原样转发，此时该 agent 的 PowerContext 回退到环境变量
   配置。
 
@@ -72,8 +75,8 @@ result = await agent.ainvoke(
 
 召回与采集刻意不对称：
 
-- **召回**同时运行在主 agent 和每个声明式 subagent 中，使用 `context=` 中的 scope。被委派的任务因此能看到与父级
-  相同的有界历史。
+- **召回**同时运行在主 agent 和每个 subagent（包括内置的 `general-purpose`）中，使用 `context=` 中的 scope。
+  被委派的任务因此能看到与父级相同的有界历史。
 - **采集**只保留在主 agent。subagent 以 `auto_capture=False` 运行，因此一轮委派只会由父级记录一次，即使同一轮
   中运行了多个 subagent。
 
@@ -107,8 +110,9 @@ result = await agent.ainvoke(
 
 ## 已验证版本
 
-14 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、subagent 召回、单次采集
-归属、流式 `astream`、中断/恢复、重复模型调用不累积上下文，以及不同运行之间的 Scope 隔离。
+18 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、声明式 subagent 与内置
+`general-purpose` subagent 的召回、对自带 `auto_capture=True` 的 subagent 做采集归一化、单次采集归属、流式
+`astream`、中断/恢复、重复模型调用不累积上下文，以及不同运行之间的 Scope 隔离。
 
 真实模型验证使用 PowerContext Server 0.1.dev1（HTTP + SQLite）、`deepagents` 0.7.39、`langchain` 1.5.0、
 `langchain-core` 1.8.1、`langchain-openai` 1.8.0，以及 vLLM 0.29.0 上的 Qwen2.5-0.5B-Instruct：

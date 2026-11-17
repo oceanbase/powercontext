@@ -11,7 +11,7 @@ status: community
 `create_powercontext_deep_agent` connects a [Deep Agents](https://github.com/langchain-ai/deepagents)
 `create_deep_agent` agent to a separately running PowerContext Server. It is a thin adapter over
 `PowerContextMiddleware` from `powercontext-langchain`: the middleware still performs recall and optional capture, and
-the adapter only ensures every declarative subagent receives it too.
+the adapter only ensures the built-in `general-purpose` subagent and every declarative subagent receive it too.
 
 Deep Agents composes its own middleware stack and compiles each declarative subagent as a separate graph, so a
 middleware passed to `create_deep_agent` wraps only the main agent's model calls. Passing `PowerContextScope` through
@@ -19,7 +19,7 @@ middleware passed to `create_deep_agent` wraps only the main agent's model calls
 
 ## Install
 
-Install the LangChain integration first; the adapter ships in the same package and imports `deepagents` lazily.
+Install the adapter package; it depends on `powercontext-langchain` and `deepagents`.
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
@@ -27,15 +27,14 @@ powercontext server run
 ```
 
 ```bash
-uv pip install ./integrations/langchain
-uv pip install "deepagents>=0.7,<0.8"
+uv pip install ./integrations/deepagents
 ```
 
 ## Create the agent
 
 ```python
 from powercontext_langchain import PowerContextScope
-from powercontext_langchain.deepagents import create_powercontext_deep_agent
+from powercontext_deepagents import create_powercontext_deep_agent
 
 agent = create_powercontext_deep_agent(
     model,
@@ -64,8 +63,12 @@ result = await agent.ainvoke(
 
 - The main agent receives one `PowerContextMiddleware(auto_capture=...)`. An existing `PowerContextMiddleware` in
   `middleware=` is reused instead of duplicated.
+- The built-in `general-purpose` subagent receives one `PowerContextMiddleware(auto_capture=False)`; Deep Agents
+  would create that subagent without recall otherwise.
 - Each declarative subagent receives one `PowerContextMiddleware(auto_capture=False)` appended to its own
-  `middleware` list. The adapter copies the specification; the mapping you pass is not mutated.
+  `middleware` list. An existing `PowerContextMiddleware(auto_capture=True)` is replaced by an equivalent
+  recall-only copy, so a delegated turn is never captured. The adapter copies the specification and the middleware;
+  the objects you pass are not mutated.
 - `context_schema` defaults to `PowerContextScope`. Any other value you pass is forwarded unchanged, and PowerContext
   then falls back to its environment settings for that agent.
 
@@ -73,8 +76,8 @@ result = await agent.ainvoke(
 
 Recall and capture are deliberately asymmetric:
 
-- **Recall** runs in the main agent and in every declarative subagent, using the scope from `context=`. A delegated
-  task therefore sees the same bounded history as its parent.
+- **Recall** runs in the main agent and in every subagent, including the built-in `general-purpose` one, using the
+  scope from `context=`. A delegated task therefore sees the same bounded history as its parent.
 - **Capture** stays on the main agent. Subagents run with `auto_capture=False`, so a delegated turn is stored once,
   by the parent, even when several subagents run during the same turn.
 
@@ -113,9 +116,10 @@ generation model and an embedding model configured on the Server; the quickstart
 
 ## Validated versions
 
-Deterministic tests (14) run against scripted models and an in-process PowerContext Server over SQLite: middleware
-injection, subagent recall, single-capture ownership, streaming (`astream`), interrupt/resume, repeated model calls
-without context accumulation, and Scope isolation between runs.
+Deterministic tests (18) run against scripted models and an in-process PowerContext Server over SQLite: middleware
+injection, recall on declarative subagents and on the built-in `general-purpose` subagent, capture normalization for a
+subagent that arrives with `auto_capture=True`, single-capture ownership, streaming (`astream`), interrupt/resume,
+repeated model calls without context accumulation, and Scope isolation between runs.
 
 A real-model run used PowerContext Server 0.1.dev1 (HTTP + SQLite), `deepagents` 0.7.39, `langchain` 1.5.0,
 `langchain-core` 1.8.1, `langchain-openai` 1.8.0, and vLLM 0.29.0 serving Qwen2.5-0.5B-Instruct:

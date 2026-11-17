@@ -17,7 +17,8 @@
 ``create_deep_agent`` composes its own middleware stack and compiles every declarative subagent as a
 separate graph, so a middleware passed to ``create_deep_agent`` only wraps the main agent's model calls.
 ``create_powercontext_deep_agent`` installs a recall-only ``PowerContextMiddleware`` on each declarative
-subagent as well, and keeps ``auto_capture`` on the main agent so a delegated turn is stored once.
+subagent — including the built-in ``general-purpose`` subagent that Deep Agents would otherwise create
+without recall — and keeps ``auto_capture`` on the main agent so a delegated turn is stored once.
 
 Both the main agent and its subagents resolve the same ``PowerContextScope`` because Deep Agents forwards the
 parent runtime context to the ``task`` tool's subagent graphs.
@@ -31,10 +32,16 @@ from typing import Any
 from powercontext_langchain import PowerContextMiddleware, PowerContextScope
 
 _COMPILED_KEYS = ("runnable", "graph_id")
+_GENERAL_PURPOSE = "general-purpose"
 
 
 def _has_powercontext_middleware(middleware: Iterable[Any]) -> bool:
     return any(isinstance(item, PowerContextMiddleware) for item in middleware)
+
+
+def _recall_only_copy(middleware: PowerContextMiddleware) -> PowerContextMiddleware:
+    """Return an equivalent recall-only middleware; the caller's instance is never mutated."""
+    return PowerContextMiddleware(auto_capture=False, trace_content=middleware.trace_content)
 
 
 def _recall_only_subagent(spec: Any) -> Any:
@@ -43,12 +50,37 @@ def _recall_only_subagent(spec: Any) -> Any:
         return spec
     if any(key in spec for key in _COMPILED_KEYS):
         return spec
-    existing = spec.get("middleware") or ()
-    if _has_powercontext_middleware(existing):
-        return spec
+    existing = list(spec.get("middleware") or ())
     augmented = dict(spec)
+    if _has_powercontext_middleware(existing):
+        # A caller-supplied capture middleware would store the delegated turn too, and the different turn
+        # texts produce different Source identities, so idempotency cannot remove it. Keep its position and
+        # options but force the recall-only contract on a copy.
+        augmented["middleware"] = [
+            _recall_only_copy(item) if isinstance(item, PowerContextMiddleware) else item for item in existing
+        ]
+        return augmented
     augmented["middleware"] = [*existing, PowerContextMiddleware(auto_capture=False)]
     return augmented
+
+
+def _general_purpose_subagent() -> dict[str, Any]:
+    """Return Deep Agents' built-in general-purpose spec with recall-only middleware.
+
+    The spec omits ``model``, ``tools`` and ``interrupt_on``, so Deep Agents inherits them from the parent
+    exactly as it does for its own default subagent.
+    """
+    try:
+        from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
+    except ImportError as exc:  # pragma: no cover - exercised only without the optional dependency
+        raise ImportError(  # noqa: TRY003
+            "Deep Agents integration requires the 'deepagents' package: pip install 'deepagents>=0.7,<0.8'"
+        ) from exc
+    return {**GENERAL_PURPOSE_SUBAGENT, "middleware": [PowerContextMiddleware(auto_capture=False)]}
+
+
+def _spec_name(spec: Any) -> str | None:
+    return spec.get("name") if isinstance(spec, Mapping) else None
 
 
 def powercontext_deep_agent_middleware(middleware: Sequence[Any] = (), *, auto_capture: bool = False) -> list[Any]:
@@ -59,15 +91,23 @@ def powercontext_deep_agent_middleware(middleware: Sequence[Any] = (), *, auto_c
     return combined
 
 
-def powercontext_subagents(subagents: Iterable[Any] | None) -> list[Any] | None:
-    """Return declarative subagent specs with recall-only PowerContext middleware.
+def powercontext_subagents(subagents: Iterable[Any] | None) -> list[Any]:
+    """Return subagent specs that all recall through PowerContext.
 
-    Compiled (:class:`deepagents.CompiledSubAgent`) and remote (:class:`deepagents.AsyncSubAgent`) subagents
-    own their graph and are returned unchanged; add ``PowerContextMiddleware`` inside that graph explicitly.
+    Declarative specs receive a recall-only ``PowerContextMiddleware``; an existing ``PowerContextMiddleware``
+    is replaced by an equivalent recall-only copy so a caller cannot accidentally capture a delegated turn.
+    Compiled (:class:`deepagents.CompiledSubAgent`) and remote (:class:`deepagents.AsyncSubAgent`) subagents own
+    their graph and are returned unchanged; add ``PowerContextMiddleware`` inside that graph explicitly.
+
+    Deep Agents adds a built-in ``general-purpose`` subagent when no spec uses that name, and it would be
+    created without recall. This function always returns such a spec, carrying recall-only middleware, so
+    default delegation keeps the same Scope-bound recall as the main agent. A caller-supplied
+    ``general-purpose`` spec is normalized instead of duplicated.
     """
-    if subagents is None:
-        return None
-    return [_recall_only_subagent(spec) for spec in subagents]
+    specs = [_recall_only_subagent(spec) for spec in subagents or ()]
+    if not any(_spec_name(spec) == _GENERAL_PURPOSE for spec in specs):
+        specs.insert(0, _general_purpose_subagent())
+    return specs
 
 
 def create_powercontext_deep_agent(
@@ -85,7 +125,9 @@ def create_powercontext_deep_agent(
         model: Chat model or ``provider:model`` string, forwarded to ``create_deep_agent``.
         tools: Additional tools, forwarded to ``create_deep_agent``.
         subagents: Declarative subagent specs. Each one receives a recall-only
-            ``PowerContextMiddleware``; compiled and remote subagents are returned unchanged.
+            ``PowerContextMiddleware``, and an existing capture-enabled entry is normalized to recall-only.
+            The built-in ``general-purpose`` subagent receives the same recall middleware when the caller
+            does not pass a spec with that name; compiled and remote subagents are returned unchanged.
         middleware: Additional middleware for the main agent. An existing
             ``PowerContextMiddleware`` entry is reused instead of duplicated.
         auto_capture: Capture successful completed turns on the main agent. Subagents never capture, so a
