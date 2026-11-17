@@ -460,7 +460,9 @@ def test_other_origin_does_not_broaden_migrated_entry_root_groups_or_selection(m
             selected = _atomic("alpha", 1)
             resolved = await _resolver(contexts).resolve(connection, artifacts=(selected, other))
             assert _projected_sources(resolved) == (A, B)
-            alpha = next(item for item in resolved.projection.evidence if item.evidence_id == evidence_id(selected))
+            alpha = next(
+                item for item in resolved.projection.evidence if item.evidence_id == evidence_id(selected, SCOPE)
+            )
             groups = {group.group_id: group for group in resolved.projection.root_groups}
             assert tuple(source for group_id in alpha.root_group_ids for source in groups[group_id].sources) == (A,)
             chosen = select_evidence(resolved.manifest, (alpha.evidence_id,), skill=False, target=None)

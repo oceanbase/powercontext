@@ -8003,6 +8003,10 @@ components:
         artifact:
           $ref: '#/components/schemas/ArtifactReference'
           nullable: true
+        origin_scope_id:
+          description: The Scope that owns this node. Absent on a v1 manifest.
+          type: string
+          nullable: true
         role:
           $ref: '#/components/schemas/DreamEvidenceRole'
         historical:
@@ -8023,6 +8027,10 @@ components:
           items:
             $ref: '#/components/schemas/DreamSourceReference'
           type: array
+        scope_id:
+          description: The Scope that owns this group's Sources, when not the run Scope.
+          type: string
+          nullable: true
         independence:
           default: unknown
           $ref: '#/components/schemas/DreamEvidenceIndependence'

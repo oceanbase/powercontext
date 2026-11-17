@@ -406,7 +406,7 @@ class DreamService:
         generated = await self.generator.generate(
             DreamGenerationInput(
                 operation=run.operation,
-                target_evidence_id=_target_evidence_id(record.request),
+                target_evidence_id=_target_evidence_id(record.run.scope_id, record.request),
                 evidence=resolved.projection,
                 profile_policy=record.profile_policy,
                 prompt_definition=prompt_definition,
@@ -812,11 +812,13 @@ def _resolve_references(request: CreateDreamRunRequest):
     return unique_references((*request.artifacts, target.basis_ref)), target.basis_ref
 
 
-def _target_evidence_id(request: CreateDreamRunRequest) -> str | None:
+def _target_evidence_id(scope_id: str, request: CreateDreamRunRequest) -> str | None:
+    """The run Scope owns its maintained target, so the id is qualified by it."""
+
     target = request.target
     if request.tag_target is not None:
         target = request.tag_target.basis_ref
-    return None if target is None else evidence_id(target)
+    return None if target is None else evidence_id(target, scope_id)
 
 
 def _supported_plan(record: DreamRecord, plan: DreamPlan, resolved: ResolvedEvidence) -> DreamPlan:

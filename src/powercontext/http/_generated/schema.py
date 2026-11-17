@@ -8441,6 +8441,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "digest": {"type": "string"},
                     "source": {"$ref": "#/components/schemas/DreamSourceReference", "nullable": True},
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "origin_scope_id": {
+                        "type": "string",
+                        "description": "The Scope that owns this node. Absent on a v1 manifest.",
+                        "nullable": True,
+                    },
                     "role": {"$ref": "#/components/schemas/DreamEvidenceRole"},
                     "historical": {"type": "boolean", "default": False},
                 },
@@ -8453,6 +8458,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "group_id": {"type": "string"},
                     "sources": {"items": {"$ref": "#/components/schemas/DreamSourceReference"}, "type": "array"},
+                    "scope_id": {
+                        "type": "string",
+                        "description": "The Scope that owns this group's Sources, when not the run Scope.",
+                        "nullable": True,
+                    },
                     "independence": {"$ref": "#/components/schemas/DreamEvidenceIndependence", "default": "unknown"},
                 },
                 "additionalProperties": False,

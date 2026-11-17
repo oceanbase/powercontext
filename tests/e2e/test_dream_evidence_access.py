@@ -189,6 +189,7 @@ def test_tag_dream_preserves_supporting_artifact_and_rechecks_access(database, f
     class Generator:
         config_id = "tag-support-test"
         support: ArtifactRef | None = None
+        scope_id: str = ""
 
         async def generate(self, value):
             assert self.support is not None
@@ -198,7 +199,7 @@ def test_tag_dream_preserves_supporting_artifact_and_rechecks_access(database, f
                     reason="Classify using the supporting Artifact",
                     intent="correct",
                     proposal=TagChangeProposal(after_tags=("verified",)),
-                    evidence_ids=(evidence_id(self.support),),
+                    evidence_ids=(evidence_id(self.support, self.scope_id),),
                 ),
                 usage=InferenceUsage(requests=1),
             )
@@ -211,6 +212,7 @@ def test_tag_dream_preserves_supporting_artifact_and_rechecks_access(database, f
                     ScopeDraft(title="Support", summary="Exact evidence", idempotency_key="support")
                 )
             ).scope_id
+            generator.scope_id = scope
             source = await runtime.sources.for_scope(scope).capture(
                 CaptureSource(source_id="proof", content="Verified delivery error", metadata={})
             )

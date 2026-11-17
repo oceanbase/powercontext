@@ -5169,6 +5169,9 @@ class DreamEvidenceNode(BaseModel):
     digest: StrictStr
     source: DreamSourceReference | None = None
     artifact: ArtifactReference | None = None
+    origin_scope_id: Annotated[
+        StrictStr | None, Field(description="The Scope that owns this node. Absent on a v1 manifest.")
+    ] = None
     role: DreamEvidenceRole
     historical: StrictBool = False
 
@@ -5179,6 +5182,9 @@ class DreamRootEvidenceGroup(BaseModel):
     )
     group_id: StrictStr
     sources: list[DreamSourceReference]
+    scope_id: Annotated[
+        StrictStr | None, Field(description="The Scope that owns this group's Sources, when not the run Scope.")
+    ] = None
     independence: DreamEvidenceIndependence = DreamEvidenceIndependence.UNKNOWN
 
 

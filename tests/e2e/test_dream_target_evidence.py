@@ -145,13 +145,14 @@ def test_atomic_memory_tag_target_is_not_its_own_support(database, independent_s
     class Generator:
         config_id = "memory-tag-target-test"
         correction = None
+        scope_id: str = ""
 
         async def generate(self, value):
             assert value.target_evidence_id is not None
             used = (value.target_evidence_id,)
             if independent_source:
                 assert self.correction is not None
-                used += (evidence_id(self.correction),)
+                used += (evidence_id(self.correction, self.scope_id),)
             return GenerationResult(
                 output=DreamPlan(
                     outcome="proposed",
@@ -170,6 +171,7 @@ def test_atomic_memory_tag_target_is_not_its_own_support(database, independent_s
             dream_generator=generator,
         ) as runtime:
             scope, ancestor, basis = await seed(runtime)
+            generator.scope_id = scope
             records = runtime.records.for_scope(scope)
             target = ArtifactTagTarget(family="atomic-memory", artifact_id=basis.artifact_id)
             before = await records.get_tags(target)
@@ -225,7 +227,7 @@ def test_atomic_memory_tag_target_is_not_its_own_support(database, independent_s
                 ] == [basis]
                 assert not (await memory.search("replay", tag_filter=original_filter)).hits
             assert run.input_manifest is not None
-            node = next(node for node in run.input_manifest.nodes if node.evidence_id == evidence_id(basis))
+            node = next(node for node in run.input_manifest.nodes if node.evidence_id == evidence_id(basis, scope))
             assert node.role == "target" and node.artifact == basis
             assert all(node.source != ancestor for node in run.input_manifest.nodes)
 
