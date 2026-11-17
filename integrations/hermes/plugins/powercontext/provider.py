@@ -873,16 +873,18 @@ class PowerContextMemoryProvider(MemoryProvider):
                 self._last_recall = None
                 self._last_recall_scope_id = ""
             return ""
-        self._record_trace_event(
-            "powercontext_injection",
-            session_id=session_key,
-            # Redact the whole prompt before bounding it: a cut inside ``api_key=<value>`` would leave a bare value
-            # that redaction no longer recognizes.
-            query=_automatic_recall_query(_redact_secrets(query)),
-            injected_text=_redact_secrets(content.strip()),
-            status=trace_status,
-            content_bytes=len(content.encode("utf-8")),
-        )
+        if self._trace_enabled:
+            # Redacting the whole prompt costs time in proportion to its length, so it runs only for a recorded trace.
+            self._record_trace_event(
+                "powercontext_injection",
+                session_id=session_key,
+                # Redact the whole prompt before bounding it: a cut inside ``api_key=<value>`` would leave a bare value
+                # that redaction no longer recognizes.
+                query=_automatic_recall_query(_redact_secrets(query)),
+                injected_text=_redact_secrets(content.strip()),
+                status=trace_status,
+                content_bytes=len(content.encode("utf-8")),
+            )
         if not content.strip():
             self._last_recall = None
             self._last_recall_scope_id = ""
