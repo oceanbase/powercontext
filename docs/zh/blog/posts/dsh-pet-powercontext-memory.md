@@ -138,14 +138,14 @@ pin: false
 
 桌宠这套记忆，本质是 PowerContext 的一个宿主适配。同一份 Server 也可以直接接进 DeepSeek Harness 本身，让**编码 Agent 的会话**也拥有项目级记忆。
 
-`powercontext-dsh` 插件用一层 Cordis 薄适配把 PowerContext 的 HTTP API 接进 Harness：每轮开始前自动召回相关上下文并采集用户输入作为 Source，模型则通过 `pc_*` 工具显式读写 Memory、Handoff、Source、Experience 和 Skill。
+`powercontext-dsh` 插件用一层 Cordis 薄适配接入 Harness。每轮模型开口前，自动钩子通过 PowerContext 的 HTTP API 准备有界上下文，并把用户输入采集为 Source。模型通过 DSH 原生 MCP 工具显式操作 Memory、Handoff、Source、Experience 和 Skill。
 
 | 层 | 调用者 | 用途 |
 | --- | --- | --- |
-| HTTP Client | 插件内部 | 覆盖完整公开 API |
-| 自动钩子 | Agent 循环 | 每轮准备上下文、采集 Source |
-| 具名 `pc_*` 工具 | 模型 | Memory、Handoff、Source、Experience、Skill |
-| `/pc` 与通用调用 | 人和模型 | 诊断、审核与低频操作 |
+| HTTP Client | 插件内部 | 宿主控制与诊断 |
+| 自动钩子 | Agent 循环 | 每轮模型开口前准备上下文、采集 Source |
+| 原生 MCP 工具 | 模型 | Memory、Handoff、Source、Experience、Skill |
+| `/pc` 命令 | 人 | 宿主控制与诊断 |
 
 召回和采集是 fail-open 的：Server 停掉或超时不会打断正常对话。更细的配置与接口见 [DeepSeek Harness 集成文档](https://powercontext.oceanbase.io/zh/docs/integrations/dsh/)。
 

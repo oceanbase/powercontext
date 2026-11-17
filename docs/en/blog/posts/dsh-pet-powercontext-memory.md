@@ -139,14 +139,14 @@ Known input dropped by **88.9%** and the known cost estimate by **32.3%**, a gap
 
 The pet's memory is one host adapter for PowerContext. The same server can be connected to DeepSeek Harness itself, so that **your coding agent sessions** get project-level memory too.
 
-The `powercontext-dsh` plugin adds a thin Cordis adapter that maps PowerContext's HTTP API into Harness. Before each turn it recalls relevant context and captures the user's input as a Source; the model then uses `pc_*` tools to read and write Memory, Handoff, Source, Experience and Skill explicitly.
+The `powercontext-dsh` plugin adds a thin Cordis adapter to Harness. Before each model step, its automatic hooks prepare bounded context and capture the user's input as a Source through PowerContext's HTTP API. The model uses DSH's native MCP tools for explicit Memory, Handoff, Source, Experience and Skill operations.
 
 | Layer | Caller | Purpose |
 | --- | --- | --- |
-| HTTP client | Inside the plugin | Covers the full public API |
-| Automatic hooks | Agent loop | Prepare context and capture Sources each turn |
-| Named `pc_*` tools | The model | Memory, Handoff, Source, Experience, Skill |
-| `/pc` and general calls | People and models | Diagnostics, review, low-frequency work |
+| HTTP client | Inside the plugin | Host control and diagnostics |
+| Automatic hooks | Agent loop | Prepare context and capture Sources before each model step |
+| Native MCP tools | The model | Memory, Handoff, Source, Experience, Skill |
+| `/pc` commands | People | Host control and diagnostics |
 
 Recall and capture are fail-open: if the server stops or times out, the conversation keeps going. For the full configuration and interface, see the [DeepSeek Harness integration guide](https://powercontext.oceanbase.io/en/docs/integrations/dsh/).
 
