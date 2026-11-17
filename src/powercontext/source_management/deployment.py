@@ -120,10 +120,9 @@ def deployment_root(settings):
 
 def credential(root, name, subject):
     """Serialize credential creation and keep their plaintext in protected startup files."""
-    from powercontext.source_management.durable import RuntimeOwner
+    from powercontext.source_management.durable import configuration_lock
 
-    with_lock = RuntimeOwner(root / "configuration-lock")
-    try:
+    with configuration_lock(root / "configuration-lock"):
         path = root / (name + ".token")
         if not path.exists():
             protected_write(path, secrets.token_urlsafe(32), immutable=True)
@@ -138,8 +137,6 @@ def credential(root, name, subject):
         if existing is None:
             protected_write(identities_file, json.dumps({"identities": [*values, expected]}))
         return path
-    finally:
-        with_lock.close()
 
 
 def prepare(settings, provider):
@@ -207,7 +204,7 @@ class DeploymentCoordinator:
             manager = await self.manager()
             instance_root = self.root / "instances" / local.id
             execution_subject = "pc-source-" + hashlib.sha256((str(self.root) + local.id).encode()).hexdigest()[:24]
-            execution_file = credential(self.root, "execution-" + local.id, execution_subject)
+            execution_file = await asyncio.to_thread(credential, self.root, "execution-" + local.id, execution_subject)
             instance_root.mkdir(parents=True, exist_ok=True, mode=0o700)
             if update:
                 from powercontext.source_management.durable import RuntimeOwner
