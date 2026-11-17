@@ -741,7 +741,7 @@ where
     }
 
     /// Core 凭句柄取回的前缀（同一 Scope、未过期）。
-    pub fn prefix(&self, handle: &str, scope_id: &str) -> Option<PrefixEntry> {
+    pub fn prefix(&self, handle: &str, scope_id: &str) -> Option<std::sync::Arc<PrefixEntry>> {
         self.prefixes.get(handle, scope_id, now_ms())
     }
 

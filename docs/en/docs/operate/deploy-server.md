@@ -340,7 +340,8 @@ needs both sides:
 
 - **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
-  memory, for at most 30 minutes and at most 64 turns. It records an opaque handle in the captured Source's metadata,
+  memory, for at most 30 minutes, at most 64 turns and at most 64 MiB in total; the oldest are dropped first, and a
+  turn dropped before extraction goes through normal extraction. It records an opaque handle in the captured Source's metadata,
   with the input and output token counts of that final response.
   The request and response never enter the Source, evidence, or logs. The captured Source records the turn in full
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool

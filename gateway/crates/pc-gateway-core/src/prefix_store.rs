@@ -19,10 +19,13 @@
 //! 前缀缓存。前缀只是临时的缓存线索：只在网关内存里，有上限，按时间过期；从不进入 Source 或证据。
 
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// 保留的前缀数上限：超出后淘汰最早的。
 const MAX_PREFIXES: usize = 64;
+/// 保留的前缀总字节数上限：超出后淘汰最早的。一个前缀是整个请求体，只受网关的请求体上限约束，所以条数之外
+/// 还要按字节封顶。
+const MAX_PREFIX_BYTES: usize = 64 * 1024 * 1024;
 /// 前缀保留时长：Core 的后台抽取通常在回合结束后几分钟内运行，服务商缓存也只保留这么久。
 pub const PREFIX_TTL_MS: u64 = 30 * 60 * 1000;
 
@@ -40,34 +43,67 @@ pub struct PrefixEntry {
     pub prepared_contexts: Vec<pc_gateway_types::PreparedContextLocation>,
 }
 
+impl PrefixEntry {
+    /// 请求体与响应输出的字节数。
+    fn bytes(&self) -> usize {
+        self.request_body.len()
+            + self
+                .response_output
+                .iter()
+                .map(|item| item.to_string().len())
+                .sum::<usize>()
+    }
+}
+
+struct Kept {
+    handle: String,
+    entry: Arc<PrefixEntry>,
+    bytes: usize,
+    expires_ms: u64,
+}
+
 #[derive(Default)]
 pub struct PrefixStore {
-    entries: Mutex<VecDeque<(String, PrefixEntry, u64)>>,
+    entries: Mutex<VecDeque<Kept>>,
 }
 
 impl PrefixStore {
-    /// 保存一个前缀，返回 128 位随机句柄；取不到随机数时不保存。
+    /// 保存一个前缀，返回 128 位随机句柄。取不到随机数，或这一个前缀就超过总字节数上限时不保存：没有句柄的
+    /// 回合走普通抽取。
     pub fn add(&self, entry: PrefixEntry, now_ms: u64) -> Option<String> {
+        let bytes = entry.bytes();
+        if bytes > MAX_PREFIX_BYTES {
+            return None;
+        }
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).ok()?;
         let handle: String = random.iter().map(|b| format!("{b:02x}")).collect();
         let mut entries = lock(&self.entries);
-        entries.retain(|(_, _, expires)| *expires > now_ms);
-        if entries.len() >= MAX_PREFIXES {
-            entries.pop_front();
+        entries.retain(|kept| kept.expires_ms > now_ms);
+        let mut total: usize = entries.iter().map(|kept| kept.bytes).sum();
+        while entries.len() >= MAX_PREFIXES || total + bytes > MAX_PREFIX_BYTES {
+            match entries.pop_front() {
+                Some(evicted) => total -= evicted.bytes,
+                None => break,
+            }
         }
-        entries.push_back((handle.clone(), entry, now_ms + PREFIX_TTL_MS));
+        entries.push_back(Kept {
+            handle: handle.clone(),
+            entry: Arc::new(entry),
+            bytes,
+            expires_ms: now_ms + PREFIX_TTL_MS,
+        });
         Some(handle)
     }
 
     /// 句柄对应的前缀；句柄未知、已过期或属于其他 Scope 时为 `None`。
-    pub fn get(&self, handle: &str, scope_id: &str, now_ms: u64) -> Option<PrefixEntry> {
+    pub fn get(&self, handle: &str, scope_id: &str, now_ms: u64) -> Option<Arc<PrefixEntry>> {
         lock(&self.entries)
             .iter()
-            .find(|(h, entry, expires)| {
-                h == handle && entry.scope_id == scope_id && *expires > now_ms
+            .find(|kept| {
+                kept.handle == handle && kept.entry.scope_id == scope_id && kept.expires_ms > now_ms
             })
-            .map(|(_, entry, _)| entry.clone())
+            .map(|kept| kept.entry.clone())
     }
 }
 
@@ -114,5 +150,29 @@ mod tests {
             store.add(entry("s"), 0);
         }
         assert!(store.get(&oldest, "s", 1).is_none());
+    }
+
+    #[test]
+    fn the_store_is_bounded_in_bytes() {
+        let sized = |bytes: usize| PrefixEntry {
+            request_body: bytes::Bytes::from(vec![b'x'; bytes]),
+            ..entry("s")
+        };
+        let store = PrefixStore::default();
+        let first = store.add(sized(MAX_PREFIX_BYTES / 2), 0).unwrap();
+        let second = store.add(sized(MAX_PREFIX_BYTES / 2), 0).unwrap();
+        assert!(store.get(&first, "s", 1).is_some(), "both fit the limit");
+        let third = store.add(sized(MAX_PREFIX_BYTES / 2), 0).unwrap();
+        assert!(
+            store.get(&first, "s", 1).is_none(),
+            "the oldest is evicted for room"
+        );
+        assert!(store.get(&second, "s", 1).is_some());
+        assert!(store.get(&third, "s", 1).is_some());
+        assert!(
+            store.add(sized(MAX_PREFIX_BYTES + 1), 0).is_none(),
+            "a prefix over the limit is not kept"
+        );
+        assert!(store.get(&third, "s", 1).is_some(), "and evicts nothing");
     }
 }
