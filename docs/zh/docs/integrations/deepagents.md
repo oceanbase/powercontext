@@ -99,6 +99,12 @@ result = await agent.ainvoke(
 召回和采集都是尽力而为。Server 不可用、响应非法或请求校验失败都不会替换模型响应，也不会中断 agent。HTTP 401
 和 403 会以 error 级别记录一次，且不包含内容或 token 值；其他失败以 debug 级别记录。
 
+## 可运行示例
+
+`integrations/deepagents/examples/quickstart.py` 针对一个 Server 和 OpenAI 兼容的模型端点跑一轮采集。
+`integrations/deepagents/examples/full_flow.py` 会进一步把采集到的轮次 flush 成 Memory，等待提取结果可检索，再在新
+会话里提出一个改写后的问题。完整流程要求 Server 配置生成模型与 embedding 模型；quickstart 只依赖召回。
+
 ## 已验证版本
 
 14 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、subagent 召回、单次采集

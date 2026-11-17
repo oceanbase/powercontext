@@ -104,6 +104,13 @@ Recall and capture are best-effort. An unavailable Server, an invalid response, 
 replace the model response or stop the agent. HTTP 401 and 403 are logged once at error level without content or token
 values; other failures are logged at debug level.
 
+## Runnable examples
+
+`integrations/deepagents/examples/quickstart.py` runs one captured turn against a Server and an OpenAI-compatible
+model endpoint. `integrations/deepagents/examples/full_flow.py` also flushes the captured turn into Memory, waits for
+the extracted entry to become searchable, and asks a paraphrased question in a new session. The full flow needs a
+generation model and an embedding model configured on the Server; the quickstart only needs recall.
+
 ## Validated versions
 
 Deterministic tests (14) run against scripted models and an in-process PowerContext Server over SQLite: middleware

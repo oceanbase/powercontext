@@ -35,3 +35,8 @@ result = await agent.ainvoke(
 
 See `docs/en/docs/integrations/deepagents.md` and `docs/zh/docs/integrations/deepagents.md` for the subagent,
 scope, capture, and failure contracts.
+
+## Examples
+
+- `examples/quickstart.py`: one captured turn against a running Server and an OpenAI-compatible model endpoint.
+- `examples/full_flow.py`: capture, flush into Memory, wait for extraction, and recall with a paraphrased question.
