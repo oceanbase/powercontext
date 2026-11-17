@@ -191,6 +191,15 @@ def longmemeval_v2_retrieval_smoke(
     base_url: Annotated[str, typer.Option("--base-url")] = "http://127.0.0.1:8000",
     token_env: Annotated[str, typer.Option("--token-env")] = "POWERCONTEXT_TOKEN",
     experiment_arm: Annotated[str, typer.Option("--experiment-arm")] = DEFAULT_EXPERIMENT_ARM_ID,
+    receipt_diagnostics: Annotated[
+        bool, typer.Option("--receipt-diagnostics", help="Collect same-response Receipts for a prepared-context arm.")
+    ] = False,
+    receipt_server_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--receipt-server-revision", help="Operator-attested Receipt-capable Server SHA (40 lowercase hex)."
+        ),
+    ] = None,
     search_limit: Annotated[int, typer.Option("--search-limit", min=1, max=50)] = 10,
     timeout_seconds: Annotated[float, typer.Option("--timeout-seconds", min=0.1)] = 30.0,
 ) -> None:
@@ -209,6 +218,8 @@ def longmemeval_v2_retrieval_smoke(
             base_url=base_url,
             token_env=token_env,
             experiment_arm=experiment_arm,
+            receipt_diagnostics=receipt_diagnostics,
+            receipt_server_revision=receipt_server_revision,
             search_limit=search_limit,
             timeout_seconds=timeout_seconds,
         )
@@ -428,6 +439,15 @@ def longmemeval_v2_run_smoke(
     powercontext_base_url: Annotated[str, typer.Option("--powercontext-base-url")] = "http://127.0.0.1:8000",
     powercontext_token_env: Annotated[str, typer.Option("--powercontext-token-env")] = "POWERCONTEXT_TOKEN",
     experiment_arm: Annotated[str, typer.Option("--experiment-arm")] = DEFAULT_EXPERIMENT_ARM_ID,
+    receipt_diagnostics: Annotated[
+        bool, typer.Option("--receipt-diagnostics", help="Collect same-response Receipts for a prepared-context arm.")
+    ] = False,
+    receipt_server_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--receipt-server-revision", help="Operator-attested Receipt-capable Server SHA (40 lowercase hex)."
+        ),
+    ] = None,
     search_limit: Annotated[int, typer.Option("--search-limit", min=1, max=50)] = 10,
     timeout_seconds: Annotated[float, typer.Option("--timeout-seconds", min=0.1)] = 30.0,
     reader_provider: Annotated[str, typer.Option("--reader-provider")] = "deepseek-openai",
@@ -477,6 +497,8 @@ def longmemeval_v2_run_smoke(
             powercontext_base_url=powercontext_base_url,
             powercontext_token_env=powercontext_token_env,
             experiment_arm=experiment_arm,
+            receipt_diagnostics=receipt_diagnostics,
+            receipt_server_revision=receipt_server_revision,
             search_limit=search_limit,
             timeout_seconds=timeout_seconds,
             reader_provider=reader_provider,
