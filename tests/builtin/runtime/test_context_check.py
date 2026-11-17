@@ -30,6 +30,7 @@ from powercontext.builtin.runtime.context_check import (
     CheckContextBeforeSend,
     ContextCheckTooLargeError,
     ModelJsonPayload,
+    UpstreamResponsePayload,
     check_context,
 )
 from powercontext.builtin.runtime.context_reuse import ContextReuseError, ValidatedContextReuse
@@ -676,3 +677,113 @@ def test_cli_profile_has_one_exact_destination(endpoint):
     assert profile.endpoint == "claude-cli://execute"
     with pytest.raises(ValueError):
         UpstreamProfile(endpoint="claude-cli://execute", model="test-model", protocol="openai-chat")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol", ["google-codeassist", "google-codeassist-chat"])
+async def test_codeassist_error_release_still_requires_content_inspection(protocol):
+    config = _config(
+        targets={
+            "test": UpstreamProfile(
+                endpoint="https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+                model="test",
+                protocol=protocol,
+                context_window_tokens=65536,
+                max_output_tokens=64,
+                validated_utf8_token_bound=True,
+            )
+        }
+    )
+    envelope = {
+        "model": "test",
+        "project": "project",
+        "request": {
+            "contents": [{"role": "user", "parts": [{"text": "safe"}]}],
+            "generationConfig": {"maxOutputTokens": 64},
+        },
+    }
+    codec = BindingCodec()
+    admitted = await _check(_send(payload=_payload(envelope)), codec, config=config)
+    assert admitted.decision == "allow" and admitted.binding
+    for error, expected in [
+        ({"code": 429, "message": "Quota exceeded"}, "allow"),
+        ({"code": 429, "message": "synthetic-forbidden-value"}, "block"),
+        ({}, "withhold"),
+    ]:
+        result = await _check(
+            _release(admitted.binding).model_copy(update={"payload": _payload({"error": error})}), codec, config=config
+        )
+        assert result.decision == expected
+
+
+@pytest.mark.anyio
+async def test_upstream_and_final_response_bodies_share_the_response_limit():
+    config = _config(max_response_bytes=1024)
+    codec = BindingCodec()
+    send = await _check(_send(), codec, config=config)
+    release = _release(send.binding, text="safe" * 130)
+    assert len(release.payload.body.encode()) < config.max_response_bytes
+    with pytest.raises(ContextCheckTooLargeError):
+        await _check(
+            release.model_copy(
+                update={
+                    "upstream_payload": UpstreamResponsePayload(
+                        content_type="application/json", body=release.payload.body
+                    )
+                }
+            ),
+            codec,
+            config=config,
+        )
+
+
+@pytest.mark.anyio
+async def test_safe_upstream_evidence_cannot_override_forbidden_final_output():
+    codec = BindingCodec()
+    send = await _check(_send(), codec)
+    safe = _release(send.binding).payload
+    result = await _check(
+        _release(send.binding, text="synthetic-forbidden-value").model_copy(
+            update={"upstream_payload": UpstreamResponsePayload(content_type="application/json", body=safe.body)},
+        ),
+        codec,
+    )
+    assert result.decision == "block" and result.reason_codes == ("forbidden_content",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "event_type,fragments",
+    [
+        ("response.output_text.delta", ("synthetic-forbidden-", "value")),
+        ("response.function_call_arguments.delta", (r'{"name":"synthetic-forb\u0069', 'dden-value"}')),
+    ],
+)
+async def test_upstream_responses_evidence_joins_deltas_by_output_position(event_type, fragments):
+    config = _config()
+    config = config.model_copy(
+        update={"targets": {"test": config.targets["test"].model_copy(update={"protocol": "openai-responses"})}}
+    )
+    codec = BindingCodec()
+    send = await _check(
+        _send(payload=_payload({"model": "test", "input": "safe", "store": False, "max_output_tokens": 64})),
+        codec,
+        config=config,
+    )
+    events = [
+        {"type": event_type, "output_index": 0, "item_id": "first", "delta": fragments[0]},
+        {"type": event_type, "output_index": 0, "item_id": "second", "delta": fragments[1]},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+    upstream = UpstreamResponsePayload(
+        content_type="text/event-stream",
+        body="".join(f"data: {json.dumps(event)}\n\n" for event in events),
+    )
+    result = await _check(
+        _release(send.binding).model_copy(
+            update={"payload": _payload({"status": "completed", "output": []}), "upstream_payload": upstream}
+        ),
+        codec,
+        config=config,
+    )
+    assert result.decision == "block" and result.reason_codes == ("forbidden_content",)

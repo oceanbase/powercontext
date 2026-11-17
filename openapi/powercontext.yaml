@@ -10262,6 +10262,17 @@ components:
           minLength: 2
           maxLength: 1048576
           description: Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported.
+    UpstreamResponsePayload:
+      type: object
+      additionalProperties: false
+      required: [content_type, body]
+      properties:
+        content_type: {type: string, minLength: 1, maxLength: 1024, pattern: '^[^\r\n]+$'}
+        body:
+          type: string
+          minLength: 2
+          maxLength: 1048576
+          description: Complete raw UTF-8 provider JSON or Responses SSE before conversion.
     ModelJsonTextLocation:
       type: object
       additionalProperties: false
@@ -10305,6 +10316,10 @@ components:
         request_binding: {type: string, minLength: 1, maxLength: 65536}
         payload:
           $ref: '#/components/schemas/ModelJsonPayload'
+        upstream_payload:
+          $ref: '#/components/schemas/UpstreamResponsePayload'
+          nullable: true
+          description: Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit.
         completion: {type: string, enum: [complete]}
     CheckContextRequest:
       oneOf:
@@ -10355,7 +10370,7 @@ components:
             X-PowerContext-Resolve-Target was authorized for a service principal.
         target_protocol:
           type: string
-          enum: [openai-chat, openai-responses, anthropic-messages, openai-embeddings, minimax-embeddings, jev-rerank]
+          enum: [openai-chat, openai-responses, anthropic-messages, openai-embeddings, minimax-embeddings, jev-rerank, google-codeassist, google-codeassist-chat, claude-cli-prompt]
           description: Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
     ContextProtectionCapabilities:
       type: object

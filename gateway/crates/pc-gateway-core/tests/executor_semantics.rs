@@ -226,6 +226,7 @@ impl Transport for FakeTransport {
 
 fn raw_response() -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         content_type: "application/json".into(),
         response_first_byte_ms: None,
@@ -1698,6 +1699,7 @@ async fn malformed_gate_never_degrades_even_with_passthrough() {
 async fn non_utf8_response_is_never_released() {
     // 上游返回非法 UTF-8 字节：不做有损转换送检（保真缺口），直接不放行。
     let bad = SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         body: bytes::Bytes::from_static(b"{\"text\":\"\xff\xfe\"}"), // 非法 UTF-8
         content_type: "application/json".into(),
@@ -2897,6 +2899,7 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
 
 fn delivered(body: serde_json::Value) -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         content_type: "application/json".into(),
         response_first_byte_ms: None,

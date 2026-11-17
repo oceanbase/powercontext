@@ -209,7 +209,9 @@ def contains_opaque_content(value: object, *, protocol: PrivacyProtocol | None =
     All scalar evidence still receives the independent forbidden-content check.
     """
 
-    if protocol in {"google-codeassist", "google-codeassist-chat"}:
+    if protocol in {"google-codeassist", "google-codeassist-chat"} and not (
+        isinstance(value, dict) and isinstance(value.get("error"), dict)
+    ):
         from powercontext.builtin.inference.codeassist_payload import supported_carrier
 
         return not isinstance(value, dict) or not supported_carrier(cast(dict[str, object], value))

@@ -617,6 +617,7 @@ where
                         release_body.clone()
                     },
                 ),
+                upstream_payload: raw.upstream_payload.clone(),
                 completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
             };
             if let Err(stop) = execution.checkpoint() {

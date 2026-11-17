@@ -89,7 +89,7 @@ class GeminiCliTransport(httpx2.AsyncBaseTransport):
             },
         )
         if not loaded.is_success:
-            return httpx2.Response(loaded.status_code, content=loaded.content, headers=loaded.headers)
+            return loaded
         try:
             account = loaded.json()
             project = account.get("cloudaicompanionProject") or project
@@ -109,7 +109,7 @@ class GeminiCliTransport(httpx2.AsyncBaseTransport):
             json={"model": match[1], "project": project, "user_prompt_id": str(uuid4()), "request": body},
         )
         if not response.is_success:
-            return httpx2.Response(response.status_code, content=response.content, headers=response.headers)
+            return response
         try:
             wrapped = response.json()
             content = wrapped["response"]

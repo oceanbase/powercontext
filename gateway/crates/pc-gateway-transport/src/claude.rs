@@ -154,6 +154,7 @@ pub(super) async fn send(executable: &OsString, send: AdmittedSend) -> SendOutco
         return SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded);
     }
     SendOutcome::Delivered(RawResponse {
+        upstream_payload: None,
         status: 200,
         content_type: "application/json".into(),
         usage: body.get("usage").cloned(),

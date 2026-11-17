@@ -168,6 +168,9 @@ impl Transport for ReqwestTransport {
                 }
             }
             let complete_ms = start.elapsed().as_millis() as u64;
+            let upstream_body = Bytes::from(body);
+            let upstream_type = content_type.clone();
+            let mut body = upstream_body.clone();
             if self.copilot_chat
                 && send.target_url.ends_with("/chat/completions")
                 && (200..300).contains(&status)
@@ -179,7 +182,7 @@ impl Transport for ReqwestTransport {
                 } else {
                     match pc_gateway_protocol::copilot_chat_response(&body) {
                         Some(normalized) => {
-                            body = normalized;
+                            body = normalized.into();
                             content_type = "application/json".into();
                         }
                         None => {
@@ -198,7 +201,7 @@ impl Transport for ReqwestTransport {
                     .and_then(|model| pc_gateway_protocol::codeassist_chat_response(&body, model))
                 {
                     Some(normalized) => {
-                        body = normalized;
+                        body = normalized.into();
                         content_type = "application/json".into();
                     }
                     None => {
@@ -220,7 +223,7 @@ impl Transport for ReqwestTransport {
                 let terminal = pc_gateway_protocol::buffered_subscription_response(&body);
                 match terminal {
                     Some(terminal) => {
-                        body = terminal;
+                        body = terminal.into();
                         content_type = "application/json".into();
                     }
                     None => {
@@ -239,10 +242,22 @@ impl Transport for ReqwestTransport {
                     response_first_byte_ms: first_byte,
                 };
             }
+            let upstream_payload = if body != upstream_body {
+                let Ok(original) = String::from_utf8(upstream_body.to_vec()) else {
+                    return SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff);
+                };
+                Some(pc_gateway_types::UpstreamResponsePayload {
+                    content_type: upstream_type,
+                    body: original,
+                })
+            } else {
+                None
+            };
             let usage = extract_usage(&body, &content_type);
             SendOutcome::Delivered(RawResponse {
                 status,
-                body: Bytes::from(body),
+                body,
+                upstream_payload,
                 content_type,
                 response_first_byte_ms: first_byte,
                 response_complete_ms: Some(complete_ms),

@@ -18,6 +18,8 @@ These fixtures preserve inputs and expected assertions from upstream source test
 
 Python uses `tests/builtin/inference/test_oauth_contract.py` for Grok scenarios and `tests/builtin/inference/test_upstream_subscription_vectors.py` for the other records. Rust reads the same files from its authentication and transport tests. Run commands are in the [parent README](../README.md).
 
+The real-Core Gateway subscription case reuses the Copilot, Gemini and Codex vectors with explicit terminal metadata and a synthetic numeric spelling probe. It checks original response evidence through HTTP transport, the executor and Core over UDS, with a safe control for each format. The Codex fixture supplies the Responses SSE input; this case does not exercise its subscription request adapter. Compression and reserved credential-field cases are project-authored extensions; they are not upstream service recordings.
+
 The original 27 scenarios in `contract.json`, process and cancellation tests, destination checks and Core admission regressions are project-authored coverage. All vectors use synthetic data; passing them does not establish live subscription access.
 
 Copyright notices and license terms are in [LICENSES/oauth.md](../../../../LICENSES/oauth.md).

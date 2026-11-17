@@ -144,8 +144,7 @@ class OAuthCredentialsFile:
                 async with AsyncFileLock(self.path.with_suffix(".lock"), timeout=30, mode=0o600, run_in_executor=False):
                     data = self._read()
                     if data["expires_at"] <= self._clock() + 60:
-                        token = await refresh(data)
-                        _TokenResponse.model_validate(token)
+                        token = _TokenResponse.model_validate(await refresh(data)).model_dump()
                         data.update(token)
                         data["expires_at"] = self._clock() + float(token["expires_in"])
                         atomic_save_json(self.path, data)

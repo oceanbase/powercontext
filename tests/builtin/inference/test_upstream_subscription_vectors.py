@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import sys
 from pathlib import Path
@@ -69,8 +70,11 @@ def test_goose_codeassist_wrap_and_unwrap_vectors(tmp_path: Path, monkeypatch) -
     assert len(sent) == 2
 
 
+@pytest.mark.parametrize(
+    "response_metadata", [{}, {"device_id": None, "schema": "provider-v2", "subscription": "provider"}]
+)
 def test_official_coding_refresh_vectors_restore_rotated_tokens(
-    coding_subscription, tmp_path: Path, oauth_http
+    coding_subscription, tmp_path: Path, oauth_http, response_metadata
 ) -> None:
     subscription, auth_type, _, endpoint = coding_subscription
     vector = _VECTORS[subscription]
@@ -91,7 +95,7 @@ def test_official_coding_refresh_vectors_restore_rotated_tokens(
 
     def token_response(request: httpx.Request) -> httpx.Response:
         forms.append({key: value[0] for key, value in parse_qs(request.content.decode()).items()})
-        return httpx.Response(200, json=next(responses))
+        return httpx.Response(200, json={**next(responses), **response_metadata})
 
     def resource(request: httpx2.Request) -> httpx2.Response:
         resource_tokens.append(request.headers["authorization"])
@@ -273,5 +277,40 @@ def test_republic_copilot_direct_token_vector_through_native_model() -> None:
             )
             output = await Agent(model).run("hello")
             assert output.output == vector["expected_text"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("stage", ["loadCodeAssist", "generateContent"])
+def test_gemini_compressed_error_preserves_provider_failure(stage, tmp_path: Path) -> None:
+    path = tmp_path / "oauth_creds.json"
+    path.write_text(json.dumps({"access_token": "synthetic", "expiry_date": 9e12}))
+    error = {"error": {"code": 429, "message": "Quota exceeded"}}
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith(stage):
+            body = gzip.compress(json.dumps(error).encode())
+            return httpx2.Response(
+                429,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                    "Content-Length": str(len(body)),
+                },
+            )
+        return httpx2.Response(200, json={"currentTier": {"id": "test"}, "cloudaicompanionProject": "project-123"})
+
+    async def run() -> None:
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as wire,
+            httpx2.AsyncClient(transport=GeminiCliTransport(path, client=wire)) as client,
+        ):
+            response = await client.post(
+                "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent",
+                json=_VECTORS["gemini"]["request"],
+            )
+            assert response.status_code == 429
+            assert response.json() == error
 
     asyncio.run(run())

@@ -115,6 +115,8 @@ the prepared value. A gateway must not mask an approved request or restore value
 reuse that approval for the changed bytes. A changed payload needs its own admission; this API supplies no
 placeholder mapping or authorization to reverse a privacy transformation.
 
+When response conversion changes the provider bytes, include the original response in `upstream_payload` on `before_release`. Core inspects the original JSON or Responses SSE as well as the exact final payload; the two bodies share the response byte limit. Upgrade Core before a Gateway that sends this field. Older Core versions reject it and do not authorize release.
+
 Callers requiring complete privacy checks accept only `allow` with `coverage.complete=true`. `block` and `withhold` return HTTP
 200 because a decision was made, but neither permits execution. Invalid carriers/locators return 422; authorization
 failure returns 401/403; an oversized payload returns 413. If the required check is unavailable, do not send or release.

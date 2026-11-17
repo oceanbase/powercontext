@@ -10957,6 +10957,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["schema", "headers", "body"],
             },
+            "UpstreamResponsePayload": {
+                "properties": {
+                    "content_type": {"type": "string", "maxLength": 1024, "minLength": 1, "pattern": "^[^\\r\\n]+$"},
+                    "body": {
+                        "type": "string",
+                        "maxLength": 1048576,
+                        "minLength": 2,
+                        "description": "Complete raw UTF-8 provider JSON or Responses SSE before conversion.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content_type", "body"],
+            },
             "ModelJsonTextLocation": {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.model-json-text-location.v1"]},
@@ -11000,6 +11014,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "target_profile": {"type": "string", "maxLength": 128, "minLength": 1},
                     "request_binding": {"type": "string", "maxLength": 65536, "minLength": 1},
                     "payload": {"$ref": "#/components/schemas/ModelJsonPayload"},
+                    "upstream_payload": {
+                        "$ref": "#/components/schemas/UpstreamResponsePayload",
+                        "description": "Optional "
+                        "pre-conversion "
+                        "response "
+                        "evidence. "
+                        "Core "
+                        "inspects "
+                        "it "
+                        "in "
+                        "addition "
+                        "to "
+                        "the "
+                        "final "
+                        "payload; "
+                        "both "
+                        "bodies "
+                        "share "
+                        "the "
+                        "response "
+                        "byte "
+                        "limit.",
+                        "nullable": True,
+                    },
                     "completion": {"type": "string", "enum": ["complete"]},
                 },
                 "additionalProperties": False,
@@ -11092,6 +11130,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "openai-embeddings",
                             "minimax-embeddings",
                             "jev-rerank",
+                            "google-codeassist",
+                            "google-codeassist-chat",
+                            "claude-cli-prompt",
                         ],
                         "description": "Protocol "
                         "of "
