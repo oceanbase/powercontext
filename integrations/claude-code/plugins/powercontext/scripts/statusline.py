@@ -35,12 +35,13 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
-from scope_binding_errors import (  # noqa: E402
+from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from workspace_scope import bind_response_deadline, complete_body, open_bounded, resolve_scope_id  # noqa: E402
+from powercontext_lifecycle.transport import bind_response_deadline, complete_body, open_bounded  # noqa: E402
+from workspace_scope import resolve_scope_id  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _USER_AGENT = "powercontext-claude-code-statusline/0.1.0"

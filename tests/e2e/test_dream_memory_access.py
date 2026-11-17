@@ -23,15 +23,15 @@ from starlette.middleware import Middleware
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.authz import AccessRole, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.errors import AccessDeniedError
+from powercontext.builtin.authz.service import AccessAuditContext, CreateBinding
 from powercontext.builtin.dream.models import DreamPlan
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.runtime import ApproveCandidateRequest, BuiltinConfig
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import AccessRole, PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.errors import AccessDeniedError
-from powercontext.server.authz.service import AccessAuditContext, CreateBinding
 from powercontext.server.context import bind_principal, reset_principal
 from powercontext.server.dream_access import DreamAccess
 from powercontext.server.middleware import AuthenticationMiddleware

@@ -89,7 +89,6 @@ class ArtifactRecord(_RecordModel):
 
     scope_id: str
     family: ArtifactReadFamily
-    schema_version: str | None = None
     artifact_id: str
     revision: int
     content: dict[str, JsonValue]
@@ -107,7 +106,6 @@ class ArtifactCollectionItem(_RecordModel):
 
     scope_id: str
     family: ArtifactReadFamily
-    schema_version: str | None = None
     artifact_id: str
     revision: int
     sources: tuple[SourceRef, ...]

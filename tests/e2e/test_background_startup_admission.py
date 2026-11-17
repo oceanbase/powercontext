@@ -78,7 +78,7 @@ def test_managed_storage_remains_usable_by_background_runner_and_api(tmp_path, m
     plan = runner.plan()
     assert runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).state == "ready"
 
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         created = client.post(
             "/v1/scopes",
             json={
@@ -103,7 +103,7 @@ def test_managed_storage_remains_usable_by_background_runner_and_api(tmp_path, m
     # to check its admitted lifecycle; the native OB test covers split-role CLI.
     asyncio.run(cli._run_background_async(settings, ServerTracing.context_only(role="background")))
 
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         response = client.get(f"/v1/scopes/{scope_id}")
         assert response.status_code == 200, response.text
         assert response.json()["title"] == "Preserved scope"

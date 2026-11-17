@@ -17,10 +17,10 @@
 import httpx
 import pytest
 
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.inference.privacy import UpstreamProfile
 from powercontext.client import PowerContextClient
 from powercontext.http import CheckContextRequest
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_context_protection_transports import _ADMIN, _OTHER, _app, _Authentication, _create_scope, _settings
@@ -176,9 +176,7 @@ async def test_rerank_target_resolution_is_consumable_via_http_and_sdk(tmp_path)
         settings.database, bootstrap_administrators=(_ADMIN,), deployment_id="context-transports"
     ):
         pass
-    app = create_server_app(
-        settings=settings, authentication_provider=_Authentication(), scheduler_path=tmp_path / "scheduler.db"
-    )
+    app = create_server_app(settings=settings, authentication_provider=_Authentication())
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(

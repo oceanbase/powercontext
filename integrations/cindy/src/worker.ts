@@ -24,6 +24,8 @@ import { normalizeServerUrl } from '../../dsh/plugins/powercontext/src/transport
 export const CONTEXT_START = '<!-- powercontext:cindy-context:v1 -->'
 export const CONTEXT_END = '<!-- /powercontext:cindy-context:v1 -->'
 export const HOOK_BUDGET_MS = 1800
+// Context preparation stops this long before the hook deadline so original-prompt capture can still run.
+const CAPTURE_RESERVE_MS = 500
 
 type Config = {
   enabled?: boolean
@@ -155,6 +157,7 @@ export async function runHook(input: HookInput, credential?: string, fetchImpl?:
   if (!Number.isFinite(remaining) || remaining <= 0) {
     return { ...outcome, code: 'hook_deadline', capture: 'not_sent' }
   }
+  const hookEnd = Date.now() + remaining
   if (typeof input.text !== 'string' || !input.text.trim()
     || typeof input.session_id !== 'string' || !input.session_id.trim() || input.session_id.length > 256
     || typeof input.hook_id !== 'string' || !input.hook_id.trim() || input.hook_id.length > 256) {
@@ -189,10 +192,11 @@ export async function runHook(input: HookInput, credential?: string, fetchImpl?:
       outcome.scope_id = scopeId
     } catch (error) { return { ...outcome, ok: false, code: failureCode(error) } }
 
+    const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now()
     if (input.text.length > 8192) outcome.prepare = 'query_too_long'
+    else if (prepareMs <= 0) outcome.prepare = 'not_sent'
     else try {
-      // Reserve part of the host's three-second window for independent original-prompt capture.
-      const signal = combineSignals([controller.signal, AbortSignal.timeout(800)])
+      const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)])
       const response = await client.request('prepare_context', { scope_id: scopeId, query: input.text, max_bytes: maxBytes }, signal)
       const prepared = validatePreparedContext(response.kind === 'json' ? response.value : undefined, undefined, maxBytes)
       outcome.prepare = prepared.status

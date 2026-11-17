@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
 import type { PreStepDecision, PromptMessage } from '../src/recall.ts'
+import { shippedConfig } from './shipped-config.ts'
 
 const peers = vi.hoisted(() => ({ createUserMessage: vi.fn((input: unknown) => input) }))
 vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
@@ -228,6 +229,61 @@ describe('registered automatic path', () => {
     await valid.run()
     expect(valid.requests[0].body.binding_keys).toEqual([])
     expect(valid.requests.map(({ path }) => path)).toContain(CAPTURE)
+  })
+
+  it('injects context whose preparation takes longer than one second with the shipped config', async () => {
+    const h = await fixture(async (path, init) => {
+      if (path === PREPARE) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, 1500)
+          init.signal!.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(init.signal!.reason)
+          }, { once: true })
+        })
+      }
+      return successfulRequest(path)
+    }, shippedConfig())
+    const result = await h.run()
+    expect(JSON.stringify(result.messages)).toContain(TEXT)
+    expect(h.requests.map(({ path }) => path)).toContain(CAPTURE)
+    expect(h.diagnostics()).toEqual([])
+  }, 10_000)
+
+  it('injects prepared context when capture never answers and uses the rest of the shipped deadline', async () => {
+    const delayed = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, ms)
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        reject(signal.reason)
+      }, { once: true })
+    })
+    const h = await fixture(async (path, init) => {
+      if (path === SCOPE) await delayed(500, init.signal!)
+      if (path === PREPARE) await delayed(800, init.signal!)
+      if (path === CAPTURE) return waitForAbort(init.signal!)
+      return successfulRequest(path)
+    }, shippedConfig())
+    const started = Date.now()
+    const result = await h.run()
+    expect(Date.now() - started).toBeLessThan(shippedConfig().timeoutMs! + 500)
+    expect(JSON.stringify(messageInSection(result.messages, 'PowerContext').content)).toContain(TEXT)
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, PREPARE, CAPTURE])
+    expect(h.diagnostics()).toEqual([expect.objectContaining({ event: 'capture_content_source' })])
+  }, 10_000)
+
+  it('withdraws prepared context when the host cancels during capture', async () => {
+    const controller = new AbortController()
+    const h = await fixture(async (path, init) => {
+      if (path === CAPTURE) {
+        setTimeout(() => controller.abort(), 20)
+        return waitForAbort(init.signal!)
+      }
+      return successfulRequest(path)
+    })
+    const result = await h.run({ signal: controller.signal })
+    expect(result).toEqual({ kind: 'enter', messages: [userMessage] })
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, PREPARE, CAPTURE])
   })
 
   it('reports connection failure without leaking exception text', async () => {

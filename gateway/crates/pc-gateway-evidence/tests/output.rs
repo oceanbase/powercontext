@@ -216,6 +216,12 @@ fn operational_fields_preserve_domain_facts_and_do_not_infer_interruption_causes
         (Terminal::NotSent, None, None, json!("failure")),
         (Terminal::GatePaused, None, None, json!("failure")),
         (
+            Terminal::Stopped(pc_gateway_types::LifecycleStopReason::RequestCancelled),
+            None,
+            Some(Interruption::CancellationRequested),
+            json!("failure"),
+        ),
+        (
             Terminal::Abandoned,
             None,
             Some(Interruption::CancellationRequested),

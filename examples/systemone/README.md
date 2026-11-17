@@ -98,7 +98,6 @@ async def main() -> None:
         async with open_builtin_runtime(
             config,
             decision_model=backend,
-            scheduler_path=directory / "scheduler.db",
         ) as runtime:
             model = runtime.decision_model
             if model is None:

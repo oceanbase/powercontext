@@ -43,7 +43,7 @@ MANAGED_INPUTS = (
     "src/powercontext/builtin/persistence",
     "src/powercontext/builtin/code",
     "src/powercontext/server/identity.py",
-    "src/powercontext/server/authz",
+    "src/powercontext/builtin/authz",
     "src/powercontext/limits.py",
 )
 PHASES = frozenset({

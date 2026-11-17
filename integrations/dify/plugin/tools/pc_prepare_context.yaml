@@ -151,16 +151,12 @@ output_schema:
                       family:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/family'
                         type: string
-                        enum: &id006
-                        - atomic-memory
-                        - topic-memory
-                        - experience
-                        - profile
-                        - code
+                        description: atomic-memory, topic-memory, experience, profile,
+                          code, or a loaded plugin family.
                       mode:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/mode'
                         type: string
-                        enum: &id007
+                        enum: &id006
                         - fts
                         - vector
                         - hybrid
@@ -170,14 +166,14 @@ output_schema:
                       outcome:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/outcome'
                         type: string
-                        enum: &id008
+                        enum: &id007
                         - completed
                         - not_run
                         - failed
                       fallback_reason:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/fallback_reason'
                         type: string
-                        enum: &id009
+                        enum: &id008
                         - none
                         - inference_unavailable
                         - inference_timeout
@@ -232,7 +228,7 @@ output_schema:
                           selection:
                             $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/selection'
                             type: string
-                            enum: &id010
+                            enum: &id009
                             - built_in
                             - artifact
                           selected_version:
@@ -280,14 +276,14 @@ output_schema:
                       outcome:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/outcome'
                         type: string
-                        enum: &id011
+                        enum: &id010
                         - selected
                         - fallback
                         - failed
                       fallback_reason:
                         $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/fallback_reason'
                         type: string
-                        enum: &id012
+                        enum: &id011
                         - none
                         - empty_selection
                         - inference_unavailable
@@ -306,12 +302,8 @@ output_schema:
                   kind:
                     $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/kind'
                     type: string
-                    enum: &id013
-                    - atomic-memory
-                    - topic-memory
-                    - experience
-                    - profile
-                    - code
+                    description: atomic-memory, topic-memory, experience, profile,
+                      code, or a loaded plugin family.
                   artifact_address:
                     $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address'
                     type: object
@@ -373,16 +365,12 @@ output_schema:
                   family:
                     $ref: '#/definitions/Result/properties/receipt/properties/omitted/items/properties/family'
                     type: string
-                    enum: &id014
-                    - atomic-memory
-                    - topic-memory
-                    - experience
-                    - profile
-                    - code
+                    description: atomic-memory, topic-memory, experience, profile,
+                      code, or a loaded plugin family.
                   reason:
                     $ref: '#/definitions/Result/properties/receipt/properties/omitted/items/properties/reason'
                     type: string
-                    enum: &id015
+                    enum: &id012
                     - duplicate
                     - blank
                     - family_limit
@@ -534,16 +522,20 @@ output_schema:
                         maximum: 2
                       family:
                         type: string
-                        enum: *id006
+                        minLength: 1
+                        maxLength: 128
+                        pattern: ^[a-z][a-z0-9-]*$
+                        description: atomic-memory, topic-memory, experience, profile,
+                          code, or a loaded plugin family.
                       mode:
                         type: string
-                        enum: *id007
+                        enum: *id006
                       outcome:
                         type: string
-                        enum: *id008
+                        enum: *id007
                       fallback_reason:
                         type: string
-                        enum: *id009
+                        enum: *id008
                       count:
                         type: integer
                         minimum: 1
@@ -615,7 +607,7 @@ output_schema:
                               type: string
                             selection:
                               type: string
-                              enum: *id010
+                              enum: *id009
                             selected_version:
                               type: string
                             compiled_digest:
@@ -680,10 +672,10 @@ output_schema:
                         pattern: ^sha256:[0-9a-f]{64}$
                       outcome:
                         type: string
-                        enum: *id011
+                        enum: *id010
                       fallback_reason:
                         type: string
-                        enum: *id012
+                        enum: *id011
                       count:
                         type: integer
                         minimum: 1
@@ -700,7 +692,11 @@ output_schema:
                 properties:
                   kind:
                     type: string
-                    enum: *id013
+                    minLength: 1
+                    maxLength: 128
+                    pattern: ^[a-z][a-z0-9-]*$
+                    description: atomic-memory, topic-memory, experience, profile,
+                      code, or a loaded plugin family.
                   artifact_address:
                     type: object
                     additionalProperties: false
@@ -780,10 +776,14 @@ output_schema:
                 properties:
                   family:
                     type: string
-                    enum: *id014
+                    minLength: 1
+                    maxLength: 128
+                    pattern: ^[a-z][a-z0-9-]*$
+                    description: atomic-memory, topic-memory, experience, profile,
+                      code, or a loaded plugin family.
                   reason:
                     type: string
-                    enum: *id015
+                    enum: *id012
                   count:
                     type: integer
                     minimum: 1

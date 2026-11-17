@@ -28,14 +28,12 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from scope_binding import (  # noqa: E402
+from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingError,
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
-    binding_keys,
-    resolve_scope_id,
-    session_binding_key,
 )
+from scope_binding import binding_keys, resolve_scope_id, session_binding_key  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _PREFIX = "mcp__powercontext__"
@@ -66,10 +64,12 @@ _CURRENT_OPERATIONS = frozenset({
     "download_skill_package",
     "finalize_handoff",
     "flush_memory",
+    "forget_artifact",
     "flush_topic_memory",
     "generate_experience",
     "generate_skill",
     "get_artifact",
+    "get_artifact_governance",
     "get_candidate",
     "get_candidate_history",
     "get_artifact_revision",
@@ -90,6 +90,7 @@ _CURRENT_OPERATIONS = frozenset({
     "list_managed_skills",
     "list_memory_entries",
     "list_remote_skill_targets",
+    "merge_artifacts",
     "merge_atomic_memories",
     "prepare_context",
     "prepare_bootstrap_context",
@@ -109,6 +110,7 @@ _CURRENT_OPERATIONS = frozenset({
     "replace_artifact",
     "rename_remote_skill_target",
     "resolve_external_skill",
+    "restore_artifact",
     "restore_atomic_memory",
     "retry_topic_memory_processing",
     "revise_candidate",

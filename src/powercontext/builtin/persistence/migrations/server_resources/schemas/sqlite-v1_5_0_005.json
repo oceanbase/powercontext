@@ -1,0 +1,21 @@
+{
+  "statements": [
+    "DROP TABLE pc_artifact_search_fts",
+    "DROP TABLE pc_artifact_search_text",
+    "DROP TABLE pc_artifact_vectors",
+    "DROP TABLE pc_artifact_index_changes",
+    "DROP TABLE pc_artifact_index_coverage",
+    "DROP TABLE pc_artifact_search_states",
+    "DROP TABLE pc_artifact_vector_indexes",
+    "DROP TABLE pc_artifact_vector_spaces",
+    "DROP TABLE pc_artifact_family_schemas",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN plugin_id",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN plugin_family",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN plugin_spec",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN binding_generation",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN desired_state",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN phase",
+    "ALTER TABLE pc_artifact_processing_binding_states DROP COLUMN last_error",
+    "ALTER TABLE pc_artifacts ADD COLUMN metadata BLOB"
+  ]
+}

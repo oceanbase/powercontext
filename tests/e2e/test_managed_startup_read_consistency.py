@@ -94,9 +94,7 @@ def test_concurrent_publication_does_not_reject_managed_startup(migration_backen
     prepare_server_database(
         settings, evidence_dir=evidence, embedding_profile=None if embedding is None else embedding.profile
     )
-    app = create_server_app(
-        settings=settings, scheduler_path=migration_backend.directory / "scheduler.db", embedding_model=embedding
-    )
+    app = create_server_app(settings=settings, embedding_model=embedding)
     with TestClient(app) as client:
         created = client.post(
             "/v1/scopes",
@@ -166,7 +164,6 @@ def test_concurrent_publication_does_not_reject_managed_startup(migration_backen
                     create_server_app(
                         settings=settings,
                         embedding_model=embedding,
-                        scheduler_path=migration_backend.directory / "second-scheduler.db",
                     )
                 ) as second:
                     assert second.get("/health/ready").status_code == 200
