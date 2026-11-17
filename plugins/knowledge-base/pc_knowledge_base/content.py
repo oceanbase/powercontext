@@ -246,6 +246,7 @@ def parse(data, path, config):  # noqa: C901
     for block in packed:
         value = block["text"]
         references = block.pop("references", {})
+        included_references = set()
         environment = {}
         if references:
             MarkdownIt("commonmark").parse("\n".join(references.values()), environment)
@@ -274,6 +275,7 @@ def parse(data, path, config):  # noqa: C901
                     if excess <= 0:
                         break
                     end = max(start + 1, end - excess)
+                included_references.update(needed)
             item = {
                 **block,
                 "text": text,
@@ -288,4 +290,6 @@ def parse(data, path, config):  # noqa: C901
             if end == len(value):
                 break
             start = max(start + 1, end - overlap)
+        if references.keys() - included_references:
+            raise ContentError("Reference links do not fit the chunk size; increase max_chars")  # noqa: TRY003
     return chunks

@@ -115,6 +115,7 @@ Source 登记中断时也从原先固定的输入和版本基准继续，不以�
 
 `GET P/scopes/{s}/settings` 返回知识库归属、配置及配置版本，要求 Scope read 权限。
 `PATCH P/scopes/{s}/settings` 接收 `{version,chunking:{max_chars,overlap}}`；已有文档只在重解析后改变。
+如果引用链接无法容纳在分块大小内，解析会失败，已发布文档保持不变。请增大 `max_chars` 后重试失败的处理请求。
 部署使用插件独立、固定版本的 `BAAI/bge-small-zh-v1.5` 512 维模型，不继承核心模型。
 本期不支持在线切换模型，配置指纹不一致时拒绝处理。后续解析器可实现内部解析协议并在
 `pc_knowledge_base/content.py` 注册扩展名，不需要新增 Artifact 插件。

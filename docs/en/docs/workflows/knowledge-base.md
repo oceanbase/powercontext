@@ -130,6 +130,7 @@ and base; it never rebases onto the current revision. Reusing the key for anothe
 Synchronous chunk edits also check the governance version at publication, so forgetting during embedding preparation rejects the edit.
 
 `PATCH P/scopes/{s}/settings` accepts `{version,chunking:{max_chars,overlap}}`; existing documents change only after reprocessing.
+If reference links cannot fit within the chunk size, parsing fails without replacing the published document. Increase `max_chars` and retry the failed processing request.
 The deployment owns an independent, pinned `BAAI/bge-small-zh-v1.5` 512-dimensional embedding profile. It does not inherit core models.
 This release does not switch models online; a mismatched profile fails closed. Additional parsers can implement the internal parser
 contract and register extensions in `pc_knowledge_base/content.py` without adding another Artifact plugin.

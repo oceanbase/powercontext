@@ -171,3 +171,15 @@ def test_reference_definitions_survive_chunk_splitting_without_affecting_code():
             assert 'href="https://example.com"' in MarkdownIt().render(chunk["text"])
     code = next(chunk for chunk in chunks if "[not a link]" in chunk["text"])
     assert "[not a link][g]" in MarkdownIt().render(code["text"])
+
+
+def test_reference_destination_larger_than_chunk_budget_requires_larger_chunks():
+    from markdown_it import MarkdownIt
+
+    url = "https://example.com/" + "x" * 400
+    body = f"[guide][g]\n\n[g]: {url}".encode()
+    with pytest.raises(ContentError, match="increase max_chars"):
+        parse(body, "guide.md", {"max_chars": 360, "overlap": 40})
+    chunks = parse(body, "guide.md", {"max_chars": 800, "overlap": 40})
+    assert len(chunks) == 1
+    assert f'href="{url}"' in MarkdownIt().render(chunks[0]["text"])

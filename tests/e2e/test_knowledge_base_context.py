@@ -118,6 +118,21 @@ def test_document_context_keeps_all_matched_chunks_and_current_versions(tmp_path
             assert len(prepared["receipt"]["selected"]) == 2
 
             artifact = f"/v1/scopes/{scope}/artifacts/document/{first['document_id']}"
+            invalid_reference = await call(
+                "POST",
+                base + "/uploads",
+                params={"relative_path": "runbook.md", "idempotency_key": "oversized-reference"},
+                content=("[guide][g]\n\n[g]: https://example.com/" + "x" * 400).encode(),
+            )
+            failed = await wait_for(
+                lambda: call("GET", base + "/imports/" + invalid_reference["request_id"]),
+                lambda status: status["state"] in {"completed", "failed"},
+                log=tmp_path / "server.log",
+            )
+            assert failed["state"] == "failed" and "increase max_chars" in failed["error"]
+            assert (await call("GET", artifact))["revision"] == 1
+            assert "BACKUP_APPROVED" in (await context(2))["content"]
+
             removed = next(hit for hit in hits if "BACKUP_APPROVED" in hit["text"])
             await call(
                 "PUT",
