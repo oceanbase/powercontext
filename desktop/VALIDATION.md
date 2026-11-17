@@ -3524,3 +3524,17 @@ record was not yet committed. Historical profiles retain their original evidence
 These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
+
+## Server 3dd72d45 OAuth protocol qualification
+
+`sqlite-oauth-3dd72d45-v1` qualifies the thirteen bundled Desktop protocol operations against Server source `3dd72d45f3e9e54743e9826615531c0e0262d51b`. The exact tested wheel is `powercontext-1.5.2.dev0-py3-none-any.whl`; all 822 packaged runtime files match a Git archive of that commit. Historical qualifications retain their original source and artifact identities.
+
+- OpenAPI SHA-256: `c13b97964d250d91a60cbba7e1683e62a9ca7d847fafe8d5bd5a3df0a915f772`.
+- Wheel SHA-256: `ee42ec54dc7ceb6821a0069a907cca956b8da2bac1bb440cef670e7a265e6c79`.
+- Native debug probe SHA-256: `32dad6cd6413b6b0591ecdf3b4fd64d0be2888ae130159ee57b627d18d25ea29`.
+
+On 2026-11-17, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6. The ordinary ConnectionManager selected the bundled product record. Checks cover save, search, exact revision reads, lost write responses without replay, Server survival after client exit, Principal changes and revocation, 51 same-title Scopes, and scoped authorization without observation permission. Model usage is controlled fixture input.
+
+The host lacks WebKitGTK 4.1. Rust 1.97.1 compiled an isolated protocol-only crate from unchanged product connections, credentials, error, Ops bridge, session observations and transport modules, plus the unchanged `server_probe.rs`. Every registry dependency version and checksum matches the product Cargo lock. The crate omits Tauri/WebView and uses keyring without platform features; no `ci-fixtures` are enabled. These results qualify the local SQLite protocol, not the installed GUI, native credential persistence, other platforms or external providers.
+
+The wheel, probe crate and four-mode report are retained locally under `/tmp/pc-oauth-nov17-repro/`; the report is `desktop-real-server.json`. The report records a dirty Desktop working tree because this new qualification was not committed during the run.
