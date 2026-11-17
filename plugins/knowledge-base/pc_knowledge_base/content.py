@@ -113,7 +113,9 @@ def markdown_blocks(text):
     headings = []
     blocks = []
     covered = -1
-    parsed = MarkdownIt("commonmark").enable("table").parse(text)
+    environment = {}
+    markdown = MarkdownIt("commonmark", {"store_labels": True}).enable("table")
+    parsed = markdown.parse(text, environment)
     for i, token in enumerate(parsed):
         if token.map is None or token.map[0] < covered or token.nesting == -1:
             continue
@@ -139,9 +141,30 @@ def markdown_blocks(text):
                 "text": "".join(lines[start:end]).rstrip(),
                 "heading_path": [title for _, title in headings],
                 "locator": {"line_start": start + 1, "line_end": end},
+                "references": required_references("".join(lines[start:end]), environment),
             })
             covered = end
     return blocks
+
+
+def required_references(text, environment):
+    """Keep definitions needed to render an extracted block independently."""
+    markdown = MarkdownIt("commonmark", {"store_labels": True}).enable("table")
+    references = environment.get("references", {})
+    required = {}
+
+    def visit(tokens):
+        for token in tokens:
+            if label := token.meta.get("label"):
+                reference = references[label]
+                # Markdown-it has already normalized/validated the destination. Escape
+                # titles for a standalone definition, including multiline titles.
+                title = reference["title"].replace("\\", "\\\\").replace('"', '\\"')
+                required[label] = f'[{label}]: <{reference["href"]}> "{title}"'
+            visit(token.children or [])
+
+    visit(markdown.parse(text, {"references": references}))
+    return required
 
 
 def parse_markdown(data):
@@ -216,24 +239,41 @@ def parse(data, path, config):  # noqa: C901
         ):
             packed[-1]["text"] += "\n\n" + block["text"]
             packed[-1]["locator"]["line_end"] = block["locator"]["line_end"]
+            packed[-1]["references"].update(block.get("references", {}))
         else:
             packed.append(block)
     chunks = []
     for block in packed:
         value = block["text"]
+        references = block.pop("references", {})
+        environment = {}
+        if references:
+            MarkdownIt("commonmark").parse("\n".join(references.values()), environment)
+        body_limit = maximum
         start = 0
         while start < len(value):
-            end = min(len(value), start + maximum)
+            end = min(len(value), start + body_limit)
             if end < len(value):
                 # Prefer paragraph/sentence boundaries; hard split only oversized individual blocks.
                 cuts = [
-                    value.rfind(delimiter, start + maximum // 2, end)
+                    value.rfind(delimiter, start + body_limit // 2, end)
                     for delimiter in ("\n\n", "\n", "。", ". ", "；", "; ")  # noqa: RUF001
                 ]
                 boundary = max(cuts)
                 if boundary > start:
                     end = boundary + 1
             text = value[start:end]
+            if references:
+                # Only attach definitions used by this slice. Reserve their space in
+                # the configured limit instead of rejecting a link-heavy document.
+                while True:
+                    needed = required_references(value[start:end], environment)
+                    suffix = "\n\n" + "\n".join(needed.values()) if needed else ""
+                    text = value[start:end] + suffix
+                    excess = len(text) - maximum
+                    if excess <= 0:
+                        break
+                    end = max(start + 1, end - excess)
             item = {
                 **block,
                 "text": text,

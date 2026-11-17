@@ -76,11 +76,12 @@ def test_document_context_keeps_all_matched_chunks_and_current_versions(tmp_path
 
             first = await upload(
                 "runbook.md",
-                "## Restart prerequisites\n\nRestart requires BACKUP_APPROVED.\n\n"
-                "## Restart execution\n\nRestart requires SERVICE_DRAINED.",
+                "## Restart prerequisites\n\nRestart requires BACKUP_APPROVED. See [guide][g].\n\n"
+                "## Restart execution\n\nRestart requires SERVICE_DRAINED.\n\n[g]: https://example.com/guide",
             )
             hits = (await call("POST", base + "/retrieve", json={"query": "Restart", "mode": "fts"}))["hits"]
             assert len(hits) == 2
+            assert any("https://example.com/guide" in hit["text"] for hit in hits)
             for hit in hits:
                 expected_heading = "Restart prerequisites" if "BACKUP_APPROVED" in hit["text"] else "Restart execution"
                 assert hit["heading_path"] == [expected_heading]
@@ -92,6 +93,7 @@ def test_document_context_keeps_all_matched_chunks_and_current_versions(tmp_path
             for limit in (8, 1):
                 prepared = await context(limit)
                 assert "BACKUP_APPROVED" in prepared["content"]
+                assert "https://example.com/guide" in prepared["content"]
                 assert "SERVICE_DRAINED" in prepared["content"]
                 for hit in hits:
                     assert hit["chunk_id"] in prepared["content"]

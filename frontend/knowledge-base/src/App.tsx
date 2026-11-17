@@ -153,6 +153,7 @@ export function App() {
           <Space>
             <Button
               size="small"
+              aria-label="设为默认空间"
               disabled={!space || !defaults.data || space.space_scope_id === defaults.data.space_scope_id}
               loading={changeDefault.isPending}
               onClick={() => {

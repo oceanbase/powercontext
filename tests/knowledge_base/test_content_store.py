@@ -139,3 +139,35 @@ def test_sqlite_indexes_preserve_old_chunks_and_isolate_scopes(tmp_path):
             await storage.aclose()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("link", ["[guide][g]", "[g][]", "[g]", "![diagram][g]"])
+def test_markdown_chunks_keep_reference_destinations_and_original_locations(link):
+    from markdown_it import MarkdownIt
+
+    body = f'# Guide\n\nRead {link}.\n\n# Other\n\nUnrelated text.\n\n[g]: https://example.com/guide "Guide title"\n'
+    chunks = parse(body.encode(), "guide.md", {"max_chars": 360, "overlap": 40})
+    linked = next(chunk for chunk in chunks if "Read" in chunk["text"])
+    rendered = MarkdownIt().render(linked["text"])
+    assert "https://example.com/guide" in rendered
+    assert 'title="Guide title"' in rendered
+    assert linked["locator"]["line_start"] == 1
+    assert linked["locator"]["line_end"] == 3
+    assert linked["length"] == len(linked["text"])
+    assert all(len(chunk["text"]) <= 360 for chunk in chunks)
+    unrelated = next(chunk for chunk in chunks if "Unrelated" in chunk["text"])
+    assert "https://example.com/guide" not in unrelated["text"]
+
+
+def test_reference_definitions_survive_chunk_splitting_without_affecting_code():
+    from markdown_it import MarkdownIt
+
+    body = "See [guide][g].\n\n" * 12 + "\n```md\n[not a link][g]\n```\n\n[g]: https://example.com\n"
+    chunks = parse(body.encode(), "guide.md", {"max_chars": 140, "overlap": 0})
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert len(chunk["text"]) <= 140
+        if "[guide][g]" in chunk["text"]:
+            assert 'href="https://example.com"' in MarkdownIt().render(chunk["text"])
+    code = next(chunk for chunk in chunks if "[not a link]" in chunk["text"])
+    assert "[not a link][g]" in MarkdownIt().render(code["text"])

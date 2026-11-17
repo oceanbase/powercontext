@@ -107,7 +107,8 @@ def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
                 tmp_path,
                 b,
                 "b.md",
-                "# B\n\n**Body B**\n\n<script>alert('unsafe')</script>\n\n![remote](https://example.invalid/image.png)",
+                "# B\n\n**Body B** [guide][g]\n\n<script>alert('unsafe')</script>\n\n"
+                "![remote](https://example.invalid/image.png)\n\n[g]: https://example.com/guide",
             )
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
             await frame.get_by_role("button", name="A", exact=True).wait_for()
@@ -139,6 +140,7 @@ def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
             body = frame.locator(".markdown-body")
             await expect(body).to_contain_text("Body B")
             await expect(body.locator("strong")).to_have_text("Body B")
+            await expect(body.get_by_role("link", name="guide")).to_have_attribute("href", "https://example.com/guide")
             await expect(body.locator("script, img")).to_have_count(0)
             for _ in range(4):
                 await frame.locator(".chunk-link").first.click()
@@ -280,7 +282,11 @@ def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
             assert docs["items"][0]["content"]["relative_path"] == "selected-space.md"
             untouched = await call("GET", "/scopes/" + old["scope_id"] + "/documents")
             assert not untouched["items"] and not untouched["requests"]
-            await frame.get_by_role("button", name="设为默认空间", exact=True).click()
+            async with page.expect_response(
+                lambda response: response.url.endswith("/api/me/default-space") and response.request.method == "PUT"
+            ) as changed_default:
+                await frame.get_by_role("button", name="设为默认空间", exact=True).click()
+            assert (await changed_default.value).status == 200
             await expect(frame.get_by_role("button", name="设为默认空间", exact=True)).to_be_disabled()
             await page.reload()
             await frame.get_by_role("button", name="Base B", exact=True).wait_for()
