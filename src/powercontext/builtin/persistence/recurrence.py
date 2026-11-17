@@ -27,6 +27,7 @@ from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience.recurrence import (
     RecurrenceMatch,
     RecurrenceObservation,
@@ -185,6 +186,42 @@ class RecurrenceRepository:
                     RECURRENCE_OBSERVATION_TABLE.c.family,
                     RECURRENCE_OBSERVATION_TABLE.c.artifact_id,
                     RECURRENCE_OBSERVATION_TABLE.c.revision,
+                    RECURRENCE_OBSERVATION_TABLE.c.observation_id,
+                )
+            )
+        ).mappings()
+        return tuple(_decode_observation(row) for row in rows)
+
+    async def observations_for_target(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> tuple[RecurrenceObservation, ...]:
+        """Return the ledger events of one ``(artifact_ref, signature_key)`` bucket.
+
+        The artifact columns are covered by ``ix_pc_recurrence_observation_revision``.
+        No joint artifact-and-signature index exists, so the signature is
+        filtered within those rows: by its indexed hash first, then by its
+        plaintext, because a hash match alone cannot rule out a collision.
+        """
+
+        scope = validate_scope_id(scope_id)
+        rows = (
+            await connection.execute(
+                select(RECURRENCE_OBSERVATION_TABLE)
+                .where(
+                    RECURRENCE_OBSERVATION_TABLE.c.scope_id == scope,
+                    RECURRENCE_OBSERVATION_TABLE.c.family == artifact_ref.family,
+                    RECURRENCE_OBSERVATION_TABLE.c.artifact_id == artifact_ref.artifact_id,
+                    RECURRENCE_OBSERVATION_TABLE.c.revision == artifact_ref.revision,
+                    RECURRENCE_OBSERVATION_TABLE.c.signature_key_hash == sha256(signature_key.encode()).digest(),
+                    RECURRENCE_OBSERVATION_TABLE.c.signature_key == signature_key,
+                )
+                .order_by(
+                    RECURRENCE_OBSERVATION_TABLE.c.task_outcome_position,
                     RECURRENCE_OBSERVATION_TABLE.c.observation_id,
                 )
             )

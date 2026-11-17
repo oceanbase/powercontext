@@ -37,9 +37,11 @@ from powercontext.builtin.artifacts.experience.models import ExperienceContent
 from powercontext.builtin.artifacts.experience.recurrence import (
     RECURRENCE_REVIEW_STREAK_THRESHOLD,
     CandidateSetMode,
+    RecurrenceEffectiveness,
     RecurrenceMatch,
     RecurrenceRevisionProposal,
     TaskOutcomeItemRef,
+    aggregate_effectiveness,
     avoided_refs,
     candidate_set_digest,
     eligible_candidates,
@@ -121,6 +123,29 @@ class RelationalRecurrenceLedger:
         for row, outcome in outcomes:
             proposals.extend(await self._record_outcome(connection, row, outcome, heads=heads))
         return tuple(proposals)
+
+    async def effectiveness(
+        self,
+        connection: AsyncConnection,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> RecurrenceEffectiveness:
+        """Return the read-only effectiveness projection of one ledger bucket.
+
+        This method only counts events the incubation window already recorded
+        for ``(scope_id, artifact_ref, signature_key)``. It appends nothing,
+        caches nothing, and never consults the current head, so the same ledger
+        always yields the same reading.
+        """
+
+        observations = await self.recurrence.observations_for_target(
+            connection,
+            self.scope_id,
+            artifact_ref,
+            signature_key,
+        )
+        return aggregate_effectiveness(artifact_ref, signature_key, observations)
 
     async def _record_outcome(
         self,

@@ -36,6 +36,7 @@ from powercontext.builtin.work.models import TaskCheck, TaskOutcome, WorkClaim
 from powercontext.sources import SourceRef
 
 RECURRENCE_REVIEW_STREAK_THRESHOLD = 3
+RECURRENCE_EFFECTIVENESS_MIN_VERDICTS = 5
 NEAR_DUPLICATE_BIGRAM_OVERLAP = 0.8
 MAX_RECURRENCE_HANDOFF_SCAN = 64
 
@@ -271,6 +272,43 @@ def needing_review(verdicts: tuple[RecurrenceObservation, ...], /) -> bool:
     return terminal_streak(verdicts) >= RECURRENCE_REVIEW_STREAK_THRESHOLD
 
 
+def aggregate_effectiveness(
+    artifact_ref: ArtifactRef,
+    signature_key: str,
+    observations: tuple[RecurrenceObservation, ...],
+    /,
+) -> RecurrenceEffectiveness:
+    """Return the effectiveness projection of one ``(artifact_ref, signature_key)`` bucket.
+
+    Every event of the bucket counts once, and ``selected`` never enters the
+    ``verdicts`` denominator: recall alone yields no decidable outcome. The
+    reading depends only on the passed events and
+    ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS`` — never on wall-clock time, the
+    current head, or call order.
+    """
+
+    selected = recurred = avoided = 0
+    for observation in observations:
+        if observation.artifact_ref != artifact_ref or observation.signature_key != signature_key:
+            raise ValueError("every observation must belong to the requested bucket")  # noqa: TRY003
+        if observation.event == "selected":
+            selected += 1
+        elif observation.event == "recurred":
+            recurred += 1
+        else:
+            avoided += 1
+    verdicts = recurred + avoided
+    return RecurrenceEffectiveness(
+        artifact_ref=artifact_ref,
+        signature_key=signature_key,
+        selected=selected,
+        recurred=recurred,
+        avoided=avoided,
+        verdicts=verdicts,
+        effectiveness=avoided / verdicts if verdicts >= RECURRENCE_EFFECTIVENESS_MIN_VERDICTS else None,
+    )
+
+
 class TaskOutcomeItemRef(_ArtifactValue):
     """A ledger-internal locator into immutable Task Outcome content."""
 
@@ -366,6 +404,36 @@ class RecurrenceRevisionProposal(_ArtifactValue):
     proposal: ExperienceContent
     sources: tuple[SourceRef, ...] = Field(min_length=1, max_length=MAX_EXPERIENCE_CANDIDATE_EVIDENCE)
     reason: str
+
+
+class RecurrenceEffectiveness(_ArtifactValue):
+    """The read-only effectiveness projection of one ``(artifact_ref, signature_key)`` bucket.
+
+    ``effectiveness`` is the share of terminal verdicts whose problem was
+    avoided. It is a verdict-outcome ratio, not a measure of causal
+    contribution to task success, and it stays ``None`` until the bucket
+    reaches ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS`` verdicts: insufficient
+    evidence must never be read as total ineffectiveness.
+    """
+
+    artifact_ref: ArtifactRef
+    signature_key: str
+    selected: Annotated[int, Field(ge=0)]
+    recurred: Annotated[int, Field(ge=0)]
+    avoided: Annotated[int, Field(ge=0)]
+    verdicts: Annotated[int, Field(ge=0)]
+    effectiveness: float | None
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> RecurrenceEffectiveness:
+        if self.verdicts != self.recurred + self.avoided:
+            raise ValueError("verdicts must equal recurred plus avoided")  # noqa: TRY003
+        if self.verdicts >= RECURRENCE_EFFECTIVENESS_MIN_VERDICTS:
+            if self.effectiveness != self.avoided / self.verdicts:
+                raise ValueError("effectiveness must equal avoided divided by verdicts")  # noqa: TRY003
+        elif self.effectiveness is not None:
+            raise ValueError("effectiveness must be None below the minimum verdict sample")  # noqa: TRY003
+        return self
 
 
 class RecurrenceObservationIdentity(_ArtifactValue):
@@ -637,13 +705,16 @@ def _bigrams(value: str) -> frozenset[tuple[str, ...]]:
 __all__ = [
     "MAX_RECURRENCE_HANDOFF_SCAN",
     "NEAR_DUPLICATE_BIGRAM_OVERLAP",
+    "RECURRENCE_EFFECTIVENESS_MIN_VERDICTS",
     "RECURRENCE_REVIEW_STREAK_THRESHOLD",
+    "RecurrenceEffectiveness",
     "RecurrenceEvent",
     "RecurrenceMatch",
     "RecurrenceObservation",
     "RecurrenceObservationIdentity",
     "RecurrenceRevisionProposal",
     "TaskOutcomeItemRef",
+    "aggregate_effectiveness",
     "avoided_refs",
     "candidate_set_digest",
     "canonical_digest",
