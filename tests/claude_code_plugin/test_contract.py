@@ -15,7 +15,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
@@ -37,7 +41,7 @@ def test_repository_exposes_a_claude_marketplace() -> None:
             "name": "powercontext",
             "source": "./integrations/claude-code/plugins/powercontext",
             "description": "Restore project memory and transfer current work from Claude Code",
-            "version": "0.1.3",
+            "version": "0.1.4",
             "category": "Productivity",
         }
     ]
@@ -47,7 +51,7 @@ def test_plugin_uses_standard_component_discovery() -> None:
     manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
 
     assert manifest["name"] == "powercontext"
-    assert manifest["version"] == "0.1.3"
+    assert manifest["version"] == "0.1.4"
     assert "hooks" not in manifest
     assert "mcpServers" not in manifest
     assert (PLUGIN_ROOT / "hooks" / "hooks.json").is_file()
@@ -69,15 +73,82 @@ def test_hook_uses_exec_form_and_does_not_capture_stop() -> None:
     assert hook["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"]
 
 
-def test_mcp_uses_claude_top_level_server_map_and_environment_header() -> None:
+def test_mcp_uses_claude_top_level_server_map_and_authorization_headers() -> None:
     configuration = json.loads((PLUGIN_ROOT / ".mcp.json").read_text())
 
     assert set(configuration) == {"powercontext"}
+    # The helper's header overrides the static one; a host that cannot run the helper still sends the environment value.
     assert configuration["powercontext"] == {
         "type": "http",
         "url": "${user_config.server_url}/mcp",
         "headers": {"Authorization": "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}"},
+        "headersHelper": 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_headers.py"',
     }
+
+
+def _mcp_headers(root: Path, *, mcp_url: str | None, authorization: str | None = None) -> dict[str, str]:
+    environment = {
+        name: value for name, value in os.environ.items() if not name.startswith(("CLAUDE_", "POWERCONTEXT_"))
+    }
+    environment.update(HOME=str(root), CLAUDE_CONFIG_DIR=str(root))
+    if mcp_url is not None:
+        environment["CLAUDE_CODE_MCP_SERVER_URL"] = mcp_url
+    if authorization is not None:
+        environment["POWERCONTEXT_CLAUDE_AUTHORIZATION"] = authorization
+    # -S leaves out site-packages, as for the hooks: the helper may import only the standard library.
+    result = subprocess.run(
+        [sys.executable, "-S", str(PLUGIN_ROOT / "scripts" / "mcp_headers.py")],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    ("mcp_url", "authorization", "expected"),
+    [
+        # Setup's saved credential is sent to the Server it was saved for.
+        ("http://127.0.0.1:8000/mcp", None, {"Authorization": "Bearer saved-token"}),
+        # A token is never sent to another endpoint.
+        ("https://memory.example/mcp", None, {}),
+        # Claude Code may strip credential-like variables from the helper, so the helper never reads the environment;
+        # the saved credential overrides the static environment header.
+        ("http://127.0.0.1:8000/mcp", "Bearer environment-token", {"Authorization": "Bearer saved-token"}),
+        # Without the endpoint, the helper cannot match a saved credential.
+        (None, None, {}),
+    ],
+)
+def test_mcp_headers_helper_sends_only_the_credential_for_its_endpoint(
+    tmp_path: Path, mcp_url: str | None, authorization: str | None, expected: dict[str, str]
+) -> None:
+    _write_credentials(tmp_path, server_url="http://127.0.0.1:8000", authorization="Bearer saved-token")
+
+    assert _mcp_headers(tmp_path, mcp_url=mcp_url, authorization=authorization) == expected
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the shell command is checked with a POSIX shell")
+def test_mcp_headers_helper_command_runs_from_a_plugin_root_with_spaces(tmp_path: Path) -> None:
+    configuration = json.loads((PLUGIN_ROOT / ".mcp.json").read_text())
+    root = tmp_path / "Application Support" / "powercontext"
+    shutil.copytree(PLUGIN_ROOT, root)
+    _write_credentials(tmp_path, server_url="http://127.0.0.1:8000", authorization="Bearer saved-token")
+    environment = {
+        name: value for name, value in os.environ.items() if not name.startswith(("CLAUDE_", "POWERCONTEXT_"))
+    }
+    environment.update(
+        HOME=str(tmp_path), CLAUDE_CONFIG_DIR=str(tmp_path), CLAUDE_CODE_MCP_SERVER_URL="http://127.0.0.1:8000/mcp"
+    )
+    # Claude Code substitutes the raw plugin root into the command and runs it through a shell.
+    command = configuration["powercontext"]["headersHelper"].replace("${CLAUDE_PLUGIN_ROOT}", str(root))
+
+    result = subprocess.run(  # noqa: S602 - the command is the plugin's own shipped helper.
+        command, shell=True, env=environment, capture_output=True, text=True, timeout=30, check=True
+    )
+
+    assert json.loads(result.stdout) == {"Authorization": "Bearer saved-token"}
 
 
 def test_scope_resolver_and_workspace_binding_use_the_server(

@@ -558,3 +558,32 @@ HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SE
 显示为未验证/degraded，并提示更新；不能仅凭包版本号或健康检查判定兼容。会话内的 `/pc doctor` 还会核对 Server 的
 Memory 协议声明、Atomic 路由及过期的原生 MCP 修改工具。恢复时保留 `legacy_memory_operation_unsupported`，不移除
 CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。
+
+
+## 只读桌宠记忆服务
+
+宿主插件提供可选 Cordis 服务 `powercontextCompanionMemory`，协议为
+`powercontext.companion-memory.v1`。同一宿主内受信任的插件可以通过 `ctx.get()` 软查询，
+不增加 Server HTTP 路由，也不暴露凭据或原始客户端。
+
+`prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` 从真实宿主会话读取工作目录，复用运行中插件的
+客户端、认证、传输策略和 Scope 覆盖设置。必须有持久的 DSH 工作区绑定或显式 Scope，
+解析时使用 `allow_default: false`。省略 query 时返回 `connected`；给定 query 时仅准备 Memory
+类型，返回 `ready` 或 `empty`。成功结果包含 `bindingId`、`scopeId`、`workspace` 以及可选的
+`content`。消费方应以 `bindingId` 隔离本地历史；连接凭据、工作区或 Scope 变化时，绑定身份也会变化。
+不同连接上相同的 Scope ID 不代表同一份记忆。
+
+服务拒绝缺失会话、请求期间工作目录变化、无法解析 Scope、格式错误的召回结果、取消和超时。
+脱敏失败原因为 `session-required`、`workspace-unavailable`、`scope-unavailable` 和
+`connection-unavailable`。插件卸载时取消请求并注销服务。调用方应校验协议、自设等待上限，
+在服务不存在或失败时继续正常工作。
+
+该接口只读取项目 Memory，不采集桌宠对话、不启动另一个 Server、不将桌宠私有记忆合并进代码项目，
+也不隐式跨父级或用户 Scope 召回。它服务于同一 DSH 进程内受信任的插件，不是浏览器凭据代理，
+也不是互不信任插件之间新增的授权边界。
+
+可选追踪字段 `traceContext: { traceparent }` 接受有效的 W3C version-00 父级，trace ID 和 span ID
+不能全为零。客户端只在本次 `prepare_context` HTTP 请求上转发它；无效元数据会被忽略，并发调用
+各自保留父级。本扩展不关联工作区绑定请求、不配置全局 tracer／exporter、不转发任意请求头或
+baggage、不改变授权，也不将追踪元数据放入查询。Server 需要单独启用并配置 OTLP 导出器，才能
+看到下游阶段。旧调用方可以省略该字段，旧服务实现也可忽略它，不影响召回。

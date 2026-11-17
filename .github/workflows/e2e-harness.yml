@@ -340,7 +340,6 @@ jobs:
     # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
     timeout-minutes: 295
     strategy:
-      max-parallel: 2
       fail-fast: false
       matrix:
         shard: [0, 1]

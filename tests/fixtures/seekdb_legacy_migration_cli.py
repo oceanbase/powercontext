@@ -21,6 +21,7 @@ import faulthandler
 import json
 import sys
 from pathlib import Path
+from threading import Event, Thread
 from uuid import UUID
 
 from sqlalchemy import Column, Integer, MetaData, String, Table, event, select
@@ -132,9 +133,18 @@ def main(directory: Path) -> None:
     print("complete", file=sys.stderr, flush=True)
 
 
+def diagnose(stopped: Event) -> None:
+    while not stopped.wait(45):
+        # Sample with the GIL held, outside CliRunner's redirected stderr.
+        faulthandler.dump_traceback(file=2)
+
+
 if __name__ == "__main__":
-    faulthandler.dump_traceback_later(45, repeat=True)
+    stopped = Event()
+    watchdog = Thread(target=diagnose, args=(stopped,), name="seekdb-cli-diagnostics", daemon=True)
+    watchdog.start()
     try:
         main(Path(sys.argv[1]))
     finally:
-        faulthandler.cancel_dump_traceback_later()
+        stopped.set()
+        watchdog.join()
