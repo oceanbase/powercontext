@@ -1,0 +1,26 @@
+docs/benchmarks/token-savings/README.md
+  s_08eaaedfaa31d0::t_45fe29f1cd6d45 135,141
+  s_08eaaedfaa31d0::t_ec4a0c032b1414 143
+docs/benchmarks/token-savings/README_CN.md
+  s_08eaaedfaa31d0::t_ec4a0c032b1414 142
+  s_08eaaedfaa31d0::t_45fe29f1cd6d45 144
+docs/assets/render_hero.py
+  s_08eaaedfaa31d0::t_d6ffffe07d3366 244
+  s_08eaaedfaa31d0::t_511501a81e49ab 9-10,24-28,103-209,212,216-217,221-225,228-243,245-251,253,255-256,258-260,262-265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8a41e0798a1f33b093f75c32cfc80ee8590db2b3",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

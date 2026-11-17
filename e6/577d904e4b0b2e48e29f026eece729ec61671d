@@ -1,0 +1,35 @@
+docs/benchmarks/token-savings/README_CN.md
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 5-6
+README.md
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 36-41,45
+  s_08eaaedfaa31d0::t_7578170c01d448 46
+README_CN.md
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 36-41,45
+  s_08eaaedfaa31d0::t_2c494f37364191 46
+docs/benchmarks/token-savings/verify.py
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 93-105
+docs/benchmarks/token-savings/cost-estimate.json
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 17-259
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 18
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 18
+docs/benchmarks/token-savings/README.md
+  s_08eaaedfaa31d0::t_5175d7c6e0dd4f 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e6577d904e4b0b2e48e29f026eece729ec61671d",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

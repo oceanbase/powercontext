@@ -1,0 +1,32 @@
+docs/benchmarks/token-savings/README.md
+  s_08eaaedfaa31d0::t_3f14a952261727 128-131
+  s_08eaaedfaa31d0::t_76a78ba2851a0b 115-127
+docs/benchmarks/token-savings/README_CN.md
+  s_08eaaedfaa31d0::t_3f14a952261727 129-132
+  s_08eaaedfaa31d0::t_33f184050f9107 115-128
+README.md
+  s_08eaaedfaa31d0::t_3f14a952261727 2
+  s_08eaaedfaa31d0::t_9609e863cb9c4b 36,38,40,42,44,46,50
+README_CN.md
+  s_08eaaedfaa31d0::t_726135f9ac16da 2,36,38,40,42,44,46,50
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_6bd5cc2b21c166 18
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_c4477e3a0ca284 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9ade06674d974c133ba74c4d5eae5e3228f49cd0",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

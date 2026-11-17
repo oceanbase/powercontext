@@ -1,0 +1,37 @@
+README.md
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 34,86-93
+docs/assets/integration-claude-code.svg
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 1
+docs/assets/integration-codex.svg
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 1
+README_CN.md
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 34,87-94
+docs/assets/integration-opencode.svg
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 1
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 6
+docs/assets/integration-openclaw.svg
+  s_08eaaedfaa31d0::t_fd90811d98ccc9 1
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_a3ab526e963d1b 6
+docs/assets/readme-results-en.svg
+  s_08eaaedfaa31d0::t_34a8bdddc03d41 1
+docs/assets/readme-results-zh.svg
+  s_08eaaedfaa31d0::t_01771c89e61be5 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0fcaa8bddfdb9faa580a6899a24963fcc1b69198",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

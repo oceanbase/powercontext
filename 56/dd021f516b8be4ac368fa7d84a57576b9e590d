@@ -1,0 +1,21 @@
+README_CN.md
+  s_08eaaedfaa31d0::t_4c0ea8ca86ddb0 97-120
+README.md
+  s_08eaaedfaa31d0::t_4c0ea8ca86ddb0 96-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "56dd021f516b8be4ac368fa7d84a57576b9e590d",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

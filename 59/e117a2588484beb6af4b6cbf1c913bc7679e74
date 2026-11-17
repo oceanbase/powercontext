@@ -1,0 +1,43 @@
+desktop/scripts/generate.mjs
+  s_1dc7d92681d5aa::t_3af8d597d123a6 21,25,151
+  s_1dc7d92681d5aa::t_5bab251fa46285 17
+desktop/scripts/prepare-openapi-generator.test.mjs
+  s_1dc7d92681d5aa::t_a8bec83337558c 1-107
+desktop/README.md
+  s_1dc7d92681d5aa::t_3af8d597d123a6 84-89,261
+tests/test_ci_changes.py
+  s_1dc7d92681d5aa::t_b4457f223be11d 103
+.github/actions/setup-openapi-generator/action.yml
+  s_1dc7d92681d5aa::t_25c6b0c21a56ff 1-31
+desktop/README.zh.md
+  s_1dc7d92681d5aa::t_fa8fe1a4f925a3 147-151
+  s_1dc7d92681d5aa::t_3af8d597d123a6 231
+  s_1dc7d92681d5aa::t_92b77f89f6e097 152
+desktop/scripts/prepare-openapi-generator.mjs
+  s_1dc7d92681d5aa::t_5bab251fa46285 105-108
+  s_1dc7d92681d5aa::t_f10578806328a6 1-104,109-121
+.github/ci-paths.toml
+  s_1dc7d92681d5aa::t_25c6b0c21a56ff 142
+desktop/package.json
+  s_1dc7d92681d5aa::t_25c6b0c21a56ff 16
+.github/workflows/desktop.yml
+  s_1dc7d92681d5aa::t_8a8ebbb0dae7b2 79-80,200-201,300-301
+desktop/openapi-generator-checksum.json
+  s_1dc7d92681d5aa::t_0f90da9e06994c 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59e117a2588484beb6af4b6cbf1c913bc7679e74",
+  "prompts": {},
+  "sessions": {
+    "s_1dc7d92681d5aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19db9-d0ca-7db2-8730-6878cbc5ae02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

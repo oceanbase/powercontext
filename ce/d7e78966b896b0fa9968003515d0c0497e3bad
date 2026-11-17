@@ -1,0 +1,29 @@
+README.md
+  s_08eaaedfaa31d0::t_745d2a49a4805a 1-14,18,20-22,26,28,30,34-40,42,44,46-47,49-53,55,57,61,71,73,80,82,86-88,90,92
+README_CN.md
+  s_08eaaedfaa31d0::t_a2e7f64c646862 1-14,18,20-22,26,28,30,34-40,42,44,46-47,49-53,55,57,61,71,73,80,82,86-88,90,92,94
+docs/assets/readme-capabilities-en.svg
+  s_08eaaedfaa31d0::t_8f052b583ddd04 1
+docs/assets/readme-capabilities-zh.svg
+  s_08eaaedfaa31d0::t_3db01a72cb68ea 1
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_a811d4922ae9aa 1-18
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_ccda9e46431117 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ced7e78966b896b0fa9968003515d0c0497e3bad",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

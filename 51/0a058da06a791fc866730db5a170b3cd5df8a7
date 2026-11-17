@@ -1,0 +1,53 @@
+docs/assets/integration-logo-sources.json
+  s_08eaaedfaa31d0::t_e81ad024411401 1-92
+docs/assets/integration-kimi.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/integration-pydantic.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+README.md
+  s_08eaaedfaa31d0::t_e81ad024411401 38,87-91,94-110
+  s_08eaaedfaa31d0::t_f4934dd618aee1 111
+docs/assets/integration-langgraph.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 3,6-18
+docs/assets/integration-minimax-code.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/integration-pi.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/integration-langchain.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/integration-hermes.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+README_CN.md
+  s_08eaaedfaa31d0::t_e81ad024411401 38,88-92,95-111
+  s_08eaaedfaa31d0::t_f74eaee7315e25 112
+docs/assets/integration-zcode.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/workbuddy.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1-29
+docs/assets/integration-bub.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/integration-workbuddy.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 3,6-18
+docs/assets/integration-deepseek.svg
+  s_08eaaedfaa31d0::t_e81ad024411401 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "510a058da06a791fc866730db5a170b3cd5df8a7",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

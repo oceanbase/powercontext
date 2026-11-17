@@ -1,0 +1,25 @@
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_b51de999ccda57 124-129,132
+  s_2ef0feea0a110d::t_5f652006df67ad 133
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_b51de999ccda57 124-129,132
+  s_2ef0feea0a110d::t_f23d49daf24584 133
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_b51de999ccda57 287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9b7218adecc61ccac6661dc91c69672be1c74216",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

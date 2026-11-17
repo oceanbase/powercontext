@@ -1,0 +1,21 @@
+docs/assets/readme-hero-en.svg
+  s_08eaaedfaa31d0::t_c71182b007c590 10
+docs/assets/readme-hero-zh.svg
+  s_08eaaedfaa31d0::t_c71182b007c590 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "15da61e53acf6732b057d74fb83d5c631085e255",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
