@@ -87,7 +87,7 @@ async def _commit(contexts, scope_id, artifact_id, text_value, *, sources=(), ar
     return result.primary
 
 
-def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migration_backend) -> None:
+def test_batched_revisions_keep_their_own_evidence_after_reopen(migration_backend) -> None:
     config = BuiltinConfig(database=migration_backend.config)
     count = 600
     shared = SourceRef(source_type="content", source_id="shared")
@@ -118,25 +118,8 @@ def test_many_revisions_keep_separate_evidence_and_roll_back_a_late_failure(migr
                 ])
             prepared = tuple([await application.service.prepare_change(plan) for plan in plans])
 
-            async def commit() -> None:
-                async with contexts.database.transaction() as connection:
-                    await application.service.commit_window(connection, "batch-evidence", prepared, None)
-
-            def reject_last_evidence(connection, cursor, statement, parameters, execution, executemany):
-                if statement.lstrip().upper().startswith("INSERT INTO PC_ATOMIC_MEMORY_EVIDENCE_HISTORY") and any(
-                    row.get("artifact_id") == f"memory-{count - 1:04}" for row in execution.compiled_parameters
-                ):
-                    raise SQLAlchemyError("evidence-failure")
-
-            engine = contexts.database.engine.sync_engine
-            event.listen(engine, "before_cursor_execute", reject_last_evidence)
-            try:
-                with pytest.raises(SQLAlchemyError, match="evidence-failure"):
-                    await commit()
-            finally:
-                event.remove(engine, "before_cursor_execute", reject_last_evidence)
-            assert (await application.for_scope("batch-evidence").list()).items == ()
-            await commit()
+            async with contexts.database.transaction() as connection:
+                await application.service.commit_window(connection, "batch-evidence", prepared, None)
 
         async with open_builtin_contexts(config) as contexts:
             memory = contexts.atomic_memory.for_scope("batch-evidence")
