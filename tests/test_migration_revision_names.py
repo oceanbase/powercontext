@@ -132,30 +132,22 @@ def test_unregistered_legacy_revisions_do_not_claim_a_software_release():
     }
 
 
-@pytest.mark.parametrize(
-    "revision, sequence",
-    [
-        ("v1_5_3_pr2674_01", 1),
-        ("v1_5_3_pr2674_02", 2),
-        ("v1_5_3_pr2688_01", 1),
-        ("v1_5_3_pr1_99", 99),
-    ],
-)
-def test_pr_scoped_revisions_describe_target_release_and_local_sequence(revision, sequence):
+@pytest.mark.parametrize("revision", ["v1_5_3_pr2674", "v1_5_3_pr2688", "v1_5_3_pr1"])
+def test_pr_scoped_revisions_describe_target_release_without_sequence(revision):
     assert describe_revision(revision) == {
         "revision": revision,
         "name": revision,
         "software_version": "1.5.3",
-        "sequence": sequence,
+        "sequence": None,
     }
 
 
 @pytest.mark.parametrize(
     "revision",
     [
-        "v1_5_3_pr0_01",
-        "v1_5_3_pr02674_01",
-        "v1_5_3_pr2674_00",
+        "v1_5_3_pr0",
+        "v1_5_3_pr02674",
+        "v1_5_3_pr2674_01",
         "v1_5_3_pr2674_1",
         "v1_5_3_pr2674_001",
         "v1_5_3_pr2674_01_extra",
@@ -174,7 +166,7 @@ def test_pr_scoped_ids_follow_dependencies_and_survive_database_round_trip(tmp_p
     fixture = Path(__file__).parent / "fixtures" / "database_migrations"
     resources = shutil.copytree(fixture, tmp_path / "bundle")
     # The smaller PR number deliberately follows the larger one in the chain.
-    revisions = ["v1_5_3_pr2688_01", "v1_5_3_pr2674_01", "v1_5_3_pr2674_02"]
+    revisions = ["v1_5_3_pr2688", "v1_5_3_pr2674", "v1_5_3_pr2690"]
     for path in [resources / "manifest.json", *sorted((resources / "versions").glob("*.py"))]:
         content = path.read_text()
         for original, revision in zip(("p0001", "p0002", "p0003"), revisions, strict=True):

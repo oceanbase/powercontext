@@ -81,9 +81,11 @@ Use [REVIEW.md](REVIEW.md) when reviewing changes.
 Read the migration guide before changing managed storage:
 [English](docs/en/docs/operate/database-migrations.md) / [中文](docs/zh/docs/operate/database-migrations.md).
 
-- New Server revisions use `v<major>_<minor>_<patch>_pr<PR number>_<step>`, for example
-  `v1_5_2_pr2674_01`. Create a draft PR first. Use its number in this repository and a
-  distinct two-digit step (`01`–`99`) for each migration in that PR; keep the full ID within 32 characters.
+- New Server revisions use `v<major>_<minor>_<patch>_pr<PR number>`, for example
+  `v1_5_2_pr2674`. Create a draft PR first. Use its number in this repository; keep the full ID within 32 characters.
+  Each PR adds at most one logical schema revision, shared by its backend implementations.
+  It may contain multiple DDL operations, data tasks and validations. If independent revision
+  checkpoints are necessary, split the work into dependent PRs.
 - Agree on the target release before registering migrations, using the version declared in
   `openapi/powercontext.yaml` and `release/upgrade-support.json`. At registration, the new prefix must
   match both declarations. This does not require existing prefixes to track later version bumps. Feature PRs do not independently

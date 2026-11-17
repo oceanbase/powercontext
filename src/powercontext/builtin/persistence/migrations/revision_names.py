@@ -36,24 +36,24 @@ _LEGACY_NAMES = {
 }
 _NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_([0-9]{3})")
 
-# PR numbers separate parallel changes; the final sequence is local to that PR.
-_PR_NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_pr[1-9][0-9]*_(0[1-9]|[1-9][0-9])")
+# Each PR introduces at most one logical revision, without a local sequence.
+_PR_NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_pr[1-9][0-9]*")
 
 
 def describe_revision(revision: str | None) -> RevisionName | None:
     """Describe a database state, not the running binary or its original source.
 
-    New revisions include the registration target release, PR number and PR-local
-    sequence. Historical release sequences keep their original meaning. Unknown
+    New revisions include the registration target release and PR number. Historical release sequences keep their original meaning. Unknown
     legacy/custom IDs remain opaque; their software version is never guessed.
     """
     if revision is None:
         return None
     name = _LEGACY_NAMES.get(revision, revision)
-    match = _PR_NAME.fullmatch(name) or _NAME.fullmatch(name)
+    legacy_match = _NAME.fullmatch(name)
+    match = _PR_NAME.fullmatch(name) or legacy_match
     return {
         "revision": revision,
         "name": name,
         "software_version": ".".join(match.groups()[:3]) if match else None,
-        "sequence": int(match[4]) if match else None,
+        "sequence": int(legacy_match[4]) if legacy_match else None,
     }
