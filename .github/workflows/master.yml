@@ -1194,6 +1194,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
     timeout-minutes: 20
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    env:
+      OPENCLAW_VERSION: '2026.8.1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1211,6 +1213,33 @@ jobs:
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
       - name: Test OpenClaw package
         run: mise exec node@24.15.0 -- make openclaw-plugin-test
+
+      - name: Install the pinned OpenClaw host
+        run: |
+          mise exec node@24.15.0 -- npm install --prefix "$RUNNER_TEMP/openclaw-host" \
+            --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund "openclaw@$OPENCLAW_VERSION"
+          cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
+          mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
+          echo "OPENCLAW_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Run OpenClaw with the PowerContext plugin against a real Server
+        # Without the binary the cases skip, so refuse to run without it. The Gateway inherits this Node from PATH.
+        run: |
+          test -x "$OPENCLAW_CLI_BIN"
+          mise exec node@24.15.0 -- uv run pytest tests/e2e/test_openclaw_service_chain.py --basetemp "$RUNNER_TEMP/openclaw-e2e"
+
+      - name: Upload OpenClaw host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: openclaw-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/openclaw-e2e/*/openclaw.log
+            ${{ runner.temp }}/openclaw-e2e/*/openclaw-file.log
+            !${{ runner.temp }}/openclaw-e2e/*current/openclaw.log
+            !${{ runner.temp }}/openclaw-e2e/*current/openclaw-file.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify OpenClaw guidance adapter requests and results
         run: mise exec node@24.15.0 -- uv run pytest tests/test_integration_guidance_evaluation.py::test_openclaw_handoff_adapter_preserves_generated_source_identity
