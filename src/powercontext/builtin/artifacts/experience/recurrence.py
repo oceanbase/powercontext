@@ -272,31 +272,29 @@ def needing_review(verdicts: tuple[RecurrenceObservation, ...], /) -> bool:
     return terminal_streak(verdicts) >= RECURRENCE_REVIEW_STREAK_THRESHOLD
 
 
-def aggregate_effectiveness(
+def effectiveness_from_counts(
     artifact_ref: ArtifactRef,
     signature_key: str,
-    observations: tuple[RecurrenceObservation, ...],
     /,
+    *,
+    selected: int,
+    recurred: int,
+    avoided: int,
 ) -> RecurrenceEffectiveness:
-    """Return the effectiveness projection of one ``(artifact_ref, signature_key)`` bucket.
+    """Return the effectiveness projection of one bucket from its event counts.
 
-    Every event of the bucket counts once, and ``selected`` never enters the
-    ``verdicts`` denominator: recall alone yields no decidable outcome. The
-    reading depends only on the passed events and
-    ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS`` — never on wall-clock time, the
-    current head, or call order.
+    The counts arrive aggregated by the ledger's query, so reading a bucket
+    never decodes its rows. ``verdicts = recurred + avoided`` — recall alone
+    yields no decidable outcome, so ``selected`` never enters the denominator —
+    and the reading depends only on the counts and
+    ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS``, never on wall-clock time, the
+    current head, or call order. The key must already be normalized, exactly
+    like the recorded events it names: an unnormalized cue is a caller bug,
+    not missing evidence.
     """
 
-    selected = recurred = avoided = 0
-    for observation in observations:
-        if observation.artifact_ref != artifact_ref or observation.signature_key != signature_key:
-            raise ValueError("every observation must belong to the requested bucket")  # noqa: TRY003
-        if observation.event == "selected":
-            selected += 1
-        elif observation.event == "recurred":
-            recurred += 1
-        else:
-            avoided += 1
+    if normalize_match_text(signature_key) != signature_key:
+        raise ValueError("signature_key must already be normalized")  # noqa: TRY003
     verdicts = recurred + avoided
     return RecurrenceEffectiveness(
         artifact_ref=artifact_ref,
@@ -714,10 +712,10 @@ __all__ = [
     "RecurrenceObservationIdentity",
     "RecurrenceRevisionProposal",
     "TaskOutcomeItemRef",
-    "aggregate_effectiveness",
     "avoided_refs",
     "candidate_set_digest",
     "canonical_digest",
+    "effectiveness_from_counts",
     "eligible_candidates",
     "failure_item_text",
     "failure_refs",
