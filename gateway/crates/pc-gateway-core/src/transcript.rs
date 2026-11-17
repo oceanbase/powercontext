@@ -547,7 +547,8 @@ fn content_text(content: Option<&Value>) -> String {
     }
 }
 
-/// 内容块的文本。图片、文件等非文本块记为占位文本：有 URL 或文件名时带上，内联数据只记字节数。
+/// 内容块的文本。图片、文件等非文本块记为占位文本：有 URL 或文件名时带上，内联数据只记字节数；其余的块记为
+/// 它的 JSON。
 fn parts_text(parts: &[Value]) -> String {
     let texts: Vec<String> = parts
         .iter()
@@ -562,7 +563,8 @@ fn parts_text(parts: &[Value]) -> String {
                     Some(url) => format!("[{kind}: {url}]"),
                     None => match first_text(part, &["filename", "file_id"]) {
                         Some(name) => format!("[{kind}: {name}]"),
-                        None => format!("[{kind}]"),
+                        // 没有文本、URL 或文件名的块原样记录，其中的可见文本（如代码解释器的日志）不丢失。
+                        None => without_binary(part).to_string(),
                     },
                 }),
                 None => None,
@@ -810,6 +812,27 @@ mod tests {
                 {"type": "tool_call", "name": "computer_call", "arguments": "{\"type\":\"screenshot\"}"}
             ])
         );
+    }
+
+    #[test]
+    fn hosted_tool_output_blocks_keep_their_text() {
+        let mut request = chat_turn(&[]);
+        request.messages.push(item(serde_json::json!({
+            "type": "code_interpreter_call", "id": "ci_1", "code": "print(total)", "container_id": "c1",
+            "outputs": [
+                {"type": "logs", "logs": "Verified account total: 12345.67 USD"},
+                {"type": "image", "url": "https://example.com/plot.png"}
+            ]
+        })));
+        let projection =
+            turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap();
+        let transcript = single(&projection);
+        assert_eq!(
+            transcript["steps"][1],
+            serde_json::json!({"type": "tool_output", "output":
+                "{\"logs\":\"Verified account total: 12345.67 USD\",\"type\":\"logs\"}\n[image: https://example.com/plot.png]"})
+        );
+        assert_eq!(projection.coverage["status"], "complete");
     }
 
     #[test]
