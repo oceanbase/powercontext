@@ -1,0 +1,23 @@
+AGENTS.md
+  s_7ef64a2bfbe178::t_275ceac1b44eee 85,88-89
+docs/en/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_50efd21ea9e4d0 151,194,212-215,222
+docs/zh/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_6059bca166b34a 123,164,179-181,186-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59d4d260bf7b8e7d39dcc16f6b81a5e2bde68c32",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
