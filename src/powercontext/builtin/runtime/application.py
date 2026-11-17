@@ -795,9 +795,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.create", self.scope_id, storage_location="prompt-create-storage"
+                    family, f"{family}.create", self.scope_id, storage_location=f"{family}-create-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
@@ -914,9 +914,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.replace", self.scope_id, storage_location="prompt-replace-storage"
+                    family, f"{family}.replace", self.scope_id, storage_location=f"{family}-replace-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
