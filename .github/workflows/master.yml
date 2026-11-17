@@ -241,7 +241,6 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
     defaults:
       run:
@@ -258,7 +257,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -309,7 +308,6 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
-      max-parallel: 2
       matrix:
         python-version: ["3.11", "3.14"]
     steps:
@@ -549,7 +547,7 @@ jobs:
           mkdir -p .powercontext/database-bootstrap-ci
           uv run --locked --extra seekdb --extra code python -m pytest \
             tests/e2e/test_database_bootstrap.py -k seekdb -vv -rs \
-            -o faulthandler_timeout=60 --durations=20 \
+            -o faulthandler_timeout=0 --durations=20 \
             --junitxml=.powercontext/database-bootstrap-ci/seekdb.xml \
             2>&1 | tee .powercontext/database-bootstrap-ci/pytest.log
           uv run --locked --extra seekdb --extra code python - <<'PYCODE'
@@ -597,7 +595,7 @@ jobs:
           df -h . /tmp
           if [ "$SEEKDB_MIGRATION_SHARD" -eq 0 ]; then
             uv run --locked --extra seekdb --extra code pytest -vv \
-              -o faulthandler_timeout=120 --durations=20 \
+              -o faulthandler_timeout=0 --durations=20 \
               tests/builtin/persistence/test_database_migration_backends.py \
               tests/builtin/persistence/test_database_backup_providers.py \
               tests/builtin/persistence/test_database_migration_connections.py \
@@ -748,6 +746,12 @@ jobs:
       - name: Verify spawned worker logging on Windows
         run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
 
+      - name: Verify subprocess diagnostics and process probes on Windows
+        run: >-
+          uv run --locked --no-sync python -m pytest -q
+          tests/e2e/test_database_bootstrap.py tests/test_upgrade_release_gate.py
+          -k "scenario_runner or scenario_diagnostics or vanished_descendant"
+
       - name: Verify offline ownership migration on Windows
         run: >-
           uv run --locked --no-sync pytest -q
@@ -886,7 +890,7 @@ jobs:
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -936,7 +940,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -986,7 +990,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1029,7 +1033,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1062,7 +1066,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1117,7 +1121,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Install the pinned Codex host
         run: |
           npm install --prefix "$RUNNER_TEMP/codex-host" \
@@ -1242,6 +1246,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
     timeout-minutes: 20
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    env:
+      OPENCLAW_VERSION: '2026.8.1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1249,7 +1255,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1259,6 +1265,33 @@ jobs:
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
       - name: Test OpenClaw package
         run: mise exec node@24.15.0 -- make openclaw-plugin-test
+
+      - name: Install the pinned OpenClaw host
+        run: |
+          mise exec node@24.15.0 -- npm install --prefix "$RUNNER_TEMP/openclaw-host" \
+            --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund "openclaw@$OPENCLAW_VERSION"
+          cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
+          mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
+          echo "OPENCLAW_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Run OpenClaw with the PowerContext plugin against a real Server
+        # Without the binary the cases skip, so refuse to run without it. The Gateway inherits this Node from PATH.
+        run: |
+          test -x "$OPENCLAW_CLI_BIN"
+          mise exec node@24.15.0 -- uv run pytest tests/e2e/test_openclaw_service_chain.py --basetemp "$RUNNER_TEMP/openclaw-e2e"
+
+      - name: Upload OpenClaw host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: openclaw-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/openclaw-e2e/*/openclaw.log
+            ${{ runner.temp }}/openclaw-e2e/*/openclaw-file.log
+            !${{ runner.temp }}/openclaw-e2e/*current/openclaw.log
+            !${{ runner.temp }}/openclaw-e2e/*current/openclaw-file.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify OpenClaw guidance adapter requests and results
         run: mise exec node@24.15.0 -- uv run pytest tests/test_integration_guidance_evaluation.py::test_openclaw_handoff_adapter_preserves_generated_source_identity
@@ -1295,7 +1328,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1324,7 +1357,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

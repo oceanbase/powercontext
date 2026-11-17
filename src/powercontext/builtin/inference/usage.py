@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -33,7 +34,9 @@ from powercontext.builtin.inference.models import (
 )
 from powercontext.builtin.inference.protocols import EmbeddingModel, StructuredGenerator, embed_query
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics.usage_diagnostics import log_usage_accounting_failure, model_usage_family
 
+_logger = logging.getLogger(__name__)
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 UsageReporter = Callable[[ModelUsagePurpose, ModelUsageOperation, InferenceUsage], Awaitable[None]]
@@ -147,7 +150,18 @@ async def _report(operation: ModelUsageOperation, usage: InferenceUsage) -> None
         return
     purpose = binding.purpose_for(operation)
     if purpose is not None:
-        await binding.reporter(purpose, operation, usage)
+        try:
+            await binding.reporter(purpose, operation, usage)
+        except Exception as error:
+            log_usage_accounting_failure(
+                _logger,
+                "Model usage reporting failed",
+                "report",
+                family=model_usage_family(purpose),
+                capability=operation,
+                record_count=1,
+                error=error,
+            )
 
 
 class UsageReportingStructuredGenerator(Generic[InputT, OutputT]):
@@ -175,8 +189,7 @@ class UsageReportingStructuredGenerator(Generic[InputT, OutputT]):
                 # an earlier attempt. Never fabricate a zero-request event.
                 if error.usage is not None:
                     error.usage = _with_input_encodings(error.usage, reports)
-                    with suppress(Exception):
-                        await _report(ModelUsageOperation.GENERATION, error.usage)
+                    await _report(ModelUsageOperation.GENERATION, error.usage)
                 raise
             usage = _with_input_encodings(result.usage, reports)
             await _report(ModelUsageOperation.GENERATION, usage)
@@ -197,8 +210,7 @@ class UsageReportingEmbeddingModel:
             result = await self._delegate.embed(texts)
         except InferenceError as error:
             if error.usage is not None:
-                with suppress(Exception):
-                    await _report(ModelUsageOperation.EMBEDDING, error.usage)
+                await _report(ModelUsageOperation.EMBEDDING, error.usage)
             raise
         await _report(ModelUsageOperation.EMBEDDING, result.usage)
         return result
@@ -208,8 +220,7 @@ class UsageReportingEmbeddingModel:
             result = await embed_query(self._delegate, texts)
         except InferenceError as error:
             if error.usage is not None:
-                with suppress(Exception):
-                    await _report(ModelUsageOperation.EMBEDDING, error.usage)
+                await _report(ModelUsageOperation.EMBEDDING, error.usage)
             raise
         await _report(ModelUsageOperation.EMBEDDING, result.usage)
         return result

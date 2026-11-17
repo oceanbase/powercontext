@@ -82,7 +82,11 @@ bub = [
   "integrations/bub/**", "e2e/bub/pyproject.toml", "e2e/bub/uv.lock", "tests/e2e/test_bub_service_chain.py",
   "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
 ]
-openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
+# The OpenClaw service chain reuses the ZCode acceptance wire fixtures.
+openclaw = [
+  "integrations/openclaw/**", "tests/*openclaw*", "tests/e2e/zcode_acceptance/protocol.py",
+  "tests/e2e/zcode_acceptance/runner.py",
+]
 # The Codex service chain reuses the ZCode acceptance wire fixtures.
 codex = [
   "integrations/codex/**", "tests/e2e/test_codex_host_service_chain.py", "tests/e2e/host_models/**",
