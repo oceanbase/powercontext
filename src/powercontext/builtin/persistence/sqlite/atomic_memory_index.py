@@ -42,10 +42,12 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_body_select,
     atomic_memory_channel_hits,
     atomic_memory_channel_ranks,
+    atomic_memory_checked_vector_ranks,
     atomic_memory_filter_sql,
     atomic_memory_page_from_ranks,
     atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_vector_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
     sqlite_fts_coverage_sql,
@@ -396,21 +398,18 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         eligibility: str,
         parameters: dict[str, object],
     ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        await self._require_related_vectors(connection, request, eligibility, parameters)
+        self._prepare_related_vectors(request, parameters)
         sql = self._related_vector_rank_sql(eligibility)
         rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        return atomic_memory_channel_ranks(rows, vector=True)
+        return atomic_memory_checked_vector_ranks(rows)
 
     def _related_vector_rank_sql(self, eligibility: str) -> str:
-        return (
-            "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
-            "vec_distance_l2(embedding, :query_vector) AS distance "
-            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
-            f"AND ({eligibility}) AND embedding IS NOT NULL AND embedding_input_hash IS NOT NULL "
-            "AND profile_fingerprint = :profile AND projection_format = :projection_format "
-            "AND LENGTH(embedding) = :embedding_bytes) "
-            "SELECT * FROM ranked WHERE distance <= :max_distance ORDER BY distance, artifact_id"
+        invalid = (
+            "embedding IS NULL OR embedding_input_hash IS NULL "
+            "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
+            "OR projection_format <> :projection_format OR LENGTH(embedding) <> :embedding_bytes"
         )
+        return atomic_memory_related_vector_sql(eligibility, "vec_distance_l2(embedding, :query_vector)", invalid)
 
     async def _related_hybrid_ranks(
         self,
@@ -420,12 +419,9 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         eligibility: str,
         parameters: dict[str, object],
     ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        await self._require_related_vectors(connection, request, eligibility, parameters)
+        vector_ranks = await self._related_vector_ranks(connection, request, eligibility, parameters)
         fts_ranks = await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
-        rows = tuple(
-            (await connection.execute(text(self._related_vector_rank_sql(eligibility)), parameters)).mappings()
-        )
-        return combine_atomic_memory_related_ranks(fts_ranks, atomic_memory_channel_ranks(rows, vector=True))
+        return combine_atomic_memory_related_ranks(fts_ranks, vector_ranks)
 
     def _related_fts_rank_sql(
         self,
@@ -454,11 +450,9 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             f"AND ({eligibility}) AND {coverage} >= :fts_required"
         )
 
-    async def _require_related_vectors(
+    def _prepare_related_vectors(
         self,
-        connection: AsyncConnection,
         request: AtomicMemoryRelatedRequest,
-        eligibility: str,
         parameters: dict[str, object],
     ) -> None:
         query_vector = self._require_vectors(request)
@@ -472,19 +466,6 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             embedding_bytes=profile.dimension * 4,
             max_distance=request.max_distance,
         )
-        invalid = await connection.scalar(
-            text(
-                "SELECT COUNT(*) FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
-                f"AND ({eligibility}) AND (embedding IS NULL OR embedding_input_hash IS NULL "
-                "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
-                "OR projection_format <> :projection_format OR LENGTH(embedding) <> :embedding_bytes)"
-            ),
-            parameters,
-        )
-        if invalid:
-            raise AtomicMemoryIndexError(
-                "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
-            )
 
     async def _related_page_from_ranks(
         self,

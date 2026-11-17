@@ -747,6 +747,30 @@ def combine_atomic_memory_channels(  # noqa: C901
     )
 
 
+def atomic_memory_related_vector_sql(eligibility: str, distance: str, invalid: str, /) -> str:
+    """Validate the whole eligible set and rank its admitted vectors in one read."""
+    return (
+        "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
+        f"CASE WHEN {invalid} THEN NULL ELSE {distance} END AS distance, "
+        f"MAX(CASE WHEN {invalid} THEN 1 ELSE 0 END) OVER () AS invalid_vectors, "
+        "ROW_NUMBER() OVER () AS position FROM pc_atomic_memory_current "
+        f"WHERE scope_id = :scope_id AND ({eligibility})) "
+        "SELECT artifact_id, revision, state_version, kind, distance, invalid_vectors FROM ranked "
+        "WHERE (invalid_vectors = 0 AND distance <= :max_distance) "
+        "OR (invalid_vectors = 1 AND position = 1) ORDER BY distance, artifact_id"
+    )
+
+
+def atomic_memory_checked_vector_ranks(rows: Any, /) -> tuple[AtomicMemoryRelatedRank, ...]:
+    """Reject an incomplete eligible set, including rows outside the query distance."""
+    rows = tuple(rows)
+    if rows and rows[0]["invalid_vectors"]:
+        raise AtomicMemoryIndexError(
+            "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
+        )
+    return atomic_memory_channel_ranks(rows, vector=True)
+
+
 def atomic_memory_channel_ranks(rows: Any, /, *, vector: bool = False) -> tuple[AtomicMemoryRelatedRank, ...]:
     """Decode lightweight channel ranks without reading projection or authority bodies."""
 
