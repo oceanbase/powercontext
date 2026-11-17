@@ -106,7 +106,17 @@ values; other failures are logged at debug level.
 
 ## Validated versions
 
-The adapter was validated with `deepagents` 0.7.39, `langchain` 1.5.0, `langchain-core` 1.8.1, and the in-repository
-`powercontext-langchain`. Coverage includes synchronous `invoke`, asynchronous `ainvoke`, recall for the main agent and
-a declarative subagent, single-capture ownership, and an in-process PowerContext Server with SQLite. Streaming and
-interrupt/resume paths, a real model provider, and JavaScript or Managed Deep Agents are not covered yet.
+Deterministic tests (14) run against scripted models and an in-process PowerContext Server over SQLite: middleware
+injection, subagent recall, single-capture ownership, streaming (`astream`), interrupt/resume, repeated model calls
+without context accumulation, and Scope isolation between runs.
+
+A real-model run used PowerContext Server 0.1.dev1 (HTTP + SQLite), `deepagents` 0.7.39, `langchain` 1.5.0,
+`langchain-core` 1.8.1, `langchain-openai` 1.8.0, and vLLM 0.29.0 serving Qwen2.5-0.5B-Instruct:
+
+- recall reached the system prompt and the answer followed the stored rule;
+- `auto_capture=True` added one Source for the completed turn;
+- a later turn in the same Scope recalled the rule again.
+
+The Server ran without generation or embedding models configured, so automatic Source-to-Memory extraction and
+semantic ranking were not exercised; recall used the Server's lexical retrieval. A real model with streaming,
+interrupt/resume with a real model, JavaScript, and Managed Deep Agents remain uncovered.

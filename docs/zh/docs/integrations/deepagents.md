@@ -101,6 +101,15 @@ result = await agent.ainvoke(
 
 ## 已验证版本
 
-适配层在 `deepagents` 0.7.39、`langchain` 1.5.0、`langchain-core` 1.8.1 与仓库内 `powercontext-langchain` 上验证。
-覆盖同步 `invoke`、异步 `ainvoke`、主 agent 与声明式 subagent 的召回、单次采集归属，以及使用 SQLite 的进程内
-PowerContext Server。流式与中断/恢复路径、真实模型供应商、JavaScript 或 Managed Deep Agents 尚未覆盖。
+14 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、subagent 召回、单次采集
+归属、流式 `astream`、中断/恢复、重复模型调用不累积上下文，以及不同运行之间的 Scope 隔离。
+
+真实模型验证使用 PowerContext Server 0.1.dev1（HTTP + SQLite）、`deepagents` 0.7.39、`langchain` 1.5.0、
+`langchain-core` 1.8.1、`langchain-openai` 1.8.0，以及 vLLM 0.29.0 上的 Qwen2.5-0.5B-Instruct：
+
+- 召回内容进入 system prompt，回答遵循了已存储的规则；
+- `auto_capture=True` 为该轮新增了一个 Source；
+- 同一 Scope 下的后续轮次再次召回了该规则。
+
+Server 未配置生成与 embedding 模型，因此未验证自动的 Source 到 Memory 提取与语义排序，召回走的是 Server 的词法
+检索。真实模型下的流式、真实模型下的中断/恢复、JavaScript 与 Managed Deep Agents 仍未覆盖。
