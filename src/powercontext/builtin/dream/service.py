@@ -67,7 +67,6 @@ from powercontext.builtin.dream.models import (
 from powercontext.builtin.dream.provenance import candidate_audit, proposal_fingerprint
 from powercontext.builtin.evidence.models import (
     EvidenceResolutionError,
-    QualifiedOrigin,
     ResolvedEvidence,
     reference_key,
     unique_references,
@@ -498,6 +497,11 @@ class DreamService:
             raise DreamError("budget_exceeded")
         if record.request is None:
             raise DreamError("dream_request_unavailable")
+        if generated.output.outcome == "proposed" and record.share_snapshot_id is not None:
+            # A shared run may not propose through the ordinary unbound Candidate path: the
+            # durable adopted set and the approval that binds it do not exist yet. Refuse
+            # before plan validation, evidence selection or Candidate preparation.
+            raise DreamError("shared_use_candidate_unavailable")
         operation_spec(run.operation).validator(generated.output, record.request)
         plan = _supported_plan(record, generated.output, resolved)
         if isinstance(plan.proposal, TagChangeProposal) and plan.proposal.after_tags == before_tags:
@@ -537,17 +541,32 @@ class DreamService:
             resolver = self._resolver(record.run.scope_id, record.principal_id)
             resolver.limits = record.run.budget
             artifacts, target = _resolve_references(request)
-            qualified: tuple[QualifiedOrigin, ...] = ()
             if record.share_snapshot_id is not None:
+                # Foreign origins are authorized at the Scope that owns them; without
+                # this the resolver now refuses rather than reusing the local grant.
+                resolver.authorize_origin = self._origin_authorizer(bound, record)
                 # A bound run contributes only its exact pin, and only when that pin is
                 # still fully eligible. This runs before any model input.
                 bound_share = await self._require_share_eligibility(bound, record)
-                qualified = bound_share.origins
+                # Only the pin is admitted as evidence. The request's own references are
+                # discarded here so a caller cannot append unpinned material to a shared
+                # run; the exact target keeps its separate checked role.
+                return await resolver.resolve(
+                    bound,
+                    sources=(),
+                    artifacts=(),
+                    qualified=bound_share.origins,
+                    target=target,
+                    include_memory_text=request.operation != "derive_skill",
+                    pinned=record.run.input_manifest,
+                    lock_memory=connection is not None,
+                    expose_prompt_target=request.operation == "revise_prompt",
+                    expose_catalog_target=request.operation == "revise_tags",
+                )
             return await resolver.resolve(
                 bound,
                 sources=request.sources,
                 artifacts=artifacts,
-                qualified=qualified,
                 target=target,
                 include_memory_text=request.operation != "derive_skill",
                 pinned=record.run.input_manifest,
@@ -555,6 +574,38 @@ class DreamService:
                 expose_prompt_target=request.operation == "revise_prompt",
                 expose_catalog_target=request.operation == "revise_tags",
             )
+
+    def _origin_authorizer(self, connection: AsyncConnection, record: DreamRecord):
+        """Authorize one foreign origin reference with the real scoped body rules.
+
+        The resolver calls this for every qualified reference and for each lineage read it
+        performs in that owning Scope, so a foreign body is never admitted on the target's
+        grant. Without the composed owners it refuses instead of falling back.
+        """
+
+        from powercontext.builtin.sharing.eligibility import ShareIneligibleError, require_origin_reference
+
+        if self.share_access is None or self.share_principal is None:
+
+            async def refuse(_scope_id: str, _ref) -> None:
+                raise ShareIneligibleError("shared_use_unenforced")
+
+            return refuse
+
+        principal = self.share_principal(record.principal_id)
+        if principal is None:
+
+            async def refuse_identity(_scope_id: str, _ref) -> None:
+                raise ShareIneligibleError("access_identity_required")
+
+            return refuse_identity
+        access = self.share_access.with_connection(connection)
+        audit = AccessAuditContext(transport="background", operation="dream.share_origin")
+
+        async def authorize(scope_id: str, ref) -> None:
+            await require_origin_reference(access=access, principal=principal, scope_id=scope_id, ref=ref, audit=audit)
+
+        return authorize
 
     async def _require_share_eligibility(self, connection: AsyncConnection, record: DreamRecord):
         """Enforce the run's exact stored pin before any model input is assembled.
@@ -586,6 +637,7 @@ class DreamService:
             scope_id=record.run.scope_id,
             operation=record.run.operation,
             snapshot_id=snapshot_id,
+            run_id=record.run.run_id,
         )
 
     async def _commit(self, record: DreamRecord, plan: DreamPlan) -> None:

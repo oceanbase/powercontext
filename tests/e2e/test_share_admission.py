@@ -28,7 +28,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.authz import AccessRole, PrincipalRef, ResourceRef
@@ -41,12 +41,16 @@ from powercontext.builtin.dream.models import (
     GetDreamRunRequest,
     ListDreamRunsRequest,
 )
-from powercontext.builtin.evidence.models import content_digest
+from powercontext.builtin.evidence.models import EvidenceResolutionError, content_digest
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE, SHARE_SNAPSHOTS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_PROCESSING_INTENTS_TABLE,
+    CANDIDATE_HEADS_TABLE,
+    SHARE_SNAPSHOTS_TABLE,
+)
 from powercontext.builtin.runtime import BuiltinConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.runtime.relational import BUILTIN_ARTIFACT_TYPES
@@ -487,6 +491,8 @@ def test_bound_run_completes_through_the_worker_as_no_change(tmp_path: Path) -> 
             run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
             # `_admit` is the private seam, so the Supervisor wake the scoped application
             # performs on the public path is issued here explicitly.
+            # Drive one attempt directly under a real Scope invocation so the raised code
+            # is observable, then confirm the run records it.
             supervisor = runtime.artifact_processing_supervisor
             assert supervisor is not None
             supervisor.wake(binding_for_request(request))
@@ -801,5 +807,369 @@ def test_scope_read_alone_does_not_replace_artifact_body_read(tmp_path: Path) ->
                     await service._resolve(record, connection)
             assert refused.value.code == "access_revoked"
             assert len(generator.inputs) == calls_before
+
+    asyncio.run(scenario())
+
+
+async def _pin_with_input(admindb, access, scope_id: str, *, key: str, item: ShareInput) -> ShareSnapshot:
+    """Record an unclaimed pin whose single input is supplied by the caller."""
+
+    sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+    service = ShareAgreementService(
+        admindb,
+        access=access,
+        scopes=ScopeRepository(),
+        sources=sources,
+        artifacts=ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources),
+    )
+    rule = await service.create(
+        scope_id,
+        ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(scope_id,)), terms=_terms()),
+        principal=OWNER,
+        context=AUDIT,
+    )
+    await service.accept(
+        scope_id,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="origin",
+        covered_scope_ids=(scope_id,),
+        context=AUDIT,
+    )
+    async with admindb.transaction() as connection:
+        descriptor = await ScopeRepository().get(connection, scope_id)
+    assert descriptor is not None
+    return await service.pin(
+        scope_id,
+        ShareSnapshotDraft(
+            rule_id=rule.rule_id,
+            rule_version=rule.version,
+            terms_digest=rule.terms_digest,
+            membership_digest=membership_digest(((scope_id, descriptor.version),)),
+            inputs=(item,),
+            notification_key=key,
+        ),
+        principal=OWNER,
+        context=AUDIT,
+    )
+
+
+def test_changed_origin_digest_refuses_before_the_model(tmp_path: Path) -> None:
+    """A pin whose recorded digest no longer matches the resolved node is refused."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'drift.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(ScopeDraft(title="Drift", summary="Drift", idempotency_key="drift"))
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="drift-1")
+            citation = await _seed_evidence(runtime, scope_id)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="drift-run"
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            # Replace the recorded qualified digest with one the origin never produced: the
+            # generation path must compare it against the resolved node and refuse.
+            original = service._require_share_eligibility
+
+            async def drift(connection, record):
+                share = await original(connection, record)
+                tampered = tuple(
+                    item.__class__(
+                        scope_id=item.scope_id,
+                        source=item.source,
+                        artifact=item.artifact,
+                        digest="sha256:" + "0" * 64,
+                    )
+                    for item in share.origins
+                )
+                return share.__class__(rule=share.rule, snapshot=share.snapshot, origins=tampered)
+
+            service._require_share_eligibility = drift
+            try:
+                calls_before = len(generator.inputs)
+                async with runtime.primary_database.transaction() as connection:
+                    record = await service.repository.get(connection, scope_id, run.run_id)
+                    with pytest.raises(EvidenceResolutionError) as refused:
+                        await service._resolve(record, connection)
+                assert refused.value.code == "evidence_changed"
+                assert len(generator.inputs) == calls_before == 0
+            finally:
+                service._require_share_eligibility = original
+
+    asyncio.run(scenario())
+
+
+def test_non_pin_request_input_is_not_admitted_to_a_bound_run(tmp_path: Path) -> None:
+    """A bound run discards the request's own references and admits only its pin."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'nonpin.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(ScopeDraft(title="Nonpin", summary="Nonpin", idempotency_key="nonpin"))
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="nonpin-1")
+            citation = await _seed_evidence(runtime, scope_id)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            # The request names an additional citation that the pin does not.
+            other = await _seed_evidence(runtime, scope_id)
+            request = CreateDreamRunRequest(
+                operation="refine_experience",
+                artifacts=(citation, other),
+                idempotency_key="nonpin-run",
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, scope_id, run.run_id)
+                resolved = await service._resolve(record, connection)
+            admitted = {
+                (node.artifact.family, node.artifact.artifact_id)
+                for node in resolved.manifest.nodes
+                if node.artifact is not None and node.origin_scope_id == scope_id
+            }
+            # `other` was requested but is not in the pin, so it must not be admitted.
+            assert (other.family, other.artifact_id) not in admitted
+
+    asyncio.run(scenario())
+
+
+def test_shared_proposal_is_refused_without_a_candidate(tmp_path: Path) -> None:
+    """A shared run may not create a Candidate through the ordinary unbound path."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'propose.db'}")
+        # The real fixture generator proposes from a Source-kind evidence item, which the
+        # pin supplies, so this reaches the proposal branch rather than failing resolution.
+        generator = Generator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Propose", summary="Propose", idempotency_key="propose")
+            )
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="propose-1")
+            citation = await _seed_evidence(runtime, scope_id)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="propose-run"
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+
+            finished = await runtime.dream.for_scope(scope_id, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.candidate is None
+            assert finished.status == "failed"
+            assert finished.error == "shared_use_candidate_unavailable", finished.error
+            # No Candidate row exists for this Scope at all.
+            async with runtime.primary_database.transaction() as connection:
+                count = await connection.scalar(
+                    select(func.count())
+                    .select_from(CANDIDATE_HEADS_TABLE)
+                    .where(CANDIDATE_HEADS_TABLE.c.scope_id == scope_id)
+                )
+            assert count == 0
+
+    asyncio.run(scenario())
+
+
+def test_pin_bound_to_another_run_cannot_execute(tmp_path: Path) -> None:
+    """A run may only use a pin that names exactly this execution."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'rebind.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(ScopeDraft(title="Rebind", summary="Rebind", idempotency_key="rebind"))
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="rebind-1")
+            citation = await _seed_evidence(runtime, scope_id)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="rebind-run"
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            # Rewrite the durable binding to a different run, leaving this run's record
+            # still naming the pin. Execution must refuse the mismatch.
+            async with runtime.primary_database.transaction() as connection:
+                await connection.execute(
+                    update(SHARE_SNAPSHOTS_TABLE)
+                    .where(SHARE_SNAPSHOTS_TABLE.c.snapshot_id == pin.snapshot_id)
+                    .values(dream_run_id="dr_someone_else")
+                )
+
+            calls_before = len(generator.inputs)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, scope_id, run.run_id)
+                with pytest.raises(DreamError) as refused:
+                    await service._resolve(record, connection)
+            assert refused.value.code == "share_snapshot_claimed"
+            assert len(generator.inputs) == calls_before == 0
+
+    asyncio.run(scenario())
+
+
+def test_foreign_origin_without_an_origin_authorizer_is_refused(tmp_path: Path) -> None:
+    """A foreign pin is never admitted on the target's grant when the hook is unwired."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'foreign.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            for scope_id in (target, origin):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            async with runtime.primary_database.transaction() as connection:
+                stored = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(name="foreign", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+                )
+            foreign_item = ShareInput(
+                kind="source",
+                origin_scope_id=origin,
+                source=stored.ref,
+                digest=content_digest(stored.value.model_dump_json().encode()),
+            )
+
+            # The rule declares both Scopes, and the origin side accepts the foreign Scope.
+            agreement = ShareAgreementService(
+                runtime.primary_database, access=access, scopes=ScopeRepository(), sources=sources
+            )
+            for scope_id in (target, origin):
+                rule = await agreement.create(
+                    scope_id,
+                    ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                    principal=OWNER,
+                    context=AUDIT,
+                )
+                await agreement.accept(
+                    scope_id,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side="origin",
+                    covered_scope_ids=(origin,),
+                    context=AUDIT,
+                )
+                break
+            async with runtime.primary_database.transaction() as connection:
+                descriptor = await ScopeRepository().get(connection, target)
+            assert descriptor is not None
+            foreign_pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest((
+                        (target, descriptor.version),
+                        (origin, (await runtime.scopes.get(origin)).version),
+                    )),
+                    inputs=(foreign_item,),
+                    notification_key="foreign-1",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            citation = await _seed_evidence(runtime, target)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="foreign-run"
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=foreign_pin.snapshot_id)
+
+            # Eligibility authorizes the origin, but the resolver's origin hook is unwired
+            # here, so the foreign read must refuse rather than reuse the local grant.
+            calls_before = len(generator.inputs)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, target, run.run_id)
+                original = service._origin_authorizer
+                service._origin_authorizer = lambda *_a, **_k: None
+                try:
+                    with pytest.raises(EvidenceResolutionError) as refused:
+                        await service._resolve(record, connection)
+                finally:
+                    service._origin_authorizer = original
+            assert refused.value.code == "origin_authorization_unavailable"
+            assert len(generator.inputs) == calls_before == 0
 
     asyncio.run(scenario())

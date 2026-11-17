@@ -142,6 +142,21 @@ class EvidenceResolver:
             roots.update(root_ids(evidence_id(origin, self.scope_id), state.nodes, state.edges))
         return tuple(source for key in sorted(roots) if (source := state.nodes[key].source) is not None)
 
+    async def _require_selection_digest(self, selection: QualifiedOrigin, traversal: _Traversal, /) -> None:
+        """Compare the recorded digest with the node actually resolved for it.
+
+        Generation reads the qualified origin through the traversal, so the comparison
+        must happen here too: ``validate`` alone does not cover the generation path, and a
+        changed origin would otherwise reach the model under a stale recorded digest.
+        """
+
+        identity = evidence_id(selection.reference, selection.scope_id)
+        node = traversal.nodes.get(identity)
+        if node is None:
+            raise EvidenceResolutionError("evidence_unavailable")
+        if node.digest != selection.digest:
+            raise EvidenceResolutionError("evidence_changed")
+
     async def _validate_qualified(self, connection: AsyncConnection, selection: QualifiedOrigin) -> None:
         """Read one qualified input in its owning Scope and verify the recorded digest."""
 
@@ -290,6 +305,7 @@ class EvidenceResolver:
                 lock_memory=lock_memory,
                 origin_scope_id=selection.scope_id,
             )
+            await self._require_selection_digest(selection, traversal)
         if target is not None and (target_id := evidence_id(target, self.scope_id)) in traversal.nodes:
             traversal.nodes[target_id] = traversal.nodes[target_id].model_copy(update={"role": "target"})
         if pinned is not None:
@@ -385,8 +401,12 @@ class EvidenceResolver:
 
     async def _authorize_reference(self, connection, ref, origin_scope_id: str | None = None):
         scope_id = self.scope_id if origin_scope_id is None else origin_scope_id
-        if scope_id != self.scope_id and self.authorize_origin is not None:
-            # Another Scope's material is authorized at the Scope that owns it.
+        if scope_id != self.scope_id:
+            # Another Scope's material is authorized at the Scope that owns it. Falling
+            # back to the target-local hook would apply this Scope's grant to foreign
+            # material, so an unwired origin authorizer refuses instead.
+            if self.authorize_origin is None:
+                raise EvidenceResolutionError("origin_authorization_unavailable")
             await self.authorize_origin(scope_id, ref)
             return
         if self.authorize is not None:

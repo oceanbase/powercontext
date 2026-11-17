@@ -51,10 +51,11 @@ if TYPE_CHECKING:
 SUPPORTED_USES = frozenset({"project-conclusion"})
 SUPPORTED_AUDIENCES = frozenset({"project-members"})
 
-# Families whose body is owned by the Artifact rather than the Scope. This mirrors the
-# existing exact-revision split; it is not a second permission model. Memory, atomic-memory
-# and topic-memory are Scope-owned and have no separate body grant.
-_SCOPE_OWNED_BODY_FAMILIES = frozenset({"memory", "atomic-memory", "topic-memory"})
+# Families whose body is owned by the Scope rather than the Artifact. This mirrors the
+# existing exact-revision split and is not a second permission model. Only the legacy
+# Memory and Topic Memory families are Scope-owned; ``atomic-memory`` is Artifact-owned
+# and must never be admitted on a Scope read alone.
+_SCOPE_OWNED_BODY_FAMILIES = frozenset({"memory", "topic-memory"})
 
 
 class ShareIneligibleError(DreamError):
@@ -73,6 +74,62 @@ class BoundShare:
     origins: tuple[QualifiedOrigin, ...]
 
 
+async def require_origin_reference(
+    *,
+    access: AccessControlService,
+    principal: PrincipalRef,
+    scope_id: str,
+    ref: SourceRef | ArtifactRef,
+    audit: AccessAuditContext,
+) -> None:
+    """Authorize one foreign origin reference at the Scope that owns it.
+
+    This is the resolver's origin hook, so it runs for a directly pinned reference and for
+    every lineage read the resolver performs in that Scope. A foreign ``atomic-memory``
+    body is refused outright: this checkpoint does not support cross-Scope atomic evidence
+    and will not read it under a Scope grant.
+    """
+
+    try:
+        await access.require(principal, AccessAction.SCOPE_READ, ResourceRef.scope(scope_id), context=audit)
+        if isinstance(ref, ArtifactRef):
+            family = ref.family
+            if family == "atomic-memory":
+                raise ShareIneligibleError("shared_use_unsupported")
+            if family not in _SCOPE_OWNED_BODY_FAMILIES:
+                await access.require(
+                    principal,
+                    AccessAction.ARTIFACT_READ,
+                    ResourceRef.artifact(scope_id, family=family, artifact_id=ref.artifact_id),
+                    context=audit,
+                )
+    except AccessControlError as error:
+        raise ShareIneligibleError("access_revoked") from error
+
+
+async def _require_current_rule(
+    agreements: ShareAgreementRepository,
+    connection: AsyncConnection,
+    scope_id: str,
+    snapshot: ShareSnapshot,
+    /,
+) -> ShareRule:
+    """The pin must still state the current active agreement, with a supported use."""
+
+    rule = await agreements.build_rule(connection, scope_id, snapshot.rule_id, snapshot.rule_version)
+    if rule.status != "active":
+        raise ShareIneligibleError("share_rule_invalidated")
+    head = await agreements.head(connection, scope_id, snapshot.rule_id)
+    if head is None or int(head["version"]) != snapshot.rule_version:
+        # The agreement moved after this pin was written; the pin no longer states terms.
+        raise ShareIneligibleError("shared_use_terms")
+    if rule.terms_digest != snapshot.terms_digest:
+        raise ShareIneligibleError("shared_use_terms")
+    if rule.terms.use not in SUPPORTED_USES or rule.terms.audience not in SUPPORTED_AUDIENCES:
+        raise ShareIneligibleError("shared_use_unsupported")
+    return rule
+
+
 async def require_bound_eligibility(
     *,
     connection: AsyncConnection,
@@ -84,6 +141,7 @@ async def require_bound_eligibility(
     scope_id: str,
     operation: DreamOperation,
     snapshot_id: str,
+    run_id: str,
 ) -> BoundShare:
     """Read back and authorize the exact pin this run is bound to.
 
@@ -97,21 +155,14 @@ async def require_bound_eligibility(
     if row is None:
         raise ShareIneligibleError("share_snapshot_not_found")
     snapshot = agreements.decode_snapshot(row)
+    # The binding is one-to-one and exact: this pin must already name *this* execution.
+    # A null binding or another run's id is not this run's instruction.
     if snapshot.dream_run_id is None:
-        # An unbound pin is not this run's instruction.
         raise ShareIneligibleError("share_snapshot_unclaimed")
+    if snapshot.dream_run_id != run_id:
+        raise ShareIneligibleError("share_snapshot_claimed")
 
-    rule = await agreements.build_rule(connection, scope_id, snapshot.rule_id, snapshot.rule_version)
-    if rule.status != "active":
-        raise ShareIneligibleError("share_rule_invalidated")
-    head = await agreements.head(connection, scope_id, snapshot.rule_id)
-    if head is None or int(head["version"]) != snapshot.rule_version:
-        # The agreement moved after this pin was written; the pin no longer states terms.
-        raise ShareIneligibleError("shared_use_terms")
-    if rule.terms_digest != snapshot.terms_digest:
-        raise ShareIneligibleError("shared_use_terms")
-    if rule.terms.use not in SUPPORTED_USES or rule.terms.audience not in SUPPORTED_AUDIENCES:
-        raise ShareIneligibleError("shared_use_unsupported")
+    rule = await _require_current_rule(agreements, connection, scope_id, snapshot)
 
     spec = operation_spec(operation)
     for item in snapshot.inputs:
@@ -270,4 +321,5 @@ __all__ = [
     "BoundShare",
     "ShareIneligibleError",
     "require_bound_eligibility",
+    "require_origin_reference",
 ]
