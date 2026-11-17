@@ -80,12 +80,20 @@ Artifact 仍然是两个不同的输入。
 
 ## 精确打开一条命中
 
-打开命中的方式是读取精确修订：
-`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}`，或 SDK 查询对象上的 `open_hit`。
-两者的权限要求相同：来源上的 `scope.read`，外加该精确 Artifact 上的 `artifact.read`（`experience`、`skill`、
-`profile`、`handoff`、`prompt`）。Topic Memory 和旧版 Memory 家族由 Scope 拥有，因此仅要求 `scope.read`。
+打开命中有两种读取精确修订的方式。
+
+`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}` 是普通的 HTTP 精确修订读取。
+对于正文由其 Artifact 拥有的家族，它要求该逻辑 Artifact 上的 `artifact.read`，并不要求所在 Scope 上的
+`scope.read`。只有由 Scope 拥有的 Topic Memory 家族才改为从 Scope 读取，因此 `scope.read` 就是它的全部要求。
+
+`open_hit` 是 Runtime 查询对象上的方法，不是 `PowerContextClient` 的 HTTP 方法。它的要求更高而不是更低：
+保留来源上的 `scope.read` 作为前置条件，随后要求同一个精确 Artifact 上的 `artifact.read`。因此，只有
+单个 Artifact 授权而没有任何 Scope 绑定的调用方可以通过 HTTP 读取该修订，但会被 `open_hit` 拒绝。
+两条路径中正文由 Artifact 拥有的家族都是 `experience`、`skill`、`profile`、`handoff`、`prompt` 和
+`atomic-memory`；Topic Memory 由 Scope 拥有。
 两条路径都不会回退到当前 head，因此即使来源发布了更新的修订，早期命中仍然指向当初找到的那个修订。
-读取结论与读取原始证据是相互独立的权限：可以使用某个 Scope，并不意味着可以读取其中 Artifact 的正文。
+读取结论与读取原始证据是相互独立的权限：可以使用某个 Scope，并不意味着可以读取其中 Artifact 的正文，
+而持有某个 Artifact 的授权也并不意味着可以检索该 Scope。
 
 ## 限制
 

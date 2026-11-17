@@ -90,14 +90,23 @@ The response states which origins answered:
 
 ## Open one hit exactly
 
-Opening a hit reads the exact revision:
-`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}`, or
-`open_hit` on the SDK query object. Both require the same permissions: `scope.read` on the origin, plus
-`artifact.read` on that exact Artifact (`experience`, `skill`, `profile`, `handoff`, `prompt`). Topic Memory and the
-legacy Memory family are Scope-owned, so their `scope.read` is the whole requirement. Neither path falls back to the
-current head, so an earlier hit still names the revision that was found even after the origin publishes a newer one.
-Reading the conclusion and reading the original evidence stay separate permissions: being allowed to use a Scope does
-not let you read the Artifact bodies inside it.
+Opening a hit reads the exact revision in one of two ways.
+
+`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}` is the ordinary HTTP exact-revision
+read. For a body owned by its Artifact it requires `artifact.read` on that logical Artifact and does not require
+`scope.read` on the Scope holding it. Only the Scope-owned Topic Memory family is read from its Scope instead, so
+`scope.read` is its whole requirement.
+
+`open_hit` is the Runtime query object method, not a `PowerContextClient` HTTP method. It requires more, not less: it
+keeps `scope.read` on the origin as a precondition and then requires `artifact.read` on the same exact Artifact. A
+caller with a per-Artifact grant but no Scope binding can therefore read the revision over HTTP and will be refused by
+`open_hit`. In both paths the families whose bodies are owned by their Artifact are `experience`, `skill`, `profile`,
+`handoff`, `prompt` and `atomic-memory`; Topic Memory is Scope-owned.
+
+Neither path falls back to the current head, so an earlier hit still names the revision that was found even after the
+origin publishes a newer one. Reading the conclusion and reading the original evidence stay separate permissions:
+being allowed to use a Scope does not let you read the Artifact bodies inside it, and holding one Artifact grant does
+not let you search the Scope.
 
 ## Limits
 
