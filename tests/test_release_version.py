@@ -27,8 +27,6 @@ INSTALL_PAGES = (
     "README.md",
     "README_CN.md",
     "README_JP.md",
-    "docs/en/docs/get-started/quickstart.md",
-    "docs/zh/docs/get-started/quickstart.md",
     "docs/en/docs/get-started/manual-start.md",
     "docs/zh/docs/get-started/manual-start.md",
     "docs/en/docs/get-started/install-and-run.md",
@@ -36,6 +34,8 @@ INSTALL_PAGES = (
     "integrations/dsh/plugins/powercontext/README.md",
 )
 HISTORICAL_AND_INDEPENDENT_FILES = (
+    "docs/en/docs/get-started/quickstart.md",
+    "docs/zh/docs/get-started/quickstart.md",
     "docs/en/development/releasing.md",
     "docs/zh/development/releasing.md",
     "docs/en/docs/operate/artifact-processing-migration.md",

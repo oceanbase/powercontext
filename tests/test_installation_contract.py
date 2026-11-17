@@ -90,11 +90,13 @@ def main():
 """
 
 
-def wheel(directory: Path, name: str, files: dict[str, str], extra_metadata: str = "") -> None:
+def wheel(
+    directory: Path, name: str, files: dict[str, str], extra_metadata: str = "", *, version: str = "1.2.0"
+) -> None:
     """Build a tiny standards-shaped wheel using only stdlib ZIP/CSV."""
-    info = f"{name}-1.2.0.dist-info"
+    info = f"{name}-{version}.dist-info"
     entries = files | {
-        f"{info}/METADATA": f"Metadata-Version: 2.3\nName: {name}\nVersion: 1.2.0\n{extra_metadata}\n",
+        f"{info}/METADATA": f"Metadata-Version: 2.3\nName: {name}\nVersion: {version}\n{extra_metadata}\n",
         f"{info}/WHEEL": "Wheel-Version: 1.0\nGenerator: installation-contract\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
     }
     record = io.StringIO()
@@ -102,7 +104,7 @@ def wheel(directory: Path, name: str, files: dict[str, str], extra_metadata: str
     writer.writerows((path, "", "") for path in entries)
     writer.writerow((f"{info}/RECORD", "", ""))
     entries[f"{info}/RECORD"] = record.getvalue()
-    with zipfile.ZipFile(directory / f"{name}-1.2.0-py3-none-any.whl", "w") as archive:
+    with zipfile.ZipFile(directory / f"{name}-{version}-py3-none-any.whl", "w") as archive:
         for path, content in entries.items():
             archive.writestr(path, content)
 
@@ -153,7 +155,14 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
     path = executable_path(tmp_path, uv, windows, case.get("git", False))
     packages = tmp_path / "packages"
     packages.mkdir()
-    wheel(packages, "contract_server", {"contract_server.py": ""})
+    # Stable Server packages may require beta-only dependencies, as OpenTelemetry does.
+    wheel(packages, "contract_beta", {"contract_beta.py": ""}, version="0.1b1")
+    wheel(
+        packages,
+        "contract_server",
+        {"contract_server.py": "import contract_beta\n"},
+        "Requires-Dist: contract-beta==0.1b1\n",
+    )
     wheel(
         packages,
         "powercontext",

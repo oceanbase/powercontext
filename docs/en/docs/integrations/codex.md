@@ -142,6 +142,14 @@ Repository and directory identities are lookup inputs only; they never generate 
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
 
+The hook binds every PowerContext tool call that names a Scope. A null `scope_id` or `selection` names none, like an
+omitted one: data-plane tools still receive the Session's Scope, and a Server-wide call such as the Source instance
+control view stays unscoped. When the hook cannot bind a call, it denies the call: the binding
+cannot be resolved, the call payload is incomplete, the hook fails unexpectedly, or the plugin's modules cannot load.
+Codex runs such a call with the Agent's own arguments only when the hook produces no decision at all: when its process
+cannot start, exits with an error before the hook's code runs, or exceeds the hook's 10-second timeout. The call can
+then still reach only the Scopes that the saved credential is authorized for.
+
 To keep later sessions in one Git root on an existing Scope, bind that checkout:
 
 ```bash
@@ -464,7 +472,7 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget; the `PreToolUse` and `Stop` hooks use at most 8 seconds so they finish within their 10-second timeout |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 Hooks allow loopback HTTP by default; remote HTTP requires explicit consent, and HTTPS certificate validation stays
