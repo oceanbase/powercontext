@@ -32,8 +32,13 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations/codex/plugins/
 def installed_helper(tmp_path):
     plugin = tmp_path / "installed plugin 中文"
     plugin.mkdir()
-    for name in ("settings.py", "powercontext_client_config.py", "mcp_headers.py", ".mcp.json"):
+    for name in ("settings.py", "mcp_headers.py", ".mcp.json"):
         shutil.copyfile(PLUGIN_ROOT / name, plugin / name)
+    shutil.copytree(
+        PLUGIN_ROOT / "powercontext_lifecycle",
+        plugin / "powercontext_lifecycle",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     credential = tmp_path / "separate codex home" / "powercontext" / "credentials.json"
     credential.parent.mkdir(parents=True)
     credential.write_text(
