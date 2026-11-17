@@ -1149,6 +1149,60 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  claude-code-host:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').claude_code) }}
+    timeout-minutes: 20
+    # Claude Code ships no baseline x64 build, and some light runners lack the AVX2 its binary needs.
+    runs-on: ubuntu-24.04
+    env:
+      CLAUDE_CODE_VERSION: '2.1.277'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - name: Install the pinned Claude Code host
+        # The main package's install script only links this platform binary over a stub; install the binary package
+        # directly, without running scripts.
+        run: |
+          case "$(uname -m)" in
+            x86_64)
+              platform=linux-x64
+              grep -qw avx2 /proc/cpuinfo || { echo "Claude Code's linux-x64 binary needs AVX2" >&2; exit 1; }
+              ;;
+            aarch64) platform=linux-arm64 ;;
+            *) echo "unsupported runner architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+          npm install --prefix "$RUNNER_TEMP/claude-code-host" \
+            --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
+            "@anthropic-ai/claude-code-$platform@$CLAUDE_CODE_VERSION"
+          cli="$RUNNER_TEMP/claude-code-host/node_modules/@anthropic-ai/claude-code-$platform/claude"
+          test "$("$cli" --version)" = "$CLAUDE_CODE_VERSION (Claude Code)"
+          echo "CLAUDE_CODE_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Run Claude Code with the PowerContext plugin against a real Server
+        # Without the binary the cases skip, so refuse to run without it.
+        run: |
+          test -x "$CLAUDE_CODE_CLI_BIN"
+          uv run pytest tests/e2e/test_claude_code_host_service_chain.py tests/e2e/test_host_model_messages.py \
+            --basetemp "$RUNNER_TEMP/claude-code-e2e"
+
+      - name: Upload Claude Code host logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: claude-code-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          # pytest also links each case's directory as *current; upload each log once.
+          path: |
+            ${{ runner.temp }}/claude-code-e2e/**/claude.log
+            !${{ runner.temp }}/claude-code-e2e/*current/**
+          if-no-files-found: ignore
+          retention-days: 7
+
   bub-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').bub) }}
@@ -1485,6 +1539,7 @@ jobs:
       - bub-host
       - openclaw-package
       - codex-host
+      - claude-code-host
       - opendal-package
       - website-link-validation-windows
       - check-website
