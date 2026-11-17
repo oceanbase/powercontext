@@ -497,10 +497,13 @@ class DreamService:
             raise DreamError("budget_exceeded")
         if record.request is None:
             raise DreamError("dream_request_unavailable")
-        if generated.output.outcome == "proposed" and record.share_snapshot_id is not None:
-            # A shared run may not propose through the ordinary unbound Candidate path: the
-            # durable adopted set and the approval that binds it do not exist yet. Refuse
-            # before plan validation, evidence selection or Candidate preparation.
+        if (
+            generated.output.outcome == "proposed"
+            and record.share_snapshot_id is not None
+            and record.run.operation != "refine_experience"
+        ):
+            # Only Experience proposes a durable shared Candidate at this checkpoint; every
+            # other shared operation still refuses before plan validation or preparation.
             raise DreamError("shared_use_candidate_unavailable")
         operation_spec(run.operation).validator(generated.output, record.request)
         plan = _supported_plan(record, generated.output, resolved)
@@ -720,6 +723,13 @@ class DreamService:
             return DreamCandidateRef(candidate_id=candidate.candidate_id, version=candidate.version, kind="tag")
         review = self.review(record.run.scope_id, connection)
         if isinstance(plan.proposal, ExperienceContent):
+            shared_audit = None
+            if record.share_snapshot_id is not None:
+                if not selected.adopted:
+                    # A shared proposal must stand on identifiable support; refusing here
+                    # keeps a Candidate from existing without the audit that names it.
+                    raise DreamError("shared_use_candidate_unavailable")
+                shared_audit = candidate_audit(record, plan.proposal, adopted_origins=selected.adopted)
             candidate = await review.propose_experience(
                 plan.proposal,
                 sources=selected.sources,
@@ -727,6 +737,8 @@ class DreamService:
                 target=record.run.target,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),
+                # Written in this transaction with the proposal version.
+                audit=shared_audit,
             )
         elif isinstance(plan.proposal, SkillContent):
             if record.run.operation == "derive_skill":
@@ -808,9 +820,20 @@ class DreamService:
             )
         else:
             raise DreamError("invalid_generation_output")
-        await attach_candidate_audit(
-            connection, record.run.scope_id, candidate, candidate_audit(record, candidate.proposal)
-        )
+        if candidate.audit is None:
+            # Experience already wrote its audit with the proposal version, including the
+            # adopted set. Every other path completes the audit here, still inside the same
+            # transaction; a shared candidate never gains an audit that omits its support.
+            await attach_candidate_audit(
+                connection,
+                record.run.scope_id,
+                candidate,
+                candidate_audit(
+                    record,
+                    candidate.proposal,
+                    adopted_origins=() if record.share_snapshot_id is None else selected.adopted,
+                ),
+            )
         return DreamCandidateRef(candidate_id=candidate.candidate_id, version=candidate.version)
 
     async def _reuse_before_generation(self, record: DreamRecord) -> bool:

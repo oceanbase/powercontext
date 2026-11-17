@@ -214,15 +214,18 @@ class ShareSnapshotDraft(BaseModel):
     def inputs_digest(self) -> str:
         """Bind exactly what was pinned, independent of the terms and the structure."""
 
-        payload = json.dumps(
-            sorted(
-                [item.origin_scope_id, item.kind, item.reference.model_dump(mode="json"), item.digest]
-                for item in self.inputs
-            ),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
+        # Compare canonical strings: sorting tuples that contain dicts raises as soon as
+        # two inputs share the earlier components, which is exactly the multi-input case.
+        entries = sorted(
+            json.dumps(
+                [item.origin_scope_id, item.kind, item.reference.model_dump(mode="json"), item.digest],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            for item in self.inputs
         )
+        payload = json.dumps(entries, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 

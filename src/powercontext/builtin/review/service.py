@@ -77,6 +77,7 @@ from powercontext.builtin.review.models import (
     MAX_CANDIDATE_EVIDENCE,
     MAX_CANDIDATE_REASON_LENGTH,
     Candidate,
+    CandidateAudit,
     CandidateEvidenceView,
     CandidatePage,
     CandidateStatus,
@@ -167,8 +168,14 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
+        audit: CandidateAudit | None = None,
     ) -> Candidate[ExperienceContent]:
-        """Persist a human or integration supplied Experience proposal."""
+        """Persist one Experience proposal.
+
+        ``audit`` is the server-owned Dream provenance, written inside the same transaction
+        as the proposal version so a Candidate never exists without the audit that says what
+        support it stands on. Ordinary callers omit it.
+        """
 
         candidate = await self._propose(
             Experience.family,
@@ -179,6 +186,7 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
             on_commit=on_commit,
+            audit=audit,
         )
         return _experience_candidate(candidate)
 
@@ -346,6 +354,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
+        audit: CandidateAudit | None = None,
     ) -> ReviewedCandidate:
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
@@ -361,6 +370,7 @@ class ReviewService:
                 reason=reason,
                 candidate_id=candidate_id,
                 on_commit=on_commit,
+                audit=audit,
             )
         return _reviewed_candidate(candidate)
 
@@ -377,6 +387,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
+        audit: CandidateAudit | None = None,
     ) -> ReviewedCandidate:
         candidate = await self._prepare_proposal(
             connection,
@@ -387,6 +398,7 @@ class ReviewService:
             target=target,
             reason=reason,
             candidate_id=candidate_id,
+            audit=audit,
         )
         candidate = (await self._candidates.create_many(connection, self._scope_id, (candidate,)))[0]
         if on_commit is not None:
@@ -404,6 +416,7 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        audit: CandidateAudit | None = None,
     ) -> Candidate[Any]:
         _validate_reason(reason)
         artifacts = _unique_artifacts(artifacts)
@@ -427,6 +440,7 @@ class ReviewService:
             artifacts=artifacts,
             target=target,
             reason=reason,
+            audit=audit,
         )
 
     async def candidate_page(self, request, *, metadata_only=False, connection=None):
@@ -683,6 +697,11 @@ class ReviewService:
 
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
+        if current.audit is not None and current.audit.share_snapshot_id is not None:
+            # Approval of a shared Candidate is not implemented: publishing requires the
+            # current agreement, target CAS and official origin writeback that the next
+            # slice owns. Refuse rather than publish under an unenforced binding.
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
         await self._authorize_decision("approve", current)
         if current.status is CandidateStatus.REJECTED:
             raise CandidateTerminalError(candidate_id, current.status)

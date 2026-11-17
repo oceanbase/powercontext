@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.dream.models import DREAM_PROMPT_VERSION, DreamRecord
-from powercontext.builtin.evidence.models import EvidenceNode, ResolvedEvidence, content_digest
+from powercontext.builtin.evidence.models import EvidenceNode, QualifiedOrigin, ResolvedEvidence, content_digest
 from powercontext.builtin.persistence.candidates import proposal_digest
 from powercontext.builtin.review.models import CandidateAudit
 
@@ -61,7 +61,19 @@ def proposal_fingerprint(record: DreamRecord, evidence: ResolvedEvidence) -> str
     })
 
 
-def candidate_audit(record: DreamRecord, proposal: BaseModel) -> CandidateAudit:
+def candidate_audit(
+    record: DreamRecord,
+    proposal: BaseModel,
+    *,
+    adopted_origins: tuple[QualifiedOrigin, ...] = (),
+) -> CandidateAudit:
+    """Server-owned provenance for one proposal, including a shared run's adopted support.
+
+    ``adopted_origins`` is only supplied for a run bound to a share snapshot; it is the
+    exact support the proposal stands on, each with its owning Scope, never every pinned
+    input. An ordinary proposal keeps the unchanged audit shape.
+    """
+
     spec = next(spec for spec in DREAM_OPERATIONS if spec.operation == record.run.operation)
     return CandidateAudit(
         operation=record.run.operation,
@@ -71,6 +83,8 @@ def candidate_audit(record: DreamRecord, proposal: BaseModel) -> CandidateAudit:
         evidence_manifest_ref=f"dream:{record.run.run_id}",
         validation_policy_digest=validation_policy_digest(record),
         proposal_fingerprint=record.proposal_fingerprint,
+        share_snapshot_id=record.share_snapshot_id,
+        adopted_origins=adopted_origins,
     )
 
 

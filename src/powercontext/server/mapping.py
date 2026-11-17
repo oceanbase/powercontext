@@ -999,9 +999,7 @@ def candidate_response(value: RuntimeCandidate[Any] | RuntimeTagCandidate) -> Ca
             "reason": value.reason,
             "result_artifact": None,
             "decision_reason": value.decision_reason,
-            "audit": None
-            if value.audit is None
-            else CandidateAudit.model_validate(value.audit.model_dump(mode="json")),
+            "audit": _projected_audit(value.audit),
             "result": None
             if value.result is None
             else {**value.result.model_dump(mode="json"), "etag": value.result.etag},
@@ -1022,7 +1020,29 @@ def candidate_response(value: RuntimeCandidate[Any] | RuntimeTagCandidate) -> Ca
         reason=value.reason,
         result_artifact=None if value.result_artifact is None else artifact_reference(value.result_artifact),
         decision_reason=value.decision_reason,
-        audit=None if value.audit is None else CandidateAudit.model_validate(value.audit.model_dump(mode="json")),
+        audit=_projected_audit(value.audit),
+    )
+
+
+def _projected_audit(value) -> CandidateAudit | None:
+    """Project the domain audit onto the published wire shape.
+
+    The durable audit also records a shared proposal's pin and adopted origins. Those are
+    execution facts, not public provenance, so they are withheld here: the wire contract
+    stays exactly as published and no raw cross-Scope provenance is exposed.
+    """
+
+    if value is None:
+        return None
+    return CandidateAudit(
+        origin="dream",
+        operation=value.operation,
+        dream_run_id=value.dream_run_id,
+        spec_version=value.spec_version,
+        proposal_digest=value.proposal_digest,
+        evidence_manifest_ref=value.evidence_manifest_ref,
+        validation_policy_digest=value.validation_policy_digest,
+        proposal_fingerprint=value.proposal_fingerprint,
     )
 
 

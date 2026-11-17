@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, StrictInt, field_validator, model_validat
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.models import _reject_legacy_memory_citations
-from powercontext.builtin.evidence.models import ResolvedEvidence
+from powercontext.builtin.evidence.models import QualifiedOrigin, ResolvedEvidence
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH
 from powercontext.sources import SourceRef
 
@@ -54,6 +54,26 @@ class CandidateAudit(BaseModel):
     evidence_manifest_ref: str
     validation_policy_digest: str
     proposal_fingerprint: str | None = None
+    # The exact pin a shared proposal was generated from, and the exact support it actually
+    # adopted: only the cited nodes plus their reachable roots and Artifact paths, each with
+    # the Scope that owns it. Absent for an ordinary proposal, so an existing envelope stays
+    # readable and its meaning is unchanged.
+    share_snapshot_id: str | None = None
+    adopted_origins: tuple[QualifiedOrigin, ...] = ()
+
+    @model_validator(mode="after")
+    def require_complete_shared_audit(self):
+        """A shared audit must name its pin and qualify every adopted origin."""
+
+        if self.share_snapshot_id is None:
+            if self.adopted_origins:
+                raise ValueError("adopted origins require a shared snapshot")  # noqa: TRY003
+            return self
+        if not self.adopted_origins:
+            raise ValueError("a shared audit requires adopted origins")  # noqa: TRY003
+        if any(not origin.scope_id for origin in self.adopted_origins):
+            raise ValueError("an adopted origin must name its owning Scope")  # noqa: TRY003
+        return self
 
 
 class Candidate(BaseModel, Generic[ProposalT]):
