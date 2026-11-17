@@ -3524,3 +3524,34 @@ record was not yet committed. Historical profiles retain their original evidence
 These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
+
+## Server 1dd494f4 gateway Source limit protocol qualification
+
+`sqlite-gateway-source-limit-1dd494f4-v1` qualifies all thirteen Desktop protocol operations against
+Server source `1dd494f409d1c8805f53b71a76882b0acb8e2ac0`, which adds the optional
+`context_protection.limits.atomic_memory_input_tokens` capability limit.
+
+- Normalized OpenAPI SHA-256: `e830db5428188580578fa8fe1c1596c48c33a9b551118e483b441a77a182e0b7`.
+- Wheel: `powercontext-1.5.3.dev21+g1dd494f40-py3-none-any.whl`.
+- Wheel SHA-256: `9d09fb39c9b3054f65f673c4d64fbc1bb199452c934dc545e69898aed209a74f`.
+- Native debug probe SHA-256: `883cc8cecd1c0665873c419a71b896e18d3ca8396998276e483a8c9782a3836a`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-source-limit/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-source-limit-1dd494f4-v1 \
+  --wheel desktop/.artifacts/gateway-source-limit/powercontext-1.5.3.dev21+g1dd494f40-py3-none-any.whl
+```
