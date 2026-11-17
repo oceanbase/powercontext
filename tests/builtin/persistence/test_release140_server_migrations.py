@@ -158,7 +158,7 @@ def test_registered_sources_choose_distinct_lineages(tmp_path, release, expected
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_0_006",
+        "v1_5_0_007",
     )
 
 
@@ -372,7 +372,7 @@ def test_populated_release_atomic_memory_survives_upgrade_before_locator_table_e
     finally:
         engine.dispose()
 
-    assert _apply(runner).revision == "v1_5_0_006"
+    assert _apply(runner).revision == "v1_5_0_007"
     assert runner.verify().state == "ready"
     assert not _apply(runner).changed
     app = create_server_app(

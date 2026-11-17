@@ -159,9 +159,9 @@ def test_upgrade_refuses_retained_plugin_data_and_drops_only_empty_storage(tmp_p
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM pc_artifact_family_schemas")
     plan = upgraded.plan()
-    assert plan.revisions == ("v1_5_0_005", "v1_5_0_006")
+    assert plan.revisions == ("v1_5_0_005", "v1_5_0_007")
     assert plan.domain_steps == ("plugin_artifacts",)
-    assert apply(upgraded).revision == "v1_5_0_006"
+    assert apply(upgraded).revision == "v1_5_0_007"
     assert upgraded.verify().state == "ready"
     with closing(sqlite3.connect(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
