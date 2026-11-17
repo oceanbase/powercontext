@@ -69,7 +69,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         legacy_id = legacy.json()["artifact_id"]
 
     # Reconstruct the previous registered layout, preserving its real historical evidence.
-    # v1_5_0_006 and v1_5_0_005 are undone first: retired plugin storage returns from frozen resources.
+    # v1_5_2_pr2639 and v1_5_0_005 are undone first: retired plugin storage returns from frozen resources.
     resources = Path(migrations.__file__).parent / "server_resources/schemas"
     retired = json.loads((resources / "sqlite-v1_5_0_001.json").read_text())
     write_plugins = json.loads((resources / "sqlite-v1_4_1_006.json").read_text())
@@ -85,7 +85,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006")
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_2_pr2639")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [
