@@ -19,16 +19,39 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from decimal import Decimal
 
+from pydantic import ValidationError
+
 from ..manifests import EvaluationError, read_json
 from ..models import digest
 from .core import ARMS, contract, dump, offline_summary
-from .workflow import calls_for, charge, load, reservation
+from .scoring import score_output
+from .workflow import calls_for, charge, load, reservation, review_context
+
+
+def _reviewed_score(directory, row, record, reviewed):
+    if reviewed.get("call_id") != record["call_id"] or reviewed.get("original_record_hash") != digest(record):
+        raise EvaluationError("v18_review_derivation_changed")
+    case, value, supports, output, kind = review_context(directory, row, record)
+    # Older derivatives may omit this descriptive field; the original attempt fixes the kind.
+    if reviewed.get("output_kind", kind) != kind:
+        raise EvaluationError("v18_review_output_kind_changed")
+    review = reviewed.get("review")
+    if not review:
+        raise EvaluationError("v18_review_empty")
+    try:
+        score, _ = score_output(case, value, supports, output, review)
+    except ValidationError:
+        raise EvaluationError("v18_review_schema_unsupported") from None
+    if digest(score) != digest(reviewed.get("score")):
+        raise EvaluationError("v18_review_score_changed")
+    return score
 
 
 def summarize(directory):
     manifest = load(directory, committed=False)
     state = read_json(directory / "state.json")
     records = state["records"]
+    prepared_rows = {row["row_id"]: row for row in manifest["rows"]}
     expected = {digest(c): c for c in calls_for(manifest)}
     if len({r["call_id"] for r in records}) != len(records) or any(r["call_id"] not in expected for r in records):
         raise EvaluationError("v18_duplicate_or_unplanned_result")
@@ -44,9 +67,7 @@ def summarize(directory):
         score = record.get("score")
         if derivative.exists():
             reviewed = read_json(derivative)
-            if reviewed["original_record_hash"] != digest(record):
-                raise EvaluationError("v18_review_derivation_changed")
-            score = reviewed["score"]
+            score = _reviewed_score(directory, prepared_rows[record["row_id"]], record, reviewed)
         raw = directory / "audit" / (record["call_id"] + ".response-bytes.json")
         if not raw.exists() or digest(raw.read_bytes().hex()) != record.get("response_hash"):
             audit_unavailable += 1

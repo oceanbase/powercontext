@@ -2,13 +2,13 @@
 
 真实执行两次请求后命中 Unicode 精确字面量停止条件。唯一最终决策仍为 **insufficient_evidence**。
 精确字面量样本通过，Unicode 第一条响应遗漏必需 CRLF；其余两条请求未运行，没有重试或扩大矩阵。
-机器结果见 [result.json](results/v17-live/result.json)。
+机器结果见 [result.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v17-live/result.json`)。
 
 ## 执行范围与身份
 
 执行前冻结提交为 `887fb5e2`，基线为本地评估分支 `58931cfd`；不是当前 master 适配验证。
 实际调用发生在 2026-11-05（北京时间）。配置与门槛见 [V17_PROTOCOL.zh.md](V17_PROTOCOL.zh.md)，
-完整依赖身份见 [freeze.json](results/v17-live/freeze.json)。
+完整依赖身份见 [freeze.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v17-live/freeze.json`)。
 
 本次没有改变 v16 的编码、单元选择、源范围、指令、schema、原子事实合同或估算预算。
 只对新的最小诊断清单明确允许 exact-literals 一次、unicode-boundaries 三次，总计最多四次请求。
@@ -74,20 +74,20 @@ Unicode 实报输入超过 4096，说明当前字符估算不能作为 provider 
 两份原始 HTTP 响应都通过 MockTransport、实际 SDK/Pipeline 和重新构造的 Source 输入回放。
 请求哈希、输出哈希、模板哈希及完整评分与线上一致；新增 provider 调用为零。
 Unicode 的 2/3 字面量和 1 次 literal_mismatch 原样复现，未替换输出、改标签或自动补 CRLF。
-回放结果与逐字面量哈希检查见 [recorded-replay.json](results/v17-live/recorded-replay.json)。
+回放结果与逐字面量哈希检查见 [recorded-replay.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v17-live/recorded-replay.json`)。
 
 新增 18 项回归通过；提交冻结后完整无模型回归为 **508 passed**、1935 warnings，Python 3.11.15。
 `make check`、完整 hooks、Ruff、格式检查及整个 evaluation 类型检查通过。
 wheel/sdist 包含全部六个 v17 文件并与冻结源码逐字节匹配。
 受限环境停滞的尝试、首次 JSON 格式自动修正及冻结前中断的回归单独记录，不计为通过。
 其他 Python 版本和根包全量测试没有为本次 evaluation 增量重跑；旧工程验证保留其原有身份和范围。
-详见 [validation.json](results/v17-live/validation.json)。
+详见 [validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v17-live/validation.json`)。
 
 ## 交付与剩余覆盖
 
 原始请求、响应、模型模板、输出和审阅保存在仓库外私有目录，目录 0700、原始审计文件 0600。
 密钥只在请求进程内读取，没有输出或持久化。公开文件只包含标签、配置、计数与哈希，
-文件索引和扫描记录见 [artifact-index.json](results/v17-live/artifact-index.json)。
+文件索引和扫描记录见 [artifact-index.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v17-live/artifact-index.json`)。
 
 在匹配冻结源码与 SDK 的环境，私有会话可只读查看状态或生成新的汇总文件：
 

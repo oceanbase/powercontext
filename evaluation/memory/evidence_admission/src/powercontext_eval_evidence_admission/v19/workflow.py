@@ -34,6 +34,7 @@ from ..v9_preflight.workflow import mock_response
 from ..v17.workflow import credentials
 from ..v18 import core, report
 from ..v18.adapter import extract
+from ..v18.audit import scoring_output
 from ..v18.scoring import score_output
 from ..v18.workflow import account_record, calls_for, load, locked, recorder, reservation
 
@@ -255,23 +256,28 @@ async def _complete_pending_score(directory, manifest, state):
         raise EvaluationError("v19_scoring_continuation_changed_no_resend")
     record = records[0]
     save = recorder(directory, call_id)
-    if record.get("scoring_state") == "complete":
-        _advance_after_scoring(state, record)
-        core.dump(directory / "state.json", state)
-        return
     parsed = directory / "audit" / f"{call_id}.parsed.json"
-    if not parsed.exists():
-        record.update(scoring_state="failed", scoring_failed=True, failure_category="scoring_input_unavailable")
-        state.update(state="audit_failed", stop_reason="scoring_input_unavailable_no_resend")
+    unavailable = (
+        "scoring_input_unavailable"
+        if not parsed.exists()
+        else "scoring_output_binding_unavailable"
+        if not record.get("parsed_output_hash")
+        else None
+    )
+    if unavailable:
+        record.update(score=None, scoring_state="failed", scoring_failed=True, failure_category=unavailable)
+        state.update(state="audit_failed", stop_reason=unavailable + "_no_resend")
         save("attempt", record)
         core.dump(directory / "state.json", state)
         return
     try:
         row, case, value = await _scoring_context(manifest, record)
-        output = AtomicMemoryExtractionOutput.model_validate(read_json(parsed))
+        output = scoring_output(directory, record)
         score, review = score_output(
             case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output
         )
+        if record.get("scoring_state") == "complete" and digest(record.get("score")) != digest(score):
+            raise EvaluationError("v19_completed_score_changed")
         review_path = directory / "audit" / f"{call_id}.review.json"
         if review_path.exists():
             if read_json(review_path) != review:
@@ -282,7 +288,7 @@ async def _complete_pending_score(directory, manifest, state):
         save("attempt", record)
         core.dump(directory / "state.json", state)
     except Exception:  # noqa: BLE001 -- never retain evaluator or private response values
-        record.update(scoring_state="failed", scoring_failed=True, failure_category="scoring_failure")
+        record.update(score=None, scoring_state="failed", scoring_failed=True, failure_category="scoring_failure")
         save("attempt", record)
         state.update(state="audit_failed", stop_reason="scoring_failure_no_resend")
         core.dump(directory / "state.json", state)

@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemory
 from ..admission import token_count
 from ..manifests import EvaluationError, file_hash, load_suite, read_json
 from ..models import digest
+from ..replay import MATERIALIZATION_PROTOCOL
 from ..runner import INSTRUCTIONS, run_sample
 from ..v6.workflow import InputProbe
 from ..v7.fidelity import quote_inventory
@@ -67,6 +68,7 @@ def identity():
     )
     paths.add(PACKAGE / "V18_PROTOCOL.zh.md")
     return {
+        "materialization_protocol": MATERIALIZATION_PROTOCOL,
         "contract": contract(),
         "instructions_hash": digest(INSTRUCTIONS),
         "output_schema_hash": digest(AtomicMemoryExtractionOutput.model_json_schema()),

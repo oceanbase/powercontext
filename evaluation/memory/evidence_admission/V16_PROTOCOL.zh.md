@@ -60,7 +60,7 @@ validation-v3 360，共 1620 条；五个 arm、2K/4K/8K、三次重放。候选
 用户明确的 ¥5 条件预算从 v9 批准时点累计。此前 smoke/v5 的 13 份未知 usage 独立保留，不改成零。
 批准范围内既有上界 ¥0.090520，条件余量 ¥4.909480。当前官方峰时输入 ¥2/百万、输出 ¥8/百万，
 按 1048576 输入、2048 输出的保守单次预留为 ¥2.113536。新调用前仍须核验现行费率和完整预留。
-来源及实际路由限制见 [工程费用记录](results/engineering-readiness/provider-rates.json)。
+来源及实际路由限制见 [工程费用记录](RESULTS_ARTIFACT.md) (归档内路径: `results/engineering-readiness/provider-rates.json`)。
 
 最小小样本成功不自动授权正式联合矩阵。正式比较须使用统一评分、真实 Pipeline、同一冻结数据和设置，
 并另行固定调用范围与预算。最终决定只能是 `bounded_projection_follow_up_required`、

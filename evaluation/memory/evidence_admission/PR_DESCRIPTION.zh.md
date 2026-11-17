@@ -19,9 +19,15 @@
 - 支持精确不可变 Source/物化/范围身份，区分完成、有界、不可用和取消；所有权污染与大小准入保留独立分数和决策。
 - v19/v20 返回响应及用量在评分前以 `scoring_pending` 落盘；恢复时读取已存响应，不重发、不重复计费。
   必需评分缺失产生 `scoring_incomplete`，阻止 `no_production_change`。
+- 版本化持久化重放身份仅排除信封顶层服务器 `saved_at`，仍检测 Source 值、元数据和嵌套业务时间变化；不迁移旧准备身份。
+- 绑定审阅导入读取被 Pipeline 拒绝但 schema 有效的 `.parsed.json`，成功输出仍读取 `.output.json`。
+  校验请求、输入、请求体、响应和原审阅绑定；被拒请求保持被拒，不计入已交付事实或合格字面量，审阅仅追加派生记录。
+- Pipeline 校验前保存解析输出身份，v19/v20 恢复时核验，包括评分已落盘、游标未推进的状态。
+  绑定缺失或证据变化会使缓存评分失效，停止且不重发、不重复计费；报告会重验审阅上下文并重新计算派生评分。
 - 当前运行时回归与显式历史指令/schema 夹具分开；不改历史响应、评分、门槛或未知用量。
 - 冻结提交检查覆盖运行时源码；保留冻结 JSON 原字节校验、可选 evidence reader 和评估计数兼容修复。
 - 生成报告及历史运行记录由独立校验压缩包发布；历史辅助命令通过 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 定位解压目录。
+  文档链接指向证据包说明并保留包内路径，不恢复代码树中的结果文件。
 - 为通用 `run-live`/`run-smoke` 提供运行前费用上界计算。这些命令执行请求次数限制，不执行货币上限；历史 v20 账本是另一条路径。
 
 # 证据与审阅入口
@@ -104,19 +110,21 @@
 
 # How was this change tested?
 
-前次本地评估运行：1460 passed、48 skipped，随后工具恢复套件 104 passed。
-用户随后确认本轮修改之前的 `make check`、`make evaluation-unit-test`、专项离线套件、Ruff check/format、
-evaluation 类型检查、`make test`、`make build` 和 `tox` 已通过。
-这些记录不代表最新文档和范围修改或当前合并树已通过验证。
+任务发起用户确认，前一轮修复树的完整本地工程验证已通过，包括 `make check`、`make evaluation-unit-test`、
+`make test`、`make build` 和 `tox`。本次增量仅运行针对性回归，不重复该矩阵；用户报告的基线与以下实测分开记录。
 
-本轮仅静态核对空白、证据入口、归档身份和 Gateway 差异范围，全量验证由用户执行。
+Python 3.11.15 的 v18 比较/审阅、v19/v20 续跑和抽样审阅专项共 140 项通过。
+覆盖进程中断后修改解析输出、成功与被拒输出、旧记录绑定缺失、已完成评分恢复、审阅评分重算、证据变化，
+以及不重发和用量账本。Ruff check/format（236 个 Python 文件）、评估模块类型、冻结合同原字节和空白检查通过。
+使用网站链接校验库检查全部 65 份评估 Markdown，未发现错误；205 文件证据包 SHA-256 未变。
+上述检查没有模型请求，也不代表远程 CI 已通过。
+
 历史包依赖测试默认跳过；证据包不能替代原运行时和不可用私有响应。默认测试不要求 provider 凭据或网络。
 线上执行、手工费用计算、取消、审计和报告重建见 [英文手册](LIVE_RUNBOOK.md)和[中文手册](LIVE_RUNBOOK.zh.md)。
 
 已通过普通 merge 整合上游 `master` 的 `e725225b103a7b41e601710d352ca3c3d3ae0ea0`。
 `.gitignore` 同时保留评估结果忽略规则和上游 DSH pet 文件例外；`evaluation-unit-test` 将证据准入测试留在
-evaluation 环境，将 prepared-context 预算与恢复测试留在根项目环境。本次整合未重跑全量检查；
-发布后仍需核对远程可合并状态和 CI，上游也可能继续前进。
+evaluation 环境，将 prepared-context 预算与恢复测试留在根项目环境。发布后仍需核对远程可合并状态和 CI。
 
 # AI usage statement
 

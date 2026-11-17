@@ -12,7 +12,7 @@ wheel/sdist 的九个源码与合同文件通过验证。Ruff 0.16 全评估仍�
 消息文本估算分别为 3682、3831 token，均小于 4096；HTTP JSON 整包估算为 3918、4243，不能当作实际计费 token。
 模拟响应及审阅不能证明真实模型的原子性、copy 或 Unicode 保真；旧整句 scorer 未决分数独立保留。
 
-[机器结果](results/v12-readiness/sdk-preflight.json)保存代码身份、请求哈希、成本和受控诊断，
-[验证摘要](results/v12-readiness/validation-summary.json)记录检查边界。真实执行必须另有实际 Git HEAD 冻结、
+[机器结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v12-readiness/sdk-preflight.json`)保存代码身份、请求哈希、成本和受控诊断，
+[验证摘要](RESULTS_ARTIFACT.md) (归档内路径: `results/v12-readiness/validation-summary.json`)记录检查边界。真实执行必须另有实际 Git HEAD 冻结、
 相同身份的预检和计划绑定授权。旧计划审批文件不能直接替换为新计划审批。
 操作步骤与条件费用定义见 [执行合同](V12_PROTOCOL.zh.md)。最终结论保持 `insufficient_evidence`。

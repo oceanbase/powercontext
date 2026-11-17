@@ -19,11 +19,11 @@
 详见 [人工审阅记录](HUMAN_REVIEW.zh.md)。
 
 本次补充了 [定位确认表](REVIEW_CONFIRMATION.zh.md) 和
-[未预选答案的 JSON 模板](results/acceptance-closeout-20261107/human-confirmation-template.json)。
+[未预选答案的 JSON 模板](RESULTS_ARTIFACT.md) (归档内路径: `results/acceptance-closeout-20261107/human-confirmation-template.json`)。
 表中提供完整调用身份的对应入口，不根据输出相似度替用户选择审阅对象。
 
 另外只读核对了两次历史不可用调用的原会话状态和对应审计文件，
-[核对凭据](results/acceptance-closeout-20261107/historical-unavailable-check.json)保留实际存在状态。
+[核对凭据](RESULTS_ARTIFACT.md) (归档内路径: `results/acceptance-closeout-20261107/historical-unavailable-check.json`)保留实际存在状态。
 没有找回原响应和用量；没有查询 provider 账户日志或账单，也没有将未知费用计为零。
 重新发起请求会产生另一次测量，不能修复原调用的缺失证据。
 

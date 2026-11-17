@@ -2,7 +2,7 @@
 
 issue #2074 的必需工程检查已通过。工程检查不代表模型质量或正式联合比较通过；总体决策仍为
 `insufficient_evidence`，v15 的 Unicode 单次请求门槛失败保留。生产运行时代码、公共 API 和历史结果没有修改。
-机器凭据见 [工程汇总](results/engineering-readiness/summary.json)。
+机器凭据见 [工程汇总](RESULTS_ARTIFACT.md) (归档内路径: `results/engineering-readiness/summary.json`)。
 
 此处的测试计数对应工程提交 `87c70714`；新增 v16 后的独立评估计数、冻结身份与停止结果见
 [v16 报告](V16_RESULTS.zh.md)，不覆盖本报告保留的初次失败和重跑记录。
@@ -50,17 +50,17 @@ issue #2074 的必需工程检查已通过。工程检查不代表模型质量�
 
 历史 v14 模板经真实 Pipeline 离线回放：exact-literals 保持 4/4；Unicode 保持 1/3，
 且原估算 6333 大于 4096 的失败仍保留。最早 v14 模板缺失，不能完整回放。
-v15 原有四份公开结果的哈希全部保持不变。见 [历史回放](results/engineering-readiness/historical-replay.json)。
+v15 原有四份公开结果的哈希全部保持不变。见 [历史回放](RESULTS_ARTIFACT.md) (归档内路径: `results/engineering-readiness/historical-replay.json`)。
 
 用户已明确 ¥5 条件预算从批准后的 v9 调用开始累计。该范围内七次已知调用按冻结高峰、全未命中费率
 重算的上界为 ¥0.090520，条件余量为 ¥4.909480。更早的两次 smoke 与 v5 共 575 次尝试独立记录，
 其中 562 次有已知用量、13 次失败的 usage 缺失；未知用量不按零计，也不伪造完整账户账单。
-详见 [历史费用清单](results/engineering-readiness/historical-cost-inventory.json)。
+详见 [历史费用清单](RESULTS_ARTIFACT.md) (归档内路径: `results/engineering-readiness/historical-cost-inventory.json`)。
 
 [官方价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)核验的高峰费率为输入 ¥2/百万 token、
 输出 ¥8/百万 token；旧请求名 `deepseek-v4-flash` 当前由 V4.1 Flash 路由服务。
 记录请求别名不等于固定物理模型快照。费率、检索时间与保守预留见
-[提供商记录](results/engineering-readiness/provider-rates.json)。本工程阶段新增真实生成调用为零。
+[提供商记录](RESULTS_ARTIFACT.md) (归档内路径: `results/engineering-readiness/provider-rates.json`)。本工程阶段新增真实生成调用为零。
 
 ## 限制与后续门槛
 

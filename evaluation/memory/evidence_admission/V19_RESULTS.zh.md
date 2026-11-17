@@ -36,7 +36,7 @@ positional-facts 5 次。原生 schema 与候选内容格式均合法，但 36 �
 原始异常类别没有保留，不能确定为超时、网络故障或 provider 故障，也不能归为模型质量错误。
 
 冻结报告沿用的 `candidate_known_quality_failure_rows=18` 将这个未知响应也计入失败标志。
-因此必须结合 [覆盖与质量分离说明](results/v19-live/coverage-quality-separation.json)读取：
+因此必须结合 [覆盖与质量分离说明](RESULTS_ARTIFACT.md) (归档内路径: `results/v19-live/coverage-quality-separation.json`)读取：
 **确认的候选 Pipeline 拒绝为 17 次，另 1 次结果未知**。缺失响应不能推断为语义事实丢失，
 配对结果还需要检查双方是否真的取得可评估响应，不能仅依赖 `both_semantics_resolved` 字段。
 
@@ -76,5 +76,5 @@ positional-facts 5 次。原生 schema 与候选内容格式均合法，但 36 �
 全部测试默认不要求模型凭据或网络。完整响应只保留于仓库外私有审计，公开交付不包含提示或模型原文。
 
 协议及显式运行命令见 [V19_PROTOCOL.zh.md](V19_PROTOCOL.zh.md)，机器可读摘要、完整压缩报告、覆盖、失败诊断、
-重现和验证凭据见 [公开交付](results/v19-live/README.zh.md)。未完成线上覆盖、未知响应、关键引用错误和独立审阅缺口仍然存在，
+重现和验证凭据见 [公开交付](RESULTS_ARTIFACT.md) (归档内路径: `results/v19-live/README.zh.md`)。未完成线上覆盖、未知响应、关键引用错误和独立审阅缺口仍然存在，
 因此不能宣布 issue 全项验收通过，也不能授权生产后续。

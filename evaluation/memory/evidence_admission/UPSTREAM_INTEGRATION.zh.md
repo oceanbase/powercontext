@@ -78,8 +78,8 @@ v12/v13 正向会话测试依赖静态 v11 基线，在当前 schema 不兼容�
 本次整合的工程回归与历史 provider 质量是两类证据。
 
 当前实际验证、先前失败/中断和未运行项见
-[validation.json](results/upstream-sync-20261107/validation.json)，
-字节与源码边界见 [integrity.json](results/upstream-sync-20261107/integrity.json)。
+[validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/upstream-sync-20261107/validation.json`)，
+字节与源码边界见 [integrity.json](RESULTS_ARTIFACT.md) (归档内路径: `results/upstream-sync-20261107/integrity.json`)。
 本次开始前存在的 488 个未跟踪网站文件保持不变，不纳入本分支的评估提交。
 
 ## 建议审查顺序
@@ -97,5 +97,5 @@ v12/v13 正向会话测试依赖静态 v11 基线，在当前 schema 不兼容�
 - 当前候选未获生产后续授权；不得把冲突解决或工程检查通过当作质量门槛通过。
 - 新运行时的 schema、指令、Source 投影及依赖不同；如需再次线上比较，应另行冻结，不能延用旧结果授权。
 - 历史重现依赖冻结提交仍可获取；最终采用 squash 或清理远端分支前，应保留可检出的冻结引用。
-- 当前发布状态以 [integration.json](results/upstream-sync-20261107/integration.json) 为准。
+- 当前发布状态以 [integration.json](RESULTS_ARTIFACT.md) (归档内路径: `results/upstream-sync-20261107/integration.json`) 为准。
   推送与创建 PR 仍等待用户明确指示。

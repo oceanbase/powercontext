@@ -35,13 +35,26 @@ from powercontext_eval_evidence_admission.v18.workflow import calls_for, recorde
 from powercontext_eval_evidence_admission.v20 import workflow
 
 
-def _terminate_v20_before_scoring(directory):
+def _terminate_v20_before_scoring(directory, rejected=False):
     def terminate(*_args, **_kwargs):
         os._exit(91)
 
     response = mock_response()
     response["model"] = "deepseek-flash"
     response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    if rejected:
+        response["choices"][0]["message"]["content"] = json.dumps(
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Synthetic rejection.",
+                        "description": "Synthetic rejection.",
+                        "evidence_ids": ["not-supplied"],
+                    }
+                ]
+            }
+        )
     workflow.score_output = terminate
     asyncio.run(
         workflow.run_next(
@@ -247,9 +260,12 @@ def test_scoring_failure_preserves_received_usage_and_stops(continuation, monkey
     assert last["known_charge_cny"] is not None and last["provider_usage"] is not None
 
 
-def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation):
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation, rejected):
     directory, _ = continuation
-    process = multiprocessing.get_context("fork").Process(target=_terminate_v20_before_scoring, args=(directory,))
+    process = multiprocessing.get_context("fork").Process(
+        target=_terminate_v20_before_scoring, args=(directory, rejected)
+    )
     process.start()
     process.join(60)
     assert process.exitcode == 91
@@ -274,3 +290,141 @@ def test_scoring_interruption_resumes_without_resending_or_double_charging(conti
     assert len(recovered["records"]) == 2
     assert recovered["records"][-1]["scoring_state"] == "complete"
     assert recovered["records"][-1]["score"] is not None
+    assert recovered["records"][-1]["outcome"] == ("output_or_inference_failed" if rejected else "returned")
+    assert recovered["records"][-1]["score"]["invalid_support_candidates"] == int(rejected)
+
+
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_scoring_recovery_rejects_changed_parsed_output(continuation, rejected):
+    directory, _ = continuation
+    process = multiprocessing.get_context("fork").Process(
+        target=_terminate_v20_before_scoring, args=(directory, rejected)
+    )
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
+    pending = read_json(directory / "state.json")
+    record = pending["records"][-1]
+    manifest = read_json(directory / "preparation.json")
+    row = next(r for r in manifest["rows"] if r["row_id"] == record["row_id"])
+    case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+    value = read_json(directory / "inputs" / (row["row_id"] + ".json"))[record["input_index"]]
+    core.dump(
+        directory / "audit" / (record["call_id"] + ".parsed.json"),
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "text": case.required[0].text,
+                    "description": case.required[0].text,
+                    "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                }
+            ]
+        },
+    )
+
+    def reject_resend(_request):
+        pytest.fail("changed scoring evidence must not trigger a provider request")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    state = read_json(directory / "state.json")
+    assert result["state"] == "audit_failed"
+    assert state["known_charge_cny"] == pending["known_charge_cny"]
+    assert state["next_call"] == pending["next_call"]
+    assert state["records"][-1]["score"] is None
+    assert state["records"][-1]["scoring_state"] == "failed"
+    assert not (directory / "audit" / (record["call_id"] + ".review.json")).exists()
+
+
+@pytest.mark.parametrize("change", ["missing_binding", "response", "request", "output", "missing_parsed"])
+def test_scoring_recovery_requires_preserved_output_binding(continuation, change):
+    directory, _ = continuation
+    process = multiprocessing.get_context("fork").Process(target=_terminate_v20_before_scoring, args=(directory,))
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
+    pending = read_json(directory / "state.json")
+    record = pending["records"][-1]
+    audit = directory / "audit"
+    if change == "missing_binding":
+        record.pop("parsed_output_hash", None)
+        core.dump(directory / "state.json", pending)
+    elif change == "response":
+        path = audit / (record["call_id"] + ".response-bytes.json")
+        path.write_bytes(path.read_bytes() + b" ")
+    elif change == "request":
+        path = audit / (record["call_id"] + ".request.json")
+        request = read_json(path)
+        request["model"] = "changed"
+        core.dump(path, request)
+    elif change == "missing_parsed":
+        (audit / (record["call_id"] + ".parsed.json")).unlink()
+    else:
+        core.dump(
+            audit / (record["call_id"] + ".output.json"),
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Changed.",
+                        "description": "Changed.",
+                        "evidence_ids": ["changed"],
+                    }
+                ]
+            },
+        )
+
+    def reject_resend(_request):
+        pytest.fail("unverifiable scoring evidence must not trigger a provider request")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    state = read_json(directory / "state.json")
+    assert result["state"] == "audit_failed"
+    assert state["known_charge_cny"] == pending["known_charge_cny"]
+    assert state["next_call"] == pending["next_call"]
+    assert state["records"][-1]["score"] is None
+    if change == "missing_binding":
+        assert state["records"][-1]["failure_category"] == "scoring_output_binding_unavailable"
+
+
+@pytest.mark.parametrize("change", ["unchanged", "score", "parsed"])
+def test_completed_score_recovery_checks_binding_before_advancing(continuation, change):
+    directory, _ = continuation
+    response = mock_response()
+    response["model"] = "deepseek-flash"
+    response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    asyncio.run(
+        workflow.run_next(directory, transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=response)))
+    )
+    state = read_json(directory / "state.json")
+    record = state["records"][-1]
+    # Persisted score followed by a crash before the ready/next-call write.
+    state.update(state="scoring_pending", in_flight=record["call_id"], next_call=state["next_call"] - 1)
+    if change == "score":
+        record["score"]["retained_atoms"] = 1
+    elif change == "parsed":
+        core.dump(
+            directory / "audit" / (record["call_id"] + ".parsed.json"),
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Changed.",
+                        "description": "Changed.",
+                        "evidence_ids": ["changed"],
+                    }
+                ]
+            },
+        )
+    core.dump(directory / "state.json", state)
+
+    def reject_resend(_request):
+        pytest.fail("completed scoring recovery must not resend")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert result["state"] == ("ready" if change == "unchanged" else "audit_failed")
+    assert recovered["next_call"] == state["next_call"] + int(change == "unchanged")
+    assert recovered["known_charge_cny"] == state["known_charge_cny"]
+    if change != "unchanged":
+        assert recovered["records"][-1]["score"] is None

@@ -92,7 +92,7 @@ SDK 使用 `httpx.MockTransport`；本地 copy/Unicode 通过不能代替真实�
 
 ## 产物与结论
 
-机器结果位于 [results/v10-offline](results/v10-offline/)：完整比较、历史回放、验证摘要、验收状态和文件哈希。
+机器结果位于 [results/v10-offline](RESULTS_ARTIFACT.md) (归档内路径: `results/v10-offline/`)：完整比较、历史回放、验证摘要、验收状态和文件哈希。
 聚合不包含原始 Source 正文、prompt、模型响应、凭据或私有审计路径。历史 v5/v9 的冻结源码、结果和失败保留。
 原有 136 个暂存文件保持原样；本阶段新增和文档修改尚未暂存。
 

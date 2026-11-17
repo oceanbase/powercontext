@@ -1,7 +1,7 @@
 # 抽查记录定位确认表
 
 本表只确认之前查过哪次调用，不补写候选语义结论。当前17项均未确认。
-依据为已提交的人工抽查附录；调用缩写仅用于阅读，完整身份见 [确认模板](results/acceptance-closeout-20261107/human-confirmation-template.json)。
+依据为已提交的人工抽查附录；调用缩写仅用于阅读，完整身份见 [确认模板](RESULTS_ARTIFACT.md) (归档内路径: `results/acceptance-closeout-20261107/human-confirmation-template.json`)。
 
 每条选择自己实际查过的调用；若查过多个，可以列多个。无法回忆时保留未确认，不按输出相似度代选。
 确认 arm 后仍有多个请求时，须继续确认从0开始的 `input_index`。
@@ -36,7 +36,7 @@
 `supported`、`atomic`、`false_attribution`、`entailed_atom_ids`，并绑定原输出与上下文。
 缺少某一项就保留部分判断。已有两处错误归因及13项原子性失败继续有效。
 
-完整语义队列见 [semantic-review-queue.json](results/v20-review/semantic-review-queue.json)。
+完整语义队列见 [semantic-review-queue.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/semantic-review-queue.json`)。
 有效输出226项与被拒绝输出307项是不同范围；确认本表不会从这533项中自动减数。
 
 若只交付 insufficient_evidence，本表和未决项可以作为明确限制保留；不要求为了收尾再次发起线上调用。

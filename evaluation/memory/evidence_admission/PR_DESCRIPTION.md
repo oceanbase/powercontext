@@ -26,12 +26,22 @@ output schema, model settings, and per-input budgets; input admission and genera
 - Crash-safe v19/v20 scoring continuation: returned responses and usage are recorded as `scoring_pending` before
   scoring. Resume scores the saved response without resending or double charging. A required response missing a score
   is a `scoring_incomplete` blocker and cannot yield `no_production_change`.
+- Versioned persisted-material replay identity excludes only the envelope's server-owned `saved_at`, preserving
+  detection of Source value, metadata and nested business-timestamp changes. Old preparation identities are not migrated.
+- Bound review import reads `.parsed.json` for schema-valid Pipeline rejections and `.output.json` for returned
+  outputs. Call, input, request, response and original review bindings are checked; rejected attempts remain rejected
+  and contribute no delivered facts or qualified literals. Reviews are append-only derivatives.
+- Parsed-output identities are persisted before Pipeline validation and verified during v19/v20 recovery, including
+  the completed-score-before-cursor-advance state. Missing bindings or changed evidence invalidate the cached score
+  and stop without resending or double charging. Report generation revalidates review context and recomputes derivative
+  scores instead of trusting the saved score cache.
 - Current-runtime regressions alongside explicit historical instruction/schema fixtures. Historical responses,
   scores, thresholds, and unavailable usage are not rewritten to satisfy the rebased runtime.
 - Runtime sources included in the committed-freeze check, frozen JSON byte verification, optional evidence-reader
   handling, and numeric counter compatibility in evaluation tools.
 - Generated reports and historical run records distributed as a separate checksummed archive. Historical helpers
   require its extracted `results` directory through `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`.
+  Documentation links point to the archive instructions and retain each member path without restoring result files.
 - A documented pre-execution cost calculation for generic `run-live`/`run-smoke`. These commands enforce a request
   count, not a currency limit; the historical v20 budget ledger is a separate execution path.
 
@@ -123,22 +133,26 @@ does not claim to fix that upstream gap. No new production admission policy, fea
 
 # How was this change tested?
 
-The preceding local evaluation run completed with 1,460 passed and 48 skipped, followed by 104 passed in the included
-tool-recovery suite. The user subsequently reported that `make check`, `make evaluation-unit-test`, the focused
-non-live suite, Ruff lint/format, evaluation types, `make test`, `make build`, and `tox` passed before these local changes.
-Those reports do not establish validation of the latest documentation and scope changes or the current merged tree.
+The contributor confirmed that full local engineering validation passed for the preceding repair tree, including
+`make check`, `make evaluation-unit-test`, `make test`, `make build` and `tox`. This increment was checked with focused
+regressions rather than repeating that matrix; the contributor-reported baseline is separate from the checks below.
 
-The current changes were checked statically for whitespace, evidence links, archive identities, and Gateway diff scope.
-Full validation is left to the user. Historical bundle-dependent tests skip by default; the bundle does not replace the
-matching historical runtime or unavailable private responses. Default tests need no provider credentials or network.
-Live execution, manual cost calculation, cancellation, audit, and report regeneration are documented in
-[the runbook](LIVE_RUNBOOK.md) and [Chinese instructions](LIVE_RUNBOOK.zh.md).
+Python 3.11.15 focused validation passed 140 tests across v18 comparison/review, v19/v20 continuation and sample review.
+They cover changed parsed outputs after a process interruption, accepted and rejected outputs, missing legacy bindings,
+completed-score recovery, review-score recomputation, evidence corruption and no-resend/usage accounting.
+Ruff lint/format (236 Python files), evaluator types, frozen-contract bytes and whitespace checks passed. The website's
+link-validation library found no errors in all 65 evaluator Markdown documents. The 205-file archive SHA-256 is unchanged.
+These checks used no model requests and do not establish a passing remote CI run.
+
+Historical bundle-dependent tests skip by default; the bundle does not replace the matching historical runtime or
+unavailable private responses. Default tests need no provider credentials or network. Live execution, manual cost
+calculation, cancellation, audit, and report regeneration are documented in [the runbook](LIVE_RUNBOOK.md) and
+[Chinese instructions](LIVE_RUNBOOK.zh.md).
 
 Upstream `master` at `e725225b103a7b41e601710d352ca3c3d3ae0ea0` is integrated with a normal merge.
-The `.gitignore` resolution preserves both the evaluation-result ignores and the upstream DSH pet file exceptions.
+The `.gitignore` resolution preserves both evaluation-result ignores and upstream DSH pet file exceptions.
 The `evaluation-unit-test` target keeps evidence-admission tests in the evaluation environment and prepared-context
-budget/recovery tests in the root environment. Full checks were not rerun for this integration; remote mergeability
-and CI must be checked after publication, because upstream may advance again.
+budget/recovery tests in the root environment. Remote mergeability and CI must be checked after publication.
 
 # AI usage statement
 

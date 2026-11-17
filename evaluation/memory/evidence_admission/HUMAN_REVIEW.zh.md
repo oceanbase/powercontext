@@ -6,7 +6,7 @@
 这些证据进一步否决当前候选进入生产，不等于完整语义评分已经闭环。
 
 当前 PR 正文为 [PR_DESCRIPTION_REVIEWED.zh.md](PR_DESCRIPTION_REVIEWED.zh.md)。
-审阅数据入口为 [人工抽查附录](results/v20-human-sample/README.zh.md)，
+审阅数据入口为 [人工抽查附录](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/README.zh.md`)，
 上游冲突和工程整合范围见 [UPSTREAM_INTEGRATION.zh.md](UPSTREAM_INTEGRATION.zh.md)。
 原线上报告、原汇总审阅记录和原整合凭据继续保留原字节；本附录不替换它们。
 
@@ -38,8 +38,8 @@ false_attribution 和 entailed_atom_ids 均已逐项确认。无法唯一定位�
 | 合计 | **46** | **29** | **17** |
 
 原始声明见 [human-sample-review-v1.json](manifests/human-sample-review-v1.json)，
-逐条候选调用选择见 [coverage.json](results/v20-human-sample/coverage.json)。
-单独的17条待确认清单见 [pending-mappings.json](results/v20-human-sample/pending-mappings.json)。
+逐条候选调用选择见 [coverage.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/coverage.json`)。
+单独的17条待确认清单见 [pending-mappings.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/pending-mappings.json`)。
 `resolution=ambiguous` 的 `possible_records` 列出所有匹配项；补充 arm 和 input_index 后才能唯一绑定。
 这些匹配候选是程序列出的可能位置，不代表用户已审阅所有匹配项。
 
@@ -53,7 +53,7 @@ false_attribution 和 entailed_atom_ids 均已逐项确认。无法唯一定位�
 | validation-crlf-scaffolding | 2048 | 0 | 2 | 工具文本被归为当前用户事实 |
 
 两项均绑定 bounded-fragments-v3 的有效 Pipeline 输出，完整记录见
-[human-judgements.json](results/v20-human-sample/human-judgements.json)。
+[human-judgements.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/human-judgements.json`)。
 这里只写入用户明确提供的 `false_attribution=true`，不推测其他未明确给出的审阅字段。
 引用可解析和 Pipeline 接受不证明语义归因安全。这两项足以违反零关键错误归因的正向门槛。
 
@@ -80,7 +80,7 @@ exact-literals 的9次输出，以及被抽查的 validation-literal-offset 的4
 
 mixed-scaffolding 的2K三次调用具有一个输入哈希、一个请求哈希和三个输出哈希。
 这说明独立线上调用的生成结果不同，不说明输入准备不确定，也不否定已保存响应的离线重放一致性。
-字节与重放计数见 [observations.json](results/v20-human-sample/observations.json)。
+字节与重放计数见 [observations.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/observations.json`)。
 
 ## 多请求计数解释
 
@@ -100,7 +100,7 @@ mixed-scaffolding 的2K三次调用具有一个输入哈希、一个请求哈希
 另在原执行提交 `1515a0d11cc2040d0beb341f6626a33c09cce73b` 及其锁定环境中，
 实际核验630个依赖文件，并重算76个可能调用、112个未决候选出现位置的原上下文绑定。
 76和112是程序核验范围，包含歧义选项，不是人工审阅覆盖。
-凭据见 [frozen-binding-validation.json](results/v20-human-sample/frozen-binding-validation.json)。
+凭据见 [frozen-binding-validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/frozen-binding-validation.json`)。
 
 目前完整 v10 逐候选审阅新增数为0。15项是单维度判断，未补造 supported、atomic、false_attribution
 及事实 ID 之间缺少的其他判断，因此原机器未决533项保持不变。新的知识是已明确的质量失败下界，
@@ -137,14 +137,14 @@ uv run --locked --project evaluation python -m powercontext_eval_evidence_admiss
 `REVIEW_TOOL_ROOT` 是当前评估包的绝对路径；脚本不放进原检出或修改其依赖。
 输出文件须不存在。原代码身份不匹配、上下文或字节变动均拒绝，不关闭身份保护。
 默认命令不需要 provider 凭据，不访问网络。工程检查见
-[validation.json](results/v20-human-sample/validation.json)。
+[validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/validation.json`)。
 
 本轮完整无模型回归为538 passed、41 skipped；新增14项审阅回归在 Python 3.11 的完整套件中通过，
 并在3.12、3.13、3.14分别专项通过。Ruff check、242个 Python 文件格式、evaluation 类型检查、
 make check 的全部 hooks、三套锁文件与61项集成清单测试通过，评估包 wheel/sdist 构建通过。
 这些专项不等于四版本完整 tox；根包全量测试没有因本次仅评估层的修改再次执行，
 已有整合阶段凭据单独保留。完整交付的独立索引为
-[delivery-index.json](results/v20-human-sample/delivery-index.json)。
+[delivery-index.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/delivery-index.json`)。
 
 ## 按 issue 要求仍需保留的缺口
 

@@ -1,5 +1,34 @@
 # Validation
 
+## Current-runtime review fixes
+
+The contributor confirmed that full local engineering validation passed for the preceding repair tree.
+This increment was checked with focused regressions rather than repeating the full engineering matrix.
+
+Python 3.11.15 focused validation passed 140 tests covering bound review import and report recomputation,
+accepted and rejected output recovery, corruption after interruption, missing legacy bindings, completed-score
+recovery, no-resend and usage accounting, and sample-review isolation. The three minimal reproductions first failed
+against the unfixed behavior and passed after the repairs. All use local providers or no provider; there were no model
+requests. Ruff lint/format (236 Python files), evaluator types, frozen-contract bytes and whitespace checks passed.
+The website link-validation library reported zero errors across 65 evaluator Markdown documents; this is a scoped link
+check, not a website build. The 205-file historical archive and its SHA-256 remain unchanged.
+
+Run the focused regression group from the repository root:
+
+```bash
+uv run --frozen --python 3.11 --project evaluation --extra capture-ownership pytest \
+  evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
+  evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_v20_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_sample_review.py -m "not live" -q
+```
+
+The `capture-ownership` extra matches the Makefile's shared evaluation environment. This local validation does not
+replace `make check`, `make evaluation-unit-test`, `make test`, `make build`, `tox`, a complete website build or remote CI.
+Those full checks were not repeated for this increment. The contributor-reported baseline and focused checks do not
+establish a passing remote CI run. Interrupted sandbox attempts are excluded from the passing counts.
+Historical receipts below describe only their recorded execution revisions.
+
 ## v20 全部剩余请求补跑验证
 
 执行提交 `1515a0d1` 的完整无模型回归为 556 passed、2032 warnings（Python 3.11.15，506.22 秒）。
@@ -10,7 +39,7 @@ v18/v19/v20 专项 48 项通过；新增 13 项在 Python 3.11.15、3.12.3、3.1
 351 次无网络 SDK/Pipeline 预检逐个匹配父会话冻结请求体；随后实际补跑 351 次，全部有响应及用量，未新增未知调用。
 原 471 次计划均已尝试，未运行请求为 0；469 个可用响应的输出/评分全部离线回放匹配，2 个历史缺失响应保持不可用。
 已知输出失败、未决语义和历史缺失仍阻止正式验收，不能将全部请求已尝试描述为所有门槛通过。
-详见 [结果](V20_RESULTS.zh.md)和[验证凭据](results/v20-live/validation.json)。
+详见 [结果](V20_RESULTS.zh.md)和[验证凭据](RESULTS_ARTIFACT.md) (archive path: `results/v20-live/validation.json`)。
 
 ## v19 剩余请求补跑验证
 
@@ -21,7 +50,7 @@ v18/v19 专项 35 项通过；新增 12 项在 Python 3.11.15、3.12.3、3.13.13
 
 467 个待运行请求已全部通过无网络实际 SDK/Pipeline 预检，请求体哈希与 v18 冻结值匹配。
 真实补跑 116 次后新增未知 usage，保留停止状态和 351 次未运行；合并已有响应的 118 次离线回放全部匹配，
-2 次缺失响应不可回放，不能描述为 120 次全部回放成功。详见 [结果](V19_RESULTS.zh.md)和[验证凭据](results/v19-live/validation.json)。
+2 次缺失响应不可回放，不能描述为 120 次全部回放成功。详见 [结果](V19_RESULTS.zh.md)和[验证凭据](RESULTS_ARTIFACT.md) (archive path: `results/v19-live/validation.json`)。
 
 ## v18 固定生成比较验证
 
@@ -29,7 +58,7 @@ v18/v19 专项 35 项通过；新增 12 项在 Python 3.11.15、3.12.3、3.13.13
 新增 23 项专项在 Python 3.11.15、3.12.3、3.13.13、3.14.5 全部通过。
 `make check`（含全量 hooks、根包/集成类型与 50 项清单检查）、issue Ruff check/format、
 整个 evaluation 类型检查、根包与评估包 wheel/sdist 构建通过；八个 v18 文件与评估构建逐字节匹配。
-凭据见 [validation.json](results/v18-live/validation.json)，结果见 [V18_RESULTS.zh.md](V18_RESULTS.zh.md)。
+凭据见 [validation.json](RESULTS_ARTIFACT.md) (archive path: `results/v18-live/validation.json`)，结果见 [V18_RESULTS.zh.md](V18_RESULTS.zh.md)。
 
 最终实际命令使用锁定环境：
 
@@ -52,14 +81,14 @@ uv build --project evaluation
 默认测试不需要凭据或网络；实际 opt-in 命令、费用与取消流程见 [冻结协议](V18_PROTOCOL.zh.md)。
 
 Current engineering receipts are in [the readiness report](ENGINEERING_READINESS.zh.md) and its
-[machine summary](results/engineering-readiness/summary.json). Root tests, doctests, coverage and types pass on
+[machine summary](RESULTS_ARTIFACT.md) (archive path: `results/engineering-readiness/summary.json`). Root tests, doctests, coverage and types pass on
 Python 3.11/3.12/3.13/3.14. The engineering baseline evaluation count is 1291; the complete v16 evaluation suite
 passes 1320 tests with one native-lineage prerequisite skip on each version, with full types passing on each.
 Required repository hooks, issue-scoped Ruff, full evaluation types, wheel and sdist builds pass.
 Protocol-specific measurements below retain their historical execution limits; they are not substituted for these receipts.
 
 The synthetic preparation matrix uses actual local SQLite persistence and Source projection. It makes no provider requests.
-Results and exact code/configuration hashes are in [the saved report](results/synthetic-v1-preparation/REPORT.md).
+Results and exact code/configuration hashes are in [the saved report](RESULTS_ARTIFACT.md) (archive path: `results/synthetic-v1-preparation/REPORT.md`).
 
 Validation commands:
 
@@ -197,7 +226,7 @@ Wheel/sdist validation confirms all six v11 source/contract files match checkout
 Source text, prompt, response, credential or physical Scope ID; the `body` key only appears as an integer metric category.
 
 The frozen baseline and source hashes, final comparison, minimal replay, validation and acceptance status are bundled in
-[results/v11-offline](results/v11-offline). Historical artifacts remain unchanged. See [V11_PROTOCOL.zh.md](V11_PROTOCOL.zh.md)
+[results/v11-offline](RESULTS_ARTIFACT.md) (archive path: `results/v11-offline`). Historical artifacts remain unchanged. See [V11_PROTOCOL.zh.md](V11_PROTOCOL.zh.md)
 for commands and [V11_RESULTS.zh.md](V11_RESULTS.zh.md) for costs and remaining live acceptance requirements.
 
 
@@ -216,7 +245,7 @@ nine v12 source/contract files with matching bytes. Other supported Python versi
 The actual SDK mock preflight executes two requests through the real Pipeline. Message-text estimates are 3682 and 3831
 at 4096 budgets; full HTTP JSON estimates are 3918 and 4243. HTTP serialization costs are not billed-token measurements.
 Controlled outputs cover 4/4 and 2/2 atoms and exercise copy, emoji, combining characters and CRLF. Provider usage is null.
-The public [readiness bundle](results/v12-readiness) binds source/configuration identities and request-body hashes.
+The public [readiness bundle](RESULTS_ARTIFACT.md) (archive path: `results/v12-readiness`) binds source/configuration identities and request-body hashes.
 [V12_PROTOCOL.zh.md](V12_PROTOCOL.zh.md) documents the separate actual-HEAD and explicit-live gates.
 
 
@@ -271,7 +300,7 @@ The broader evaluation type check retains the existing LongMemEval ScopedAtomicM
 Other Python versions and a real SDK/provider preflight were not run. Sandbox SQLite thread wakeups stalled;
 persistence tests and comparisons completed in the approved local execution environment without provider traffic.
 
-See [V15_RESULTS.zh.md](V15_RESULTS.zh.md) and [results/v15-offline](results/v15-offline) for counts, hashes and limits.
+See [V15_RESULTS.zh.md](V15_RESULTS.zh.md) and [results/v15-offline](RESULTS_ARTIFACT.md) (archive path: `results/v15-offline`) for counts, hashes and limits.
 
 
 ## Protected-cell protocol validation
@@ -288,7 +317,7 @@ The stricter minimal manifest still fails for Unicode (three requests); SDK pref
 The unique final decision is `insufficient_evidence`. Intermediate offline pending states do not authorize further execution.
 
 Current multi-version evaluation results, required checks, wheel/sdist byte verification and actual installed CLI receipts are
-in [v16 validation](results/v16-offline/validation.json). Root runtime code is unchanged since the engineering commit;
+in [v16 validation](RESULTS_ARTIFACT.md) (archive path: `results/v16-offline/validation.json`). Root runtime code is unchanged since the engineering commit;
 the complete root four-version matrix is retained there rather than claimed rerun for this evaluation-only addition.
 See [V16_PROTOCOL.zh.md](V16_PROTOCOL.zh.md) for offline commands and [V16_RESULTS.zh.md](V16_RESULTS.zh.md)
 for the final decision, failure preservation, no-model measurement limits and read-only summary regeneration.
@@ -307,4 +336,4 @@ Pipeline returns both outputs; the two remaining planned requests are unrun afte
 Unicode gate. Recorded HTTP-response SDK/Pipeline replay reproduces both hashes and scores without new provider calls.
 Input/output usage is 8841/306 tokens, with no missing usage. Provider-reported Unicode input is 5679, so the local 4K
 character-estimator gate is not a hard provider-token bound. No formal all-arm comparison or independent semantic
-acceptance follows. See [V17_RESULTS.zh.md](V17_RESULTS.zh.md) and [the receipts](results/v17-live/validation.json).
+acceptance follows. See [V17_RESULTS.zh.md](V17_RESULTS.zh.md) and [the receipts](RESULTS_ARTIFACT.md) (archive path: `results/v17-live/validation.json`).

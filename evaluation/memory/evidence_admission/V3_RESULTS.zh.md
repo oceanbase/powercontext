@@ -14,7 +14,7 @@
 - 保留 512 字节分片、原始记录/UTF-8/CRLF 边界、单次预算、16 次调用和累计 8 倍预算上限，没有增加补扫页。
 - 联合命令绑定三个必需数据集及运行/代码哈希，缺失数据、已知丢失、普通样例意外不可用或任一基线退化都会阻止离线通过。
 - 策略、新增 fixture 与 catalog 在实现和运行前冻结；冻结文件校验无变化。
-  [冻结记录](results/v3-freeze.json)和[算法契约](V3_PROTOCOL.md)保留相应身份与规则。
+  [冻结记录](RESULTS_ARTIFACT.md) (归档内路径: `results/v3-freeze.json`)和[算法契约](V3_PROTOCOL.md)保留相应身份与规则。
 
 ## 保留与非退化
 
@@ -39,7 +39,7 @@
 
 1008 个历史 v1/v2 对照样本重新执行后，输入、支持、遗漏、窗口、状态和原有评分等价。
 仅排除耗时字段，并通过当前模型补齐新增成本分解的空默认值。原有策略、清单、协议和历史结果字节未变。
-核验见 [v3-baseline-replay.json](results/v3-baseline-replay.json)。
+核验见 [v3-baseline-replay.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v3-baseline-replay.json`)。
 
 ## 成本
 
@@ -64,7 +64,7 @@
 三个矩阵任务并发执行，上表包含各自全部五个实验组、SQLite 回放、分片选择、评分和报告写入。
 它们不是 v3 单独的峰值内存或隔离性能对比，不据此宣称吞吐改善。原始输入仍被完整扫描，
 片段队列和缓存需要内存，候选仍重复序列化；更大规模增量成本未测。
-原始进程资源摘要见 [v3-process-costs.json](results/v3-process-costs.json)。
+原始进程资源摘要见 [v3-process-costs.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v3-process-costs.json`)。
 
 ## 验证与剩余边界
 
@@ -79,8 +79,8 @@
 
 ## 可追溯结果
 
-- [联合门槛与运行身份](results/v3-comparison.json)
-- [原始五组矩阵](results/synthetic-v3-preparation/REPORT.md)
-- [原有变体五组矩阵](results/validation-v2-v3-preparation/REPORT.md)
-- [新增压力五组矩阵](results/validation-v3-preparation/REPORT.md)
+- [联合门槛与运行身份](RESULTS_ARTIFACT.md) (归档内路径: `results/v3-comparison.json`)
+- [原始五组矩阵](RESULTS_ARTIFACT.md) (归档内路径: `results/synthetic-v3-preparation/REPORT.md`)
+- [原有变体五组矩阵](RESULTS_ARTIFACT.md) (归档内路径: `results/validation-v2-v3-preparation/REPORT.md`)
+- [新增压力五组矩阵](RESULTS_ARTIFACT.md) (归档内路径: `results/validation-v3-preparation/REPORT.md`)
 - [验收状态与限制](ACCEPTANCE.zh.md)

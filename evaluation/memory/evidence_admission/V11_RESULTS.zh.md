@@ -44,8 +44,8 @@
 v9 与 v11 协议不同，不能据此归因模型效果。v10 有协议拒绝，其原始计划数不能作为完整可执行成本基线。
 候选 v3 的复用值为 411 次潜在调用、1,320,978 个估算输入 token，未发生策略或成本重算。
 
-完整脱敏数据见 [comparison.json](results/v11-offline/comparison.json)，
-汇总见 [summary.json](results/v11-offline/summary.json)。结果只含安全标签、哈希、成本和计数；
+完整脱敏数据见 [comparison.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v11-offline/comparison.json`)，
+汇总见 [summary.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v11-offline/summary.json`)。结果只含安全标签、哈希、成本和计数；
 `native_metrics.categories.body` 是类别计数，不是 Source 正文。
 最小回放、验证、验收状态和文件哈希保存在同一结果目录。
 

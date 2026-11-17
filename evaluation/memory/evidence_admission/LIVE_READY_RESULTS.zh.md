@@ -28,8 +28,8 @@
 合计 1620 个样本、495/495 个必要事实，联合离线门槛通过。全部样本与上一轮结果逐项比较，
 输入、支持、遗漏、窗口、状态与既有评分等价，仅排除耗时。相对 v1/v2 的配对比较仍无观察到的准备退化。
 原有 61 个选择、数据清单和历史结果文件校验无变化；线上策略与协议在实现前冻结，当前校验仍一致。
-记录见 [离线联合结果](results/live-ready-comparison.json)、[1620 样本等价核验](results/live-ready-baseline.json)
-及[线上冻结记录](results/live-freeze.json)。
+记录见 [离线联合结果](RESULTS_ARTIFACT.md) (归档内路径: `results/live-ready-comparison.json`)、[1620 样本等价核验](RESULTS_ARTIFACT.md) (归档内路径: `results/live-ready-baseline.json`)
+及[线上冻结记录](RESULTS_ARTIFACT.md) (归档内路径: `results/live-freeze.json`)。
 
 ## 请求和 token 计划
 
@@ -44,7 +44,7 @@
 正式矩阵和一次完整 smoke 的潜在请求合计 1085。327 次仅为 v3 候选组的正式调用，不能用作全实验额度。
 最大输出按照每次 2048 token 求上限；温度零、超时 60 秒、串行执行、一次请求上限、零 SDK 重试不变。
 这些是调用计划和字符估算器结果，不是 provider usage；模型、实际输出和价格未确定时不计算货币费用。
-失败或中断请求的未知用量不能当作零成本。精确计划见 [live-request-plan.json](results/live-request-plan.json)。
+失败或中断请求的未知用量不能当作零成本。精确计划见 [live-request-plan.json](RESULTS_ARTIFACT.md) (归档内路径: `results/live-request-plan.json`)。
 
 ## 验证
 
@@ -58,7 +58,7 @@
 ## 尚未执行与前置条件
 
 真实 CLI 预检查确认，`run-smoke` 和 `run-live` 在当前未提交状态下，于 provider 初始化前拒绝执行。
-没有输出目录或私有 journal 被创建，真实 provider 请求为 0。记录见 [执行前检查](results/live-readiness.json)。
+没有输出目录或私有 journal 被创建，真实 provider 请求为 0。记录见 [执行前检查](RESULTS_ARTIFACT.md) (归档内路径: `results/live-readiness.json`)。
 
 后续实际调用需要两项输入：
 

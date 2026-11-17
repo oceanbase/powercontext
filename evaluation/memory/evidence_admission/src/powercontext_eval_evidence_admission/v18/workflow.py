@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import json
 import os
 from contextlib import contextmanager
 from decimal import Decimal
@@ -28,10 +29,12 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionOutput,
 )
 from powercontext.builtin.inference.errors import InferenceError
+from pydantic import ValidationError
 
 from ..manifests import EvaluationError, read_json
 from ..models import Support, digest
 from ..v9_preflight.workflow import mock_response
+from ..v10.scoring import review_binding
 from ..v17.workflow import credentials
 from .adapter import extract
 from .core import committed_freeze, comparable, contract, dump, identity, prepare_one, suite_for
@@ -337,24 +340,89 @@ async def replay_recorded(directory, output_directory):
     return result
 
 
+def _output_for_review(directory, record):
+    """Bind a review to the preserved output of the original, already scored attempt."""
+    if record["outcome"] == "returned" and record.get("pipeline_returned") is True:
+        kind = "output"
+    elif record["outcome"] == "output_or_inference_failed" and record.get("pipeline_returned") is False:
+        kind = "parsed"
+    else:
+        raise EvaluationError("v18_review_requires_returned_or_rejected_parsed_output")
+    call_id = record["call_id"]
+    try:
+        raw = (directory / "audit" / (call_id + ".response-bytes.json")).read_bytes()
+    except OSError:
+        raise EvaluationError("v18_review_response_unavailable") from None
+    if digest(raw.hex()) != record.get("response_hash"):
+        raise EvaluationError("v18_review_response_changed")
+    try:
+        output = AtomicMemoryExtractionOutput.model_validate(
+            read_json(directory / "audit" / (call_id + f".{kind}.json"))
+        )
+    except ValidationError:
+        # Historical outputs needing another schema must use their matching execution code.
+        raise EvaluationError("v18_review_output_schema_unsupported") from None
+    receipt = read_json(directory / "audit" / (call_id + ".review.json"))
+    original_score = record.get("score") or {}
+    output_hash = digest(output.model_dump(mode="json"))
+    if (
+        receipt.get("output_hash") != output_hash
+        or digest(receipt) != original_score.get("review_hash")
+        or original_score.get("candidate_hashes") != [digest(c.model_dump(mode="json")) for c in output.candidates]
+        or kind == "output"
+        and record.get("output_hash") != output_hash
+    ):
+        raise EvaluationError("v18_review_output_or_receipt_changed")
+    return output, receipt, kind
+
+
+def review_context(directory, row, record):
+    """Load the same bound evidence for review import and report recomputation."""
+    case = next(c for c in suite_for(row["dataset"]).cases if c.case_id == row["case"])
+    value = AtomicMemoryExtractionInput.model_validate(
+        read_json(directory / "inputs" / (row["row_id"] + ".json"))[record["input_index"]]
+    )
+    if digest(value.model_dump(mode="json")) != record["input_hash"]:
+        raise EvaluationError("v18_review_input_changed")
+    request = read_json(directory / "audit" / (record["call_id"] + ".request.json"))
+    if digest(request) != record["request_facts"]["http_request_hash"]:
+        raise EvaluationError("v18_review_request_changed")
+    if json.loads(request["messages"][2]["content"]) != value.model_dump(mode="json"):
+        raise EvaluationError("v18_review_request_input_changed")
+    output, receipt, kind = _output_for_review(directory, record)
+    supports = tuple(Support.model_validate(s) for s in row["sample"]["supports"])
+    if receipt.get("context_hash") != review_binding(case, value, supports, output):
+        raise EvaluationError("v18_review_context_changed")
+    return case, value, supports, output, kind
+
+
 def apply_review(directory, call_id, review_file):
     with locked(directory):
         manifest = load(directory)
         state = read_json(directory / "state.json")
-        record = next(r for r in state["records"] if r["call_id"] == call_id)
+        records = [r for r in state["records"] if r["call_id"] == call_id]
+        planned = [c for c in calls_for(manifest) if digest(c) == call_id]
+        if (
+            len(records) != 1
+            or len(planned) != 1
+            or state["preparation_hash"] != digest(manifest)
+            or any(records[0][k] != v for k, v in planned[0].items())
+        ):
+            raise EvaluationError("v18_review_call_binding_changed")
+        record = records[0]
         row = next(r for r in manifest["rows"] if r["row_id"] == record["row_id"])
-        case = next(c for c in suite_for(row["dataset"]).cases if c.case_id == row["case"])
-        value = AtomicMemoryExtractionInput.model_validate(
-            read_json(directory / "inputs" / (row["row_id"] + ".json"))[record["input_index"]]
-        )
-        output = AtomicMemoryExtractionOutput.model_validate(
-            read_json(directory / "audit" / (call_id + ".output.json"))
-        )
+        case, value, supports, output, kind = review_context(directory, row, record)
         review = read_json(review_file)
-        result, _ = score_output(
-            case, value, tuple(Support.model_validate(s) for s in row["sample"]["supports"]), output, review
-        )
+        if not review:
+            raise EvaluationError("v18_review_empty")
+        result, _ = score_output(case, value, supports, output, review)
         # Keep automatic/original records immutable; audited scores are separate derivatives.
-        derivative = {"call_id": call_id, "original_record_hash": digest(record), "review": review, "score": result}
+        derivative = {
+            "call_id": call_id,
+            "original_record_hash": digest(record),
+            "output_kind": kind,
+            "review": review,
+            "score": result,
+        }
         dump(directory / "reviews" / (call_id + ".json"), derivative, new=True)
         return {"call_id": call_id, "review_hash": digest(review), "unresolved": result["unresolved_candidates"]}

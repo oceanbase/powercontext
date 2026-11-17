@@ -29,7 +29,7 @@
 本轮线上未覆盖溢出、混合、字面量、Unicode 或两个压力数据集，不能据此判定生产后续。
 已知累计费用上界 ¥0.115864，未知调用另保留 ¥2.113536；停止不是余额耗尽，也不是候选质量失败。
 完整无模型回归 531 项通过，新增 23 项专项在四个 Python 版本通过；工程检查与构建通过。
-可读及完整范围报告见 [v18 公开交付](results/v18-live/README.zh.md)。
+可读及完整范围报告见 [v18 公开交付](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/README.zh.md`)。
 
 [工程验证](ENGINEERING_READINESS.zh.md)已完成：根包四个 Python 版本最终均为 7053 passed、627 skipped，
 工程基线完整 evaluation 四版本均为 1291 passed、1 skipped；完整 hooks、类型检查及构建通过。
@@ -50,7 +50,7 @@ Unicode provider 实报输入 5679，超过本地 4K 字符估算；不能宣称
 Unicode 最小样本从四次改善为三次请求，仍超过未调整的每例一次门槛，因此以 `insufficient_evidence`
 停止在 SDK 预检前。新增 provider 调用为零；模型输出、独立语义审阅及正式联合比较仍未完成。
 490 项无模型回归通过；包含 v16 的完整 evaluation 四版本均为 1320 passed、1 skipped，类型检查通过。
-完整多版本验证与冻结凭据见 [v16 交付](results/v16-offline/result.json)。
+完整多版本验证与冻结凭据见 [v16 交付](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/result.json`)。
 
 [历史 v15 结果](V15_RESULTS.zh.md)在同一内容身份下重新执行三集 1620 条离线比较：候选可执行必需事实
 495/495，新增协议预算拒绝与非确定性均为 0。原始准备的完整投影/窗口预算拒绝、故障与取消仍单独保留。

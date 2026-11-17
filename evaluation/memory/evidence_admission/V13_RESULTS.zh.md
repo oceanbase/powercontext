@@ -15,14 +15,14 @@ v13 保持候选选择、v10 指令、schema、评分和 2048 输出上限，显
 Ruff、格式、全量 hooks、模块及根项目类型、两套锁文件和打包核验通过。
 Ruff 原 13 项中 6 项通过代码调整解决，7 项采用明确记录的局部豁免，未改变测试门槛或业务语义。
 整个 evaluation 类型检查仍有一项 LongMemEval 能力错误；未重跑其他 Python 版本。
-离线证据见 [验证汇总](results/v13-readiness/validation-summary.json)。
+离线证据见 [验证汇总](RESULTS_ARTIFACT.md) (归档内路径: `results/v13-readiness/validation-summary.json`)。
 
 ## 首例真实结果
 
 样本为 synthetic-v1 / exact-literals / bounded-fragments-v3 / 4096 / repetition=0。
 请求别名 deepseek-v4-flash，返回模型 deepseek-flash；单响应不能证明锁定物理模型快照。
 实际 HTTP 正文与提交后预检哈希相同，包含 thinking.type=disabled；temperature=0、max_tokens=2048、重试 0、并发 1。
-指令、schema 与请求哈希绑定在 [提交后 SDK 预检](results/v13-readiness/sdk-preflight.json)。
+指令、schema 与请求哈希绑定在 [提交后 SDK 预检](RESULTS_ARTIFACT.md) (归档内路径: `results/v13-readiness/sdk-preflight.json`)。
 
 | 项目 | 观测值 |
 | --- | --- |
@@ -49,15 +49,15 @@ v10 literal_mismatches 对已审阅为受支持且声明蕴含 atom 的候选计
 未事后拆分候选、修正 copy 范围或改写输出。语义与原子性审阅者为 assistant，不称为独立人工验收。
 即使不采用语义诊断，四个精确字面量未保留也足以使冻结门槛失败。
 
-[脱敏机器结果](results/v13-live/summary.json)保留真实用量、状态、哈希与分开的评分口径；
-[字节审计](results/v13-live/literal-audit.json)保存正确字面量范围、实际 copy 范围和哈希，不保存原始正文。
+[脱敏机器结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v13-live/summary.json`)保留真实用量、状态、哈希与分开的评分口径；
+[字节审计](RESULTS_ARTIFACT.md) (归档内路径: `results/v13-live/literal-audit.json`)保存正确字面量范围、实际 copy 范围和哈希，不保存原始正文。
 COMPLETE 仅表示失败审计产物完整，不表示诊断、issue 或生产 gate 通过。
 
 ## 最小回放与停止
 
 同一原始响应经 MockTransport、实际 SDK/Pipeline 回放，得到完全相同的输出哈希、copy 数及绑定评分，
 复现 0/4 字面量和一个非原子候选。回放新增 provider 请求为 0，响应中的 usage 是历史用量而非新增计费。
-[回放结果](results/v13-live/quality-replay.json)还验证停止会话拒绝继续，没有发送第二个样本。
+[回放结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v13-live/quality-replay.json`)还验证停止会话拒绝继续，没有发送第二个样本。
 原始请求、响应、审阅和审计保存在仓库外私有目录，历史 v12 失败及其他冻结结果保持原样。
 本次不能解释旧 v5 的全部未知响应失败，也不能证明所有候选策略都无价值。
 

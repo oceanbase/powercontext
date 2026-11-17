@@ -3,9 +3,27 @@
 本评测回答：超大或混合 Source 是否需要在 Atomic Memory 提取前增加有限预算的证据准入步骤。
 实现仅位于 evaluation 工程，不修改生产投影、注册表、Memory 发布、检索、生命周期或 API。
 
-生成报告、运行记录与历史结果包已移出代码 PR，独立证据包的执行修订、SHA-256、下载地址占位和解压命令见
+生成报告、运行记录与历史结果包已移出代码 PR，独立证据包的执行修订、SHA-256、下载地址和解压命令见
 [RESULTS_ARTIFACT.md](RESULTS_ARTIFACT.md)。只有历史回放需要设置
 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`；默认测试不下载证据包，也不需要 provider 凭据。
+
+当前重放使用版本化物化身份 `evidence-admission.persisted-source-material.v2`。
+它校验 `powercontext-source-v1` 持久化信封，仅排除顶层服务器写入时间 `saved_at` 后，对其 JSON 字段计算哈希。
+嵌套时间、Source 值、元数据、表示类型和身份字段仍参与绑定。新准备清单会声明该协议，不会原地升级旧清单。
+归档运行须使用[匹配的历史代码和环境](HISTORY_REPRODUCTION.md)。
+
+v18 的 `review` 命令支持已评分请求中的成功 `.output.json` 和被 Pipeline 拒绝、但 schema 有效的 `.parsed.json`。
+导入前会核对计划请求、输入、请求体、原始响应、原评分审阅回执、上下文和候选身份，随后仅在 `reviews/`
+写入不可覆盖的派生记录。被拒请求保持被拒，其语义评分仅用于诊断，不计入已交付事实或合格字面量。
+审计材料缺失、输出需要不受支持的历史 schema 时明确拒绝；导入不会修补输出，也不会发起模型请求。
+仅针对成功输出的抽样审阅附录继续独立处理。
+
+新请求会在 Pipeline 校验前持久化 `parsed_output_hash`。v19/v20 评分恢复会核对原请求身份、请求体、
+原始响应和解析输出；成功请求还核对成功输出哈希。缺少绑定时以 `scoring_output_binding_unavailable` 停止，
+不会从当前文件补造绑定。评分已落盘时也须先核验再推进游标；校验失败会使缓存评分失效，保留用量账本且不重发请求。
+
+生成报告时会重读绑定的审阅上下文，重新计算人工审阅派生分数。证据、审阅绑定或缓存分数变化时明确拒绝，
+包括数值类型变化，不静默修补文件。
 
 通用 `run-live`/`run-smoke` 只执行请求次数限制，不执行金额上限。实际调用前按
 [费用表与上界公式](LIVE_RUNBOOK.zh.md#运行前计算最大费用)合计 smoke 和全部正式命令；

@@ -11,6 +11,28 @@ Generated reports, run records, and historical result bundles are distributed th
 archive documented above. Set `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to its extracted `results` directory only when
 running historical replay commands; default tests remain offline and self-contained.
 
+Current replay uses the versioned material identity `evidence-admission.persisted-source-material.v2`.
+It validates the `powercontext-source-v1` persistence envelope, then hashes its JSON fields with only the top-level
+server write time `saved_at` excluded. Nested timestamps, Source values, metadata, representation and identity fields
+remain bound. New preparation identities name this protocol; existing preparation files are not upgraded in place.
+Use the [matching historical checkout and environment](HISTORY_REPRODUCTION.md) for archived runs.
+
+The v18 `review` command accepts both Pipeline-returned `.output.json` and schema-valid, Pipeline-rejected
+`.parsed.json` from an already scored attempt. It checks the planned call, input, request, raw response, original
+review receipt, context and candidate identities before writing an append-only derivative under `reviews/`.
+Rejected attempts remain rejected: their semantic scores are diagnostic and never count as delivered facts or
+qualified retained literals. Missing audit material and outputs requiring an unsupported historical schema are
+rejected; review import never repairs them or sends a model request. The accepted-only sample appendix remains separate.
+
+New attempts persist `parsed_output_hash` before Pipeline validation. v19/v20 scoring recovery verifies the original
+call, request, raw response and parsed output, plus the accepted-output hash for returned attempts. Missing bindings
+stop as `scoring_output_binding_unavailable`; recovery never derives a replacement binding from current file contents.
+An already persisted score is also checked before advancing the cursor. Failed verification invalidates the cached
+score, preserves usage accounting and stops without another provider request.
+
+Report generation reloads the bound review context and recomputes each human-review derivative's score. It rejects
+changed evidence, review bindings and cached scores, including numeric type changes; it never silently repairs them.
+
 [v20 results](V20_RESULTS.zh.md): all 351 remaining requests were attempted with responses and usage, with no new
 unknown usage. The original 471-call plan has zero unrun calls; all 469 available responses replayed identically,
 while two historical responses remain unavailable. Citation, structured-output and literal failures plus unresolved

@@ -34,6 +34,7 @@ from powercontext_eval_evidence_admission.manifests import EvaluationError, read
 from powercontext_eval_evidence_admission.models import digest
 from powercontext_eval_evidence_admission.runner import INSTRUCTIONS
 from powercontext_eval_evidence_admission.v9_preflight.workflow import mock_response
+from powercontext_eval_evidence_admission.v10.scoring import candidate_key, ground_truth
 from powercontext_eval_evidence_admission.v18 import core, report, workflow
 from powercontext_eval_evidence_admission.v18.adapter import extract
 from powercontext_eval_evidence_admission.v18.scoring import score_output
@@ -51,6 +52,14 @@ def test_native_generation_is_identical_across_three_arms():
 
 def test_common_fixture_size_is_972_not_number_of_http_requests():
     assert sum(len(core.suite_for(d).cases) * 3 * 3 * 3 for d in core.DATASETS) == 972
+
+
+def test_old_materialization_identity_is_not_silently_upgraded(tmp_path):
+    snapshot = core.identity()
+    snapshot.pop("materialization_protocol")
+    core.dump(tmp_path / "preparation.json", {"identity": snapshot, "reliability_passed": True})
+    with pytest.raises(EvaluationError, match="preparation_identity_or_reliability_changed"):
+        workflow.load(tmp_path, committed=False)
 
 
 def test_preparation_probe_is_not_generation_evidence():
@@ -101,6 +110,8 @@ def test_real_native_sdk_has_no_copy_schema_and_records_exact_body(tmp_path):
             transport=httpx.MockTransport(lambda req, body=response: httpx.Response(200, json=body)),
         )
         assert output.candidates == () and record["pipeline_returned"]
+        assert record["parsed_output_hash"] == digest(read_json(tmp_path / "audit/native.parsed.json"))
+        assert read_json(tmp_path / "audit/native.attempt.json")["parsed_output_hash"] == record["parsed_output_hash"]
         body = read_json(tmp_path / "audit/native.request.json")
         assert body["messages"][0]["content"] == INSTRUCTIONS
         assert "CopyRef" not in body["messages"][1]["content"]
@@ -204,7 +215,202 @@ async def controlled_session(tmp_path, monkeypatch, case_id="small-complete"):
             "known_charge_cny": "0",
         },
     )
+    core.dump(tmp_path / "inputs" / (row["row_id"] + ".json"), [v.model_dump(mode="json") for v in values] * 2)
     return manifest
+
+
+@pytest.fixture(params=[False, True], ids=["accepted", "citation-rejected"])
+def reviewable_attempt(tmp_path, monkeypatch, request):
+    async def run():
+        manifest = await controlled_session(tmp_path, monkeypatch)
+        row = manifest["rows"][-1]
+        value = read_json(tmp_path / "inputs" / (row["row_id"] + ".json"))[0]
+        case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+        candidates = [
+            {
+                "kind": "fact",
+                "text": case.required[0].text,
+                "description": case.required[0].text,
+                "evidence_ids": [value["evidence"][0]["evidence_id"]],
+            }
+        ]
+        if request.param:
+            candidates.append({**candidates[0], "evidence_ids": ["not-supplied"]})
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = json.dumps({"candidates": candidates})
+        await workflow.run_next(tmp_path, transport=httpx.MockTransport(lambda req: httpx.Response(200, json=response)))
+        record = read_json(tmp_path / "state.json")["records"][0]
+        review = read_json(tmp_path / "audit" / (record["call_id"] + ".review.json"))
+        output = AtomicMemoryExtractionOutput.model_validate({"candidates": candidates})
+        review.update(reviewer="synthetic-human-reviewer", reviewer_kind="human")
+        review["judgements"] = {
+            candidate_key(c, i): {
+                "supported": True,
+                "atomic": True,
+                "false_attribution": False,
+                "entailed_atom_ids": [ground_truth(case)[0]["id"]],
+            }
+            for i, c in enumerate(output.candidates)
+        }
+        review_file = tmp_path / "human-review.json"
+        core.dump(review_file, review)
+        return record, review_file, request.param
+
+    return asyncio.run(run())
+
+
+def test_bound_review_import_preserves_rejected_delivery_and_original_evidence(tmp_path, reviewable_attempt):
+    record, review_file, rejected = reviewable_attempt
+    call_id = record["call_id"]
+    assert (tmp_path / "audit" / (call_id + ".output.json")).exists() is not rejected
+    original_state = (tmp_path / "state.json").read_bytes()
+    original_audit = {p.name: p.read_bytes() for p in (tmp_path / "audit").iterdir()}
+    result = workflow.apply_review(tmp_path, call_id, review_file)
+    assert result["unresolved"] == 0
+    assert (tmp_path / "state.json").read_bytes() == original_state
+    assert {p.name: p.read_bytes() for p in (tmp_path / "audit").iterdir()} == original_audit
+    summary = report.summarize(tmp_path)
+    row = summary["rows"][-1]
+    reviewed = summary["records"][0]
+    assert reviewed["outcome"] == record["outcome"]
+    assert reviewed["score"]["reviewer_kind"] == "human"
+    assert reviewed["score"]["retained_atoms"] == 1
+    assert bool(row["proven_delivered_atom_hashes"]) is not rejected
+    assert row["failed_output"] is rejected
+    if rejected:
+        assert reviewed["score"]["invalid_support_candidates"] == 1
+        assert summary["candidate_known_quality_failure_rows"] == 1
+        assert summary["decision"] == "insufficient_evidence"
+    with pytest.raises(EvaluationError, match="output_exists"):
+        workflow.apply_review(tmp_path, call_id, review_file)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "input",
+        "request",
+        "response",
+        "output",
+        "receipt",
+        "missing_output",
+        "missing_response",
+        "review_output",
+        "review_context",
+        "review_candidate",
+        "unscored",
+        "cancelled",
+    ],
+)
+def test_bound_review_import_rejects_changed_or_unavailable_audit(tmp_path, reviewable_attempt, tamper):
+    record, review_file, rejected = reviewable_attempt
+    call_id = record["call_id"]
+    audit = tmp_path / "audit"
+    kind = "parsed" if rejected else "output"
+    if tamper == "response":
+        path = audit / (call_id + ".response-bytes.json")
+        path.write_bytes(path.read_bytes() + b" ")
+    elif tamper == "missing_response":
+        (audit / (call_id + ".response-bytes.json")).unlink()
+    elif tamper == "missing_output":
+        # A rejected output may never fall back to a planted accepted-output file, or vice versa.
+        path = audit / (call_id + f".{kind}.json")
+        core.dump(audit / (call_id + (".output.json" if rejected else ".decoy.json")), read_json(path))
+        path.unlink()
+    elif tamper in {"unscored", "cancelled"}:
+        state = read_json(tmp_path / "state.json")
+        if tamper == "unscored":
+            state["records"][0]["score"] = None
+        else:
+            state["records"][0]["outcome"] = "cancelled"
+        core.dump(tmp_path / "state.json", state)
+    else:
+        paths = {
+            "input": tmp_path / "inputs" / (record["row_id"] + ".json"),
+            "request": audit / (call_id + ".request.json"),
+            "output": audit / (call_id + f".{kind}.json"),
+            "receipt": audit / (call_id + ".review.json"),
+        }
+        path = review_file if tamper.startswith("review_") else paths[tamper]
+        data = read_json(path)
+        if tamper == "input":
+            data[0]["evidence"][0]["content"] = {"changed": "fixture"}
+        elif tamper == "request":
+            data["model"] = "changed"
+        elif tamper == "output":
+            data["candidates"][0]["text"] = "Changed candidate."
+        elif tamper in {"receipt", "review_output"}:
+            data["output_hash"] = "changed"
+        elif tamper == "review_context":
+            data["context_hash"] = "changed"
+        else:
+            data["judgements"]["unknown-candidate"] = next(iter(data["judgements"].values()))
+        core.dump(path, data)
+    with pytest.raises(EvaluationError):
+        workflow.apply_review(tmp_path, call_id, review_file)
+    assert not (tmp_path / "reviews" / (call_id + ".json")).exists()
+
+
+@pytest.mark.parametrize(
+    "field,replacement",
+    [
+        ("unsupported_candidates", 37),
+        ("retained_atom_hashes", []),
+        ("review_hash", "changed"),
+        ("unsupported_candidates", False),
+    ],
+)
+def test_report_rejects_changed_review_score(tmp_path, reviewable_attempt, field, replacement):
+    record, review_file, _ = reviewable_attempt
+    workflow.apply_review(tmp_path, record["call_id"], review_file)
+    path = tmp_path / "reviews" / (record["call_id"] + ".json")
+    derivative = read_json(path)
+    derivative["score"][field] = replacement
+    core.dump(path, derivative)
+    with pytest.raises(EvaluationError, match="review_score_changed"):
+        report.summarize(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "change", ["input", "request", "response", "output", "receipt", "review", "review_judgement", "call_id", "kind"]
+)
+def test_report_rechecks_bound_review_evidence(tmp_path, reviewable_attempt, change):
+    record, review_file, rejected = reviewable_attempt
+    call_id = record["call_id"]
+    workflow.apply_review(tmp_path, call_id, review_file)
+    derivative_path = tmp_path / "reviews" / (call_id + ".json")
+    if change == "response":
+        path = tmp_path / "audit" / (call_id + ".response-bytes.json")
+        path.write_bytes(path.read_bytes() + b" ")
+    else:
+        paths = {
+            "input": tmp_path / "inputs" / (record["row_id"] + ".json"),
+            "request": tmp_path / "audit" / (call_id + ".request.json"),
+            "output": tmp_path / "audit" / (call_id + (".parsed.json" if rejected else ".output.json")),
+            "receipt": tmp_path / "audit" / (call_id + ".review.json"),
+        }
+        path = paths.get(change, derivative_path)
+        data = read_json(path)
+        if change == "input":
+            data[0]["evidence"][0]["content"] = "Changed."
+        elif change == "request":
+            data["model"] = "changed"
+        elif change == "output":
+            data["candidates"][0]["text"] = "Changed."
+        elif change == "receipt":
+            data["context_hash"] = "changed"
+        elif change == "review":
+            data["review"]["context_hash"] = "changed"
+        elif change == "review_judgement":
+            next(iter(data["review"]["judgements"].values()))["supported"] = False
+        elif change == "call_id":
+            data["call_id"] = "changed"
+        else:
+            data["output_kind"] = "output" if rejected else "parsed"
+        core.dump(path, data)
+    with pytest.raises(EvaluationError):
+        report.summarize(tmp_path)
 
 
 def test_known_quality_failure_continues_next_planned_request_without_retry(tmp_path, monkeypatch):

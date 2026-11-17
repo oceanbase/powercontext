@@ -12,7 +12,7 @@
 运行前冻结提交为 `90a3337e4a047bd80949bcbb10938646c01e430c`，内容身份为
 `526b940c4f2699f69cadc077e6a6407b9b0f233cf02bad86a002b9cd3e6ce2aa`。
 协议见 [V18_PROTOCOL.zh.md](V18_PROTOCOL.zh.md)，设置、数据、代码和 SDK 哈希见
-[identity.json](results/v18-live/identity.json)，实际提交证明见 [freeze.json](results/v18-live/freeze.json)。
+[identity.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/identity.json`)，实际提交证明见 [freeze.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/freeze.json`)。
 调用日期为 2026-11-06（北京时间）。本基线不是当前 master 适配验证。
 
 三个 arm 共用原生 CODING 提取指令、AtomicMemoryExtractionOutput、模型设置和预算定义。
@@ -59,8 +59,8 @@
 未改动输出、标注、事实划分或 accepted_candidates。
 助手逐条绑定 case、输入、支持范围与输出做诊断，核对原始字节差异，派生评分为三个 1/1。
 这不是独立人工审阅，不作为正式关键语义验收通过。
-原始分数见 [original-auto-summary.json](results/v18-live/original-auto-summary.json)，
-派生关系见 [review-index.json](results/v18-live/review-index.json)。
+原始分数见 [original-auto-summary.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/original-auto-summary.json`)，
+派生关系见 [review-index.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/review-index.json`)。
 最终 insufficient_evidence 由未完成覆盖及未知用量决定，不依赖助手语义诊断。
 
 第四次已有经哈希核验的请求尝试记录，但没有 HTTP 状态、原始响应或 usage。
@@ -68,7 +68,7 @@
 会话状态为 unknown_usage_stopped，禁止继续发送。不是预算耗尽，也不是候选生成质量触发的停止。
 
 validation-v2 / validation-v3 线上均未运行，溢出、混合字段、字面量及 Unicode 等线上场景均未覆盖。
-未运行不能填零，助手诊断不能抵消缺失覆盖。逐调用清单见 [coverage.json](results/v18-live/coverage.json)。
+未运行不能填零，助手诊断不能抵消缺失覆盖。逐调用清单见 [coverage.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/coverage.json`)。
 
 ## 用量与费用保护
 
@@ -95,7 +95,7 @@ validation-v2 / validation-v3 线上均未运行，溢出、混合字段、字�
 
 三份已有响应经实际 SDK/Pipeline 与重新捕获的 Source 离线回放，原始输出哈希和自动评分逐项一致，
 新增 provider 请求为 0。第四次无原始响应，明确标为 unavailable_raw_response，不能重构或宣称回放成功。
-[回放结果](results/v18-live/recorded-replay.json)的整体 all_available_matched=false 正是由于这一个不可用项；
+[回放结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/recorded-replay.json`)的整体 all_available_matched=false 正是由于这一个不可用项；
 三个可用响应全部匹配，不是三项回放退化。
 
 最终冻结后的无模型回归为 **531 passed**、1968 warnings，Python 3.11.15。
@@ -122,9 +122,9 @@ make check、全量 hooks、Ruff check/format、根包与整个 evaluation 类�
 历史 v5 主集线上比较确实执行过，其 complete 组 0/63 对应字面量用例预算拒绝，不能证明模型自身丢失。
 v17 CRLF 失败继续保留，不追认其通过，也不与 v18 新协议合并评分。
 
-机器入口见 [result.json](results/v18-live/result.json)，完整范围报告压缩保存于
-[full-report.json.gz](results/v18-live/full-report.json.gz)，生成与解压步骤见
-[报告重建说明](results/v18-live/README.zh.md)。
+机器入口见 [result.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/result.json`)，完整范围报告压缩保存于
+[full-report.json.gz](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/full-report.json.gz`)，生成与解压步骤见
+[报告重建说明](RESULTS_ARTIFACT.md) (归档内路径: `results/v18-live/README.zh.md`)。
 生产主线集成、独立关键人工审阅、真实宿主/远端取消、私有语料与生产 Memory 写入语义均未验证。
 引用解析成功不证明模型实际使用某片段；字节保真范围只到提取输出。
 第四次调用没有可用响应，具体失败原因与实际费用仍无法复现/确认。

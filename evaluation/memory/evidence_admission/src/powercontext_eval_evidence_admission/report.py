@@ -30,6 +30,7 @@ from typing import Any
 from .comparison import compare_preparation
 from .manifests import EvaluationError, Suite, file_hash, read_json
 from .models import Sample, canonical, digest
+from .replay import MATERIALIZATION_PROTOCOL
 from .runner import instructions_for
 
 
@@ -76,6 +77,7 @@ def code_identity(suite: Suite) -> dict:
             break
     return {
         "revision": revision,
+        "materialization_protocol": MATERIALIZATION_PROTOCOL,
         "suite_code_hash": suite_hash,
         "runtime_code_hash": runtime_hash,
         "frozen_committed": committed,

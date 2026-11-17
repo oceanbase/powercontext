@@ -52,9 +52,9 @@ evaluation 全量类型检查仍有既有 `ScopedAtomicMemory.evidence` 缺失�
 
 ## 可追溯结果
 
-- [原始四组矩阵](results/synthetic-v2-preparation/REPORT.md)
-- [变体四组矩阵](results/validation-v2-preparation/REPORT.md)
-- [历史 v1 对照重放核验](results/v2-baseline-replay.json)
+- [原始四组矩阵](RESULTS_ARTIFACT.md) (归档内路径: `results/synthetic-v2-preparation/REPORT.md`)
+- [变体四组矩阵](RESULTS_ARTIFACT.md) (归档内路径: `results/validation-v2-preparation/REPORT.md`)
+- [历史 v1 对照重放核验](RESULTS_ARTIFACT.md) (归档内路径: `results/v2-baseline-replay.json`)
 - [算法、成本和引用契约](V2_PROTOCOL.md)
 
 原始矩阵 manifest 哈希：`edf5c9886d891a7c6725ea7f153acddcf576a36b4ee5c0b9a404e69716ce1be5`。

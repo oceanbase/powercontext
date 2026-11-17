@@ -122,7 +122,10 @@ async def extract(value, *, api_key, transport, record, save, expected_hash=None
             async def generate(self, value, /):
                 generated = await generator.generate(value)
                 # Capture schema-valid output even when Pipeline citation/text checks reject it.
-                save("parsed", generated.output.model_dump(mode="json"))
+                parsed = generated.output.model_dump(mode="json")
+                save("parsed", parsed)
+                record["parsed_output_hash"] = digest(parsed)
+                save("attempt", record)
                 return generated
 
         record["pipeline_entered"] = True

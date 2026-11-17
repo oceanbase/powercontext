@@ -14,7 +14,7 @@
 全部 177 次引用失败、6 个 Unicode 样本或全部输出均已人工逐条签认。
 也没有提供逐候选语义判断，不能清除 533 个语义未决。未建立独立审阅者身份，不能称为独立人工复核。
 
-机器记录为 [human-review.json](results/v20-review/human-review.json)。它绑定冻结身份、执行提交和公开结果哈希，
+机器记录为 [human-review.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/human-review.json`)。它绑定冻结身份、执行提交和公开结果哈希，
 属于审阅反馈记录，不是评分器接受的逐候选语义审阅文件，不导入原会话或改变分数。
 原有报告中“独立人工关键审阅未完成”的限制仍成立。
 
@@ -47,11 +47,11 @@ issue 的 `no_production_change` 可以表达已测候选存在不可接受的�
 
 ## 失败索引与语义待审范围
 
-[failure-audit-index.json](results/v20-review/failure-audit-index.json) 为 178 次已知输出失败补充
+[failure-audit-index.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/failure-audit-index.json`) 为 178 次已知输出失败补充
 `row_id`、`input_index`、输入和响应哈希、错误引用候选下标；另列出 6 个字面量缺失行及两次不可用调用。
 下标从 0 开始，索引不含提示、响应或证据 ID 原文。人工逐调用签认状态仍为未提供。
 
-[semantic-review-queue.json](results/v20-review/semantic-review-queue.json) 保留全部 533 个未决候选，
+[semantic-review-queue.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/semantic-review-queue.json`) 保留全部 533 个未决候选，
 分为有效输出优先审阅与被拒绝输出诊断两类，没有根据分组移除任何正式结果。
 
 | arm | 有效输出中的未决候选 | 被拒绝输出中的未决候选 | 合计 |
@@ -99,11 +99,11 @@ issue 的 `no_production_change` 可以表达已测候选存在不可接受的�
 模型别名而非固定物理快照、本地 SQLite 而非远端宿主验收。候选质量失败是评估结果，
 无需为交付研究而将候选修到通过；也不能将这些限制描述为全部验收项通过。
 
-本地整理的实际检查见 [validation.json](results/v20-review/validation.json)。
-历史完整回归 556 项及四版本专项结果见 [原验证凭据](results/v20-live/validation.json)，
+本地整理的实际检查见 [validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/validation.json`)。
+历史完整回归 556 项及四版本专项结果见 [原验证凭据](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-live/validation.json`)，
 各次执行的代码与范围分别保留，不把历史结果当作本次重新执行。
 
-原 [v20 交付](results/v20-live/README.zh.md)的全部索引文件保持原字节，本审阅包单独建立哈希索引。
+原 [v20 交付](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-live/README.zh.md`)的全部索引文件保持原字节，本审阅包单独建立哈希索引。
 生成协议、准入策略、评分规则、原始结果、冻结哈希和生产代码没有修改。
 
 ## 推送与上游合并边界
@@ -139,4 +139,4 @@ LongMemEval 可选 evidence 能力检查、SWE-bench 计数类型兼容、测试
 
 未跟踪的 `website/content/` 与 `website/public/contributors/` 不在提交范围，未修改或删除。
 远端推送和 PR 创建仍等待用户审查后的明确指示。PR 正文见 [PR_DESCRIPTION.md](PR_DESCRIPTION.md)，
-当前发布状态见 [publication-status.json](results/v20-review/publication-status.json)。
+当前发布状态见 [publication-status.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-review/publication-status.json`)。

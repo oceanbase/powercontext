@@ -52,8 +52,8 @@ wheel/sdist 九个源码/合同文件核验通过。全评估 Ruff 0.16 仍有 1
 ¥0.030314 合计 ¥0.053030；¥5 条件总预算剩余 ¥4.946970。没有未知用量或未解决预留。
 这些数值是条件费率上界，实际账单金额未读取。没有为本次验证增加预算。
 
-[脱敏机器结果](results/v12-live/summary.json)保存提交身份、请求与响应哈希、实际用量和停止状态；
-[离线失败回放](results/v12-live/failure-replay.json)保留可审计分类。
+[脱敏机器结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v12-live/summary.json`)保存提交身份、请求与响应哈希、实际用量和停止状态；
+[离线失败回放](RESULTS_ARTIFACT.md) (归档内路径: `results/v12-live/failure-replay.json`)保留可审计分类。
 `COMPLETE.json` 仅表示失败审计交付完整，不表示生成或 issue 验收通过。
 私有输入、请求正文、完整响应及 reasoning 保存在仓库外，未写入公开结果。
 

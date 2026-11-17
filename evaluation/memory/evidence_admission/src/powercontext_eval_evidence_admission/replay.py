@@ -17,13 +17,15 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryEvidence,
@@ -39,14 +41,39 @@ from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.builtin.sources.content import CONTENT_SOURCE_ADAPTER, ContentCapture
-from powercontext.sources import SourceProjectionValue, SourceRef
+from powercontext.sources import Source, SourceProjectionValue, SourceRef
 from powercontext.sources.observations import manifest_for_definition, project_source_for_transport
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import func, select
 
 from .manifests import EvaluationError
-from .models import Case, digest
+from .models import Case, Record, digest
 
 Checkpoint = Callable[[str], Awaitable[None]]
+MATERIALIZATION_PROTOCOL = "evidence-admission.persisted-source-material.v2"
+
+
+class _PersistedEnvelope(Record):
+    """Supported persistence envelope; do not silently normalize a future format."""
+
+    encoding: Literal["powercontext-source-v1"]
+    representation: Literal["native", "observation"]
+    value: dict[str, JsonValue]
+    source: Source | None = None
+    source_keys: dict[str, str] | None = None
+    saved_at: datetime | None = None
+
+
+def materialization_hash(payload: bytes) -> str:
+    """Bind persisted material, excluding only the server-owned envelope write time."""
+    try:
+        envelope = json.loads(payload)
+        _PersistedEnvelope.model_validate(envelope)
+        # Hash the original JSON values, preserving nested timestamps, aliases and metadata.
+        material = {key: value for key, value in envelope.items() if key != "saved_at"}
+        return digest({"protocol": MATERIALIZATION_PROTOCOL, "envelope": material})
+    except (ValueError, TypeError, UnicodeError, ValidationError):
+        raise EvaluationError("unsupported_persisted_materialization") from None
 
 
 class ReplayCancelled(asyncio.CancelledError):
@@ -143,7 +170,7 @@ async def replay_case(case: Case, *, on_phase: Checkpoint = checkpoint) -> Async
                         )
                     if payload is None:
                         raise EvaluationError("persisted_materialization_unavailable")
-                    materials.append(hashlib.sha256(bytes(payload)).hexdigest())
+                    materials.append(materialization_hash(bytes(payload)))
                     definitions.append(
                         digest(
                             {

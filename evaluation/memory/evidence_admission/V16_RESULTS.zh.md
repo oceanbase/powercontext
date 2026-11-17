@@ -2,7 +2,7 @@
 
 唯一最终决策为 **`insufficient_evidence`**。三集离线比较通过，但原始 Unicode 最小样本仍需三次请求，
 超过冻结的每例一次门槛，执行停止在 SDK 预检前。没有新增 provider 调用，没有生产行为变更。
-最终机器结果为 [result.json](results/v16-offline/result.json)；离线汇总中的 pending 状态仅表示中间阶段，
+最终机器结果为 [result.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/result.json`)；离线汇总中的 pending 状态仅表示中间阶段，
 不替代这个最终决策。
 
 ## 实现与执行身份
@@ -10,7 +10,7 @@
 工程基线为 `87c70714`，v16 核心执行提交为 `faf15ad6c1e20eb5d8ed36ca36f5816c07c09348`。
 三集比较前后均检查实际 HEAD blob，所有冻结依赖均与提交一致；不把暂存状态或内容快照冒充已提交执行。
 完整内容身份为 `487cdea929226e028da889ac6dc633553e593689732e9167fe115e854546c00d`，
-代码、数据、锁文件、schema、指令、SDK 和 Unicode 数据库身份见 [freeze.json](results/v16-offline/freeze.json)。
+代码、数据、锁文件、schema、指令、SDK 和 Unicode 数据库身份见 [freeze.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/freeze.json`)。
 
 v16 只改变 copy 单元选择。普通 Unicode 字母和标点保留为原文，反引号内容与字节敏感的组合、CRLF、
 ZWJ、旗帜和符号等仍形成可复制单元。没有整叶回退、规范化、替换或删除，也不读取必需事实标签。
@@ -49,9 +49,9 @@ synthetic-v1 为 900 条，validation-v2 和 validation-v3 各 360 条，共 162
 原生准备状态单独保留：完整投影 42 prepared、237 budget_rejected、18 unavailable、27 cancelled；
 窗口缩减 54 prepared、225 budget_rejected、18 unavailable、27 cancelled；各片段 arm 均为
 279 prepared、18 unavailable、27 cancelled。空计划通过额外包装预算不等于完成生成。
-状态与完整性计数见 [最终结果](results/v16-offline/result.json)，完整离线门槛见
-[summary.json](results/v16-offline/summary.json)，候选逐组合变化见
-[candidate-comparison.json](results/v16-offline/candidate-comparison.json)。
+状态与完整性计数见 [最终结果](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/result.json`)，完整离线门槛见
+[summary.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/summary.json`)，候选逐组合变化见
+[candidate-comparison.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/candidate-comparison.json`)。
 
 ## 最小清单仍未通过
 
@@ -69,11 +69,11 @@ Unicode 相比 v15 的 1195 个单元、四次请求、累计 13958 估算 token
 累计 11169 估算 token（约下降 20.0%）。未装箱输入仍为 8611，高于 4096。
 891 个出现位置仅有四种不同字节值：一个 ZWJ 组合、297 个组合字符、297 个 CRLF、296 个重复符号。
 移除普通 Unicode 散文的包装减少了开销，但重复受保护单元的包装仍然过多。
-明细见 [最小清单](results/v16-offline/minimal-readiness.json) 和
-[成本诊断](results/v16-offline/unicode-diagnostic.json)。
+明细见 [最小清单](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/minimal-readiness.json`) 和
+[成本诊断](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/unicode-diagnostic.json`)。
 
 初始目标测试曾为 25 passed、1 failed，直接暴露上述三次对一次的失败；
-[失败凭据](results/v16-offline/development-goal-failure.json)保留原始测试及日志哈希。
+[失败凭据](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/development-goal-failure.json`)保留原始测试及日志哈希。
 最终回归验证这个预算有效的三次计划必须被最小清单拒绝，没有改变选择规则、把上限改成三次，或把研究目标判为成功。
 开发期已知失败在正式比较前写入合同；三集比较只是按计划量化影响，不声称盲测验证了成功假设。
 
@@ -81,13 +81,13 @@ Unicode 相比 v15 的 1195 个单元、四次请求、累计 13958 估算 token
 
 历史 v14 两份已保存模板经原 Pipeline 回放，exact-literals 仍为 4/4，Unicode 仍为 1/3；
 Unicode 原估算 6333 大于 4096 的失败保留。最早缺失 raw template 的探索无法回放。
-没有新增语义评分或覆盖历史 assistant 诊断，见 [历史回放](results/v16-offline/historical-replay.json)。
+没有新增语义评分或覆盖历史 assistant 诊断，见 [历史回放](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/historical-replay.json`)。
 v14 合同原始 SHA-256 和三份 v15 原始比较文件 SHA-256 均保持不变。
 
 新增 29 项行为回归；issue 指定的无模型测试为 **490 passed**，1934 个警告。
 完整 evaluation 在 Python 3.11.15、3.12.3、3.13.13、3.14.5 上均为 **1320 passed、1 skipped**，
 每版完整类型检查通过，1935 个警告。四版本结果、构建及实际安装凭据见
-[validation.json](results/v16-offline/validation.json)。警告包括既有 SQLAlchemy 弃用提示和刻意构造的未知 usage 场景，
+[validation.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/validation.json`)。警告包括既有 SQLAlchemy 弃用提示和刻意构造的未知 usage 场景，
 不声称零警告。唯一原生 lineage 跳过不计通过，缺失的 #1975 evidence API 没有新增。
 
 `make check`、完整 hooks、根包及集成类型、整个 evaluation 类型、issue 目录 Ruff 与格式检查通过。
@@ -118,7 +118,7 @@ PY
 
 代码、数据、依赖、历史文件或环境身份不匹配时应报告无法复现，不能跳过校验。
 公开交付只含安全标签、计数、配置及哈希；私有完整比较和日志留在被忽略的本地产物目录。
-公开 JSON 的文件哈希及脱敏检查记录见 [产物索引](results/v16-offline/artifact-index.json)。
+公开 JSON 的文件哈希及脱敏检查记录见 [产物索引](RESULTS_ARTIFACT.md) (归档内路径: `results/v16-offline/artifact-index.json`)。
 本地文件取消与协程测试不证明远端 provider 取消、OceanBase、Windows 或生产工作器行为。
 字节保真截至提取输出；生产 Memory 的 NFC 与首尾 strip 合同保持不变。
 普通 Unicode 散文不再全部拥有 copy 单元，不能据此声称任意 Unicode 输出均可强制逐字节保真。
