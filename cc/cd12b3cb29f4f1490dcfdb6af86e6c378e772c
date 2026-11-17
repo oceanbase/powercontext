@@ -1,0 +1,42 @@
+scripts/ci_changes.py
+  s_13fec9a57c9104::t_f1b674f4db667f 91-105,107-129,131-137,139-148,223-227,237-238
+  s_13fec9a57c9104::t_5294876e2fb1d6 106,138
+  s_13fec9a57c9104::t_737fae35632bd7 130
+tests/e2e/test_knowledge_base_context.py
+  s_13fec9a57c9104::t_2d04b310a58b0b 79-80,84,96
+frontend/knowledge-base/src/App.tsx
+  s_13fec9a57c9104::t_dad302605ec272 156
+.github/ci-paths.toml
+  s_13fec9a57c9104::t_f1b674f4db667f 279-283
+.licenserc.yaml
+  s_13fec9a57c9104::t_dad302605ec272 43
+tests/test_ci_changes.py
+  s_13fec9a57c9104::t_f1b674f4db667f 544-556,559-560,562,564-565,568-569,571,573,575-577,579-580,582-583,585-615
+  s_13fec9a57c9104::t_ff75a72ad0b27f 557-558,561,563,566-567,570,572,574,578,581,584
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_97cc89dee1ed05 625
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_2d04b310a58b0b 110-111,285-289
+  s_13fec9a57c9104::t_f015fb6754805a 143
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_13fec9a57c9104::t_dad302605ec272 116-118,144,150-169,242,248,252,255,259
+  s_13fec9a57c9104::t_a82f20aeee341e 249-251,266-276
+tests/knowledge_base/test_content_store.py
+  s_13fec9a57c9104::t_c11fd0cfbddd43 142-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cccd12b3cb29f4f1490dcfdb6af86e6c378e772c",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
