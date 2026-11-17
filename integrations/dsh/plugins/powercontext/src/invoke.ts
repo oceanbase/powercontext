@@ -241,7 +241,7 @@ export async function invokeOperation(
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
   const body = injectScope(id, payload, scopeId)
-  if (hasSecretContent(id, body)) {
+  if (hasSecretContent(id, body, client.authorization)) {
     return toToolResult(new SecretRejectedError())
   }
   try {
