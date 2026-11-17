@@ -107,6 +107,40 @@ async def require_origin_reference(
         raise ShareIneligibleError("access_revoked") from error
 
 
+async def _require_target_audience(
+    access: AccessControlService,
+    rule: ShareRule,
+    scope_id: str,
+    declared: tuple[tuple[str, int], ...],
+    audit: AccessAuditContext,
+    /,
+) -> None:
+    """The audience side must be an authentic acceptance of exactly the target Scope.
+
+    The minimal contract is ``project-members``: the agreement is addressed to the Scope
+    that owns the rule. An origin-side acceptance, or an audience acceptance recorded for a
+    different Scope, is not a substitute. The accepting principal must currently administer
+    exactly that target Scope.
+    """
+
+    if scope_id not in {declared_id for declared_id, _ in declared}:
+        raise ShareIneligibleError("shared_use_audience")
+    audience = tuple(
+        acceptance
+        for acceptance in rule.acceptances
+        if acceptance.side == "audience"
+        and acceptance.terms_digest == rule.terms_digest
+        and tuple(acceptance.covered_scope_ids) == (scope_id,)
+    )
+    if not audience:
+        # Absent or mismatched audience acceptance: the target did not agree to receive.
+        raise ShareIneligibleError("shared_use_audience")
+    for acceptance in audience:
+        await access.require(
+            _principal(acceptance.actor), AccessAction.SCOPE_ADMIN, ResourceRef.scope(scope_id), context=audit
+        )
+
+
 async def _require_current_rule(
     agreements: ShareAgreementRepository,
     connection: AsyncConnection,
@@ -165,6 +199,10 @@ async def require_bound_eligibility(
     rule = await _require_current_rule(agreements, connection, scope_id, snapshot)
 
     spec = operation_spec(operation)
+    # Declared capability, not evidence overlap: an operation is shared only when its own
+    # spec says so, and the Family merely appearing in allowed_evidence grants nothing.
+    if not spec.shared_maintenance:
+        raise ShareIneligibleError("shared_use_ineligible_operation")
     for item in snapshot.inputs:
         if not _spec_admits(spec.allowed_evidence, item):
             raise ShareIneligibleError("shared_use_ineligible_operation")
@@ -173,6 +211,7 @@ async def require_bound_eligibility(
     _require_membership(declared, snapshot)
     try:
         await _require_acceptances(access, rule, snapshot, declared, audit)
+        await _require_target_audience(access, rule, scope_id, declared, audit)
         await _require_target_contribution(access, principal, scope_id, audit)
         await _require_origin_rights(access, principal, snapshot, audit)
     except AccessControlError as error:

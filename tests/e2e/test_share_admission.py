@@ -160,6 +160,16 @@ async def _record_pin(admindb, access, scope_id: str, *, key: str) -> ShareSnaps
         covered_scope_ids=(scope_id,),
         context=AUDIT,
     )
+    # The minimal audience contract: the target Scope accepts delivery of the conclusion.
+    await service.accept(
+        scope_id,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="audience",
+        covered_scope_ids=(scope_id,),
+        context=AUDIT,
+    )
     async with admindb.transaction() as connection:
         descriptor = await ScopeRepository().get(connection, scope_id)
     assert descriptor is not None
@@ -770,6 +780,15 @@ def test_scope_read_alone_does_not_replace_artifact_body_read(tmp_path: Path) ->
                 covered_scope_ids=(scope_id,),
                 context=AUDIT,
             )
+            await agreement.accept(
+                scope_id,
+                rule.rule_id,
+                rule.version,
+                principal=OWNER,
+                side="audience",
+                covered_scope_ids=(scope_id,),
+                context=AUDIT,
+            )
             async with runtime.primary_database.transaction() as connection:
                 descriptor = await ScopeRepository().get(connection, scope_id)
             assert descriptor is not None
@@ -834,6 +853,16 @@ async def _pin_with_input(admindb, access, scope_id: str, *, key: str, item: Sha
         rule.version,
         principal=OWNER,
         side="origin",
+        covered_scope_ids=(scope_id,),
+        context=AUDIT,
+    )
+    # The minimal audience contract: the target Scope accepts delivery of the conclusion.
+    await service.accept(
+        scope_id,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="audience",
         covered_scope_ids=(scope_id,),
         context=AUDIT,
     )
@@ -1127,6 +1156,15 @@ def test_foreign_origin_without_an_origin_authorizer_is_refused(tmp_path: Path) 
                     covered_scope_ids=(origin,),
                     context=AUDIT,
                 )
+                await agreement.accept(
+                    scope_id,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side="audience",
+                    covered_scope_ids=(target,),
+                    context=AUDIT,
+                )
                 break
             async with runtime.primary_database.transaction() as connection:
                 descriptor = await ScopeRepository().get(connection, target)
@@ -1171,5 +1209,272 @@ def test_foreign_origin_without_an_origin_authorizer_is_refused(tmp_path: Path) 
                     service._origin_authorizer = original
             assert refused.value.code == "origin_authorization_unavailable"
             assert len(generator.inputs) == calls_before == 0
+
+    asyncio.run(scenario())
+
+
+async def _setup_pin_without_audience(
+    admindb, access, scope_id: str, *, side_scope: str | None, other_scope: str | None = None
+) -> ShareSnapshot:
+    """Record a pin whose audience side is missing or recorded for another Scope."""
+
+    sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+    async with admindb.transaction() as connection:
+        stored = await sources.add(
+            connection,
+            scope_id,
+            ContentSource(name="write-test", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+        )
+    service = ShareAgreementService(admindb, access=access, scopes=ScopeRepository(), sources=sources)
+    declared = (scope_id,) if other_scope is None else (scope_id, other_scope)
+    rule = await service.create(
+        scope_id,
+        ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=declared), terms=_terms()),
+        principal=OWNER,
+        context=AUDIT,
+    )
+    await service.accept(
+        scope_id,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="origin",
+        covered_scope_ids=(scope_id,),
+        context=AUDIT,
+    )
+    if side_scope is not None:
+        await service.accept(
+            scope_id,
+            rule.rule_id,
+            rule.version,
+            principal=OWNER,
+            side="audience",
+            covered_scope_ids=(side_scope,),
+            context=AUDIT,
+        )
+    async with admindb.transaction() as connection:
+        descriptor = await ScopeRepository().get(connection, scope_id)
+        other_descriptor = None if other_scope is None else await ScopeRepository().get(connection, other_scope)
+    assert descriptor is not None
+    versions: tuple[tuple[str, int], ...] = ((scope_id, descriptor.version),)
+    if other_descriptor is not None:
+        assert other_scope is not None
+        versions = (*versions, (other_scope, other_descriptor.version))
+    return await service.pin(
+        scope_id,
+        ShareSnapshotDraft(
+            rule_id=rule.rule_id,
+            rule_version=rule.version,
+            terms_digest=rule.terms_digest,
+            membership_digest=membership_digest(versions),
+            inputs=(
+                ShareInput(
+                    kind="source",
+                    origin_scope_id=scope_id,
+                    source=stored.ref,
+                    digest=content_digest(stored.value.model_dump_json().encode()),
+                ),
+            ),
+            notification_key=f"audience-{side_scope}",
+        ),
+        principal=OWNER,
+        context=AUDIT,
+    )
+
+
+def test_missing_or_misdirected_audience_acceptance_refuses(tmp_path: Path) -> None:
+    """Only an audience acceptance of exactly the target Scope admits a bound run."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'audience.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            other = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            for scope_id in (target, other):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+            citation = await _seed_evidence(runtime, target)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="audience-run"
+            )
+
+            for label, side_scope in (("absent", None), ("wrong-scope", other)):
+                pin = await _setup_pin_without_audience(
+                    runtime.primary_database,
+                    access,
+                    target,
+                    side_scope=side_scope,
+                    other_scope=other if side_scope == other else None,
+                )
+                run = await service._admit(
+                    target,
+                    "runtime",
+                    request.model_copy(update={"idempotency_key": f"audience-{label}"}),
+                    snapshot_id=pin.snapshot_id,
+                )
+                calls_before = len(generator.inputs)
+                async with runtime.primary_database.transaction() as connection:
+                    record = await service.repository.get(connection, target, run.run_id)
+                    with pytest.raises(DreamError) as refused:
+                        await service._resolve(record, connection)
+                assert refused.value.code == "shared_use_audience", label
+                assert len(generator.inputs) == calls_before == 0, label
+
+    asyncio.run(scenario())
+
+
+def test_unsupported_operation_is_refused_even_with_a_valid_pin(tmp_path: Path) -> None:
+    """A real operation without the shared capability declaration is refused, zero calls.
+
+    ``revise_memory`` admits a Source in ``allowed_evidence``, so evidence overlap alone
+    would let it through; the capability declaration is what refuses it.
+    """
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'unsupported-op.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(ScopeDraft(title="U", summary="u", idempotency_key="u"))
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="unsupported-op-1")
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            async with runtime.primary_database.transaction() as connection:
+                memory = await sources.add(
+                    connection,
+                    scope_id,
+                    ContentSource(name="m", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+                )
+            memory_ref = ArtifactRef(family="atomic-memory", artifact_id="mem-1", revision=1)
+            async with runtime.primary_database.transaction() as connection:
+                from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent, AtomicMemoryDraft
+
+                artifacts = ArtifactRepository(
+                    BUILTIN_ARTIFACT_TYPES, sources=SourceRepository(BUILTIN_SOURCE_REGISTRY)
+                )
+                await artifacts.create(
+                    connection,
+                    scope_id,
+                    "mem-1",
+                    AtomicMemoryDraft(
+                        content=AtomicMemoryContent(kind="private_note", text="Note", description="d"),
+                    ),
+                )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            # revise_memory admits Source evidence, but is not declared as shared.
+            request = CreateDreamRunRequest(
+                operation="revise_memory",
+                artifacts=(memory_ref,),
+                sources=(memory.ref,),
+                target=memory_ref,
+                idempotency_key="unsupported-op-run",
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            calls_before = len(generator.inputs)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, scope_id, run.run_id)
+                with pytest.raises(DreamError) as refused:
+                    await service._resolve(record, connection)
+            assert refused.value.code == "shared_use_ineligible_operation"
+            assert len(generator.inputs) == calls_before == 0
+
+    asyncio.run(scenario())
+
+
+def test_supported_target_reaches_generation_as_a_distinct_checked_node(tmp_path: Path) -> None:
+    """A valid exact target reaches generation while no other request material is admitted."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'target.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            scope = await runtime.scopes.create(ScopeDraft(title="Target", summary="Target", idempotency_key="target"))
+            scope_id = scope.scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, scope_id, role)
+            pin = await _record_pin(runtime.primary_database, access, scope_id, key="target-1")
+
+            # A real Skill target, so the bound run has a checked exact target.
+            from powercontext.builtin.artifacts.skill import SkillContent, SkillDraft
+            from powercontext.builtin.runtime.models import CaptureSource
+
+            feedback = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="skill-feedback", content="The retry duplicated the action.", metadata={})
+            )
+            original = SkillContent(
+                name="receipt-check",
+                description="Retry safely.",
+                instructions="Retry immediately.",
+                validation=("A retry was attempted.",),
+                license="MIT",
+            )
+            async with runtime._provider.database.transaction() as connection:
+                await runtime._provider.repositories.artifacts.create(
+                    connection,
+                    scope_id,
+                    "receipt-check",
+                    SkillDraft(content=original, sources=(feedback.source_ref,)),
+                )
+            target_ref = ArtifactRef(family="skill", artifact_id="receipt-check", revision=1)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            # revise_skill requires support beyond the target itself.
+            request = CreateDreamRunRequest(
+                operation="revise_skill",
+                artifacts=(target_ref,),
+                sources=(feedback.source_ref,),
+                target=target_ref,
+                idempotency_key="target-run",
+            )
+            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, scope_id, run.run_id)
+                resolved = await service._resolve(record, connection)
+
+            # The exact target is present and marked as the target, not as ordinary input.
+            target_nodes = [node for node in resolved.manifest.nodes if node.role == "target"]
+            assert len(target_nodes) == 1
+            assert target_nodes[0].artifact == target_ref
+            # The pin's origin is admitted, and the request's own citation is not
+            # additionally introduced as a separate unqualified input.
+            assert any(node.origin_scope_id == scope_id for node in resolved.manifest.nodes)
 
     asyncio.run(scenario())

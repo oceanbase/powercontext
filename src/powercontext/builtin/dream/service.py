@@ -554,7 +554,9 @@ class DreamService:
                 return await resolver.resolve(
                     bound,
                     sources=(),
-                    artifacts=(),
+                    # The separately checked exact target must still reach generation as a
+                    # distinct node; nothing else from the request is admitted.
+                    artifacts=() if target is None else (target,),
                     qualified=bound_share.origins,
                     target=target,
                     include_memory_text=request.operation != "derive_skill",
