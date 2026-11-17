@@ -289,7 +289,21 @@ def test_atomic_maintenance_continuation_rolls_back_before_retry(atomic_maintena
     assert runner.verify().state == "ready"
 
 
-@pytest.mark.parametrize("damage", ["column", "description_type", "missing_fts", "trigger", "archive", "unknown_table"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "column",
+        "description_type",
+        "missing_fts",
+        "trigger",
+        "archive",
+        "unknown_table",
+        "alias_column",
+        "alias_index",
+        "alias_view",
+        "alias_data",
+    ],
+)
 def test_unknown_atomic_maintenance_output_is_rejected_before_writes(atomic_maintenance_database, damage):
     path, config = atomic_maintenance_database
     with closing(sqlite3.connect(path)) as connection, connection:
@@ -306,6 +320,23 @@ def test_unknown_atomic_maintenance_output_is_rejected_before_writes(atomic_main
             connection.execute(
                 "INSERT INTO pc_memory_artifact_archive VALUES ('scope','memory','old',1,X'7B7D',NULL,X'7B7D')"
             )
+        elif damage.startswith("alias_"):
+            statements = {
+                "alias_column": ("ALTER TABLE pc_atomic_memory_alias ADD COLUMN unexpected TEXT",),
+                "alias_index": ("CREATE INDEX unexpected_alias_index ON pc_atomic_memory_alias(text)",),
+                "alias_view": (
+                    "DROP TABLE pc_atomic_memory_alias",
+                    "CREATE VIEW pc_atomic_memory_alias AS SELECT 1 AS unexpected",
+                ),
+                "alias_data": (
+                    "INSERT INTO pc_atomic_memory_alias "
+                    "(scope_id,alias_artifact_id,target_artifact_id,alias_revision,merged_state_version,"
+                    "projection_format,kind,text,searchable_text) "
+                    "VALUES ('scope','old','target',1,1,'powercontext.atomic-memory.alias.v1','fact','old','old')",
+                ),
+            }
+            for statement in statements[damage]:
+                connection.execute(statement)
         else:
             connection.execute("CREATE TABLE pc_sources(position INTEGER PRIMARY KEY)")
     original = path.read_bytes()
