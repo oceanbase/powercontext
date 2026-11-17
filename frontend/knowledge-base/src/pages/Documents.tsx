@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { useState } from "react";
-import { Badge, Button, Card, Empty, Flex, Input, Select, Space, Table, Typography } from "@oceanbase/design";
+import { Badge, Button, Card, Empty, Flex, Input, Select, Space, Table, Tooltip, Typography } from "@oceanbase/design";
 import { FileTextOutlined, PictureOutlined, ReloadOutlined, SearchOutlined } from "@oceanbase/icons";
 import { useDocuments } from "../hooks";
 import type { Document, KB, Location, Processing } from "../types";
@@ -133,21 +133,36 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
               key: "name",
               fixed: "left",
               render: (_, doc) => (
-                <Space align="start">
+                <Flex align="start" gap="small">
                   {/\.(md|markdown)$/i.test(doc.content.relative_path) ? (
                     <FileTextOutlined aria-hidden />
                   ) : (
                     <PictureOutlined aria-hidden />
                   )}
-                  <Flex vertical>
-                    <Typography.Link onClick={() => open(doc)}>{doc.content.title}</Typography.Link>
+                  <Flex vertical className="document-name">
+                    <Tooltip title={doc.content.title} trigger={["hover", "focus"]}>
+                      <Typography.Link
+                        role="button"
+                        tabIndex={0}
+                        aria-label={doc.content.title}
+                        onClick={() => open(doc)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            open(doc);
+                          }
+                        }}
+                      >
+                        <span className="document-title">{doc.content.title}</span>
+                      </Typography.Link>
+                    </Tooltip>
                     {doc.content.relative_path !== doc.content.title && (
-                      <Typography.Text type="secondary" className="file-path">
+                      <Typography.Text type="secondary" ellipsis={{ tooltip: doc.content.relative_path }} className="file-path">
                         {doc.content.relative_path}
                       </Typography.Text>
                     )}
                   </Flex>
-                </Space>
+                </Flex>
               ),
             },
             {

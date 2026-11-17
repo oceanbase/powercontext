@@ -74,8 +74,19 @@ body {
 .reader-content {
   min-width: 0;
 }
-.file-path {
+.document-name {
+  flex: 1;
+  min-width: 0;
+}
+.document-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   overflow-wrap: anywhere;
+}
+.file-path {
+  max-width: 100%;
 }
 .settings-form {
   max-width: 480px;

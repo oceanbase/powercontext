@@ -171,3 +171,52 @@ def test_dashboard_top_navigation_creates_in_selected_space_and_clears_reader(tm
             assert await call("GET", "/me/default-space") == default
 
     asyncio.run(scenario())
+
+
+def test_dashboard_long_document_names_stay_compact_and_remain_accessible(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Long names", space)
+            name = "documentation-" + "a" * 90 + ".md"
+            path = "guides/" + name
+            await upload(call, tmp_path, kb, path, "# Guide\n\nLong filename content")
+            await upload(call, tmp_path, kb, "short.md", "# Short\n\nShort filename content")
+            await page.goto(origin + "/dashboard/plugins/knowledge-base?scope=" + kb["scope_id"])
+            for width in (1024, 1440):
+                await page.set_viewport_size({"width": width, "height": 1000})
+                link = frame.get_by_role("button", name=name, exact=True)
+                await expect(link).to_be_visible()
+                label = link.get_by_text(name, exact=True)
+                # Verify rendered height, not the choice of CSS truncation mechanism.
+                metrics = await label.evaluate(
+                    """e => {
+                        const box = e.getBoundingClientRect(), cell = e.closest('td').getBoundingClientRect();
+                        return {height:box.height, line:parseFloat(getComputedStyle(e).lineHeight),
+                                right:box.right, cellRight:cell.right, fullHeight:e.scrollHeight};
+                    }"""
+                )
+                assert 0 < metrics["height"] <= metrics["line"] * 2 + 1, metrics
+                assert metrics["right"] <= metrics["cellRight"], metrics
+                if width == 1024:
+                    assert metrics["fullHeight"] > metrics["height"], metrics
+                await link.hover()
+                await expect(frame.get_by_role("tooltip")).to_have_text(name)
+                await frame.get_by_role("checkbox", name="选择文档 " + path, exact=True).check()
+                await expect(frame.get_by_text("已选择 1 篇文档", exact=True)).to_be_visible()
+                await frame.get_by_role("button", name="批量重新解析", exact=True).click()
+                await expect(frame.get_by_role("dialog")).to_contain_text(path)
+                await frame.get_by_role("dialog").get_by_role("button", name="取消", exact=True).click()
+                await expect(frame.get_by_role("dialog")).not_to_be_visible()
+                await frame.get_by_role("button", name="清空选择", exact=True).click()
+                await link.focus()
+                await expect(frame.get_by_role("tooltip")).to_have_text(name)
+                await link.press("Enter")
+                await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("Long filename content")
+                await expect(frame.get_by_role("tooltip")).to_have_count(0)
+                await frame.get_by_role("button", name="back", exact=True).click()
+                await frame.get_by_role("button", name="short.md", exact=True).click()
+                await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("Short filename content")
+                await frame.get_by_role("button", name="back", exact=True).click()
+
+    asyncio.run(scenario())
