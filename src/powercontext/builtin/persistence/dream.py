@@ -237,6 +237,11 @@ class DreamRepository:
         )
         if now >= deadline or run.attempt_count >= run.budget.max_model_calls:
             run = run.model_copy(update={"status": "failed", "error": "budget_exceeded", "completed_at": now})
+        elif record.share_snapshot_id is not None:
+            # A run bound to a pinned shared input set must not execute until the
+            # generation boundary enforces the binding. Fail it closed here instead of
+            # letting the ordinary local path use unpinned evidence or send it to a model.
+            run = run.model_copy(update={"status": "failed", "error": "shared_use_unenforced", "completed_at": now})
         else:
             run = run.model_copy(update={"attempt_count": run.attempt_count + 1})
         claimed = record.model_copy(

@@ -259,6 +259,11 @@ class DreamRecord(BaseModel):
 
     A terminal run migrated from the legacy Memory format has no executable
     request; its original request is kept only in ``run.historical_data``.
+
+    ``share_snapshot_id`` is the exact pin this execution claimed, if any. It is written
+    once at admission inside the same transaction as the run and the claimed snapshot, so
+    the two sides of the binding agree. It is absent for every ordinary run, and it does
+    not participate in request or proposal digests.
     """
 
     run: DreamRun
@@ -269,6 +274,7 @@ class DreamRecord(BaseModel):
     deadline_at: datetime | None = None
     profile_policy: ProfileDreamPolicy | None = None
     proposal_fingerprint: str | None = None
+    share_snapshot_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DreamPlan(BaseModel):

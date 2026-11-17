@@ -286,6 +286,31 @@ class ShareAgreementRepository:
             statement = statement.with_for_update()
         return (await connection.execute(statement)).mappings().one_or_none()
 
+    async def claim_snapshot(
+        self, connection: AsyncConnection, scope_id: str, snapshot_id: str, run_id: str, /
+    ) -> str | None:
+        """Bind one unclaimed pin to one run, joining the caller's transaction.
+
+        The conditional update is the exclusivity primitive: only a NULL binding can be
+        taken, so two admissions racing on the same pin cannot both win, and the durable
+        ``uq_pc_share_snapshots_run`` keeps one run from holding two pins. Returns the
+        run id that now owns the pin, or ``None`` when the pin does not exist.
+        """
+
+        result = await connection.execute(
+            update(SHARE_SNAPSHOTS_TABLE)
+            .where(
+                SHARE_SNAPSHOTS_TABLE.c.scope_id == scope_id,
+                SHARE_SNAPSHOTS_TABLE.c.snapshot_id == snapshot_id,
+                SHARE_SNAPSHOTS_TABLE.c.dream_run_id.is_(None),
+            )
+            .values(dream_run_id=run_id)
+        )
+        if result.rowcount == 1:
+            return run_id
+        row = await self.snapshot_row(connection, scope_id, snapshot_id)
+        return None if row is None else row["dream_run_id"]
+
     async def snapshot_by_notification(
         self, connection: AsyncConnection, scope_id: str, rule_id: str, notification_key: str, /
     ) -> Mapping[Any, Any] | None:

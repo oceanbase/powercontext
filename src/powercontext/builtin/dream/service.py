@@ -168,11 +168,30 @@ class DreamService:
         return resolver
 
     async def create(self, scope_id: str, principal_id: str, request: CreateDreamRunRequest) -> DreamRun:
+        return await self._admit(scope_id, principal_id, request, snapshot_id=None)
+
+    async def _admit(
+        self,
+        scope_id: str,
+        principal_id: str,
+        request: CreateDreamRunRequest,
+        *,
+        snapshot_id: str | None,
+    ) -> DreamRun:
+        """Admit one run, optionally claiming exactly one pinned input set.
+
+        ``snapshot_id`` is the private sharing seam. It is deliberately unreachable from
+        the HTTP Runtime and from every ordinary caller: nothing in production passes it,
+        and a bound run refuses to execute until generation-time enforcement exists. When
+        it is given, the claim joins this same transaction, so a failed admission cannot
+        leave a pin bound to a run that was never recorded.
+        """
+
         await self._authorize(scope_id, principal_id, "read")
         async with self._transaction() as connection:
             existing = await self.repository.find_request(connection, scope_id, principal_id, request)
             if existing is not None:
-                return existing.run
+                return self._replay(existing, snapshot_id)
         await self._authorize(scope_id, principal_id, "contribute")
         if request.operation not in self.operations:
             raise DreamError("capability_unavailable")
@@ -198,7 +217,7 @@ class DreamService:
                 raise DreamError("scope_not_found")
             existing = await self.repository.find_request(connection, scope_id, principal_id, request, current=True)
             if existing is not None:
-                return existing.run
+                return self._replay(existing, snapshot_id)
             profile_policy = (
                 await ProfilePolicyRepository().get(connection, scope_id, for_update=True)
                 if request.operation == "revise_profile"
@@ -221,10 +240,15 @@ class DreamService:
             if await self.repository.pending_count(connection, scope_id) >= self.max_pending_per_scope:
                 raise DreamError("capacity_exceeded")
             intent = await self.intents.request(connection, scope_id, binding)
+            run_id = "dr_" + uuid4().hex
+            if snapshot_id is not None:
+                # Claim before inserting the run, in this transaction: the pin and the run
+                # become bound together or not at all.
+                await self._claim_pin(connection, scope_id, snapshot_id, run_id)
             record = DreamRecord(
                 run=DreamRun(
                     scope_id=scope_id,
-                    run_id="dr_" + uuid4().hex,
+                    run_id=run_id,
                     operation=request.operation,
                     target=request.target,
                     tag_target=request.tag_target,
@@ -235,8 +259,33 @@ class DreamService:
                 principal_id=principal_id,
                 request_generation=intent.requested_generation,
                 profile_policy=None if profile_policy is None else ProfileDreamPolicy.from_policy(profile_policy),
+                share_snapshot_id=snapshot_id,
             )
             return (await self.repository.create(connection, record)).run
+
+    def _replay(self, existing: DreamRecord, snapshot_id: str | None, /) -> DreamRun:
+        """Return a recorded run only when its pin binding is exactly the requested one.
+
+        The durable idempotency key already matched the request digest. The pin is the
+        second half of that identity: replaying a key that asked for no pin cannot answer
+        a request that now asks for one, and one pin cannot stand in for another.
+        """
+
+        if existing.share_snapshot_id != snapshot_id:
+            raise DreamError("idempotency_conflict")
+        return existing.run
+
+    async def _claim_pin(self, connection: AsyncConnection, scope_id: str, snapshot_id: str, run_id: str, /) -> None:
+        """Bind one unclaimed pin in this Scope to the run this admission is inserting."""
+
+        from powercontext.builtin.persistence.share_agreement import ShareAgreementRepository
+
+        owner = await ShareAgreementRepository().claim_snapshot(connection, scope_id, snapshot_id, run_id)
+        if owner is None:
+            raise DreamError("share_snapshot_not_found")
+        if owner != run_id:
+            # Another execution already holds this pin. A different request, not a replay.
+            raise DreamError("share_snapshot_claimed")
 
     async def get(self, scope_id: str, principal_id: str, run_id: str) -> DreamRun:
         await self._authorize(scope_id, principal_id, "read")
