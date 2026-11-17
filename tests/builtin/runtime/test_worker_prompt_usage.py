@@ -31,6 +31,9 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemory
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.prompt import PromptError
+from powercontext.builtin.authz import PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
+from powercontext.builtin.authz.worker import WorkerSecuritySpec
 from powercontext.builtin.inference import EmbeddingResult, GenerationResult
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import UsageReportingEmbeddingModel, bind_usage_reporter
@@ -53,9 +56,6 @@ from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, Fami
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.statistics import ModelUsagePurpose
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.repository import ACCESS_OWNERS_TABLE, ACCESS_TABLES
-from powercontext.server.processing_security import WorkerSecuritySpec
 from tests.e2e.dream_support import atomic_memory_pipeline
 
 

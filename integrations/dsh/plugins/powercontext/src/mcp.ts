@@ -92,6 +92,7 @@ function matchesScope(argumentsValue: unknown, mode: 'current' | 'selection', sc
 export function registerMcpPolicy(
   ctx: { on(event: string, handler: (...args: never[]) => unknown): unknown },
   resolveScope: McpScopeResolver,
+  authorization?: string,
 ): void {
   ctx.on('tools/pre-execute', (async (
     exec: McpToolExecution,
@@ -102,7 +103,7 @@ export function registerMcpPolicy(
       ? { kind: 'deny', reason: 'This PowerContext MCP operation is unavailable in the plugin catalog. No MCP request was sent; install a matching plugin and Server.' }
       : next()
 
-    if (hasSecretContent(operation, exec.arguments)) {
+    if (hasSecretContent(operation, exec.arguments, authorization)) {
       return { kind: 'deny', reason: 'secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent.' }
     }
 

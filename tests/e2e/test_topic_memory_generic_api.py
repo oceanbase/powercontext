@@ -74,7 +74,6 @@ def _app(
             mcp=McpConfig(enabled=False),
         ),
         embedding_model=embedding,
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
 

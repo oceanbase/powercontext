@@ -50,7 +50,8 @@ RFC #2549 已经为热加载和自定义接口铺好了基础：
 2. 每次调用从开始到结束只使用一个版本的插件代码，不会出现新旧代码混用，也不会出现用新声明提交旧代码结果的情况。
 3. 插件可以声明自己的 HTTP 接口；core 负责路由、认证、授权、请求大小和时限，插件只写处理函数。
 4. 插件接口对核心数据的写入与 RFC #2549 的用户修改遵循同样的权限和溯源规则。
-5. 插件页面拿不到用户的 PowerContext 会话，也不能借用户会话调用本插件接口之外的 Server 接口。
+5. 插件页面拿不到用户的 PowerContext 会话。它只能请 Dashboard 以当前用户的身份调用本插件的接口和本插件 family 的通用
+   Artifact 接口，不能借用户会话调用其他 Server 接口。
 
 # 指南级说明
 
@@ -191,6 +192,9 @@ plugin = ArtifactPlugin(
   页面通过 `postMessage` 请 Dashboard 转发，Dashboard 以当前登录用户的身份调用。
 - 页面可以链接、跳转或在新窗口中打开外部站点，例如把检索结果交给外部的 RAG 服务页面展示。插件是可信代码，页面访问外部
   站点不受限制；core 只保证页面借不到用户的 PowerContext 会话。
+- Artifact 插件的页面还可以调用本插件 family 的通用 Artifact 接口（RFC #2549）：读取、历史、治理状态、新建、编辑、合并、
+  遗忘、恢复和 tags。这些调用同样由 Dashboard 以当前用户的身份转发，与直接调用通用接口等价：权限、版本前置条件和溯源
+  都由 core 处理，修改交给插件的用户修改方法。页面不需要为此声明路由。
 - 页面只能是静态文件（HTML、JavaScript、CSS、图片、字体），由 core 直接从插件的当前版本快照提供，不运行插件代码。
 
 页面中的调用：
@@ -199,6 +203,10 @@ plugin = ArtifactPlugin(
 const client = powercontextPluginClient();            // 由 core 提供的小脚本，封装 postMessage
 const { scopeId } = await client.context();
 const result = await client.request("GET", `/knowledge-bases/${scopeId}/documents/${sourceId}/original`);
+
+// 本插件 family 的通用 Artifact 接口；路径接在 /v1/scopes/{scopeId}/artifacts/{family} 之后
+const document = await client.artifacts("GET", `/${artifactId}`, { scopeId });
+await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, ifMatch: document.etag });
 ```
 
 # 参考级说明
@@ -376,7 +384,7 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 
 | 能力 | 说明 |
 | --- | --- |
-| `ctx.require(action, scope_id=None)` | 检查调用者是否具备 `scope.read`、`scope.contribute`（需要 `scope_id`）或 `server.admin`，不具备时抛出异常，接口返回 403。用于 `authenticated` 路由和跨 Scope 的操作 |
+| `ctx.require(action, scope_id=None, *, artifact_id=None)` | 检查调用者是否具备 `scope.read`、`scope.contribute`（需要 `scope_id`）、`server.admin`，或对本插件 family 中某个 Artifact 的 `artifact.write`（需要 `scope_id` 和 `artifact_id`），不具备时抛出异常，接口返回 403。用于 `authenticated` 路由和跨 Scope 的操作；`artifact.write` 用于先接受请求、之后由 `generate` 修改已有 Artifact 的接口：写入发生在后台，那时没有调用者身份，所以要在接受请求时检查 |
 | `ctx.reads(scope_id)` | 指定 Scope 的 Artifact 只读视图，读取前按调用者权限检查；可用 `reads(...).reads(family)` 读取其他 family |
 | `ctx.writer(scope_id)` | Artifact 插件的写入器，范围为指定 Scope 和本插件的 family；只能用于本次请求中已确认 `scope.contribute` 的 Scope |
 | `ctx.sources.submit(scope_id, definition, value)` | 提交一条本插件定义的 Source（Source 插件，或声明了 `definitions` 的 Artifact 插件），执行与 Source 写入接口相同的校验、`resolve` 和 Projection，返回 `SourceRef`；只能用于本次请求中已确认 `scope.contribute` 的 Scope |
@@ -456,18 +464,23 @@ class PluginPages(BaseModel):
 ### 3.2 宿主页面与转发
 
 - **宿主页面**：`/dashboard/plugins/{name}` 是 core 的 Dashboard 页面，要求登录。它以沙箱 iframe 加载插件页面，iframe 第一次
-  加载后把当前 Scope、语言和主题发给页面；之后只接受来自该 iframe 的请求消息，路径必须匹配本插件声明的路由，再以同源
-  请求经服务端转发，结果用消息传回（二进制响应以 Blob 传回）。
+  加载后把当前 Scope、语言和主题发给页面；之后只接受来自该 iframe 的请求消息，路径必须匹配本插件声明的路由，或者是本插件
+  family 的通用 Artifact 接口，再以同源请求经服务端转发，结果用消息传回（二进制响应以 Blob 传回）。
 - **服务端转发**：`/dashboard/plugins/{name}/api/...` 是 Dashboard 的服务端路由，要求 Dashboard 会话，并要求请求的
   `Sec-Fetch-Site` 为 `same-origin`（缺失时校验 `Origin` 与 Server 一致）。它沿用 Dashboard 现有的做法，以会话对应的身份
   调用 `/v1/plugins/{name}/api/...`。
+- **通用 Artifact 接口的转发**：`/dashboard/plugins/{name}/artifacts/{scope_id}/...` 是另一条 Dashboard 服务端路由，会话和
+  同源要求与上一条相同。它以会话对应的身份调用 `/v1/scopes/{scope_id}/artifacts/{family}/...`，其中 family 由 Dashboard 按
+  该插件的声明填入，页面不能指定；新建（`POST /dashboard/plugins/{name}/artifacts/{scope_id}`）转成通用新建接口的插件分支，
+  family 同样由 Dashboard 填入。请求的 `If-Match` 和请求体原样传给通用接口，响应的状态码、`ETag`、`Location` 和响应体
+  原样返回。转发层不做授权判断，也不解释内容。没有声明 family 的插件（Source 插件）没有这条路由。
 - **会话隔离**：Dashboard 的会话 cookie 是 `HttpOnly`、`SameSite=Strict`，路径为 `/dashboard`。插件页面处于不透明来源，
   脚本读不到 cookie；Server 也不接受 `Origin: null` 的转发请求。
 - **跳转后停止转发**：沙箱 iframe 可以把自己导航到外部站点，CSP 无法阻止。外部页面同样能向宿主页面发送 `postMessage`，
   并且通过 `event.source` 校验。宿主页面因此在 iframe 第二次加载后停止转发，外部页面借不到用户会话。插件页面应实现为
   单页应用；在插件页面之间跳转同样会停止转发。
-- **范围**：宿主页面只转发到本插件已声明的路由；转发后的请求仍由 core 按调用者权限检查，插件页面不能借此访问调用者无权
-  访问的 Scope。
+- **范围**：宿主页面只转发到本插件已声明的路由和本插件 family 的通用 Artifact 接口；转发后的请求仍由 core 按调用者权限
+  检查，插件页面不能借此访问调用者无权访问的 Scope 或其他 family 的 Artifact。
 - **页面客户端脚本**：core 在 `/dashboard/plugins/_client.js` 提供一个小脚本，封装上述消息协议，插件页面可以直接引用。
 
 ## 4. 执行约束
@@ -493,7 +506,7 @@ class PluginPages(BaseModel):
 | --- | --- |
 | 新增 | `/v1/plugins/{name}/api/...`：插件声明的路由 |
 | 新增 | `GET /v1/plugins/{name}/openapi.json` |
-| 新增 | `/dashboard/plugins/{name}`、`/dashboard/plugins/{name}/ui/...`、`/dashboard/plugins/{name}/api/...`、`/dashboard/plugins/_client.js` |
+| 新增 | `/dashboard/plugins/{name}`、`/dashboard/plugins/{name}/ui/...`、`/dashboard/plugins/{name}/api/...`、`/dashboard/plugins/{name}/artifacts/{scope_id}/...`、`/dashboard/plugins/_client.js` |
 | 新增 | 插件声明 `mcp=True` 的路由作为 MCP 工具出现在 Server 的 MCP 端点 |
 | 新增 | `powercontext.plugins`：`PluginApi`、`Route`、`ApiRequest`、`BinaryResponse`、`ApiError`、`Caller`、`PluginPages`；上下文的 `require`、`reads`、`writer`、`sources`、`scopes` |
 | 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api`、`pages`、`upgrade` 和 `upgrade_timeout_seconds` 字段 |

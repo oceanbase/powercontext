@@ -394,7 +394,9 @@ profile 契约之外的 Server MCP 工具。插件不会注册 Pi/Hermes 风格�
 
 原生 MCP 消息经过本进程内的流式转发边界，只能发往配置的固定端点；初始化和工具调用中的所有重定向都会被拒绝。
 工具发现和 session 仍由原生 client 管理。HTTP 失败仅返回受控的状态码和错误码，不转发上游响应正文或诊断头。
-包含疑似秘密的内容写入（包括嵌套的 Handoff 状态、Draft 和准备载体）会在审批和发送前以 `secret_rejected` 拒绝。
+显式写入（包括嵌套的 Handoff 状态、Draft 和准备载体）的内容含有[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)
+识别的凭据（包括配置的 Server token）时，会在审批和发送前以 `secret_rejected` 拒绝。显式写入是拒绝而不是脱敏，
+所以 `password: rotate it monthly` 这样的正文也会被拒绝；`task-runner`、`risk-based` 这类普通词语可以写入。
 插件的 MCP 目录和写操作审批分类由 Server 公开的 `tools/list` 生成，不使用 HTTP 工具表冒充 MCP 目录。
 
 `mcp__powercontext__handoff_current_work` 自行采集边界并返回 `{boundary, handoff}`，不需要预先采集 Source。
@@ -534,10 +536,15 @@ powercontext doctor dsh
 
 `timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置。Server 不可用时，召回和采集会降级；修改这些变量后需要重启 `dsh web`。
 
+每次模型调用前，自动 Scope 解析、上下文准备和采集共用 `timeoutMs`（默认 4000 毫秒），单个请求受
+`requestTimeoutMs`（默认 3000 毫秒）限制。模型调用会等待这段预算，所以 Server 响应慢时，每次调用最多延迟
+`timeoutMs`。上下文准备超时后，剩余预算仍可用于采集；预算内已准备好的上下文，即使采集或 flush 用完剩余预算，
+也照常注入。只有宿主取消会撤回已准备的上下文。
+
 `get_readiness`（包括 `/pc doctor` 中的检查）使用 `max(requestTimeoutMs, 40000)` 毫秒的请求预算，
 以容纳冷缓存下默认 30 秒的推理探测、后续最多 5 秒的访问控制检查，并留出网络传输余量。
 Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同时保留普通请求的
-`request_timeout_ms`（默认 1000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
+`request_timeout_ms`（默认 3000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
 `requestTimeoutMs`。其他请求沿用配置的期限，调用方取消仍会立即终止 readiness 请求。
 
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，

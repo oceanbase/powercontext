@@ -94,19 +94,19 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
             key=lambda row: str(row.get("Trigger", "")),
         )
         inventory["views"].sort()
-        if "pc_artifact_vector_spaces" in inventory["tables"]:
-            from sqlalchemy import select
-
-            from powercontext.builtin.persistence.tables import ARTIFACT_VECTOR_SPACES_TABLE
-
-            declarations = (
-                connection
-                .execute(select(ARTIFACT_VECTOR_SPACES_TABLE).order_by(ARTIFACT_VECTOR_SPACES_TABLE.c.space_id))
-                .mappings()
-                .all()
+        # Native tables of the removed Artifact plugin framework are named per registered space and have no
+        # registered layout here; v1_5_0_005 drops the framework only when nothing was registered.
+        if (
+            "pc_artifact_vector_spaces" in inventory["tables"]
+            and connection.exec_driver_sql("SELECT 1 FROM pc_artifact_vector_spaces LIMIT 1").first()
+        ):
+            raise MigrationError(
+                "unsupported_plugin_data",
+                "Plugins of the removed Artifact plugin framework still hold data; no supported in-place upgrade path"
+                " is available. Unloading plugins or exporting archives does not clear retained framework records."
+                " Keep this database on the previous version; do not manually delete framework records to bypass"
+                " this check.",
             )
-            if declarations:
-                inventory["artifact_spaces"] = [dict(space) for space in declarations]
     except DBAPIError as error:
         raise MigrationError(
             "schema_reflection_failed", "Complete database schema reflection is unavailable."
@@ -156,14 +156,15 @@ class MySQLSchema:
     """Validate source, intermediate and post-DDL shapes from frozen resources."""
 
     def __init__(  # noqa: C901 -- Keep ordered admission checks with their operation.
-        self, bundle: MigrationBundle, *, embedded_code: bool = False, allow_declared_spaces: bool = False
+        self, bundle: MigrationBundle, *, embedded_code: bool = False
     ) -> None:
-        self.allow_declared_spaces = allow_declared_spaces
         self.bundle = bundle
         self.revisions = bundle.revisions
         manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
         self.optional_table_options = {}
         self.affected_objects = bundle.affected_objects
+        self._removed_tables: set[str] = set()
+        self._removed_columns: dict[str, set[str]] = {}
         if "mysql_state_layouts" in manifest:
             self._load_state_layouts(manifest["mysql_state_layouts"])
             if embedded_code:
@@ -257,8 +258,14 @@ class MySQLSchema:
                     if table is None:
                         if name not in inventory["tables"]:
                             raise MigrationError("invalid_bundle", "A transition removes an unknown table.")
+                        self._removed_tables.add(name)
                         del inventory["tables"][name]
                     else:
+                        previous = inventory["tables"].get(name)
+                        if previous is not None:
+                            removed = previous["columns"].keys() - table["columns"].keys()
+                            if removed:
+                                self._removed_columns.setdefault(name, set()).update(removed)
                         inventory["tables"][name] = table
                 prefixes.append(copy.deepcopy(inventory))
             self._statements[revision] = tuple(statements)
@@ -399,24 +406,6 @@ class MySQLSchema:
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
         actual = {**inventory, "tables": dict(inventory["tables"])}
-        declarations = actual.pop("artifact_spaces", [])
-        if declarations:
-            from powercontext.builtin.persistence.artifact_vector_space import registered_native_layouts
-
-            if "pc_artifact_vector_spaces" not in expected["tables"]:
-                return False
-            try:
-                layouts = registered_native_layouts(
-                    declarations, actual["tables"], allow_declared=self.allow_declared_spaces
-                )
-            except (ValueError, TypeError, KeyError) as error:
-                raise MigrationError(
-                    "incompatible_schema", "A registered native vector space is incomplete or incompatible."
-                ) from error
-            expected = {**expected, "tables": dict(expected["tables"])}
-            expected["tables"].update(layouts)
-            self.affected_objects = tuple(dict.fromkeys((*self.affected_objects, *sorted(layouts))))
-        # Compare table sets after adding the exactly validated registered spaces.
         if actual.keys() != expected.keys() or (
             self.bundle.readiness_scope != "server" and actual["tables"].keys() != expected["tables"].keys()
         ):
@@ -432,6 +421,18 @@ class MySQLSchema:
                     actual["tables"][name] = table
                     del table[option]
         if self.bundle.readiness_scope == "server":
+            # Independently owned extensions are allowed, but a registered removal
+            # is complete only when its table or column is actually absent.
+            if self._removed_tables & (actual["tables"].keys() - expected["tables"].keys()):
+                return False
+            for name, removed in self._removed_columns.items():
+                table, target = actual["tables"].get(name), expected["tables"].get(name)
+                if (
+                    table is not None
+                    and target is not None
+                    and removed & (table["columns"].keys() - target["columns"].keys())
+                ):
+                    return False
             return compatible_inventory(actual, expected)
         return _matches(actual, expected)
 

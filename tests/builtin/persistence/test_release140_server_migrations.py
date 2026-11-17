@@ -157,6 +157,7 @@ def test_registered_sources_choose_distinct_lineages(tmp_path, release, expected
         "v1_5_0_002",
         "v1_5_0_003",
         "v1_5_0_004",
+        "v1_5_0_005",
     )
 
 
@@ -176,7 +177,6 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     app = create_server_app(
         settings=settings,
         embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
-        scheduler_path=tmp_path / "scheduler",
     )
     with TestClient(app) as client:
         assert client.get("/health/ready").status_code == 200
@@ -371,13 +371,12 @@ def test_populated_release_atomic_memory_survives_upgrade_before_locator_table_e
     finally:
         engine.dispose()
 
-    assert _apply(runner).revision == "v1_5_0_004"
+    assert _apply(runner).revision == "v1_5_0_005"
     assert runner.verify().state == "ready"
     assert not _apply(runner).changed
     app = create_server_app(
         settings=settings,
         embedding_model=ControlledEmbedding(embedding) if embedding is not None else None,
-        scheduler_path=tmp_path / "scheduler",
     )
     with TestClient(app) as client:
         response = client.get("/v1/scopes/scope/artifacts/atomic-memory/historical-memory/revisions/1")

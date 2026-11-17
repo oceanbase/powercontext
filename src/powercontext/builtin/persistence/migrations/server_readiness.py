@@ -24,7 +24,7 @@ from .models import MigrationError, digest
 
 
 def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
-    bundle = check_server_layout(connection, allow_declared_spaces=_startup)
+    bundle = check_server_layout(connection)
     if _startup and connection.dialect.name == "sqlite":
         _check_sqlite_startup_history(connection, bundle)
     pending_restore = connection.exec_driver_sql(
@@ -47,7 +47,7 @@ def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
     bundle.domains.validate(connection, bundle.head, backend=backend, configuration=configuration)
 
 
-def check_server_layout(connection, *, allow_declared_spaces=False):
+def check_server_layout(connection):
     """Validate the exact managed layout before a registered domain repair."""
     from .deployment import server_bundle
     from .mysql_schema import MySQLSchema, mysql_inventory
@@ -85,7 +85,7 @@ def check_server_layout(connection, *, allow_declared_spaces=False):
         embedded_code = connection.engine.url.drivername == "mysql+aseekdb" and any(
             name.startswith("pc_code_") for name in inventory["tables"]
         )
-        schema = MySQLSchema(bundle, embedded_code=embedded_code, allow_declared_spaces=allow_declared_spaces)
+        schema = MySQLSchema(bundle, embedded_code=embedded_code)
         schema.verify(inventory, bundle.head)
     return bundle
 
@@ -144,18 +144,16 @@ def prepare_server_storage(settings, *, injected_embedding=False, embedding_prof
                 raise MigrationError(
                     "migration_required", "Initialize the remote database with an explicit db-migrate job."
                 )
-            bundle = check_server_layout(connection, allow_declared_spaces=True)
+            bundle = check_server_layout(connection)
             stored = bundle.vector_profile.profile if bundle.vector_profile is not None else None
             if stored != profile:
                 raise MigrationError("embedding_profile_mismatch", "Server configuration differs from managed storage.")
-            check_server_schema(connection, _startup=True)
+            check_server_schema(connection)
 
         MaintenanceConnections(database).run(verify)
         return
     runner = deployment_runner(settings, embedding_profile=profile)
-    from .mysql import MySQLMigrationRunner
-
-    plan = runner.plan(_startup=True) if isinstance(runner, MySQLMigrationRunner) else runner.plan()
+    plan = runner.plan()
     if plan.state == "uninitialized" and database.kind in {"sqlite", "seekdb"}:
         runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
     elif plan.state != "ready":

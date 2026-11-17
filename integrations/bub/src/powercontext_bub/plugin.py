@@ -337,9 +337,20 @@ class PowerContextPlugin:
             return resolved_scope_id
 
     async def _prepare_context(self, query: str, scope_id: str, state: TurnState) -> str | None:
+        try:
+            bounded_query = _bounded_recall_query(query)
+        except UnicodeEncodeError as exc:
+            # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
+            self._write_capture_record(
+                event="context",
+                status="skipped",
+                error=type(exc).__name__,
+                captured_events=state[STATE_KEY]["captured_events"],
+            )
+            return None
         request = PrepareContextRequest(
             scope_id=scope_id,
-            query=_bounded_recall_query(query),
+            query=bounded_query,
             max_bytes=self.settings.max_bytes,
             **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )

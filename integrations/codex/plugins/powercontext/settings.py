@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.client_config import parse_boolean, resolve_allow_insecure_http
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict

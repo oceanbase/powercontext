@@ -31,7 +31,7 @@ from typing import Protocol, cast
 
 from powercontext.builtin.decision_projection_contract import DecisionProjectionFact
 from powercontext.builtin.runtime.decision_model import DecisionRequest
-from powercontext.client.capture import REDACTED, known_secret_values, redact_known_secrets
+from powercontext.redaction import REDACTED, known_secret_values, redact_known_secrets
 
 _FACT_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _MAX_FACTS = 8

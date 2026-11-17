@@ -282,18 +282,18 @@ async def _attempt(
 
 
 @asynccontextmanager
-async def _open_runtime(config: BuiltinConfig, *, scheduler_path: Path):
+async def _open_runtime(config: BuiltinConfig):
     """Reject absent external databases before each evaluation or readback opening."""
     if isinstance(config.database, OceanBaseConfig):
         async with OceanBaseProfile.open_existing(config.database, tables=()):
             pass
-    async with open_builtin_runtime(config, scheduler_path=scheduler_path) as runtime:
+    async with open_builtin_runtime(config) as runtime:
         yield runtime
 
 
 async def _reopen(configs, args) -> None:
     for mode, config in configs.items():
-        async with _open_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db") as runtime:
+        async with _open_runtime(config) as runtime:
             for path in sorted((args.output / "attempts").glob("*.json")):
                 result = json.loads(path.read_text())
                 if result["mode"] != mode or "artifact_ref" not in result:
@@ -390,10 +390,7 @@ async def run(args) -> None:
             with observe_usage():
                 async with AsyncExitStack() as stack:
                     runtimes = {
-                        mode: await stack.enter_async_context(
-                            _open_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db")
-                        )
-                        for mode, config in configs.items()
+                        mode: await stack.enter_async_context(_open_runtime(config)) for mode, config in configs.items()
                     }
                     execution_start = time.perf_counter()
                     segment["startup_seconds"] = execution_start - startup
