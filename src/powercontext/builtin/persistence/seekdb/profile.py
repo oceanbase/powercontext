@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
 from importlib import import_module
 from pathlib import Path
@@ -289,6 +289,21 @@ class LegacySeekDBDatabaseError(PersistenceError):
             "No application tables were created and no data was moved or deleted. "
             "See https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#existing-seekdb-installations"
         )
+
+
+def sibling_database_engines(
+    config: SeekDBConfig, connection_options: Mapping[str, object], database: str
+) -> tuple[AsyncEngine, Callable[[], AsyncEngine]]:
+    """Engines for another database of an open instance and for the instance itself.
+
+    ``connection_options`` come from the profile that opened the instance. The second engine
+    creates the database when it is missing; see ``ensure_database``.
+    """
+
+    return (
+        _create_engine(config, connection_options, database=database),
+        lambda: _create_engine(config, connection_options, database=""),
+    )
 
 
 def _create_engine(
