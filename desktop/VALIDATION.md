@@ -3555,3 +3555,37 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-source-limit-1dd494f4-v1 \
   --wheel desktop/.artifacts/gateway-source-limit/powercontext-1.5.3.dev21+g1dd494f40-py3-none-any.whl
 ```
+
+## Server a777326a gateway batch capture protocol qualification
+
+`sqlite-gateway-batch-capture-a777326a-v1` qualifies all thirteen Desktop protocol operations against
+Server source `a777326ad3aab35d8de0893a98b0b8650b691f0b`, which adds the `capture_content_sources`
+operation and the optional `context_protection.limits.capture_batch_sources` capability limit.
+
+- Normalized OpenAPI SHA-256: `ba8ac9fe8b29c8fbc821b5eda0559653c82d7c8eccf41891c8f42a9d6d6b60c3`.
+- Wheel: `powercontext-1.5.3.dev26+ga777326ad-py3-none-any.whl`.
+- Wheel SHA-256: `b15a33f9e042fb5e6509c517abe84afca0f8a0dbf1466136ed043e239bb59e2a`.
+- Native debug probe SHA-256: `1203bd8446e2214ca4fd63a4207edf175f7d2107e6fc12ec719cd4734e8807d2`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record and the regenerated
+IPC types were not yet committed. The first run of the harness failed in the anonymous loopback mode on the
+seeded partial-usage statistics assertion (`generation.requests` was 0, expected 2); the unchanged rerun
+passed all four modes, and that run is the one recorded here.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-a777326a-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev26+ga777326ad-py3-none-any.whl
+```
