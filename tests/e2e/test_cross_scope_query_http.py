@@ -87,6 +87,7 @@ def test_cross_scope_query_reaches_the_published_boundary_with_honest_coverage(t
                 f"/v1/scopes/{home}/artifacts/search:cross-scope",
                 json={"family": "unknown-family", "payload": {"query": "x"}, "scopes": [library]},
             )
-            assert unknown.status_code in {404, 422}, unknown.text
+            assert unknown.status_code == 404, unknown.text
+            assert unknown.json()["error"]["code"] == "artifact_family_not_found"
 
     asyncio.run(scenario())

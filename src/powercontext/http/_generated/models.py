@@ -3066,7 +3066,7 @@ class CrossScopeArtifactQueryRequest(BaseModel):
     max_candidates: Annotated[
         StrictInt,
         Field(
-            description="Per-origin candidate work, divided across the declared origins. It is a ceiling on the Family's effective window and never widens a declared or default limit.",
+            description="The per-origin window this operation injects into the Family, divided across the declared origins. It is a ceiling on the Family's effective window and never widens a declared or default limit. It does not bound the Family's internal work: a reranker may examine more candidates than the injected window, and coverage reports that narrowing rather than presenting it as complete.",
             ge=1,
             le=256,
         ),

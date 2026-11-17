@@ -54,6 +54,11 @@ CROSS_SCOPE_CANDIDATE_LIMIT = 256
 
 CoverageReason = Literal["complete", "origin_failure", "candidate_budget"]
 
+# Topic Memory and the legacy Memory family are Scope-owned and have no Artifact owner, so the
+# exact-revision route requires only `scope.read` for them. Every other family's body is owned by
+# its Artifact and needs `artifact.read`. Keep one statement of that split, not a second copy.
+_SCOPE_OWNED_READ_FAMILIES = frozenset({"memory", "topic-memory"})
+
 # One origin being unreachable to this caller: refused, unavailable, or absent. These degrade
 # partial coverage into a reported gap. Everything else — a malformed or unsupported common
 # request — fails identically at every origin, so it keeps propagating as its owner reported it.
@@ -89,9 +94,11 @@ class CrossScopeQueryUnsupported(CrossScopeQueryError, ValueError):
 class CrossScopeQueryRequest(BaseModel):
     """An explicit origin list, one Family's search fields, and the enforced budgets.
 
-    ``limit`` bounds the merged result set. ``max_candidates`` bounds per-origin candidate work
-    and is only ever a ceiling: it narrows a caller-declared ``payload.limit`` and never widens
-    it, and it adds no limit when the caller omitted one.
+    ``limit`` bounds the merged result set. ``max_candidates`` bounds the per-origin window this
+    operation *injects* into the Family, and is only ever a ceiling: it narrows a caller-declared
+    ``payload.limit`` and never widens it, and it does not add a limit when the caller omitted one.
+    It does not bound a Family's internal work; for example a reranker may examine more candidates
+    than the injected window. Coverage reports that narrowing, so it is never presented as complete.
     """
 
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -237,15 +244,18 @@ class ScopedCrossScopeQuery:
         *,
         execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> ArtifactRecord:
-        """Read one exact revision after rechecking this origin's current permission.
+        """Read one exact revision after rechecking this origin's current body permission.
 
         Exact read is deliberately separate from search permission: a hit survives a later
         publication of the same Artifact, and opening it never falls back to the current head.
+        It also requires the same body permission the exact-revision route requires, so opening
+        evidence is not implied by being allowed to use the Scope that holds it.
         """
 
         principal, access = _invocation(execution_context)
         target = ArtifactAddress(scope_id=validate_scope_id(origin.scope_id), artifact=origin.artifact)
         await _authorize_origin(principal, access, execution_context, target.scope_id)
+        await _authorize_body_read(principal, access, execution_context, target)
         return await self._runtime.records.for_scope(target.scope_id).get_artifact_revision(
             target.artifact.family,
             target.artifact.artifact_id,
@@ -350,6 +360,38 @@ async def _authorize_origin(
         principal,
         AccessAction.SCOPE_READ,
         ResourceRef.scope(origin),
+        context=None if execution_context is None else execution_context.audit,
+    )
+
+
+async def _authorize_body_read(
+    principal: PrincipalRef | None,
+    access: Any,
+    execution_context: ArtifactSearchExecutionContext | None,
+    target: ArtifactAddress,
+) -> None:
+    """Require the body permission the exact-revision route requires, for this exact revision's Artifact.
+
+    Experience, Skill, Profile, Handoff and Prompt bodies are owned by the Artifact, so being allowed
+    to use the Scope is not enough to read one. Topic Memory and the legacy Memory family are
+    Scope-owned and have no Artifact owner, so their Scope read remains the whole requirement. This is
+    the same split the HTTP exact-revision resolver already declares; the check stays out of the
+    transport so the Runtime API enforces it too.
+    """
+
+    if access is None:
+        return
+    family = target.artifact.family
+    if family in _SCOPE_OWNED_READ_FAMILIES:
+        return
+    await access.require(
+        principal,
+        AccessAction.ARTIFACT_READ,
+        ResourceRef.artifact(
+            target.scope_id,
+            family=family,
+            artifact_id=target.artifact.artifact_id,
+        ),
         context=None if execution_context is None else execution_context.audit,
     )
 

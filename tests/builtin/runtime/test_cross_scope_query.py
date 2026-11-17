@@ -22,6 +22,7 @@ import pytest
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.persistence.records import ArtifactWrite
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     ApproveCandidateRequest,
@@ -36,7 +37,14 @@ from powercontext.builtin.runtime.cross_scope_query import (
     CrossScopeQueryRequest,
     CrossScopeQueryUnsupported,
 )
-from powercontext.builtin.scope import ScopeDraft, ScopeMutation, ScopeSelection
+from powercontext.builtin.scope import (
+    ScopeDraft,
+    ScopeMutation,
+    ScopeNotFoundError,
+    ScopeRangeLimitError,
+    ScopeRangeLimits,
+    ScopeSelection,
+)
 
 
 async def _scope(runtime: BuiltinRuntime, key: str, *, parent: str | None = None) -> str:
@@ -170,12 +178,15 @@ def test_cross_scope_query_reports_partial_coverage_and_refuses_impossible_budge
             assert partial.coverage.failed_origins == ("scp_missing",)
             assert [hit.origin.scope_id for hit in partial.hits] == [interface]
 
-            with pytest.raises(Exception):  # noqa: B017 -- the owning Scope error is asserted elsewhere
+            # Complete coverage propagates the missing origin instead of reporting a gap. The budget
+            # must admit the window, or the query would be refused before any origin is touched.
+            with pytest.raises(ScopeNotFoundError):
                 await query.search(
                     CrossScopeQueryRequest(
                         family="experience",
-                        payload={"query": "budgetmarker", "limit": 200},
+                        payload={"query": "budgetmarker", "limit": 10},
                         scopes=(interface, "scp_missing"),
+                        max_candidates=64,
                     ),
                     execution_context=_trusted(),
                 )
@@ -207,5 +218,96 @@ def test_cross_scope_query_reports_partial_coverage_and_refuses_impossible_budge
                     ),
                     execution_context=_trusted(),
                 )
+
+    asyncio.run(scenario())
+
+
+def test_range_budgets_refuse_rather_than_truncate_and_the_digest_tracks_the_set() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            scopes = runtime.scopes
+            root = await _scope(runtime, "range-root")
+            child = await _scope(runtime, "range-child", parent=root)
+            await _scope(runtime, "range-leaf", parent=child)
+
+            full = await scopes.resolve_range(ScopeSelection(mode="subtree", root_scope_id=root))
+            assert len(full.scopes) == 3
+            # The digest changes when a member changes, so a later confirmation can detect it.
+            before = full.membership_digest
+            await scopes.update(
+                child,
+                ScopeMutation(
+                    expected_version=full.versions[child], title="range-child", summary="changed", parent_scope_id=root
+                ),
+            )
+            after = await scopes.resolve_range(ScopeSelection(mode="subtree", root_scope_id=root))
+            assert after.membership_digest != before
+
+            # An exhausted budget is refused; no partial set is returned as if it were the range.
+            with pytest.raises(ScopeRangeLimitError) as nodes:
+                await scopes.resolve_range(
+                    ScopeSelection(mode="subtree", root_scope_id=root), limits=ScopeRangeLimits(max_nodes=2)
+                )
+            assert nodes.value.kind == "nodes"
+            with pytest.raises(ScopeRangeLimitError) as depth:
+                await scopes.resolve_range(
+                    ScopeSelection(mode="subtree", root_scope_id=root), limits=ScopeRangeLimits(max_depth=1)
+                )
+            assert depth.value.kind == "depth"
+            # `all` is a whole-collection observation, not a structural range.
+            with pytest.raises(ScopeRangeLimitError):
+                await scopes.resolve_range(ScopeSelection(mode="all"))
+
+    asyncio.run(scenario())
+
+
+def test_cross_scope_query_keeps_one_shared_artifact_id_as_two_origins() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            left = await _scope(runtime, "same-left")
+            right = await _scope(runtime, "same-right")
+            # Force a genuinely identical local artifact ID in both Scopes.
+            from powercontext.builtin.persistence.records import RelationalRecordService
+
+            service = runtime._record_service
+            assert isinstance(service, RelationalRecordService)
+            service._id_factory = lambda kind: (
+                "art_shared_identity" if kind == "atomic-memory" else f"src_{kind}_{id(object())}"
+            )
+            made = {}
+            for scope, marker in ((left, "SHAREDLEFT"), (right, "SHAREDRIGHT")):
+                created = await runtime.records.for_scope(scope).create_artifact(
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "fact", "text": f"identitymarker {marker}", "description": marker}),
+                )
+                made[scope] = ArtifactAddress(
+                    scope_id=scope,
+                    artifact=ArtifactRef(
+                        family="atomic-memory", artifact_id=created.artifact_id, revision=created.revision
+                    ),
+                )
+            assert made[left].artifact.artifact_id == made[right].artifact.artifact_id
+
+            result = await runtime.cross_scope.for_scope(left).search(
+                CrossScopeQueryRequest(
+                    family="atomic-memory",
+                    payload={"query": "identitymarker", "limit": 10},
+                    scopes=(left, right),
+                    max_candidates=64,
+                ),
+                execution_context=_trusted(),
+            )
+            # Two hits with one local ID remain two distinct origins, each opening its own body.
+            assert len(result.hits) == 2
+            assert len({hit.identity for hit in result.hits}) == 2
+            bodies: dict[str, str] = {}
+            for hit in result.hits:
+                record = await runtime.cross_scope.for_scope(left).open_hit(hit.origin, execution_context=_trusted())
+                bodies[hit.origin.scope_id] = str(record.content["text"])
+            assert bodies[left] != bodies[right]
+            assert "SHAREDLEFT" in bodies[left]
+            assert "SHAREDRIGHT" in bodies[right]
 
     asyncio.run(scenario())

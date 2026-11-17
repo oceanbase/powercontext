@@ -2158,8 +2158,10 @@ paths:
         grant no authority here. Results are merged by each origin's internal rank, so retrieval scores are
         returned per hit and are never comparable across origins. Identity is the complete origin address:
         the same local Artifact ID in two Scopes is two distinct inputs.
-        A caller-native budget bounds the merged result count, the origin count and per-origin candidate
-        work. The candidate budget is only a ceiling on the Family's own effective window, so it never
+        A caller-native budget bounds the merged result count, the origin count and the per-origin window
+        injected into each Family. Because the candidate budget is divided across origins, the defaults
+        support at most six origins at the default Family window of ten; declaring more origins requires a
+        larger max_candidates, a smaller payload window, or partial coverage. The candidate budget is only a ceiling on the Family's own effective window, so it never
         widens a declared or default limit and never replaces an invalid original value with a valid one;
         a budget that cannot search the declared window is refused instead of silently truncating.
         With coverage complete, failure of a required origin fails the query. With coverage partial, only
@@ -13066,8 +13068,10 @@ components:
           maximum: 256
           default: 64
           description: >-
-            Per-origin candidate work, divided across the declared origins. It is a ceiling on the Family's
-            effective window and never widens a declared or default limit.
+            The per-origin window this operation injects into the Family, divided across the declared origins.
+            It is a ceiling on the Family's effective window and never widens a declared or default limit. It
+            does not bound the Family's internal work: a reranker may examine more candidates than the
+            injected window, and coverage reports that narrowing rather than presenting it as complete.
         coverage:
           type: string
           enum: [complete, partial]

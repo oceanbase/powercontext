@@ -64,13 +64,21 @@ Family validates it, owns its defaults, and reports its own errors.
 | --- | --- | --- |
 | `limit` | Integer, default `10` | Maximum merged results across all origins. |
 | `max_scopes` | Integer, default `8` | Largest origin list this request accepts. |
-| `max_candidates` | Integer, default `64` | Per-origin candidate work, divided across the declared origins. It is a ceiling on the Family's effective window and never widens a declared or default `limit`. |
+| `max_candidates` | Integer, default `64` | The per-origin window this operation injects into the Family, divided across the declared origins. It is a ceiling on the Family's effective window and never widens a declared or default `limit`. |
 | `coverage` | `complete` or `partial`, default `complete` | Whether a failing required origin fails the whole query. |
 
 `max_candidates` is only ever a ceiling, so it cannot turn a declared top-1 request into a wider one, and it never
 replaces an invalid original value with a valid one. If the budget cannot cover the Family's effective window, the
-query is **refused** instead of being silently under-searched. Because the budget is divided across origins, a 10-item
-window over two origins needs `max_candidates` of at least 20.
+query is **refused** instead of being silently under-searched.
+
+It bounds the window handed to each origin, not the Family's internal work. A Family that reranks may examine more
+candidates than that window, and coverage still reports the narrowing, so a narrowed search is never presented as
+complete.
+
+Because the budget is divided across origins, the usable origin count depends on the window you ask for. With the
+defaults (`limit` 10, `max_candidates` 64) at most **six** origins can be searched completely; a 10-item window over two
+origins needs `max_candidates` of at least 20, and seven or more origins are refused until you raise `max_candidates`,
+lower the per-origin window, or accept `coverage: partial`.
 
 The response states which origins answered:
 
@@ -82,10 +90,14 @@ The response states which origins answered:
 
 ## Open one hit exactly
 
-Opening a hit is the ordinary exact-revision read:
-`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}`. It rechecks current access at that
-address and never falls back to the current head, so an earlier hit still names the revision that was found even after
-the origin publishes a newer one. Reading the conclusion and reading the original evidence stay separate permissions.
+Opening a hit reads the exact revision:
+`GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}`, or
+`open_hit` on the SDK query object. Both require the same permissions: `scope.read` on the origin, plus
+`artifact.read` on that exact Artifact (`experience`, `skill`, `profile`, `handoff`, `prompt`). Topic Memory and the
+legacy Memory family are Scope-owned, so their `scope.read` is the whole requirement. Neither path falls back to the
+current head, so an earlier hit still names the revision that was found even after the origin publishes a newer one.
+Reading the conclusion and reading the original evidence stay separate permissions: being allowed to use a Scope does
+not let you read the Artifact bodies inside it.
 
 ## Limits
 
