@@ -833,6 +833,10 @@ fn trusted_failures_and_unsupported_hosts_preserve_an_existing_epoch() {
             store.recover(&unavailable, reference, now),
             Err(ReplayError::DependencyUnavailable)
         );
+        assert_eq!(
+            store.resolve(&unavailable, None, now),
+            Err(ReplayError::DependencyUnavailable)
+        );
     }
     assert_eq!(store.recover(&context(), reference, now), Ok(association));
     let other = TrustedContext {
@@ -856,6 +860,17 @@ fn trusted_failures_and_unsupported_hosts_preserve_an_existing_epoch() {
         store.resolve(&without_conversation, None, now),
         Ok(Resolution::CheckOnly)
     );
+    for conversation in [None, Some("unknown")] {
+        let unavailable = TrustedContext {
+            conversation,
+            support: ReplaySupport::Unavailable,
+            ..context()
+        };
+        assert_eq!(
+            store.resolve(&unavailable, None, now),
+            Err(ReplayError::DependencyUnavailable)
+        );
+    }
     assert_eq!(
         store.establish(&without_conversation, reference, b"binding", deadline, now),
         Err(ReplayError::InvalidCarrier)

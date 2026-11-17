@@ -280,6 +280,7 @@ impl ReplayStore {
         state
             .references
             .insert((partition.clone(), reference), epoch);
+        state.active.remove(&partition);
         state.active.insert(partition.clone(), epoch);
         state.expiry.push(Reverse((expires_at, epoch)));
         let usage = state
@@ -302,6 +303,9 @@ impl ReplayStore {
             Some(_) => Some(context.supported_partition()?),
             None => context.partition()?,
         };
+        if context.support == ReplaySupport::Unavailable {
+            return Err(ReplayError::DependencyUnavailable);
+        }
         let state = self.lock()?;
         let Some(partition) = partition else {
             return Ok(Resolution::CheckOnly);
