@@ -91,7 +91,7 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
 	@uv sync --locked --extra seekdb --extra code
-	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
+	@uv run --locked --extra seekdb --extra code python -m pytest -o faulthandler_timeout=0 tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
 
 .PHONY: real-e2e-test
 real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
