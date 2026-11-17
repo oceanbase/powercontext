@@ -3031,6 +3031,101 @@ class ArtifactChannelScore(BaseModel):
         return value
 
 
+class Scope(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class Coverage(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+class CrossScopeArtifactQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
+    payload: Annotated[
+        dict[str, Any],
+        Field(
+            description="The registered Family's own search request fields, forwarded unchanged. This operation does not interpret them; the Family validates them and owns defaults and errors."
+        ),
+    ] = {}
+    scopes: Annotated[
+        list[Scope],
+        Field(
+            description="Explicit origins in the caller's own order. It is the merge tie break and is never reordered. Each origin is authorized separately; membership grants nothing.",
+            max_length=32,
+            min_length=1,
+        ),
+    ]
+    limit: Annotated[StrictInt, Field(description="Maximum merged results across all origins.", ge=1, le=200)] = 10
+    max_scopes: Annotated[
+        StrictInt, Field(description="Largest declared origin list this request will accept.", ge=1, le=32)
+    ] = 8
+    max_candidates: Annotated[
+        StrictInt,
+        Field(
+            description="Per-origin candidate work, divided across the declared origins. It is a ceiling on the Family's effective window and never widens a declared or default limit.",
+            ge=1,
+            le=256,
+        ),
+    ] = 64
+    coverage: Annotated[
+        Coverage,
+        Field(
+            description="Complete fails the whole query when a required origin fails. Partial returns only authorized hits and reports the origins it could not cover."
+        ),
+    ] = Coverage.COMPLETE
+    restrict_to: ArtifactReference | None = None
+
+
+class CrossScopeArtifactHit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    origin: ArtifactAddress
+    origin_rank: Annotated[
+        StrictInt,
+        Field(description="This hit's rank inside its own origin. Cross-origin ranks are not comparable.", ge=1),
+    ]
+    retrieval_score: Annotated[
+        StrictFloat | None,
+        Field(
+            description="The origin's own normalized retrieval score, when reported. Scales differ between origins and between indexes, so it must not be compared across origins."
+        ),
+    ] = None
+
+
+class Reason1(StrEnum):
+    COMPLETE = "complete"
+    ORIGIN_FAILURE = "origin_failure"
+    CANDIDATE_BUDGET = "candidate_budget"
+
+
+class SearchedOrigin(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class FailedOrigin(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class BoundedOrigin(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class CrossScopeArtifactCoverage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    complete: StrictBool
+    reason: Reason1
+    searched_origins: list[SearchedOrigin] | None = None
+    failed_origins: list[FailedOrigin] | None = None
+    bounded_origins: list[BoundedOrigin] | None = None
+
+
 class ArtifactSearchScores(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3468,14 +3563,14 @@ class Status4(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
-class Reason1Enum(StrEnum):
+class Reason2Enum(StrEnum):
     OPERATION_DISABLED = "operation_disabled"
     PROVIDER_NOT_CONFIGURED = "provider_not_configured"
     INJECTED_COMPONENT = "injected_component"
 
 
-class Reason1(RootModel[Reason1Enum | None]):
-    root: Reason1Enum | None = None
+class Reason2(RootModel[Reason2Enum | None]):
+    root: Reason2Enum | None = None
 
 
 class BuiltinProfileEnum(StrEnum):
@@ -3492,7 +3587,7 @@ class PromptCapability(BaseModel):
         extra="forbid",
     )
     status: Status4
-    reason: Annotated[Reason1 | None, Field(...)]
+    reason: Annotated[Reason2 | None, Field(...)]
     definition_version: StrictStr
     builtin_version: StrictStr
     builtin_profile: Annotated[BuiltinProfile | None, Field(...)]
@@ -3528,14 +3623,14 @@ class BuiltinPromptInstructions(BaseModel):
     ]
 
 
-class Reason2Enum(StrEnum):
+class Reason3Enum(StrEnum):
     OPERATION_DISABLED = "operation_disabled"
     PROVIDER_NOT_CONFIGURED = "provider_not_configured"
     INJECTED_COMPONENT = "injected_component"
 
 
-class Reason2(RootModel[Reason2Enum | None]):
-    root: Reason2Enum | None = None
+class Reason3(RootModel[Reason3Enum | None]):
+    root: Reason3Enum | None = None
 
 
 class PromptConfiguration(BaseModel):
@@ -3545,7 +3640,7 @@ class PromptConfiguration(BaseModel):
     scope_id: StrictStr
     prompt_key: PromptKey
     status: Status4
-    reason: Annotated[Reason2 | None, Field(...)]
+    reason: Annotated[Reason3 | None, Field(...)]
     mode: Mode4
     artifact: Annotated[ArtifactReference | None, Field(...)]
     artifact_etag: Annotated[
@@ -5818,6 +5913,14 @@ class SearchTopicMemoryHit(BaseModel):
         StrictFloat, Field(description="Weighted RRF relevance normalized to the 0..100 range.", ge=0.0, le=100.0)
     ]
     matched_by: Annotated[list[TopicMemoryMatchedBy], Field(min_length=1)]
+
+
+class CrossScopeArtifactQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hits: list[CrossScopeArtifactHit]
+    coverage: CrossScopeArtifactCoverage
 
 
 class SearchTopicMemoryResponse(BaseModel):

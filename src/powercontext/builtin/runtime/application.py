@@ -212,6 +212,7 @@ from powercontext.builtin.runtime.context_reuse import (
     prepare_reuse,
     validate_reuse,
 )
+from powercontext.builtin.runtime.cross_scope_query import CrossScopeQueryApplication
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
@@ -4369,6 +4370,7 @@ class BuiltinRuntime:
         self.bootstrap = BootstrapApplication(self)
         self.experience = ExperienceApplication(self)
         self.artifacts = ArtifactApplication(self)
+        self.cross_scope = CrossScopeQueryApplication(self)
         self.dream = DreamApplication(self)
         self.external_skills = ExternalSkillApplication(self)
         self.handoff = HandoffApplication(self)

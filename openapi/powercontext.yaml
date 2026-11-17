@@ -2147,6 +2147,61 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/search:cross-scope:
+    post:
+      tags: [artifacts]
+      summary: Query several explicitly declared Scopes for one Artifact Family
+      description: >-
+        Aggregate one registered Family's own search over an explicit origin list. The caller declares
+        every origin, in its own order, and that order is the merge tie break. Each origin is authorized
+        separately against its actual Scope; Scope relationships, Context References and Artifact lineage
+        grant no authority here. Results are merged by each origin's internal rank, so retrieval scores are
+        returned per hit and are never comparable across origins. Identity is the complete origin address:
+        the same local Artifact ID in two Scopes is two distinct inputs.
+        A caller-native budget bounds the merged result count, the origin count and per-origin candidate
+        work. The candidate budget is only a ceiling on the Family's own effective window, so it never
+        widens a declared or default limit and never replaces an invalid original value with a valid one;
+        a budget that cannot search the declared window is refused instead of silently truncating.
+        With coverage complete, failure of a required origin fails the query. With coverage partial, only
+        authorized hits are returned and the uncovered origins are reported, so an incomplete search is
+        never presented as complete.
+        A restriction to one Artifact or revision is refused because the searchable projection indexes
+        current heads only; candidates cannot be restricted before scoring.
+        Opening a hit is the existing exact-revision read, which rechecks access at that address and never
+        falls back to the current head.
+      operationId: search_cross_scope_artifacts
+      x-powercontext-scope-mode: current
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrossScopeArtifactQueryRequest"
+      responses:
+        "200":
+          description: Authorized hits in per-origin rank order with their coverage statement.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrossScopeArtifactQueryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/topic-memory/processing/status:
     post:
       tags: [topic-memory]
@@ -12968,6 +13023,106 @@ components:
         raw: {type: number}
         metric: {type: string, minLength: 1, pattern: '.*\S.*'}
         higher_is_better: {type: boolean}
+    CrossScopeArtifactQueryRequest:
+      type: object
+      additionalProperties: false
+      required: [family, scopes]
+      properties:
+        family:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[a-z][a-z0-9-]*$'
+        payload:
+          type: object
+          additionalProperties: true
+          description: >-
+            The registered Family's own search request fields, forwarded unchanged. This operation does not
+            interpret them; the Family validates them and owns defaults and errors.
+          default: {}
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+          description: >-
+            Explicit origins in the caller's own order. It is the merge tie break and is never reordered.
+            Each origin is authorized separately; membership grants nothing.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 10
+          description: Maximum merged results across all origins.
+        max_scopes:
+          type: integer
+          minimum: 1
+          maximum: 32
+          default: 8
+          description: Largest declared origin list this request will accept.
+        max_candidates:
+          type: integer
+          minimum: 1
+          maximum: 256
+          default: 64
+          description: >-
+            Per-origin candidate work, divided across the declared origins. It is a ceiling on the Family's
+            effective window and never widens a declared or default limit.
+        coverage:
+          type: string
+          enum: [complete, partial]
+          default: complete
+          description: >-
+            Complete fails the whole query when a required origin fails. Partial returns only authorized
+            hits and reports the origins it could not cover.
+        restrict_to:
+          $ref: "#/components/schemas/ArtifactReference"
+    CrossScopeArtifactQueryResponse:
+      type: object
+      additionalProperties: false
+      required: [hits, coverage]
+      properties:
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/CrossScopeArtifactHit"
+        coverage:
+          $ref: "#/components/schemas/CrossScopeArtifactCoverage"
+    CrossScopeArtifactHit:
+      type: object
+      additionalProperties: false
+      required: [origin, origin_rank]
+      properties:
+        origin:
+          $ref: "#/components/schemas/ArtifactAddress"
+        origin_rank:
+          type: integer
+          minimum: 1
+          description: This hit's rank inside its own origin. Cross-origin ranks are not comparable.
+        retrieval_score:
+          type: number
+          description: >-
+            The origin's own normalized retrieval score, when reported. Scales differ between origins and
+            between indexes, so it must not be compared across origins.
+    CrossScopeArtifactCoverage:
+      type: object
+      additionalProperties: false
+      required: [complete, reason]
+      properties:
+        complete:
+          type: boolean
+        reason:
+          type: string
+          enum: [complete, origin_failure, candidate_budget]
+        searched_origins:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 256}
+        failed_origins:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 256}
+        bounded_origins:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 256}
     ArtifactSearchScores:
       type: object
       additionalProperties: false

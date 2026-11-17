@@ -905,6 +905,10 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
 
     expected_operations = {
         ("/v1/scopes/{scope_id}/artifacts/{family}/search", "post"): "search_artifacts",
+        (
+            "/v1/scopes/{scope_id}/artifacts/search:cross-scope",
+            "post",
+        ): "search_cross_scope_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/merges", "post"): "merge_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance", "get"): "get_artifact_governance",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget", "post"): "forget_artifact",

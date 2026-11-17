@@ -6,7 +6,7 @@ description: 在一个 Scope 内检索受支持的 Artifact 家族，并理解�
 # 检索 Artifact
 
 统一检索入口用于查找一个 Scope 内相关的 Artifact 当前 head。每条结果包含精确的 `family`、`artifact_id`、
-`revision`、该家族的完整 `content` 和 `lineage`。搜索不会完整枚举制品，也不跨 Scope 检索。
+`revision`、该家族的完整 `content` 和 `lineage`。搜索不会完整枚举制品，本接口只检索一个 Scope；跨 Scope 检索见[跨 Scope 查询](query-across-scopes.md)。
 列举制品和读取历史版本见[管理 Artifact](artifacts.md)；Agent 需要有界上下文时，使用[准备上下文文本](prepare-context-text.md)，
 避免直接注入完整正文。
 

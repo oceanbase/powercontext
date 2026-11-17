@@ -2440,6 +2440,254 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/scopes/{scope_id}/artifacts/search:cross-scope": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Query several explicitly declared Scopes for one Artifact Family",
+                "description": "Aggregate "
+                "one "
+                "registered "
+                "Family's "
+                "own "
+                "search "
+                "over an "
+                "explicit "
+                "origin "
+                "list. "
+                "The "
+                "caller "
+                "declares "
+                "every "
+                "origin, "
+                "in its "
+                "own "
+                "order, "
+                "and "
+                "that "
+                "order "
+                "is the "
+                "merge "
+                "tie "
+                "break. "
+                "Each "
+                "origin "
+                "is "
+                "authorized "
+                "separately "
+                "against "
+                "its "
+                "actual "
+                "Scope; "
+                "Scope "
+                "relationships, "
+                "Context "
+                "References "
+                "and "
+                "Artifact "
+                "lineage "
+                "grant "
+                "no "
+                "authority "
+                "here. "
+                "Results "
+                "are "
+                "merged "
+                "by each "
+                "origin's "
+                "internal "
+                "rank, "
+                "so "
+                "retrieval "
+                "scores "
+                "are "
+                "returned "
+                "per hit "
+                "and are "
+                "never "
+                "comparable "
+                "across "
+                "origins. "
+                "Identity "
+                "is the "
+                "complete "
+                "origin "
+                "address: "
+                "the "
+                "same "
+                "local "
+                "Artifact "
+                "ID in "
+                "two "
+                "Scopes "
+                "is two "
+                "distinct "
+                "inputs. "
+                "A "
+                "caller-native "
+                "budget "
+                "bounds "
+                "the "
+                "merged "
+                "result "
+                "count, "
+                "the "
+                "origin "
+                "count "
+                "and "
+                "per-origin "
+                "candidate "
+                "work. "
+                "The "
+                "candidate "
+                "budget "
+                "is only "
+                "a "
+                "ceiling "
+                "on the "
+                "Family's "
+                "own "
+                "effective "
+                "window, "
+                "so it "
+                "never "
+                "widens "
+                "a "
+                "declared "
+                "or "
+                "default "
+                "limit "
+                "and "
+                "never "
+                "replaces "
+                "an "
+                "invalid "
+                "original "
+                "value "
+                "with a "
+                "valid "
+                "one; a "
+                "budget "
+                "that "
+                "cannot "
+                "search "
+                "the "
+                "declared "
+                "window "
+                "is "
+                "refused "
+                "instead "
+                "of "
+                "silently "
+                "truncating. "
+                "With "
+                "coverage "
+                "complete, "
+                "failure "
+                "of a "
+                "required "
+                "origin "
+                "fails "
+                "the "
+                "query. "
+                "With "
+                "coverage "
+                "partial, "
+                "only "
+                "authorized "
+                "hits "
+                "are "
+                "returned "
+                "and the "
+                "uncovered "
+                "origins "
+                "are "
+                "reported, "
+                "so an "
+                "incomplete "
+                "search "
+                "is "
+                "never "
+                "presented "
+                "as "
+                "complete. "
+                "A "
+                "restriction "
+                "to one "
+                "Artifact "
+                "or "
+                "revision "
+                "is "
+                "refused "
+                "because "
+                "the "
+                "searchable "
+                "projection "
+                "indexes "
+                "current "
+                "heads "
+                "only; "
+                "candidates "
+                "cannot "
+                "be "
+                "restricted "
+                "before "
+                "scoring. "
+                "Opening "
+                "a hit "
+                "is the "
+                "existing "
+                "exact-revision "
+                "read, "
+                "which "
+                "rechecks "
+                "access "
+                "at that "
+                "address "
+                "and "
+                "never "
+                "falls "
+                "back to "
+                "the "
+                "current "
+                "head.",
+                "operationId": "search_cross_scope_artifacts",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CrossScopeArtifactQueryRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Authorized hits in per-origin rank order with their coverage statement.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CrossScopeArtifactQueryResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/topic-memory/processing/status": {
             "post": {
                 "tags": ["topic-memory"],
@@ -13717,6 +13965,211 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["raw", "metric", "higher_is_better"],
                 "x-powercontext-artifact-search-validation": "score",
+            },
+            "CrossScopeArtifactQueryRequest": {
+                "properties": {
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "payload": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "The "
+                        "registered "
+                        "Family's "
+                        "own "
+                        "search "
+                        "request "
+                        "fields, "
+                        "forwarded "
+                        "unchanged. "
+                        "This "
+                        "operation "
+                        "does "
+                        "not "
+                        "interpret "
+                        "them; "
+                        "the "
+                        "Family "
+                        "validates "
+                        "them "
+                        "and "
+                        "owns "
+                        "defaults "
+                        "and "
+                        "errors.",
+                        "default": {},
+                    },
+                    "scopes": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "description": "Explicit "
+                        "origins "
+                        "in "
+                        "the "
+                        "caller's "
+                        "own "
+                        "order. "
+                        "It "
+                        "is "
+                        "the "
+                        "merge "
+                        "tie "
+                        "break "
+                        "and "
+                        "is "
+                        "never "
+                        "reordered. "
+                        "Each "
+                        "origin "
+                        "is "
+                        "authorized "
+                        "separately; "
+                        "membership "
+                        "grants "
+                        "nothing.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "maximum": 200.0,
+                        "minimum": 1.0,
+                        "description": "Maximum merged results across all origins.",
+                        "default": 10,
+                    },
+                    "max_scopes": {
+                        "type": "integer",
+                        "maximum": 32.0,
+                        "minimum": 1.0,
+                        "description": "Largest declared origin list this request will accept.",
+                        "default": 8,
+                    },
+                    "max_candidates": {
+                        "type": "integer",
+                        "maximum": 256.0,
+                        "minimum": 1.0,
+                        "description": "Per-origin "
+                        "candidate "
+                        "work, "
+                        "divided "
+                        "across "
+                        "the "
+                        "declared "
+                        "origins. "
+                        "It "
+                        "is "
+                        "a "
+                        "ceiling "
+                        "on "
+                        "the "
+                        "Family's "
+                        "effective "
+                        "window "
+                        "and "
+                        "never "
+                        "widens "
+                        "a "
+                        "declared "
+                        "or "
+                        "default "
+                        "limit.",
+                        "default": 64,
+                    },
+                    "coverage": {
+                        "type": "string",
+                        "enum": ["complete", "partial"],
+                        "description": "Complete "
+                        "fails "
+                        "the "
+                        "whole "
+                        "query "
+                        "when "
+                        "a "
+                        "required "
+                        "origin "
+                        "fails. "
+                        "Partial "
+                        "returns "
+                        "only "
+                        "authorized "
+                        "hits "
+                        "and "
+                        "reports "
+                        "the "
+                        "origins "
+                        "it "
+                        "could "
+                        "not "
+                        "cover.",
+                        "default": "complete",
+                    },
+                    "restrict_to": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "scopes"],
+            },
+            "CrossScopeArtifactQueryResponse": {
+                "properties": {
+                    "hits": {"items": {"$ref": "#/components/schemas/CrossScopeArtifactHit"}, "type": "array"},
+                    "coverage": {"$ref": "#/components/schemas/CrossScopeArtifactCoverage"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["hits", "coverage"],
+            },
+            "CrossScopeArtifactHit": {
+                "properties": {
+                    "origin": {"$ref": "#/components/schemas/ArtifactAddress"},
+                    "origin_rank": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "This hit's rank inside its own origin. Cross-origin ranks are not comparable.",
+                    },
+                    "retrieval_score": {
+                        "type": "number",
+                        "description": "The "
+                        "origin's "
+                        "own "
+                        "normalized "
+                        "retrieval "
+                        "score, "
+                        "when "
+                        "reported. "
+                        "Scales "
+                        "differ "
+                        "between "
+                        "origins "
+                        "and "
+                        "between "
+                        "indexes, "
+                        "so "
+                        "it "
+                        "must "
+                        "not "
+                        "be "
+                        "compared "
+                        "across "
+                        "origins.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["origin", "origin_rank"],
+            },
+            "CrossScopeArtifactCoverage": {
+                "properties": {
+                    "complete": {"type": "boolean"},
+                    "reason": {"type": "string", "enum": ["complete", "origin_failure", "candidate_budget"]},
+                    "searched_origins": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1},
+                        "type": "array",
+                    },
+                    "failed_origins": {"items": {"type": "string", "maxLength": 256, "minLength": 1}, "type": "array"},
+                    "bounded_origins": {"items": {"type": "string", "maxLength": 256, "minLength": 1}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["complete", "reason"],
             },
             "ArtifactSearchScores": {
                 "properties": {

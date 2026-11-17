@@ -34,6 +34,7 @@ from powercontext.builtin.scope.errors import (
     ScopeBindingTargetMissingError,
     ScopeIdempotencyConflictError,
     ScopeNotFoundError,
+    ScopeRangeLimitError,
     ScopeRelationshipError,
     ScopeVersionConflictError,
 )
@@ -46,6 +47,8 @@ from powercontext.builtin.scope.models import (
     ScopeDraft,
     ScopeExternalReference,
     ScopeMutation,
+    ScopeRange,
+    ScopeRangeLimits,
     ScopeSelection,
 )
 from powercontext.builtin.scope.repository import ScopeRepository
@@ -310,6 +313,80 @@ class ScopeApplication:
             scopes = await self._repository.list(connection)
             return _subtree(scopes, root_scope_id)
 
+    async def resolve_range(
+        self,
+        selection: ScopeSelection,
+        /,
+        *,
+        limits: ScopeRangeLimits | None = None,
+    ) -> ScopeRange:
+        """Resolve explicit or structural Scope membership within explicit budgets.
+
+        Structural descendants come from parent edges only. Context References,
+        publication copies and Artifact lineage are never traversed, and nothing
+        here authorizes reading any Scope's content. Exceeding a budget raises
+        instead of returning a partial range.
+        """
+
+        bounds = ScopeRangeLimits() if limits is None else limits
+        async with self._database.transaction() as connection:
+            if selection.mode == "all":
+                raise ScopeRangeLimitError("mode")
+            scopes = (
+                await self._exact_range(connection, selection, bounds)
+                if selection.mode == "exact"
+                else await self._structural_range(connection, selection, bounds)
+            )
+        return ScopeRange(
+            selection=selection,
+            scopes=scopes,
+            limits=bounds,
+            membership_digest=_membership_digest(scopes),
+        )
+
+    async def _exact_range(
+        self,
+        connection: AsyncConnection,
+        selection: ScopeSelection,
+        limits: ScopeRangeLimits,
+    ) -> tuple[ScopeDescriptor, ...]:
+        if len(selection.scope_ids) > limits.max_nodes:
+            raise ScopeRangeLimitError("nodes", limit=limits.max_nodes)
+        resolved = await self._repository.get_many(connection, selection.scope_ids)
+        found = {scope.scope_id for scope in resolved}
+        if missing := next((scope_id for scope_id in selection.scope_ids if scope_id not in found), None):
+            raise ScopeNotFoundError(missing)
+        return resolved
+
+    async def _structural_range(
+        self,
+        connection: AsyncConnection,
+        selection: ScopeSelection,
+        limits: ScopeRangeLimits,
+    ) -> tuple[ScopeDescriptor, ...]:
+        root_scope_id = selection.root_scope_id
+        if root_scope_id is None:
+            raise AssertionError
+        root = await self._required(connection, root_scope_id)
+        resolved = [root]
+        pending = (root.scope_id,)
+        depth = 0
+        while pending:
+            if depth == limits.max_depth:
+                # Establish that the refused level is really populated rather
+                # than reporting an exhausted budget for an empty tree.
+                if await self._repository.children(connection, pending, limit=1):
+                    raise ScopeRangeLimitError("depth", limit=limits.max_depth)
+                break
+            remaining = limits.max_nodes - len(resolved)
+            children = await self._repository.children(connection, pending, limit=remaining + 1)
+            if len(children) > remaining:
+                raise ScopeRangeLimitError("nodes", limit=limits.max_nodes)
+            resolved.extend(children)
+            pending = tuple(child.scope_id for child in children)
+            depth += 1
+        return tuple(resolved)
+
     async def _required(self, connection: AsyncConnection, scope_id: str) -> ScopeDescriptor:
         scope = await self._repository.get(connection, scope_id)
         if scope is None:
@@ -358,6 +435,18 @@ def generate_scope_id() -> str:
 def _draft_digest(draft: ScopeDraft) -> str:
     payload = draft.model_dump_json(exclude={"idempotency_key"})
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _membership_digest(scopes: tuple[ScopeDescriptor, ...]) -> str:
+    """Bind a range to the exact structural state a caller later confirms.
+
+    Any attachment, move, or metadata update changes a member's parent or
+    version, so a re-resolved range only repeats the digest while the set and
+    its structural state are unchanged.
+    """
+
+    lines = sorted(f"{scope.scope_id}\t{scope.parent_scope_id or ''}\t{scope.version}" for scope in scopes)
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def _subtree(scopes: tuple[ScopeDescriptor, ...], root_scope_id: str) -> tuple[ScopeDescriptor, ...]:

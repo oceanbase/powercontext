@@ -118,6 +118,31 @@ class ScopeRepository:
     async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
         return await self._load(connection, _scope_projection(select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id)))
 
+    async def children(
+        self,
+        connection: AsyncConnection,
+        parent_scope_ids: tuple[str, ...],
+        /,
+        *,
+        limit: int,
+    ) -> tuple[ScopeDescriptor, ...]:
+        """Read only the direct structural children of the given parents.
+
+        Structural traversal never needs unrelated Scope descriptors, so bounded
+        descendant lookup starts from the parent edge instead of the collection.
+        """
+        if not parent_scope_ids:
+            return ()
+        return await self._load(
+            connection,
+            _scope_projection(
+                select(SCOPES_TABLE)
+                .where(SCOPES_TABLE.c.parent_scope_id.in_(parent_scope_ids))
+                .order_by(SCOPES_TABLE.c.scope_id)
+                .limit(limit)
+            ),
+        )
+
     async def with_external_reference(
         self, connection: AsyncConnection, reference: ScopeExternalReference, /
     ) -> tuple[ScopeDescriptor, ...]:

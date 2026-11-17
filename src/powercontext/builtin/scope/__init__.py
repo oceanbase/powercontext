@@ -24,6 +24,7 @@ from powercontext.builtin.scope.errors import (
     ScopeError,
     ScopeIdempotencyConflictError,
     ScopeNotFoundError,
+    ScopeRangeLimitError,
     ScopeRelationshipError,
     ScopeVersionConflictError,
 )
@@ -37,6 +38,8 @@ from powercontext.builtin.scope.models import (
     ScopeExternalReference,
     ScopeMutation,
     ScopeQueryField,
+    ScopeRange,
+    ScopeRangeLimits,
     ScopeSelection,
 )
 
@@ -68,6 +71,9 @@ __all__ = [
     "ScopeMutation",
     "ScopeNotFoundError",
     "ScopeQueryField",
+    "ScopeRange",
+    "ScopeRangeLimitError",
+    "ScopeRangeLimits",
     "ScopeRelationshipError",
     "ScopeSelection",
     "ScopeVersionConflictError",

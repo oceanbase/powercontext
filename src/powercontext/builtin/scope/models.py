@@ -28,6 +28,8 @@ from powercontext.limits import (
     MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH,
     MAX_SCOPE_EXTERNAL_REFERENCE_VALUE_LENGTH,
     MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH,
+    MAX_SCOPE_RANGE_DEPTH,
+    MAX_SCOPE_RANGE_NODES,
     MAX_SCOPE_SUMMARY_LENGTH,
     MAX_SCOPE_TITLE_LENGTH,
 )
@@ -289,6 +291,40 @@ class ScopeSelection(_ScopeValue):
         if self.mode == "subtree":
             return {"mode": self.mode, "root_scope_id": self.root_scope_id}
         return {"mode": self.mode}
+
+
+class ScopeRangeLimits(_ScopeValue):
+    """Explicit node and depth bounds for one structural resolution."""
+
+    max_nodes: StrictInt = Field(default=512, ge=1, le=MAX_SCOPE_RANGE_NODES)
+    max_depth: StrictInt = Field(default=16, ge=1, le=MAX_SCOPE_RANGE_DEPTH)
+
+
+class ScopeRange(_ScopeValue):
+    """A bounded structural membership result, never an authorization or a content read."""
+
+    selection: ScopeSelection
+    scopes: tuple[ScopeDescriptor, ...]
+    limits: ScopeRangeLimits
+    membership_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def require_membership_in_bounds(self) -> ScopeRange:
+        """A result either fits its declared budget or does not exist."""
+        if len(self.scopes) > self.limits.max_nodes:
+            raise ValueError("Scope range exceeds its node budget")  # noqa: TRY003
+        if len({scope.scope_id for scope in self.scopes}) != len(self.scopes):
+            raise ValueError("Scope range members must be unique")  # noqa: TRY003
+        return self
+
+    @property
+    def scope_ids(self) -> tuple[str, ...]:
+        return tuple(scope.scope_id for scope in self.scopes)
+
+    @property
+    def versions(self) -> dict[str, StrictInt]:
+        """Per-member metadata versions a caller can recheck before confirming an action."""
+        return {scope.scope_id: scope.version for scope in self.scopes}
 
 
 def _required_text(field: str, value: str, maximum: int) -> str:

@@ -63,3 +63,19 @@ class ScopeBindingNotFoundError(ScopeError, LookupError):
 
     def __init__(self) -> None:
         super().__init__("no Scope binding is available")
+
+
+class ScopeRangeLimitError(ScopeError, RuntimeError):
+    """A structural range cannot be resolved honestly within its declared budget.
+
+    Raised instead of returning a truncated membership, so a caller never acts on
+    a partial set as though it were complete.
+    """
+
+    def __init__(self, kind: str, *, limit: int | None = None) -> None:
+        self.kind = kind
+        self.limit = limit
+        if kind == "mode":
+            super().__init__("Scope range resolution requires an exact or subtree selection")
+        else:
+            super().__init__(f"Scope range exceeds its {kind} budget")

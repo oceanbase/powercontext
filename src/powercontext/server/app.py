@@ -392,6 +392,11 @@ from powercontext.builtin.runtime.context_check import (
 from powercontext.builtin.runtime.context_check import (
     ContextCheckResult as RuntimeContextCheckResult,
 )
+from powercontext.builtin.runtime.cross_scope_query import (
+    CrossScopeQueryBoundsError,
+    CrossScopeQueryRequest,
+    CrossScopeQueryUnsupported,
+)
 from powercontext.builtin.runtime.models import BUILTIN_CONTEXT_FAMILIES, ContextPluginHit
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
@@ -402,6 +407,7 @@ from powercontext.builtin.scope import (
     ScopeIdempotencyConflictError,
     ScopeMutation,
     ScopeNotFoundError,
+    ScopeRangeLimitError,
     ScopeRelationshipError,
     ScopeVersionConflictError,
 )
@@ -762,6 +768,10 @@ from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
     BackgroundPermissionGap,
+    CrossScopeArtifactCoverage,
+    CrossScopeArtifactHit,
+    CrossScopeArtifactQueryRequest,
+    CrossScopeArtifactQueryResponse,
     GetTopicMemoryProcessingBlockRequest,
     OwnershipGapItem,
     QueryArtifactTagsRequest,
@@ -775,6 +785,7 @@ from powercontext.http._generated.models import (
     TopicMemoryProcessingStatusRequest,
 )
 from powercontext.http._generated.models import Allowed as TransportOwnershipAllowed
+from powercontext.http._generated.models import ArtifactAddress as TransportArtifactAddress
 from powercontext.http._generated.models import (
     ArtifactFamily as TransportArtifactFamily,
 )
@@ -912,6 +923,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_ARTIFACTS,
+    SEARCH_CROSS_SCOPE_ARTIFACTS,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
@@ -1420,6 +1432,7 @@ class ServerApplication(Protocol):
     ingestion: _RemoteIngestionApplication
     code: CodeApplication
     context: _ContextApplication
+    cross_scope: Any
     bootstrap: _BootstrapApplication
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
@@ -1662,6 +1675,7 @@ def create_app(
     _add_route(app, RETRY_TOPIC_MEMORY_PROCESSING, retry_topic_memory_processing)
     _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
     _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
+    _add_route(app, SEARCH_CROSS_SCOPE_ARTIFACTS, search_cross_scope_artifacts)
     _add_route(app, GET_TOPIC_MEMORY, get_topic_memory)
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
     _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
@@ -3281,6 +3295,58 @@ async def search_artifacts(
     )
     result = mapping.artifact_search_response(outcome, include_scores=request.include_scores)
     return JSONResponse(content=result.model_dump(mode="json", exclude_unset=True))
+
+
+async def search_cross_scope_artifacts(
+    scope_id: _ScopePathId,
+    request: CrossScopeArtifactQueryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> JSONResponse:
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    execution_context = ArtifactSearchExecutionContext(
+        principal=_require_principal() if access is not None else None,
+        access=access,
+        audit=_access_audit_context(SEARCH_CROSS_SCOPE_ARTIFACTS.operation_id),
+        trusted_local=access is None and http_request.app.state.access_mode == "disabled",
+    )
+    request_coverage = _payload_coverage(request)
+    result = await application.cross_scope.for_scope(scope_id).search(
+        CrossScopeQueryRequest(
+            family=request.family,
+            payload=request.payload,
+            scopes=tuple(origin.root for origin in request.scopes),
+            limit=request.limit,
+            max_scopes=request.max_scopes,
+            max_candidates=request.max_candidates,
+            coverage=request_coverage,
+            restrict_to=None
+            if request.restrict_to is None
+            else mapping.runtime_artifact_reference(request.restrict_to),
+        ),
+        execution_context=execution_context,
+    )
+    return JSONResponse(
+        content=CrossScopeArtifactQueryResponse(
+            hits=[
+                CrossScopeArtifactHit(
+                    origin=TransportArtifactAddress(
+                        scope_id=hit.origin.scope_id, artifact=mapping.artifact_reference(hit.origin.artifact)
+                    ),
+                    origin_rank=hit.origin_rank,
+                    retrieval_score=hit.retrieval_score,
+                )
+                for hit in result.hits
+            ],
+            coverage=CrossScopeArtifactCoverage(
+                complete=result.coverage.complete,
+                reason=result.coverage.reason,
+                searched_origins=list(result.coverage.searched_origins),
+                failed_origins=list(result.coverage.failed_origins),
+                bounded_origins=list(result.coverage.bounded_origins),
+            ),
+        ).model_dump(mode="json", exclude_unset=True)
+    )
 
 
 async def get_topic_memory(
@@ -6802,6 +6868,9 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
             "The Artifact search capability is unavailable.",
             None if error.field is None else {"field": error.field},
         )
+    range_error = _map_scope_range_query_error(error)
+    if range_error is not None:
+        return range_error
     if isinstance(error, CodeError):
         return error.status, error.code, "The code query could not be completed.", None
     access_error = _map_access_error(error)
@@ -6972,6 +7041,39 @@ def _map_remote_skill_error(error: Exception) -> tuple[int, str, str, dict[str, 
         return status.HTTP_409_CONFLICT, error.code, "The remote target state rejects this operation.", None
     if isinstance(error, RemoteSkillDistributionError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, error.code, "The remote Skill request is invalid.", None
+    return None
+
+
+def _payload_coverage(request: CrossScopeArtifactQueryRequest) -> Literal["complete", "partial"]:
+    """Narrow the transport coverage enum onto the domain search-coverage vocabulary."""
+
+    return "partial" if request.coverage.value == "partial" else "complete"
+
+
+def _map_scope_range_query_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    """Report a range the service refuses to search, rather than a partial answer as success."""
+
+    if isinstance(error, CrossScopeQueryBoundsError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "cross_scope_query_bounded_out",
+            "The declared range or budget cannot be searched completely.",
+            {"field": error.field, "reason": error.detail},
+        )
+    if isinstance(error, CrossScopeQueryUnsupported):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "cross_scope_query_not_supported",
+            "The requested cross-Scope restriction is not supported.",
+            {"field": error.field, "reason": error.detail},
+        )
+    if isinstance(error, ScopeRangeLimitError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "scope_range_limit_exceeded",
+            "The structural Scope range exceeds its declared budget.",
+            {"kind": error.kind, "limit": error.limit},
+        )
     return None
 
 

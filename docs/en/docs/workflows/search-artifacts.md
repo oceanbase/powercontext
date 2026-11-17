@@ -7,7 +7,8 @@ description: Search supported Artifact families within a Scope and interpret ret
 
 Use the unified search route to find relevant current Artifact heads in one Scope. Each result contains the exact
 `family`, `artifact_id`, and `revision`, complete family-specific `content`, and `lineage`. Search does not enumerate
-every Artifact or search across Scopes. Use [Manage Artifacts](artifacts.md) for lists and exact historical reads;
+every Artifact, and this route searches one Scope. To query several Scopes, see [Query across Scopes](query-across-scopes.md).
+Use [Manage Artifacts](artifacts.md) for lists and exact historical reads;
 use [Prepare context text](prepare-context-text.md) when an Agent needs bounded context instead of complete content.
 
 ## Send a search request

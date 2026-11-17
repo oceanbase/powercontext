@@ -103,6 +103,18 @@ class ArtifactSearchService:
 
         return await self._binding(family).invoke(scope_id, payload, execution_context)
 
+    def parse_request(self, family: str, payload: Mapping[str, Any]) -> ArtifactSearchQuery:
+        """Decode a payload with its Family's own model without invoking a search.
+
+        A cross-Scope caller needs the Family's effective window — including its default — before
+        it spends any origin search. Validation stays the Family's, so an invalid original value is
+        reported by the owner instead of being guessed or rewritten.
+        """
+
+        binding = self._binding(family)
+        encoded = _encode_request_payload(payload, binding.searcher.request_type.__name__)
+        return binding.searcher.request_type.model_validate_json(encoded, strict=True)
+
     def _binding(self, family: str) -> _SearcherBinding[Any, ArtifactSearchOutcome]:
         if family not in self._known_families:
             raise ArtifactSearchFamilyNotFound(family)
