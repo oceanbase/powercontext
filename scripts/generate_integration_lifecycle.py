@@ -50,8 +50,12 @@ COPIES = {
     "prepared_context.py": (f"{_WORKBUDDY}/hooks/prepared_context.py",),
     "prompt_privacy.py": (f"{_WORKBUDDY}/hooks/prompt_privacy.py",),
 }
-# A copy keeps the path its plugin imports, so bundled output still names the same module.
+# Each copy sits at the path its plugin imports.
 TYPESCRIPT_COPIES = {
+    "flush-progress.ts": (
+        f"{_OPENCLAW}/src/flush-progress.ts",
+        f"{_PI}/src/flush-progress.ts",
+    ),
     "transport.ts": (
         f"{_DSH}/src/transport.ts",
         f"{_OPENCLAW}/src/transport.ts",

@@ -15,6 +15,7 @@
  */
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { BrandLogo } from './brand-logo';
 import { defaultLanguage, type Language } from '@/lib/i18n';
 import { repositoryUrl } from '@/lib/urls';
@@ -44,7 +45,7 @@ const copy = {
   },
 } as const;
 
-export function SiteFooter({ lang }: { lang: Language }) {
+export function SiteFooter({ children, lang }: { children?: ReactNode; lang: Language }) {
   const text = copy[lang];
 
   return (
@@ -79,6 +80,7 @@ export function SiteFooter({ lang }: { lang: Language }) {
           </ul>
         </nav>
       </div>
+      {children}
     </footer>
   );
 }
