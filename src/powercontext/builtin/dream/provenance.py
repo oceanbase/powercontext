@@ -19,6 +19,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.dream.models import DREAM_PROMPT_VERSION, DreamRecord
 from powercontext.builtin.evidence.models import EvidenceNode, QualifiedOrigin, ResolvedEvidence, content_digest
@@ -84,6 +85,39 @@ def candidate_audit(
         validation_policy_digest=validation_policy_digest(record),
         proposal_fingerprint=record.proposal_fingerprint,
         share_snapshot_id=record.share_snapshot_id,
+        adopted_origins=adopted_origins,
+    )
+
+
+def shared_candidate_audit(
+    *,
+    run_id: str,
+    snapshot_id: str,
+    operation: str,
+    proposal: BaseModel,
+    adopted_origins: tuple[QualifiedOrigin, ...],
+    target: ArtifactRef | None,
+    validation_policy_digest_value: str,
+) -> CandidateAudit:
+    """Build the audit for one pinned shared proposal from durable identity only.
+
+    The caller supplies no digest and no policy: the run id and pin are the identity, the
+    proposal digest is computed here, and the adopted set is the verified support. An
+    ordinary audit keeps its own construction path, so this never changes existing records.
+    """
+
+    spec = next(spec for spec in DREAM_OPERATIONS if spec.operation == operation)
+    return CandidateAudit(
+        operation=operation,
+        dream_run_id=run_id,
+        spec_version=spec.spec_version,
+        proposal_digest=proposal_digest(proposal),
+        evidence_manifest_ref=f"dream:{run_id}",
+        # The run's own policy digest, so approval rechecks against the same policy the
+        # generation was admitted under rather than an invented one.
+        validation_policy_digest=validation_policy_digest_value,
+        proposal_fingerprint=None,
+        share_snapshot_id=snapshot_id,
         adopted_origins=adopted_origins,
     )
 

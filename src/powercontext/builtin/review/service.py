@@ -53,6 +53,7 @@ from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptR
 from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent, TopicMemoryDraft
+from powercontext.builtin.authz.service import AccessAuditContext
 from powercontext.builtin.evidence.models import EvidenceResolutionError, QualifiedOrigin
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -124,6 +125,9 @@ class ReviewService:
         prompt_registry: PromptRegistry | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
+        share_access=None,
+        share_scopes=None,
+        share_principal=None,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
@@ -134,6 +138,11 @@ class ReviewService:
         self._sources = sources
         self._id_factory = id_factory
         self._evidence = evidence
+        # The owners a shared approval needs to re-prove its binding. Absent these, a shared
+        # approval refuses rather than publishing under an unverified pin.
+        self._share_access = share_access
+        self._share_scopes = share_scopes
+        self._share_principal = share_principal
         self._memory = memory
         self._topic_writer = topic_writer
         self._handoff_writer = handoff_writer
@@ -168,14 +177,12 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
-        audit: CandidateAudit | None = None,
-        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> Candidate[ExperienceContent]:
-        """Persist one Experience proposal.
+        """Persist one Experience proposal from an ordinary caller.
 
-        ``audit`` is the server-owned Dream provenance, written inside the same transaction
-        as the proposal version so a Candidate never exists without the audit that says what
-        support it stands on. Ordinary callers omit it.
+        Shared provenance never travels through public arguments: a shared proposal is
+        admitted only by :meth:`admit_dream_shared_experience`, which derives the audit and
+        the foreign support from a verified run, so no caller can assert either directly.
         """
 
         candidate = await self._propose(
@@ -187,8 +194,6 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
             on_commit=on_commit,
-            audit=audit,
-            foreign=foreign,
         )
         return _experience_candidate(candidate)
 
@@ -219,6 +224,69 @@ class ReviewService:
                 )
             stored = await self._candidates.create_many(connection, self._scope_id, candidates)
         return tuple(_experience_candidate(_reviewed_candidate(candidate)) for candidate in stored)
+
+    def with_sharing(self, *, access, scopes, principal) -> ReviewService:
+        """Return this service bound to the owners a shared approval must re-prove against.
+
+        Kept explicit so a runtime without sharing composition keeps refusing shared
+        approvals instead of silently publishing without verification.
+        """
+
+        self._share_access = access
+        self._share_scopes = scopes
+        self._share_principal = principal
+        return self
+
+    async def admit_dream_shared_experience(
+        self,
+        proposal: ExperienceContent,
+        /,
+        *,
+        run_id: str,
+        snapshot_id: str,
+        adopted_origins: tuple[QualifiedOrigin, ...],
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef | None,
+        reason: str | None,
+        candidate_id: str,
+        validation_policy_digest: str,
+        on_commit: CandidateCommitHook | None = None,
+    ) -> Candidate[ExperienceContent]:
+        """Admit one pinned shared Experience proposal through the single trusted handoff.
+
+        This is the only entry point a shared proposal may use. It is a trusted-domain call
+        from Dream admission, not a caller-facing route: the audit is built here from the run
+        and pin, and the foreign support is derived from the adopted origins rather than
+        trusted as a separate argument. A caller therefore cannot assert provenance, and an
+        ordinary :meth:`propose_experience` call cannot claim to be shared.
+        """
+
+        from powercontext.builtin.dream.provenance import shared_candidate_audit
+
+        foreign = tuple(origin for origin in adopted_origins if origin.scope_id and origin.scope_id != self._scope_id)
+        audit = shared_candidate_audit(
+            run_id=run_id,
+            snapshot_id=snapshot_id,
+            operation="refine_experience",
+            proposal=proposal,
+            adopted_origins=adopted_origins,
+            target=target,
+            validation_policy_digest_value=validation_policy_digest,
+        )
+        candidate = await self._propose(
+            Experience.family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+            on_commit=on_commit,
+            audit=audit,
+            foreign=foreign,
+        )
+        return _experience_candidate(candidate)
 
     async def propose_skill(
         self,
@@ -705,11 +773,6 @@ class ReviewService:
 
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
-        if current.audit is not None and current.audit.share_snapshot_id is not None:
-            # Approval of a shared Candidate is not implemented: publishing requires the
-            # current agreement, target CAS and official origin writeback that the next
-            # slice owns. Refuse rather than publish under an unenforced binding.
-            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
         await self._authorize_decision("approve", current)
         if current.status is CandidateStatus.REJECTED:
             raise CandidateTerminalError(candidate_id, current.status)
@@ -739,6 +802,9 @@ class ReviewService:
                 current,
                 sources=current.sources,
                 artifacts=current.artifacts,
+                foreign=()
+                if current.audit is None or current.audit.share_snapshot_id is None
+                else current.audit.adopted_origins,
             )
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(
@@ -752,6 +818,7 @@ class ReviewService:
                 raise CandidateConflictError(candidate_id, expected_version, candidate.version)
             await self._authorize_decision("approve", candidate)
             await self._validate_candidate_audit(connection, candidate)
+            shared_origins = await self._verify_shared_binding(connection, candidate)
             if candidate.family == Skill.family and candidate.candidate_id.startswith("cand_dream_"):
                 run_id = candidate.candidate_id.removeprefix("cand_dream_")
                 run = await DreamRepository().get(connection, self._scope_id, run_id)
@@ -773,6 +840,11 @@ class ReviewService:
                 proposal=candidate.proposal if isinstance(candidate.proposal, ExperienceContent) else None,
                 target=candidate.target,
                 dream_skill_target=candidate.candidate_id.startswith("cand_dream_"),
+                # A shared proposal's adopted support is the evidence of record; it was
+                # verified in its owning Scope by _verify_shared_binding above.
+                foreign=()
+                if shared_origins is None
+                else tuple(origin for origin in shared_origins if origin.scope_id != self._scope_id),
             )
             if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
                 await self._canonical_skill_proposal(connection, candidate.proposal)
@@ -798,6 +870,10 @@ class ReviewService:
             elif isinstance(artifact, Skill) and artifact.content.package is not None:
                 package = await self._skill_packages.get(connection, self._scope_id, artifact.content.package)
                 await self._experience_index.replace_skill(connection, self._scope_id, artifact, package)
+            if shared_origins is not None:
+                # Target-owned exact origins, written in this same transaction as the
+                # official revision and the Candidate decision. No post-commit writer.
+                await self._write_shared_origins(connection, artifact.as_ref(), shared_origins)
             approved = await self._candidates.mark_approved(
                 connection,
                 self._scope_id,
@@ -827,6 +903,7 @@ class ReviewService:
         *,
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> None:
         """Match Dream reuse: target head, ordered evidence Memory heads, then Candidate."""
 
@@ -842,7 +919,119 @@ class ReviewService:
             artifacts,
             target=preview.target,
             dream_skill_target=preview.candidate_id.startswith("cand_dream_"),
+            foreign=foreign,
         )
+
+    async def _verify_shared_binding(
+        self, connection: AsyncConnection, candidate: Candidate[Any], /
+    ) -> tuple[QualifiedOrigin, ...] | None:
+        """Recheck a shared Candidate's exact pin, run and adopted support before commit.
+
+        Everything is read under the Candidate lock in this transaction: the durable run, the
+        pin bound to it, the Current agreement, the acting principal's actual origin
+        authority, and every adopted origin's digest at the Scope that owns it. Any drift
+        refuses the approval instead of publishing under a binding that no longer holds.
+        """
+
+        audit = candidate.audit
+        if audit is None or audit.share_snapshot_id is None:
+            return None
+        from powercontext.builtin.dream.models import DreamError
+        from powercontext.builtin.persistence.share_agreement import ShareAgreementRepository
+        from powercontext.builtin.sharing.eligibility import require_bound_eligibility
+
+        record = await DreamRepository().get(connection, self._scope_id, audit.dream_run_id)
+        if record.share_snapshot_id != audit.share_snapshot_id:
+            raise InvalidCandidateError("audit", "shared Candidate pin does not match its run")
+        agreements = ShareAgreementRepository()
+        row = await agreements.snapshot_row(connection, self._scope_id, audit.share_snapshot_id, for_update=True)
+        if row is None:
+            raise InvalidCandidateError("audit", "shared pin is missing")
+        snapshot = agreements.decode_snapshot(row)
+        if snapshot.dream_run_id != record.run.run_id:
+            raise InvalidCandidateError("audit", "shared pin is bound to another run")
+        if self._share_access is None or self._share_scopes is None or self._share_principal is None:
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        principal = self._share_principal(record.principal_id)
+        if principal is None:
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        try:
+            await require_bound_eligibility(
+                connection=connection,
+                access=self._share_access.with_connection(connection),
+                scopes=self._share_scopes,
+                agreements=agreements,
+                principal=principal,
+                audit=AccessAuditContext(transport="background", operation="review.share_approval"),
+                scope_id=self._scope_id,
+                operation=record.run.operation,
+                snapshot_id=audit.share_snapshot_id,
+                run_id=record.run.run_id,
+            )
+        except DreamError as error:
+            raise InvalidCandidateError("approval", error.code) from error
+        # The approved audit's adopted set must still be exactly the pin's support: a profile
+        # of the pin cannot be swapped for support the run never admitted.
+        pinned = {(item.origin_scope_id, item.reference.model_dump_json()) for item in snapshot.inputs}
+        adopted = {(origin.scope_id, origin.reference.model_dump_json()) for origin in audit.adopted_origins}
+        if not adopted <= pinned:
+            raise InvalidCandidateError("audit", "adopted support is not part of the pin")
+        try:
+            await self._evidence.validate_qualified(connection, audit.adopted_origins) if self._evidence else None
+        except EvidenceResolutionError as error:
+            raise InvalidCandidateError("approval", "adopted support moved") from error
+        return audit.adopted_origins
+
+    async def _write_shared_origins(
+        self,
+        connection: AsyncConnection,
+        result: ArtifactRef,
+        origins: tuple[QualifiedOrigin, ...],
+        /,
+    ) -> None:
+        """Record the target-owned exact origins of one committed revision.
+
+        Written inside the approval transaction with the official revision and the Candidate
+        decision. The rows are target-owned with no FK to the origin, so later origin
+        retention cannot erase or block the target's own history.
+        """
+
+        from sqlalchemy import delete, insert
+
+        from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+        await connection.execute(
+            delete(ORIGINS).where(
+                ORIGINS.c.scope_id == result.scope_id
+                if hasattr(result, "scope_id")
+                else ORIGINS.c.scope_id == self._scope_id,
+                ORIGINS.c.family == result.family,
+                ORIGINS.c.artifact_id == result.artifact_id,
+                ORIGINS.c.revision == result.revision,
+            )
+        )
+        rows = []
+        for ordinal, origin in enumerate(origins):
+            reference = origin.reference
+            is_source = isinstance(reference, SourceRef)
+            rows.append({
+                "scope_id": self._scope_id,
+                "family": result.family,
+                "artifact_id": result.artifact_id,
+                "revision": result.revision,
+                "ordinal": ordinal,
+                "origin_scope_id": origin.scope_id,
+                "origin_kind": "source" if is_source else "artifact",
+                "origin_family": "source" if is_source else reference.family,
+                "origin_id": reference.source_id if is_source else reference.artifact_id,
+                "origin_revision": None if is_source else reference.revision,
+                "locator": None
+                if not is_source or reference.locator is None
+                else reference.locator.model_dump(mode="json"),
+                "digest": origin.digest,
+            })
+        if rows:
+            await connection.execute(insert(ORIGINS), rows)
 
     async def _validate_candidate_audit(self, connection: AsyncConnection, candidate: Candidate[Any]) -> None:
         """Recheck persisted generation policy and content after acquiring the Candidate lock."""

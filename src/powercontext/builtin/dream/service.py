@@ -64,7 +64,7 @@ from powercontext.builtin.dream.models import (
     DreamUsage,
     ListDreamRunsRequest,
 )
-from powercontext.builtin.dream.provenance import candidate_audit, proposal_fingerprint
+from powercontext.builtin.dream.provenance import candidate_audit, proposal_fingerprint, validation_policy_digest
 from powercontext.builtin.evidence.models import (
     EvidenceResolutionError,
     ResolvedEvidence,
@@ -726,26 +726,34 @@ class DreamService:
             return DreamCandidateRef(candidate_id=candidate.candidate_id, version=candidate.version, kind="tag")
         review = self.review(record.run.scope_id, connection)
         if isinstance(plan.proposal, ExperienceContent):
-            shared_audit = None
             if record.share_snapshot_id is not None:
                 if not selected.adopted:
                     # A shared proposal must stand on identifiable support; refusing here
                     # keeps a Candidate from existing without the audit that names it.
                     raise DreamError("shared_use_candidate_unavailable")
-                shared_audit = candidate_audit(record, plan.proposal, adopted_origins=selected.adopted)
-            candidate = await review.propose_experience(
-                plan.proposal,
-                sources=selected.sources,
-                artifacts=selected.artifacts,
-                target=record.run.target,
-                reason=plan.reason,
-                candidate_id=_candidate_id(record),
-                # Written in this transaction with the proposal version.
-                audit=shared_audit,
-                # Foreign support is validated in its owning Scope by the review boundary,
-                # so it can never be satisfied by a same-identity local reference.
-                foreign=selected.foreign,
-            )
+                # The one trusted shared handoff: it derives the audit and the foreign slots
+                # from the verified adopted support, so no caller asserts provenance.
+                candidate = await review.admit_dream_shared_experience(
+                    plan.proposal,
+                    run_id=record.run.run_id,
+                    snapshot_id=record.share_snapshot_id,
+                    adopted_origins=selected.adopted,
+                    sources=selected.sources,
+                    artifacts=selected.artifacts,
+                    target=record.run.target,
+                    reason=plan.reason,
+                    candidate_id=_candidate_id(record),
+                    validation_policy_digest=validation_policy_digest(record),
+                )
+            else:
+                candidate = await review.propose_experience(
+                    plan.proposal,
+                    sources=selected.sources,
+                    artifacts=selected.artifacts,
+                    target=record.run.target,
+                    reason=plan.reason,
+                    candidate_id=_candidate_id(record),
+                )
         elif isinstance(plan.proposal, SkillContent):
             if record.run.operation == "derive_skill":
                 validate_skill_lineage(SkillGenerationOrigin.EXPERIENCE, selected.sources, selected.artifacts, None)
