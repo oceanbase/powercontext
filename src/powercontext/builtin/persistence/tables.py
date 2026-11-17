@@ -1091,6 +1091,130 @@ RECALL_EFFORT_DAILY_TABLE = Table(
 )
 
 
+# --- shared agreement: standing rule, authentic acceptance, pinned snapshot ---------
+# A rule states where future material may be found and the terms it is used under. A
+# snapshot records exactly what one evaluation pinned. Three digests stay distinct:
+# ``terms_digest`` binds the agreement, ``membership_digest`` the resolved structure,
+# and each input's own ``digest`` the exact material.
+MAX_SHARE_ID_LENGTH = 64
+MAX_SHARE_ACTOR_LENGTH = 200
+MAX_SHARE_DIGEST_LENGTH = 71
+MAX_SHARE_NOTIFICATION_KEY_LENGTH = 128
+
+SHARE_RULE_HEADS_TABLE = Table(
+    "pc_share_rule_heads",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("rule_id", identity_string(MAX_SHARE_ID_LENGTH), primary_key=True),
+    Column("version", BigInteger, nullable=False),
+    Column("status", identity_string(16), nullable=False),
+    Column("updated_at", BigInteger, nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    CheckConstraint("version > 0", name="ck_pc_share_rule_heads_version_positive"),
+    CheckConstraint("status IN ('active', 'invalidated')", name="ck_pc_share_rule_heads_status"),
+)
+
+SHARE_RULE_VERSIONS_TABLE = Table(
+    "pc_share_rule_versions",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("rule_id", identity_string(MAX_SHARE_ID_LENGTH), primary_key=True),
+    Column("version", BigInteger, primary_key=True),
+    Column("terms_digest", identity_string(MAX_SHARE_DIGEST_LENGTH), nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "rule_id"),
+        ("pc_share_rule_heads.scope_id", "pc_share_rule_heads.rule_id"),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("version > 0", name="ck_pc_share_rule_versions_version_positive"),
+)
+
+# One authenticated actor's acceptance of exactly the Scopes it claims. A request field
+# naming an approver never writes a row here.
+SHARE_ACCEPTANCES_TABLE = Table(
+    "pc_share_acceptances",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("rule_id", identity_string(MAX_SHARE_ID_LENGTH), primary_key=True),
+    Column("version", BigInteger, primary_key=True),
+    Column("actor", identity_string(MAX_SHARE_ACTOR_LENGTH), primary_key=True),
+    Column("side", identity_string(16), primary_key=True),
+    Column("terms_digest", identity_string(MAX_SHARE_DIGEST_LENGTH), nullable=False),
+    Column("covered_scope_ids", _canonical_payload_type(), nullable=False),
+    Column("acceptance_id", identity_string(MAX_SHARE_ID_LENGTH), nullable=False),
+    Column("accepted_at", BigInteger, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "rule_id", "version"),
+        ("pc_share_rule_versions.scope_id", "pc_share_rule_versions.rule_id", "pc_share_rule_versions.version"),
+        ondelete="CASCADE",
+    ),
+    UniqueConstraint("acceptance_id", name="uq_pc_share_acceptances_id"),
+    CheckConstraint("side IN ('origin', 'audience')", name="ck_pc_share_acceptances_side"),
+)
+
+# One immutable pin. ``dream_run_id`` is NULL until an execution claims it, and only ever
+# moves NULL -> one value, so a second execution cannot take the same pin. There is no
+# outcome/committed/candidate column: Dream and Candidate remain the only result
+# authorities and a snapshot is not an execution state machine.
+SHARE_SNAPSHOTS_TABLE = Table(
+    "pc_share_snapshots",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("snapshot_id", identity_string(MAX_SHARE_ID_LENGTH), primary_key=True),
+    Column("rule_id", identity_string(MAX_SHARE_ID_LENGTH), nullable=False),
+    Column("rule_version", BigInteger, nullable=False),
+    Column("terms_digest", identity_string(MAX_SHARE_DIGEST_LENGTH), nullable=False),
+    Column("membership_digest", identity_string(MAX_SHARE_DIGEST_LENGTH), nullable=False),
+    Column("notification_key", identity_string(MAX_SHARE_NOTIFICATION_KEY_LENGTH)),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Column("dream_run_id", identity_string(64)),
+    Column("created_at", BigInteger, nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint("scope_id", "rule_id", "notification_key", name="uq_pc_share_snapshots_notification"),
+    UniqueConstraint("scope_id", "dream_run_id", name="uq_pc_share_snapshots_run"),
+    CheckConstraint("rule_version > 0", name="ck_pc_share_snapshots_rule_version_positive"),
+)
+
+# The exact origins one committed revision adopted. Target-owned with the normal target
+# FK and no origin FK, so later origin retention or deletion cannot erase or block it.
+ARTIFACT_LINEAGE_ORIGINS_TABLE = Table(
+    "pc_artifact_lineage_origins",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, primary_key=True),
+    Column("ordinal", Integer, primary_key=True),
+    Column("origin_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("origin_kind", identity_string(16), nullable=False),
+    Column("origin_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("origin_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
+    Column("origin_revision", Integer),
+    Column("locator", _canonical_payload_type()),
+    Column("digest", identity_string(MAX_SHARE_DIGEST_LENGTH), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        ("pc_artifacts.scope_id", "pc_artifacts.family", "pc_artifacts.artifact_id", "pc_artifacts.revision"),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("origin_kind IN ('source', 'artifact')", name="ck_pc_artifact_lineage_origins_kind"),
+    CheckConstraint(
+        "(origin_kind = 'source' AND origin_revision IS NULL) OR (origin_kind = 'artifact' AND origin_revision > 0)",
+        name="ck_pc_artifact_lineage_origins_revision",
+    ),
+)
+
+SHARE_TABLES = (
+    SHARE_RULE_HEADS_TABLE,
+    SHARE_RULE_VERSIONS_TABLE,
+    SHARE_ACCEPTANCES_TABLE,
+    SHARE_SNAPSHOTS_TABLE,
+    ARTIFACT_LINEAGE_ORIGINS_TABLE,
+)
+
+
 SHARED_TABLES = (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
