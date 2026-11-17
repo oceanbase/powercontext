@@ -157,6 +157,7 @@ pub struct Executor<G, T> {
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+    source_tokens: usize,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
 }
@@ -204,6 +205,7 @@ where
             handoff: Mutex::new(()),
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
+            source_tokens: crate::transcript::MAX_SOURCE_TOKENS,
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
         }
@@ -272,6 +274,13 @@ where
     /// cannot bypass the currently supported complete-body parser ceiling.
     pub fn with_input_limit(mut self, limit: usize) -> Self {
         self.max_input_bytes = limit.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
+    }
+
+    /// 一段沉淀 Source 的估算 token 上限，取自 Core 生效的 Atomic Memory 输入上限（见
+    /// [`crate::source_token_limit`]）。
+    pub fn with_source_token_limit(mut self, limit: usize) -> Self {
+        self.source_tokens = limit;
         self
     }
 
@@ -636,6 +645,7 @@ where
                                 &pristine_request,
                                 &release_body,
                                 renderer.message_list_key(),
+                                self.source_tokens,
                             )
                         })
                         .flatten();

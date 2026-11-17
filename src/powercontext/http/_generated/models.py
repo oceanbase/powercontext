@@ -1825,6 +1825,13 @@ class ContextProtectionCapabilitiesLimits(BaseModel):
     dependencies: Annotated[StrictInt, Field(ge=1)]
     send_seconds: Annotated[StrictInt, Field(ge=1)]
     correlate_seconds: Annotated[StrictInt, Field(ge=1)]
+    atomic_memory_input_tokens: Annotated[
+        StrictInt | None,
+        Field(
+            description="The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit.",
+            ge=1,
+        ),
+    ] = None
 
 
 class RepairSurface(StrEnum):

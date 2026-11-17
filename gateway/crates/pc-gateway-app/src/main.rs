@@ -180,6 +180,11 @@ async fn main() {
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
             .with_input_limit(model_body_bytes)
+            .with_source_token_limit(pc_gateway_core::source_token_limit(
+                capabilities
+                    .as_ref()
+                    .and_then(|caps| caps.limits.atomic_memory_input_tokens),
+            ))
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,

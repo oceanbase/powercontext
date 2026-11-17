@@ -848,6 +848,11 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
                 "dependencies": MAX_REUSE_DEPENDENCIES,
                 "send_seconds": int(SEND_VALIDITY.total_seconds()),
                 "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
+                **(
+                    {}
+                    if capabilities.atomic_memory_input_tokens_limit is None
+                    else {"atomic_memory_input_tokens": capabilities.atomic_memory_input_tokens_limit}
+                ),
             },
         }),
     )

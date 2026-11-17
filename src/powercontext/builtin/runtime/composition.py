@@ -838,6 +838,7 @@ async def open_builtin_runtime(  # noqa: C901
                 handoff_committer=contexts.commit_handoff,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
+                    atomic_memory_input_tokens_limit=config.runtime.atomic_memory_input_tokens_limit,
                     experience_generation=contexts.experience_generation,
                     managed_skill_generation=contexts.managed_skill_generation,
                     artifact_dreaming=bool(configured_operations),

@@ -4521,6 +4521,8 @@ export interface components {
             dependencies: number;
             send_seconds: number;
             correlate_seconds: number;
+            /** @description The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit. */
+            atomic_memory_input_tokens?: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];

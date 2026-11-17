@@ -19,8 +19,8 @@
 //! 文本；字段不截断，步骤不省略。只有推理密文、各类 ID、状态、用量等传输元数据不进入记录，二进制数据（截图、
 //! 图片、文件）记为带字节数的占位文本。用户文本取自注入前的请求，不含准备结果。
 //!
-//! 每个 Source 都要能被 Core 的普通抽取单独处理：估算规模超过 [`MAX_SOURCE_TOKENS`] 时，记录按顺序拆成几段，
-//! 每段都是独立的 Source。
+//! 一段 Source 的估算规模不超过 Core 生效的 Atomic Memory 输入上限，也不超过 [`MAX_SOURCE_TOKENS`]；超过时记录
+//! 按顺序拆成几段，每段都是独立的 Source。
 
 use crate::capture_coverage::declaration;
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role};
@@ -29,10 +29,22 @@ use serde_json::{Map, Value};
 
 /// 投影名称，见捕获覆盖声明契约。
 pub(crate) const PROJECTION: &str = "gateway-turn-text.v2";
-/// 一段 Source 的估算 token 上限。Core 的 Atomic Memory 输入默认最多 64,000 个估算 token，其中还有指令、候选和
-/// 对账时的一批相关记忆，这里留出 14,000。Source 正文在输入里是转义后的 JSON 字符串，这里按转义后的文本估算；
-/// 50,000 个 token 至多 200,000 个字符，不超过 Source 正文的契约上限。
-pub(crate) const MAX_SOURCE_TOKENS: usize = 50_000;
+/// 一段 Source 的估算 token 上限。Source 正文在 Core 的输入里是转义后的 JSON 字符串，这里按转义后的文本估算；
+/// 50,000 个 token 至多 200,000 个字符，不超过 Source 正文的契约上限。Core 生效的 Atomic Memory 输入上限更小时
+/// 以它为准（见 [`source_token_limit`]）。
+pub const MAX_SOURCE_TOKENS: usize = 50_000;
+/// 段的外层（kind、part、parts、括号与分隔符）占用的估算 token 余量。
+const PART_ENVELOPE_TOKENS: usize = 200;
+
+/// 一段 Source 的估算 token 上限：Core 生效的 Atomic Memory 输入上限与 [`MAX_SOURCE_TOKENS`] 中较小的一个。Core
+/// 没有报告上限时用 [`MAX_SOURCE_TOKENS`]。结果不小于段外层余量的两倍，这样每段总能放进内容。
+pub fn source_token_limit(core_input_tokens: Option<u64>) -> usize {
+    core_input_tokens
+        .map_or(MAX_SOURCE_TOKENS, |limit| {
+            usize::try_from(limit).unwrap_or(MAX_SOURCE_TOKENS)
+        })
+        .clamp(2 * PART_ENVELOPE_TOKENS, MAX_SOURCE_TOKENS)
+}
 /// Core 的字符估算：ASCII 字符 4 个单位，其他字符 16 个单位，每 16 个单位一个 token（与
 /// `character_token_estimator` 一致：ASCII 4 字符一个 token，非 ASCII 1 字符一个 token）。
 const UNITS_PER_TOKEN: usize = 16;
@@ -96,11 +108,12 @@ pub(crate) struct TurnProjection {
 }
 
 /// 响应是回合的终止响应时，返回该回合的规范化记录。响应仍需客户端执行工具、含有无法识别的条目或无法解析时
-/// 返回 `None`：宁可不沉淀，也不把工具循环的中间响应当成回合结束。
+/// 返回 `None`：宁可不沉淀，也不把工具循环的中间响应当成回合结束。`source_tokens` 是一段 Source 的估算 token 上限。
 pub(crate) fn turn_transcript(
     request: &CanonicalRequest,
     response: &str,
     list_key: &str,
+    source_tokens: usize,
 ) -> Option<TurnProjection> {
     let response: Value = serde_json::from_str(response).ok()?;
     let (final_steps, assistant) = if is_responses(list_key) {
@@ -131,17 +144,17 @@ pub(crate) fn turn_transcript(
         assistant,
     };
     Some(TurnProjection {
-        parts: split(&transcript)?,
+        parts: split(&transcript, source_tokens)?,
         coverage: declaration(PROJECTION, &[]),
     })
 }
 
-/// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段，每段的估算规模都不超过 [`MAX_SOURCE_TOKENS`]：每段是
+/// 整条记录放得下时原样返回一段。否则拆成按顺序编号的几段，每段的估算规模都不超过 `source_tokens`：每段是
 /// `{"kind": "gateway_turn", "part": i, "parts": n, "steps": [...]}`，用户文本作为第一段的第一个步骤（`user`），
 /// 助手文本作为最后一段的最后一个步骤；单个步骤放不下时，它最长的文本字段拆成连续的几个同类步骤，后续部分带
 /// `"continued": true`，断点优先落在换行处。
-fn split(transcript: &Transcript) -> Option<Vec<String>> {
-    let budget = MAX_SOURCE_TOKENS * UNITS_PER_TOKEN;
+fn split(transcript: &Transcript, source_tokens: usize) -> Option<Vec<String>> {
+    let budget = source_tokens * UNITS_PER_TOKEN;
     let whole = serde_json::to_string(transcript).ok()?;
     if units(&whole) <= budget {
         return Some(vec![whole]);
@@ -151,8 +164,7 @@ fn split(transcript: &Transcript) -> Option<Vec<String>> {
         entries.push(serde_json::to_value(step).ok()?);
     }
     entries.push(serde_json::json!({"type": "assistant", "text": transcript.assistant}));
-    // 段的外层（kind、part、parts、括号与分隔符）留出余量。
-    let budget = budget - 200 * 16;
+    let budget = budget.saturating_sub(PART_ENVELOPE_TOKENS * UNITS_PER_TOKEN);
     let pieces: Vec<Value> = entries
         .into_iter()
         .flat_map(|entry| fit(entry, budget))
@@ -626,8 +638,13 @@ mod tests {
     #[test]
     fn a_turn_is_recorded_in_full_and_declares_the_complete_projection() {
         let long = "文".repeat(10_000);
-        let projection =
-            turn_transcript(&chat_turn(std::slice::from_ref(&long)), FINAL, "messages").unwrap();
+        let projection = turn_transcript(
+            &chat_turn(std::slice::from_ref(&long)),
+            FINAL,
+            "messages",
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let transcript = single(&projection);
         assert_eq!(transcript["user"], "task");
         assert_eq!(
@@ -645,6 +662,27 @@ mod tests {
     }
 
     #[test]
+    fn a_part_follows_a_lower_core_input_limit() {
+        assert_eq!(source_token_limit(None), MAX_SOURCE_TOKENS);
+        assert_eq!(source_token_limit(Some(64_000)), MAX_SOURCE_TOKENS);
+        assert_eq!(source_token_limit(Some(24_000)), 24_000);
+        let outputs: Vec<String> = (0..4).map(|_| "x".repeat(60_000)).collect();
+        let request = chat_turn(&outputs);
+        // 这个回合约 60,000 个 token：上限 50,000 时两段，上限 24,000 时每段不超过 24,000。
+        let at = |limit| {
+            turn_transcript(&request, FINAL, "messages", source_token_limit(limit))
+                .unwrap()
+                .parts
+        };
+        assert_eq!(at(None).len(), 2);
+        let parts = at(Some(24_000));
+        assert!(parts.len() >= 3);
+        assert!(parts
+            .iter()
+            .all(|part| units(part) <= 24_000 * UNITS_PER_TOKEN));
+    }
+
+    #[test]
     fn an_oversized_turn_is_split_in_order_without_losing_anything() {
         let outputs: Vec<String> = (0..12)
             .map(|i| format!("{i:02}{}", "x".repeat(30_000)))
@@ -655,7 +693,7 @@ mod tests {
         request.messages.push(request.messages[2].clone());
         let huge = "y\n".repeat(MAX_SOURCE_TOKENS * 3);
         request.messages.last_mut().unwrap().content = vec![Value::from(huge.as_str())];
-        let projection = turn_transcript(&request, FINAL, "messages").unwrap();
+        let projection = turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap();
         let count = projection.parts.len();
         assert!(count > 2);
         let mut entries = Vec::new();
@@ -727,7 +765,7 @@ mod tests {
             {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}
         ]})
         .to_string();
-        let projection = turn_transcript(&request, &response, "input").unwrap();
+        let projection = turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS).unwrap();
         let transcript = single(&projection);
         assert_eq!(
             transcript["steps"],
@@ -761,7 +799,9 @@ mod tests {
             item(serde_json::json!({"type": "custom_tool_call", "call_id": "d", "name": "exec", "input": "ls -la"})),
             item(serde_json::json!({"type": "computer_call", "call_id": "e", "action": {"type": "screenshot"}})),
         ]);
-        let transcript = single(&turn_transcript(&request, RESPONSES_FINAL, "input").unwrap());
+        let transcript = single(
+            &turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap(),
+        );
         assert_eq!(
             transcript["steps"],
             serde_json::json!([
@@ -778,7 +818,8 @@ mod tests {
         request.messages[1].tool_calls = Some(vec![
             serde_json::json!({"type": "custom", "id": "x1", "custom": {"name": "exec", "input": "list files"}}),
         ]);
-        let transcript = single(&turn_transcript(&request, FINAL, "messages").unwrap());
+        let transcript =
+            single(&turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap());
         assert_eq!(
             transcript["steps"][0],
             serde_json::json!({"type": "tool_call", "name": "custom",
@@ -797,14 +838,17 @@ mod tests {
         ] {
             let response = format!(r#"{{"output":[{item}]}}"#);
             assert_eq!(
-                turn_transcript(&request, &response, "input"),
+                turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS),
                 None,
                 "{item}"
             );
         }
         let legacy = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "function_call":{"name":"read","arguments":"{}"}}}]}"#;
-        assert_eq!(turn_transcript(&request, legacy, "messages"), None);
+        assert_eq!(
+            turn_transcript(&request, legacy, "messages", MAX_SOURCE_TOKENS),
+            None
+        );
     }
 
     #[test]
@@ -812,10 +856,19 @@ mod tests {
         let request = chat_turn(&[]);
         let calling = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "tool_calls":[{"function":{"name":"read","arguments":"{}"}}]}}]}"#;
-        assert_eq!(turn_transcript(&request, calling, "messages"), None);
-        assert_eq!(turn_transcript(&request, "not json", "messages"), None);
+        assert_eq!(
+            turn_transcript(&request, calling, "messages", MAX_SOURCE_TOKENS),
+            None
+        );
+        assert_eq!(
+            turn_transcript(&request, "not json", "messages", MAX_SOURCE_TOKENS),
+            None
+        );
         let responses_calling =
             r#"{"output":[{"type":"custom_tool_call","name":"exec","input":"ls"}]}"#;
-        assert_eq!(turn_transcript(&request, responses_calling, "input"), None);
+        assert_eq!(
+            turn_transcript(&request, responses_calling, "input", MAX_SOURCE_TOKENS),
+            None
+        );
     }
 }

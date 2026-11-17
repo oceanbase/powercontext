@@ -311,9 +311,9 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
   元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
   沉淀的 Source 完整记录这一回合（投影 `gateway-turn-text.v2`）：字段不截断、步骤不省略，工具调用的全部参数字段、
   工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
-  的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token，连同指令能放进 Server
-  默认的 Atomic Memory 输入（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，64,000）；网关沉淀回合时，
-  该设置应保持默认值或更高。更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
+  的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token；Server 生效的
+  Atomic Memory 输入上限（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，默认 64,000）更低时以它为准。
+  网关在启动时从 Server 读取这个上限，修改后需重启网关。更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
   句柄在最后一段上。某一段沉淀失败时，其后的段不再沉淀。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为

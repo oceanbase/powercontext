@@ -347,9 +347,10 @@ needs both sides:
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
   call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
   reasoning, IDs, and other transport metadata are left out, and binary data becomes a placeholder with its size.
-  Injected memory blocks are not in the Source. A Source holds at most 50,000 tokens by Core's character estimate, so
-  that it fits the Server's default Atomic Memory input (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`,
-  64,000) together with the instructions; keep that setting at its default or higher when the gateway captures turns.
+  Injected memory blocks are not in the Source. A Source holds at most 50,000 tokens by Core's character estimate, or
+  the Server's effective Atomic Memory input limit (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`,
+  default 64,000) when that is lower. The gateway reads the limit from the Server at startup; restart the gateway
+  after changing it.
   A larger turn is captured as consecutive Sources that end at step boundaries. Their metadata `turn` names the turn
   and the part, and the handle is on the last part. If capturing a part fails, the later parts are not captured.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and

@@ -200,6 +200,7 @@ class RuntimeCapabilities(BaseModel):
     """Behavior available from the assembled Source-to-Memory Runtime."""
 
     memory_extraction: bool
+    atomic_memory_input_tokens_limit: int | None = None
     experience_generation: bool = False
     managed_skill_generation: bool = False
     artifact_dreaming: bool = False

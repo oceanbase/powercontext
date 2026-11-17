@@ -100,10 +100,10 @@ step is omitted. Injected prepare content, provider reasoning ciphertext, IDs, s
 are outside the profile, and `data:` binary content becomes a placeholder with its media type and size. Excluding
 them does not itself make this projection partial.
 
-So that Core's normal extraction can process each Source on its own (default input budget 64,000 estimated tokens,
-which also holds the instructions and the comparison input), a turn over 50,000 tokens by Core's character estimate
-(of the escaped text: one token per 4 ASCII characters or per other character) is split, in order, into several
-Sources. Each part is a complete JSON document with `part` and `parts`, and ends at a step boundary. A single step
+A Source holds at most 50,000 tokens by Core's character estimate (of the escaped text: one token per 4 ASCII
+characters or per other character), or Core's effective Atomic Memory input limit when that is lower; Core reports the
+limit as `context_protection.limits.atomic_memory_input_tokens` in its capabilities. A larger turn is split, in order,
+into several Sources. Each part is a complete JSON document with `part` and `parts`, and ends at a step boundary. A single step
 that does not fit has its longest text field split into consecutive steps of the same type, cut at a line break
 unless one line alone does not fit, and the later pieces carry `"continued": true`. Splitting loses nothing, so every
 part declares `complete`. Parts are captured in order, and none is captured after one that fails. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal

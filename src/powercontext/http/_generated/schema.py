@@ -11147,6 +11147,41 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "dependencies": {"type": "integer", "minimum": 1.0},
                     "send_seconds": {"type": "integer", "minimum": 1.0},
                     "correlate_seconds": {"type": "integer", "minimum": 1.0},
+                    "atomic_memory_input_tokens": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "effective "
+                        "estimated-token "
+                        "limit "
+                        "of "
+                        "one "
+                        "Atomic "
+                        "Memory "
+                        "model "
+                        "input, "
+                        "including "
+                        "a "
+                        "deployment "
+                        "override. "
+                        "A "
+                        "gateway "
+                        "sizes "
+                        "each "
+                        "captured "
+                        "Source "
+                        "against "
+                        "it. "
+                        "Absent "
+                        "when "
+                        "the "
+                        "runtime "
+                        "does "
+                        "not "
+                        "report "
+                        "the "
+                        "limit.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

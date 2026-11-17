@@ -93,9 +93,9 @@ Gateway 新写入的 Source 使用 `gateway-turn-text.v2`。它保留这一回�
 字段不截断，步骤不省略。注入的 prepare、推理密文、ID、状态和其他传输元数据不在 profile 内；`data:` 二进制内容记为带
 媒体类型和字节数的占位文本。排除这些内容本身不使投影变为 partial。
 
-为使每段 Source 都能被 Core 的普通抽取单独处理（默认输入预算 64,000 个估算 token，其中还要放指令和对账输入），
-一个回合按 Core 的字符估算（转义后的文本，ASCII 每 4 个字符、其他每个字符各一个 token）超过 50,000 个 token 时，
-按顺序拆成几段 Source，每段都是完整的 JSON 文档，带 `part` 与 `parts`，并在步骤边界结束；单个步骤放不下时，其最长的
+一段 Source 按 Core 的字符估算（转义后的文本，ASCII 每 4 个字符、其他每个字符各一个 token）最多 50,000 个 token；
+Core 生效的 Atomic Memory 输入上限更低时以它为准，Core 在能力信息的
+`context_protection.limits.atomic_memory_input_tokens` 中报告这个上限。更大的回合按顺序拆成几段 Source，每段都是完整的 JSON 文档，带 `part` 与 `parts`，并在步骤边界结束；单个步骤放不下时，其最长的
 文本字段拆成连续的同类步骤，断点落在换行处（一行自身放不下时除外），后续部分带 `"continued": true`。拆分不丢失内容，
 每段的声明都是 `complete`。各段按顺序沉淀，某一段失败后不再沉淀其后的段。各段元数据中的 `turn` 给出所属回合的 `source_id` 与段号。终止响应的判定与 v1 相同。
 
