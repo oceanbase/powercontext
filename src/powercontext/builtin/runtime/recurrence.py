@@ -134,10 +134,12 @@ class RelationalRecurrenceLedger:
         """Return the read-only effectiveness projection of one ledger bucket.
 
         The database aggregates the event counts of
-        ``(scope_id, artifact_ref, signature_key)``, so the reading stays
-        constant in the bucket's size instead of decoding every row. This
-        method appends nothing, caches nothing, and never consults the current
-        head, so the same ledger always yields the same reading.
+        ``(scope_id, artifact_ref, signature_key)``, so the reading transfers at
+        most three rows and decodes no event. The aggregate still visits the
+        bucket's matching rows, so its cost grows with the bucket rather than
+        staying constant. This method appends nothing, caches nothing, and never
+        consults the current head, so the same ledger always yields the same
+        reading.
         """
 
         selected, recurred, avoided = await self.recurrence.event_counts_for_target(

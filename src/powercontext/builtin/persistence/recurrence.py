@@ -235,10 +235,12 @@ class RecurrenceRepository:
     ) -> tuple[int, int, int]:
         """Return the ``(selected, recurred, avoided)`` event counts of one bucket.
 
-        The database does the counting, so one projection read stays constant
-        in the bucket's row count instead of decoding every append-only row.
-        The signature key must already be normalized, exactly like the recorded
-        events it is compared against.
+        The database aggregates the bucket, so a projection read transfers at
+        most three rows and decodes no event. The aggregate still visits the
+        bucket's matching rows, so its work grows with the bucket; what stays
+        bounded is the result size and the Python-side work. The signature key
+        must already be normalized, exactly like the recorded events it is
+        compared against.
         """
 
         scope = validate_scope_id(scope_id)
