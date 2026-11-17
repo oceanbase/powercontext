@@ -24,12 +24,18 @@ examples are in `examples/source_plugins/` in the repository.
 | List runners and their capabilities (`pc_source_runners`) | Authenticated |
 | Read a Scope's targets and status (`pc_source_status`) | `scope.read` on the Scope |
 | Register a runner | Authenticated |
-| Add, change, disable, or delete targets of a device runner | `scope.contribute` on the Scope |
+| Add a target to a device runner, change its parameters, or enable it again | `scope.contribute` on the Scope, and being the principal that registered the runner or having `server.admin` |
+| Disable or delete a target of a device runner | `scope.contribute` on the Scope |
 | Add, change, disable, or delete targets of the `server` runner | `server.admin` |
-| Transfer a target to another runner (`pc_source_target_transfer`) | As for adding it to the destination runner; `server.admin` when either runner is `server` |
+| Transfer a target to another runner (`pc_source_target_transfer`) | As for adding it to the destination runner; `server.admin` when the source runner is `server` |
 | Sync a device runner and submit Sources and checkpoints | The subject that registered the runner, and `scope.contribute` on the target Scope |
 | Change a runner's display name | `server.admin` |
 | Delete a runner record | The subject that registered it, or `server.admin` |
+
+A device runner collects with its device's credential, network position, and local files, so the principal that
+registered it decides what it collects: a user with only write permission on a Scope cannot assign targets to another
+user's device, but can disable or delete targets that write into their Scope. A runner shared by a team gets its targets
+from the account that runs it or from `server.admin`.
 
 The `server` runner reaches external systems with credentials from the Server environment, so deciding what it collects
 is an operator decision and requires `server.admin`. Plugins read their own credentials for external systems (for

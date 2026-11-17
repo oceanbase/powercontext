@@ -343,15 +343,28 @@ class SourceCollectionRepository:
                 409, "conflict", "The runner was changed concurrently; read it again and retry."
             )
 
-    async def require_registered(self, connection: AsyncConnection, runner: str) -> None:
-        """Targets go only to runners that exist; the Server's own runner always does."""
+    async def require_registered(
+        self, connection: AsyncConnection, runner: str, owner: RunnerPrincipal | None = None
+    ) -> None:
+        """Targets go only to runners that exist; the Server's own runner always does.
+
+        ``owner`` is the principal the caller was authorized as the runner's owner; the runner must
+        still be registered to it when the target is assigned.
+        """
 
         if runner == SERVER_RUNNER:
             return
         # Held until commit, so the runner is not deleted while a target is assigned to it.
         await self.lock_runner(connection, runner)
-        if await self.runner(connection, runner) is None:
+        found = await self.runner(connection, runner)
+        if found is None:
             raise SourceCollectionError(422, "runner_not_registered", "The runner is not registered.")
+        if owner is not None and found.principal != owner:
+            raise SourceCollectionError(
+                403,
+                "access_denied",
+                "Only the principal that registered a runner, or an administrator, assigns it targets.",
+            )
 
     async def target(self, connection: AsyncConnection, scope_id: str, target_id: str) -> Target | None:
         row = (
@@ -379,10 +392,11 @@ class SourceCollectionRepository:
         target_key: str,
         parameters: Mapping[str, JsonValue],
         actor: str,
+        owner: RunnerPrincipal | None = None,
     ) -> tuple[Target, bool]:
         """Add a target, or return the existing one with the same key; True when it was created."""
 
-        await self.require_registered(connection, runner)
+        await self.require_registered(connection, runner, owner)
         same_key = and_(
             _TARGETS.c.scope_id == scope_id,
             _TARGETS.c.runner == runner,
@@ -449,11 +463,18 @@ class SourceCollectionRepository:
         return updated
 
     async def transfer_target(
-        self, connection: AsyncConnection, target: Target, runner: str, *, reset_checkpoint: bool, actor: str
+        self,
+        connection: AsyncConnection,
+        target: Target,
+        runner: str,
+        *,
+        reset_checkpoint: bool,
+        actor: str,
+        owner: RunnerPrincipal | None = None,
     ) -> Target:
         """Assign the target to another registered runner; it keeps its ID and, unless reset, its checkpoint."""
 
-        await self.require_registered(connection, runner)
+        await self.require_registered(connection, runner, owner)
         if runner != target.runner:
             taken = (
                 await connection.execute(

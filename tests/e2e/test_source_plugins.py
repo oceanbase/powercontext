@@ -415,6 +415,30 @@ def test_runner_registration_ownership_and_target_fencing(tmp_path):
             assert twin.status_code == 201, twin.text
             clash = await robot.post(f"{base}/{target_id}/transfer", json={"runner": "robot-8"})
             assert (clash.status_code, clash.json()["error"]["code"]) == (409, "target_conflict")
+
+            # What a device runner collects is decided by the principal that registered it, or an administrator:
+            # write permission on the Scope alone does not put work on another principal's device.
+            twin_id = twin.json()["target_id"]
+            elsewhere = {**target, "runner": "robot-8", "parameters": {"file": "/etc/hostname"}}
+            intruded = await other.post(base, json=elsewhere)
+            assert intruded.status_code == 403, intruded.text
+            for change in ({"parameters": {"file": str(chats), "namespace": "theirs"}}, {"enabled": True}):
+                assert (await other.patch(f"{base}/{twin_id}", json=change)).status_code == 403
+            assert (await robot.post(f"{base}/{twin_id}/transfer", json={"runner": "edge-box-2"})).status_code == 403
+            assert (await targets(admin, scope))[twin_id]["parameters"] == {"file": str(chats)}
+            # Stopping a collection into the Scope takes only write permission there; starting it again does not.
+            stopped = await other.patch(f"{base}/{twin_id}", json={"enabled": False})
+            assert stopped.status_code == 200 and stopped.json()["enabled"] is False
+            assert (await other.patch(f"{base}/{twin_id}", json={"enabled": True})).status_code == 403
+            assert (await robot.patch(f"{base}/{twin_id}", json={"enabled": True})).json()["enabled"] is True
+            # A principal takes a target onto its own runner, and an administrator assigns to any runner.
+            taken = await other.post(f"{base}/{twin_id}/transfer", json={"runner": "edge-box-2"})
+            assert (taken.status_code, taken.json()["runner"]) == (200, "edge-box-2")
+            returned = await admin.post(f"{base}/{twin_id}/transfer", json={"runner": "robot-8"})
+            assert (returned.status_code, returned.json()["runner"]) == (200, "robot-8")
+            assigned = await admin.post(base, json=elsewhere)
+            assert assigned.status_code == 201, assigned.text
+            assert (await other.delete(f"{base}/{assigned.json()['target_id']}")).status_code == 204
             # Moving a target away from the Server's runner needs what changing it there needs.
             tickets = tmp_path / "tickets.json"
             tickets.write_text("[]")

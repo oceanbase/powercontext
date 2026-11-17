@@ -23,14 +23,17 @@ Source 插件与 Artifact 插件放在同一个插件目录中（`POWERCONTEXT_S
 | 列出 runner 和它们的能力（`pc_source_runners`） | 已登录 |
 | 查看 Scope 的目标与状态（`pc_source_status`） | 该 Scope 的 `scope.read` |
 | 注册 runner | 已登录 |
-| 给设备 runner 新增、修改、停用、删除目标 | 该 Scope 的 `scope.contribute` |
+| 给设备 runner 新增目标、修改参数、重新启用目标 | 该 Scope 的 `scope.contribute`，并且是注册这台 runner 的主体或具备 `server.admin` |
+| 停用、删除设备 runner 的目标 | 该 Scope 的 `scope.contribute` |
 | 给 `server` runner 新增、修改、停用、删除目标 | `server.admin` |
-| 把目标转移给另一台 runner（`pc_source_target_transfer`） | 与在目的 runner 上新增相同；原 runner 或目的 runner 是 `server` 时需要 `server.admin` |
+| 把目标转移给另一台 runner（`pc_source_target_transfer`） | 与在目的 runner 上新增相同；原 runner 是 `server` 时需要 `server.admin` |
 | 设备 runner 同步、提交 Source 和 checkpoint | 注册这台 runner 的主体，以及目标 Scope 的 `scope.contribute` |
 | 修改 runner 的显示名 | `server.admin` |
 | 删除 runner 记录 | 注册它的主体，或 `server.admin` |
 
-`server` runner 用 Server 环境中的凭据访问外部系统，决定它采集什么等同于运维决定，所以需要 `server.admin`。插件访问
+设备 runner 用设备的凭据、网络位置和本机文件采集，所以让它采集什么由注册它的主体决定：只有某个 Scope 写权限的用户
+不能给别人的设备分配目标，但可以停用或删除写入自己 Scope 的目标。团队共用的 runner 由运行它的账号或 `server.admin`
+分配目标。`server` runner 用 Server 环境中的凭据访问外部系统，决定它采集什么等同于运维决定，所以需要 `server.admin`。插件访问
 外部系统的凭据由插件自己读取（例如环境变量），不替代 PowerContext 的权限。
 
 ## 只提供 Source 类型

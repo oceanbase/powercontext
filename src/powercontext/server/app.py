@@ -4155,6 +4155,28 @@ async def _own_runner(connection: Any, repository: Any, runner: str) -> Any:
     return record
 
 
+async def _runner_assigner(http_request: Request, runner: str, operation: str) -> Any:
+    """Authorize deciding what a runner collects; the principal the runner must still belong to at the write.
+
+    A device runner collects with its device's credential, network position, and files, so only the
+    principal that registered it, or an administrator, gives it work. The Server's runner is an
+    operator's. None means an administrator decided, for whichever principal the runner belongs to.
+    """
+
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    if runner == SERVER_RUNNER:
+        await _require_server_admin(http_request, operation)
+        return None
+    caller = _runner_principal()
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        record = await SourceCollectionRepository().runner(connection, runner)
+    if record is not None and record.principal != caller:
+        await _require_server_admin(http_request, operation)
+        return None
+    return caller
+
+
 async def _require_server_admin(http_request: Request, operation: str) -> None:
     access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
     if access is None:
@@ -4384,9 +4406,7 @@ async def create_source_target(
 ) -> SourceTarget:
     from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
 
-    if request.runner == SERVER_RUNNER:
-        # The Server's runner collects with the Server's credentials: choosing what it collects is an operator decision.
-        await _require_server_admin(http_request, PC_SOURCE_ADD.operation_id)
+    owner = await _runner_assigner(http_request, request.runner, PC_SOURCE_ADD.operation_id)
     manager = _require_plugin_manager(http_request)
     key = _target_key(manager, request.capability, request.parameters)
     found = manager.source_plugin(request.capability)
@@ -4401,6 +4421,7 @@ async def create_source_target(
             target_key=key,
             parameters=request.parameters,
             actor=_caller_id(),
+            owner=owner,
         )
     if not created:
         response.status_code = 200
@@ -4441,6 +4462,9 @@ async def update_source_target(
 
     target = await _managed_target(http_request, scope_id, target_id, PC_SOURCE_TARGET_SET_ENABLED.operation_id)
     manager = _require_plugin_manager(http_request)
+    if request.parameters is not None or request.enabled:
+        # New parameters and enabling give the runner work, like a new target; disabling does not.
+        await _runner_assigner(http_request, target.runner, PC_SOURCE_TARGET_SET_ENABLED.operation_id)
     if (
         request.parameters is not None
         and _target_key(manager, target.capability, request.parameters) != target.target_key
@@ -4479,12 +4503,16 @@ async def transfer_source_target(
     # Moving a target away from the Server's runner needs what changing it there needs.
     target = await _managed_target(http_request, scope_id, target_id, operation)
     manager = _require_plugin_manager(http_request)
-    if request.runner == SERVER_RUNNER:
-        # Transferring a target is adding it to the destination runner.
-        await _require_server_admin(http_request, operation)
+    # Transferring a target is adding it to the destination runner.
+    owner = await _runner_assigner(http_request, request.runner, operation)
     async with manager.database.transaction() as connection:
         transferred = await SourceCollectionRepository().transfer_target(
-            connection, target, request.runner, reset_checkpoint=bool(request.reset_checkpoint), actor=_caller_id()
+            connection,
+            target,
+            request.runner,
+            reset_checkpoint=bool(request.reset_checkpoint),
+            actor=_caller_id(),
+            owner=owner,
         )
     if request.runner == SERVER_RUNNER:
         await manager.request_collection(transferred.capability, scope_id)
