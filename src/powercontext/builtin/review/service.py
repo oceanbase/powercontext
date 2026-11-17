@@ -53,7 +53,7 @@ from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptR
 from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent, TopicMemoryDraft
-from powercontext.builtin.evidence.models import EvidenceResolutionError
+from powercontext.builtin.evidence.models import EvidenceResolutionError, QualifiedOrigin
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
@@ -169,6 +169,7 @@ class ReviewService:
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
         audit: CandidateAudit | None = None,
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> Candidate[ExperienceContent]:
         """Persist one Experience proposal.
 
@@ -187,6 +188,7 @@ class ReviewService:
             candidate_id=candidate_id,
             on_commit=on_commit,
             audit=audit,
+            foreign=foreign,
         )
         return _experience_candidate(candidate)
 
@@ -355,6 +357,7 @@ class ReviewService:
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
         audit: CandidateAudit | None = None,
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> ReviewedCandidate:
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
@@ -371,6 +374,7 @@ class ReviewService:
                 candidate_id=candidate_id,
                 on_commit=on_commit,
                 audit=audit,
+                foreign=foreign,
             )
         return _reviewed_candidate(candidate)
 
@@ -388,6 +392,7 @@ class ReviewService:
         candidate_id: str | None = None,
         on_commit: CandidateCommitHook | None = None,
         audit: CandidateAudit | None = None,
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> ReviewedCandidate:
         candidate = await self._prepare_proposal(
             connection,
@@ -399,6 +404,7 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
             audit=audit,
+            foreign=foreign,
         )
         candidate = (await self._candidates.create_many(connection, self._scope_id, (candidate,)))[0]
         if on_commit is not None:
@@ -417,6 +423,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         audit: CandidateAudit | None = None,
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> Candidate[Any]:
         _validate_reason(reason)
         artifacts = _unique_artifacts(artifacts)
@@ -427,6 +434,7 @@ class ReviewService:
             proposal=proposal,
             target=target,
             dream_skill_target=candidate_id is not None and candidate_id.startswith("cand_dream_"),
+            foreign=foreign,
         )
         await self._validate_handoff_objective(connection, proposal, target)
         await self._validate_target(connection, family, target, artifacts)
@@ -1113,6 +1121,7 @@ class ReviewService:
         proposal: ReviewedProposal | None = None,
         target: ArtifactRef | None = None,
         dream_skill_target: bool = False,
+        foreign: tuple[QualifiedOrigin, ...] = (),
     ) -> tuple[SourceRef, ...]:
         supporting_artifacts = tuple(
             ref
@@ -1124,7 +1133,9 @@ class ReviewService:
                 | ({"skill"} if dream_skill_target else set())
             )
         )
-        if not sources and not any(artifact.family != "prompt" for artifact in supporting_artifacts):
+        if not sources and not any(artifact.family != "prompt" for artifact in supporting_artifacts) and not foreign:
+            # Trusted foreign support counts as an exact reference; it was validated in its
+            # owning Scope below, so a foreign-only proposal is not weaker than a local one.
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
@@ -1134,6 +1145,7 @@ class ReviewService:
             await self._artifacts.get_many(connection, self._scope_id, artifacts)
         except RepositoryNotFoundError as error:
             raise InvalidCandidateError("evidence", "reference is not available in this scope") from error
+        await self._validate_foreign(connection, foreign)
         if self._evidence is not None:
             roots = await self._evidence.validate(
                 connection,
@@ -1161,6 +1173,30 @@ class ReviewService:
                 "failure records require a cited failed Task Outcome with verified exact evidence",
             )
         return sources
+
+    async def _validate_foreign(self, connection: AsyncConnection, foreign: tuple[QualifiedOrigin, ...], /) -> None:
+        """Verify trusted foreign support in the Scope that owns it, by exact digest.
+
+        These come from the server-side selection of a pinned shared run, never from a
+        caller. Each reference is read at its own origin, so a same-identity local decoy in
+        the target Scope can neither satisfy nor mask it. A missing or moved origin refuses
+        the proposal rather than weakening the ordinary evidence checks.
+        """
+
+        if not foreign:
+            return
+        if self._evidence is None:
+            raise InvalidCandidateError("evidence", "foreign support requires an evidence resolver")
+        for origin in foreign:
+            if not origin.scope_id:
+                raise InvalidCandidateError("evidence", "foreign support must name its owning Scope")
+        try:
+            # The resolver already reads each qualified input in the Scope that owns it and
+            # compares the recorded digest, so this reuses the one authoritative path
+            # instead of a second reader.
+            await self._evidence.validate_qualified(connection, foreign)
+        except EvidenceResolutionError as error:
+            raise InvalidCandidateError("evidence", "foreign support is no longer available") from error
 
     async def _validate_handoff_objective(
         self, connection: AsyncConnection, proposal: object, target: ArtifactRef | None

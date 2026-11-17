@@ -702,6 +702,9 @@ class DreamService:
             skill=record.run.operation == "derive_skill",
             target=_resolve_references(record.request)[1],
             catalog=record.run.operation == "revise_tags",
+            # The run's own Scope decides what is local, so a foreign node never occupies a
+            # bare local slot even when it appears first in the manifest.
+            scope_id=record.run.scope_id,
         )
         if isinstance(plan.proposal, TagChangeProposal) and record.request.tag_target is not None:
             service = self._catalog(record.run.scope_id, connection)
@@ -739,6 +742,9 @@ class DreamService:
                 candidate_id=_candidate_id(record),
                 # Written in this transaction with the proposal version.
                 audit=shared_audit,
+                # Foreign support is validated in its owning Scope by the review boundary,
+                # so it can never be satisfied by a same-identity local reference.
+                foreign=selected.foreign,
             )
         elif isinstance(plan.proposal, SkillContent):
             if record.run.operation == "derive_skill":
@@ -862,6 +868,12 @@ class DreamService:
                         ref.candidate_id, current=True
                     )
                 audit = candidate.audit
+                if audit is not None and not _same_proposal_origin(audit, record):
+                    # Reuse never crosses the sharing boundary in either direction: an
+                    # ordinary run cannot adopt a shared proposal (whose support is a pin),
+                    # and a shared run cannot adopt an ordinary one. Same-key replay is
+                    # answered earlier by the idempotency key and is unaffected.
+                    continue
                 if (
                     audit is None
                     or audit.proposal_fingerprint != record.proposal_fingerprint
@@ -962,6 +974,19 @@ class DreamService:
 
 def _candidate_id(record: DreamRecord) -> str:
     return "cand_dream_" + record.run.run_id
+
+
+def _same_proposal_origin(audit, record: DreamRecord, /) -> bool:
+    """Whether a prior proposal came from the same sharing origin as this run.
+
+    A shared proposal stands on one exact pin. Reusing it for a different run or pin would
+    let that run inherit support it never admitted, and reusing an ordinary proposal for a
+    shared run would bypass the pin entirely.
+    """
+
+    if record.share_snapshot_id is None:
+        return audit.share_snapshot_id is None
+    return audit.share_snapshot_id == record.share_snapshot_id
 
 
 def _candidate_matches_evidence(

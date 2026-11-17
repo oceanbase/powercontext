@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pydantic import BaseModel
 
 from powercontext.artifacts import ArtifactRef
@@ -41,11 +43,22 @@ SUPPORTING_ARTIFACT_KINDS = frozenset({
 
 
 class SelectedEvidence(BaseModel):
+    """What one proposal cites, split by the Scope that owns it.
+
+    ``sources`` and ``artifacts`` are the local bare slots the existing Family write expects,
+    and they only ever hold references owned by the run's own Scope. Support that came from
+    another Scope travels in ``foreign`` with its owning Scope attached, so a bare reference
+    is never silently resolved in the target Scope — which would either refuse real foreign
+    input or accept a same-identity local decoy.
+    """
+
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
     # What the review must bind: exact origins for the cited support, including the
     # reachable root dependencies and adopted Artifact paths. Never all admitted input.
     adopted: tuple[QualifiedOrigin, ...] = ()
+    # The adopted support whose owning Scope is not the run's Scope.
+    foreign: tuple[QualifiedOrigin, ...] = ()
 
 
 def select_evidence(
@@ -55,6 +68,7 @@ def select_evidence(
     skill: bool,
     target: ArtifactRef | None,
     catalog: bool = False,
+    scope_id: str | None = None,
 ) -> SelectedEvidence:
     nodes = {node.evidence_id: node for node in manifest.nodes}
     for node_id in used:
@@ -72,16 +86,20 @@ def select_evidence(
         if nodes[node_id].role != "target" and _reachable(node_id, manifest) & chosen:
             chosen.add(node_id)
     dependencies = set().union(*(_reachable(node_id, manifest) for node_id in chosen))
+    # Local identity is the node's own owning Scope, never "the reference exists here".
+    # The run's Scope is authoritative when supplied; inference is only a v1 fallback and
+    # never picks a foreign node to stand in for the target Scope.
+    local_scope = scope_id if scope_id is not None else manifest_scope(manifest, nodes)
     sources = tuple(
         node.source
         for key, node in nodes.items()
-        if key in dependencies and node.role == "root" and node.source is not None
+        if key in dependencies and node.role == "root" and node.source is not None and _owns(node, local_scope)
     )
     artifact_kinds = SUPPORTING_ARTIFACT_KINDS if catalog else frozenset({"experience", "memory"})
     artifacts = tuple(
         node.artifact
         for key, node in nodes.items()
-        if key in chosen and node.kind in artifact_kinds and node.artifact is not None
+        if key in chosen and node.kind in artifact_kinds and node.artifact is not None and _owns(node, local_scope)
     )
     if isinstance(target, ArtifactRef):
         artifacts = unique_references((*artifacts, target))
@@ -102,7 +120,28 @@ def select_evidence(
         for key in sorted(chosen | dependencies)
         if _adoptable(nodes[key])
     )
-    return SelectedEvidence(sources=sources, artifacts=artifacts, adopted=adopted)
+    foreign = tuple(origin for origin in adopted if origin.scope_id != local_scope)
+    return SelectedEvidence(sources=sources, artifacts=artifacts, adopted=adopted, foreign=foreign)
+
+
+def manifest_scope(manifest: EvidenceManifest, nodes: Mapping[str, EvidenceNode], /) -> str:
+    """The Scope a manifest was resolved for, taken from its own nodes.
+
+    Selection never re-derives the target Scope from a bare reference; every v2 node states
+    its owning Scope, and a v1 manifest is unqualified by construction.
+    """
+
+    for node in nodes.values():
+        if node.origin_scope_id is not None:
+            return node.origin_scope_id
+    else:
+        return ""
+
+
+def _owns(node: EvidenceNode, scope_id: str, /) -> bool:
+    """Whether this node is owned by the given Scope (v1 nodes carry no Scope)."""
+
+    return node.origin_scope_id is None or node.origin_scope_id == scope_id
 
 
 def _adoptable(node: EvidenceNode) -> bool:

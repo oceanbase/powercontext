@@ -104,7 +104,15 @@ class Candidate(BaseModel, Generic[ProposalT]):
 
     @model_validator(mode="after")
     def validate_evidence(self):
-        if not self.sources and not self.artifacts:
+        # A shared proposal stands on its exact adopted origins, which may all be owned by
+        # another Scope and therefore absent from the bare local slots. Its audit is the
+        # evidence of record; an ordinary Candidate still requires a local reference.
+        shared = self.audit is not None and self.audit.share_snapshot_id is not None
+        if (
+            not self.sources
+            and not self.artifacts
+            and not (shared and self.audit is not None and self.audit.adopted_origins)
+        ):
             raise ValueError("Candidate evidence must include a Source or Artifact reference")  # noqa: TRY003
         if len(self.sources) + len(self.artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise ValueError(f"Candidate evidence must not exceed {MAX_CANDIDATE_EVIDENCE} references")  # noqa: TRY003

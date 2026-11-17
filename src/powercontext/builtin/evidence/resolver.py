@@ -157,6 +157,16 @@ class EvidenceResolver:
         if node.digest != selection.digest:
             raise EvidenceResolutionError("evidence_changed")
 
+    async def validate_qualified(self, connection: AsyncConnection, selections: tuple[QualifiedOrigin, ...]) -> None:
+        """Verify trusted qualified inputs in the Scope that owns each one.
+
+        This is the one authoritative reader for qualified material, used both by generation
+        and by the review boundary that binds a proposal's adopted support.
+        """
+
+        for selection in selections:
+            await self._validate_qualified(connection, selection)
+
     async def _validate_qualified(self, connection: AsyncConnection, selection: QualifiedOrigin) -> None:
         """Read one qualified input in its owning Scope and verify the recorded digest."""
 
