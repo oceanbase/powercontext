@@ -117,6 +117,14 @@ A real-model run used PowerContext Server 0.1.dev1 (HTTP + SQLite), `deepagents`
 - `auto_capture=True` added one Source for the completed turn;
 - a later turn in the same Scope recalled the rule again.
 
-The Server ran without generation or embedding models configured, so automatic Source-to-Memory extraction and
-semantic ranking were not exercised; recall used the Server's lexical retrieval. A real model with streaming,
-interrupt/resume with a real model, JavaScript, and Managed Deep Agents remain uncovered.
+Streaming and interrupt/resume were also exercised with that real model: `astream` delivered 17 chunks and stored one
+Source, and an `interrupt_on` run paused before the tool, then stored exactly one Source after
+`Command(resume={"decisions": [{"type": "approve"}]})`.
+
+Automatic Source-to-Memory extraction was configured against local models but did not produce Memory: Qwen2.5-0.5B
+returned a structured result the Server rejected (`InvalidInferenceOutputError`) and Qwen3-0.6B returned an empty
+candidate list. Extraction needs a generation model that reliably follows the extraction schema, and semantic ranking
+needs an embedding model; neither was available here, so both paths stay unvalidated.
+
+JavaScript and Managed Deep Agents were not exercised: the JavaScript `deepagents` package exists (1.16.5) but
+PowerContext ships no JavaScript adapter, and Managed Deep Agents is a hosted LangSmith deployment.

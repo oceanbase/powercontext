@@ -111,5 +111,12 @@ result = await agent.ainvoke(
 - `auto_capture=True` 为该轮新增了一个 Source；
 - 同一 Scope 下的后续轮次再次召回了该规则。
 
-Server 未配置生成与 embedding 模型，因此未验证自动的 Source 到 Memory 提取与语义排序，召回走的是 Server 的词法
-检索。真实模型下的流式、真实模型下的中断/恢复、JavaScript 与 Managed Deep Agents 仍未覆盖。
+流式与中断/恢复也用同一真实模型验证：`astream` 产出 17 个 chunk 并写入 1 个 Source；`interrupt_on` 的运行在工具
+执行前暂停，`Command(resume={"decisions": [{"type": "approve"}]})` 之后恰好写入 1 个 Source。
+
+自动的 Source 到 Memory 提取配置了本地模型但未能产出 Memory：Qwen2.5-0.5B 的结构化结果被 Server 拒绝
+（`InvalidInferenceOutputError`），Qwen3-0.6B 返回了空的候选列表。提取需要能稳定遵循提取 schema 的生成模型，语义
+排序还需要 embedding 模型，本环境两者都不具备，因此这两条路径仍未验证。
+
+JavaScript 与 Managed Deep Agents 未验证：JavaScript 的 `deepagents` 包存在（1.16.5），但 PowerContext 没有
+JavaScript 适配层；Managed Deep Agents 是 LangSmith 的托管部署。
