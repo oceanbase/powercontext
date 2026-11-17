@@ -55,9 +55,9 @@ in its processing path.
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
 | Topic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
-| Experience | Partial | N/A | Partial | Partial | Missing | Partial |
-| Profile | Partial | N/A | Partial | Partial | Missing | Partial |
-| Skill | Partial | N/A | Partial | Partial | Missing | Partial |
+| Experience | Partial | N/A | Partial | Partial | Partial | Partial |
+| Profile | Partial | N/A | Partial | Partial | Partial | Partial |
+| Skill | Partial | N/A | Partial | Partial | Partial | Partial |
 | Handoff | Partial | N/A | Partial | Partial | Partial | Partial |
 | Prompt | Partial | N/A | Partial | Partial | Partial | N/A |
 
@@ -94,7 +94,9 @@ Experience, Profile, and Skill operation-level coverage:
 | `profile.generate` | Business validation | Partial | Invalid Markdown carries the input count and original validation exception type without exposing the content. |
 | Experience / Skill typed generation | Output parsing | Partial | Invalid typed results use the shared schema mapping; unclassified provider details remain unknown. |
 | Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity. Evidence limits, unavailable evidence, and rejected request targets carry `business_validation` and their failure location. |
-| Publication / persistence | Persistence | Missing | These slices do not yet classify all storage entry points. |
+| `experience.create` / `experience.replace`, `profile.create` / `profile.replace`, `skill.create` / `skill.replace` | Business validation / persistence | Partial | Scoped registry writes distinguish malformed content, concurrency rejections, and database driver errors. |
+| `experience.approve` / `profile.approve` / `skill.approve` | Business validation / persistence | Partial | Candidate approval reports final rejections after retry recovery. Stale targets and terminal Candidate decisions retain their domain outcomes. |
+| `profile.commit_generated`, `experience.publish`, `skill.publish` | Persistence | Partial | Generated Profile writes and cross-Scope delivery report driver failures, including transaction exit failures. Profile cross-Scope publication is N/A. Host Skill deployment and unrelated storage entry points are outside this coverage. |
 | Usage accounting | Usage accounting | Partial | Model usage paths that use the shared reporter and recorder are classified. |
 
 Handoff and Prompt operation-level coverage:
