@@ -1248,7 +1248,7 @@ class ScopedContextApplication:
                 if self._runtime._recall_effort_sink is not None:
                     await self._runtime._recall_effort_sink(effort)
                 elif self._runtime._statistics_service is not None:
-                    await self._runtime._statistics(self.scope_id).record_recall_effort(
+                    self._runtime._statistics(self.scope_id).offer_recall_effort(
                         effort,
                         self._runtime._clock().astimezone(UTC).date(),
                     )
@@ -1282,8 +1282,10 @@ class ScopedContextApplication:
                     },
                 )
             else:
-                if measurement is not None:
-                    await self._runtime.statistics.for_scope(self.scope_id).record_recall(measurement)
+                if measurement is not None and self._runtime._statistics_service is not None:
+                    self._runtime._statistics(self.scope_id).offer_recall(
+                        measurement, self._runtime._clock().astimezone(UTC).date()
+                    )
         return await self._prepared_result(request, build, binding_identity, evidence)
 
     async def _prepared_result(

@@ -402,6 +402,18 @@ describe('registered automatic path', () => {
       `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${TEXT}`)
   })
 
+  it('returns prepared memory before a pending Source write completes', async () => {
+    const { promise, resolve } = Promise.withResolvers<Response>()
+    const h = await fixture((path) => path === CAPTURE ? promise : successfulRequest(path), { flushOnCapture: false })
+    try {
+      const result = await h.run()
+      expect(messageInSection(result.messages, 'PowerContext').content[0].text).toContain(TEXT)
+      expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, PREPARE, CAPTURE])
+    } finally {
+      resolve(successfulRequest(CAPTURE))
+    }
+  })
+
   it.each([
     { kind: 'runtime-context', form: 'snapshot' },
     { kind: 'runtime-context' },

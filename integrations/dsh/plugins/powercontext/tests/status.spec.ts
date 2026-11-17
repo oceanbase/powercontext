@@ -165,7 +165,7 @@ describe('registered /pc automatic status', () => {
 
   it('reports capture request timeouts as unconfirmed writes while preserving successful preparation', async () => {
     const h = await fixture((path, init) => path === CAPTURE ? waitForAbort(init.signal!) : success(path),
-      { requestTimeoutMs: 20 })
+      { requestTimeoutMs: 20, flushOnCapture: true })
     await h.run()
     expect((await h.status()).automatic.stages).toMatchObject({
       capture: { state: 'unavailable', code: 'request_timeout', confirmation: 'unconfirmed' },

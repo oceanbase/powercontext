@@ -1553,6 +1553,7 @@ def test_default_recorder_persists_real_expansions_and_isolates_caller_scopes(tm
             assert other.status == "ready"
             assert await _revision_state(runtime, first) == before
 
+            await runtime._statistics(first).flush_model_usage()
             rows = await _effort_rows(runtime)
             assert len(rows) == 2
             measurement = recall_effort_measurement(effort).model_dump()
@@ -1615,12 +1616,13 @@ def test_default_recorder_failure_rolls_back_and_preserves_preparation(tmp_path,
             assert after_build.origins == expected.origins
             assert after_build.omissions == expected.omissions
             assert await _revision_state(runtime, scope_id) == before
+            await runtime._statistics(scope_id).flush_model_usage()
             assert await _effort_rows(runtime) == []
 
     asyncio.run(scenario())
     assert attempts == 1  # Failed accounting is not retried on the request path.
     failures = [
-        record for record in caplog.records if getattr(record, "event", None) == "context.recall_gate.sink_failed"
+        record for record in caplog.records if getattr(record, "event", None) == "statistics.recall.write_failed"
     ]
     assert len(failures) == 1
     assert failures[0].error_type == "RuntimeError"
@@ -1657,46 +1659,31 @@ def test_default_recorder_write_contention_is_bounded_and_does_not_break_later_o
             assert isinstance(prepared, PreparedContext)
             assert isinstance(prepared, PreparedContext)
             assert prepared.status == "ready"
+            await runtime._statistics(scope_id).flush_model_usage()
             assert await _effort_rows(runtime) == []
             await _seed(runtime, scope_id, ["later business write still succeeds"])
-        assert len(elapsed) == 1
-        assert elapsed[0] < 1.0  # Accounting cannot consume SQLite's normal 5-second busy timeout.
+        assert elapsed
+        assert sum(elapsed) < 1.0  # Accounting cannot consume SQLite's normal 5-second busy timeout.
 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("repeated_cancel", [False, True])
-def test_cancelled_preparation_preserves_memory_and_finishes_accounting_once(
-    tmp_path, monkeypatch, repeated_cancel
-) -> None:
+def test_preparation_returns_before_held_statistics_write_and_persists_once(tmp_path, monkeypatch) -> None:
     original = StatisticsRepository.record_recall_effort
 
     async def scenario() -> None:
         entered = asyncio.Event()
-        loop = asyncio.get_running_loop()
+        release = asyncio.Event()
 
         async def delayed_insert(repository, connection, scope_id, usage_date, measurement) -> None:
-            driver = (await connection.get_raw_connection()).driver_connection
-
-            def pause_insert() -> int:
-                loop.call_soon_threadsafe(entered.set)
-                time.sleep(0.15)
-                return 1
-
-            await driver.create_function("pause_effort_insert", 0, pause_insert)
-            await connection.exec_driver_sql(
-                "CREATE TEMP TRIGGER pause_effort_insert BEFORE INSERT ON pc_recall_effort_daily "
-                "BEGIN SELECT pause_effort_insert(); END"
-            )
-            try:
-                await original(repository, connection, scope_id, usage_date, measurement)
-            finally:
-                await connection.exec_driver_sql("DROP TRIGGER IF EXISTS pause_effort_insert")
+            entered.set()
+            await release.wait()
+            await original(repository, connection, scope_id, usage_date, measurement)
 
         async with _runtime(
-            tmp_path / "cancel-effort.db", RuntimeConfig(recall_gate_enabled=True), in_memory=True
+            tmp_path / "held-effort.db", RuntimeConfig(recall_gate_enabled=True), in_memory=True
         ) as runtime:
-            scope_id = await _create_scope(runtime, "cancel-effort")
+            scope_id = await _create_scope(runtime, "held-effort")
             await _seed(runtime, scope_id, ["alpha beta gamma preserved evidence"])
             expected, _ = await _prepare_build(runtime, scope_id, _memory_request())
             before = await _revision_state(runtime, scope_id)
@@ -1704,20 +1691,18 @@ def test_cancelled_preparation_preserves_memory_and_finishes_accounting_once(
             preparing = asyncio.create_task(runtime.context.for_scope(scope_id).prepare(_memory_request()))
             try:
                 await asyncio.wait_for(entered.wait(), timeout=5)
-                preparing.cancel()
-                if repeated_cancel:
-                    await asyncio.sleep(0)
-                    preparing.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await preparing
+                assert preparing.done()
+                assert await preparing == expected.context
             finally:
-                monkeypatch.setattr(StatisticsRepository, "record_recall_effort", original)
+                release.set()
 
+            await runtime._statistics(scope_id).flush_model_usage()
             assert await _revision_state(runtime, scope_id) == before
             rows = await _effort_rows(runtime)
             assert len(rows) == 1
             assert rows[0]["preparations"] == 1
             assert await runtime.context.for_scope(scope_id).prepare(_memory_request()) == expected.context
+            await runtime._statistics(scope_id).flush_model_usage()
             rows = await _effort_rows(runtime)
             assert len(rows) == 1
             assert rows[0]["preparations"] == 2
