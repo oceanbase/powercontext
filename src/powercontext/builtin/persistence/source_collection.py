@@ -191,6 +191,25 @@ def _target(row: Mapping[Any, Any]) -> Target:
 
 
 class SourceCollectionRepository:
+    # A check followed by a write holds only when nothing changes the checked row in between. A row
+    # lock taken by a SELECT is not enough everywhere: SQLite ignores FOR UPDATE and starts its
+    # transaction at the first write. So such a transaction first writes the row it is about to
+    # check, without changing it: the row, or on SQLite the database, is then locked until commit.
+
+    async def lock_runner(self, connection: AsyncConnection, runner: str) -> None:
+        """Hold the runner's record, if it exists, until the transaction ends."""
+
+        await connection.execute(
+            update(_RUNNERS).where(_RUNNERS.c.runner == runner).values(display_name=_RUNNERS.c.display_name)
+        )
+
+    async def _lock_target(self, connection: AsyncConnection, scope_id: str, target_id: str) -> None:
+        await connection.execute(
+            update(_TARGETS)
+            .where(_TARGETS.c.scope_id == scope_id, _TARGETS.c.target_id == target_id)
+            .values(config_version=_TARGETS.c.config_version)
+        )
+
     async def runner(self, connection: AsyncConnection, runner: str) -> Runner | None:
         row = (await connection.execute(select(_RUNNERS).where(_RUNNERS.c.runner == runner))).mappings().first()
         return None if row is None else _runner(row)
@@ -304,7 +323,7 @@ class SourceCollectionRepository:
     async def delete_runner(self, connection: AsyncConnection, runner: Runner) -> None:
         """Delete the record the caller read and was authorized for, once it has no targets."""
 
-        await connection.execute(select(_RUNNERS.c.runner).where(_RUNNERS.c.runner == runner.runner).with_for_update())
+        await self.lock_runner(connection, runner.runner)
         remaining = (
             await connection.execute(
                 select(func.count()).select_from(_TARGETS).where(_TARGETS.c.runner == runner.runner)
@@ -329,9 +348,9 @@ class SourceCollectionRepository:
 
         if runner == SERVER_RUNNER:
             return
-        # Locked where the backend supports it, so the runner is not deleted while a target is assigned to it.
-        found = await connection.execute(select(_RUNNERS.c.runner).where(_RUNNERS.c.runner == runner).with_for_update())
-        if found.first() is None:
+        # Held until commit, so the runner is not deleted while a target is assigned to it.
+        await self.lock_runner(connection, runner)
+        if await self.runner(connection, runner) is None:
             raise SourceCollectionError(422, "runner_not_registered", "The runner is not registered.")
 
     async def target(self, connection: AsyncConnection, scope_id: str, target_id: str) -> Target | None:
@@ -450,16 +469,21 @@ class SourceCollectionRepository:
                 raise SourceCollectionError(
                     409, "target_conflict", "The destination runner already has a target with the same identity."
                 )
-        result = await connection.execute(
-            update(_TARGETS)
-            .where(_unchanged(target))
-            .values(
-                runner=runner,
-                config_version=_TARGETS.c.config_version + 1,
-                updated_at=now(),
-                updated_by=actor,
+        try:
+            result = await connection.execute(
+                update(_TARGETS)
+                .where(_unchanged(target))
+                .values(
+                    runner=runner,
+                    config_version=_TARGETS.c.config_version + 1,
+                    updated_at=now(),
+                    updated_by=actor,
+                )
             )
-        )
+        except IntegrityError:
+            raise SourceCollectionError(
+                409, "target_conflict", "The destination runner already has a target with the same identity."
+            ) from None
         if result.rowcount != 1:
             raise _changed_meanwhile()
         if reset_checkpoint:
@@ -473,24 +497,14 @@ class SourceCollectionRepository:
     ) -> Target:
         """The target a runner may commit a checkpoint and status for, checked inside the commit's transaction.
 
-        The row is locked where the backend supports it, so a concurrent change, transfer, or
-        deletion either precedes this check or waits for the commit.
+        The target is held from here to the end of the transaction, so a concurrent change, transfer,
+        or deletion either precedes this check or waits for the commit.
         """
 
-        row = (
-            (
-                await connection.execute(
-                    select(_TARGETS)
-                    .where(_TARGETS.c.scope_id == scope_id, _TARGETS.c.target_id == target_id)
-                    .with_for_update()
-                )
-            )
-            .mappings()
-            .first()
-        )
-        if row is None:
+        await self._lock_target(connection, scope_id, target_id)
+        target = await self.target(connection, scope_id, target_id)
+        if target is None:
             raise SourceCollectionError(409, "target_changed", "The collection target no longer exists.")
-        target = _target(row)
         if target.runner != runner:
             raise SourceCollectionError(409, "target_changed", "The collection target belongs to another runner.")
         if not target.enabled:
@@ -511,6 +525,8 @@ class SourceCollectionRepository:
         refused = SourceCollectionError(
             403, "access_denied", "Only the runner a collection target belongs to commits its checkpoint."
         )
+        # Held before anything is read from it: the owner check below is for the row that commits.
+        await self._lock_target(connection, binding.scope_id, binding.binding_id)
         current = await self.target(connection, binding.scope_id, binding.binding_id)
         if current is None:
             raise SourceCollectionError(409, "target_changed", "The collection target no longer exists.")

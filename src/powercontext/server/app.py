@@ -4257,7 +4257,9 @@ async def sync_source_runner(
     repository = SourceCollectionRepository()
     checkpoints = ConnectorCheckpointRepository()
     async with manager.database.transaction() as connection:
-        # A sync never creates a runner: the name must be registered, by this principal.
+        # A sync never creates a runner: the name must be registered, by this principal. The record is
+        # held first, so it is not deleted or registered again by someone else before the sync is recorded.
+        await repository.lock_runner(connection, runner)
         await _own_runner(connection, repository, runner)
         await repository.record_sync(connection, runner, [plugin.model_dump(mode="json") for plugin in request.plugins])
         targets = []

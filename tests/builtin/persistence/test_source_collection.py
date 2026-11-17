@@ -152,3 +152,78 @@ def test_the_server_runner_takes_targets_with_more_to_collect_first() -> None:
             assert await due() == [first]
 
     asyncio.run(scenario())
+
+
+def test_a_checked_target_or_runner_is_held_until_the_checking_transaction_ends(tmp_path) -> None:
+    """On SQLite a read takes no lock, so what a transaction checks must not change before it writes."""
+
+    owner = RunnerPrincipal("service", "robot")
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'collection.db'}")
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            repository = SourceCollectionRepository()
+            database = profile.database
+
+            async def add(runner: str, key: str):
+                async with database.transaction() as connection:
+                    target, _ = await repository.add_target(
+                        connection,
+                        scope_id="scope",
+                        runner=runner,
+                        capability="chat",
+                        target_key=key,
+                        parameters={},
+                        actor="service:robot",
+                    )
+                return target
+
+            async def delete(target) -> None:
+                async with database.transaction() as connection:
+                    await repository.delete_target(connection, target)
+
+            async def delete_runner(runner) -> None:
+                async with database.transaction() as connection:
+                    await repository.delete_runner(connection, runner)
+
+            async with database.transaction() as connection:
+                for name in ("robot-7", "robot-8"):
+                    await repository.register_fixed(connection, owner, name)
+                empty = await repository.runner(connection, "robot-8")
+            target = await add("robot-7", "a")
+
+            # A commit has checked its target; deleting the target waits for the commit to finish.
+            async with database.transaction() as connection:
+                await repository.committable(
+                    connection, "scope", target.target_id, runner="robot-7", config_version=target.config_version
+                )
+                deleting = asyncio.create_task(delete(target))
+                await asyncio.sleep(0.5)
+                assert not deleting.done()
+                assert await repository.record_status(connection, "scope", target.target_id, "robot-7")
+            await deleting
+            async with database.transaction() as connection:
+                assert await repository.target(connection, "scope", target.target_id) is None
+
+            # Adding a target has checked its runner; deleting the runner waits and then finds the target.
+            async with database.transaction() as connection:
+                await repository.require_registered(connection, "robot-8")
+                removing = asyncio.create_task(delete_runner(empty))
+                await asyncio.sleep(0.5)
+                assert not removing.done()
+                await repository.add_target(
+                    connection,
+                    scope_id="scope",
+                    runner="robot-8",
+                    capability="chat",
+                    target_key="b",
+                    parameters={},
+                    actor="service:robot",
+                )
+            with pytest.raises(SourceCollectionError) as held:
+                await removing
+            assert (held.value.status, held.value.code) == (409, "conflict")
+            async with database.transaction() as connection:
+                assert await repository.runner(connection, "robot-8") is not None
+
+    asyncio.run(scenario())
