@@ -1362,7 +1362,18 @@ class ScopedContextApplication:
             return build.context
         if evidence.diagnostics:
             evidence.selected_count = len(build.origins) + len(build.code_origins)
-            counts = dict.fromkeys(("atomic-memory", "topic-memory", "experience", "profile", "code"), 0)
+            sections = request.assembly.sections if request.assembly is not None else ()
+            counts = dict.fromkeys(
+                (
+                    "atomic-memory",
+                    "topic-memory",
+                    "experience",
+                    "profile",
+                    "code",
+                    *(section.family for section in sections if section.family not in BUILTIN_CONTEXT_FAMILIES),
+                ),
+                0,
+            )
             for fragment in build.fragments:
                 if fragment.kind in counts:
                     counts[fragment.kind] += 1
@@ -1527,6 +1538,11 @@ class ScopedContextApplication:
                     "experience": sum(len(group.hits) for group in experience_candidates),
                     "profile": len(profile_candidates),
                     "code": len(code),
+                    **{
+                        section.family: len(section.hits)
+                        for section in (request.assembly.sections if request.assembly is not None else ())
+                        if section.family not in BUILTIN_CONTEXT_FAMILIES
+                    },
                 }
             for group in memory_candidates:
                 evidence.text_snapshot(
@@ -1552,6 +1568,17 @@ class ScopedContextApplication:
                 )
             if request.include_code:
                 evidence.text_snapshot("assembly", "code", self.scope_id, lambda: (code_text(item) for item in code))
+            for section in request.assembly.sections if request.assembly is not None else ():
+                if section.family in BUILTIN_CONTEXT_FAMILIES or not section.hits:
+                    continue
+                evidence.text_snapshot(
+                    "assembly",
+                    section.family,
+                    self.scope_id,
+                    lambda section=section: (
+                        {"artifact": hit.artifact.model_dump(mode="json"), "text": hit.text} for hit in section.hits
+                    ),
+                )
         started_build = perf_counter() if evidence is not None else None
         with self._runtime._stage(
             "context.build",

@@ -504,3 +504,85 @@ def test_search_table_counts_candidates_before_reranking(dashboard):
     cells = re.findall(r"<td[^>]*>(.*?)</td>", row[1], re.S)
     assert cells[4].strip() == "2"  # Retrieval precedes the two-input/one-output rerank stage.
     assert "Budget alpha" in cells[-1] and "Budget beta" in cells[-1]
+
+
+def test_prepare_capture_counts_plugin_families_like_builtin_families(dashboard, monkeypatch):
+    from types import SimpleNamespace
+
+    from powercontext.builtin.plugins.families import register_plugin_family
+    from powercontext.builtin.plugins.host_protocol import HostResponse
+
+    register_plugin_family("notes")
+    manifest = SimpleNamespace(spec=SimpleNamespace(family="notes", change_timeout_seconds=30))
+
+    class FakeHost:
+        async def call(self, method, **kwargs):
+            assert method == "search_artifacts"
+            return HostResponse(
+                id="fake",
+                outcome="ok",
+                result={
+                    "hits": [
+                        {
+                            "ref": {"family": "notes", "artifact_id": "note-alpha", "revision": 1},
+                            "text": "Project Alpha runs its deploy from the east region.",
+                        }
+                    ]
+                },
+            )
+
+    class FakeManager:
+        def __init__(self):
+            self.plugins: dict[str, object] = {}
+
+        def host_for_family(self, family):
+            return (manifest, FakeHost()) if family == "notes" else None
+
+    monkeypatch.setattr(dashboard.app.state, "plugin_manager", FakeManager())
+    scope = create_scope(dashboard, "Plugin family capture")["scope_id"]
+
+    from powercontext.builtin.persistence.sources import SourceRepository
+    from powercontext.builtin.plugins.writer import PluginArtifactWriter
+    from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
+
+    application = dashboard.app.state.application
+
+    async def write_note():
+        writer = PluginArtifactWriter(
+            database=application.primary_database,
+            scope_id=scope,
+            family="notes",
+            sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
+        )
+        async with writer.transaction() as tx:
+            await tx.put("note-alpha", content={"text": "Project Alpha runs its deploy from the east region."})
+
+    dashboard.portal.call(write_note)
+
+    dashboard.post(
+        "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Budget review is Thursday."}
+    )
+    assembly = {"sections": [{"family": "notes", "limit": 2}, {"family": "memory", "limit": 2}]}
+    response = prepare(dashboard, scope, assembly=assembly)
+    assert response.status_code == 200, response.text
+    assert "Project Alpha runs its deploy from the east region." in response.json()["content"]
+
+    record = detail_record(dashboard, scope, records(dashboard, scope)[0]["record_id"])
+    evidence = record["diagnostics_payload"]
+    assert evidence["selected_by_family"]["notes"] == 1
+    assert evidence["selected_by_family"]["atomic-memory"] == 1
+    assert evidence["final_candidates"]["notes"] == 1
+    assert evidence["final_candidates"]["atomic-memory"] >= 0
+    snapshot = next(item for item in evidence["text_snapshots"] if item["family"] == "notes")
+    assert snapshot["stage"] == "assembly"
+    assert snapshot["items"][0]["artifact"] == {
+        "family": "notes",
+        "artifact_id": "note-alpha",
+        "revision": 1,
+    }
+    assert snapshot["items"][0]["text"].startswith("Project Alpha")
+
+    page = dashboard.get(
+        "/dashboard/context-diagnostic-detail", params={"scope": scope, "diagnostic": record["record_id"], "lang": "en"}
+    )
+    assert page.status_code == 200 and "Project Alpha runs its deploy" in page.text
