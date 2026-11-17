@@ -21,7 +21,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from sqlalchemy import update
@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.profile.models import (
 from powercontext.builtin.artifacts.prompt.models import PromptContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
+from powercontext.builtin.authz.service import AccessAuditContext
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate, CatalogChangeProposal, TagChangeProposal
 from powercontext.builtin.catalog_changes.service import CatalogChangeService
 from powercontext.builtin.dream.bindings import (
@@ -66,6 +67,7 @@ from powercontext.builtin.dream.models import (
 from powercontext.builtin.dream.provenance import candidate_audit, proposal_fingerprint
 from powercontext.builtin.evidence.models import (
     EvidenceResolutionError,
+    QualifiedOrigin,
     ResolvedEvidence,
     reference_key,
     unique_references,
@@ -85,6 +87,7 @@ from powercontext.builtin.persistence.dream import DreamRepository, database_now
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+from powercontext.builtin.persistence.share_agreement import ShareAgreementRepository
 from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, SCOPES_TABLE
 from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
@@ -94,6 +97,11 @@ from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.processing_contracts import processing_error_code
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.tags import TagPreconditionError
+
+if TYPE_CHECKING:
+    from powercontext.builtin.authz.models import PrincipalRef
+    from powercontext.builtin.authz.service import AccessAuditContext, AccessControlService
+    from powercontext.builtin.scope.application import ScopeApplication
 
 DreamPermission = Literal["read", "contribute", "write", "write_tags"]
 DreamAuthorizer = Callable[[str, str, DreamPermission, EvidenceReference | None], Awaitable[None]]
@@ -122,6 +130,9 @@ class DreamService:
         operations: tuple[DreamOperation, ...] = (),
         processing: ScopeInvocation | None = None,
         catalog_changes: CatalogFactory | None = None,
+        share_access: AccessControlService | None = None,
+        share_scopes: ScopeApplication | None = None,
+        share_principal: Callable[[str], PrincipalRef | None] | None = None,
     ) -> None:
         self.database = database
         self.repository = DreamRepository()
@@ -139,6 +150,13 @@ class DreamService:
         self.processing = processing
         self.intents = ArtifactProcessingIntentRepository()
         self.catalog_changes = catalog_changes
+        # The owners a bound shared run needs to prove its pin. Absent these, a bound run
+        # refuses instead of falling back to unpinned local admission.
+        self.share_access = share_access
+        self.share_scopes = share_scopes
+        # Resolves the authenticated PrincipalRef for a recorded principal id. It is not an
+        # authorizer: Access remains the only authority.
+        self.share_principal = share_principal
 
     @asynccontextmanager
     async def _transaction(self) -> AsyncIterator[AsyncConnection]:
@@ -519,10 +537,17 @@ class DreamService:
             resolver = self._resolver(record.run.scope_id, record.principal_id)
             resolver.limits = record.run.budget
             artifacts, target = _resolve_references(request)
+            qualified: tuple[QualifiedOrigin, ...] = ()
+            if record.share_snapshot_id is not None:
+                # A bound run contributes only its exact pin, and only when that pin is
+                # still fully eligible. This runs before any model input.
+                bound_share = await self._require_share_eligibility(bound, record)
+                qualified = bound_share.origins
             return await resolver.resolve(
                 bound,
                 sources=request.sources,
                 artifacts=artifacts,
+                qualified=qualified,
                 target=target,
                 include_memory_text=request.operation != "derive_skill",
                 pinned=record.run.input_manifest,
@@ -530,6 +555,38 @@ class DreamService:
                 expose_prompt_target=request.operation == "revise_prompt",
                 expose_catalog_target=request.operation == "revise_tags",
             )
+
+    async def _require_share_eligibility(self, connection: AsyncConnection, record: DreamRecord):
+        """Enforce the run's exact stored pin before any model input is assembled.
+
+        Without the composed owners this refuses. It never falls back to the run's own
+        request references, which would be unpinned local admission.
+        """
+
+        from powercontext.builtin.sharing.eligibility import ShareIneligibleError, require_bound_eligibility
+
+        snapshot_id = record.share_snapshot_id
+        if snapshot_id is None:
+            raise ShareIneligibleError("share_snapshot_unclaimed")
+        if self.share_access is None or self.share_scopes is None or self.share_principal is None:
+            raise ShareIneligibleError("shared_use_unenforced")
+        principal = self.share_principal(record.principal_id)
+        if principal is None:
+            raise ShareIneligibleError("access_identity_required")
+        # Bind Access to this transaction: the checks run inside the admission/resolution
+        # transaction and must not open a second connection or write outside it.
+        bound_access = self.share_access.with_connection(connection)
+        return await require_bound_eligibility(
+            connection=connection,
+            access=bound_access,
+            scopes=self.share_scopes,
+            agreements=ShareAgreementRepository(),
+            principal=principal,
+            audit=AccessAuditContext(transport="background", operation="dream.share_eligibility"),
+            scope_id=record.run.scope_id,
+            operation=record.run.operation,
+            snapshot_id=snapshot_id,
+        )
 
     async def _commit(self, record: DreamRecord, plan: DreamPlan) -> None:
         run = record.run

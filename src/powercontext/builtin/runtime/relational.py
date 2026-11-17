@@ -270,6 +270,8 @@ logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
+    from powercontext.builtin.authz.models import PrincipalRef
+    from powercontext.builtin.authz.service import AccessControlService
     from powercontext.builtin.runtime.processing_execution import ScopeInvocation
 
 
@@ -811,6 +813,9 @@ class RelationalContexts:
         authorize_candidate: CandidateAttester | None = None,
         operations: tuple[DreamOperation, ...] = (),
         processing: ScopeInvocation | None = None,
+        share_access: AccessControlService | None = None,
+        share_scopes: ScopeApplication | None = None,
+        share_principal: Callable[[str], PrincipalRef | None] | None = None,
     ) -> DreamService:
         return DreamService(
             database=self.database,
@@ -827,6 +832,9 @@ class RelationalContexts:
             catalog_changes=self.catalog_changes,
             operations=operations,
             processing=processing,
+            share_access=share_access,
+            share_scopes=share_scopes,
+            share_principal=share_principal,
         )
 
     def generation(self, scope_id: str, /) -> ReviewedGenerationService:
