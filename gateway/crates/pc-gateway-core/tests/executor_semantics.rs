@@ -24,13 +24,14 @@ use pc_gateway_protocol::{
 };
 use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
+    CaptureContentSourcesRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
     PreparedContextLocation,
 };
 use std::collections::VecDeque;
 use std::future::Future;
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 // ---------- 测试替身 ----------
@@ -85,6 +86,8 @@ struct FakeGate {
     prepare_include_code: Mutex<Vec<bool>>,
     captured: Mutex<Vec<(String, String)>>,
     captured_metadata: Mutex<Vec<serde_json::Value>>,
+    /// capture 请求次数：一个回合的各段在一次请求里。
+    capture_requests: AtomicUsize,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
     capture_hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
@@ -169,16 +172,19 @@ impl GateClient for FakeGate {
 
     async fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> Result<serde_json::Value, GateError> {
-        self.captured_metadata
-            .lock()
-            .unwrap()
-            .push(request.metadata.clone().unwrap_or(serde_json::Value::Null));
-        self.captured
-            .lock()
-            .unwrap()
-            .push((request.source_id, request.content));
+        self.capture_requests.fetch_add(1, Ordering::SeqCst);
+        for source in request.sources {
+            self.captured_metadata
+                .lock()
+                .unwrap()
+                .push(source.metadata.unwrap_or(serde_json::Value::Null));
+            self.captured
+                .lock()
+                .unwrap()
+                .push((source.source_id, source.content));
+        }
         let hold = self.capture_hold.lock().unwrap().clone();
         if let Some(hold) = hold {
             hold.notified().await;
@@ -341,7 +347,7 @@ impl GateClient for FakeGateRef {
 
     fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send {
         GateClient::capture(&*self.0, request)
     }
@@ -380,6 +386,7 @@ fn harness(
         prepare_include_code: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
         captured_metadata: Mutex::new(Vec::new()),
+        capture_requests: AtomicUsize::new(0),
         capture_error: Mutex::new(None),
         capture_hold: Mutex::new(None),
     });
@@ -4370,16 +4377,15 @@ async fn an_injected_turn_keeps_its_prefix_and_a_source_without_the_injection() 
     assert!(injected.len() as u64 >= prepared.location.end_byte);
 }
 
-#[tokio::test]
-async fn a_turn_whose_part_fails_to_capture_stores_no_later_part() {
+/// 一个被拆成几段的回合在给定批量上限下执行一次，返回沉淀请求次数、沉淀的段数和未沉淀的原因。
+async fn capture_split_turn(batch: Option<usize>) -> (usize, usize, Vec<String>) {
     let output = serde_json::json!([
         {"id": "msg_1", "type": "message", "role": "assistant",
          "content": [{"type": "output_text", "text": "done", "annotations": []}]}
     ]);
     let (executor, _renderer, _transport, gate) =
         harness(allow_runs(1), vec![responses_output(output)], 2);
-    // 只有第一段被拒绝；其后的段若继续沉淀，会连同句柄一起留下一个缺了开头的回合。
-    *gate.capture_error.lock().unwrap() = Some(GateError::GateUnavailable("down".into()));
+    let executor = executor.with_capture_batch_limit(batch);
     let evidence = BufferedEvidenceSink::new();
     let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
     c.inject_context = false;
@@ -4394,16 +4400,31 @@ async fn a_turn_whose_part_fails_to_capture_stores_no_later_part() {
         )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
-    let attempted = gate.captured.lock().unwrap().clone();
-    assert_eq!(attempted.len(), 1, "capture stops at the failed part");
-    assert!(attempted[0].0.contains("-1of"));
-    assert!(gate.captured_metadata.lock().unwrap()[0]
-        .get("prefix_handle")
-        .is_none());
-    assert!(evidence
+    let reasons = evidence
         .not_sent()
-        .iter()
-        .any(|(_, reason)| reason.starts_with("sediment_failed:")));
+        .into_iter()
+        .map(|(_, reason)| reason)
+        .collect();
+    let captured = gate.captured.lock().unwrap().len();
+    (
+        gate.capture_requests.load(Ordering::SeqCst),
+        captured,
+        reasons,
+    )
+}
+
+#[tokio::test]
+async fn a_turn_is_not_captured_when_core_offers_no_batch_capture() {
+    let (requests, captured, reasons) = capture_split_turn(None).await;
+    assert_eq!((requests, captured), (0, 0));
+    assert_eq!(reasons, ["sediment_failed:batch_unsupported"]);
+}
+
+#[tokio::test]
+async fn a_turn_with_more_parts_than_one_batch_holds_is_not_captured_in_part() {
+    let (requests, captured, reasons) = capture_split_turn(Some(2)).await;
+    assert_eq!((requests, captured), (0, 0));
+    assert_eq!(reasons, ["sediment_failed:too_many_parts"]);
 }
 
 #[tokio::test]
@@ -4431,6 +4452,11 @@ async fn an_oversized_turn_is_captured_as_ordered_parts_with_the_handle_on_the_l
     let metadata = gate.captured_metadata.lock().unwrap().clone();
     let count = captured.len();
     assert!(count >= 3);
+    assert_eq!(
+        gate.capture_requests.load(Ordering::SeqCst),
+        1,
+        "every part of the turn goes to Core in one request"
+    );
     let turn = captured[0].0.rsplit_once('-').unwrap().0.to_owned();
     for (index, ((source_id, content), metadata)) in captured.iter().zip(&metadata).enumerate() {
         assert_eq!(source_id, &format!("{turn}-{}of{count}", index + 1));

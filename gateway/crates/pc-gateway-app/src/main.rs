@@ -171,6 +171,16 @@ async fn main() {
         .map(|limit| limit.min(max_body_bytes))
         .unwrap_or(0);
     let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
+    let sediment = matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on"));
+    let capture_batch = capabilities
+        .as_ref()
+        .and_then(|caps| caps.limits.capture_batch_sources)
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+    if sediment && capabilities.is_some() && capture_batch.is_none() {
+        tracing::error!(
+            "PC_GATEWAY_SEDIMENT=on, but Core does not offer batch Source capture; turns are not sedimented until Core is upgraded and the gateway restarted"
+        );
+    }
 
     let state = Arc::new(AppState {
         executor: Arc::new(
@@ -185,6 +195,7 @@ async fn main() {
                     .as_ref()
                     .and_then(|caps| caps.limits.atomic_memory_input_tokens),
             ))
+            .with_capture_batch_limit(capture_batch)
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
@@ -214,7 +225,7 @@ async fn main() {
             std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),
             Ok("off")
         ),
-        sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
+        sediment,
         steering,
         prefix_extraction: matches!(
             std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),

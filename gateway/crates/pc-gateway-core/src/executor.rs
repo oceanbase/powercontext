@@ -43,9 +43,9 @@ use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
-    parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
-    ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
-    PreparedContextLocation,
+    parse_rfc3339_ms, CaptureContentSource, CaptureContentSourcesRequest, CheckDecision,
+    CheckPhase, ContextCheckRequest, ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation,
+    PrepareContextRequest, PreparedContextLocation,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -158,6 +158,7 @@ pub struct Executor<G, T> {
     replays: ReplayCache,
     max_input_bytes: usize,
     source_tokens: usize,
+    capture_batch: Option<usize>,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
 }
@@ -206,6 +207,7 @@ where
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
             source_tokens: crate::transcript::MAX_SOURCE_TOKENS,
+            capture_batch: Some(128),
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
         }
@@ -281,6 +283,13 @@ where
     /// [`crate::source_token_limit`]）。
     pub fn with_source_token_limit(mut self, limit: usize) -> Self {
         self.source_tokens = limit;
+        self
+    }
+
+    /// 一次批量沉淀最多接受的 Source 数，取自 Core 的能力报告。`None` 表示 Core 不提供批量沉淀：回合不沉淀，
+    /// 因为逐段写入可能只存下一个回合的一部分。
+    pub fn with_capture_batch_limit(mut self, limit: Option<usize>) -> Self {
+        self.capture_batch = limit;
         self
     }
 
@@ -649,7 +658,20 @@ where
                             )
                         })
                         .flatten();
-                    if let Some(transcript) = transcript {
+                    // 一个回合的各段在一次批量请求里沉淀，Core 在一个事务内全部入库或都不入库。
+                    let batch = match (transcript, self.capture_batch) {
+                        (None, _) => None,
+                        (Some(_), None) => {
+                            evidence.record_not_sent(0, "sediment_failed:batch_unsupported");
+                            None
+                        }
+                        (Some(transcript), Some(limit)) if transcript.parts.len() > limit => {
+                            evidence.record_not_sent(0, "sediment_failed:too_many_parts");
+                            None
+                        }
+                        (Some(transcript), Some(_)) => Some(transcript),
+                    };
+                    if let Some(transcript) = batch {
                         let digest = turn_digest(&call, &pristine_request).unwrap_or_else(|| {
                             result
                                 .binding
@@ -667,53 +689,57 @@ where
                             renderer.message_list_key(),
                         );
                         let count = transcript.parts.len();
-                        for (index, content) in transcript.parts.into_iter().enumerate() {
-                            let mut metadata = serde_json::json!({
-                                "kind": "gateway_turn",
-                                "target_profile": call.target_profile,
-                                "powercontext_capture_coverage": transcript.coverage,
-                            });
-                            let part_id = if count > 1 {
-                                metadata["turn"] = serde_json::json!({
-                                    "source_id": source_id,
-                                    "part": index + 1,
-                                    "parts": count,
+                        let coverage = transcript.coverage;
+                        let sources = transcript
+                            .parts
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, content)| {
+                                let mut metadata = serde_json::json!({
+                                    "kind": "gateway_turn",
+                                    "target_profile": call.target_profile,
+                                    "powercontext_capture_coverage": coverage,
                                 });
-                                format!("{source_id}-{}of{count}", index + 1)
-                            } else {
-                                source_id.clone()
-                            };
-                            if index + 1 == count {
-                                for (key, value) in prefix.iter().flatten() {
-                                    metadata[*key] = value.clone();
+                                let part_id = if count > 1 {
+                                    metadata["turn"] = serde_json::json!({
+                                        "source_id": source_id,
+                                        "part": index + 1,
+                                        "parts": count,
+                                    });
+                                    format!("{source_id}-{}of{count}", index + 1)
+                                } else {
+                                    source_id.clone()
+                                };
+                                if index + 1 == count {
+                                    for (key, value) in prefix.iter().flatten() {
+                                        metadata[*key] = value.clone();
+                                    }
                                 }
-                            }
-                            let capture = CaptureContentSourceRequest {
-                                scope_id: call.scope_id.clone(),
-                                source_id: part_id,
-                                content,
-                                metadata: Some(metadata),
-                            };
-                            if let Err(stop) = execution.checkpoint() {
-                                return stop;
-                            }
-                            let captured = self.gate.capture(capture).await;
-                            if let Err(stop) = execution.checkpoint() {
-                                return stop;
-                            }
-                            match captured {
-                                Ok(_) => {}
-                                // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
-                                Err(GateError::GateRejected(409)) => {
-                                    evidence.record_not_sent(0, "sediment_duplicate")
+                                CaptureContentSource {
+                                    source_id: part_id,
+                                    content,
+                                    metadata: Some(metadata),
                                 }
-                                // 后面的段不再沉淀：已存的段始终是这一回合的前几段，带句柄的最后一段不在其中，
-                                // Core 不会把残缺的回合当成完整的一轮。
-                                Err(_) => {
-                                    evidence.record_not_sent(0, "sediment_failed:gate_error");
-                                    break;
-                                }
+                            })
+                            .collect();
+                        let capture = CaptureContentSourcesRequest {
+                            scope_id: call.scope_id.clone(),
+                            sources,
+                        };
+                        if let Err(stop) = execution.checkpoint() {
+                            return stop;
+                        }
+                        let captured = self.gate.capture(capture).await;
+                        if let Err(stop) = execution.checkpoint() {
+                            return stop;
+                        }
+                        match captured {
+                            Ok(_) => {}
+                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留，这一次的各段都不入库。
+                            Err(GateError::GateRejected(409)) => {
+                                evidence.record_not_sent(0, "sediment_duplicate")
                             }
+                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {

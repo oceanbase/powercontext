@@ -97,7 +97,7 @@ Gateway 新写入的 Source 使用 `gateway-turn-text.v2`。它保留这一回�
 Core 生效的 Atomic Memory 输入上限更低时以它为准，Core 在能力信息的
 `context_protection.limits.atomic_memory_input_tokens` 中报告这个上限。更大的回合按顺序拆成几段 Source，每段都是完整的 JSON 文档，带 `part` 与 `parts`，并在步骤边界结束；单个步骤放不下时，其最长的
 文本字段拆成连续的同类步骤，断点落在换行处（一行自身放不下时除外），后续部分带 `"continued": true`。拆分不丢失内容，
-每段的声明都是 `complete`。各段按顺序沉淀，某一段失败后不再沉淀其后的段。各段元数据中的 `turn` 给出所属回合的 `source_id` 与段号。终止响应的判定与 v1 相同。
+每段的声明都是 `complete`。各段在一次批量请求里沉淀，要么全部入库，要么都不入库。各段元数据中的 `turn` 给出所属回合的 `source_id` 与段号。终止响应的判定与 v1 相同。
 
 ### Gateway normalized turn（v1）
 

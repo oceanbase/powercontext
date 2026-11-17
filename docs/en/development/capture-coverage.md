@@ -106,7 +106,7 @@ limit as `context_protection.limits.atomic_memory_input_tokens` in its capabilit
 into several Sources. Each part is a complete JSON document with `part` and `parts`, and ends at a step boundary. A single step
 that does not fit has its longest text field split into consecutive steps of the same type, cut at a line break
 unless one line alone does not fit, and the later pieces carry `"continued": true`. Splitting loses nothing, so every
-part declares `complete`. Parts are captured in order, and none is captured after one that fails. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal
+part declares `complete`. The parts are captured in one batch request, which stores all of them or none. The metadata `turn` of each part gives the turn's `source_id` and the part number. Terminal
 response detection is the same as in v1.
 
 ### Gateway normalized turn (v1)

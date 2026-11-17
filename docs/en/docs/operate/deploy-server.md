@@ -352,7 +352,12 @@ needs both sides:
   default 64,000) when that is lower. The gateway reads the limit from the Server at startup; restart the gateway
   after changing it.
   A larger turn is captured as consecutive Sources that end at step boundaries. Their metadata `turn` names the turn
-  and the part, and the handle is on the last part. If capturing a part fails, the later parts are not captured.
+  and the part, and the handle is on the last part. The gateway writes every part of a turn to the Server in one batch
+  request (`POST /v1/sources/content/batch`): the Server stores all of them or none, and rejects the whole batch when
+  the turn is already stored with different content, keeping the first record. Capture therefore requires a Server
+  that offers batch capture. When the Server's capabilities do not report
+  `context_protection.limits.capture_batch_sources`, the gateway logs an error at startup and does not capture turns;
+  other requests are unaffected. A turn with more parts than that limit is not captured either.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
@@ -363,7 +368,9 @@ response's output tokens at the full rate, plus the cached input tokens multipli
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` (default `0.1`). Normal extraction costs its
 instructions plus the Source evidence. The window must hold exactly one whole turn: one Source, or every part of one
 turn in order. A turn whose parts do not fit one extraction input together is therefore extracted part by part through
-normal extraction. The Server uses the prefix only when that estimate is lower. This usually
+normal extraction: the first attempt on such a window exceeds the input budget, so `/v1/memory/flush` returns an error
+and the window shrinks, and later attempts process the parts one at a time; automatic processing retries after its
+backoff. The Server uses the prefix only when that estimate is lower. This usually
 holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
 kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
@@ -373,7 +380,10 @@ memory blocks the gateway injected; the extraction instruction states that conte
 `END_POWERCONTEXT_*` markers is not evidence for the turn. An enforcing Server withholds a
 request that replays the provider's encrypted reasoning, so with Codex and similar clients extraction then falls back
 to normal extraction. It is not injected and is not captured. The Server validates the reply with the same schema
-and rules as normal extraction.
+and rules as normal extraction. The Server waits for this request as long as for normal extraction,
+`POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` (default 30 seconds), and the gateway applies its
+180-second deadline from the start of request intake. After a timeout the Server falls back to normal extraction,
+and the provider may still bill the prefixed request that was already sent.
 
 Any other case falls back to normal extraction: a window that is not exactly one whole turn or has no handle, a prefix that is not
 estimated to cost less or whose size is unknown, an expired or unknown

@@ -314,7 +314,10 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
   的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token；Server 生效的
   Atomic Memory 输入上限（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，默认 64,000）更低时以它为准。
   网关在启动时从 Server 读取这个上限，修改后需重启网关。更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
-  句柄在最后一段上。某一段沉淀失败时，其后的段不再沉淀。
+  句柄在最后一段上。一个回合的各段在一次批量请求（`POST /v1/sources/content/batch`）里写入 Server：要么全部入库，
+  要么都不入库；同一回合已以不同内容入库时整批被拒绝，先写入的记录保留。沉淀因此要求 Server 提供批量写入；
+  Server 的能力报告里没有 `context_protection.limits.capture_batch_sources` 时，网关在启动时记录一条错误，
+  回合不沉淀，其他请求不受影响。段数超过该上限的回合同样不沉淀。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。
@@ -323,13 +326,16 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
 前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO`（默认 `0.1`）；普通抽取为其指令加上 Source
 证据。处理窗口须恰好含一个完整回合：一段 Source，或同一回合按顺序排列的全部分段；各段合起来放不进一次抽取输入的回合，
-因此逐段走普通抽取。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
+因此逐段走普通抽取：这样的窗口第一次处理时超出输入预算，`/v1/memory/flush` 返回错误并缩小窗口，后续处理逐段完成；
+自动处理按退避间隔重试。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
 `POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，把 `tool_choice` 设为 `none`，
 发往 Agent 自己的目标和账号。工具、`prompt_cache_key`、推理设置、响应格式等会改变缓存前缀的字段保持不变。该请求
 照常经过 Server 的 `before_send` 和 `before_release` 检查。前缀里含有网关注入的记忆块，抽取指令说明
 `BEGIN_POWERCONTEXT_*` 与 `END_POWERCONTEXT_*` 标记之间的内容不是这一回合的证据。enforcing 模式下，Server 会暂扣重放服务商加密推理的请求，
 因此对 Codex 等客户端，抽取会回退到普通抽取。它不注入、也不沉淀。Server
-用与普通抽取相同的 Schema 和规则校验回复。
+用与普通抽取相同的 Schema 和规则校验回复。Server 等待这次请求的时间与普通抽取相同，为
+`POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS`（默认 30 秒）；网关一侧，从开始接收请求起的 180 秒期限同样适用。
+超时后 Server 回退到普通抽取，而已经发出的前缀请求可能仍被服务商计费。
 
 其他情况都回退到普通抽取：窗口不是恰好一个完整回合或没有句柄、估算复用前缀并不更便宜或前缀规模未知、句柄过期或未知、目标不一致、检查被暂扣或阻断、服务商或网关
 出错，以及回复未通过校验。每次尝试都记录为 `atomic_memory.prefixed_extraction` 日志事件，参见
