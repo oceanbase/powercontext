@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.source_collection import (
 )
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.plugins.executor import PluginWorkerSpec, open_plugin_database
+from powercontext.builtin.plugins.families import register_source_binding
 from powercontext.builtin.plugins.manifest import PluginManifest, load_plugin
 from powercontext.builtin.plugins.observations import observe
 from powercontext.builtin.runtime.processing_contracts import (
@@ -65,6 +66,9 @@ def collection_family(plugin: str) -> str:
 def run_source_collect_worker(
     spec: PluginWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /
 ) -> ArtifactProcessingWorkerCompletion:
+    # Collected Sources are inputs of the loaded Artifact plugins, as Sources written through the Server are.
+    for binding, scopes, source_types in spec.source_bindings:
+        register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
     return asyncio.run(execute_collect(spec, assignment))
 
 
@@ -201,7 +205,9 @@ async def execute_collect(  # noqa: C901 - one collection from target selection 
                         outcome.checkpoint,
                         expected=known[target_id].checkpoint,
                     )
-                    await targets_repository.record_status(connection, scope_id, target_id, SERVER_RUNNER)
+                    await targets_repository.record_status(
+                        connection, scope_id, target_id, SERVER_RUNNER, has_more=outcome.has_more
+                    )
                 remaining = any(outcome.has_more for outcome in result.targets.values())
                 await invocation.complete(connection, remaining_work=remaining)
         except InvocationAlreadyHandled:

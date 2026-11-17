@@ -961,13 +961,9 @@ class RelationalContexts:
             )
             if claimed or await targets.is_target(connection, binding.scope_id, binding.binding_id):
                 target = await targets.committable_by(connection, binding, commit)
-            await self.repositories.connector_checkpoints.save(
-                connection,
-                binding,
-                request.checkpoint,
-                expected=request.expected,
-            )
             if target is not None and commit is not None and commit.succeeded is not None:
+                # Written before the checkpoint: a first checkpoint is inserted under a savepoint, and on
+                # SQLite releasing a savepoint that opened the transaction would commit the insert alone.
                 await targets.record_status(
                     connection,
                     target.scope_id,
@@ -976,6 +972,12 @@ class RelationalContexts:
                     error_code=None if commit.succeeded else commit.error_code or "collection_failed",
                     error_message=None if commit.succeeded else commit.error_message,
                 )
+            await self.repositories.connector_checkpoints.save(
+                connection,
+                binding,
+                request.checkpoint,
+                expected=request.expected,
+            )
         return ConnectorCheckpointState(binding=binding, checkpoint=request.checkpoint)
 
     async def estimate_recall_tokens(

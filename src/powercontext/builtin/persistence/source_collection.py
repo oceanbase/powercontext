@@ -128,6 +128,21 @@ def _name_candidates(base: str) -> Iterator[str]:
         yield f"{base}-{secrets.token_hex(4)}"
 
 
+def _unchanged(target: Target) -> Any:
+    """The target row while it is still what a management request read and was authorized for."""
+
+    return and_(
+        _TARGETS.c.scope_id == target.scope_id,
+        _TARGETS.c.target_id == target.target_id,
+        _TARGETS.c.runner == target.runner,
+        _TARGETS.c.config_version == target.config_version,
+    )
+
+
+def _changed_meanwhile() -> SourceCollectionError:
+    return SourceCollectionError(409, "conflict", "The target was changed concurrently; read it again and retry.")
+
+
 def canonical(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
 
@@ -286,18 +301,37 @@ class SourceCollectionRepository:
         assert updated is not None  # noqa: S101 - updated above in this transaction
         return updated
 
-    async def delete_runner(self, connection: AsyncConnection, runner: str) -> None:
+    async def delete_runner(self, connection: AsyncConnection, runner: Runner) -> None:
+        """Delete the record the caller read and was authorized for, once it has no targets."""
+
+        await connection.execute(select(_RUNNERS.c.runner).where(_RUNNERS.c.runner == runner.runner).with_for_update())
         remaining = (
-            await connection.execute(select(func.count()).select_from(_TARGETS).where(_TARGETS.c.runner == runner))
+            await connection.execute(
+                select(func.count()).select_from(_TARGETS).where(_TARGETS.c.runner == runner.runner)
+            )
         ).scalar_one()
         if remaining:
             raise SourceCollectionError(409, "conflict", "Transfer or delete the runner's targets first.")
-        await connection.execute(delete(_RUNNERS).where(_RUNNERS.c.runner == runner))
+        result = await connection.execute(
+            delete(_RUNNERS).where(
+                _RUNNERS.c.runner == runner.runner,
+                _RUNNERS.c.principal_type == runner.principal.type,
+                _RUNNERS.c.principal_id == runner.principal.id,
+            )
+        )
+        if result.rowcount != 1:
+            raise SourceCollectionError(
+                409, "conflict", "The runner was changed concurrently; read it again and retry."
+            )
 
     async def require_registered(self, connection: AsyncConnection, runner: str) -> None:
         """Targets go only to runners that exist; the Server's own runner always does."""
 
-        if runner != SERVER_RUNNER and await self.runner(connection, runner) is None:
+        if runner == SERVER_RUNNER:
+            return
+        # Locked where the backend supports it, so the runner is not deleted while a target is assigned to it.
+        found = await connection.execute(select(_RUNNERS.c.runner).where(_RUNNERS.c.runner == runner).with_for_update())
+        if found.first() is None:
             raise SourceCollectionError(422, "runner_not_registered", "The runner is not registered.")
 
     async def target(self, connection: AsyncConnection, scope_id: str, target_id: str) -> Target | None:
@@ -359,6 +393,7 @@ class SourceCollectionRepository:
                     updated_at=now(),
                     updated_by=actor,
                     consecutive_failures=0,
+                    has_more=False,
                 )
             )
         except IntegrityError:
@@ -386,11 +421,10 @@ class SourceCollectionRepository:
         ):
             # Results collected under the previous configuration are refused when they commit.
             values["config_version"] = _TARGETS.c.config_version + 1
-        await connection.execute(
-            update(_TARGETS)
-            .where(_TARGETS.c.scope_id == target.scope_id, _TARGETS.c.target_id == target.target_id)
-            .values(**values)
-        )
+        # ``target`` is what the caller compared with and was authorized for; it must still be the row.
+        result = await connection.execute(update(_TARGETS).where(_unchanged(target)).values(**values))
+        if result.rowcount != 1:
+            raise _changed_meanwhile()
         updated = await self.target(connection, target.scope_id, target.target_id)
         assert updated is not None  # noqa: S101 - updated above in this transaction
         return updated
@@ -416,9 +450,9 @@ class SourceCollectionRepository:
                 raise SourceCollectionError(
                     409, "target_conflict", "The destination runner already has a target with the same identity."
                 )
-        await connection.execute(
+        result = await connection.execute(
             update(_TARGETS)
-            .where(_TARGETS.c.scope_id == target.scope_id, _TARGETS.c.target_id == target.target_id)
+            .where(_unchanged(target))
             .values(
                 runner=runner,
                 config_version=_TARGETS.c.config_version + 1,
@@ -426,6 +460,8 @@ class SourceCollectionRepository:
                 updated_by=actor,
             )
         )
+        if result.rowcount != 1:
+            raise _changed_meanwhile()
         if reset_checkpoint:
             await self._delete_checkpoint(connection, target)
         transferred = await self.target(connection, target.scope_id, target.target_id)
@@ -487,9 +523,10 @@ class SourceCollectionRepository:
             raise SourceCollectionError(
                 422, "invalid_request", "The binding must name the target's plugin and the target checkpoint version."
             )
-        if not commit.plugin_accepted:
+        if commit.plugin != current.capability:
+            # The accepted version must be the target's own plugin's, not that of another loaded plugin.
             raise SourceCollectionError(
-                422, "invalid_request", "A commit for a collection target names the runner's plugin version."
+                422, "invalid_request", "A commit for a collection target names the version of the target's plugin."
             )
         return await self.committable(
             connection,
@@ -517,9 +554,9 @@ class SourceCollectionRepository:
     async def delete_target(self, connection: AsyncConnection, target: Target) -> None:
         """Delete the target and its checkpoint; the Sources it collected stay."""
 
-        await connection.execute(
-            delete(_TARGETS).where(_TARGETS.c.scope_id == target.scope_id, _TARGETS.c.target_id == target.target_id)
-        )
+        result = await connection.execute(delete(_TARGETS).where(_unchanged(target)))
+        if result.rowcount != 1:
+            raise _changed_meanwhile()
         await self._delete_checkpoint(connection, target)
 
     async def assigned(
@@ -539,7 +576,10 @@ class SourceCollectionRepository:
     async def due(
         self, connection: AsyncConnection, scope_id: str, runner: str, capability: str, limit: int
     ) -> tuple[Target, ...]:
-        """Up to ``limit`` enabled targets of one Scope, least recently attempted first, so many targets rotate."""
+        """Up to ``limit`` enabled targets of one Scope, so many targets rotate.
+
+        Targets whose last attempt left more to collect go first, then the least recently attempted.
+        """
 
         statement = (
             select(_TARGETS)
@@ -549,7 +589,12 @@ class SourceCollectionRepository:
                 _TARGETS.c.capability == capability,
                 _TARGETS.c.enabled.is_(True),
             )
-            .order_by(_TARGETS.c.last_attempt_at.is_not(None), _TARGETS.c.last_attempt_at, _TARGETS.c.target_id)
+            .order_by(
+                _TARGETS.c.has_more.desc(),
+                _TARGETS.c.last_attempt_at.is_not(None),
+                _TARGETS.c.last_attempt_at,
+                _TARGETS.c.target_id,
+            )
             .limit(limit)
         )
         return tuple(_target(row) for row in (await connection.execute(statement)).mappings().all())
@@ -572,6 +617,7 @@ class SourceCollectionRepository:
         *,
         error_code: str | None = None,
         error_message: str | None = None,
+        has_more: bool = False,
     ) -> bool:
         """Record one collection attempt of a target of this runner; False when no such target exists."""
 
@@ -584,6 +630,7 @@ class SourceCollectionRepository:
                 "consecutive_failures": 0,
                 "last_error_code": None,
                 "last_error_message": None,
+                "has_more": has_more,
             }
         else:
             values = {
@@ -591,6 +638,7 @@ class SourceCollectionRepository:
                 "consecutive_failures": _TARGETS.c.consecutive_failures + 1,
                 "last_error_code": error_code[:128],
                 "last_error_message": None if error_message is None else error_message[:1024],
+                "has_more": False,
             }
         result = await connection.execute(update(_TARGETS).where(matches).values(**values))
         return result.rowcount == 1

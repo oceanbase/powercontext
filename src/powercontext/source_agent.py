@@ -196,6 +196,8 @@ class SourceAgent:
         # When each (plugin, Scope) collects next, and when each target was last attempted.
         self._due: dict[tuple[str, str], float] = {}
         self._attempted: dict[str, float] = {}
+        # Targets whose last committed attempt left more to collect; they go first in the next call.
+        self._more: set[str] = set()
         self._known: set[str] = set()
 
     async def __aenter__(self) -> SourceAgent:
@@ -268,6 +270,7 @@ class SourceAgent:
                 logger.warning("Plugin %s collection failed (%s)", plugin.name, type(error).__name__)
                 outcomes.extend({"target_id": target["target_id"], "error": "collect_failed"} for target in targets)
         self._known = {target["target_id"] for target in synced["targets"]}
+        self._more &= self._known
         return outcomes
 
     async def _collector(self, plugin: _Plugin) -> Any:
@@ -292,10 +295,14 @@ class SourceAgent:
         reason: Literal["schedule", "target_added"],
     ) -> list[dict[str, Any]]:
         collect = plugin.collect
-        # Many targets rotate: the least recently attempted go first.
-        chosen = sorted(targets, key=lambda target: self._attempted.get(target["target_id"], 0.0))[
-            : collect.max_targets
-        ]
+        # Many targets rotate: those with more to collect go first, then the least recently attempted.
+        chosen = sorted(
+            targets,
+            key=lambda target: (
+                target["target_id"] not in self._more,
+                self._attempted.get(target["target_id"], 0.0),
+            ),
+        )[: collect.max_targets]
         request = CollectRequest(
             scope_id=scope_id,
             reason=reason,
@@ -308,6 +315,8 @@ class SourceAgent:
         versions = {item["target_id"]: item["config_version"] for item in chosen}
         for item in chosen:
             self._attempted[item["target_id"]] = time.monotonic()
+            # Kept only by an attempt that commits and reports more.
+            self._more.discard(item["target_id"])
         try:
             result = _checked(
                 await asyncio.wait_for((await self._collector(plugin)).collect(request), collect.timeout_seconds),
@@ -344,6 +353,8 @@ class SourceAgent:
                 # The target changed while it was collected; the next sync brings its new configuration.
                 outcomes.append({"target_id": item.target_id, "error": "target_changed"})
                 continue
+            if outcome.has_more:
+                self._more.add(item.target_id)
             outcomes.append({"target_id": item.target_id, "sources": submitted})
         return outcomes
 

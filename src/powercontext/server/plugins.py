@@ -240,6 +240,7 @@ class _VersionLauncher:
             security=self._manager.security_builder(),
             inference=self._manager.inference_config,
             storage_root=self._manager.storage_root,
+            source_bindings=() if manifest.artifact is not None else self._manager.source_bindings(),
         )
         entrypoint = run_plugin_worker if manifest.artifact is not None else run_source_collect_worker
         return await SpawnArtifactProcessingWorkerLauncher(partial(entrypoint, spec)).start(assignment)
@@ -685,6 +686,11 @@ class PluginManager:
             if artifact.inputs is not None
         )
         return families, bindings
+
+    def source_bindings(self) -> tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]:
+        """The loaded Artifact plugins' Source inputs, for processes that write Sources."""
+
+        return self._registry()[1]
 
     def _sync_registry(self) -> None:
         """Host processes read and write Sources like this process; tell them which plugins are loaded now."""

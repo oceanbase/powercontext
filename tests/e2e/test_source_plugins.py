@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-from tests.e2e.plugin_server import create_scope, running_server, wait_for
+from tests.e2e.plugin_server import create_scope, items, running_server, wait_for
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "source_plugins"
 ROBOT = "robot-token"
@@ -83,9 +83,41 @@ async def grant(admin, scope: str, *subjects: str) -> None:
         assert granted.status_code == 201, granted.text
 
 
+TICKET_NOTES = """
+from powercontext.plugins import ArtifactPlugin, Inputs, Rendering
+
+
+class TicketNotes:
+    async def render_artifact(self, request):
+        return Rendering(format="text", text=request.artifact.content["title"])
+
+    async def generate(self, request, writer):
+        async with writer.transaction() as tx:
+            for source in request.sources:
+                ticket = source.projection
+                await tx.put(
+                    writer.stable_id(ticket["ticket_id"]), content={"title": ticket["title"]}, source_refs=[source.ref]
+                )
+
+
+async def setup(ctx):
+    return TicketNotes()
+
+
+plugin = ArtifactPlugin(
+    family="ticket-notes",
+    inputs=Inputs(source_types=("example-ticket",), projection="example.ticket-details@1"),
+    on_sources=True,
+    setup=setup,
+)
+"""
+
+
 def test_server_and_device_runners_collect_assigned_targets(tmp_path):
     plugins = tmp_path / "plugins"
     shutil.copytree(EXAMPLES / "tickets", plugins / "tickets")
+    (plugins / "ticket-notes").mkdir()
+    (plugins / "ticket-notes" / "plugin.py").write_text(TICKET_NOTES, encoding="utf-8")
     shutil.copytree(EXAMPLES / "ticket-chat", plugins / "ticket-chat")
     device = tmp_path / "device"
     shutil.copytree(EXAMPLES / "ticket-chat", device / "ticket-chat")
@@ -123,6 +155,8 @@ def test_server_and_device_runners_collect_assigned_targets(tmp_path):
             await wait_for(lambda: sources(admin, scope, "example-ticket"), lambda items: len(items) == 1, log=log)
             good = created.json()["target_id"]
             assert (await targets(admin, scope))[good]["status"]["last_success_at"] is not None
+            # What the Server's runner collects reaches the Artifact plugins that take it as input.
+            await wait_for(lambda: items(admin, scope, "ticket-notes"), lambda value: len(value) == 1, log=log)
 
             # A target the plugin reports as failed keeps its checkpoint; the others in the call still commit.
             tickets.write_text(
@@ -288,31 +322,53 @@ def test_runner_registration_ownership_and_target_fencing(tmp_path):
                     assert refused.status_code == 403, refused.text
             assert (await synced(robot, "robot-7"))[target_id]["checkpoint"] is None
 
-            # The runner commits the checkpoint and the status together.
-            done = await robot.post(
+            # The accepted plugin version must be that of the target's own plugin.
+            foreign = await robot.post(
                 "/v1/connector-checkpoints/commit",
-                json=commit(target_id, {"cursor": 1}, version=1, plugin=plugin, status={"succeeded": True}),
+                json=commit(target_id, {"cursor": 1}, version=1, plugin={"name": "tickets", "version": "1.0.0"}),
             )
-            assert done.status_code == 200, done.text
-            assert (await targets(admin, scope))[target_id]["status"]["last_success_at"] is not None
-            # A status write that fails takes the checkpoint with it, so the same commit can be repeated.
+            assert (foreign.status_code, foreign.json()["error"]["code"]) == (422, "invalid_request")
+            newer = await robot.post(
+                "/v1/connector-checkpoints/commit",
+                json=commit(target_id, {"cursor": 1}, version=1, plugin={**plugin, "version": "2.0.0"}),
+            )
+            assert (newer.status_code, newer.json()["error"]["code"]) == (409, "plugin_version_incompatible")
+            assert (await synced(robot, "robot-7"))[target_id]["checkpoint"] is None
+
+            # The runner commits the checkpoint and the status together: a status write that fails takes the
+            # checkpoint with it, so the same commit can be repeated. That holds for a target's first
+            # checkpoint, which is inserted, and for later ones, which replace it.
             database = sqlite3.connect(tmp_path / "server.db")
-            database.execute(
-                "CREATE TRIGGER reject_status BEFORE UPDATE OF last_attempt_at ON pc_source_collect_targets "
-                "BEGIN SELECT RAISE(ABORT, 'rejected'); END"
+            succeeded = {"plugin": plugin, "status": {"succeeded": True}}
+            steps = (
+                (None, commit(target_id, {"cursor": 1}, version=1, **succeeded)),
+                ({"cursor": 1}, commit(target_id, {"cursor": 2}, expected={"cursor": 1}, version=1, **succeeded)),
             )
-            database.commit()
-            step = commit(
-                target_id, {"cursor": 2}, expected={"cursor": 1}, version=1, plugin=plugin, status={"succeeded": True}
-            )
-            # A request that ends in an unexpected error can leave its connection unusable, so it gets its own.
-            async with httpx.AsyncClient(base_url=admin.base_url, headers=robot.headers) as failing:
-                assert (await failing.post("/v1/connector-checkpoints/commit", json=step)).status_code == 500
-            assert (await synced(robot, "robot-7"))[target_id]["checkpoint"] == {"cursor": 1}
-            database.execute("DROP TRIGGER reject_status")
-            database.commit()
+            for before, step in steps:
+                database.execute(
+                    "CREATE TRIGGER reject_status BEFORE UPDATE OF last_attempt_at ON pc_source_collect_targets "
+                    "BEGIN SELECT RAISE(ABORT, 'rejected'); END"
+                )
+                database.commit()
+                attempted = (await targets(admin, scope))[target_id]["status"]["last_attempt_at"]
+                # A request that ends in an unexpected error can leave its connection unusable, so it gets its own.
+                async with httpx.AsyncClient(base_url=admin.base_url, headers=robot.headers) as failing:
+                    assert (await failing.post("/v1/connector-checkpoints/commit", json=step)).status_code == 500
+                assert (await synced(robot, "robot-7"))[target_id]["checkpoint"] == before
+                assert (await targets(admin, scope))[target_id]["status"]["last_attempt_at"] == attempted
+                database.execute("DROP TRIGGER reject_status")
+                database.commit()
+                assert (await robot.post("/v1/connector-checkpoints/commit", json=step)).status_code == 200
+                assert (await targets(admin, scope))[target_id]["status"]["last_success_at"] != attempted
             database.close()
-            assert (await robot.post("/v1/connector-checkpoints/commit", json=step)).status_code == 200
+            # A checkpoint that lost the comparison leaves the reported status unwritten too.
+            status = (await targets(admin, scope))[target_id]["status"]
+            lost = await robot.post(
+                "/v1/connector-checkpoints/commit",
+                json=commit(target_id, {"cursor": 9}, expected={"cursor": 1}, version=1, **succeeded),
+            )
+            assert lost.status_code == 409, lost.text
+            assert (await targets(admin, scope))[target_id]["status"] == status
 
             # A changed target refuses what was collected under its previous configuration.
             changed = await robot.patch(f"{base}/{target_id}", json={"parameters": {"file": str(chats), "room": "ops"}})

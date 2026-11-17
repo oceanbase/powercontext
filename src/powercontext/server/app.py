@@ -4094,7 +4094,7 @@ async def commit_connector_checkpoint(
     collection = CollectionCommit(
         principal_type=principal.type,
         principal_id=principal.id,
-        plugin_accepted=request.plugin is not None,
+        plugin=None if request.plugin is None else request.plugin.name,
         config_version=request.config_version,
         succeeded=None if status is None else status.succeeded,
         error_code=None if status is None else status.error_code,
@@ -4298,7 +4298,7 @@ async def delete_source_runner(
         # Other principals' records are an operator's to remove.
         await _require_server_admin(http_request, DELETE_SOURCE_RUNNER.operation_id)
     async with database.transaction() as connection:
-        await repository.delete_runner(connection, runner)
+        await repository.delete_runner(connection, record)
     return Response(status_code=204)
 
 

@@ -147,8 +147,8 @@ class CollectionCommit(BaseModel):
 
     principal_type: str
     principal_id: str
-    # The Server accepted the runner's plugin version for this request.
-    plugin_accepted: bool = False
+    # The plugin whose version the Server accepted for this request, when the request named one.
+    plugin: str | None = None
     # The target's configuration version the runner collected under.
     config_version: int | None = None
     # The attempt's outcome, recorded on the target with the checkpoint; None records nothing.

@@ -137,7 +137,8 @@ pc_source_target_delete({"scope_id": "SCOPE_ID", "target_id": "..."})
   数据与原设备不同时加上 `"reset_checkpoint": true`，从头采集。目的 runner 上已有相同对象的目标时返回冲突。
 - **删除 runner**：runner 名下还有目标时不能删除，先转移或删除这些目标。
 - **配置版本**：每次修改参数、启停、转移或清空 checkpoint，目标的 `config_version` 加一；runner 提交结果时带上采集时的
-  版本，版本不一致的提交会被拒绝。
+  版本，版本不一致的提交会被拒绝。修改、转移和删除只作用于请求读到的那个状态：两个请求同时改一个目标时，后到的返回
+  `409 conflict`，重新读取后再操作。
 - **状态**：每个目标记录最近尝试时间、最近成功时间、连续失败次数和最近错误。runner 的 `last_seen_at` 晚于目标的
   `updated_at`，说明 runner 已经取到最新配置。
 
@@ -153,7 +154,8 @@ async def collect(self, request: CollectRequest) -> CollectResult:
     return result
 ```
 
-- 一次调用对应一个 Scope，最多 `max_targets` 个已启用目标；目标较多时轮转。
+- 一次调用对应一个 Scope，最多 `max_targets` 个已启用目标；目标较多时轮转，上次返回 `has_more` 的目标优先，其余按
+  最近尝试时间从早到晚。
 - 返回的条目总数超过 `max_items`，或返回了请求中没有的目标，整次调用失败，不截断。没有出现在结果中的目标 checkpoint
   不变。
 - `fail` 只让这个目标失败：它的 checkpoint 不变、状态记录错误，同一次调用中其他目标照常提交。`collect` 抛出异常时整次

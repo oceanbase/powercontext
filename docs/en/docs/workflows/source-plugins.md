@@ -156,7 +156,9 @@ pc_source_target_delete({"scope_id": "SCOPE_ID", "target_id": "..."})
 - **Deleting a runner**: a runner that still has targets cannot be deleted; transfer or delete its targets first.
 - **Configuration version**: every change of parameters or enablement, every transfer, and every checkpoint reset
   increases the target's `config_version`. A runner submits results with the version it collected under, and a commit
-  with another version is refused.
+  with another version is refused. A change, transfer, or deletion applies only to the state the request read: when two
+  requests change one target at the same time, the later one gets `409 conflict` and is repeated after reading the
+  target again.
 - **Status**: each target records the latest attempt, the latest success, consecutive failures, and the latest error. A
   runner's `last_seen_at` later than a target's `updated_at` means the runner has fetched the latest configuration.
 
@@ -172,7 +174,8 @@ async def collect(self, request: CollectRequest) -> CollectResult:
     return result
 ```
 
-- One call covers one Scope and at most `max_targets` enabled targets; with more targets, they rotate.
+- One call covers one Scope and at most `max_targets` enabled targets; with more targets, they rotate: targets whose
+  last call returned `has_more` go first, then the least recently attempted.
 - Returning more items than `max_items` in total, or a target that was not requested, fails the whole call without
   truncation. Targets missing from the result keep their checkpoints.
 - `fail` fails only that target: its checkpoint stays and its status records the error, while the other targets in the

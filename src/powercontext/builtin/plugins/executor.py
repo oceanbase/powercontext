@@ -57,6 +57,8 @@ class PluginWorkerSpec:
     security: dict[str, Any] | None = None
     inference: Any = None
     storage_root: str | None = None
+    # The loaded plugins' Source inputs, for Workers that write Sources: (binding, Scopes, Source types).
+    source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...] = ()
 
 
 def run_plugin_worker(

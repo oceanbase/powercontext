@@ -904,6 +904,8 @@ SOURCE_COLLECT_TARGETS_TABLE = Table(
     Column("consecutive_failures", BigInteger, nullable=False, server_default="0"),
     Column("last_error_code", identity_string(128), nullable=True),
     Column("last_error_message", identity_string(1024), nullable=True),
+    # The last successful attempt left more to collect; such targets go first in the Server runner's next call.
+    Column("has_more", Boolean, nullable=False, server_default="0"),
     UniqueConstraint("scope_id", "runner", "capability", "target_key", name="uq_pc_source_collect_target_key"),
     Index("ix_pc_source_collect_targets_runner", "runner"),
 )
