@@ -45,6 +45,9 @@ from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 from tests.builtin.runtime.test_processing_scheduler import _Launcher, _profile, _request, _wait
 
+# Real spawn observations include cold Server imports on shared CI runners.
+_SPAWN_OBSERVATION_TIMEOUT_SECONDS = 60
+
 
 class _PrivateDeniedError(AccessDeniedError):
     stage = "private-stage-credential"
@@ -83,7 +86,10 @@ def test_history_events_correlate_a_real_spawned_attempt_and_keep_queue_time_dis
                 lease_mode="single-process",
                 retry_base_seconds=60,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1, timeout_seconds=10)
+                await _wait(
+                    lambda: supervisor.family_status["memory"]["failed"] == 1,
+                    timeout_seconds=_SPAWN_OBSERVATION_TIMEOUT_SECONDS,
+                )
 
     context_filter = OperationalContextFilter()
     caplog.handler.addFilter(context_filter)
@@ -141,7 +147,10 @@ def test_spawned_failure_reaches_scope_observation_without_private_details(tmp_p
                 lease_mode="single-process",
                 retry_base_seconds=60,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1, timeout_seconds=10)
+                await _wait(
+                    lambda: supervisor.family_status["memory"]["failed"] == 1,
+                    timeout_seconds=_SPAWN_OBSERVATION_TIMEOUT_SECONDS,
+                )
                 row = (
                     await observe_processing(
                         profile.database, ("denied",), ArtifactProcessingSupervisors((supervisor,))

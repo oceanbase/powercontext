@@ -19,7 +19,7 @@ import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { InvalidResponseError } from './errors.ts'
 import { flushProgress } from './flush.ts'
-import { containsSecret } from './secrets.ts'
+import { containsSecret } from './prompt-privacy.ts'
 
 export { containsSecret }
 

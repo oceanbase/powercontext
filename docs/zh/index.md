@@ -230,14 +230,20 @@ home:
     copied_label: 已复制
     steps:
       - title: 安装 PowerContext
-        description: 准备 Python 3.11 或更高版本、Git 和 uv，在运行 Server 的机器上安装本分支。
-        command: uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+        description: 安装最新稳定版，包含本地 Server。脚本会在需要时安装 Python 和 uv；完成后按提示设置 PATH。
+        command_tabs:
+          - label: macOS / Linux
+            command: curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+          - label: Windows
+            command: |
+              irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+              powershell -ExecutionPolicy Bypass -File .\install.ps1
       - title: 完成配置向导
         description: 依次选择存储、访问场景、记忆能力、Dashboard 和 Agent。向导会生成配置文件，以及适合当前配置的后续操作说明。
         command: powercontext config init
       - title: 启动 Server
-        description: 在生成 .env 的目录执行启动命令。若开启 Dashboard，使用向导给出的地址和 Token 登录。
+        description: 在生成 .env 的目录执行启动命令，并保持此终端开启。若开启 Dashboard，使用向导给出的地址和 Token 登录。
         command: powercontext server run --env-file .env
       - title: 接入 Agent 并验收记忆
-        description: 按 .env.next-steps.md 创建或选择 Scope、接入 Agent。先确认真实对话进入 Source，再检查已启用的记忆处理能力。
+        description: 按 .env.next-steps.md 接入 Agent 并选择 Scope。保存一项决策，再在使用相同 Scope 的新会话中找回它及其引用。
 ---
