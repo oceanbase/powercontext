@@ -98,6 +98,7 @@ from powercontext.server.http_limits import HttpAdmissionMiddleware, HttpRequest
 from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
 from powercontext.server.logging import worker_logging
+from powercontext.server.mapping import MAX_CAPTURE_BATCH_SOURCES
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -848,6 +849,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
                 "dependencies": MAX_REUSE_DEPENDENCIES,
                 "send_seconds": int(SEND_VALIDITY.total_seconds()),
                 "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
+                "capture_batch_sources": MAX_CAPTURE_BATCH_SOURCES,
                 **(
                     {}
                     if capabilities.atomic_memory_input_tokens_limit is None

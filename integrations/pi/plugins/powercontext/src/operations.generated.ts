@@ -45,6 +45,7 @@ export const OPERATIONS = {
   set_scope_binding: { method: 'PUT', path: '/v1/scope-bindings', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   clear_scope_binding: { method: 'POST', path: '/v1/scope-bindings/clear', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   capture_content_source: { method: 'POST', path: '/v1/sources/content', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [202], emptyStatuses: [] },
+  capture_content_sources: { method: 'POST', path: '/v1/sources/content/batch', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [202], emptyStatuses: [] },
   capture_working_note: { method: 'POST', path: '/v1/sources/working-notes', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [202], emptyStatuses: [] },
   register_source_definition: { method: 'POST', path: '/v1/source-definitions/register', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   get_connector_checkpoint: { method: 'POST', path: '/v1/connector-checkpoints/get', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },

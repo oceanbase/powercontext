@@ -1058,6 +1058,13 @@ pub struct ContextProtectionCapabilitiesLimits {
         skip_serializing_if = "Option::is_none"
     )]
     pub atomic_memory_input_tokens: Option<i64>,
+    /// The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer the batch capture operation.
+    #[ts(optional)]
+    #[serde(
+        rename = "capture_batch_sources",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub capture_batch_sources: Option<i64>,
 }
 
 impl ContextProtectionCapabilitiesLimits {
@@ -1078,6 +1085,7 @@ impl ContextProtectionCapabilitiesLimits {
             send_seconds,
             correlate_seconds,
             atomic_memory_input_tokens: None,
+            capture_batch_sources: None,
         }
     }
 }
