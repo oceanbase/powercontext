@@ -61,6 +61,7 @@ class HandoffGenerationInput(BaseModel):
     """Caller-owned objective, bounded evidence, and output budget."""
 
     objective: str
+    output_language: Literal["en", "zh-CN"] | None = Field(default=None, exclude_if=lambda value: value is None)
     rollover_reasons: Annotated[
         tuple[HandoffRolloverReason, ...],
         Field(max_length=6),
@@ -220,6 +221,7 @@ def _generation_input(
     return (
         HandoffGenerationInput(
             objective=request.objective,
+            output_language=request.output_language,
             rollover_reasons=request.rollover_reasons,
             evidence=tuple(values),
             max_bytes=request.max_bytes,

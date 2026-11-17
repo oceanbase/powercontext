@@ -16,8 +16,9 @@
 
 import type { CallContext, SourceBoundary } from './contracts.ts'
 import { DeliveryError } from './contracts.ts'
-import { hasSecretContent } from '../secrets.ts'
+import { containsSecret, hasSecretContent } from '../secrets.ts'
 import { invalid, trimmed, wire } from './wire.ts'
+import type { HandoffLocale } from './locale.ts'
 import type { Wire } from './wire.ts'
 
 export const MAX_EVENTS = 512
@@ -33,7 +34,7 @@ export type WorkEvent = {
   observedAt?: string
   evidence?: Citation[]
 } & (
-  | { kind: 'objective' | 'constraint' | 'completed' | 'next_action' | 'unresolved_error'; text: string }
+  | { kind: 'objective' | 'constraint' | 'completed' | 'next_action' | 'unresolved_error' | 'observation'; text: string }
   | { kind: 'check'; command: string; status: 'passed' | 'failed' | 'interrupted' | 'not_run' | 'unknown';
     exitCode?: number; revision?: string; workspaceObservedAt?: string; details?: string }
 )
@@ -50,7 +51,7 @@ export interface BoundaryEvidence {
 
 /** Reads trusted Host observations at this exact boundary, never a live/latest reply or workspace substitute. */
 export type BoundaryReader = (
-  context: CallContext, source: SourceBoundary, limits: { maxEvents: number; maxBytes: number; maxWorkspaceBytes: number },
+  context: CallContext, source: SourceBoundary, limits: { maxEvents: number; maxBytes: number; maxWorkspaceBytes: number; locale?: HandoffLocale },
 ) => Promise<BoundaryEvidence>
 
 export function boundary(value: SourceBoundary): SourceBoundary {
@@ -71,6 +72,12 @@ function secret(value: unknown): boolean {
   return hasSecretContent('capture_content_source', value)
 }
 
+function unsafeAutomaticContent(value: unknown): boolean {
+  if (secret(value)) return true
+  if (typeof value === 'string') return containsSecret(value)
+  return !!value && typeof value === 'object' && Object.values(value).some(unsafeAutomaticContent)
+}
+
 export function inspectedWork(value: unknown): Wire<'CurrentWorkHandoff'> {
   const work = wire('CurrentWorkHandoff', value)
   if (!trimmed(work.objective, 8192) || !work.omissions.every(item => trimmed(item, 8192))
@@ -89,11 +96,12 @@ async function* boundedEvents(events: BoundaryEvidence['events']) {
   }
 }
 
-export async function collectMaterials(context: CallContext, source: SourceBoundary, read: BoundaryReader, limit: number) {
+export async function collectMaterials(context: CallContext, source: SourceBoundary, read: BoundaryReader, limit: number, locale?: HandoffLocale) {
   // The HTTP Source also has a 200,000-character limit. Reserve space for metadata and omissions.
   const maxBytes = Math.min(limit, MAX_MATERIAL_BYTES, 192 * 1024)
   const evidence = await read(context, source, {
     maxEvents: MAX_EVENTS - 1, maxBytes, maxWorkspaceBytes: Math.min(maxBytes, MAX_WORKSPACE_BYTES),
+    ...(locale === undefined ? {} : { locale }),
   })
   context.signal.throwIfAborted()
   const { selectedReply, objective } = evidence
@@ -102,24 +110,23 @@ export async function collectMaterials(context: CallContext, source: SourceBound
     throw new DeliveryError('binding_mismatch')
   }
   const omissions = new Set<string>()
-  const note = (text: string) => { omissions.add(text) }
+  const note = (en: string, zh = en) => { omissions.add(locale === 'zh-CN' ? zh : en) }
   const available = (text: string | null, max: number) => typeof text === 'string'
-    && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !secret(text) && Buffer.byteLength(text) <= max
+    && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !unsafeAutomaticContent(text) && Buffer.byteLength(text) <= max
   if (!trimmed(objective, 8192) || !available(objective, Math.min(8192, maxBytes / 4))) {
     return undefined // Editable work fields are required. Do not capture or guess an objective.
   }
-  const reply = { messageId: selectedReply.messageId, seq: selectedReply.seq,
-    text: available(selectedReply.text, maxBytes / 3) ? selectedReply.text : null }
-  if (reply.text === null) note('The selected reply was unavailable within the content and input limits.')
+  if (typeof selectedReply.text !== 'string' || !selectedReply.text.trim() || !available(selectedReply.text, maxBytes / 3)) return undefined
+  const reply = { messageId: selectedReply.messageId, seq: selectedReply.seq, text: selectedReply.text }
   let workspace = null
   if (evidence.workspace?.observedAt === source.workspaceObservedAt) {
     const { observedAt, revision, uncommittedChanges } = evidence.workspace
     workspace = { observedAt, revision: available(revision, 256) ? revision : null,
       uncommittedChanges: available(uncommittedChanges, Math.min(MAX_WORKSPACE_BYTES, maxBytes / 4)) ? uncommittedChanges : null }
     if (Buffer.byteLength(JSON.stringify(workspace)) > MAX_WORKSPACE_BYTES) workspace.uncommittedChanges = null
-    if (workspace.revision === null || workspace.uncommittedChanges === null) note('Workspace revision or uncommitted changes were not available.')
+    if (workspace.revision === null || workspace.uncommittedChanges === null) note('Workspace revision or uncommitted changes were not available.', '无法取得工作区版本或未提交的改动。')
   } else {
-    note('The workspace observation at the selected time was not available.')
+    note('The workspace observation at the selected time was not available.', '未取得所选时点的工作区记录。')
   }
   const events: WorkEvent[] = []
   const seen = new Set<number>([selectedReply.seq])
@@ -130,7 +137,7 @@ export async function collectMaterials(context: CallContext, source: SourceBound
   let checksObserved = false
   for await (const event of boundedEvents(evidence.events)) {
     context.signal.throwIfAborted()
-    if (++count === MAX_EVENTS) note('The session evidence window reached the event limit.')
+    if (++count === MAX_EVENTS) note('The session evidence window reached the event limit.', '会话证据已达到事件数量上限。')
     if (event.sessionId !== source.sessionId || !Number.isSafeInteger(event.seq)
       || event.seq < 0 || event.seq > source.throughSeq) throw new DeliveryError('binding_mismatch')
     if (seen.has(event.seq)) continue
@@ -146,7 +153,8 @@ export async function collectMaterials(context: CallContext, source: SourceBound
       if (!available(command, 8192)) {
         note(status === 'failed'
           ? 'At least one observed check failed but its command could not be included.'
-          : 'A check was observed but its command could not be included.')
+          : 'A check was observed but its command could not be included.',
+          status === 'failed' ? '至少有一项检查失败，其命令无法纳入。' : '已观测到检查，但其命令无法纳入。')
         continue
       }
       item = { ...base, kind, command, status,
@@ -154,32 +162,34 @@ export async function collectMaterials(context: CallContext, source: SourceBound
         revision: revision && available(revision, 256) ? revision : undefined,
         workspaceObservedAt: trimmed(workspaceObservedAt, 64) ? workspaceObservedAt : undefined,
         exitCode: Number.isSafeInteger(exitCode) ? exitCode : undefined }
-      if (details && item.details === undefined) note('Some check details could not be included.')
+      if (details && item.details === undefined) note('Some check details could not be included.', '部分检查详情无法纳入。')
     } else {
       if (!available(event.text, 8192)) {
-        note('Some task evidence was omitted because of content or input limits.')
+        note('Some task evidence was omitted because of content or input limits.', '部分任务证据因内容限制或输入长度上限而省略。')
         continue
       }
       item = { ...base, kind, text: event.text }
     }
     const bytes = Buffer.byteLength(JSON.stringify(item)) + 1
-    if (secret(item) || bytes > remaining) {
+    if (unsafeAutomaticContent(item) || bytes > remaining) {
       note(kind === 'check' && item.kind === 'check' && item.status === 'failed'
         ? 'At least one observed failure could not fit the input limits or contained sensitive material.'
-        : 'Some task evidence was omitted because of content or input limits.')
+        : 'Some task evidence was omitted because of content or input limits.',
+        kind === 'check' && item.kind === 'check' && item.status === 'failed'
+          ? '至少有一项已观测的失败因内容或长度限制未纳入。' : '部分任务证据因内容限制或输入长度上限而省略。')
       continue
     }
     remaining -= bytes
     events.push(item)
   }
-  if (!checksObserved) note('No check evidence was available; whether checks ran is unknown.')
+  if (!checksObserved) note('No check evidence was available; whether checks ran is unknown.', '没有可用的检查证据，无法确认是否执行过检查。')
   if (workspace && events.some(event => event.kind === 'check'
     && (event.revision && workspace.revision && event.revision !== workspace.revision
       || event.workspaceObservedAt && event.workspaceObservedAt !== workspace.observedAt))) {
-    note('Some checks describe a different revision or workspace state from the selected observation.')
+    note('Some checks describe a different revision or workspace state from the selected observation.', '部分检查对应的版本或工作区状态与所选时点不同。')
   }
   if (events.some(event => event.kind === 'check' && !event.revision && !event.workspaceObservedAt)) {
-    note('Some checks could not be tied to an exact workspace state.')
+    note('Some checks could not be tied to an exact workspace state.', '无法确定部分检查所对应的工作区状态。')
   }
   const hostOmissions = evidence.omissions ?? []
   const maxHostOmissions = 16
@@ -193,9 +203,50 @@ export async function collectMaterials(context: CallContext, source: SourceBound
       hostOmissionsTruncated = true
     }
   }
-  if (hostOmissionsTruncated) note('Additional omissions reported by the Host could not be included.')
+  if (hostOmissionsTruncated) note('Additional omissions reported by the Host could not be included.', '部分宿主报告的遗漏无法纳入。')
   content.omissions = [...omissions]
   const serialized = JSON.stringify(content)
   if (Buffer.byteLength(serialized) > maxBytes) invalid()
-  return { objective, serialized }
+  return { objective, serialized, content }
+}
+
+/** Preserve observations as declarations, without interpreting a reply as a task outcome. */
+export function deterministicWork(materials: NonNullable<Awaited<ReturnType<typeof collectMaterials>>>, locale?: HandoffLocale) {
+  const { objective, selectedReply, workspace, events, omissions } = materials.content
+  const label = (en: string, zh: string) => locale === 'zh-CN' ? zh : en
+  const claim = (text: string): Wire<'WorkClaim'> => ({ text, basis: 'declared', evidence: [] })
+  const reply = label('Selected completed reply (unverified): ', '所选回复（内容未经核实）：') + JSON.stringify(selectedReply.text)
+  if (!trimmed(reply, 8192)) return undefined
+  const work: Wire<'CurrentWorkHandoff'> = {
+    schema: 'powercontext.current-work-handoff.v1', trust: 'untrusted_input', objective,
+    state: [claim(label('The selected completed reply and bounded observations are available for review; the task outcome is unknown.', '可查看所选回复和已有观察。任务结果尚未核实。')), claim(reply)],
+    disposition: 'continuable',
+    next_action: claim(label('Review the selected reply and available evidence, then determine the current task status and appropriate next step.', '先核对所选回复和可用证据，再判断当前任务状态和下一步。')),
+    omissions: [...new Set([...omissions, label('The task disposition and current state have not been independently established.', '任务进展和当前状态尚未独立确认。')])],
+  }
+  if (Buffer.byteLength(JSON.stringify(work)) > MAX_WORK_INPUT_BYTES - 1024) return undefined
+  let omitted = false
+  let omittedFailure = false
+  const add = (text: string) => {
+    const item = claim(text)
+    if (!trimmed(text, 8192) || work.state.length >= 64
+      || Buffer.byteLength(JSON.stringify({ ...work, state: [...work.state, item] })) > MAX_WORK_INPUT_BYTES - 1024) {
+      omitted = true
+      return false
+    }
+    work.state.push(item)
+    return true
+  }
+  if (workspace) add(label('Workspace observation (unverified): ', '工作区记录（未经核实）：') + JSON.stringify(workspace))
+  for (const event of events) {
+    if (!add(label('Host observation (unverified): ', '宿主记录（未经核实）：') + JSON.stringify(event)) && event.kind === 'check' && event.status === 'failed') {
+      omittedFailure = true
+    }
+  }
+  if (omitted) work.omissions.push(label('Some bounded observations could not fit the current-work input limits.', '部分观察超出交接内容长度上限。'))
+  if (omittedFailure) work.omissions.push(label('At least one observed failed check could not fit the current-work input limits.', '至少一项已观察到的失败检查因长度限制未纳入。'))
+  for (let i = work.omissions.length - 1; i >= 0; i--) {
+    if (work.omissions.indexOf(work.omissions[i]) !== i) work.omissions.splice(i, 1)
+  }
+  return inspectedWork(work)
 }

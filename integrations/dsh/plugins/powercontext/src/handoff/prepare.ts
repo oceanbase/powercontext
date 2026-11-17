@@ -20,7 +20,7 @@ import { RequestNotSentError, ServerResponseError } from '../errors.ts'
 import { hasSecretContent } from '../secrets.ts'
 import type { CallContext, PrepareDeliveryInput, VerifiedPreflight } from './contracts.ts'
 import { DeliveryError } from './contracts.ts'
-import { collectMaterials } from './materials.ts'
+import { collectMaterials, deterministicWork, MAX_WORK_INPUT_BYTES } from './materials.ts'
 import type { BoundaryReader } from './materials.ts'
 import { invalid, object, preparedDigest, wire } from './wire.ts'
 import type { Wire } from './wire.ts'
@@ -59,7 +59,8 @@ export async function prepareCarrier(
     if (hasSecretContent(operation, payload)) invalid()
     assertDispatch?.()
     if (mayWrite) markDispatched()
-    const result = await client.request(operation, { ...payload, scope_id: scope }, signal)
+    const result = await client.request(operation, { ...payload, scope_id: scope }, signal,
+      operation === 'prepare_handoff' && input.locale ? { handoffLanguage: input.locale } : undefined)
     if (result.kind !== 'json') invalid()
     return result.value
   }
@@ -73,20 +74,26 @@ export async function prepareCarrier(
   }
 
   const sourceId = 'dsh-delivery:' + deliveryId
-  if (input.workInput) {
+  const prepareCurrentWork = async (work: Wire<'CurrentWorkHandoff'>): Promise<Carrier> => {
     const result = wire('PreparedWorkHandoff', await call('handoff_current_work', {
-      source_id: sourceId, handoff: input.workInput,
+      source_id: sourceId, handoff: work,
     }, true))
     return validateCarrier({ kind: 'prepared', digest: preparedDigest(result.handoff), prepared: result.handoff,
       sourceReceipts: [result.boundary] }, binding, deliveryId)
   }
-  if (!generation || !readBoundary) return undefined
+  if (input.workInput) return prepareCurrentWork(input.workInput)
+  if (!readBoundary) return undefined
+  if (!generation) {
+    const materials = await collectMaterials(context, binding.source, readBoundary, MAX_WORK_INPUT_BYTES, input.locale)
+    const work = materials && deterministicWork(materials, input.locale)
+    return work ? prepareCurrentWork(work) : undefined
+  }
   if (!Number.isSafeInteger(generation.maxInputBytes) || generation.maxInputBytes < 1024
     || (generation.maxOutputBytes !== undefined && (!Number.isSafeInteger(generation.maxOutputBytes)
       || generation.maxOutputBytes < 512 || generation.maxOutputBytes > 32768))) {
     throw new DeliveryError('integration_unavailable')
   }
-  const materials = await collectMaterials(context, binding.source, readBoundary, generation.maxInputBytes)
+  const materials = await collectMaterials(context, binding.source, readBoundary, generation.maxInputBytes, input.locale)
   if (!materials) return undefined
   const receipt = wire('CaptureContentSourceResponse', await call('capture_content_source', {
     source_id: sourceId, content: materials.serialized, metadata: { origin: 'dsh', kind: 'handoff-input' },

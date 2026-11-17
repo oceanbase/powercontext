@@ -116,7 +116,11 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "^24.3.0",
     "@types/react": "^18.3.12",
+    "@types/react-dom": "18.3.7",
     "cross-spawn": "^7.0.6",
+    "jsdom": "26.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

@@ -61,3 +61,16 @@ declare module '@deepseek-ai/dsh-session' {
 declare module '@deepseek-ai/dsh-system-prompt' {}
 declare module '@deepseek-ai/dsh-commands' {}
 declare module '@deepseek-ai/dsh-skill' {}
+
+declare module '@deepseek-ai/dsh-client-ui-primitives' {
+  import type { ReactElement, ReactNode, RefObject } from 'react'
+  export function Menu(props: { open: boolean; anchor: ReactNode; children?: ReactNode; onClose(): void;
+    side?: 'bottom' | 'top' | 'right'; portal?: boolean; compact?: boolean; dense?: boolean;
+    autoFocus?: boolean; anchorRef?: RefObject<HTMLElement>; listClassName?: string }): ReactElement
+  export function MenuItemButton(props: { children: ReactNode; disabled?: boolean; disabledReason?: string; onSelect(): void }): ReactElement
+  export function Tooltip(props: { label: string; side?: 'bottom' | 'top' | 'left' | 'right'; children: ReactNode }): ReactElement
+  export function IconShareOutlineRegular(): ReactElement
+  export function IconCheckCircleOutlineRegular(): ReactElement
+  export function IconChevronLeftOutlineRegular(): ReactElement
+  export function IconClockOutlineRegular(): ReactElement
+}

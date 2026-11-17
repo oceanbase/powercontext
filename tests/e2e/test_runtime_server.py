@@ -180,7 +180,9 @@ class DeterministicHandoffPipeline:
             objective=request.objective,
             state=(
                 RuntimeHandoffStatement(
-                    text="The HTTP and SDK lifecycle is connected.",
+                    text="HTTP 与 SDK 已连接。"
+                    if request.output_language == "zh-CN"
+                    else "The HTTP and SDK lifecycle is connected.",
                     citations=citations,
                 ),
             ),
@@ -587,6 +589,18 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
                     content="The end-to-end Handoff lifecycle must remain explicit.",
                 )
             )
+            localized = await transport.post(
+                "/v1/handoff/prepare",
+                headers={"Accept-Language": "zh-CN"},
+                json={
+                    "scope_id": scope_id,
+                    "objective": "Transfer the current implementation state.",
+                    "evidence": [{"kind": "source", "source_ref": captured.source.model_dump(mode="json")}],
+                },
+            )
+            assert localized.status_code == 200
+            assert localized.json()["state"][0]["text"] == "HTTP 与 SDK 已连接。"
+            assert localized.json()["objective"] == "Transfer the current implementation state."
             activation = await client.activate_handoff(
                 ActivateHandoffRequest(
                     scope_id=scope_id,

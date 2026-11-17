@@ -104,10 +104,8 @@ export interface ClaudeCodeCliRuntimeOptions {
   /** Exact macOS deep-link terminal preference and evidence for this environment. */
   readonly environmentEvidence: { readonly terminal: string; readonly evidence: string }
   readonly pythonExecutable: string
-  /** Persistent host-owned secret used only to fingerprint effective configuration. */
-  readonly generationKey: Buffer
-  /** Roots whose receiver Read access was actually tested for the qualified CLI/terminal. */
-  readonly qualifiedPackageRoots: readonly string[]
+  /** Persistent fingerprint key and roots qualified for receiver Read access. */
+  readonly packageStorage: () => { generationKey: Buffer; qualifiedPackageRoots: readonly string[] }
 }
 
 function object(value: unknown): Record<string, any> | undefined {
@@ -130,6 +128,14 @@ async function readObject(path: string): Promise<Record<string, any>> {
 async function command(file: string, args: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, cwd?: string) {
   signal.throwIfAborted()
   return (await execute(file, args, { env, cwd, signal, timeout: 15_000, maxBuffer: 1_048_576, encoding: 'utf8' })).stdout
+}
+
+export async function installedClaudePowerContext(executable: string, env: NodeJS.ProcessEnv, signal: AbortSignal, cwd?: string) {
+  const list: unknown = JSON.parse(await command(executable, ['plugin', 'list', '--json'], env, signal, cwd))
+  if (!Array.isArray(list)) throw new Error('Invalid Claude plugin inventory')
+  const plugins = list.filter(value => value?.id === 'powercontext@powercontext')
+  if (plugins.length > 1) throw new Error('Ambiguous Claude plugin inventory')
+  return plugins[0] as { enabled?: boolean; errors?: unknown[]; installPath?: string } | undefined
 }
 
 const managed = '/Library/Application Support/ClaudeCode'
@@ -257,9 +263,9 @@ async function registeredHandler(executable: string, env: NodeJS.ProcessEnv, sig
  */
 export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions): ClaudeCliReceiver {
   if (!isAbsolute(options.configDir) || !isAbsolute(options.pythonExecutable)) throw new Error('Absolute paths required')
-  if (options.generationKey.length < 32 || !options.environmentEvidence.terminal.trim()
-    || !options.environmentEvidence.evidence.trim()) throw new Error('Verified terminal evidence and a persistent generation key are required')
-  const key = Buffer.from(options.generationKey)
+  if (!options.environmentEvidence.terminal.trim() || !options.environmentEvidence.evidence.trim()) {
+    throw new Error('Verified terminal evidence is required')
+  }
   const env = { ...options.launchEnvironment }
   const globalConfigFile = env.CLAUDE_CONFIG_DIR
     ? join(options.configDir, '.claude.json') : join(env.HOME ?? homedir(), '.claude.json')
@@ -312,11 +318,9 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
         targetEnv[name] = value
       }
       if (settings.disableAllHooks === true) return undefined
-      const list = JSON.parse(await command(executable, ['plugin', 'list', '--json'], targetEnv, signal, cwd))
-      if (!Array.isArray(list)) return undefined
-      const plugins = list.filter(value => value?.id === 'powercontext@powercontext' && value?.enabled === true && !value?.errors?.length)
-      if (plugins.length !== 1 || !isAbsolute(plugins[0].installPath ?? '')) return undefined
-      const pluginRoot = await realpath(plugins[0].installPath)
+      const plugin = await installedClaudePowerContext(executable, targetEnv, signal, cwd)
+      if (plugin?.enabled !== true || plugin.errors?.length || !plugin.installPath || !isAbsolute(plugin.installPath)) return undefined
+      const pluginRoot = await realpath(plugin.installPath)
       const manifest = await readObject(join(pluginRoot, '.claude-plugin', 'plugin.json'))
       const mcp = await readObject(join(pluginRoot, '.mcp.json'))
       const hooks = await readObject(join(pluginRoot, 'hooks/hooks.json'))
@@ -342,12 +346,14 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       const parsed = object(JSON.parse(await command(options.pythonExecutable, ['-c', PROBE, pluginRoot, cwd, endpoint], targetEnv, signal, cwd)))
       if (!parsed || typeof parsed.serverIdentity !== 'string' || !parsed.serverIdentity
         || typeof parsed.scopeId !== 'string' || !parsed.scopeId) return undefined
-      const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
+      const { generationKey, qualifiedPackageRoots } = options.packageStorage()
+      if (generationKey.length < 32) return undefined
+      const roots = await Promise.all(qualifiedPackageRoots.map(root => realpath(root)))
       const credentialFile = join(options.configDir, 'powercontext', 'credentials.json')
       const clientsFile = targetEnv.POWERCONTEXT_CLIENT_CONFIG_FILE ?? join(targetEnv.HOME ?? '', '.config', 'powercontext', 'clients.json')
       const credentials = await readObject(credentialFile)
       const clients = await readObject(clientsFile)
-      const generation = createHmac('sha256', key).update(JSON.stringify([await realpath(executable), pluginRoot,
+      const generation = createHmac('sha256', generationKey).update(JSON.stringify([await realpath(executable), pluginRoot,
         manifest, mcp, settings, Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
         credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal, projectMcp])).digest('hex')
       return { effectiveCwd: cwd, serverIdentity: parsed.serverIdentity, scopeId: parsed.scopeId,
@@ -374,7 +380,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
         signal.throwIfAborted()
         if (!await observeReceiverPolicy(bundle.binding.effectiveCwd, signal)) return false
         const path = await realpath(bundle.packagePath)
-        const roots = await Promise.all(options.qualifiedPackageRoots.map(root => realpath(root)))
+        const roots = await Promise.all(options.packageStorage().qualifiedPackageRoots.map(root => realpath(root)))
         if (!roots.some(root => { const rel = relative(root, path); return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) })) return false
         const info = await lstat(bundle.packagePath)
         if (!info.isFile()) return false
