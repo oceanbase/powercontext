@@ -206,12 +206,13 @@ def test_recall_does_not_accumulate_across_turns(tmp_path: Path) -> None:
 
 def test_recall_completes_graph_for_over_limit_prompt(tmp_path: Path) -> None:
     # Regression: a human turn longer than the public query limit (8192 chars) must not abort the graph. The hook
-    # clamps the query to that limit before building the request, so preparation stays best-effort and the graph
-    # reaches its end instead of raising a request-validation error.
+    # bounds the query to its most recent text before building the request, so preparation stays best-effort, the
+    # question at the end of a long turn still drives recall, and the graph reaches its end instead of raising a
+    # request-validation error.
     model = _RecordingModel()
     agent = _build_agent(model)
     app = _server_app(tmp_path)
-    long_prompt = "How do we deploy the database migrations? " + ("context padding " * 2000)
+    long_prompt = ("context padding " * 2000) + "How do we deploy the database migrations?"
     assert len(long_prompt) > 8192
 
     async def scenario(client: PowerContextClient) -> None:
@@ -223,8 +224,8 @@ def test_recall_completes_graph_for_over_limit_prompt(tmp_path: Path) -> None:
         # The graph completed: the model ran and produced an answer despite the over-limit prompt.
         assert model.inputs
         assert any(message.type == "ai" for message in result["messages"])
-        # The clamped query is still a valid recall query, so recalled context reaches the model input.
-        assert _system_texts(model.inputs[-1]), "recall should still fire on the clamped query"
+        # The bounded query is still a valid recall query, so recalled context reaches the model input.
+        assert _system_texts(model.inputs[-1]), "recall should still fire on the bounded query"
         # Recalled context never persists, and the model never saw a raised error in its place.
         assert _system_texts(result["messages"]) == []
 
