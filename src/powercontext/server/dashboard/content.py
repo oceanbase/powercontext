@@ -257,6 +257,14 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         "experience.generate",
         "skill.generate",
         "handoff.generate",
+        "topic_memory.probe",
+        "topic_memory.global",
+        "topic_memory.planner",
+        "topic_memory.evolve",
+        "topic_memory.temporary",
+        "topic_memory.reduce",
+        "topic_memory.reconcile",
+        "profile.generate",
     )
     for value in await api.prompt_configurations(ctx["scope"], keys):
         if isinstance(value, ReadError):
