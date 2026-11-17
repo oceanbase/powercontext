@@ -82,10 +82,11 @@ Read the migration guide before changing managed storage:
 [English](docs/en/docs/operate/database-migrations.md) / [中文](docs/zh/docs/operate/database-migrations.md).
 
 - New Server revisions use `v<major>_<minor>_<patch>_pr<PR number>_<step>`, for example
-  `v1_5_3_pr2674_01`. Create a draft PR first. Use its number in this repository and a
+  `v1_5_2_pr2674_01`. Create a draft PR first. Use its number in this repository and a
   distinct two-digit step (`01`–`99`) for each migration in that PR; keep the full ID within 32 characters.
 - Agree on the target release before registering migrations, using the version declared in
-  `openapi/powercontext.yaml` and `release/upgrade-support.json`. Feature PRs do not independently
+  `openapi/powercontext.yaml` and `release/upgrade-support.json`. At registration, the new prefix must
+  match both declarations. This does not require existing prefixes to track later version bumps. Feature PRs do not independently
   bump the release. Once registered, keep the ID even if the change ships in a later release.
 - Before merging, update against master, reconcile unpublished dependencies and conflicting schema
   changes, and rerun migration validation. Keep a single head; `down_revision` determines order,

@@ -148,7 +148,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 ## Migration names and software versions
 
 The target release is **PowerContext 1.5.2**. New Server migration names use
-`v<major>_<minor>_<patch>_pr<PR number>_<step>`, for example `v1_5_3_pr2674_01`.
+`v<major>_<minor>_<patch>_pr<PR number>_<step>`, for example `v1_5_2_pr2674_01`.
 The version is the target release declared when the migration is registered, the PR number
 identifies the introducing PR in this repository, and the two-digit step (`01`–`99`) is local
 to that PR. Keep the full ID within the existing 32-character storage limit.
@@ -191,7 +191,7 @@ contains `name`, `software_version`, `sequence` and the compatible `revision` ID
 For a PR-scoped name, the same fields describe the registration target and PR-local step:
 
 ```json
-{"revision":"v1_5_3_pr2674_01","name":"v1_5_3_pr2674_01","software_version":"1.5.3","sequence":1}
+{"revision":"v1_5_2_pr2674_01","name":"v1_5_2_pr2674_01","software_version":"1.5.2","sequence":1}
 ```
 
 `sequence` is not a global execution order. Different PRs can both have step `01`.
@@ -209,14 +209,17 @@ For a new Server migration, create a draft PR first and use its PR-scoped name d
 Alembic `revision`. Register its schema, domain steps and recovery checkpoints as usual.
 Agree on the target release before the first schema PR registers a revision, using the version
 already declared in `openapi/powercontext.yaml` and `release/upgrade-support.json`; feature PRs
-must not independently bump it. Assign each migration in the PR a distinct local step.
+must not independently bump it. At registration, the new prefix must match both declarations;
+this requirement does not apply retroactively when the target release changes. Assign each
+migration in the PR a distinct local step. The names above illustrate the naming format; they
+do not register additional migrations or change the current head.
 
 Before merging, update against master and check the combined changes for duplicate IDs.
 Reconcile unpublished dependencies and any conflicting schema operations, then rerun migration
 validation and keep a single head, as required by [RFC #1771](../../rfcs/1771-unified-database-migrations.md).
 `down_revision` references the actual predecessor (`v1_5_0_005` when appending directly to the
 current head). The framework follows this chain, not version, PR-number or lexical ordering.
-For example, if the PR containing `v1_5_3_pr2688_01` merges first, `v1_5_3_pr2674_01` can depend
+For example, if the PR containing `v1_5_2_pr2688_01` merges first, `v1_5_2_pr2674_01` can depend
 on it without either ID changing. A development database that already ran the earlier branch
 chain must be rebuilt or use an explicitly validated conversion; editing `down_revision` does
 not apply missing predecessors to that database.
