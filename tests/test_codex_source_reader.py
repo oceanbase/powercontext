@@ -291,3 +291,43 @@ def test_codex_reader_excludes_page_context(tmp_path, text):
         ],
     )
     assert [prompt.content for prompt in read_codex_prompts(codex_home=home).prompts] == ["real prompt"]
+
+
+@pytest.mark.parametrize(
+    ("kinds", "synthetic"),
+    [
+        (["additional_content.codex_apps_open_page"], True),
+        (["additional_content.codex_apps_selected_page"], True),
+        ([{}], False),
+        ([["a"]], False),
+        ([None], False),
+        (["additional_content.codex_apps_open_page", {}], False),
+    ],
+)
+def test_codex_reader_validates_page_context_metadata_kinds(tmp_path, kinds, synthetic):
+    home = tmp_path / "codex"
+    sessions = home / "sessions"
+    sessions.mkdir(parents=True)
+    _write_jsonl(
+        sessions / "rollout.jsonl",
+        [
+            {"type": "session_meta", "payload": {"id": "session", "cwd": str(tmp_path)}},
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prompt with metadata",
+                    "internal_chat_message_metadata_passthrough": {"content_item_kinds": kinds},
+                },
+            },
+            {"type": "response_item", "payload": {"type": "message", "role": "user", "content": "later prompt"}},
+        ],
+    )
+
+    result = read_codex_prompts(codex_home=home)
+
+    assert result.failed_files == 0
+    assert [prompt.content for prompt in result.prompts] == (
+        ["later prompt"] if synthetic else ["prompt with metadata", "later prompt"]
+    )

@@ -60,14 +60,15 @@ def target(scope):
     )
 
 
-async def context(client, home, selected):
+async def context(client, home, selected, *, other_targets=()):
     await register_source_definitions(client=client, registry=SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,)))
 
     async def report(value):
         pass
 
     targets = ManagedTargets(instance_id="codex-history", report=report)
-    targets.synchronize([selected.model_dump(mode="json")], [])
+    selected_targets = (selected, *other_targets)
+    targets.synchronize([value.model_dump(mode="json") for value in selected_targets], [])
     ctx = PluginContext(
         plugin_id="codex-history",
         connector_name="codex-history",
@@ -79,7 +80,7 @@ async def context(client, home, selected):
         targets=targets,
     )
     connector = CodexHistoryConnector(ctx, Config(codex_home=home))
-    connector.targets = (selected,)
+    connector.targets = selected_targets
     ctx.connect(connector)
     return ctx
 
@@ -195,6 +196,57 @@ async def _retry(directory):
             result = await ctx.run_batch(scope_id=scope, targets=(selected,))
             assert result.status == ConnectorRunStatus.COMPLETE
             await ctx.close()
+
+
+@pytest.mark.parametrize("kinds", [[{}], [["a"]]])
+def test_history_metadata_does_not_block_other_targets_or_later_batches(tmp_path, kinds):
+    asyncio.run(_metadata_batches(tmp_path, kinds))
+
+
+async def _metadata_batches(directory, kinds):
+    home = directory / "codex"
+    path = write_session(home, content="prompt with malformed metadata")
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[2]["payload"]["internal_chat_message_metadata_passthrough"] = {"content_item_kinds": kinds}
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    healthy = write_session(home, content="healthy target prompt", other=True)
+    async with running_server(directory) as (admin, url, _):
+        scope = await create_scope(admin, "metadata-history")
+        await grant(admin, scope, "deployer")
+        async with PowerContextClient(url, token=TOKENS["deployer"], allow_insecure_http=True) as client:
+            selected = target(scope)
+            other = selected.model_copy(
+                update={"target_id": "healthy-target", "input": {"session_file": "other.jsonl"}}
+            )
+            ctx = await context(client, home, selected, other_targets=(other,))
+            try:
+                first = await ctx.run_batch(scope_id=scope, targets=(selected, other))
+                assert first.status == ConnectorRunStatus.COMPLETE
+                assert len(first.items) == 2
+                assert {
+                    (await client.get_source(scope, "content", item.source_ref.source_id)).content
+                    for item in first.items
+                } == {"prompt with malformed metadata", "healthy target prompt"}
+                with healthy.open("a") as stream:
+                    stream.write(
+                        json.dumps({
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": "healthy target later prompt",
+                                "turn_id": "turn-b",
+                            },
+                        })
+                        + "\n"
+                    )
+                later = await ctx.run_batch(scope_id=scope, targets=(selected, other))
+                assert later.status == ConnectorRunStatus.COMPLETE
+                assert len(later.items) == 1
+                source = await client.get_source(scope, "content", later.items[0].source_ref.source_id)
+                assert source.content == "healthy target later prompt"
+            finally:
+                await ctx.close()
 
 
 @pytest.mark.parametrize("filename", ["../outside.jsonl", "/absolute.jsonl", "rollout.txt"])

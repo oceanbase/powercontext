@@ -266,7 +266,8 @@ def _is_synthetic_codex_user_message(content: str, payload: Mapping[str, object]
             isinstance(kinds, list)
             and kinds
             and all(
-                kind in {"additional_content.codex_apps_open_page", "additional_content.codex_apps_selected_page"}
+                isinstance(kind, str)
+                and kind in {"additional_content.codex_apps_open_page", "additional_content.codex_apps_selected_page"}
                 for kind in kinds
             )
         ):
