@@ -241,7 +241,6 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
     defaults:
       run:
@@ -309,7 +308,6 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
-      max-parallel: 2
       matrix:
         python-version: ["3.11", "3.14"]
     steps:
