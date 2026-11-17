@@ -224,16 +224,21 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
   new device's data differs from the old one's, the checkpoint can be cleared at the same time. A target with the same key
   already on the destination runner is a conflict.
 - **Permissions**:
-  - Adding, changing, and removing targets of a device runner needs Source write permission on the Scope; a device can
-    submit results only to Scopes where its credential has `scope.contribute`.
+  - A device runner collects with the device's credential, network position, and local files, so its owner decides
+    what it collects: creating a target, changing its parameters, and enabling it again need, besides Source write
+    permission on the Scope, a caller that is the principal that registered the runner or has `server.admin`. Otherwise
+    a user with write permission on some Scope could make another user's device read files or reach addresses with
+    parameters of their choosing. Disabling and deleting a target only make a runner collect less and need Source write
+    permission on the Scope. A device can submit results only to Scopes where its credential has `scope.contribute`.
   - Adding, changing, and removing targets of the `server` runner needs `server.admin`: the server runner reaches external
     systems with credentials from the Server environment, so deciding what it collects is an operator decision that
     cannot be left to a user with write permission on some Scope. The server runner submits results inside the Server and
     needs no further permission.
   - Transferring a target is creating it on the destination runner, with the same checks: Source write permission on the
-    Scope, a registered destination runner, and `server.admin` when the destination is `server`; when the source runner is
-    `server`, `server.admin` is needed as for changing a `server` target. A user with only Scope write permission
-    therefore cannot create a target on their own device and then transfer it to `server`.
+    Scope, a registered destination runner, a caller that registered the destination runner or has `server.admin`, and
+    `server.admin` when the destination is `server`; when the source runner is `server`, `server.admin` is needed as for
+    changing a `server` target. A user with only Scope write permission therefore cannot create a target on their own
+    device and then transfer it to `server` or to another user's device.
   - Listing runners needs only authentication; a runner can only sync and report its own targets; changing a display
     name needs `server.admin`.
   - Deleting a runner record: the subject that registered a runner can delete its own records, and `server.admin` can
@@ -441,11 +446,11 @@ class SourceCollector(Protocol):
 | `PATCH /v1/source-runners/{runner}` | `server.admin` | Changes the display name |
 | `POST /v1/source-runners/{runner}/sync` | The runner itself | Accepts only registered names; the request carries the capability list (plugin versions and load errors); the response returns every enabled target assigned to the runner whose version is compatible, each with its configuration version and checkpoint |
 | `DELETE /v1/source-runners/{runner}` | The subject that registered the runner, or `server.admin` | Deletes a runner record; a conflict while it still has targets |
-| `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope; `server.admin` when the runner is `server` | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
+| `POST /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_add`) | Source write on the Scope, and the principal that registered the runner or `server.admin`; `server.admin` when the runner is `server` | Creates a target: `runner`, `capability`, `parameters`; validated and deduplicated |
 | `GET /v1/scopes/{scope_id}/source-targets` (MCP `pc_source_status`) | Scope read | Targets, their configuration, and status |
-| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | As for creation | Changes fields of `parameters` outside the identity expression, or enables and disables |
+| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_set_enabled`) | As for creation to change parameters or enable; to disable, Source write on the Scope, and `server.admin` for a `server` target | Changes fields of `parameters` outside the identity expression, or enables and disables |
 | `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer` (MCP `pc_source_target_transfer`) | As for creating it on the destination runner; `server.admin` when the source runner is `server` | Reassigns the target to another registered runner and increases its configuration version; optional `reset_checkpoint` |
-| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | As for creation | Deletes a target and its checkpoint |
+| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}` (MCP `pc_source_target_delete`) | Source write on the Scope; `server.admin` for a `server` target | Deletes a target and its checkpoint |
 | `POST /v1/source-observations` | Existing | Requests from a runner gain the plugin name and version, checked against the compatible range |
 | `POST /v1/connector-checkpoints/commit` | Existing; a collection target's checkpoint is accepted only from the runner the target belongs to | The request gains an optional `status` (latest attempt, success, error category, and message) and `config_version`; requests from a runner gain the plugin name and version, checked against the compatible range. The central Server decides by `(scope_id, target_id)` whether the commit belongs to a collection target; if it does, it validates the target's existence, enabled state, ownership, and configuration version in the same transaction that writes the checkpoint and status, and returns a conflict otherwise |
 
@@ -511,6 +516,9 @@ own local files. `ctx.center` exists only on devices, which lets a plugin tell w
 - **Limited normalization**: identity uses only fixed normalization steps, so complex rules such as URL normalization cannot
   be expressed; plugins can merge identical objects themselves while collecting.
 - **Configuration takes effect with a delay**: up to the sync interval, 30 seconds by default.
+- **Only its owner and administrators assign targets to a shared runner**: on a runner run under a service account for a
+  team, members cannot create targets themselves; the service account or `server.admin` does. Letting a runner accept
+  each assignment would be more flexible and is not part of this RFC.
 - **Runner identity rests on the credential**: a name is not a secret, so whoever holds a credential can sync under any
   name that credential registered, consistent with the trust model of a shared credential. Two runners that fix the same
   name under one credential, or that copied the same state file, count as one runner and get the same targets, which

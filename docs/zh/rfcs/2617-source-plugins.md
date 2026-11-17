@@ -184,13 +184,16 @@ pc_source_target_delete(scope_id="robot-7-data", target_id="...")
 - **转移**：把目标改派给另一台已注册的 runner，目标 ID 不变，checkpoint 默认跟着目标走，例如设备重装后以新名字注册时；
   新设备上的数据与旧设备不同时，可以选择同时清空 checkpoint。目的 runner 上已有键相同的目标时返回冲突。
 - **权限**：
-  - 给设备上的 runner 增删改目标，需要该 Scope 的 Source 写权限；设备只能把结果提交到它的凭据有 `scope.contribute` 的
-    Scope。
+  - 设备上的 runner 用设备的凭据、网络位置和本机文件采集，所以让它采集什么由它的所有者决定：新建目标、修改参数、重新
+    启用目标，除了该 Scope 的 Source 写权限，还要求调用者是注册这台 runner 的主体，或者具备 `server.admin`。否则只有某个
+    Scope 写权限的用户可以让别人的设备按自己填写的参数读取文件或访问地址。停用和删除目标只让 runner 少采集，有该 Scope 的
+    Source 写权限即可。设备只能把结果提交到它的凭据有 `scope.contribute` 的 Scope。
   - 给 `server` runner 增删改目标需要 `server.admin`：服务端 runner 用 Server 环境中的凭据访问外部系统，决定它采集什么
     等同于运维决定，不能交给只有某个 Scope 写权限的用户。服务端 runner 提交结果在 Server 内部完成，不需要额外权限。
-  - 转移目标等同于在目的 runner 上新建这个目标，权限检查相同：Scope 的 Source 写权限，目的 runner 已注册，目的是 `server`
-    时还需要 `server.admin`；原 runner 是 `server` 时，与修改 `server` 的目标一样需要 `server.admin`。只有 Scope 写权限的
-    用户因此不能先在自己的设备上新建目标、再转移给 `server`。
+  - 转移目标等同于在目的 runner 上新建这个目标，权限检查相同：Scope 的 Source 写权限，目的 runner 已注册，调用者是注册
+    目的 runner 的主体或者具备 `server.admin`，目的是 `server` 时需要 `server.admin`；原 runner 是 `server` 时，与修改
+    `server` 的目标一样需要 `server.admin`。只有 Scope 写权限的用户因此不能先在自己的设备上新建目标、再转移给 `server`
+    或别人的设备。
   - 查看 runner 列表只需要登录；runner 只能同步和汇报自己的目标；修改显示名需要 `server.admin`。
   - 删除 runner 记录：注册它的主体可以删除自己名下的记录，`server.admin` 可以删除任何记录。runner 名下还有目标时删除返回
     冲突，要先转移或删除这些目标。
@@ -358,11 +361,11 @@ class SourceCollector(Protocol):
 | `PATCH /v1/source-runners/{runner}` | `server.admin` | 修改显示名 |
 | `POST /v1/source-runners/{runner}/sync` | runner 本身 | 只接受已注册的名字；请求带能力清单（插件版本和加载错误）；返回分配给该 runner、已启用且版本兼容的全部目标，每个目标带配置版本和 checkpoint |
 | `DELETE /v1/source-runners/{runner}` | 注册该 runner 的主体，或 `server.admin` | 删除 runner 记录；它仍有目标时返回冲突 |
-| `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限；runner 为 `server` 时需要 `server.admin` | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
+| `POST /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_add`） | Scope 的 Source 写权限，并且是注册该 runner 的主体或具备 `server.admin`；runner 为 `server` 时需要 `server.admin` | 新建目标：`runner`、`capability`、`parameters`；校验并去重 |
 | `GET /v1/scopes/{scope_id}/source-targets`（MCP `pc_source_status`） | Scope 读权限 | 目标、配置和状态 |
-| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | 同新建 | 修改 `parameters` 中不参与唯一性的字段或启停 |
+| `PATCH /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_set_enabled`） | 修改参数和启用同新建；停用需要 Scope 的 Source 写权限，目标属于 `server` 时需要 `server.admin` | 修改 `parameters` 中不参与唯一性的字段或启停 |
 | `POST /v1/scopes/{scope_id}/source-targets/{target_id}/transfer`（MCP `pc_source_target_transfer`） | 同在目的 runner 上新建；原 runner 是 `server` 时需要 `server.admin` | 改派给另一台已注册的 runner，配置版本递增；可选 `reset_checkpoint` |
-| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | 同新建 | 删除目标及其 checkpoint |
+| `DELETE /v1/scopes/{scope_id}/source-targets/{target_id}`（MCP `pc_source_target_delete`） | Scope 的 Source 写权限；目标属于 `server` 时需要 `server.admin` | 删除目标及其 checkpoint |
 | `POST /v1/source-observations` | 现有 | 来自 runner 的请求增加插件名和版本，按兼容范围核对 |
 | `POST /v1/connector-checkpoints/commit` | 现有；属于采集目标的 checkpoint 只接受目标所属 runner 的提交 | 请求增加可选的 `status`（最近尝试、成功、错误分类和信息）和 `config_version`；来自 runner 的请求增加插件名和版本，按兼容范围核对。中心按 `(scope_id, target_id)` 判断是否属于采集目标；属于时在同一事务中校验目标存在、已启用、归属和配置版本，再写入 checkpoint 和状态，不符返回冲突 |
 
@@ -419,6 +422,8 @@ class PluginCenter(Protocol):
 - **多两张表**：迁移、导出恢复和两种数据库后端都要维护。
 - **规范化规则受限**：唯一性只能用固定的规范化步骤，URL 规范化等复杂规则写不出来；插件可以在采集时自行合并相同对象。
 - **配置生效有延迟**：等于同步间隔，默认 30 秒。
+- **共用的 runner 只有所有者和管理员能分配目标**：用服务账号运行、供团队共用的 runner，普通成员不能自己给它新建目标，
+  需要用该服务账号或者由 `server.admin` 操作。runner 侧逐个确认指派的方式更灵活，本 RFC 不做。
 - **runner 身份依赖凭据**：名字不是密钥，持有同一个凭据的人可以用这个凭据注册的任何名字同步，这与共享凭据的信任模型一致。
   同一个凭据下两个 runner 指定同一个名字、或者复制了同一份状态文件，会被当成同一台 runner，拿到同一批目标，core 无法区分。
 - **指定名可能被占用**：指定的名字已被其他主体注册时 runner 启动失败，要由管理员删除占用的记录。
