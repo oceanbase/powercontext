@@ -13,65 +13,81 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert, Button, Dropdown, Empty, Flex, Space, Spin, Typography } from "@oceanbase/design";
-import { BookOutlined, ReloadOutlined, SwapOutlined } from "@oceanbase/icons";
+import { ReloadOutlined, SwapOutlined } from "@oceanbase/icons";
 import { PageContainer } from "@oceanbase/ui";
 import { useDefault, useHostContext, useLibrary, useLibraries, useRefresh, useSetDefault, useSpaces } from "./hooks";
 import { ProcessingWatcher } from "./components/ProcessingWatcher";
 import { Failure } from "./components/Feedback";
-import { Create } from "./actions";
+import * as Actions from "./actions";
 import { Documents } from "./pages/Documents";
 import { Reader } from "./pages/Reader";
 import { Retrieval } from "./pages/Retrieval";
 import { Settings } from "./pages/Settings";
 import type { Location } from "./types";
-function Workspace({ space, initialScope = "" }: { space: string; initialScope?: string }) {
+function Workspace({
+  space,
+  initialScope = "",
+  navigation,
+  actions,
+}: {
+  space: string;
+  initialScope?: string;
+  navigation: ReactNode;
+  actions: ReactNode;
+}) {
   const libraries = useLibraries(space);
   const [selected, setSelected] = useState(initialScope);
   const [tab, setTab] = useState("documents");
   const [location, setLocation] = useState<Location>();
   const items = libraries.data?.items || [];
   const kb = items.find((item) => item.scope_id === selected);
+  const displayedLibrary = items.find((item) => item.scope_id === (location?.scope ?? selected));
   return (
-    <div className="workspace">
-      <aside className="library-nav" aria-label="知识库列表">
-        <Flex vertical gap="middle">
-          <Flex justify="space-between" align="center">
-            <Typography.Text strong>知识库</Typography.Text>
-            <Create kind="kb" space={space} />
-          </Flex>
-          <Failure error={libraries.error} />
-          {libraries.isPending && <Spin />}
-          {items.map((item) => (
-            <Button
-              block
-              key={item.scope_id}
-              className="library-link"
-              type={item.scope_id === (location?.scope ?? selected) ? "link" : "text"}
-              icon={<BookOutlined aria-hidden />}
-              aria-pressed={item.scope_id === (location?.scope ?? selected)}
-              aria-label={item.value.title}
-              title={item.value.title}
-              onClick={() => {
-                setSelected(item.scope_id);
-                setLocation(undefined);
+    <Flex vertical className="workspace">
+      <header className="space-bar">
+        <Flex justify="space-between" align="center" wrap gap="middle">
+          <Space wrap>
+            {navigation}
+            <Typography.Text type="secondary" aria-hidden>
+              /
+            </Typography.Text>
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                selectedKeys: [location?.scope ?? selected],
+                items: items.map((item) => ({ key: item.scope_id, label: item.value.title })),
+                onClick: ({ key }) => {
+                  setSelected(key);
+                  setLocation(undefined);
+                },
               }}
+              disabled={!items.length}
             >
-              <span className="library-name">{item.value.title}</span>
-            </Button>
-          ))}
-          {!libraries.isPending && !items.length && (
-            <Typography.Text type="secondary">在此空间新建知识库，然后导入文档。</Typography.Text>
-          )}
+              <Button
+                type="text"
+                aria-label="切换知识库"
+                icon={<SwapOutlined aria-hidden />}
+                loading={libraries.isPending}
+              >
+                <span className="context-label" title={displayedLibrary?.value.title}>
+                  {displayedLibrary?.value.title || "选择知识库"}
+                </span>
+              </Button>
+            </Dropdown>
+            <Actions.Create kind="kb" space={space} />
+          </Space>
+          {actions}
         </Flex>
-      </aside>
+      </header>
+      <Failure error={libraries.error} />
       <main className="workspace-main">
         {location && (
           <Reader
             key={`${location.scope}:${location.id}`}
             location={location}
-            libraryTitle={items.find((item) => item.scope_id === location.scope)?.value.title}
+            libraryTitle={displayedLibrary?.value.title}
             onBack={() => setLocation(undefined)}
           />
         )}
@@ -79,7 +95,7 @@ function Workspace({ space, initialScope = "" }: { space: string; initialScope?:
           {kb ? (
             <PageContainer
               className="kb-page"
-              title={kb.value.title}
+              title={false}
               tabActiveKey={tab}
               onTabChange={setTab}
               tabList={[
@@ -102,12 +118,18 @@ function Workspace({ space, initialScope = "" }: { space: string; initialScope?:
             </PageContainer>
           ) : (
             <div className="workspace-empty">
-              <Empty description="选择左侧知识库，浏览文档或测试检索" />
+              {libraries.isPending ? (
+                <Spin />
+              ) : (
+                <Empty
+                  description={items.length ? "在顶部选择知识库，浏览文档或测试检索" : "此空间还没有知识库，请在顶部新建知识库"}
+                />
+              )}
             </div>
           )}
         </div>
       </main>
-    </div>
+    </Flex>
   );
 }
 export function App() {
@@ -124,50 +146,59 @@ export function App() {
   const initialScope = selected === undefined ? hostLibrary.data?.scope_id : undefined;
   const resolvingHost = selected === undefined && (host.isPending || (!!host.data?.scopeId && hostLibrary.isPending));
   const hostError = selected === undefined ? host.error || hostLibrary.error : null;
+  const navigation = (
+    <Space>
+      <Dropdown
+        trigger={["click"]}
+        menu={{
+          selectedKeys: space ? [space.space_scope_id] : [],
+          items: (spaces.data?.items || []).map((item) => ({ key: item.space_scope_id, label: item.title })),
+          onClick: ({ key }) => {
+            setSelected(key);
+            changeDefault.reset();
+          },
+        }}
+      >
+        <Button type="text" aria-label="切换空间" icon={<SwapOutlined aria-hidden />}>
+          <span className="context-label" title={space?.title}>
+            {space?.title || "选择知识空间"}
+          </span>
+        </Button>
+      </Dropdown>
+      {space?.space_scope_id === defaults.data?.space_scope_id && (
+        <Typography.Text type="secondary">默认空间</Typography.Text>
+      )}
+    </Space>
+  );
+  const actions = (
+    <Space>
+      <Button
+        size="small"
+        aria-label="设为默认空间"
+        disabled={!space || !defaults.data || space.space_scope_id === defaults.data.space_scope_id}
+        loading={changeDefault.isPending}
+        onClick={() => {
+          if (space && defaults.data)
+            changeDefault.mutate({ space: space.space_scope_id, version: defaults.data.version });
+        }}
+      >
+        设为默认空间
+      </Button>
+      <Actions.Create kind="space" />
+      <Button icon={<ReloadOutlined aria-hidden />} aria-label="刷新知识库" onClick={() => refresh()} />
+    </Space>
+  );
   return (
     <Flex vertical className="kb-app">
       <ProcessingWatcher />
-      <header className="space-bar">
-        <Flex justify="space-between" align="center" wrap gap="middle">
-          <Space>
-            <Typography.Text type="secondary">空间</Typography.Text>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                selectedKeys: space ? [space.space_scope_id] : [],
-                items: (spaces.data?.items || []).map((item) => ({ key: item.space_scope_id, label: item.title })),
-                onClick: ({ key }) => {
-                  setSelected(key);
-                  changeDefault.reset();
-                },
-              }}
-            >
-              <Button type="text" aria-label="切换空间" icon={<SwapOutlined aria-hidden />}>
-                {space?.title || "请选择空间"}
-              </Button>
-            </Dropdown>
-            {space?.space_scope_id === defaults.data?.space_scope_id && (
-              <Typography.Text type="secondary">默认空间</Typography.Text>
-            )}
-          </Space>
-          <Space>
-            <Button
-              size="small"
-              aria-label="设为默认空间"
-              disabled={!space || !defaults.data || space.space_scope_id === defaults.data.space_scope_id}
-              loading={changeDefault.isPending}
-              onClick={() => {
-                if (space && defaults.data)
-                  changeDefault.mutate({ space: space.space_scope_id, version: defaults.data.version });
-              }}
-            >
-              设为默认空间
-            </Button>
-            <Create kind="space" />
-            <Button icon={<ReloadOutlined aria-hidden />} aria-label="刷新知识库" onClick={() => refresh()} />
-          </Space>
-        </Flex>
-      </header>
+      {(spaces.isPending || defaults.isPending || resolvingHost || hostError || !space) && (
+        <header className="space-bar">
+          <Flex justify="space-between" align="center" wrap gap="middle">
+            {navigation}
+            {actions}
+          </Flex>
+        </header>
+      )}
       <Failure error={spaces.error || defaults.error || changeDefault.error || hostError} />
       {selected === undefined && host.data?.scopeId && hostLibrary.data === null && (
         <Alert
@@ -186,6 +217,8 @@ export function App() {
           key={`${space.space_scope_id}:${initialScope || ""}`}
           space={space.space_scope_id}
           initialScope={initialScope}
+          navigation={navigation}
+          actions={actions}
         />
       ) : (
         <div className="workspace-empty">

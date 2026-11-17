@@ -82,6 +82,9 @@ reusing an identity with different creation parameters is a conflict. Unregister
 
 ## Import and process
 
+Choose a space and knowledge base from the plugin’s top navigation. Create a knowledge base beside the selectors;
+its documents, retrieval tests and settings share the full content area. The host Dashboard navigation is unchanged.
+
 The Dashboard supports selecting or dragging files, and explicit Server-directory imports. Markdown references to embedded images
 remain references; independently imported PNG/JPEG/WebP images use RapidOCR with ONNX Runtime. OCR produces Markdown text blocks
 with original polygons, reading order and confidence. Both paths use heading-aware block packing followed by bounded sentence/line

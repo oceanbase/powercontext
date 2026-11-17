@@ -77,6 +77,11 @@ async def dashboard(tmp_path, extra_plugin=""):
             await browser.close()
 
 
+async def select_library(frame, title):
+    await frame.get_by_role("button", name="切换知识库", exact=True).click()
+    await frame.get_by_role("menuitem", name=title, exact=True).click()
+
+
 async def library(call, title, space):
     return await call(
         "POST", "/knowledge-bases", json={"title": title, "space_scope_id": space, "idempotency_key": title}
@@ -111,7 +116,7 @@ def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
                 "![remote](https://example.invalid/image.png)\n\n[g]: https://example.com/guide",
             )
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            await frame.get_by_role("button", name="A", exact=True).wait_for()
+            await expect(frame.get_by_role("button", name="切换知识库")).to_be_enabled()
             await page.evaluate(
                 """scope => {
                 const original = window.fetch;
@@ -127,9 +132,9 @@ def test_dashboard_navigation_reader_edits_and_historical_markdown(tmp_path):
             }""",
                 a["scope_id"],
             )
-            await frame.get_by_role("button", name="A", exact=True).click()
+            await select_library(frame, "A")
             await page.wait_for_function("window.delay.held")
-            await frame.get_by_role("button", name="B", exact=True).click()
+            await select_library(frame, "B")
             await expect(frame.get_by_role("table")).to_contain_text("b.md")
             await page.evaluate("window.delay.release()")
             await page.wait_for_timeout(300)
@@ -200,7 +205,7 @@ def test_dashboard_keeps_saved_settings_when_reselecting_a_library(tmp_path, sel
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
 
             async def select(title):
-                await frame.get_by_role("button", name=title, exact=True).click()
+                await select_library(frame, title)
                 await frame.get_by_role("tab", name="设置", exact=True).click()
 
             async def configure(expected, maximum):
@@ -235,9 +240,10 @@ def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
             b = (await call("POST", "/spaces", json={"title": "Space B", "idempotency_key": "B"}))["space_scope_id"]
             old, new = await library(call, "Base A", a), await library(call, "Base B", b)
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            old_button = frame.get_by_role("button", name="Base A", exact=True)
-            await old_button.click()
+            await frame.get_by_role("button", name="切换知识库").click()
+            old_button = frame.get_by_role("menuitem", name="Base A", exact=True)
             await old_button.evaluate("button => { window.oldLibraryButton = button; }")
+            await old_button.click()
             await page.evaluate(
                 """space => {
                 const original = window.fetch;
@@ -261,7 +267,7 @@ def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
             await frame.locator("body").evaluate("() => window.oldLibraryButton.click()")
             await expect(frame.get_by_role("button", name="导入文档", exact=True)).to_have_count(0)
             await page.evaluate("window.delay.release()")
-            await frame.get_by_role("button", name="Base B", exact=True).click()
+            await select_library(frame, "Base B")
             await frame.get_by_role("button", name="导入文档", exact=True).click()
             await frame.locator('input[type="file"]').set_input_files([
                 {
@@ -289,7 +295,7 @@ def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
             assert (await changed_default.value).status == 200
             await expect(frame.get_by_role("button", name="设为默认空间", exact=True)).to_be_disabled()
             await page.reload()
-            await frame.get_by_role("button", name="Base B", exact=True).wait_for()
+            await select_library(frame, "Base B")
             default = await call("GET", "/me/default-space")
             assert default["space_scope_id"] == b
             await page.route(
@@ -298,10 +304,10 @@ def test_dashboard_space_switch_and_upload_preserve_target(tmp_path):
             )
             await page.reload()
             await expect(frame.get_by_role("alert")).to_contain_text("默认空间不可访问")
-            await expect(frame.get_by_role("button", name="Base B", exact=True)).to_have_count(0)
+            await expect(frame.get_by_role("button", name="切换知识库")).to_have_count(0)
             await frame.get_by_role("button", name="切换空间").click()
             await frame.get_by_role("menuitem", name="Space B", exact=True).click()
-            await frame.get_by_role("button", name="Base B", exact=True).wait_for()
+            await select_library(frame, "Base B")
 
     asyncio.run(scenario())
 
@@ -316,7 +322,7 @@ def test_dashboard_cross_library_retrieval_chunk_removal_and_forget(tmp_path):
             )
             await upload(call, tmp_path, b, "search-b.md", "# Beta\n\nquartz beta")
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            await frame.get_by_role("button", name="Search A", exact=True).click()
+            await select_library(frame, "Search A")
             await frame.get_by_role("tab", name="检索测试", exact=True).click()
             await frame.get_by_role("combobox", name="检索知识库").press("ArrowDown")
             await frame.get_by_text("Search B", exact=True).last.click()

@@ -17,7 +17,7 @@
 import asyncio
 
 from tests.e2e.plugin_server import wait_for
-from tests.e2e.test_knowledge_base_dashboard import dashboard, library, upload
+from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
 
 
 def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
@@ -30,9 +30,7 @@ def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
             await upload(call, tmp_path, a, "same.md", "# A\n\nOriginal A")
             await upload(call, tmp_path, b, "same.md", "# B\n\nOriginal B")
             await page.goto(origin + "/dashboard/plugins/knowledge-base?scope=" + a["scope_id"])
-            await expect(frame.get_by_role("button", name="Host A", exact=True)).to_have_attribute(
-                "aria-pressed", "true"
-            )
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Host A")
             await frame.get_by_role("button", name="浏览", exact=True).click()
             await frame.get_by_role("checkbox", name="选择分块 1", exact=True).check()
             await frame.get_by_role("button", name="编辑分块", exact=True).click()
@@ -41,9 +39,7 @@ def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
             await page.locator(".scope-picker .dropdown-input").fill("Host B")
             await page.locator(".scope-picker .option").filter(has_text="Host B").first.click()
             await expect(frame.get_by_role("button", name="切换空间")).to_contain_text("Host selection")
-            await expect(frame.get_by_role("button", name="Host B", exact=True)).to_have_attribute(
-                "aria-pressed", "true"
-            )
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Host B")
             await expect(frame.get_by_role("textbox", name="分块正文")).to_have_count(0)
             await frame.get_by_role("button", name="浏览", exact=True).click()
             await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("Original B")
@@ -52,9 +48,7 @@ def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
             # An ordinary host Scope must not silently masquerade as a selected knowledge base.
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
             await expect(frame.get_by_text("当前内容范围未关联可访问的知识库。", exact=False)).to_be_visible()
-            await expect(frame.get_by_role("button", name="Host A", exact=True)).to_have_attribute(
-                "aria-pressed", "false"
-            )
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("选择知识库")
 
     asyncio.run(scenario())
 
@@ -135,5 +129,45 @@ def test_dashboard_retry_can_explicitly_replace_edits_and_names_failed_files(tmp
                 + history["items"][0]["chunk_id"],
             )
             assert old["text"] == "Manually edited text"
+
+    asyncio.run(scenario())
+
+
+def test_dashboard_top_navigation_creates_in_selected_space_and_clears_reader(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            default = await call("GET", "/me/default-space")
+            a = await library(call, "Original library", default["space_scope_id"])
+            await upload(call, tmp_path, a, "original.md", "# Original\n\nOriginal library content")
+            b = await call("POST", "/spaces", json={"title": "Empty space", "idempotency_key": "empty"})
+            await page.goto(origin + "/dashboard/plugins/knowledge-base?scope=" + a["scope_id"])
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Original library")
+            await frame.get_by_role("button", name="浏览", exact=True).click()
+            await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("Original library content")
+            await frame.get_by_role("button", name="切换空间").click()
+            await frame.get_by_role("menuitem", name="Empty space", exact=True).click()
+            await expect(frame.locator(".reader-content .markdown-body")).to_have_count(0)
+            await expect(frame.get_by_role("button", name="切换知识库")).to_be_disabled()
+            await expect(frame.get_by_text("此空间还没有知识库", exact=False)).to_be_visible()
+            await frame.get_by_role("button", name="新建知识库", exact=True).click()
+            await frame.get_by_role("textbox", name="知识库名称", exact=True).fill("Created in empty space")
+            async with page.expect_response(
+                lambda r: r.request.method == "POST" and r.url.endswith("/knowledge-bases")
+            ) as created:
+                await frame.get_by_role("button", name="创建", exact=True).click()
+            response = await created.value
+            assert response.status == 200
+            new_library = await response.json()
+            assert new_library["space_scope_id"] == b["space_scope_id"]
+            await expect(frame.get_by_role("dialog")).to_have_count(0)
+            await select_library(frame, "Created in empty space")
+            await expect(frame.get_by_role("tab", name="文档", exact=True)).to_be_visible()
+            await expect(frame.get_by_role("button", name="导入文档", exact=True)).to_be_visible()
+            await expect(frame.get_by_role("heading", name="Created in empty space", exact=True)).to_have_count(0)
+            original_libraries = await call(
+                "GET", "/knowledge-bases", params={"space_scope_id": default["space_scope_id"]}
+            )
+            assert [item["scope_id"] for item in original_libraries["items"]] == [a["scope_id"]]
+            assert await call("GET", "/me/default-space") == default
 
     asyncio.run(scenario())

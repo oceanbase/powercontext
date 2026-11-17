@@ -36,13 +36,8 @@ body {
   border-bottom: 1px solid var(--ob-color-divider);
 }
 .workspace {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
   flex: 1;
-}
-.library-nav {
-  padding: var(--ob-space-600) var(--ob-space-400);
-  border-right: 1px solid var(--ob-color-divider);
+  min-width: 0;
 }
 .workspace-main {
   min-width: 0;
@@ -147,9 +142,6 @@ body {
   border: 1px solid var(--ob-color-divider);
 }
 @media (max-width: 1000px) {
-  .workspace {
-    grid-template-columns: 180px minmax(0, 1fr);
-  }
   .reader-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -157,23 +149,9 @@ body {
     max-height: 220px;
   }
 }
-@media (max-width: 640px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .library-nav {
-    border-right: 0;
-    border-bottom: 1px solid var(--ob-color-divider);
-  }
-}
-
-.library-link {
-  justify-content: flex-start;
-  text-align: left;
-}
-
-.library-name {
-  min-width: 0;
+.context-label {
+  display: inline-block;
+  max-width: min(28vw, 24rem);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

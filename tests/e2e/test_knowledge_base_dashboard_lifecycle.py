@@ -17,7 +17,7 @@
 import asyncio
 
 from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, wait_for
-from tests.e2e.test_knowledge_base_dashboard import dashboard, library, upload
+from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
 
 
 def test_dashboard_reprocess_tracks_committed_revision(tmp_path):
@@ -38,7 +38,7 @@ _service.parse = _gated_parse
             kb = await library(call, "Rechunk", space)
             await upload(call, tmp_path, kb, "long.md", "# Guide\n\n" + "Quartz operational instructions. " * 30)
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            await frame.get_by_role("button", name="Rechunk", exact=True).click()
+            await select_library(frame, "Rechunk")
             await frame.get_by_role("tab", name="设置", exact=True).click()
             await frame.get_by_role("spinbutton", name="最大分块字符数").fill("120")
             await frame.get_by_role("spinbutton", name="重叠字符数").fill("0")
@@ -82,7 +82,7 @@ def test_dashboard_refresh_invalidates_search_and_shows_hit_library(tmp_path):
             b = await library(call, "Review B", space)
             receipt = await upload(call, tmp_path, b, "same.md", "# Quartz\n\nContent from library B")
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            await frame.get_by_role("button", name="Review A", exact=True).click()
+            await select_library(frame, "Review A")
             await frame.get_by_role("tab", name="检索测试", exact=True).click()
             await frame.get_by_role("combobox", name="检索知识库").press("ArrowDown")
             await frame.get_by_text("Review B", exact=True).last.click()
@@ -91,7 +91,7 @@ def test_dashboard_refresh_invalidates_search_and_shows_hit_library(tmp_path):
             await frame.get_by_role("button", name="定位分块", exact=True).click()
             await expect(frame.locator(".reader-content .markdown-body")).to_contain_text("library B")
             # The navigation must identify the library actually being read/edited.
-            selected_b = await frame.get_by_role("button", name="Review B", exact=True).get_attribute("aria-pressed")
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Review B")
             await frame.get_by_role("button", name="back", exact=True).click()
             artifact = f"/v1/scopes/{b['scope_id']}/artifacts/document/{receipt['document_id']}"
             response = await page.context.request.get(
@@ -106,7 +106,6 @@ def test_dashboard_refresh_invalidates_search_and_shows_hit_library(tmp_path):
             assert response.status == 200, await response.text()
             await frame.get_by_role("button", name="刷新知识库").click()
             await expect(frame.locator(".markdown-body")).to_have_count(0)
-            assert selected_b == "true"
 
     asyncio.run(scenario())
 
@@ -141,7 +140,7 @@ def test_dashboard_bulk_chunk_removal_is_one_atomic_revision(tmp_path):
                 response = await page.context.request.get(origin + artifact, headers=headers)
                 assert (await response.json())["revision"] == 1
             await page.goto(origin + "/dashboard/plugins/knowledge-base")
-            await frame.get_by_role("button", name="Bulk chunks", exact=True).click()
+            await select_library(frame, "Bulk chunks")
             await frame.get_by_role("button", name="浏览", exact=True).click()
             await frame.get_by_role("checkbox", name="选择分块 1", exact=True).check()
             await frame.get_by_role("checkbox", name="选择分块 2", exact=True).check()
