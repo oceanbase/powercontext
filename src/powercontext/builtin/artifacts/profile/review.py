@@ -36,7 +36,7 @@ from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.sources import SourceCursor
 
 
-async def decide_profile(service, connection, candidate_id, expected_version, *, reason=None):
+async def decide_profile(service, connection, candidate_id, expected_version, *, reason=None, verified_origins=None):
     # Admission and Workers lock Intent before Policy. Source-window decisions
     # update this same Intent at commit, so acquire it before any business locks.
     intents = ArtifactProcessingIntentRepository()
@@ -50,7 +50,9 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     if not isinstance(proposal, ProfileCandidateProposal):
         raise InvalidCandidateError("family", "profile required")
     if proposal.dream_run_id is not None:
-        return await _decide_dream_profile(service, connection, candidate, policy, reason=reason)
+        return await _decide_dream_profile(
+            service, connection, candidate, policy, reason=reason, verified_origins=verified_origins
+        )
     if policy is None or policy.pending_candidate_id != candidate_id:
         raise BaseValueConflictError("profile_candidate", (service._scope_id,))
     cursors = SourceCursorRepository()
@@ -106,7 +108,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     return result
 
 
-async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None):
+async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None, verified_origins=None):
     proposal = candidate.proposal
     if reason is not None:
         return await service._candidates.reject(
@@ -115,13 +117,21 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
     await service._validate_candidate_audit(connection, candidate)
     if policy is None or proposal.policy_digest != ProfileDreamPolicy.from_policy(policy).digest:
         raise BaseValueConflictError("profile_policy", (service._scope_id,))
-    adopted = _shared_adopted(candidate)
+    shared = candidate.audit is not None and candidate.audit.share_snapshot_id is not None
+    if shared:
+        if verified_origins is None:
+            # A shared Profile Candidate must never publish on unverified audit provenance.
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        adopted = tuple(verified_origins)
+    else:
+        adopted = ()
     await service._validate_evidence(
         connection,
         candidate.sources,
         candidate.artifacts,
         target=candidate.target,
-        foreign=_shared_foreign(service, candidate),
+        # Only the origins the sharing gate verified, never the raw audit set.
+        foreign=tuple(origin for origin in adopted if origin.scope_id != service._scope_id),
     )
     # Exact conditional CAS on the head: a genuinely absent Profile creates the first
     # revision, and an existing head must be exactly the target the Candidate reviewed.
@@ -161,21 +171,6 @@ async def _profile_head(service, connection):
         return await service._artifacts.latest(connection, service._scope_id, "profile", PROFILE_ARTIFACT_ID)
     except RepositoryNotFoundError:
         return None
-
-
-def _shared_adopted(candidate):
-    """The exact adopted support of a shared Candidate, or nothing for an ordinary one."""
-
-    audit = candidate.audit
-    if audit is None or audit.share_snapshot_id is None:
-        return ()
-    return tuple(audit.adopted_origins)
-
-
-def _shared_foreign(service, candidate):
-    """The adopted support owned by another Scope, verified at its own origin."""
-
-    return tuple(origin for origin in _shared_adopted(candidate) if origin.scope_id != service._scope_id)
 
 
 def revise_profile(current, proposal, sources, artifacts, target):

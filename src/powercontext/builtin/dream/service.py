@@ -216,6 +216,10 @@ class DreamService:
         await self._authorize(scope_id, principal_id, "contribute")
         if request.operation not in self.operations:
             raise DreamError("capability_unavailable")
+        if request.operation == "initialize_profile" and snapshot_id is None:
+            # A first Profile is only admitted for a bound shared run. Refuse here, before
+            # any run write or model invocation, rather than after generation.
+            raise DreamError("shared_use_candidate_unavailable")
         if request.operation == "revise_prompt" and request.target is not None:
             await self.review(scope_id, None).require_prompt_target(request.target)
         resolver = self._resolver(scope_id, principal_id)
@@ -857,6 +861,32 @@ class DreamService:
                 candidate_id=_candidate_id(record),
             )
         elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "revise_profile":
+            if record.share_snapshot_id is not None:
+                await self._check_profile_policy(connection, record)
+                policy = record.profile_policy
+                if policy is None or self.generator is None or not selected.adopted:
+                    raise DreamError("shared_use_candidate_unavailable")
+                proposal = ProfileCandidateProposal(
+                    content=plan.proposal.content,
+                    dream_run_id=record.run.run_id,
+                    policy_snapshot=policy,
+                    policy_digest=policy.digest,
+                    generator_id=self.generator.config_id,
+                    generator_version=DREAM_PROMPT_VERSION,
+                    created_at=await database_now(connection),
+                )
+                adoption = bind_shared_adoption(
+                    record,
+                    cited=plan.evidence_ids,
+                    manifest=resolved.manifest,
+                )
+                candidate = await review.admit_dream_shared_profile(
+                    proposal,
+                    adoption=adoption,
+                    reason=plan.reason,
+                    candidate_id=_candidate_id(record),
+                )
+                return DreamCandidateRef(candidate_id=candidate.candidate_id, version=candidate.version)
             await self._check_profile_policy(connection, record)
             policy = record.profile_policy
             if policy is None or record.run.target is None or self.generator is None:

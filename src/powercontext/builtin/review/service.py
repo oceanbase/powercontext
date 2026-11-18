@@ -403,7 +403,8 @@ class ReviewService:
         if not adoption.direct:
             raise InvalidCandidateError("audit", "shared adoption has no direct support")
         if adoption.target is not None:
-            # A shared Profile revision needs target CAS, which is a later checkpoint.
+            # A shared Profile revision needs its own target-CAS proof, which is not delivered
+            # at this checkpoint, so it stays refused rather than publishing unverified.
             raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
         foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
         audit = shared_candidate_audit(adoption, proposal)
@@ -870,6 +871,25 @@ class ReviewService:
             if current.status is CandidateStatus.REJECTED:
                 raise CandidateTerminalError(candidate_id, current.status)
             if current.family == "profile":
+                # A shared Profile Candidate must pass the same verified sharing gate as
+                # Experience and Skill before it can publish: exact persisted citations,
+                # current agreement and Access, and only the verified adopted origins.
+                if current.audit is not None and current.audit.share_snapshot_id is not None:
+                    locked = _reviewed_candidate(
+                        await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+                    )
+                    await self._authorize_decision("approve", locked)
+                    await self._validate_candidate_audit(connection, locked)
+                    verified = await self._verify_shared_binding(connection, locked)
+                    return _reviewed_candidate(
+                        await decide_profile(
+                            self,
+                            connection,
+                            candidate_id,
+                            expected_version,
+                            verified_origins=verified,
+                        )
+                    )
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
             if current.version != expected_version:
                 raise CandidateConflictError(candidate_id, expected_version, current.version)

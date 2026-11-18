@@ -3483,3 +3483,323 @@ def test_intervening_first_profile_write_invalidates_absence(tmp_path: Path) -> 
             assert count == 0
 
     asyncio.run(scenario())
+
+
+def test_first_profile_approval_refuses_when_origin_authority_is_revoked(tmp_path: Path) -> None:
+    """A still-absent Profile cannot publish once the origin side loses its authority."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-revoke.db'}")
+        generator = _ProfileGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            origin_admin: dict[str, str] = {}
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    binding = await _grant(access, OWNER, scope_id, role)
+                    if scope_id == origin and role is AccessRole.SCOPE_ADMIN:
+                        origin_admin["binding"] = binding
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                lineage = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="lineage",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_experience = await artifacts.create(
+                    connection, origin, "foreign-exp", experience_draft_with_source(lineage.ref)
+                )
+            experience_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            experience_digest = content_digest(foreign_experience.model_dump_json().encode())
+
+            from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+
+            async with runtime.primary_database.transaction() as connection:
+                await ProfilePolicyRepository().create(connection, target, enabled=True)
+
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    inputs=(
+                        ShareInput(
+                            kind="artifact",
+                            origin_scope_id=origin,
+                            artifact=experience_ref,
+                            digest=experience_digest,
+                        ),
+                    ),
+                    notification_key="profile-revoke-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="initialize_profile",
+                artifacts=(experience_ref,),
+                idempotency_key="profile-revoke-run",
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+
+            # Revoke only the ORIGIN administrator. The target Profile is still absent and
+            # the policy unchanged, so only the sharing gate can refuse.
+            await access.revoke_binding(
+                ADMIN,
+                origin_admin["binding"],
+                expected_version=1,
+                idempotency_key="revoke-origin-admin-profile",
+                context=AUDIT,
+            )
+
+            review = runtime.review.for_scope(target)
+            with pytest.raises(InvalidCandidateError) as refused:
+                await review.approve(
+                    ApproveCandidateRequest(candidate_id=finished.candidate.candidate_id, expected_version=1)
+                )
+            assert "access" in refused.value.detail or "shared" in refused.value.detail
+            reread = await review.get(GetCandidateRequest(candidate_id=finished.candidate.candidate_id))
+            assert reread.status == "pending"
+            assert reread.result_artifact is None
+            # No Profile was created and no origin rows were written.
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+            async with runtime.primary_database.transaction() as connection:
+                profile = await runtime.profiles.latest(connection, target)
+                count = await connection.scalar(
+                    select(func.count())
+                    .select_from(ORIGINS)
+                    .where(ORIGINS.c.scope_id == target, ORIGINS.c.family == "profile")
+                )
+            assert profile is None
+            assert count == 0
+
+    asyncio.run(scenario())
+
+
+def test_tampered_profile_adoption_is_refused_by_the_sharing_gate(tmp_path: Path) -> None:
+    """A Profile audit claiming uncited support is refused by the verified gate, not published."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-tamper.db'}")
+        generator = _ProfileGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                cited = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="cited",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+            # A pinned Experience whose lineage is the cited source; plus an uncited source.
+            async with runtime.primary_database.transaction() as connection:
+                uncited = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="uncited",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Real material the model never cited.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_experience = await artifacts.create(
+                    connection, origin, "foreign-exp", experience_draft_with_source(cited.ref)
+                )
+            experience_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            experience_digest = content_digest(foreign_experience.model_dump_json().encode())
+            uncited_digest = content_digest(uncited.value.model_dump_json().encode())
+
+            from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+
+            async with runtime.primary_database.transaction() as connection:
+                await ProfilePolicyRepository().create(connection, target, enabled=True)
+
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    inputs=(
+                        ShareInput(
+                            kind="artifact",
+                            origin_scope_id=origin,
+                            artifact=experience_ref,
+                            digest=experience_digest,
+                        ),
+                        ShareInput(kind="source", origin_scope_id=origin, source=uncited.ref, digest=uncited_digest),
+                    ),
+                    notification_key="profile-tamper-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="initialize_profile",
+                artifacts=(experience_ref,),
+                idempotency_key="profile-tamper-run",
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+
+            # Forge the stored audit to also claim the real, unchanged, uncited origin.
+            review = runtime._provider.review(target)
+            from powercontext.builtin.persistence.candidates import _encode_proposal
+
+            async with runtime.primary_database.transaction() as connection:
+                stored = await review._candidates.get(connection, target, finished.candidate.candidate_id)
+                assert stored.audit is not None
+                forged = stored.audit.model_copy(
+                    update={
+                        "adopted_origins": (
+                            *stored.audit.adopted_origins,
+                            QualifiedOrigin(scope_id=origin, source=uncited.ref, digest=uncited_digest),
+                        )
+                    }
+                )
+                await connection.execute(
+                    CANDIDATE_VERSIONS_TABLE
+                    .update()
+                    .where(
+                        CANDIDATE_VERSIONS_TABLE.c.scope_id == target,
+                        CANDIDATE_VERSIONS_TABLE.c.candidate_id == finished.candidate.candidate_id,
+                        CANDIDATE_VERSIONS_TABLE.c.version == 1,
+                    )
+                    .values(proposal=_encode_proposal(stored.model_copy(update={"audit": forged})))
+                )
+
+            # The verified gate must reject the identity mismatch before anything publishes.
+            with pytest.raises(InvalidCandidateError) as refused:
+                await review.approve(finished.candidate.candidate_id, 1)
+            assert refused.value.detail == "adopted support is not the selected support"
+            async with runtime.primary_database.transaction() as connection:
+                profile = await runtime.profiles.latest(connection, target)
+            assert profile is None
+
+    asyncio.run(scenario())
