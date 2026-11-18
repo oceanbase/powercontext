@@ -28,7 +28,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').candidate_replay) }}
     name: Candidate replay (${{ matrix.backend }})
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     timeout-minutes: ${{ matrix.backend == 'oceanbase' && 60 || 40 }}
     strategy:
       fail-fast: false

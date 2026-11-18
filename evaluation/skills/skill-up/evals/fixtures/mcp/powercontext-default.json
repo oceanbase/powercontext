@@ -252,19 +252,19 @@
     "pc_source_add": {
       "error": "unexpected"
     },
-    "pc_source_capabilities": {
-      "error": "unexpected"
-    },
-    "pc_source_instance_set_enabled": {
-      "error": "unexpected"
-    },
-    "pc_source_instances": {
+    "pc_source_runners": {
       "error": "unexpected"
     },
     "pc_source_status": {
       "error": "unexpected"
     },
+    "pc_source_target_delete": {
+      "error": "unexpected"
+    },
     "pc_source_target_set_enabled": {
+      "error": "unexpected"
+    },
+    "pc_source_target_transfer": {
       "error": "unexpected"
     }
   }
