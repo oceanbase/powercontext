@@ -856,9 +856,11 @@ jobs:
           persist-credentials: false
 
       - name: Set up the environment
+        id: python
         uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
+          save-cache: 'false'
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
@@ -867,6 +869,16 @@ jobs:
             integrations/opendal/pyproject.toml
             integrations/dify/pyproject.toml
             integrations/dify/uv.lock
+
+      - name: Install isolated Dify dependencies
+        run: uv sync --locked --project integrations/dify --python 3.12
+
+      - name: Save complete Dify dependencies
+        if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.python.outputs.cache-path }}
+          key: ${{ steps.python.outputs.cache-key }}
 
       - name: Check out the supported Dify host helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1285,12 +1297,39 @@ jobs:
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
+        id: pnpm
         uses: ./.github/actions/cache-pnpm
         with:
+          save-cache: 'false'
           working-directory: integrations/openclaw/plugins/memory-powercontext
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
+
+      - name: Install OpenClaw package dependencies
+        run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+
+      - name: Save OpenClaw package dependencies
+        if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm.outputs.cache-path }}
+          key: ${{ steps.pnpm.outputs.cache-key }}
+
       - name: Test OpenClaw package
-        run: mise exec node@24.15.0 -- make openclaw-plugin-test
+        run: |
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
+
+      - name: Resolve OpenClaw npm cache directory
+        id: npm
+        run: echo "path=$(mise exec node@24.15.0 -- npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OpenClaw host downloads
+        id: openclaw-host-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-${{ env.OPENCLAW_VERSION }}
 
       - name: Install the pinned OpenClaw host
         run: |
@@ -1299,6 +1338,13 @@ jobs:
           cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
           mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
           echo "OPENCLAW_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Save OpenClaw host downloads
+        if: steps.openclaw-host-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: ${{ steps.openclaw-host-cache.outputs.cache-primary-key }}
 
       - name: Run OpenClaw with the PowerContext plugin against a real Server
         # Without the binary the cases skip, so refuse to run without it. The Gateway inherits this Node from PATH.

@@ -14,6 +14,10 @@ inputs:
     description: "Share and save root dependencies after installation. Leave disabled when later steps install additional Python dependencies."
     required: false
     default: 'false'
+  save-cache:
+    description: "Save the uv cache after the job; disable when the caller saves complete dependencies before tests"
+    required: false
+    default: 'auto'
   cache-dependency-glob:
     description: "Dependency files used to invalidate the uv cache, relative to the repository root"
     required: false
@@ -23,6 +27,17 @@ inputs:
       integrations/langchain/pyproject.toml
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
+
+outputs:
+  cache-path:
+    description: "The uv download cache directory"
+    value: ${{ steps.dependencies.outputs.cache-path }}
+  cache-key:
+    description: "The complete uv dependency cache key"
+    value: ${{ steps.uv.outputs.cache-key }}
+  cache-hit:
+    description: "Whether the complete uv dependency cache was restored"
+    value: ${{ steps.uv.outputs.cache-hit }}
 
 runs:
   using: "composite"
@@ -37,12 +52,15 @@ runs:
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: 'true'
-        save-cache: ${{ inputs.shared-cache == 'true' && 'false' || 'auto' }}
+        save-cache: ${{ inputs.shared-cache == 'true' && 'false' || inputs.save-cache }}
         cache-suffix: ${{ inputs.shared-cache == 'true' && 'shared' || github.job }}-py${{ inputs.python-version }}
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
 
     - name: Install Python dependencies
-      run: uv sync --frozen
+      id: dependencies
+      run: |
+        uv sync --frozen
+        echo "cache-path=$UV_CACHE_DIR" >> "$GITHUB_OUTPUT"
       shell: bash
 
     # Publish before tests so a later failure or timeout cannot discard the download cache.
