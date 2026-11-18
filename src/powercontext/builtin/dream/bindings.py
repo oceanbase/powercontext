@@ -115,6 +115,19 @@ DREAM_OPERATIONS = (
         shared_maintenance=True,
     ),
     DreamOperationSpec(
+        # A first Profile has no prior revision: the same Family, evidence and approval
+        # path with an exact absence-to-create, on the existing Profile Worker binding.
+        "initialize_profile",
+        "profile",
+        PROFILE_SOURCE_WINDOW_BINDING,
+        "none",
+        ("experience", "atomic-memory", "source"),
+        ProfileWriteContent,
+        "decide_profile",
+        "profile.create",
+        shared_maintenance=True,
+    ),
+    DreamOperationSpec(
         "revise_memory",
         "atomic-memory",
         SOURCE_WINDOW_TRIGGER_NAME,

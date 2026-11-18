@@ -46,6 +46,7 @@ DreamOperation = Literal[
     "derive_skill",
     "revise_skill",
     "revise_profile",
+    "initialize_profile",
     "revise_memory",
     "revise_topic_memory",
     "refresh_handoff",
@@ -132,6 +133,7 @@ class CreateDreamRunRequest(BaseModel):
             "derive_skill": {"experience"},
             "revise_skill": {"experience", "skill"},
             "revise_profile": {"experience", "profile"},
+            "initialize_profile": {"experience"},
             "revise_memory": {"experience", "atomic-memory"},
             "revise_topic_memory": {"experience", "topic-memory"},
             "refresh_handoff": {"experience", "handoff"},
@@ -161,6 +163,11 @@ class CreateDreamRunRequest(BaseModel):
             or self.target.family != "profile"
             or any(ref.family == "profile" and ref != self.target for ref in self.artifacts)
         ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "initialize_profile" and (
+            self.target is not None or any(ref.family == "profile" for ref in self.artifacts)
+        ):
+            # A first Profile has no target and no prior revision to cite.
             raise DreamError("invalid_dream_operation")
         if self.operation == "revise_memory" and (self.target is None or self.target.family != "atomic-memory"):
             raise DreamError("invalid_dream_operation")
@@ -321,6 +328,12 @@ class DreamPlan(BaseModel):
         elif request.operation == "revise_skill":
             valid = (
                 isinstance(self.proposal, SkillContent) and self.intent == "correct" and self.proposal.package is None
+            )
+        elif request.operation == "initialize_profile":
+            valid = (
+                isinstance(self.proposal, ProfileWriteContent)
+                and self.proposal.restored_from_revision is None
+                and self.intent == "create"
             )
         elif request.operation == "revise_profile":
             valid = (

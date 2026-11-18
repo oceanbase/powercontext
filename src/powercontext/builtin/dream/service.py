@@ -241,7 +241,7 @@ class DreamService:
                 return self._replay(existing, snapshot_id)
             profile_policy = (
                 await ProfilePolicyRepository().get(connection, scope_id, for_update=True)
-                if request.operation == "revise_profile"
+                if request.operation in {"revise_profile", "initialize_profile"}
                 else None
             )
             await self._check_target(connection, scope_id, principal_id, request.target)
@@ -508,7 +508,7 @@ class DreamService:
         if (
             generated.output.outcome == "proposed"
             and record.share_snapshot_id is not None
-            and record.run.operation not in {"refine_experience", "derive_skill", "revise_skill"}
+            and record.run.operation not in {"refine_experience", "derive_skill", "revise_skill", "initialize_profile"}
         ):
             # Only Experience and a derived Skill propose a durable shared Candidate at this
             # checkpoint; every other shared operation refuses before plan validation.
@@ -826,6 +826,36 @@ class DreamService:
                     reason=plan.reason,
                     candidate_id=_candidate_id(record),
                 )
+        elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "initialize_profile":
+            await self._check_profile_policy(connection, record)
+            policy = record.profile_policy
+            if policy is None or self.generator is None:
+                raise DreamError("capability_unavailable")
+            proposal = ProfileCandidateProposal(
+                content=plan.proposal.content,
+                dream_run_id=record.run.run_id,
+                policy_snapshot=policy,
+                policy_digest=policy.digest,
+                generator_id=self.generator.config_id,
+                generator_version=DREAM_PROMPT_VERSION,
+                created_at=await database_now(connection),
+            )
+            if record.share_snapshot_id is None:
+                # A first Profile is enabled only for a bound shared run at this checkpoint.
+                raise DreamError("shared_use_candidate_unavailable")
+            if not selected.adopted:
+                raise DreamError("shared_use_candidate_unavailable")
+            adoption = bind_shared_adoption(
+                record,
+                cited=plan.evidence_ids,
+                manifest=resolved.manifest,
+            )
+            candidate = await review.admit_dream_shared_profile(
+                proposal,
+                adoption=adoption,
+                reason=plan.reason,
+                candidate_id=_candidate_id(record),
+            )
         elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "revise_profile":
             await self._check_profile_policy(connection, record)
             policy = record.profile_policy

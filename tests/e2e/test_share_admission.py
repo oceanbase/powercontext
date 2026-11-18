@@ -25,6 +25,7 @@ this claim binds is a real snapshot, not a synthetic insert.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,7 @@ from powercontext.builtin.persistence.tables import (
     SHARE_SNAPSHOTS_TABLE,
     SOURCES_TABLE,
 )
+from powercontext.builtin.records import BaseValueConflictError
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.models import CandidateAudit
 from powercontext.builtin.runtime import BuiltinConfig
@@ -2681,7 +2683,9 @@ class _SkillGenerator:
         self.inputs.append(value)
         cited = self.cite
         if cited is None:
-            cited = next(item.evidence_id for item in value.evidence.evidence if item.kind in {"experience", "source"})
+            # Cite the supporting Experience explicitly: it is what a derived Skill stands
+            # on, and a bare "first of kind" pick made this proof flaky.
+            cited = next(item.evidence_id for item in value.evidence.evidence if item.kind == "experience")
         from powercontext.builtin.artifacts.skill import SkillContent
 
         return GenerationResult(
@@ -2808,12 +2812,6 @@ def test_derived_shared_skill_from_foreign_experience_is_official_skill_one(tmp_
                 idempotency_key="skill-run",
             )
             run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
-            async with runtime.primary_database.transaction() as connection:
-                record = await service.repository.get(connection, target, run.run_id)
-                resolved = await service._resolve(record, connection)
-            generator.cite = next(
-                node.evidence_id for node in resolved.manifest.nodes if node.digest == experience_digest
-            )
             supervisor = runtime.artifact_processing_supervisor
             assert supervisor is not None
             supervisor.wake(binding_for_request(request))
@@ -2878,7 +2876,10 @@ class _SkillRevisionGenerator:
 
     async def generate(self, value):
         self.inputs.append(value)
-        cited = next(item.evidence_id for item in value.evidence.evidence if item.kind in {"experience", "source"})
+        # Cite the supporting Experience explicitly. The target Skill projects as kind
+        # "skill" and cannot support its own revision; a bare "first of kind" pick made this
+        # test flaky when projection order changed.
+        cited = next(item.evidence_id for item in value.evidence.evidence if item.kind == "experience")
         from powercontext.builtin.artifacts.skill import SkillContent
 
         intent = "derive" if value.operation == "derive_skill" else "correct"
@@ -3131,5 +3132,354 @@ def test_shared_skill_revision_reaches_two_and_stale_candidate_refuses(tmp_path:
             assert (origin, "artifact", experience_digest) in recorded
             assert any(kind == "source" and digest == lineage_digest for _, kind, digest in recorded)
             assert {scope for scope, _, _ in recorded} == {origin}
+
+    asyncio.run(scenario())
+
+
+class _ProfileGenerator:
+    """Proposes a first project Profile from the pinned foreign Experience."""
+
+    config_id = "test-dream-profile-init-v1"
+
+    def __init__(self) -> None:
+        self.inputs = []
+
+    async def generate(self, value):
+        self.inputs.append(value)
+        cited = next(item.evidence_id for item in value.evidence.evidence if item.kind == "experience")
+        from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
+
+        return GenerationResult(
+            output=DreamPlan(
+                outcome="proposed",
+                intent="create",
+                reason="The pinned Experience supports this first project Profile.",
+                proposal=ProfileWriteContent(content="# Project\n\nBounded first Profile."),
+                evidence_ids=(cited,),
+            ),
+            usage=InferenceUsage(requests=1, input_tokens=20, output_tokens=20),
+        )
+
+
+def test_first_shared_profile_is_official_profile_one(tmp_path: Path) -> None:
+    """A pinned foreign Experience initialises the first official project Profile."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile.db'}")
+        generator = _ProfileGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                lineage = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="lineage",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_experience = await artifacts.create(
+                    connection,
+                    origin,
+                    "foreign-exp",
+                    experience_draft_with_source(lineage.ref),
+                )
+            experience_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            experience_digest = content_digest(foreign_experience.model_dump_json().encode())
+            lineage_digest = content_digest(lineage.value.model_dump_json().encode())
+
+            # A generation-enabled Profile policy in the target Scope; no Profile yet.
+            from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+
+            async with runtime.primary_database.transaction() as connection:
+                await ProfilePolicyRepository().create(connection, target, enabled=True)
+
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    inputs=(
+                        ShareInput(
+                            kind="artifact",
+                            origin_scope_id=origin,
+                            artifact=experience_ref,
+                            digest=experience_digest,
+                        ),
+                    ),
+                    notification_key="profile-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="initialize_profile",
+                artifacts=(experience_ref,),
+                idempotency_key="profile-run",
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+            assert finished.candidate is not None
+
+            review = runtime.review.for_scope(target)
+            approved = await review.approve(
+                ApproveCandidateRequest(candidate_id=finished.candidate.candidate_id, expected_version=1)
+            )
+            assert approved.status == "approved"
+            result = approved.result_artifact
+            assert result is not None
+            assert result.family == "profile"
+            assert result.artifact_id == "profile"
+            assert result.revision == 1
+
+            # Supported exact read of the official first Profile.
+            async with runtime.primary_database.transaction() as connection:
+                official = await runtime.profiles.latest(connection, target)
+            assert official is not None
+            assert official.as_ref() == result
+
+            # Adopted foreign origin rows, written in the approval transaction.
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+            async with runtime.primary_database.transaction() as connection:
+                rows = (
+                    (
+                        await connection.execute(
+                            select(ORIGINS).where(
+                                ORIGINS.c.scope_id == target,
+                                ORIGINS.c.family == "profile",
+                                ORIGINS.c.artifact_id == result.artifact_id,
+                                ORIGINS.c.revision == result.revision,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            recorded = {(str(row["origin_scope_id"]), str(row["origin_kind"]), str(row["digest"])) for row in rows}
+            assert (origin, "artifact", experience_digest) in recorded
+            assert any(kind == "source" and digest == lineage_digest for _, kind, digest in recorded)
+            assert {scope for scope, _, _ in recorded} == {origin}
+
+    asyncio.run(scenario())
+
+
+def test_intervening_first_profile_write_invalidates_absence(tmp_path: Path) -> None:
+    """An intervening local Profile write makes the absent-head create refuse."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-race.db'}")
+        generator = _ProfileGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                lineage = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="lineage",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_experience = await artifacts.create(
+                    connection, origin, "foreign-exp", experience_draft_with_source(lineage.ref)
+                )
+            experience_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            experience_digest = content_digest(foreign_experience.model_dump_json().encode())
+
+            from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+
+            async with runtime.primary_database.transaction() as connection:
+                await ProfilePolicyRepository().create(connection, target, enabled=True)
+
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    inputs=(
+                        ShareInput(
+                            kind="artifact",
+                            origin_scope_id=origin,
+                            artifact=experience_ref,
+                            digest=experience_digest,
+                        ),
+                    ),
+                    notification_key="profile-race-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="initialize_profile",
+                artifacts=(experience_ref,),
+                idempotency_key="profile-race-run",
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+
+            # An intervening local first write creates the Profile head.
+            from powercontext.builtin.artifacts.profile.models import (
+                ProfileContent,
+                ProfileDraft,
+                ProfileGeneration,
+            )
+
+            async with runtime.primary_database.transaction() as connection:
+                await artifacts.create(
+                    connection,
+                    target,
+                    "profile",
+                    ProfileDraft(
+                        content=ProfileContent(
+                            content="# Local\n\nAn intervening local first write.",
+                            generation=ProfileGeneration(mode="manual_create", created_at=datetime.now(UTC)),
+                        )
+                    ),
+                )
+
+            review = runtime.review.for_scope(target)
+            with pytest.raises(BaseValueConflictError):
+                await review.approve(
+                    ApproveCandidateRequest(candidate_id=finished.candidate.candidate_id, expected_version=1)
+                )
+            reread = await review.get(GetCandidateRequest(candidate_id=finished.candidate.candidate_id))
+            assert reread.status == "pending"
+            # No profile origin rows were written for the refused approval.
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+            async with runtime.primary_database.transaction() as connection:
+                count = await connection.scalar(
+                    select(func.count())
+                    .select_from(ORIGINS)
+                    .where(ORIGINS.c.scope_id == target, ORIGINS.c.family == "profile")
+                )
+            assert count == 0
 
     asyncio.run(scenario())

@@ -115,9 +115,18 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
     await service._validate_candidate_audit(connection, candidate)
     if policy is None or proposal.policy_digest != ProfileDreamPolicy.from_policy(policy).digest:
         raise BaseValueConflictError("profile_policy", (service._scope_id,))
-    await service._validate_evidence(connection, candidate.sources, candidate.artifacts, target=candidate.target)
-    current = await service._artifacts.latest(connection, service._scope_id, "profile", PROFILE_ARTIFACT_ID)
-    if current.as_ref() != candidate.target:
+    adopted = _shared_adopted(candidate)
+    await service._validate_evidence(
+        connection,
+        candidate.sources,
+        candidate.artifacts,
+        target=candidate.target,
+        foreign=_shared_foreign(service, candidate),
+    )
+    # Exact conditional CAS on the head: a genuinely absent Profile creates the first
+    # revision, and an existing head must be exactly the target the Candidate reviewed.
+    current = await _profile_head(service, connection)
+    if (None if current is None else current.as_ref()) != candidate.target:
         raise BaseValueConflictError("profile_head", (service._scope_id,))
     draft = ProfileDraft(
         content=ProfileContent(
@@ -133,10 +142,40 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
         sources=candidate.sources,
         artifacts=candidate.artifacts,
     )
-    artifact = await service._artifacts.revise(connection, service._scope_id, current, draft)
+    if current is None:
+        artifact = await service._artifacts.create(connection, service._scope_id, PROFILE_ARTIFACT_ID, draft)
+    else:
+        artifact = await service._artifacts.revise(connection, service._scope_id, current, draft)
+    if adopted:
+        # The same adopted-origin writer the other shared Families use, in this transaction.
+        await service._write_shared_origins(connection, artifact.as_ref(), adopted)
     return await service._candidates.mark_approved(
         connection, service._scope_id, candidate.candidate_id, candidate.version, artifact.as_ref()
     )
+
+
+async def _profile_head(service, connection):
+    """The current Profile revision, or None when this is genuinely the first one."""
+
+    try:
+        return await service._artifacts.latest(connection, service._scope_id, "profile", PROFILE_ARTIFACT_ID)
+    except RepositoryNotFoundError:
+        return None
+
+
+def _shared_adopted(candidate):
+    """The exact adopted support of a shared Candidate, or nothing for an ordinary one."""
+
+    audit = candidate.audit
+    if audit is None or audit.share_snapshot_id is None:
+        return ()
+    return tuple(audit.adopted_origins)
+
+
+def _shared_foreign(service, candidate):
+    """The adopted support owned by another Scope, verified at its own origin."""
+
+    return tuple(origin for origin in _shared_adopted(candidate) if origin.scope_id != service._scope_id)
 
 
 def revise_profile(current, proposal, sources, artifacts, target):

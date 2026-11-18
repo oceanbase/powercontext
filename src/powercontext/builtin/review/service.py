@@ -379,6 +379,47 @@ class ReviewService:
         )
         return Candidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
 
+    async def admit_dream_shared_profile(
+        self,
+        proposal: ProfileCandidateProposal,
+        /,
+        *,
+        adoption,
+        reason: str,
+        candidate_id: str,
+    ) -> Candidate[ProfileCandidateProposal]:
+        """Admit the first pinned shared Profile through the trusted handoff.
+
+        A first Profile has no target and no prior revision, so its support is exactly the
+        adopted qualified evidence, which may be owned by another Scope and is verified
+        there. The exact absence-to-create happens at approval, inside the Profile
+        transaction, through the same adopted-origin writer the other Families use.
+        """
+
+        from powercontext.builtin.dream.provenance import shared_candidate_audit
+
+        if not adoption.snapshot_id or not adoption.run_id:
+            raise InvalidCandidateError("audit", "shared adoption is incomplete")
+        if not adoption.direct:
+            raise InvalidCandidateError("audit", "shared adoption has no direct support")
+        if adoption.target is not None:
+            # A shared Profile revision needs target CAS, which is a later checkpoint.
+            raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
+        foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
+        audit = shared_candidate_audit(adoption, proposal)
+        candidate = await self._propose(
+            "profile",
+            proposal,
+            sources=adoption.local_sources,
+            artifacts=adoption.local_artifacts,
+            target=None,
+            reason=reason,
+            candidate_id=candidate_id,
+            audit=audit,
+            foreign=foreign,
+        )
+        return Candidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
+
     async def propose_memory_dream(
         self,
         proposal: AtomicMemoryContent,
