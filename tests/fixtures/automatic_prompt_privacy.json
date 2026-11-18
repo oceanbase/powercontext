@@ -22,6 +22,31 @@
       "sensitive": false
     },
     {
+      "id": "token-count-settings",
+      "prompt": "Run with --max-tokens=1024, then set max_tokens=1024 and num_tokens: 5.",
+      "sensitive": false
+    },
+    {
+      "id": "marker-first-settings",
+      "prompt": "Keep password_min_length=8 and token_ttl=3600 in the config.",
+      "sensitive": false
+    },
+    {
+      "id": "boolean-settings",
+      "prompt": "Call reset(reset_password=True) and set require_password: false.",
+      "sensitive": false
+    },
+    {
+      "id": "boolean-header-settings",
+      "prompt": "Call get(url, use_cookie=True) and set skip-authorization: false for admins.",
+      "sensitive": false
+    },
+    {
+      "id": "tokenizer-special-tokens",
+      "prompt": "Set tokenizer.pad_token = tokenizer.eos_token and bos_token: \"<s>\" before training.",
+      "sensitive": false
+    },
+    {
       "id": "assignment",
       "prompt": "Configure api_key=synthetic-value-2084 for this test.",
       "sensitive": true
@@ -115,6 +140,86 @@
     {
       "id": "conservative-placeholder",
       "prompt": "Example password=synthetic-value-2084 is deliberately skipped.",
+      "sensitive": true
+    },
+    {
+      "id": "environment-api-key",
+      "prompt": "export OPENAI_API_KEY=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "environment-secret-access-key",
+      "prompt": "AWS_SECRET_ACCESS_KEY=synthetic_value_2084 aws s3 ls",
+      "sensitive": true
+    },
+    {
+      "id": "environment-access-key-id",
+      "prompt": "AWS_ACCESS_KEY_ID=synthetic_value_2084 aws s3 ls",
+      "sensitive": true
+    },
+    {
+      "id": "environment-password",
+      "prompt": "Set DATABASE_PASSWORD=synthetic-value-2084 before starting.",
+      "sensitive": true
+    },
+    {
+      "id": "environment-token",
+      "prompt": "GITHUB_TOKEN=synthetic-value-2084 gh pr list",
+      "sensitive": true
+    },
+    {
+      "id": "separated-prefix",
+      "prompt": "Use db-password=synthetic-value-2084 and db_password=synthetic_value_2084.",
+      "sensitive": true
+    },
+    {
+      "id": "option-prefix",
+      "prompt": "Run psql --password=synthetic-value-2084 now.",
+      "sensitive": true
+    },
+    {
+      "id": "camel-case-prefix",
+      "prompt": "Pass { dbPassword: 'synthetic-value-2084' } to the client.",
+      "sensitive": true
+    },
+    {
+      "id": "boolean-shaped-value",
+      "prompt": "Use DB_PASSWORD=none-synthetic-value-2084 here.",
+      "sensitive": true
+    },
+    {
+      "id": "api-key-header",
+      "prompt": "X-Api-Key: synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-token-header",
+      "prompt": "X-Auth-Token: Bearer synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "prefixed-authorization-header",
+      "prompt": "X-Forwarded-Authorization: Digest username=\"demo\", response=\"synthetic-value-2084\"",
+      "sensitive": true
+    },
+    {
+      "id": "environment-cookie-header",
+      "prompt": "HTTP_COOKIE: theme=light; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "header-inside-assignment",
+      "prompt": "my_secret=Cookie: theme=light; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "stripe-assignment",
+      "prompt": "STRIPE_SECRET_KEY=sk_live_synthetic_value_2084",
+      "sensitive": true
+    },
+    {
+      "id": "stripe-token",
+      "prompt": "Charge with rk_live_SyntheticValue2084 today.",
       "sensitive": true
     }
   ]

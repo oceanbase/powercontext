@@ -63,15 +63,27 @@ powercontext setup
 | ZCode | `UserPromptSubmit` 文本 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code（实验性） | `UserPromptSubmit` 中的文本部分 | setup `--no-capture-prompts` |
 
-自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、client/private key、secret、password、
-passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/GitHub/Slack token
-形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：未知格式、混淆或
-没有可识别标记的秘密仍可能通过。保守匹配也会跳过 `password=example` 之类示例；“token budgets”这样的
-普通词语不属于赋值。共享合成用例位于 `tests/fixtures/automatic_prompt_privacy.json`，它定义已测试示例，
-不能证明任意凭据都能被识别。
+自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、AWS 风格的 access key ID、client/private key、
+secret、password、passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/Stripe/
+GitHub/Slack token 形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：
+未知格式、混淆或没有可识别标记的秘密仍可能通过。保守匹配也会跳过 `password=example` 之类示例；
+“token budgets”这样的普通词语不属于赋值。共享合成用例位于 `tests/fixtures/automatic_prompt_privacy.json`，
+它定义已测试示例，不能证明任意凭据都能被识别。
 
-Authorization、Proxy-Authorization、Cookie 和 Set-Cookie 赋值会先匹配完整的 header 值，包含鉴权方案、
-Cookie 属性和折行续接内容，再匹配普通赋值。这种保守处理也会从自动查询中移除同一 header 行的其他说明文字。
+赋值的键名必须以凭据标记结尾，前面可以带任意前缀，例如环境变量（`OPENAI_API_KEY=…`、
+`DATABASE_PASSWORD=…`）、请求头名（`X-Api-Key: …`）、命令行选项（`--password=…`）和驼峰字段
+（`dbPassword: …`）。标记之后还有字符的键名不属于赋值，例如 `max_tokens`、`num_tokens` 和
+`password_min_length`；但单数形式的 `max_token=1024` 会被保守跳过。分词器的特殊 token（`bos_token`、
+`eos_token`、`pad_token`、`unk_token`、`sep_token`、`cls_token` 和 `mask_token`）是配置项，不是凭据。
+值为不带引号的布尔或空值（`true`、`false`、`yes`、`no`、`on`、`off`、`null` 或 `none`）时，例如
+`reset_password=true` 或 `use_cookie=True`，视为配置项而不是凭据。赋值里的 `Bearer` 或 `Basic` 鉴权方案词
+会和后面的值一起移除。
+
+Authorization 和 Cookie 请求头，包括 Proxy-Authorization、Set-Cookie、X-Forwarded-Authorization 这类用连字符
+连接前缀的名称，以及 CGI 形式的 `HTTP_COOKIE`，会先匹配完整的 header 值，包含鉴权方案、Cookie 属性和折行
+续接内容，再匹配普通赋值。这种保守处理也会从自动查询中移除同一 header 行的其他说明文字。其他带前缀的名称，
+例如 `sessionCookie: …` 或 `--cookie=…`，按普通赋值处理：只替换到第一个空白、`,` 或 `;` 为止的值，但整条输入
+仍会跳过捕获。
 
 识别到凭据时整条跳过捕获，不会修改 Source 正文后继续沿用原事件身份或回执。接受的事件保留既有宿主文本
 规范化和身份语义，不同事件与重试继续遵守各自宿主契约。本地诊断或已配置的观测只报告有界原因
