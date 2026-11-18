@@ -67,6 +67,7 @@ from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import StoredSource
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
+from powercontext.builtin.processing_diagnostics import observe_processing_failure
 from powercontext.builtin.review.errors import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -658,31 +659,40 @@ class ReviewService:
     async def approve(self, candidate_id: str, expected_version: int, /) -> ReviewedCandidate:
         """Publish once and return the stored result for overlapping approval retries."""
 
-        try:
-            return await self._approve(candidate_id, expected_version)
-        except (ArtifactTargetConflictError, CandidateTerminalError, RevisionConflictError):
-            # Another instance can publish after our pending read. Leave the failed
-            # transaction before reading the terminal decision; never
-            # invert the target-before-Candidate order in the pending write path.
-            async with self._connection() as connection:
-                current = await self._candidates.get(connection, self._scope_id, candidate_id, current=True)
-                await self._authorize_decision("approve", current)
-                if current.status is CandidateStatus.REJECTED:
-                    raise CandidateTerminalError(candidate_id, current.status) from None
-                if current.status is CandidateStatus.APPROVED and current.version == expected_version:
-                    return _reviewed_candidate(current)
-            raise
+        async with self._connection() as connection:
+            current = await self._candidates.get(connection, self._scope_id, candidate_id)
+        family = current.family
+        async with (
+            observe_processing_failure(
+                family, f"{family}.approve", self._scope_id, storage_location=f"{family}-approval-storage"
+            )
+            if family in {"experience", "profile", "skill"}
+            else nullcontext()
+        ):
+            try:
+                return await self._approve(current, expected_version)
+            except (ArtifactTargetConflictError, CandidateTerminalError, RevisionConflictError):
+                # Another instance can publish after our pending read. Leave the failed
+                # transaction before reading the terminal decision; never
+                # invert the target-before-Candidate order in the pending write path.
+                async with self._connection() as connection:
+                    current = await self._candidates.get(connection, self._scope_id, candidate_id, current=True)
+                    await self._authorize_decision("approve", current)
+                    if current.status is CandidateStatus.REJECTED:
+                        raise CandidateTerminalError(candidate_id, current.status) from None
+                    if current.status is CandidateStatus.APPROVED and current.version == expected_version:
+                        return _reviewed_candidate(current)
+                raise
 
     async def _approve(  # noqa: C901 - each Family keeps its own transactional publication boundary
         self,
-        candidate_id: str,
+        current: Candidate[Any],
         expected_version: int,
         /,
     ) -> ReviewedCandidate:
         """Atomically commit the reviewed Artifact and Candidate result."""
 
-        async with self._connection() as connection:
-            current = await self._candidates.get(connection, self._scope_id, candidate_id)
+        candidate_id = current.candidate_id
         await self._authorize_decision("approve", current)
         if current.status is CandidateStatus.REJECTED:
             raise CandidateTerminalError(candidate_id, current.status)
@@ -762,10 +772,10 @@ class ReviewService:
                     target = await self._artifacts.get(connection, self._scope_id, candidate.target)
                     artifact = await self._artifacts.revise(connection, self._scope_id, target, draft)
                 except RevisionConflictError as error:
-                    current = error.current
-                    if not isinstance(current, Artifact) or current.family != candidate.family:
+                    artifact_current = error.current
+                    if not isinstance(artifact_current, Artifact) or artifact_current.family != candidate.family:
                         raise
-                    raise ArtifactTargetConflictError(candidate.target, current.as_ref()) from error
+                    raise ArtifactTargetConflictError(candidate.target, artifact_current.as_ref()) from error
             if isinstance(artifact, Experience):
                 await self._experience_index.replace(connection, self._scope_id, artifact)
             elif isinstance(artifact, Skill) and artifact.content.package is not None:
