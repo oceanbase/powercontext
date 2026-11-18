@@ -121,13 +121,15 @@ These rules reduce unnecessary work for local changes. Shared-runtime and CI-pol
 
 | Matrix | Maximum parallel jobs per run | Failure behavior |
 | --- | --- | --- |
-| Python tests | 3 | Stop remaining combinations after the first failure |
-| Isolated installations, one job per Python version | 2 | Attempt every role within a job; a failed job cancels the other Python job if still running |
-| Installed-release upgrades | 3 | Preserve all cases and complete evidence collection |
-| OceanBase clean-migration shards | 2 | Preserve all shards and completeness checks |
-| Candidate replay | 2 | Preserve every backend result |
-| Historical schema capture | 2 | Preserve every configuration result |
+| Python tests | Available runners | Stop remaining combinations after the first failure |
+| Isolated installations, one job per Python version | Available runners | Attempt every role within a job; a failed job cancels the other Python job if still running |
+| Installed-release upgrades | Available runners | Preserve all cases and complete evidence collection |
+| OceanBase clean-migration shards | Available runners | Preserve all shards and completeness checks |
+| Candidate replay | Available runners | Preserve every backend result |
+| Historical schema capture | Available runners | Preserve every configuration result |
 | Managed resource candidates | 2 | Preserve all three native targets |
+
+The Linux matrices omit `max-parallel`, so GitHub dispatches ready jobs according to runner availability. Each internal runner runs in its own Pod; Kubernetes schedules it using the full Pod resource requests, and pending demand drives worker scaling up to the configured pool capacity. Hosted fallbacks remain subject to GitHub-hosted runner limits. A larger `max-parallel` value would not create additional matrix jobs or increase worker capacity.
 
 `max-parallel` bounds one matrix run, not the repository or organization. Do not place unrelated PRs in a normal concurrency group as a global semaphore: the default group retains only one pending run and replaces other waiting work. Release publication must not share a cancellable PR group.
 

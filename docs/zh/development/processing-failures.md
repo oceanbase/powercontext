@@ -49,9 +49,9 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
 | Topic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
-| Experience | Partial | N/A | Partial | Partial | Missing | Partial |
-| Profile | Partial | N/A | Partial | Partial | Missing | Partial |
-| Skill | Partial | N/A | Partial | Partial | Missing | Partial |
+| Experience | Partial | N/A | Partial | Partial | Partial | Partial |
+| Profile | Partial | N/A | Partial | Partial | Partial | Partial |
+| Skill | Partial | N/A | Partial | Partial | Partial | Partial |
 | Handoff | Partial | N/A | Partial | Partial | Partial | Partial |
 | Prompt | Partial | N/A | Partial | Partial | Partial | N/A |
 
@@ -88,7 +88,9 @@ Experience、Profile 与 Skill 的 operation 级覆盖：
 | `profile.generate` | Business validation | Partial | 无效 Markdown 携带输入数量与原始校验异常类型，不暴露内容。 |
 | Experience / Skill typed generation | Output parsing | Partial | 无效 typed 结果使用共享 schema 映射；无法分类的 provider 细节保持 unknown。 |
 | Dream（`refine_experience`、`revise_profile`、`derive_skill`、`revise_skill`） | Generation / business validation | Partial | 捕获的 attempt 失败通过 `dream.attempt.failed` 记录，复用 worker/request 身份。证据超过上限、证据不可用或请求目标不受支持时，记录 `business_validation` 和失败位置。 |
-| Publication / persistence | Persistence | Missing | 这些切片尚未分类全部存储入口。 |
+| `experience.create` / `experience.replace`、`profile.create` / `profile.replace`、`skill.create` / `skill.replace` | Business validation / persistence | Partial | Scope 内的管理写入区分无效内容、并发拒绝和数据库驱动失败。 |
+| `experience.approve` / `profile.approve` / `skill.approve` | Business validation / persistence | Partial | Candidate 批准在冲突恢复完成后记录最终失败，目标过期和终态拒绝保留领域结果。 |
+| `profile.commit_generated`、`experience.publish`、`skill.publish` | Persistence | Partial | 生成 Profile 的写入及跨 Scope 发布报告数据库驱动失败，包括事务退出时的故障。Profile 不支持跨 Scope 发布。宿主 Skill 部署和其他存储入口不在此范围。 |
 | Usage accounting | Usage accounting | Partial | 已分类通过共享上报器和记录器的模型用量失败。 |
 
 Handoff 与 Prompt 的 operation 级覆盖：
