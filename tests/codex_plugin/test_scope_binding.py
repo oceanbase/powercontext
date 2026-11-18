@@ -170,7 +170,12 @@ def test_pre_tool_hook_binds_every_mcp_tool_that_takes_a_scope(
         output = io.StringIO()
         monkeypatch.setattr(sys, "stdout", output)
         assert bind_tools_module.main() == 0
-        updated = json.loads(output.getvalue() or "{}").get("hookSpecificOutput", {}).get("updatedInput", {})
+        decision = json.loads(output.getvalue() or "{}").get("hookSpecificOutput", {})
+        if name in {"continue_handoff", "acknowledge_handoff"}:
+            assert decision.get("permissionDecision") == "deny"
+            assert "updatedInput" not in decision
+            continue
+        updated = decision.get("updatedInput", {})
         if updated.get("scope_id") != "bound-scope" and updated.get("selection") != {
             "mode": "exact",
             "scope_ids": ["bound-scope"],
