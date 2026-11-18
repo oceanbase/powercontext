@@ -45,13 +45,23 @@ DRAFT_TOKEN = re.compile(r"(?<![A-Za-z0-9])000(?![A-Za-z0-9])")
 
 
 def bundles(root: Path):
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
     from powercontext.builtin.persistence.migrations import MigrationBundle
+    from powercontext.builtin.persistence.migrations.vector_profile import ServerVectorProfile
 
     with warnings.catch_warnings():
         warnings.filterwarnings("error", message="Revision .* is present more than once")
         result = {"server": MigrationBundle(root / SERVER)}
         for manifest in sorted((root / SOURCES).glob("*/manifest.json")):
             result[manifest.parent.name] = MigrationBundle(root / SERVER, source_directory=manifest.parent)
+    # A fixed representative embedding space exercises the profile-dependent
+    # checksum inputs; the full template is hashed regardless of dimension.
+    embedding = EmbeddingProfile(profile_id="schema-check", model="schema-check", dimension=3)
+    for source, bundle in list(result.items()):
+        if ServerVectorProfile.resource in bundle.resources:
+            result[f"{source}:vector"] = MigrationBundle(
+                bundle.directory, source_directory=bundle.source_directory, embedding_profile=embedding
+            )
     heads = {bundle.head for bundle in result.values()}
     if len(heads) != 1:
         message = "All registered Server source paths must reach the same head"
@@ -197,7 +207,8 @@ def rewrite_python(content: str, names: dict[str, str], revision: str) -> str:
     tokens = []
     for token in tokenize.generate_tokens(io.StringIO(content).readline):
         if token.type == tokenize.STRING:
-            value = ast.literal_eval(token.string)
+            literal = ast.parse(token.string, mode="eval").body
+            value = literal.value if isinstance(literal, ast.Constant) else None
             if isinstance(value, str):
                 updated = revision if token.start in identities else names.get(value, value)
                 if updated != value:
@@ -301,10 +312,13 @@ def check_release_wheel(wheel: Path) -> None:
                 continue
             tree = ast.parse(archive.read(name), filename=name)
             for node in tree.body:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 if (
-                    isinstance(node, ast.Assign)
-                    and any(isinstance(target, ast.Name) and target.id == "revision" for target in node.targets)
-                    and ast.literal_eval(node.value) == DRAFT
+                    any(isinstance(target, ast.Name) and target.id == "revision" for target in targets)
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value == DRAFT
                 ):
                     message = "Release wheel contains mutable 000; freeze the cumulative migration first"
                     raise ValueError(message)

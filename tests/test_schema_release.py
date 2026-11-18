@@ -25,7 +25,7 @@ import pytest
 import schema_release as schema
 from sqlalchemy import create_engine
 
-from powercontext.builtin.persistence.migrations import MigrationBundle, SQLiteMigrationRunner
+from powercontext.builtin.persistence.migrations import MigrationBundle, MigrationError, SQLiteMigrationRunner
 from powercontext.builtin.persistence.migrations.bundle import sqlite_inventory
 from powercontext.builtin.persistence.migrations.models import digest
 from powercontext.builtin.persistence.migrations.revision_names import describe_revision
@@ -139,18 +139,19 @@ def test_cumulative_sql_preserves_data_before_and_after_freeze(draft, tmp_path):
     assert schema.freeze(root, "1.5.3") is None
 
 
-def test_release_rejects_mutable_draft_in_source_and_wheel(draft, tmp_path):
+@pytest.mark.parametrize("declaration", ["revision", "revision: str"])
+def test_release_rejects_mutable_draft_in_source_and_wheel(draft, tmp_path, declaration):
     root, _ = draft
     with pytest.raises(ValueError, match="mutable 000"):
         schema.check(root, release=True)
     wheel = tmp_path / "release.whl"
     name = "powercontext/builtin/persistence/migrations/server_resources/versions/shared.py"
     with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr(name, "revision = '000'\n")
+        archive.writestr(name, f"{declaration} = '000'\n")
     with pytest.raises(ValueError, match="mutable 000"):
         schema.check_release_wheel(wheel)
     with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr(name, "revision = 'v1_5_3'\n")
+        archive.writestr(name, f"{declaration} = 'v1_5_3'\n")
     schema.check_release_wheel(wheel)
 
 
@@ -230,3 +231,107 @@ def test_native_frozen_script_cannot_be_rewritten(draft):
     path.write_text(path.read_text() + "# historical native mutation\n")
     with pytest.raises(ValueError, match="Frozen migration resources changed"):
         schema.preserve_history(before, schema.bundles(root))
+
+
+@pytest.mark.parametrize("source", ["empty", "1.5.1", "1.5.2"])
+@pytest.mark.parametrize("stale_sql", [True, False], ids=["stale-A-plus-B", "correct-B-only"])
+def test_delayed_pr_replays_released_sql(source, stale_sql, draft, tmp_path):
+    root, baseline = draft
+    resources = root / schema.SERVER
+    # Model A's draft before the 1.5.2 release, and B's copy of that draft.
+    for path in resources.rglob("*"):
+        if path.is_file() and path.suffix in {".py", ".json"}:
+            path.write_text(path.read_text().replace("v1_5_2", "v1_5_1"))
+            if path.name == "v1_5_2.py":
+                path.rename(path.with_name("v1_5_1.py"))
+    manifest_path = resources / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["readiness_scope"] = "server"
+    write_json(manifest_path, manifest)
+    old_draft = (resources / "versions/000.py").read_text()
+    a_sql = json.loads((resources / "schemas/sqlite-000.json").read_text())["statements"]
+    set_version(root, "1.5.2")
+    assert schema.freeze(root, "1.5.2") == "v1_5_2"
+    released = schema.bundles(root)
+    database = tmp_path / "delayed-pr.db"
+    if source == "1.5.2":
+        migrate(root, database, baseline)
+    elif source == "1.5.1":
+        with closing(sqlite3.connect(database)) as connection:
+            connection.execute(baseline)
+            connection.execute("INSERT INTO pc_items VALUES (1, '保留历史')")
+            connection.commit()
+
+    # B merges after the release: its dependency is correct, but it may still
+    # contain A's already-published non-idempotent ADD COLUMN statements.
+    b_sql = "ALTER TABLE pc_items ADD COLUMN b_value TEXT"
+    (resources / "versions/000.py").write_text(old_draft.replace("v1_5_1", "v1_5_2"))
+    (resources / "mysql/versions/000.py").write_text(
+        "revision = '000'\ndown_revision = 'v1_5_2'\ndef upgrade():\n    pass\n"
+    )
+    write_json(resources / "schemas/sqlite-000.json", {"statements": [*a_sql, b_sql] if stale_sql else [b_sql]})
+    manifest = json.loads(manifest_path.read_text())
+    manifest["revision_resources"]["000"] = ["schemas/sqlite-000.json"]
+    # The intended final fingerprint is correct in both cases. Structural
+    # registration alone cannot establish that the SQL reaches this state.
+    manifest["sqlite_fingerprints"]["000"] = [fingerprint([baseline, *a_sql, b_sql])]
+    write_json(manifest_path, manifest)
+    set_version(root, "1.6.0")
+    schema.preserve_history(released, schema.check(root))
+    runner = SQLiteMigrationRunner(database, MigrationBundle(resources))
+
+    def upgrade():
+        plan = runner.plan(backup_policy="skip")
+        return runner.apply(
+            plan_id=plan.plan_id,
+            backup_policy="skip",
+            accepted=True,
+            maintenance_confirmed=True,
+            accept_no_backup=True,
+        )
+
+    if stale_sql:
+        with pytest.raises(MigrationError) as failure:
+            upgrade()
+        assert failure.value.code == "invalid_database"
+        assert "duplicate column name: note" in str(failure.value.__cause__)
+        print(f"{source}: structure check PASSED; SQL replay FAILED: duplicate column name: note")
+        with closing(sqlite3.connect(database)) as connection:
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(pc_items)")]
+            assert "b_value" not in columns
+            if source != "empty":
+                assert connection.execute("SELECT label FROM pc_items").fetchall() == [("保留历史",)]
+    else:
+        assert upgrade().revision == "000"
+        assert runner.verify().state == "ready"
+        assert not runner.apply().changed
+        with closing(sqlite3.connect(database)) as connection:
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(pc_items)")]
+            assert {"note", "enabled", "b_value"} <= set(columns)
+            if source != "empty":
+                assert connection.execute("SELECT label FROM pc_items").fetchall() == [("保留历史",)]
+        print(f"{source}: structure check PASSED; corrected B-only SQL replay PASSED")
+
+
+def test_freeze_preserves_historical_f_strings(draft):
+    root, _ = draft
+    path = root / schema.SERVER / "versions/v1_5_2.py"
+    content = path.read_text() + '\ndef message(name):\n    return f"existing {name}"\n'
+    path.write_text(content)
+    assert schema.freeze(root, "1.5.3") == "v1_5_3"
+    assert path.read_text() == content
+
+
+@pytest.mark.parametrize("source", ["server", "1.4.0"])
+def test_vector_profile_history_cannot_be_rewritten(tmp_path, source):
+    for directory in (schema.SERVER, schema.SOURCES):
+        shutil.copytree(schema.ROOT / directory, tmp_path / directory)
+    before = schema.bundles(tmp_path)
+    bundle = before[source]
+    directory = bundle.source_directory or bundle.directory
+    path = directory / "profiles/vector.json"
+    profile = json.loads((bundle.snapshot_directory / "profiles/vector.json").read_text())
+    profile["source_capture_sha256"]["review_probe"] = "changed provenance"
+    write_json(path, profile)
+    with pytest.raises(ValueError, match="Frozen migration resources changed"):
+        schema.preserve_history(before, schema.bundles(tmp_path))

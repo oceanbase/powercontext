@@ -280,7 +280,7 @@ version-check: ## Check release references and generated API code; optionally as
 	@$(MAKE) api-generate-check js-api-generate-check
 
 .PHONY: release-check
-release-check: schema-check version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+release-check: schema-release-check version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
 	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: upgrade-policy-check
