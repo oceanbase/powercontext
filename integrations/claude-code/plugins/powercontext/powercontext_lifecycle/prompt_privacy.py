@@ -31,7 +31,7 @@ _GAP = rf"[{_SPACES}]*(?:\r?\n[{_SPACES}]+)?"
 # A placeholder with a literal default, such as ${NAME:-value}, is not excluded.
 _PLACEHOLDER = r"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"
 _SETTING = rf"""(?:true|false|yes|no|on|off|null|none|{_PLACEHOLDER}|"{_PLACEHOLDER}"|'{_PLACEHOLDER}')"""
-_NOT_A_SETTING = rf"""(?!{_GAP}{_SETTING}(?:[\s,;)\]}}`'"{_SPACES}]|\.(?!\S)|$))"""
+_NOT_A_SETTING = rf"""(?!{_GAP}{_SETTING}(?:[\s,;)\]}}`'"{_SPACES}]|\.(?![^\s{_SPACES}])|$))"""
 # A header value is a setting only when no more of the header follows, so Cookie: on; sid=… is still a header.
 _NOT_A_HEADER_SETTING = rf"""(?![ \t]*{_SETTING}(?:[`'")\]}}]|[,.]?(?:[\s{_SPACES}]|$)))"""
 # Applied in order, like the TypeScript source, so an earlier rule consumes the whole of what a later one would cut.
@@ -50,8 +50,8 @@ _PATTERNS = tuple(
         r"""(?<![\w-])["']?(?!(?:bos|eos|pad|unk|sep|cls|mask)_token\b)[\w-]*?(?:api[_ -]?key"""
         r"""|access[_ -]?(?:key(?:[_-]id)?|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password"""
         rf"""|passwd|passphrase|token|authorization|cookie)\b["'`*]*[\s{_SPACES}]*[:=]\**{_NOT_A_SETTING}{_GAP}"""
-        rf"""(?:(?:bearer|basic)[ \t]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}}\]{_SPACES}]+)""",
-        r"(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])",
+        rf"""(?:(?:bearer|basic)[{_SPACES}]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}}\]{_SPACES}]+)""",
+        rf"(?<![\w-])bearer[\s{_SPACES}]+[A-Za-z0-9._~+/=-]{{8,}}(?![\w-])",
         r"(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{8,}"
         r"|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])",
     )

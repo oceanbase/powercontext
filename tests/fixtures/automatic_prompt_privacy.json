@@ -223,6 +223,31 @@
       "sensitive": true
     },
     {
+      "id": "bearer-full-width-space",
+      "prompt": "Retry with Bearer　synthetic-value-2084 if the call fails.",
+      "sensitive": true
+    },
+    {
+      "id": "bearer-nbsp",
+      "prompt": "Retry with Bearer synthetic-value-2084 if the call fails.",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-full-width-space-assignment",
+      "prompt": "token: Bearer　synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-nbsp-assignment",
+      "prompt": "api_token: Basic synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "sentence-final-setting-nbsp",
+      "prompt": "Set require_password: false. Then restart the service.",
+      "sensitive": false
+    },
+    {
       "id": "markdown-bold-key",
       "prompt": "- **OPENAI_API_KEY**: synthetic-value-2084",
       "sensitive": true
