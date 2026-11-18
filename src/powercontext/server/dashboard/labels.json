@@ -688,5 +688,6 @@
   "topic_memory.evolve_purpose": "更新一个主题的完整内容",
   "topic_memory.temporary_purpose": "处理超出输入限制的资料",
   "topic_memory.reduce_purpose": "压缩中间结果并保留证据",
-  "topic_memory.reconcile_purpose": "协调新增内容与已有主题"
+  "topic_memory.reconcile_purpose": "协调新增内容与已有主题",
+  "prompt_revision_unavailable": "所选版本不可用"
 }

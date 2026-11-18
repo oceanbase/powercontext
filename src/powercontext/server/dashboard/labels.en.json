@@ -688,5 +688,6 @@
   "topic_memory.evolve_purpose": "Update the complete content of a topic",
   "topic_memory.temporary_purpose": "Summarize sources exceeding input limits",
   "topic_memory.reduce_purpose": "Reduce intermediate results while preserving evidence",
-  "topic_memory.reconcile_purpose": "Reconcile proposed content with existing topics"
+  "topic_memory.reconcile_purpose": "Reconcile proposed content with existing topics",
+  "prompt_revision_unavailable": "Selected revision unavailable"
 }
