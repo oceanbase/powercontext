@@ -228,6 +228,15 @@ jobs:
       - name: Run checks
         run: make check
 
+      - name: Validate cumulative migration against the PR base
+        if: github.event_name == 'pull_request'
+        env:
+          SCHEMA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: uv run --locked python scripts/schema_release.py check --base-ref "$SCHEMA_BASE"
+
+      - name: Test cumulative schema freezing and replay
+        run: uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
+
       - name: Check OpenAPI contract
         run: make contract-test
 
