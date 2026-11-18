@@ -55,3 +55,9 @@ authors:
     avatar: assets/blog/authors/beaten.png
     socials:
       github: beatenevo
+  knqiufan:
+    name: knqiufan
+    description: DeepSeek Harness 插件 powercontext-dsh 作者
+    avatar: assets/blog/authors/knqiufan.jpg
+    socials:
+      github: knqiufan

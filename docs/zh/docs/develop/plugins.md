@@ -360,6 +360,9 @@ plugin = ArtifactPlugin(
 - 需要创建 Scope 时用 `ctx.scopes.create(title=..., summary=..., idempotency_key=...)`，要求调用者具备 `server.admin`。
   `ctx.scopes.list()` 返回本插件创建、且调用者可读的 Scope。`ctx.scopes.update(scope_id, expected_version=..., title=...,
   summary=...)` 修改本插件创建的 Scope，同样要求 `server.admin`；Scope 不存在时接口返回 404，不是本插件创建的返回 403。
+- 插件创建的 Scope 只通过插件使用：`GET /v1/scopes` 的列表不包含它们，所以 Dashboard 的 Scope 选择器、桌面端和 Agent 的
+  `list_scopes` 都看不到，插件卸载后也一样。带上 `external_reference_kind=powercontext.plugin` 时列出的就是这些 Scope。这只
+  影响列表：按 ID 读取 Scope、访问其中的数据和权限判定都不变。
 - `request.body` 按 `body` 声明是校验后的 `request_model` 实例、`bytes` 或 `None`；`request.path_params`、`request.query`、
   `request.caller` 分别是路径参数、查询参数和调用者。
 - 返回值：Pydantic 模型或 dict 返回 JSON；`BinaryResponse(content=..., content_type=..., filename=...)` 返回文件；

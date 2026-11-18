@@ -31,7 +31,7 @@ import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
 import { type FlushProgress, nonNegativeInteger, readFlushProgress, scopeCorrelation } from "./flush-progress.js";
 import { resolvePowerContextScope } from "./scope.js";
-import { containsSecret, scrubSecrets } from "./secrets.js";
+import { containsSecret, scrubSecrets } from "./prompt-privacy.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {

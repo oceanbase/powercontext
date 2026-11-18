@@ -421,6 +421,7 @@ from powercontext.builtin.scope import (
 from powercontext.builtin.scope import (
     ScopeSelection as DomainScopeSelection,
 )
+from powercontext.builtin.scope.models import PLUGIN_SCOPE_REFERENCE_KIND
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import (
     ObservedInvocation,
@@ -2616,8 +2617,12 @@ async def list_scopes(
         )
         or "limit" in http_request.query_params
     )
+    # A plugin's Scopes hold what the plugin manages and are reached through the plugin. Listings leave
+    # them out unless the request asks for that reference kind.
+    hidden = None if request.external_reference_kind == PLUGIN_SCOPE_REFERENCE_KIND else PLUGIN_SCOPE_REFERENCE_KIND
     if not pagination_requested:
-        return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list()])
+        listed = await scopes.list(exclude_external_reference_kind=hidden)
+        return ScopePage(items=[_scope_descriptor_response(scope) for scope in listed])
 
     principal = current_principal()
     caller = "anonymous" if principal is None else f"{principal.type}:{principal.id}"
@@ -2627,6 +2632,7 @@ async def list_scopes(
             query_field=None if request.query_field is None else request.query_field.value,
             parent_scope_id=request.parent_scope_id,
             external_reference_kind=request.external_reference_kind,
+            exclude_external_reference_kind=hidden,
             binding_integration=request.binding_integration,
             binding_kind=request.binding_kind,
             limit=request.limit,

@@ -67,6 +67,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
+    AtomicMemoryRelatedCursor,
     AtomicMemoryRelatedRequest,
     atomic_memory_embedding_input,
     atomic_memory_related_requirement,
@@ -185,14 +186,16 @@ class AtomicMemorySourceWindowProcessor:
         async with deferred_decision_audit(selected_context):
             with self._stage("memory.flush", {"powercontext.memory.flush.source_count": 0}) as span:
                 if self.prompts is not None:
-                    legacy = await self.prompts.read_configuration(scope_id, "memory.extract")
-                    if legacy.mode == "custom":
-                        raise PromptError("legacy_memory_prompt_unsupported", during_inference=True)
-                    async with (
-                        self.prompts.bind(scope_id, "atomic_memory.extract"),
-                        self.prompts.bind(scope_id, "atomic_memory.reconcile"),
-                    ):
-                        return await self._retry_window(scope_id, limit, processing, selected_context, span)
+                    keys = ("memory.extract", "atomic_memory.extract", "atomic_memory.reconcile")
+                    async with self.prompts.snapshot(scope_id, keys):
+                        legacy = await self.prompts.read_configuration(scope_id, "memory.extract")
+                        if legacy.mode == "custom":
+                            raise PromptError("legacy_memory_prompt_unsupported", during_inference=True)
+                        async with (
+                            self.prompts.bind(scope_id, "atomic_memory.extract"),
+                            self.prompts.bind(scope_id, "atomic_memory.reconcile"),
+                        ):
+                            return await self._retry_window(scope_id, limit, processing, selected_context, span)
                 return await self._retry_window(scope_id, limit, processing, selected_context, span)
 
     async def _retry_window(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
@@ -542,9 +545,14 @@ class AtomicMemorySourceWindowProcessor:
             compared_keys.clear()
 
             def pending_comparisons(pending: list[str], current: str) -> list[str]:
-                known = {workset.resolve(value) for value in compared_keys}
-                known.add(workset.resolve(current))
-                return [value for value in dict.fromkeys(pending) if workset.resolve(value) not in known]
+                current = workset.resolve(current)
+                # Only this proposal and newly admitted targets can acquire aliases.
+                # Previously compared non-proposal roots therefore remain stable.
+                return [
+                    value
+                    for value in dict.fromkeys(pending)
+                    if (resolved := workset.resolve(value)) != current and resolved not in compared_keys
+                ]
 
             async def compare_pending(pending: list[str], *, required: bool) -> bool:
                 nonlocal key, prompt_refs
@@ -556,15 +564,14 @@ class AtomicMemorySourceWindowProcessor:
                     batch = pending[: self.config.comparison_batch_size]
                     related = workset.related(key, batch)
                     selected_count = len(batch)
-                    while related and not self._fits(
-                        pipeline, workset.request(key, related), "atomic_memory.reconcile"
-                    ):
+                    value = workset.request(key, related)
+                    estimated = self._estimate(pipeline, value, "atomic_memory.reconcile")
+                    while related and estimated > self.config.input_tokens_limit and selected_count > 1:
                         selected_count = max(1, selected_count // 2)
                         related = workset.related(key, pending[:selected_count])
-                        if selected_count == 1:
-                            self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
-                    value = workset.request(key, related)
-                    self._require_budget(pipeline, value, "atomic_memory.reconcile")
+                        value = workset.request(key, related)
+                        estimated = self._estimate(pipeline, value, "atomic_memory.reconcile")
+                    self._require_budget(pipeline, value, "atomic_memory.reconcile", estimated=estimated)
                     looked = pending[:selected_count]
                     reconciliation_prompt = current_prompt("atomic_memory.reconcile")
                     if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
@@ -677,7 +684,10 @@ class AtomicMemorySourceWindowProcessor:
 
     async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
         application = self.application
-        cursor = None
+        request, ranks = await self._related_rank_snapshot(scope_id, request)
+        if not ranks:
+            return
+        cursor = AtomicMemoryRelatedCursor(ranks)
         while True:
             async with (
                 deferred_decision_audit(context),
@@ -687,15 +697,8 @@ class AtomicMemorySourceWindowProcessor:
                     page = await application.index.related_page(connection, scope_id, request, cursor)
                 except AtomicMemoryIndexError as error:
                     if error.code == "stale-recall":
-                        _conflict("Related channels returned different memory versions")
-                    if not self.config.related_fts_fallback or error.code not in {
-                        "incomplete-vector",
-                        "embedding-profile",
-                    }:
-                        raise
-                    request = replace(request, mode="fts")
-                    cursor = None
-                    continue
+                        _conflict("Related memory changed before page admission")
+                    raise
                 if page is None:
                     break
                 refs = tuple(hit.artifact_ref for hit in page.hits)
@@ -714,9 +717,30 @@ class AtomicMemorySourceWindowProcessor:
             if cursor is None:
                 break
 
+    async def _related_rank_snapshot(self, scope_id, request):
+        application = self.application
+        while True:
+            # One statement owns the rank snapshot. The transaction boundary also
+            # guards the shared in-memory SQLite connection.
+            async with application.database.transaction() as connection:
+                try:
+                    ranks = await application.index.related_ranks(connection, scope_id, request)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    continue
+            break
+        return request, ranks
+
     async def _window_comparisons(self, workset, key, request, vectors, *, related_only):
         items = tuple(item for item in workset.items.values() if item.key != key and item.changed and item.retain)
-        if not related_only:
+        if not related_only or not items:
             return tuple(item.key for item in items)
         # Earlier window items are not indexed until publication. The threshold that selects published memories
         # selects them too, so an unrelated sibling no longer forces a comparison of its own.
@@ -727,13 +751,14 @@ class AtomicMemorySourceWindowProcessor:
                 if not self.config.related_fts_fallback:
                     raise
                 request = replace(request, mode="fts")
+        terms = fts_query_requirements(request.query, floor=request.admission)[0] if request.mode != "vector" else ()
         return tuple(
             item.key
             for item in items
-            if related_window_match(
+            if _related_window_match(
                 request,
-                item.content.kind,
-                item.content.text,
+                terms,
+                item.lexical_terms_and_count if terms else None,
                 vectors.get(atomic_memory_embedding_input(item.content.kind, item.content.text)),
             )
         )
@@ -798,13 +823,14 @@ class AtomicMemorySourceWindowProcessor:
         """Recheck one model batch's exact published basis and write authority."""
         if context is None or (context.access is None and context.trusted_local):
             return
-        async with self._read_transaction(context) as connection:
-            for read in (read for item in items for read in item.origins):
-                current = await self.application.service.get(connection, scope_id, read.ref.artifact_id, context)
-                if current.as_read() != read:
-                    _conflict("Memory basis changed before model comparison")
-                await self.application.security.authorize(connection, scope_id, context, "read", read.ref)
-                await self.application.security.authorize(connection, scope_id, context, "write", read.ref)
+        reads = tuple({read.ref.artifact_id: read for item in items for read in item.origins}.values())
+        if not reads:
+            return
+        async with (
+            self._read_transaction(context) as connection,
+            self._prefetch_artifact_policy(connection, scope_id, context, tuple(read.ref for read in reads)),
+        ):
+            await self.application.service.authorize_comparison_reads(connection, scope_id, reads, context)
 
     async def _authorize_model_input(self, scope_id, context, generation_sources, artifact_refs=()):
         """Admit Source and Prompt content against current data and authority."""
@@ -816,10 +842,10 @@ class AtomicMemorySourceWindowProcessor:
         )
         refs = tuple(artifact_refs)
         if local_policy or context is None or (access is None and context.trusted_local):
-            # A single SELECT owns its snapshot on both SQLite and MySQL. Larger
-            # inputs retain a short transaction across bounded observation chunks.
+            # A single SELECT needs no pinned snapshot. Larger inputs must keep
+            # the same snapshot across bounded observation chunks.
             connection_manager = (
-                self.application.database.engine.connect()
+                self.application.database.transaction()
                 if len(generation_sources) <= 100
                 else self.application.database.transaction(consistent_snapshot=True)
             )
@@ -965,11 +991,9 @@ class AtomicMemorySourceWindowProcessor:
         payload = value.model_dump_json() if pipeline.input_renderer is None else pipeline.input_renderer(value)
         return pipeline.estimator.estimate(f"{instructions}\n{payload}")
 
-    def _fits(self, pipeline, value, key):
-        return self._estimate(pipeline, value, key) <= self.config.input_tokens_limit
-
-    def _require_budget(self, pipeline, value, key):
-        estimated = self._estimate(pipeline, value, key)
+    def _require_budget(self, pipeline, value, key, *, estimated=None):
+        if estimated is None:
+            estimated = self._estimate(pipeline, value, key)
         if estimated <= self.config.input_tokens_limit:
             return
         error = InvalidInferenceOutputError(
@@ -1095,12 +1119,16 @@ def related_window_match(
     exact L2 distance. Hybrid admits an item that meets either channel.
     """
 
-    if request.mode in {"fts", "hybrid"}:
-        terms, _ = fts_query_requirements(request.query, floor=request.admission)
-        words = analyze_text(atomic_memory_embedding_input(kind, body))
-        searchable = f" {words} "
-        required = atomic_memory_related_requirement(len(terms), len(words.split()), floor=request.admission)
-        if terms and sum(f" {term} " in searchable for term in terms) >= required:
+    terms = fts_query_requirements(request.query, floor=request.admission)[0] if request.mode != "vector" else ()
+    words = analyze_text(atomic_memory_embedding_input(kind, body)).split() if terms else []
+    return _related_window_match(request, terms, (frozenset(words), len(words)), vector)
+
+
+def _related_window_match(request, terms, lexical, vector) -> bool:
+    if terms and lexical is not None:
+        searchable, word_count = lexical
+        required = atomic_memory_related_requirement(len(terms), word_count, floor=request.admission)
+        if sum(term in searchable for term in terms) >= required:
             return True
     if request.mode in {"vector", "hybrid"}:
         if request.query_vector is None or vector is None or request.max_distance is None:
