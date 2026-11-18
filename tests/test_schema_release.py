@@ -401,3 +401,39 @@ def test_freeze_preserves_conditional_native_operation(draft, missing_module):
                 assert connection.exec_driver_sql("SELECT * FROM pc_items").all() == [(7, "@000")]
         finally:
             engine.dispose()
+
+
+@pytest.mark.parametrize("source", ["server", "1.4.0"])
+@pytest.mark.parametrize("change", ["schema", "remove-registration", "redirect-registration"])
+def test_frozen_code_profile_and_registration_cannot_change(tmp_path, source, change):
+    for directory in (schema.SERVER, schema.SOURCES):
+        shutil.copytree(schema.ROOT / directory, tmp_path / directory)
+    before = schema.bundles(tmp_path)
+    bundle = before[source]
+    directory = bundle.source_directory or bundle.directory
+    manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
+    resource = manifest["mysql_schema_extensions"]["seekdb_code"]
+    original = (bundle.snapshot_directory / resource).read_bytes()
+    if change == "schema":
+        profile = json.loads(original)
+        profile["statements"] = [sql.replace("`payload_bytes`", "`payload_size`") for sql in profile["statements"]]
+        profile["tables"] = dict(_parse_table(sql) for sql in profile["statements"])
+        write_json(directory / resource, profile)
+    elif change == "remove-registration":
+        del manifest["mysql_schema_extensions"]["seekdb_code"]
+        write_json(directory / "manifest.json", manifest)
+    else:
+        replacement = "profiles/seekdb-code-replacement.json"
+        path = directory / replacement
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(original)
+        manifest["mysql_schema_extensions"]["seekdb_code"] = replacement
+        write_json(directory / "manifest.json", manifest)
+    after = schema.bundles(tmp_path)
+    if change == "schema":
+        old_schema = MySQLSchema(bundle, embedded_code=True)
+        new_schema = MySQLSchema(after[source], embedded_code=True)
+        with pytest.raises(MigrationError, match="incompatible_schema"):
+            new_schema.verify(old_schema.required(bundle.head), bundle.head)
+    with pytest.raises(ValueError, match="Frozen migration resources changed"):
+        schema.preserve_history(before, after)

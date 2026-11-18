@@ -106,6 +106,13 @@ def native_checksums(bundle):
 
     from powercontext.builtin.persistence.migrations.models import digest
 
+    manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text(encoding="utf-8"))
+    # Native extensions define baseline tables that survive every revision.
+    # Bind both the registration and its bytes, including source overlays.
+    extensions = {
+        name: {"resource": resource, "checksum": bundle.resources[resource]}
+        for name, resource in manifest.get("mysql_schema_extensions", {}).items()
+    }
     directory = bundle.snapshot_directory / "mysql"
     hashes = {
         path.relative_to(directory).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -118,6 +125,7 @@ def native_checksums(bundle):
     return {
         item.revision: digest({
             "env": hashes["env.py"],
+            "extensions": extensions,
             "script": hashlib.sha256(Path(item.path).read_bytes()).hexdigest(),
             "wrappers": {
                 name: value
