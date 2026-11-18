@@ -1,0 +1,124 @@
+docs/zh/blog/posts/deepseek-harness-powercontext-plugin.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 4-6,9-11,24-25,65,67-68,89,96-97,100-101,147,150,162-164,177,180,183,186,253
+docs/en/blog/posts/deepseek-harness-powercontext-plugin.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 4-6,9-11,25-26,69,71-73,97,104-105,108-109,159,162,175-177,190,193,196,199,268
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.ts
+  s_2ef0feea0a110d::t_ef882be4f736ef 1-41
+src/powercontext/builtin/inference/tokens.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 61-64
+tests/builtin/artifacts/test_artifact_merge.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 78-79
+tests/e2e/test_atomic_memory_fts_coverage.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 209-210,218-221
+  s_2ef0feea0a110d::t_63c2f7e2689e38 222
+src/powercontext/builtin/artifacts/atomic_memory/service.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 101-102,335,340-342,473-479
+  s_2ef0feea0a110d::t_df454446c3db5f 480
+src/powercontext/builtin/artifacts/prompt/service.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 47-49,117,120-138,168
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 56,60,250-259,295-300,375-383,396,404-407,411-413,438-458,460-463,823-865,959-969,1129-1130,1132-1133
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 21,36,187-192,215-216
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 24,46,48,52,54,304-305,405-409,416-417,419-428,430-438,442-446,448-454,491-493,516
+desktop/src-tauri/src/connections/compatibility.json
+  s_2ef0feea0a110d::t_ef882be4f736ef 1775-1796
+integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts
+  s_2ef0feea0a110d::t_ef882be4f736ef 34
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 70,189-198,548-555,567-569,572-574,687-690,700-701,720-740,743,754,758,760-761,826-833,845-846,848,994-996,1122-1131
+docs/en/docs/develop/plugins.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 393-396
+src/powercontext/builtin/persistence/sources.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 421-424,432,457,459-496,504,507,519-525,530-532,546,551,558,575,579,593-595,598,714,717-718,748,769-770
+tests/e2e/test_claude_code_host_service_chain.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 271-273,320-323,340
+tests/e2e/test_plugin_access.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 318-328
+src/powercontext/builtin/persistence/atomic_memory_evidence.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 27,46-48,79,83,102-195,218-224,226-234,243-273
+src/powercontext/builtin/artifacts/merge.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 598,602-628,871-884
+docs/en/blog/posts/three-days-four-thousand-evaluations.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 8,13
+tests/builtin/artifacts/prompt/test_prompt_service.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 71-72,74-75,79,104-106,108-115,121-126
+desktop/ui/src/generated/operations.ts
+  s_2ef0feea0a110d::t_ef882be4f736ef 18
+docs/zh/blog/posts/three-days-four-thousand-evaluations.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 8,13
+src/powercontext/server/app.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 424,2614-2616,2618-2619,2629
+tests/e2e/test_atomic_memory_source_evidence.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 53,90-140
+  s_2ef0feea0a110d::t_5aecaf927a96fa 141-142
+openapi/powercontext.yaml
+  s_2ef0feea0a110d::t_ef882be4f736ef 620-622
+desktop/ui/src/generated/api.d.ts
+  s_2ef0feea0a110d::t_ef882be4f736ef 290
+docs/en/blog/.authors.yml
+  s_2ef0feea0a110d::t_ef882be4f736ef 58-63
+desktop/src-tauri/src/transport/operations.json
+  s_2ef0feea0a110d::t_ef882be4f736ef 2
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.test.ts
+  s_2ef0feea0a110d::t_ef882be4f736ef 23
+tests/e2e/test_atomic_memory_generation_merge.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 38-44,46,168-293,701-702,704-708
+desktop/VALIDATION.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 3589-3619
+src/powercontext/builtin/runtime/_model_usage.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 143,274,407-412
+src/powercontext/http/_generated/schema.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 539-544
+src/powercontext/builtin/scope/application.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 143,150-152
+docs/zh/docs/develop/plugins.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 363-365
+docs/zh/blog/.authors.yml
+  s_2ef0feea0a110d::t_ef882be4f736ef 58-63
+release/upgrade-support.json
+  s_2ef0feea0a110d::t_055fd621772cbb 6-7
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 199-202,553-575,728-730
+docs/zh/rfcs/2579-plugin-reload-and-apis.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 433-434
+src/powercontext/builtin/persistence/sqlite/atomic_memory_index.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 45,47,51,53,65-71,352-356,363-364,366-374,376-388,391-394,396,423,427,500
+src/powercontext/builtin/plugins/host.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 62,742
+src/powercontext/builtin/scope/models.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 199-202,208-209
+src/powercontext/builtin/scope/repository.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 23,48-61,132-136,194
+  s_2ef0feea0a110d::t_1cf1213ed87dd5 195
+tests/builtin/persistence/test_sources.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 43,204-206,208-213,229-237
+tests/e2e/test_atomic_memory_flush_concurrency.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 105-123
+src/powercontext/builtin/persistence/source_definitions.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 20,24,158-179
+  s_2ef0feea0a110d::t_29aa79f2fe8a8a 180
+tests/e2e/test_observability.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 281-286
+docs/en/rfcs/2579-plugin-reload-and-apis.md
+  s_2ef0feea0a110d::t_ef882be4f736ef 514-515
+scripts/generate_integration_lifecycle.py
+  s_2ef0feea0a110d::t_ef882be4f736ef 73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c7c5fff1685ef063114128b25bad2701a2345837",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
