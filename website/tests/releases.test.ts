@@ -47,5 +47,12 @@ test('the prepared stable release has a bilingual changelog with matching instal
     assert.ok(release.changes[language].length > 0, `Missing ${language} release notes`);
     assert.ok(release.changes[language].every((change) => change.trim()), `Empty ${language} release note`);
     assert.ok(notes.includes(language === 'en' ? '## English' : '## 中文'), `Missing ${language} GitHub Release notes`);
+    const heading = language === 'en' ? '## English' : '## 中文';
+    const section = notes.split(`${heading}\n`)[1].split('\n## ')[0];
+    const changes = section
+      .split('\n')
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2).replace(/ \(\[#\d+\].*\)$/, ''));
+    assert.deepEqual(release.changes[language], changes, `${language} website changes must match the release notes`);
   }
 });

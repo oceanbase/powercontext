@@ -1,10 +1,14 @@
 ---
 title: Building a PowerContext plugin for DeepSeek Harness
 description: Connect project memory, automatic recall, and Handoff to DeepSeek Harness through a thin Cordis adapter.
-draft: true
-authors: []
+draft: false
+authors:
+  - knqiufan
 slug: deepseek-harness-powercontext-plugin
 date: 2026-08-14
+updated: 2026-11-18
+cover: assets/blog/deepseek-harness-powercontext-plugin/cover.png
+cover_alt: A modular plugin connects a session workbench to a separate project-context archive.
 ---
 
 # Building a PowerContext plugin for DeepSeek Harness
@@ -17,6 +21,8 @@ loops, scheduling, and UI can all be composed as plugins without modifying the H
 That design is a natural fit for PowerContext. PowerContext already keeps project Memory, Experience, Skill, and
 Handoff in an independent Server. DeepSeek Harness only needs a thin adapter that connects Cordis lifecycle events,
 tools, and commands to the PowerContext HTTP API.
+
+The following examples use the standalone [powercontext-dsh v0.0.2 plugin](https://github.com/knqiufan/powercontext-dsh/tree/v0.0.2) to explain its Cordis integration.
 
 <!-- more -->
 
@@ -60,12 +66,11 @@ installs a bundle into the `web` profile; it does not copy plugin code into the 
 
 ## Why use two processes?
 
-PowerContext and DeepSeek Harness cooperate across two processes:
+There are two backend processes; the browser is a client of the Harness UI:
 
-1. **DeepSeek Harness Web** owns the browser UI, sessions, and agent loop.
-2. **The PowerContext DSH plugin** runs inside the Harness process and registers hooks, `pc_*` tools, `/pc` commands,
-   and usage guidance.
-3. **PowerContext Server** is an independent Python process. It listens on `http://127.0.0.1:8000` by default and owns
+1. **DeepSeek Harness** manages sessions and the agent loop. The PowerContext DSH plugin runs inside this process and
+   registers hooks, `pc_*` tools, `/pc` commands, and usage guidance.
+2. **PowerContext Server** is an independent Python process. It listens on `http://127.0.0.1:8000` by default and owns
    persistence, retrieval, review, and Handoff.
 
 [![Two processes connected over HTTP](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.en.svg)](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.en.svg "View full-size diagram")
@@ -89,17 +94,19 @@ few rules:
 | Register model tools through `defineTool` | Give inputs and outputs stable schemas |
 | Ship a built `lib/` directory | Profiles do not compile TypeScript for external bundles |
 
-The PowerContext plugin entry point can be summarized as:
+The entry point loads peer modules from the Harness installation before registering tools and recall hooks, so the external plugin can resolve those dependencies:
 
 ```ts
 export const name = 'powercontext-dsh'
 export const inject = ['tools', 'agents']
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const toolsMod = await loadPeer<{ defineTool: DefineTool }>('@deepseek-ai/dsh-tools')
+  const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   registerGuidance(ctx)
-  registerTools(ctx, runtime)
-  registerRecall(ctx, runtime)
+  registerTools(ctx, runtime, toolsMod.defineTool)
+  registerRecall(ctx, runtime, llmMod.createUserMessage)
   registerCommands(ctx, runtime)
   registerSkill(ctx)
 }
@@ -149,11 +156,10 @@ read PowerContext's Python source.
 
 ## Recall first, then capture
 
-Automatic hooks provide cross-session continuity. After the user sends a message and before the model begins analysis,
-the plugin independently performs two steps:
+Before each model step, the plugin performs two operations through the `agent/pre-step` hook:
 
 1. Call `prepare_context` to obtain relevant, size-bounded project context and inject it as reference material.
-2. Call `capture_content_source` to preserve the current user input as raw Source evidence.
+2. Call `capture_content_source` to preserve the step's text input as raw Source evidence.
 
 Capturing Source is not the same as extracting Memory. Explicit Memory writes do not require a generation model. A
 generation model is still required when the Server should extract Memory automatically from captured Sources.
@@ -166,10 +172,11 @@ the normalized workspace Git remote when available and the workspace path otherw
 
 ## Install and verify
 
-Install and start PowerContext Server first:
+The early standalone plugin described here requires a PowerContext Server with a matching HTTP contract. For installation and configuration of the current version, see the [DeepSeek Harness integration guide](/en/docs/integrations/dsh/).
+
+Start a configured Server:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 
@@ -180,16 +187,16 @@ curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
 ```
 
-After creating the DeepSeek Harness `web` profile, install the integration:
+Create the DeepSeek Harness `web` profile, then load the matching standalone plugin [release](https://github.com/knqiufan/powercontext-dsh/releases/tag/v0.0.2):
 
 ```bash
-powercontext setup dsh --source oceanbase/powercontext --ref master
+dsh plugin --profile web add ./powercontext-dsh-0.0.2.tgz
 ```
 
-Keep `--ref` aligned with the PowerContext tool version. A local checkout works too:
+An existing checkout of that plugin version can also be loaded directly:
 
 ```bash
-powercontext setup dsh --source .
+dsh plugin --profile web add /path/to/powercontext-dsh
 ```
 
 Start DeepSeek Harness:
@@ -202,13 +209,6 @@ Use dump-config to confirm that the tree contains `id: powercontext-dsh`:
 
 ```bash
 dsh --profile web --dump-config
-```
-
-You can also run the full diagnostics:
-
-```bash
-powercontext doctor
-powercontext doctor dsh
 ```
 
 ![powercontext-dsh in the plugin list](../../../assets/blog/deepseek-harness-powercontext/plugin-list.png)
@@ -265,6 +265,7 @@ Related projects:
 
 - [PowerContext](https://github.com/oceanbase/powercontext)
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- [powercontext-dsh](https://github.com/knqiufan/powercontext-dsh)
 - [Cordis](https://github.com/cordiverse/cordis)
 - [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 - [DeepSeek Harness introduction](https://deepseek.com/harness/en/)

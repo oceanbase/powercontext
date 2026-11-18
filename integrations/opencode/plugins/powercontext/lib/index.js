@@ -234,83 +234,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_plugins: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	get_artifact_plugin: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins/{binding_name}",
-		location: null,
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	enable_all_artifact_plugins: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/enable-all",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	reload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	enable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	disable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	unload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
@@ -689,6 +612,216 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugins: {
+		method: "GET",
+		path: "/v1/plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin: {
+		method: "GET",
+		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_runners: {
+		method: "GET",
+		path: "/v1/source-runners",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	register_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	sync_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners/{runner}/sync",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	update_source_runner: {
+		method: "PATCH",
+		path: "/v1/source-runners/{runner}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	delete_source_runner: {
+		method: "DELETE",
+		path: "/v1/source-runners/{runner}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_status: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "PATCH",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_delete: {
+		method: "DELETE",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_target_transfer: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugin_scopes: {
+		method: "GET",
+		path: "/v1/plugins/{name}/scopes",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: ["cursor", "limit"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	merge_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/merges",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_governance: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance",
+		location: null,
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	forget_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	restore_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1482,6 +1615,21 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_artifact_rendering: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["revision"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_artifact_revisions: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
@@ -1624,160 +1772,6 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_capabilities: {
-		method: "POST",
-		path: "/v1/source-management/capabilities",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_add: {
-		method: "POST",
-		path: "/v1/source-management/add",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_status: {
-		method: "POST",
-		path: "/v1/source-management/status",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_target_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/target-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instances: {
-		method: "POST",
-		path: "/v1/source-management/instances",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instance_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/instance-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_configure: {
-		method: "POST",
-		path: "/v1/source-management/configure",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	load_source_write_plugin: {
-		method: "POST",
-		path: "/v1/source-management/write/load",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_open: {
-		method: "POST",
-		path: "/v1/source-management/channel/open",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_catalog: {
-		method: "POST",
-		path: "/v1/source-management/channel/catalog",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_poll: {
-		method: "POST",
-		path: "/v1/source-management/channel/poll",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_reply: {
-		method: "POST",
-		path: "/v1/source-management/channel/reply",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_close: {
-		method: "POST",
-		path: "/v1/source-management/channel/close",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_instance_exchange: {
-		method: "POST",
-		path: "/v1/source-management/instances/{instance_id}/{operation}",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["instance_id", "operation"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -2253,7 +2247,7 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 }
 
 //#endregion
-//#region src/secrets.ts
+//#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
 	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
@@ -2261,11 +2255,13 @@ const SECRET_PATTERNS = [
 	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
 	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
+/** Return text with recognized credential-shaped values replaced. */
 function scrubSecrets(text, authorization) {
 	const credential = authorization?.replace(/^Bearer\s+/iu, "");
 	if (credential) text = text.replaceAll(credential, "[REDACTED]");
-	return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[REDACTED]"), text);
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
 }
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
 function containsSecret(text, authorization) {
 	return scrubSecrets(text, authorization) !== text;
 }

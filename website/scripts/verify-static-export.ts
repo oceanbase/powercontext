@@ -16,6 +16,7 @@
 
 import { access, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { getHomeContent } from '../src/lib/home-content';
 import { absoluteSiteUrl, basePath, withBasePath } from '../src/lib/urls';
 
 const websiteDirectory = path.resolve('.');
@@ -183,7 +184,13 @@ const homeAlternates = [
   `<link rel="alternate" hrefLang="x-default" href="${absoluteSiteUrl('/')}"`,
 ];
 
-if (/http-equiv="refresh"/i.test(rootDocument) || !rootDocument.includes('Keep work moving')) {
+// The root serves the English home itself; read its headline from the content, not a copy of it.
+const [englishHeadline] = (await getHomeContent('en')).hero.title;
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (character) => `&${{
+  '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot', "'": '#x27',
+}[character]};`);
+
+if (/http-equiv="refresh"/i.test(rootDocument) || !rootDocument.includes(escapeHtml(englishHeadline))) {
   throw new Error('Static root page does not render the default English site.');
 }
 

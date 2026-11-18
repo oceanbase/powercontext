@@ -16,7 +16,7 @@
 
 import type { CallContext, SourceBoundary } from './contracts.ts'
 import { DeliveryError } from './contracts.ts'
-import { containsSecret, hasSecretContent } from '../secrets.ts'
+import { hasSecretContent } from '../secrets.ts'
 import { invalid, trimmed, wire } from './wire.ts'
 import type { HandoffLocale } from './locale.ts'
 import type { Wire } from './wire.ts'
@@ -27,6 +27,9 @@ export const MAX_WORKSPACE_BYTES = 32 * 1024
 export const MAX_WORK_INPUT_BYTES = 32 * 1024
 
 type Citation = Wire<'HandoffCitation'>
+
+// Command evidence can carry credentials as CLI arguments, separately from the prose privacy rules.
+const CREDENTIAL_OPTION = /(?:^|[\s;&|])--(?:api[-_]key|access[-_](?:key|token)|client[-_]secret|secret(?:[-_]key)?|private[-_]key|password|passwd|passphrase|token|authorization)(?:[ \t]+|=)[^\s;&|]/iu
 
 export type WorkEvent = {
   sessionId: string
@@ -72,12 +75,6 @@ function secret(value: unknown): boolean {
   return hasSecretContent('capture_content_source', value)
 }
 
-function unsafeAutomaticContent(value: unknown): boolean {
-  if (secret(value)) return true
-  if (typeof value === 'string') return containsSecret(value)
-  return !!value && typeof value === 'object' && Object.values(value).some(unsafeAutomaticContent)
-}
-
 export function inspectedWork(value: unknown): Wire<'CurrentWorkHandoff'> {
   const work = wire('CurrentWorkHandoff', value)
   if (!trimmed(work.objective, 8192) || !work.omissions.every(item => trimmed(item, 8192))
@@ -112,7 +109,7 @@ export async function collectMaterials(context: CallContext, source: SourceBound
   const omissions = new Set<string>()
   const note = (en: string, zh = en) => { omissions.add(locale === 'zh-CN' ? zh : en) }
   const available = (text: string | null, max: number) => typeof text === 'string'
-    && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !unsafeAutomaticContent(text) && Buffer.byteLength(text) <= max
+    && text.length <= max && !/[\uD800-\uDFFF]/u.test(text) && !secret(text) && Buffer.byteLength(text) <= max
   if (!trimmed(objective, 8192) || !available(objective, Math.min(8192, maxBytes / 4))) {
     return undefined // Editable work fields are required. Do not capture or guess an objective.
   }
@@ -150,7 +147,7 @@ export async function collectMaterials(context: CallContext, source: SourceBound
       checksObserved = true
       const { command, status, details, exitCode, revision, workspaceObservedAt } = event
       if (!['passed', 'failed', 'interrupted', 'not_run', 'unknown'].includes(status)) invalid()
-      if (!available(command, 8192)) {
+      if (!available(command, 8192) || CREDENTIAL_OPTION.test(command)) {
         note(status === 'failed'
           ? 'At least one observed check failed but its command could not be included.'
           : 'A check was observed but its command could not be included.',
@@ -171,7 +168,7 @@ export async function collectMaterials(context: CallContext, source: SourceBound
       item = { ...base, kind, text: event.text }
     }
     const bytes = Buffer.byteLength(JSON.stringify(item)) + 1
-    if (unsafeAutomaticContent(item) || bytes > remaining) {
+    if (secret(item) || bytes > remaining) {
       note(kind === 'check' && item.kind === 'check' && item.status === 'failed'
         ? 'At least one observed failure could not fit the input limits or contained sensitive material.'
         : 'Some task evidence was omitted because of content or input limits.',

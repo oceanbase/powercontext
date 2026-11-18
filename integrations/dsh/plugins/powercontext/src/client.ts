@@ -30,6 +30,7 @@ import {
 } from './errors.ts'
 import { OPERATIONS, type OperationId, type OperationSpec } from './operations.generated.ts'
 import { normalizeServerUrl } from './transport.ts'
+import { traceContextHeaders, type TraceContext } from './trace-context.ts'
 
 // Cold readiness can spend 30s on inference, then 5s on access checks. Leave transport headroom.
 const MIN_READINESS_TIMEOUT_MS = 40_000
@@ -207,7 +208,8 @@ function isRedirect(status: number): boolean {
 export class PowerContextClient {
   private readonly baseUrl: string
   private readonly userAgent: string
-  private readonly authorization: string | undefined
+  // Explicit writes reject content that repeats this credential.
+  readonly authorization: string | undefined
   private readonly requestTimeoutMs: number
   private readonly fetchImpl: FetchFn
 
@@ -227,11 +229,12 @@ export class PowerContextClient {
     id: string,
     payload?: JsonObject,
     signal?: AbortSignal,
-    options: { readinessResponse?: boolean; handoffLanguage?: HandoffLocale } = {},
+    options: { readinessResponse?: boolean; traceContext?: TraceContext; handoffLanguage?: HandoffLocale } = {},
   ): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
+    Object.assign(prepared.headers, traceContextHeaders(options.traceContext))
     if (id === 'prepare_handoff' && options.handoffLanguage) prepared.headers['Accept-Language'] = options.handoffLanguage
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
     const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id))

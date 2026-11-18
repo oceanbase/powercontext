@@ -61,19 +61,24 @@ async function startHost() {
   const address = await new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => {
     resolve((server.address() as { port: number }).port)
   }))
-  hosts.push(async () => {
+  const stop = async () => {
     await new Promise<void>(resolve => server.close(() => resolve()))
     for (const dispose of disposals.reverse()) await dispose()
-  })
-  return (path: string, authenticated = true) => fetch(`http://127.0.0.1:${address}/powercontext${path}`,
+  }
+  hosts.push(stop)
+  const request = (path: string, authenticated = true) => fetch(`http://127.0.0.1:${address}/powercontext${path}`,
     { headers: authenticated ? { 'x-owner': 'yes' } : {} })
+  return { request, async close() {
+    hosts.splice(hosts.indexOf(stop), 1)
+    await stop()
+  } }
 }
 
 const diagnosePath = '/targets/codex-desktop/diagnose'
 const deliveryPath = '/deliveries/missing?sessionId=session'
 
 it('ships the default target catalog and diagnostics through the owner-local Host', async () => {
-  const request = await startHost()
+  const { request } = await startHost()
   expect((await request(diagnosePath, false)).status).toBe(401)
   const response = await request('/targets')
   expect(response.status).toBe(200)
@@ -88,15 +93,15 @@ it('ships the default target catalog and diagnostics through the owner-local Hos
   const detection = await request(diagnosePath)
   expect(detection.status).toBe(200)
   expect(await detection.json()).toMatchObject({ targetId: 'codex-desktop',
-    state: process.platform === 'darwin' ? expect.stringMatching(/^(present|missing|unknown|unsupported)$/) : 'unsupported' })
+    state: process.platform === 'darwin' ? expect.stringMatching(/^(present|unqualified|missing|unknown|unsupported)$/) : 'unsupported' })
 }, 30_000)
 
-it.skipIf(process.platform !== 'darwin')('serves catalog and diagnostics while another Host holds the delivery writer lease', async () => {
-  const reader = await startHost()
+it.skipIf(process.platform !== 'darwin')('initializes delivery services and releases the macOS writer lease on Host disposal', async () => {
+  const { request: reader } = await startHost()
   const writer = await startHost()
   expect((await reader('/targets')).status).toBe(200)
   // Opening delivery services takes the real writer lease, even for a missing record.
-  const opened = await writer(deliveryPath)
+  const opened = await writer.request(deliveryPath)
   expect(opened.status).toBe(404)
   expect(await opened.json()).toMatchObject({ code: 'not_found' })
   const blocked = await reader(deliveryPath)
@@ -104,4 +109,8 @@ it.skipIf(process.platform !== 'darwin')('serves catalog and diagnostics while a
   expect(await blocked.json()).toMatchObject({ code: 'integration_unavailable' })
   expect((await reader('/targets')).status).toBe(200)
   expect((await reader(diagnosePath)).status).toBe(200)
+  await writer.close()
+  const recovered = await reader(deliveryPath)
+  expect(recovered.status).toBe(404)
+  expect(await recovered.json()).toMatchObject({ code: 'not_found' })
 }, 30_000)

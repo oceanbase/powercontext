@@ -47,7 +47,11 @@ budget does not replay a write whose commit outcome is unknown after a connectio
 
 Source processing generates candidates, then enumerates related active memories satisfying permission, tag and
 retrieval eligibility. Fts enumerates all qualifying matches; vector enumerates all results within its threshold;
-hybrid combines both. Neither comparison batch size nor token budget truncates the total candidates. Oversized
+hybrid combines both. Lexical relatedness counts both sides: a memory qualifies when the distinct candidate terms it
+contains meet the lexical admission threshold for the candidate's distinct terms, or number at least the minimum match
+count and cover the coverage fraction of the memory's own indexed words, including its kind. A long candidate therefore
+still finds a short memory of the same fact. Ordinary search and `prepare_context` keep the query-only threshold.
+Neither comparison batch size nor token budget truncates the total candidates. Oversized
 comparison input reduces the batch until every candidate is processed. A single object or complete extraction input
 that exceeds the budget fails the window without partial publication or cursor advancement. Fallback changes recall
 evidence and requires an explicit choice; by default errors retain the window for diagnosis and retry.
@@ -118,6 +122,11 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
+| `POWERCONTEXT_SERVER_PLUGINS_DIR` | unset | Plugin directory; each subdirectory is a plugin. See [Write a plugin](../develop/plugins.md) |
+| `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` | `60` | Seconds between each Server process's scans of the plugin directory; added, changed, and removed plugins take effect within two intervals. `0` turns scanning off, so plugins load only at startup |
+| `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
+| `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | JSON object overriding plugins' declared `host_processes` by plugin name, such as `{"knowledge-base": 4}`; each value is the most host processes of that plugin in each Server process |
+| `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | unset | The most host processes of all plugins in each Server process; at the limit, no process is added for load and requests queue on existing ones. Each plugin's first, always-running process is exempt |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
@@ -179,7 +188,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code and DSH; ZCode allows 3 seconds per request within its 4-second Hook budget |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use. The shortest default is Cindy's prompt hook, which gives preparation at most 1.3 seconds of its 1.8-second hook budget; OpenClaw allows 2.5 seconds per request, and Kimi Code, ZCode, and DSH allow 3 seconds per request within a 4-second total budget |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -647,6 +656,10 @@ Atomic Memory uses native `minimum_should_match` filtering when the connected Oc
 Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
 permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
 query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+For related-memory enumeration, the native path also matches memories that share at least the minimum match count of
+terms and are short enough to qualify below the candidate's threshold, then applies whole-word coverage to them. For a
+long candidate almost every memory is that short, so the whole-word check runs on nearly every memory sharing that
+many terms.
 Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
 Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
 OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.

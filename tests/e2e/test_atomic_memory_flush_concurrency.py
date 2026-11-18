@@ -102,6 +102,25 @@ def _config(path: Path) -> BuiltinConfig:
     )
 
 
+def test_in_memory_flush_preserves_the_callers_pending_source_write() -> None:
+    async def scenario() -> None:
+        extractor = _PausedExtractor()
+        extractor.release.set()
+        config = BuiltinConfig(database=SQLiteConfig(), runtime=RuntimeConfig(atomic_memory_related_mode="fts"))
+        async with open_builtin_contexts(config, candidate_pipeline=atomic_memory_pipeline(extractor)) as contexts:
+            await contexts.get("project")
+            await contexts.get("other")
+            await contexts.records.capture_source("project", "content", "first", "First fact.", {})
+            async with contexts.database.transaction():
+                await contexts.records.capture_source("other", "content", "pending", "Keep this write.", {})
+                result = await contexts.process_memory("project", 1)
+                assert result.source_count == 1
+            pending = await contexts.records.get_source("other", "content", "pending")
+            assert pending.content == "Keep this write."
+
+    asyncio.run(scenario())
+
+
 def test_capture_during_extraction_stays_outside_the_selected_window(tmp_path: Path) -> None:
     async def scenario() -> None:
         extractor = _PausedExtractor()

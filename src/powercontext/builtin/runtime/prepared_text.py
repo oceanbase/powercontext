@@ -47,6 +47,10 @@ class ContextTextItem:
     truncated: bool = False
 
 
+# Plugin families are titled with their family name.
+_TITLES = {"memory": "Memory", "experience": "Experience", "profile": "Profile", "topic-memory": "Topic Memory"}
+
+
 def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssembly) -> str:
     """Render already selected entries without interpreting historical Markdown."""
 
@@ -56,12 +60,7 @@ def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssem
         included = [item for item in items if item.artifact.artifact.family in selected_families]
         if not included:
             continue
-        title = {
-            "memory": "Memory",
-            "experience": "Experience",
-            "profile": "Profile",
-            "topic-memory": "Topic Memory",
-        }[section.family]
+        title = _TITLES.get(section.family, section.family)
         parts.append(f"## {title}")
         for number, item in enumerate(included, start=1):
             parts.extend(_item_parts(title, number, item, assembly))
@@ -71,12 +70,8 @@ def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssem
 
 def rendered_text_fragment_bytes(item: ContextTextItem, assembly: ContextAssembly, number: int) -> int:
     """Measure the rendered item, excluding the separators between items."""
-    title = {
-        "atomic-memory": "Memory",
-        "experience": "Experience",
-        "profile": "Profile",
-        "topic-memory": "Topic Memory",
-    }[item.artifact.artifact.family]
+    family = item.artifact.artifact.family
+    title = _TITLES.get("memory" if family == "atomic-memory" else family, family)
     return len("\n\n".join(_item_parts(title, number, item, assembly)).encode("utf-8"))
 
 
