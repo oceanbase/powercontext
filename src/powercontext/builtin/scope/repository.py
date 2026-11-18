@@ -20,7 +20,7 @@ from collections import defaultdict
 from functools import lru_cache
 from hashlib import sha256
 
-from sqlalchemy import bindparam, delete, false, insert, literal, null, select, union_all, update
+from sqlalchemy import bindparam, delete, false, insert, literal, null, select, true, union_all, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.tables import (
@@ -43,6 +43,20 @@ from powercontext.builtin.scope.models import (
 from powercontext.builtin.scope.search import literal_contains
 
 _DEFAULT_SETTING = "default"
+
+
+def _without_reference_kind(kind: str | None):
+    """Scopes that carry no external reference of this kind; every Scope when no kind is given."""
+
+    if kind is None:
+        return true()
+    external = SCOPE_EXTERNAL_REFERENCES_TABLE.alias("scope_excluded_external_reference")
+    return ~(
+        select(1)
+        .where(external.c.scope_id == SCOPES_TABLE.c.scope_id, external.c.kind == kind)
+        .correlate(SCOPES_TABLE)
+        .exists()
+    )
 
 
 def _scope_projection(statement):
@@ -115,8 +129,11 @@ class ScopeRepository:
         ).mappings()
         return tuple(dict(row) for row in rows)
 
-    async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
-        return await self._load(connection, _scope_projection(select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id)))
+    async def list(
+        self, connection: AsyncConnection, /, *, exclude_external_reference_kind: str | None = None
+    ) -> tuple[ScopeDescriptor, ...]:
+        statement = select(SCOPES_TABLE).where(_without_reference_kind(exclude_external_reference_kind))
+        return await self._load(connection, _scope_projection(statement.order_by(SCOPES_TABLE.c.scope_id)))
 
     async def with_external_reference(
         self, connection: AsyncConnection, reference: ScopeExternalReference, /
@@ -173,6 +190,8 @@ class ScopeRepository:
             external_conditions.append(literal_contains(external_reference.c.value, query, connection.dialect.name))
         if len(external_conditions) > 1:
             statement = statement.where(select(1).where(*external_conditions).correlate(SCOPES_TABLE).exists())
+
+        statement = statement.where(_without_reference_kind(discovery.exclude_external_reference_kind))
 
         binding = SCOPE_BINDINGS_TABLE.alias("scope_discovery_binding")
         binding_conditions = [binding.c.scope_id == SCOPES_TABLE.c.scope_id]
