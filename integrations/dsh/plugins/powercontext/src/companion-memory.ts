@@ -20,7 +20,7 @@ import { basename, resolve } from 'node:path'
 import type { PluginRuntime } from './invoke.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { ServerResponseError } from './errors.ts'
-import { scrubSecrets } from './prompt-privacy.ts'
+import { scrubSecrets } from './secrets.ts'
 import type { TraceContext } from './trace-context.ts'
 
 export const COMPANION_MEMORY_SERVICE = 'powercontextCompanionMemory'
