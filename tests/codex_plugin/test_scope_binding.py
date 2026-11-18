@@ -515,8 +515,8 @@ def test_pre_tool_hook_leaves_other_tools_alone(
 @pytest.mark.parametrize(
     ("tool", "tool_input"),
     [
-        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one", "scope_id": None}),
-        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one"}),
+        ("pc_source_runners", {"scope_id": None}),
+        ("pc_source_runners", {}),
         ("future_selection_tool", {"selection": None}),
     ],
     ids=["null-scope", "omitted-scope", "null-selection"],
@@ -527,7 +527,7 @@ def test_pre_tool_hook_leaves_a_call_that_names_no_scope_unbound(
     bind_tools_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A null Scope argument names no Scope, so an unscoped call such as an instance control view stays unscoped."""
+    """A null Scope argument names no Scope, so an unscoped call such as listing collection runners stays unscoped."""
 
     monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
     payload = {"session_id": "session-a", "cwd": "/workspace", "tool_name": f"mcp__powercontext__{tool}"}

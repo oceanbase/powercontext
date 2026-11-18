@@ -278,6 +278,12 @@ class _VectorMemoryIndex:
     async def probe_recoverable(self, connection, scope_id, request, floor, /):
         return False
 
+    async def related_ranks(self, connection: AsyncConnection, scope_id: str, request, /):
+        return ()
+
+    async def capture_evidence_many(self, connection, scope_id, revisions, /, *, sources):
+        pass
+
     async def related_page(self, connection: AsyncConnection, scope_id: str, request, cursor=None, /):
         return None
 

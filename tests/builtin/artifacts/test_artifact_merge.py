@@ -75,7 +75,8 @@ class _HandoffAdapter:
         pass
 
     async def publish_many(self, connection, scope_id, records, execution_context):
-        pass
+        for record, prepared in records:
+            await self.publish(connection, scope_id, record, prepared, execution_context)
 
     async def remove(self, connection, scope_id, artifact_id):
         pass

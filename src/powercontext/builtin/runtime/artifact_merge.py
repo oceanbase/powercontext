@@ -158,6 +158,11 @@ class ArtifactMergeApplication:
             raise ValueError(f"Artifact merge Family is already registered: {service.family}")  # noqa: TRY003
         self._services[service.family] = service
 
+    def unregister(self, family: str) -> None:
+        """Forget a Family whose plugin was removed or changed; built-in Families are never unregistered."""
+
+        self._services.pop(family, None)
+
     def _service(self, family: str) -> ArtifactMergeService:
         try:
             return self._services[family]
