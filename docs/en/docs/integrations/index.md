@@ -80,13 +80,22 @@ credentials are detected.
 
 An assigned key name must end with the credential marker and may carry any prefix, as in environment
 variables (`OPENAI_API_KEY=…`, `DATABASE_PASSWORD=…`), header names (`X-Api-Key: …`), command-line
-options (`--password=…`) and camel-case fields (`dbPassword: …`). A name that continues after the marker,
-such as `max_tokens`, `num_tokens` or `password_min_length`, is not an assignment, but a singular
-`max_token=1024` is skipped conservatively. Tokenizer special tokens (`bos_token`, `eos_token`,
-`pad_token`, `unk_token`, `sep_token`, `cls_token` and `mask_token`) are configuration, not credentials.
-A value that is an unquoted boolean or null literal (`true`, `false`, `yes`, `no`, `on`, `off`, `null` or
-`none`), as in `reset_password=true` or `use_cookie=True`, is a setting rather than a credential. A
-`Bearer` or `Basic` scheme word in an assigned value is removed together with the value that follows it.
+options (`--password=…`) and camel-case fields (`dbPassword: …`). Markdown emphasis or code around the
+name is part of it, as in `**Password:** …`, `- **OPENAI_API_KEY**: …` or `` `DB_PASSWORD`: … ``. A name
+that continues after the marker, such as `max_tokens`, `num_tokens` or `password_min_length`, is not an
+assignment, but a singular `max_token=1024` is skipped conservatively. Tokenizer special tokens
+(`bos_token`, `eos_token`, `pad_token`, `unk_token`, `sep_token`, `cls_token` and `mask_token`) are
+configuration, not credentials.
+
+The value starts on the separator's line, after any horizontal space including NBSP and the full-width
+space, or on the next line when that line is indented, as in YAML. An empty value, as in an `.env` template line
+`OPENAI_API_KEY=`, is not an assignment. A value is a setting rather than a credential when it is an
+unquoted boolean or null literal (`true`, `false`, `yes`, `no`, `on`, `off`, `null` or `none`), as in
+`reset_password=true` or `use_cookie=True`, or an unexpanded placeholder `${NAME}` or `${{ expression }}`,
+quoted or not, as in CI and Compose files. A header value is a setting only when no more of the header
+follows the literal or placeholder, so `Cookie: on; session=…` is still recognized. A placeholder with a literal default,
+such as `${DB_PASSWORD:-…}`, and a bare `$value` are still recognized. A `Bearer` or `Basic` scheme word in
+an assigned value is removed together with the value that follows it.
 
 Authorization and Cookie headers, including hyphen-prefixed names such as Proxy-Authorization, Set-Cookie
 and X-Forwarded-Authorization and the CGI form `HTTP_COOKIE`, consume the complete header value, including

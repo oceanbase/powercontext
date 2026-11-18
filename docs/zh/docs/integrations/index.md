@@ -72,12 +72,19 @@ GitHub/Slack token 形状、包含未闭合情况的私钥块，以及当前 Ser
 
 赋值的键名必须以凭据标记结尾，前面可以带任意前缀，例如环境变量（`OPENAI_API_KEY=…`、
 `DATABASE_PASSWORD=…`）、请求头名（`X-Api-Key: …`）、命令行选项（`--password=…`）和驼峰字段
-（`dbPassword: …`）。标记之后还有字符的键名不属于赋值，例如 `max_tokens`、`num_tokens` 和
-`password_min_length`；但单数形式的 `max_token=1024` 会被保守跳过。分词器的特殊 token（`bos_token`、
-`eos_token`、`pad_token`、`unk_token`、`sep_token`、`cls_token` 和 `mask_token`）是配置项，不是凭据。
-值为不带引号的布尔或空值（`true`、`false`、`yes`、`no`、`on`、`off`、`null` 或 `none`）时，例如
-`reset_password=true` 或 `use_cookie=True`，视为配置项而不是凭据。赋值里的 `Bearer` 或 `Basic` 鉴权方案词
-会和后面的值一起移除。
+（`dbPassword: …`）。键名两侧的 Markdown 强调或代码标记也算作键名的一部分，例如 `**Password:** …`、
+`- **OPENAI_API_KEY**: …` 和 `` `DB_PASSWORD`: … ``。标记之后还有字符的键名不属于赋值，例如 `max_tokens`、
+`num_tokens` 和 `password_min_length`；但单数形式的 `max_token=1024` 会被保守跳过。分词器的特殊 token
+（`bos_token`、`eos_token`、`pad_token`、`unk_token`、`sep_token`、`cls_token` 和 `mask_token`）是配置项，
+不是凭据。
+
+值从分隔符所在行开始，前面可以有任意水平空白（包括不换行空格和全角空格）；如果下一行有缩进（如 YAML），也可以从下一行开始。
+空值不属于赋值，例如 `.env` 模板里的 `OPENAI_API_KEY=`。以下值视为配置项而不是凭据：不带引号的布尔或空值
+（`true`、`false`、`yes`、`no`、`on`、`off`、`null` 或 `none`），例如 `reset_password=true` 或 `use_cookie=True`；
+以及尚未展开的占位符 `${NAME}` 或 `${{ expression }}`（可带引号），常见于 CI 和 Compose 文件。请求头的值只有在
+这类字面量或占位符后面没有更多 header 内容时才视为配置项，所以 `Cookie: on; session=…` 仍会被识别。带字面默认值的占位符
+（如 `${DB_PASSWORD:-…}`）和裸 `$value` 仍会被识别。赋值里的 `Bearer` 或 `Basic` 鉴权方案词会和后面的值一起
+移除。
 
 Authorization 和 Cookie 请求头，包括 Proxy-Authorization、Set-Cookie、X-Forwarded-Authorization 这类用连字符
 连接前缀的名称，以及 CGI 形式的 `HTTP_COOKIE`，会先匹配完整的 header 值，包含鉴权方案、Cookie 属性和折行
