@@ -3714,3 +3714,34 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-3989ab67-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev73+g3989ab67d-py3-none-any.whl
 ```
+
+## Server 60d660af gateway batch capture and Source plugins protocol qualification
+
+`sqlite-gateway-batch-capture-60d660af-v1` qualifies all thirteen Desktop protocol operations against
+Server source `60d660af233aafc8fcec04d596491d577f559710`, the merge of the gateway batch capture contract
+(`3989ab67`) with the Source plugins contract (`9f113a72`).
+
+- Normalized OpenAPI SHA-256: `61333b394f558123c510ffd3f0298d48cd1e264b7980b63133be600f437f0a9a`.
+- Wheel: `powercontext-1.5.3.dev77+g60d660af2-py3-none-any.whl`.
+- Wheel SHA-256: `584654915e6b832839d4d3e9efaf65bc21eb76c8a0f480bbe163e14287bd2681`.
+- Native debug probe SHA-256: `b4d6f75745be586144b581c56e94ac81541fd9c34406ace29f6712e19cdfae7b`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-60d660af-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev77+g60d660af2-py3-none-any.whl
+```
