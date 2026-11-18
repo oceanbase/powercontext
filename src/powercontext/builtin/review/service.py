@@ -402,18 +402,18 @@ class ReviewService:
             raise InvalidCandidateError("audit", "shared adoption is incomplete")
         if not adoption.direct:
             raise InvalidCandidateError("audit", "shared adoption has no direct support")
-        if adoption.target is not None:
-            # A shared Profile revision needs its own target-CAS proof, which is not delivered
-            # at this checkpoint, so it stays refused rather than publishing unverified.
-            raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
         foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
+        # The exact local Profile target is separate from adopted foreign support: a first
+        # Profile has none, a revision carries exactly its current head. The Family CAS in
+        # decide_profile re-checks it against the head at approval.
+        target = adoption.target
         audit = shared_candidate_audit(adoption, proposal)
         candidate = await self._propose(
             "profile",
             proposal,
             sources=adoption.local_sources,
             artifacts=adoption.local_artifacts,
-            target=None,
+            target=target,
             reason=reason,
             candidate_id=candidate_id,
             audit=audit,
@@ -1054,7 +1054,7 @@ class ReviewService:
         # from its persisted manifest, not from a bare reference list that cannot name a
         # foreign identity. A direct input must also be one the pin declared, with its
         # recorded digest. Reachable support needs current reads, not pin membership.
-        if record.run.target is not None and record.run.operation != "revise_skill":
+        if record.run.target is not None and record.run.operation not in {"revise_skill", "revise_profile"}:
             # Only a shared Skill revision has a proven target CAS at this checkpoint; any
             # other shared revision stays refused rather than publishing unverified.
             raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
