@@ -32,8 +32,10 @@ _GAP = rf"[{_SPACES}]*(?:\r?\n[{_SPACES}]+)?"
 _PLACEHOLDER = r"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"
 _SETTING = rf"""(?:true|false|yes|no|on|off|null|none|{_PLACEHOLDER}|"{_PLACEHOLDER}"|'{_PLACEHOLDER}')"""
 _NOT_A_SETTING = rf"""(?!{_GAP}{_SETTING}(?:[\s,;)\]}}`'"{_SPACES}]|\.(?![^\s{_SPACES}])|$))"""
-# A header value is a setting only when no more of the header follows, so Cookie: on; sid=… is still a header.
-_NOT_A_HEADER_SETTING = rf"""(?![ \t]*{_SETTING}(?:[`'")\]}}]|[,.]?(?:[\s{_SPACES}]|$)))"""
+# A header value is a setting only when nothing more of the header follows it: the line ends, optionally after closing
+# punctuation, and the next line is not an indented continuation. Anything else, as in Cookie: on; sid=…,
+# Cookie: ${THEME} sid=…, or a setting followed by an indented line, keeps the whole header.
+_NOT_A_HEADER_SETTING = rf"""(?![ \t]*{_SETTING}[`")'\]}}]*[,.;]?[{_SPACES}]*(?:$|\r?\n(?![ \t])))"""
 # Applied in order, like the TypeScript source, so an earlier rule consumes the whole of what a later one would cut.
 _PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE | re.ASCII)

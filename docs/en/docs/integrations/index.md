@@ -92,10 +92,12 @@ space, or on the next line when that line is indented, as in YAML. An empty valu
 `OPENAI_API_KEY=`, is not an assignment. A value is a setting rather than a credential when it is an
 unquoted boolean or null literal (`true`, `false`, `yes`, `no`, `on`, `off`, `null` or `none`), as in
 `reset_password=true` or `use_cookie=True`, or an unexpanded placeholder `${NAME}` or `${{ expression }}`,
-quoted or not, as in CI and Compose files. A header value is a setting only when no more of the header
-follows the literal or placeholder, so `Cookie: on; session=…` is still recognized. A placeholder with a literal default,
-such as `${DB_PASSWORD:-…}`, and a bare `$value` are still recognized. A `Bearer` or `Basic` scheme word in
-an assigned value is removed together with the value that follows it.
+quoted or not, as in CI and Compose files. A header value is a setting only when its line ends after the literal or
+placeholder, optionally after closing punctuation, and the next line is not an indented continuation. So
+`Cookie: on; session=…`, `Cookie: ${THEME} session=…`, and a setting followed by an indented line are still
+recognized as headers. A placeholder with a literal default, such as `${DB_PASSWORD:-…}`, and a bare `$value`
+are still recognized. A `Bearer` or `Basic` scheme word in an assigned value is removed together with the value
+that follows it.
 
 Authorization and Cookie headers, including hyphen-prefixed names such as Proxy-Authorization, Set-Cookie
 and X-Forwarded-Authorization and the CGI form `HTTP_COOKIE`, consume the complete header value, including

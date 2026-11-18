@@ -38,12 +38,12 @@
     },
     {
       "id": "boolean-header-settings",
-      "prompt": "Call get(url, use_cookie=True) and set:\n  skip-authorization: false\n  forward-cookie: ${SESSION_COOKIE}",
+      "prompt": "Call get(url, use_cookie=True) and set:\nskip-authorization: false\nforward-cookie: ${SESSION_COOKIE}",
       "sensitive": false
     },
     {
       "id": "inline-header-settings",
-      "prompt": "Set `skip-authorization: false` in values.yaml, or pass {\"forward-cookie\": false, \"retries\": 3}. Then set skip-authorization: true.",
+      "prompt": "In values.yaml, set `skip-authorization: false`.\nOr pass {\"forward-cookie\": false}\nThen set skip-authorization: true.",
       "sensitive": false
     },
     {
@@ -290,6 +290,31 @@
     {
       "id": "setting-shaped-header-value",
       "prompt": "Cookie: on; session=synthetic-value-2084\nCookie: '${THEME}'; session=synthetic_value_2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-header-trailing-cookie",
+      "prompt": "Cookie: ${THEME} ; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-header-folded-cookie",
+      "prompt": "Cookie: ${THEME}\n session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-set-cookie-trailing-value",
+      "prompt": "Set-Cookie: ${A} sid=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "setting-header-continued-value",
+      "prompt": "Cookie: on,\n  sid=synthetic_value_2084\nAuthorization: ${SCHEME} synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "setting-header-trailing-content",
+      "prompt": "Use `Cookie: ${SESSION}` with session=synthetic-value-2084\n{\"Cookie\": \"${A}\", \"session\": \"synthetic_value_2084\"}\nheaders:\n  forward-cookie: false\n    sid=SyntheticValue2084",
       "sensitive": true
     },
     {

@@ -23,11 +23,12 @@ const SECRET_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
   // Consume complete headers before the assignment rule can consume just a scheme or first cookie. A hyphenated prefix
   // such as Proxy-, Set-, or X-Forwarded-, or the CGI form HTTP_, names another header of the same kind. A boolean or
-  // null literal or an unexpanded ${NAME} or ${{ expression }} placeholder is a setting, not a credential, when no
-  // more of the header follows it; ${NAME:-value} is not excluded. An assigned value starts on the separator's line
-  // or on an indented continuation line. Horizontal space is spelled out so that Python's ASCII \s agrees: NBSP and
+  // null literal or an unexpanded ${NAME} or ${{ expression }} placeholder is a setting, not a credential, only when
+  // nothing more of the header follows it: its line ends, optionally after closing punctuation, and the next line is
+  // not an indented continuation. ${NAME:-value} is not excluded. An assigned value starts on the separator's line or
+  // on an indented continuation line. Horizontal space is spelled out so that Python's ASCII \s agrees: NBSP and
   // the full-width space separate a value just as a space does.
-  /(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')(?:[`'")\]}]|[,.]?(?:[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]|$)))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+  /(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')[`")'\]}]*[,.;]?[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:$|\r?\n(?![ \t])))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
   // A key name may carry any prefix, as in OPENAI_API_KEY, X-Api-Key, --password, or dbPassword, but must end with the
   // marker, so max_tokens and password_min_length stay ordinary. Markdown emphasis or code around the name, as in
   // **Password:** or `DB_PASSWORD`:, is part of it. Tokenizer special tokens such as pad_token are configuration. A

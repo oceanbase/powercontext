@@ -82,7 +82,8 @@ GitHub/Slack token 形状、包含未闭合情况的私钥块，以及当前 Ser
 空值不属于赋值，例如 `.env` 模板里的 `OPENAI_API_KEY=`。以下值视为配置项而不是凭据：不带引号的布尔或空值
 （`true`、`false`、`yes`、`no`、`on`、`off`、`null` 或 `none`），例如 `reset_password=true` 或 `use_cookie=True`；
 以及尚未展开的占位符 `${NAME}` 或 `${{ expression }}`（可带引号），常见于 CI 和 Compose 文件。请求头的值只有在
-这类字面量或占位符后面没有更多 header 内容时才视为配置项，所以 `Cookie: on; session=…` 仍会被识别。带字面默认值的占位符
+这类字面量或占位符之后（可带收尾标点）该行结束、且下一行不是缩进的续接行时才视为配置项，所以
+`Cookie: on; session=…`、`Cookie: ${THEME} session=…` 以及后面跟着缩进行的配置项仍会按 header 识别。带字面默认值的占位符
 （如 `${DB_PASSWORD:-…}`）和裸 `$value` 仍会被识别。赋值里的 `Bearer` 或 `Basic` 鉴权方案词会和后面的值一起
 移除。
 
