@@ -39,7 +39,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from pc_knowledge_base.models import canonical, identity
 
@@ -125,8 +125,26 @@ class Store:
                     text(f"""CREATE TABLE IF NOT EXISTS kb_search (
                     row_id VARCHAR(64) PRIMARY KEY, scope_id VARCHAR(128) NOT NULL,
                     tokens LONGTEXT NOT NULL, embedding VECTOR({self.dimension}),
-                    FULLTEXT INDEX kb_tokens(tokens), KEY kb_scope(scope_id))""")
+                    FULLTEXT INDEX kb_tokens_v2(tokens) WITH PARSER SPACE PARSER_PROPERTIES=(min_token_size=1),
+                    KEY kb_scope(scope_id))""")
                 )
+                # Build from the existing projection before removing the old index. Native DDL
+                # commits independently; either step can be retried after an interrupted startup.
+                # The versioned name also avoids rebuilding on every Server/Worker initialization.
+                await c.execute(
+                    text(
+                        "CREATE FULLTEXT INDEX IF NOT EXISTS kb_tokens_v2 ON kb_search(tokens) "
+                        "WITH PARSER SPACE PARSER_PROPERTIES=(min_token_size=1)"
+                    )
+                )
+                indexes = (await c.execute(text("SHOW INDEX FROM kb_search"))).mappings()
+                if any(row["Key_name"] == "kb_tokens" for row in indexes):
+                    try:
+                        await c.execute(text("DROP INDEX kb_tokens ON kb_search"))
+                    except DBAPIError as error:
+                        # Another process may finish the same upgrade after SHOW INDEX.
+                        if not error.orig or error.orig.args[0] != 1091:
+                            raise
 
     async def one(self, table, **keys):
         async with self.engine.connect() as c:

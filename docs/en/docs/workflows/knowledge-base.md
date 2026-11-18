@@ -200,6 +200,11 @@ lexical/vector ranks, then verifies current active document/result/profile and r
 BM25 scores. Results include Scope, exact document revision, chunk ID, original Source and location. Candidate work is bounded at
 5,000 per channel; many retained historical results can reduce recall, so this is not a large-corpus performance guarantee.
 
+Native full-text indexes use the space parser with `min_token_size=1` to retain the plugin tokenizer's short Chinese tokens.
+On startup, existing native projections are upgraded by building `kb_tokens_v2` from stored tokens before removing the old
+`kb_tokens` index. Interrupted upgrades can be retried; chunk identities, text, vectors and document revisions remain unchanged.
+Allow index-build time during a plugin upgrade; initialization must finish before the process serves knowledge-base requests.
+
 The four plugin domain tables are `pc_knowledge_base_spaces`, `pc_knowledge_base_space_defaults`, `pc_knowledge_base_resources`
 and `pc_knowledge_base_chunks`. Fulltext/vector projections are derived structures. Core owns Artifact revisions, lifecycle,
 lineage-only edit evidence, Sources, cursors, leases and retries. Keep the core database, plugin database and snapshot directory

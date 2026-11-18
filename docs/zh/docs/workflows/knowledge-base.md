@@ -180,6 +180,11 @@ SQLite 使用 FTS5 和 sqlite-vec 余弦距离；SeekDB／OceanBase 使用原生
 先融合全文与向量排序，再校验当前 active document／result／模型配置，并补充候选，不直接比较各库原始 BM25 分数。
 命中包含 Scope、明确文档版本、chunk ID、原始 Source 和位置。每路候选最多 5,000；大量历史结果可能影响召回率，本期不承诺大规模性能。
 
+原生全文索引使用 space 分词器并设置 `min_token_size=1`，保留插件分词产生的中文短词。
+启动时先从已有投影的 tokens 构建 `kb_tokens_v2`，再移除旧的 `kb_tokens` 索引；升级中断后可重试。
+该过程保留 chunk 身份、正文、向量及 document 版本，无需重新解析原文。升级时应预留索引构建时间；
+初始化完成后，进程才开始处理知识库请求。
+
 四张插件领域表为 `pc_knowledge_base_spaces`、`pc_knowledge_base_space_defaults`、`pc_knowledge_base_resources`、
 `pc_knowledge_base_chunks`；全文／向量投影属于派生结构。核心仍管理 Artifact 版本、生命周期、编辑证据、Source、cursor、租约与重试。
 备份实例时应一起保留核心数据库、插件数据库和快照目录。
