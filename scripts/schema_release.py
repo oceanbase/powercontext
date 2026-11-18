@@ -67,6 +67,7 @@ def bundles(root: Path):
         message = "All registered Server source paths must reach the same head"
         raise ValueError(message)
     for bundle in result.values():
+        validate_native_operations(bundle)
         if DRAFT in bundle.revisions and (bundle.head != DRAFT or len(bundle.revisions) < 2):
             message = "000 must be the sole draft at the end of an existing frozen history"
             raise ValueError(message)
@@ -86,12 +87,45 @@ def bundles(root: Path):
     return result
 
 
+def validate_native_operations(bundle) -> None:
+    manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text(encoding="utf-8"))
+    for resource in [*manifest.get("mysql_state_layouts", []), *manifest.get("mysql_layouts", [])]:
+        layout = json.loads((bundle.snapshot_directory / resource).read_text(encoding="utf-8"))
+        for entry in layout["revisions"].values():
+            statements = entry["statements"] if isinstance(entry, dict) else entry
+            for statement in statements:
+                if statement.startswith("@"):
+                    module, separator, operation = statement[1:].partition(":")
+                    if not separator or not operation or module not in bundle.resources or not module.endswith(".py"):
+                        message = f"Invalid conditional MySQL operation: {statement}"
+                        raise ValueError(message)
+
+
 def native_checksums(bundle):
     from alembic.script import ScriptDirectory
 
+    from powercontext.builtin.persistence.migrations.models import digest
+
+    directory = bundle.snapshot_directory / "mysql"
+    hashes = {
+        path.relative_to(directory).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in directory.rglob("*.py")
+    }
+    for revision, resource in bundle.mysql_wrappers.items():
+        hashes[f"versions/{revision}_registered.py"] = bundle.resources[resource]
+    # Match the native runner's environment and wrapper inputs, while also
+    # protecting scripts whose filenames do not follow the revision prefix.
     return {
-        item.revision: hashlib.sha256(Path(item.path).read_bytes()).hexdigest()
-        for item in ScriptDirectory(str(bundle.snapshot_directory / "mysql")).walk_revisions()
+        item.revision: digest({
+            "env": hashes["env.py"],
+            "script": hashlib.sha256(Path(item.path).read_bytes()).hexdigest(),
+            "wrappers": {
+                name: value
+                for name, value in hashes.items()
+                if name.startswith(f"versions/{item.revision}_") or name == f"versions/{item.revision}.py"
+            },
+        })
+        for item in ScriptDirectory(str(directory)).walk_revisions()
     }
 
 
@@ -175,6 +209,10 @@ def rewrite_json(value, names: dict[str, str], revision: str, field: str = ""):
     if isinstance(value, str):
         if value == DRAFT and field in identity_fields | identity_values:
             return revision
+        if field == "statements" and value.startswith("@"):
+            module, separator, operation = value[1:].partition(":")
+            if separator:
+                return f"@{names.get(module, module)}:{operation}"
         return names.get(value, value)
     if isinstance(value, list):
         return [rewrite_json(item, names, revision, field) for item in value]

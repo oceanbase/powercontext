@@ -28,6 +28,7 @@ from sqlalchemy import create_engine
 from powercontext.builtin.persistence.migrations import MigrationBundle, MigrationError, SQLiteMigrationRunner
 from powercontext.builtin.persistence.migrations.bundle import sqlite_inventory
 from powercontext.builtin.persistence.migrations.models import digest
+from powercontext.builtin.persistence.migrations.mysql_schema import MySQLSchema, _parse_table
 from powercontext.builtin.persistence.migrations.revision_names import describe_revision
 
 
@@ -335,3 +336,68 @@ def test_vector_profile_history_cannot_be_rewritten(tmp_path, source):
     write_json(path, profile)
     with pytest.raises(ValueError, match="Frozen migration resources changed"):
         schema.preserve_history(before, schema.bundles(tmp_path))
+
+
+@pytest.mark.parametrize("source", ["server", "1.4.0"])
+def test_native_environment_history_cannot_be_rewritten(tmp_path, source):
+    for directory in (schema.SERVER, schema.SOURCES):
+        shutil.copytree(schema.ROOT / directory, tmp_path / directory)
+    before = schema.bundles(tmp_path)
+    bundle = before[source]
+    directory = bundle.source_directory or bundle.directory
+    path = directory / "mysql/env.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text((bundle.snapshot_directory / "mysql/env.py").read_text() + "\n# changed native environment\n")
+    with pytest.raises(ValueError, match="Frozen migration resources changed"):
+        schema.preserve_history(before, schema.bundles(tmp_path))
+
+
+@pytest.mark.parametrize("missing_module", [False, True])
+def test_freeze_preserves_conditional_native_operation(draft, missing_module):
+    root, baseline = draft
+    directory = root / schema.SERVER
+    module = directory / "domain_000.py"
+    module.write_text(
+        "def execute(connection, operation, configuration):\n"
+        '    connection.exec_driver_sql("INSERT INTO pc_items VALUES (7, ?)", (operation,))\n'
+    )
+    table, inventory = _parse_table(baseline)
+    write_json(
+        directory / "schemas/mysql-000.json",
+        {
+            "format": "powercontext.mysql-state-layouts.v1",
+            "revisions": {
+                "v1_5_2": {"statements": [baseline], "changes": [{table: inventory}]},
+                "000": {"statements": ["@domain_000.py:000"], "changes": [{}]},
+            },
+        },
+    )
+    path = directory / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["mysql_state_layouts"] = ["schemas/mysql-000.json"]
+    manifest["revision_resources"]["000"].append("schemas/mysql-000.json")
+    write_json(path, manifest)
+    if missing_module:
+        module.unlink()
+        with pytest.raises(ValueError, match="Invalid conditional MySQL operation"):
+            schema.freeze(root, "1.5.3")
+        assert (directory / "versions/000.py").exists()
+        assert not (directory / "versions/v1_5_3.py").exists()
+        return
+
+    for revision in ("000", "v1_5_3"):
+        if revision != "000":
+            assert schema.freeze(root, "1.5.3") == revision
+            assert not module.exists()
+        bundle = schema.check(root)["server"]
+        native = MySQLSchema(bundle)
+        layout = json.loads((directory / f"schemas/mysql-{revision}.json").read_text())
+        statement = layout["revisions"][revision]["statements"][0]
+        engine = create_engine("sqlite://")
+        try:
+            with engine.begin() as connection:
+                connection.exec_driver_sql(baseline)
+                native.execute(connection, statement, {}, revision=revision)
+                assert connection.exec_driver_sql("SELECT * FROM pc_items").all() == [(7, "@000")]
+        finally:
+            engine.dispose()
