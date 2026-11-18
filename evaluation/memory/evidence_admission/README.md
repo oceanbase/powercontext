@@ -30,6 +30,12 @@ stop as `scoring_output_binding_unavailable`; recovery never derives a replaceme
 An already persisted score is also checked before advancing the cursor. Failed verification invalidates the cached
 score, preserves usage accounting and stops without another provider request.
 
+Private JSON writes use a unique temporary file in the destination directory, followed by file fsync, atomic
+publication and directory fsync. State updates replace the destination; first-write audit records publish without
+overwriting an existing record, including concurrent writes. Interrupted temporary files, including legacy
+`state.json.tmp`, are ignored and left untouched. Recovery uses only committed state and bound audit files under the
+session lock; it does not promote temporary contents, resend a pending-scoring request or charge it again.
+
 Report generation reloads the bound review context and recomputes each human-review derivative's score. It rejects
 changed evidence, review bindings and cached scores, including numeric type changes; it never silently repairs them.
 

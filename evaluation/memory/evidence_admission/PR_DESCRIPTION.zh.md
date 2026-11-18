@@ -19,6 +19,9 @@
 - 支持精确不可变 Source/物化/范围身份，区分完成、有界、不可用和取消；所有权污染与大小准入保留独立分数和决策。
 - v19/v20 返回响应及用量在评分前以 `scoring_pending` 落盘；恢复时读取已存响应，不重发、不重复计费。
   必需评分缺失产生 `scoring_incomplete`，阻止 `no_production_change`。
+- 持久化 JSON 在目标目录使用唯一临时文件；中断遗留的 `state.json.tmp` 不再阻塞后续评分恢复。
+  保留文件及目录 fsync；不可变审计记录采用原子禁止覆盖发布，并发写入也遵守此约束。
+  临时文件不会成为正式状态，正常清理仅删除本次写入自己创建的临时文件。
 - 版本化持久化重放身份仅排除信封顶层服务器 `saved_at`，仍检测 Source 值、元数据和嵌套业务时间变化；不迁移旧准备身份。
 - 绑定审阅导入读取被 Pipeline 拒绝但 schema 有效的 `.parsed.json`，成功输出仍读取 `.output.json`。
   校验请求、输入、请求体、响应和原审阅绑定；被拒请求保持被拒，不计入已交付事实或合格字面量，审阅仅追加派生记录。
@@ -113,11 +116,23 @@
 任务发起用户确认，前一轮修复树的完整本地工程验证已通过，包括 `make check`、`make evaluation-unit-test`、
 `make test`、`make build` 和 `tox`。本次增量仅运行针对性回归，不重复该矩阵；用户报告的基线与以下实测分开记录。
 
-Python 3.11.15 的 v18 比较/审阅、v19/v20 续跑和抽样审阅专项共 140 项通过。
-覆盖进程中断后修改解析输出、成功与被拒输出、旧记录绑定缺失、已完成评分恢复、审阅评分重算、证据变化，
-以及不重发和用量账本。Ruff check/format（236 个 Python 文件）、评估模块类型、冻结合同原字节和空白检查通过。
-使用网站链接校验库检查全部 65 份评估 Markdown，未发现错误；205 文件证据包 SHA-256 未变。
-上述检查没有模型请求，也不代表远程 CI 已通过。
+Python 3.11.15 的持久化 JSON 发布、v18 比较/审阅、v19/v20 续跑和抽样审阅专项共 150 项通过。
+其中四项使用真实本地 Source/SQLite/Pipeline，在发布已评分状态前立即终止子进程，分别覆盖 v19/v20 的成功输出和引用拒绝输出。
+四项均在修复前复现遗留临时文件故障，修复后通过；连续两次中断后仍可恢复，不新增 provider 请求、不重复计费、不重复推进游标。
+另有六项发布用例覆盖遗留文件、非法 JSON、发布失败和不可变记录并发；既有输出绑定、评分重算及证据篡改回归也通过。
+
+```bash
+uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
+  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
+  evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
+  evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_v20_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_sample_review.py -m "not live" -q
+```
+
+四个受影响 Python 文件的 Ruff check/format、评估模块类型、冻结合同原字节和空白检查通过。
+任务发起用户另行确认本次本地验证通过。测试使用真实本地 Source/SQLite/Pipeline 和模拟 provider，未发起模型请求或产生费用。
+历史证据和决策门槛不变；这些检查不代表真实 provider 验收或远程 CI 已通过。
 
 历史包依赖测试默认跳过；证据包不能替代原运行时和不可用私有响应。默认测试不要求 provider 凭据或网络。
 线上执行、手工费用计算、取消、审计和报告重建见 [英文手册](LIVE_RUNBOOK.md)和[中文手册](LIVE_RUNBOOK.zh.md)。

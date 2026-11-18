@@ -35,7 +35,7 @@ from powercontext_eval_evidence_admission.v18.workflow import calls_for, recorde
 from powercontext_eval_evidence_admission.v19 import workflow
 
 
-def _terminate_v19_before_scoring(directory, rejected=False):
+def _terminate_v19_before_scoring(directory, rejected=False, during_state_write=False):
     def terminate(*_args, **_kwargs):
         os._exit(91)
 
@@ -55,11 +55,30 @@ def _terminate_v19_before_scoring(directory, rejected=False):
                 ]
             }
         )
-    workflow.score_output = terminate
+    if during_state_write:
+        replace = os.replace
+
+        def interrupt_state_write(source, target):
+            if target == directory / "state.json":
+                state = read_json(source)
+                if state["state"] == "scoring_pending" and state["records"][-1]["scoring_state"] == "complete":
+                    os._exit(91)
+            replace(source, target)
+
+        os.replace = interrupt_state_write
+    else:
+        workflow.score_output = terminate
+
+    def respond(_request):
+        if during_state_write:
+            with (directory / "mock-requests.txt").open("a", encoding="utf-8") as stream:
+                stream.write("request\n")
+        return httpx.Response(200, json=response)
+
     asyncio.run(
         workflow.run_next(
             directory,
-            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=response)),
+            transport=httpx.MockTransport(respond),
         )
     )
 
@@ -413,3 +432,61 @@ def test_completed_score_recovery_checks_binding_before_advancing(continuation, 
     assert recovered["known_charge_cny"] == state["known_charge_cny"]
     if change != "unchanged":
         assert recovered["records"][-1]["score"] is None
+
+
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_interrupted_score_state_publication_recovers_with_orphaned_files(continuation, rejected):
+    directory, source = continuation
+    original = (source / "state.json").read_bytes()
+    recorded_charge = None
+    receipt = None
+    for _ in range(2):
+        process = multiprocessing.get_context("fork").Process(
+            target=_terminate_v19_before_scoring, args=(directory, rejected, True)
+        )
+        process.start()
+        try:
+            process.join(60)
+            assert process.exitcode == 91
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(10)
+
+        pending = read_json(directory / "state.json")
+        assert pending["state"] == "scoring_pending"
+        assert pending["next_call"] == 1
+        assert len(pending["records"]) == 2
+        assert pending["records"][-1]["scoring_state"] == "pending"
+        assert pending["records"][-1]["score"] is None
+        assert (directory / "mock-requests.txt").read_text().splitlines() == ["request"]
+        current_receipt = (directory / "audit" / (pending["in_flight"] + ".review.json")).read_bytes()
+        if recorded_charge is None:
+            recorded_charge = pending["known_charge_cny"]
+            receipt = current_receipt
+        assert pending["known_charge_cny"] == recorded_charge
+        assert current_receipt == receipt
+
+    # Old fixed-name files are not authoritative and must not require manual removal.
+    stale = directory / "state.json.tmp"
+    if not stale.exists():
+        stale.write_bytes(b"incomplete legacy temporary state")
+    stale_bytes = stale.read_bytes()
+
+    def reject_resend(_request):
+        pytest.fail("state-write recovery must not resend the provider request")
+
+    resumed = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert resumed["state"] == recovered["state"] == "ready"
+    assert recovered["next_call"] == 2
+    assert len(recovered["records"]) == 2
+    assert recovered["known_charge_cny"] == recorded_charge
+    assert recovered["records"][-1]["scoring_state"] == "complete"
+    assert recovered["records"][-1]["score"] is not None
+    assert recovered["records"][-1]["outcome"] == ("output_or_inference_failed" if rejected else "returned")
+    assert recovered["records"][-1]["score"]["invalid_support_candidates"] == int(rejected)
+    assert (directory / "mock-requests.txt").read_text().splitlines() == ["request"]
+    assert (directory / "audit" / (pending["in_flight"] + ".review.json")).read_bytes() == receipt
+    assert (source / "state.json").read_bytes() == original
+    assert stale.read_bytes() == stale_bytes

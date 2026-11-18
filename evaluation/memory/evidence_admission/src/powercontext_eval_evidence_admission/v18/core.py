@@ -100,18 +100,30 @@ def committed_freeze():
 def dump(path, value, *, new=False):
     """Durable private state; callers explicitly export only the public whitelist."""
     import os
+    import tempfile
 
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if new and path.exists():
         raise EvaluationError("v18_output_exists")
-    temporary = path.with_name(path.name + ".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    # A terminated writer may leave its file behind; later writes must not reuse it.
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if new:
+            # Atomic no-overwrite publication, including when another writer won the race.
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                raise EvaluationError("v18_output_exists") from None
+        else:
+            os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     descriptor = os.open(path.parent, os.O_RDONLY)
     try:
         os.fsync(descriptor)

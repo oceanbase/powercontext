@@ -26,6 +26,10 @@ output schema, model settings, and per-input budgets; input admission and genera
 - Crash-safe v19/v20 scoring continuation: returned responses and usage are recorded as `scoring_pending` before
   scoring. Resume scores the saved response without resending or double charging. A required response missing a score
   is a `scoring_incomplete` blocker and cannot yield `no_production_change`.
+- Durable JSON publication uses a unique temporary file in the destination directory. Interrupted writes cannot
+  block later scoring recovery through a stale `state.json.tmp`. File and directory fsync are retained; immutable
+  audit records use atomic no-overwrite publication, including concurrent writers. Temporary files are never
+  promoted to authoritative state, and normal cleanup removes only the current writer's own temporary file.
 - Versioned persisted-material replay identity excludes only the envelope's server-owned `saved_at`, preserving
   detection of Source value, metadata and nested business-timestamp changes. Old preparation identities are not migrated.
 - Bound review import reads `.parsed.json` for schema-valid Pipeline rejections and `.output.json` for returned
@@ -137,12 +141,27 @@ The contributor confirmed that full local engineering validation passed for the 
 `make check`, `make evaluation-unit-test`, `make test`, `make build` and `tox`. This increment was checked with focused
 regressions rather than repeating that matrix; the contributor-reported baseline is separate from the checks below.
 
-Python 3.11.15 focused validation passed 140 tests across v18 comparison/review, v19/v20 continuation and sample review.
-They cover changed parsed outputs after a process interruption, accepted and rejected outputs, missing legacy bindings,
-completed-score recovery, review-score recomputation, evidence corruption and no-resend/usage accounting.
-Ruff lint/format (236 Python files), evaluator types, frozen-contract bytes and whitespace checks passed. The website's
-link-validation library found no errors in all 65 evaluator Markdown documents. The 205-file archive SHA-256 is unchanged.
-These checks used no model requests and do not establish a passing remote CI run.
+Python 3.11.15 focused validation passed 150 tests across durable JSON publication, v18 comparison/review,
+v19/v20 continuation and sample review. Four native Source/SQLite/Pipeline regressions terminate child processes
+immediately before publishing the scored state, covering both returned and citation-rejected outputs in v19/v20.
+All four reproduced the stale-temporary failure before the fix and pass afterward, including two consecutive
+interruptions followed by recovery without another provider request, extra charge or duplicate cursor advance.
+Six additional publication cases cover abandoned files, invalid JSON, failed publication and immutable-record races.
+Existing output-binding, score-recomputation and audit-corruption regressions also pass.
+
+```bash
+uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
+  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
+  evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
+  evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_v20_continuation.py \
+  evaluation/memory/evidence_admission/tests/test_sample_review.py -m "not live" -q
+```
+
+Ruff lint/format for the four affected Python files, evaluator types, frozen-contract bytes and whitespace checks passed.
+The contributor also reports that local validation of this change passed. Tests use the real local Source/SQLite/Pipeline
+with a mock provider; no model requests or spending were incurred. Historical evidence and decision thresholds remain
+unchanged. These checks do not establish real-provider acceptance or a passing remote CI run.
 
 Historical bundle-dependent tests skip by default; the bundle does not replace the matching historical runtime or
 unavailable private responses. Default tests need no provider credentials or network. Live execution, manual cost
