@@ -4414,6 +4414,50 @@ async fn capture_split_turn(batch: Option<usize>) -> (usize, usize, Vec<String>)
 }
 
 #[tokio::test]
+async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() {
+    let output = |text: &str| {
+        responses_output(serde_json::json!([
+            {"id": "msg_1", "type": "message", "role": "assistant",
+             "content": [{"type": "output_text", "text": text, "annotations": []}]}
+        ]))
+    };
+    let long = "y".repeat(450_000);
+    for responses in [["done", long.as_str()], [long.as_str(), "done"]] {
+        let (executor, _renderer, _transport, gate) = harness(
+            allow_runs_with_fresh_release_bindings(2),
+            responses.iter().map(|text| output(text)).collect(),
+            2,
+        );
+        let mut first_ids = Vec::new();
+        let mut part_counts = Vec::new();
+        for _ in 0..2 {
+            let before = gate.captured.lock().unwrap().len();
+            let mut c = tool_loop_call("fix the bug", 0, true);
+            c.inject_context = false;
+            c.sediment = true;
+            c.conversation_id = Some("conversation-a".into());
+            let outcome = executor
+                .run(
+                    request_control(),
+                    c,
+                    &pc_gateway_protocol::OpenAiResponsesRenderer,
+                    &NoopEvidenceSink,
+                )
+                .await;
+            assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+            let captured = gate.captured.lock().unwrap();
+            first_ids.push(captured[before].0.clone());
+            part_counts.push(captured.len() - before);
+        }
+        assert_ne!(part_counts[0], part_counts[1]);
+        assert_eq!(
+            first_ids[0], first_ids[1],
+            "Core sees the retry as the same Source and rejects its batch"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_turn_is_not_captured_when_core_offers_no_batch_capture() {
     let (requests, captured, reasons) = capture_split_turn(None).await;
     assert_eq!((requests, captured), (0, 0));
@@ -4457,9 +4501,11 @@ async fn an_oversized_turn_is_captured_as_ordered_parts_with_the_handle_on_the_l
         1,
         "every part of the turn goes to Core in one request"
     );
-    let turn = captured[0].0.rsplit_once('-').unwrap().0.to_owned();
+    let turn = captured[0].0.clone();
     for (index, ((source_id, content), metadata)) in captured.iter().zip(&metadata).enumerate() {
-        assert_eq!(source_id, &format!("{turn}-{}of{count}", index + 1));
+        if index > 0 {
+            assert_eq!(source_id, &format!("{turn}-{}of{count}", index + 1));
+        }
         assert!(content.chars().count() <= 200_000);
         assert_eq!(
             metadata["turn"],

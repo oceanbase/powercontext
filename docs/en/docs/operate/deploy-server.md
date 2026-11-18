@@ -349,10 +349,14 @@ needs both sides:
   the Server's effective Atomic Memory input limit (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`,
   default 64,000) when that is lower. The gateway reads the limit from the Server at startup; restart the gateway
   after changing it.
+  That limit covers the whole extraction input, which also holds the instructions and the Source metadata. When it is
+  set near or below 50,000, a Source close to the limit exceeds it together with them, and Atomic Memory processing
+  of that Source fails on every attempt.
   A larger turn is captured as consecutive Sources that end at step boundaries. Their metadata `turn` names the turn
   and the part, and the handle is on the last part. The gateway writes every part of a turn to the Server in one batch
   request (`POST /v1/sources/content/batch`): the Server stores all of them or none, and rejects the whole batch when
-  the turn is already stored with different content, keeping the first record. Capture therefore requires a Server
+  the turn is already stored with different content, keeping the first record. The first part always has the turn's
+  own Source ID, so this holds when a retried turn splits into a different number of parts. Capture therefore requires a Server
   that offers batch capture. When the Server's capabilities do not report
   `context_protection.limits.capture_batch_sources`, the gateway logs an error at startup and does not capture turns;
   other requests are unaffected. A turn with more parts than that limit is not captured either.

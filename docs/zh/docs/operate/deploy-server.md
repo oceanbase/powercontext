@@ -310,9 +310,12 @@ UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起
   工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
   的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token；Server 生效的
   Atomic Memory 输入上限（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，默认 64,000）更低时以它为准。
-  网关在启动时从 Server 读取这个上限，修改后需重启网关。更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
+  网关在启动时从 Server 读取这个上限，修改后需重启网关。这个上限针对整个抽取输入，其中还包括抽取指令和 Source 元数据；
+  把它设在 50,000 附近或更低时，接近上限的一段 Source 加上这些内容会超出上限，Atomic Memory 对这段 Source 的处理每次都会失败。
+  更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
   句柄在最后一段上。一个回合的各段在一次批量请求（`POST /v1/sources/content/batch`）里写入 Server：要么全部入库，
-  要么都不入库；同一回合已以不同内容入库时整批被拒绝，先写入的记录保留。沉淀因此要求 Server 提供批量写入；
+  要么都不入库；同一回合已以不同内容入库时整批被拒绝，先写入的记录保留。第一段总是使用回合本身的 Source ID，
+  所以重试的回合拆成不同段数时也是如此。沉淀因此要求 Server 提供批量写入；
   Server 的能力报告里没有 `context_protection.limits.capture_batch_sources` 时，网关在启动时记录一条错误，
   回合不沉淀，其他请求不受影响。段数超过该上限的回合同样不沉淀。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，

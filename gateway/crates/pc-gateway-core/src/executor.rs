@@ -700,15 +700,19 @@ where
                                     "target_profile": call.target_profile,
                                     "powercontext_capture_coverage": coverage,
                                 });
-                                let part_id = if count > 1 {
+                                if count > 1 {
                                     metadata["turn"] = serde_json::json!({
                                         "source_id": source_id,
                                         "part": index + 1,
                                         "parts": count,
                                     });
-                                    format!("{source_id}-{}of{count}", index + 1)
-                                } else {
+                                }
+                                // 第一段总是用回合标识本身：同一回合再次沉淀时，不论分成几段都与已有记录冲突，
+                                // Core 拒绝整批。
+                                let part_id = if index == 0 {
                                     source_id.clone()
+                                } else {
+                                    format!("{source_id}-{}of{count}", index + 1)
                                 };
                                 if index + 1 == count {
                                     for (key, value) in prefix.iter().flatten() {
