@@ -1,0 +1,134 @@
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_7ef64a2bfbe178::t_4b175b3c111479 742-752
+src/powercontext/plugins.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 236-239,749-750
+src/powercontext/http/_generated/operations.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 143,1591,1612,1621-1640
+  s_7ef64a2bfbe178::t_2b9cff64510491 1641-1642
+tests/e2e/test_plugins.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 19-20,472-558
+  s_7ef64a2bfbe178::t_409199bda302c3 559-560
+desktop/ui/src/generated/operations.ts
+  s_7ef64a2bfbe178::t_4b175b3c111479 18
+docs/zh/docs/operate/configuration.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 110-111
+docs/zh/docs/develop/plugins.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 24,34,124-125,366-374,449-493,502
+integrations/dsh/plugins/powercontext/src/companion-memory.ts
+  s_7ef64a2bfbe178::t_4b175b3c111479 23
+openapi/powercontext.yaml
+  s_7ef64a2bfbe178::t_4b175b3c111479 1934-1936,1941,1958,1966-1987,8223-8242,8246-8247,8252,8262-8277
+src/powercontext/builtin/plugins/manifest.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 31,41-42,60-62,69-106,111-112,119,124,137-138,140-143,146,151-152,158,168-173,176-181,187,195,215-235,240
+desktop/VALIDATION.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 3527-3557
+src/powercontext/builtin/plugins/executor.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 183
+src/powercontext/builtin/portability/bundle.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 547-552
+src/powercontext/builtin/runtime/artifact_merge.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 161-165
+src/powercontext/http/__init__.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 332,334-335,848,850-851
+src/powercontext/server/mcp.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 19,32,40,573-577,589-687
+  s_7ef64a2bfbe178::t_0c609018b02f42 688-689
+src/powercontext/server/plugin_hosts.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 32,43,47-48,56-62,106-108,123,125,131-136,138-139,147-171,260-269,300-301,327-329,362,370-371,405-440,452-454
+  s_7ef64a2bfbe178::t_0f51087d931835 455-456
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_7ef64a2bfbe178::t_4b175b3c111479 674-684
+desktop/ui/src/generated/api.d.ts
+  s_7ef64a2bfbe178::t_4b175b3c111479 890,918-937,3538-3559,3564,3572-3584,8242,8267,8277-8301
+  s_7ef64a2bfbe178::t_cfaacceacbc714 8302
+src/powercontext/http/_generated/schema.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1987-1993,1997,2023,2033-2072,8416-8444,8452,8465-8522,8536-8541
+src/powercontext/builtin/plugins/host_protocol.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 65-76,89-90,128-133
+  s_7ef64a2bfbe178::t_7e84d55dd61768 134-135
+src/powercontext/server/plugins.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 15,17-19,28,30-32,36,57-58,60,78-84,89-114,120-121,124,128-138,144-147,149-150,164,168-178,182-221,234,238-239,241,249,261-264,266,271-277,280-321,324-325,330-331,333-385,387-391,393-421,423-451,453-477,479-521,523-539,541,543-561,563-653,655-671,687-689,694-695,702-703,712-731,757,777-786,831-836,918-1065
+tests/e2e/test_plugin_reload.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1-473
+tests/test_plugin_scan.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1-236
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_7ef64a2bfbe178::t_4b175b3c111479 675-685
+src/powercontext/server/app.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 607,844,1588,1844-1849,3781-3795,3797-3817,3820
+docs/zh/rfcs/2579-plugin-reload-and-apis.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 218-219,221,223-224,242,256-257,262-266,294,308-319,321-322,531
+src/powercontext/builtin/plugins/families.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 61-69,76-92
+  s_7ef64a2bfbe178::t_9f2d3ad630093b 93-94
+tests/test_mcp.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 84-85
+desktop/src-tauri/src/transport/operations.json
+  s_7ef64a2bfbe178::t_4b175b3c111479 2
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_7ef64a2bfbe178::t_4b175b3c111479 642-652
+tests/test_plugin_openapi.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1-202
+src/powercontext/http/_generated/models.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 698-735,743,752-767
+src/powercontext/server/dashboard/plugin_pages.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 115
+src/powercontext/server/plugin_versions.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1-141
+src/powercontext/server/settings.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 270-271
+desktop/src-tauri/src/connections/compatibility.json
+  s_7ef64a2bfbe178::t_4b175b3c111479 1731-1752
+src/powercontext/builtin/authz/profiles.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 143-152,157
+docs/en/docs/develop/plugins.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 25,36,129-130,396-406,492-549,558
+src/powercontext/builtin/runtime/application.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 4056-4060
+src/powercontext/server/factory.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 25,27,367,371-372,380-386,539-547
+  s_7ef64a2bfbe178::t_6ef75226571d1e 548-549
+tests/test_plugin_api_version.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 1-65
+docs/en/docs/operate/observability.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 164-169
+docs/en/rfcs/2579-plugin-reload-and-apis.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 252-253,256-257,260-262,283,302-304,311-317,351,368-380,383-385,634
+docs/zh/docs/operate/observability.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 156-160
+e2e/bub/tests/test_access_audit.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 277-280,298
+docs/en/docs/operate/configuration.md
+  s_7ef64a2bfbe178::t_4b175b3c111479 125-126
+src/powercontext/builtin/plugins/host.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 42,48,52-53,110-122,129-145,158-161,175-177,193-194,203-207,216,219,222,225,228-229,256-261,271-313,583,588,636-637,667-673,679,683
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_7ef64a2bfbe178::t_4b175b3c111479 642-645
+  s_7ef64a2bfbe178::t_fc9b3a34a8e04f 635-641
+src/powercontext/server/logging.py
+  s_7ef64a2bfbe178::t_4b175b3c111479 154-160,178-179,181-184
+integrations/dsh/plugins/powercontext/src/operations.generated.ts
+  s_7ef64a2bfbe178::t_dfac47ae9b0b67 71
+integrations/opencode/plugins/powercontext/src/operations.generated.ts
+  s_7ef64a2bfbe178::t_35ff52a1564d1e 71
+integrations/pi/plugins/powercontext/src/operations.generated.ts
+  s_7ef64a2bfbe178::t_eca3aa0c435854 71
+release/upgrade-support.json
+  s_7ef64a2bfbe178::t_9e19cc24702c33 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f9355586576f2767248b6f45075684c964dc201a",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

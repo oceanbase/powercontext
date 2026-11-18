@@ -1,0 +1,55 @@
+src/powercontext/builtin/persistence/migrations/revision_names.py
+  s_7ef64a2bfbe178::t_3d39712436bd5e 39,42-43,48-50,56
+scripts/upgrade_release_gate.py
+  s_7ef64a2bfbe178::t_3d39712436bd5e 512-514
+tests/test_schema_draft.py
+  s_7ef64a2bfbe178::t_0b8e3a51b5f23b 1-27,33-36
+  s_7ef64a2bfbe178::t_fe1941aec3ad17 28-32
+AGENTS.md
+  s_7ef64a2bfbe178::t_f71a22acfbd9af 79,84-104
+.github/workflows/master.yml
+  s_7ef64a2bfbe178::t_3d39712436bd5e 231-239
+scripts/schema_release.py
+  s_7ef64a2bfbe178::t_f71a22acfbd9af 118-119,123,304-307,309-310
+  s_7ef64a2bfbe178::t_816d21f96e5c16 189-191
+  s_7ef64a2bfbe178::t_e63783927a678e 27,42,117,122,161-164,166-168,170,174,178,184-188,192-196,202
+  s_7ef64a2bfbe178::t_3d39712436bd5e 34,294-303,308
+  s_7ef64a2bfbe178::t_770606cc77a5d4 67-69,150-157
+  s_7ef64a2bfbe178::t_5515f4047b6bdd 22,57-58,61-62,71-72,74-75,79-87,91-92,95-98,100-112,131-132,135-137,144-145,176-177,209,211-212,215-216,222-223,228-229,233-234,239-241,250-251,261-262,274-275,323-324
+  s_7ef64a2bfbe178::t_f2dce50bd48c7a 116,121
+  s_7ef64a2bfbe178::t_2b07cc7fd024f9 1-21,23-26,28-33,35-41,43-56,59-60,63-66,70,73,76-78,88-90,93-94,99,113-115,120,124-130,133-134,138-143,146-149,158-160,165,169,171-173,175,179-183,197-201,203-208,210,213-214,217-221,224-227,230-232,235-238,242-249,252-260,263-273,276-278,280-293,311-322,325-337
+  s_7ef64a2bfbe178::t_e31c5545c15451 279
+docs/en/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_f71a22acfbd9af 150-153,155-157,190,193,196-198,209-266
+tests/test_schema_release.py
+  s_7ef64a2bfbe178::t_0b8e3a51b5f23b 1-17,19-21,23-50,58-76,78-83,85-88,90-92,102-130,132,139-203,206-210,215,220,227-228,231-232
+  s_7ef64a2bfbe178::t_e63783927a678e 77,84,131
+  s_7ef64a2bfbe178::t_5515f4047b6bdd 18,22,51-57,89,93-101,204-205,211
+  s_7ef64a2bfbe178::t_8e9c7efcb1cfc2 133-138,212-214,216-219,221-226,229-230
+Makefile
+  s_7ef64a2bfbe178::t_3d39712436bd5e 22,283,342-351
+docs/zh/docs/operate/database-migrations.md
+  s_7ef64a2bfbe178::t_f71a22acfbd9af 122-124,126-127,160,163,166-167,176-221
+.github/ci-paths.toml
+  s_7ef64a2bfbe178::t_7278a17da60edb 135
+release/upgrade-support.json
+  s_7ef64a2bfbe178::t_47ee296bb13c85 6-7
+scripts/run_upgrade_release_gate.py
+  s_7ef64a2bfbe178::t_6fb5fec542ef20 95-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "71f3d5f3408a234f9106899e4db4861b5cc06251",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
