@@ -1,0 +1,21 @@
+integrations/dsh/plugins/powercontext/src/companion-memory.ts
+  s_13fec9a57c9104::t_444d0acf93208b 23
+tests/claude_code_plugin/test_bootstrap.py
+  s_13fec9a57c9104::t_3b150a52bc4f77 595-596
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d385e82d6d31c16bd1e549932e85fa30005c39f",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
