@@ -1,0 +1,27 @@
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_13fec9a57c9104::t_a0917c6504d726 174-222
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_13fec9a57c9104::t_9d5c4db0b1ebcf 17,136,142-158,160,165
+frontend/knowledge-base/src/styles.scss
+  s_13fec9a57c9104::t_b0a90b19224484 77-85,88-90
+plugins/knowledge-base/ui/app.css
+  s_13fec9a57c9104::t_81040e1682f1c5 16
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_c50b70619e6c91 16,20-21,23-27,29,46,48,80-82,139-141,143,148,161-163,180,237,254,256,263,271,280,283,287,291,298,300-301,303,329,332,341,355,358-359,372,374,376,385,391,403,406,410,421,424,427,436,468,498,514,517,523,534-554,574-592,594-595,597,601,603,607,614-617,622-623,625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "12db320b14f4063b6273314be0a76b1501bca036",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
