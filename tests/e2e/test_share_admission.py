@@ -50,12 +50,12 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_INTENTS_TABLE,
-    CANDIDATE_HEADS_TABLE,
+    ARTIFACTS_TABLE,
     CANDIDATE_VERSIONS_TABLE,
     SHARE_SNAPSHOTS_TABLE,
     SOURCES_TABLE,
 )
-from powercontext.builtin.review.errors import InvalidCandidateError
+from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.models import CandidateAudit
 from powercontext.builtin.runtime import BuiltinConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
@@ -1013,88 +1013,6 @@ def test_non_pin_request_input_is_not_admitted_to_a_bound_run(tmp_path: Path) ->
             }
             # `other` was requested but is not in the pin, so it must not be admitted.
             assert (other.family, other.artifact_id) not in admitted
-
-    asyncio.run(scenario())
-
-
-def test_unsupported_shared_proposal_output_still_refuses(tmp_path: Path) -> None:
-    """Only Experience may propose at this checkpoint; another shared op still refuses."""
-
-    async def scenario() -> None:
-        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'propose.db'}")
-        generator = Generator()
-        async with (
-            open_dream_runtime(
-                _config(database),
-                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
-                dream_generator=generator,
-            ) as runtime,
-            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
-        ):
-            await _ensure_share_tables(runtime.primary_database)
-            scope = await runtime.scopes.create(
-                ScopeDraft(title="Propose", summary="Propose", idempotency_key="propose")
-            )
-            scope_id = scope.scope_id
-            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
-                await _grant(access, OWNER, scope_id, role)
-            pin = await _record_pin(runtime.primary_database, access, scope_id, key="propose-1")
-
-            _compose_sharing(runtime, access, OWNER)
-            service = runtime._dream_service
-            assert service is not None
-            # revise_skill is a declared shared operation but has no durable adopted-set
-            # path at this checkpoint, so its shared proposal must still refuse.
-            from powercontext.builtin.artifacts.skill import SkillContent, SkillDraft
-            from powercontext.builtin.runtime.models import CaptureSource
-
-            feedback = await runtime.sources.for_scope(scope_id).capture(
-                CaptureSource(source_id="skill-feedback", content="The retry duplicated the action.", metadata={})
-            )
-            async with runtime._provider.database.transaction() as connection:
-                await runtime._provider.repositories.artifacts.create(
-                    connection,
-                    scope_id,
-                    "receipt-check",
-                    SkillDraft(
-                        content=SkillContent(
-                            name="receipt-check",
-                            description="Retry safely.",
-                            instructions="Retry immediately.",
-                            validation=("A retry was attempted.",),
-                            license="MIT",
-                        ),
-                        sources=(feedback.source_ref,),
-                    ),
-                )
-            skill_ref = ArtifactRef(family="skill", artifact_id="receipt-check", revision=1)
-            request = CreateDreamRunRequest(
-                operation="revise_skill",
-                artifacts=(skill_ref,),
-                sources=(feedback.source_ref,),
-                target=skill_ref,
-                idempotency_key="propose-run",
-            )
-            run = await service._admit(scope_id, "runtime", request, snapshot_id=pin.snapshot_id)
-
-            supervisor = runtime.artifact_processing_supervisor
-            assert supervisor is not None
-            supervisor.wake(binding_for_request(request))
-            await process_pending(runtime)
-
-            finished = await runtime.dream.for_scope(scope_id, principal_id="runtime").get(
-                GetDreamRunRequest(run_id=run.run_id)
-            )
-            assert finished.candidate is None
-            assert finished.status == "failed"
-            assert finished.error == "shared_use_candidate_unavailable", finished.error
-            async with runtime.primary_database.transaction() as connection:
-                count = await connection.scalar(
-                    select(func.count())
-                    .select_from(CANDIDATE_HEADS_TABLE)
-                    .where(CANDIDATE_HEADS_TABLE.c.scope_id == scope_id)
-                )
-            assert count == 0
 
     asyncio.run(scenario())
 
@@ -2936,6 +2854,273 @@ def test_derived_shared_skill_from_foreign_experience_is_official_skill_one(tmp_
                                 ORIGINS.c.family == "skill",
                                 ORIGINS.c.artifact_id == result.artifact_id,
                                 ORIGINS.c.revision == result.revision,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            recorded = {(str(row["origin_scope_id"]), str(row["origin_kind"]), str(row["digest"])) for row in rows}
+            assert (origin, "artifact", experience_digest) in recorded
+            assert any(kind == "source" and digest == lineage_digest for _, kind, digest in recorded)
+            assert {scope for scope, _, _ in recorded} == {origin}
+
+    asyncio.run(scenario())
+
+
+class _SkillRevisionGenerator:
+    """Proposes a revised instruction Skill for the run's exact target."""
+
+    config_id = "test-dream-skill-revise-v1"
+
+    def __init__(self) -> None:
+        self.inputs = []
+
+    async def generate(self, value):
+        self.inputs.append(value)
+        cited = next(item.evidence_id for item in value.evidence.evidence if item.kind in {"experience", "source"})
+        from powercontext.builtin.artifacts.skill import SkillContent
+
+        intent = "derive" if value.operation == "derive_skill" else "correct"
+        return GenerationResult(
+            output=DreamPlan(
+                outcome="proposed",
+                intent=intent,
+                reason="The pinned Experience supports this bounded Skill revision.",
+                proposal=SkillContent(
+                    name="retry-idempotent-writes",
+                    description="Retry writes with a tested deduplication contract.",
+                    instructions=(
+                        "Derived: check the commit status and replay with the original key."
+                        if value.operation == "derive_skill"
+                        else "Revised: check the receipt first, then replay with the original key."
+                    ),
+                    validation=("Verify that a replay creates no duplicate record.",),
+                ),
+                evidence_ids=(cited,),
+            ),
+            usage=InferenceUsage(requests=1, input_tokens=20, output_tokens=20),
+        )
+
+
+def test_shared_skill_revision_reaches_two_and_stale_candidate_refuses(tmp_path: Path) -> None:
+    """A shared Skill revises @1 to @2, and an @1-targeted Candidate then refuses."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'skill2.db'}")
+        generator = _SkillRevisionGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                lineage_source = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="lineage",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_experience = await artifacts.create(
+                    connection,
+                    origin,
+                    "foreign-exp",
+                    experience_draft_with_source(lineage_source.ref),
+                )
+            experience_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            experience_digest = content_digest(foreign_experience.model_dump_json().encode())
+            lineage_digest = content_digest(lineage_source.value.model_dump_json().encode())
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+
+            # Publish Skill@1 through the shared path.
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+
+            async def new_pin(key: str):
+                async with runtime.primary_database.transaction() as connection:
+                    current = {
+                        scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                    }
+                assert all(d is not None for d in current.values())
+                v = tuple(sorted((sid, d.version) for sid, d in current.items() if d is not None))
+                return await agreement.pin(
+                    target,
+                    ShareSnapshotDraft(
+                        rule_id=rule.rule_id,
+                        rule_version=rule.version,
+                        terms_digest=rule.terms_digest,
+                        membership_digest=membership_digest(v),
+                        inputs=(
+                            ShareInput(
+                                kind="artifact",
+                                origin_scope_id=origin,
+                                artifact=experience_ref,
+                                digest=experience_digest,
+                            ),
+                        ),
+                        notification_key=key,
+                    ),
+                    principal=OWNER,
+                    context=AUDIT,
+                )
+
+            async def run_and_approve(pin, request):
+                run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+                supervisor = runtime.artifact_processing_supervisor
+                assert supervisor is not None
+                supervisor.wake(binding_for_request(request))
+                await process_pending(runtime)
+                finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                    GetDreamRunRequest(run_id=run.run_id)
+                )
+                assert finished.status == "succeeded", (request.operation, finished.error)
+                return finished
+
+            derive_pin = await new_pin("skill1-pin")
+            derive_request = CreateDreamRunRequest(
+                operation="derive_skill", artifacts=(experience_ref,), idempotency_key="skill1-run"
+            )
+            first = await run_and_approve(derive_pin, derive_request)
+            review = runtime.review.for_scope(target)
+            first_approved = await review.approve(
+                ApproveCandidateRequest(candidate_id=first.candidate.candidate_id, expected_version=1)
+            )
+            skill_one = first_approved.result_artifact
+            assert skill_one is not None and skill_one.family == "skill" and skill_one.revision == 1
+
+            # Prepare a second Candidate against @1 BEFORE @2 exists.
+            stale_pin = await new_pin("skill-stale-pin")
+            stale_request = CreateDreamRunRequest(
+                operation="revise_skill",
+                artifacts=(skill_one,),
+                sources=(lineage_source.ref,),
+                target=skill_one,
+                idempotency_key="skill-stale-run",
+            )
+            stale = await run_and_approve(stale_pin, stale_request)
+            assert stale.candidate is not None
+            assert stale.candidate.candidate_id != first.candidate.candidate_id
+
+            # Now revise to @2 from the current @1.
+            revise_pin = await new_pin("skill2-pin")
+            revise_request = CreateDreamRunRequest(
+                operation="revise_skill",
+                artifacts=(skill_one,),
+                sources=(lineage_source.ref,),
+                target=skill_one,
+                idempotency_key="skill2-run",
+            )
+            second = await run_and_approve(revise_pin, revise_request)
+            assert second.candidate is not None
+            second_approved = await review.approve(
+                ApproveCandidateRequest(candidate_id=second.candidate.candidate_id, expected_version=1)
+            )
+            skill_two = second_approved.result_artifact
+            assert skill_two is not None
+            # Same artifact identity, next revision.
+            assert skill_two.artifact_id == skill_one.artifact_id
+            assert skill_two.revision == 2
+
+            # @1 is still readable and @2 is the official head.
+            one = await runtime.skill.for_scope(target).get(GetSkillRequest(artifact=skill_one))
+            two = await runtime.skill.for_scope(target).get(GetSkillRequest(artifact=skill_two))
+            assert one.artifact_id == two.artifact_id
+            assert one.content.instructions != two.content.instructions
+
+            # The stale Candidate now targets @1 while @2 is current: a precise conflict,
+            # with no extra revision, decision or origin rows.
+            from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+            async with runtime.primary_database.transaction() as connection:
+                heads_before = await connection.scalar(
+                    select(func.count())
+                    .select_from(ARTIFACTS_TABLE)
+                    .where(ARTIFACTS_TABLE.c.scope_id == target, ARTIFACTS_TABLE.c.family == "skill")
+                )
+                origins_before = await connection.scalar(
+                    select(func.count())
+                    .select_from(ORIGINS)
+                    .where(ORIGINS.c.scope_id == target, ORIGINS.c.family == "skill")
+                )
+            with pytest.raises(ArtifactTargetConflictError) as conflict:
+                await review.approve(
+                    ApproveCandidateRequest(candidate_id=stale.candidate.candidate_id, expected_version=1)
+                )
+            # The conflict names the stale target and the now-current head precisely.
+            assert conflict.value.target == skill_one
+            assert conflict.value.current.revision == 2
+            reread = await review.get(GetCandidateRequest(candidate_id=stale.candidate.candidate_id))
+            assert reread.status == "pending"
+            assert reread.result_artifact is None
+            async with runtime.primary_database.transaction() as connection:
+                heads_after = await connection.scalar(
+                    select(func.count())
+                    .select_from(ARTIFACTS_TABLE)
+                    .where(ARTIFACTS_TABLE.c.scope_id == target, ARTIFACTS_TABLE.c.family == "skill")
+                )
+                origins_after = await connection.scalar(
+                    select(func.count())
+                    .select_from(ORIGINS)
+                    .where(ORIGINS.c.scope_id == target, ORIGINS.c.family == "skill")
+                )
+            assert heads_after == heads_before
+            assert origins_after == origins_before
+
+            # @2 adopted provenance is exact: the foreign Experience and its reachable Source.
+            async with runtime.primary_database.transaction() as connection:
+                rows = (
+                    (
+                        await connection.execute(
+                            select(ORIGINS).where(
+                                ORIGINS.c.scope_id == target,
+                                ORIGINS.c.family == "skill",
+                                ORIGINS.c.artifact_id == skill_two.artifact_id,
+                                ORIGINS.c.revision == 2,
                             )
                         )
                     )

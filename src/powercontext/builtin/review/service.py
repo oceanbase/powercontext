@@ -304,9 +304,6 @@ class ReviewService:
             raise InvalidCandidateError("audit", "shared adoption is incomplete")
         if not adoption.direct:
             raise InvalidCandidateError("audit", "shared adoption has no direct support")
-        if adoption.target is not None:
-            # A shared Skill revision needs target CAS under the pin, which is not proven.
-            raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
         foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
         # The foreign Experience is the Skill's real support, but it must not enter the
         # Family's local lineage slots: those carry a same-Scope FK. It travels qualified,
@@ -318,7 +315,7 @@ class ReviewService:
             proposal,
             sources=adoption.local_sources,
             artifacts=artifacts,
-            target=None,
+            target=adoption.target,
             reason=reason,
             candidate_id=candidate_id,
             on_commit=on_commit,
@@ -1013,10 +1010,9 @@ class ReviewService:
         # from its persisted manifest, not from a bare reference list that cannot name a
         # foreign identity. A direct input must also be one the pin declared, with its
         # recorded digest. Reachable support needs current reads, not pin membership.
-        if record.run.target is not None:
-            # A shared revision would need a proven stale-target conflict under the pin's
-            # binding. That is not implemented, so refuse rather than let an unverified
-            # revise path publish.
+        if record.run.target is not None and record.run.operation != "revise_skill":
+            # Only a shared Skill revision has a proven target CAS at this checkpoint; any
+            # other shared revision stays refused rather than publishing unverified.
             raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
         manifest = record.run.input_manifest
         if manifest is None:
@@ -1750,7 +1746,10 @@ def _validate_approval_lineage(candidate: ReviewedCandidate) -> None:
         return
     if candidate.target not in candidate.artifacts:
         raise InvalidCandidateError("artifacts", "managed Skill lineage must include its exact target")
-    if not candidate.sources:
+    shared = candidate.audit is not None and candidate.audit.share_snapshot_id is not None
+    if not candidate.sources and not (shared and candidate.audit is not None and candidate.audit.adopted_origins):
+        # A shared replacement is supported by its exact adopted origins, which may all be
+        # owned by another Scope; the local Source rule is otherwise unchanged.
         raise InvalidCandidateError("sources", "managed Skill replacement requires bounded Source evidence")
 
 

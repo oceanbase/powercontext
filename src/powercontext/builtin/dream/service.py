@@ -508,7 +508,7 @@ class DreamService:
         if (
             generated.output.outcome == "proposed"
             and record.share_snapshot_id is not None
-            and record.run.operation not in {"refine_experience", "derive_skill"}
+            and record.run.operation not in {"refine_experience", "derive_skill", "revise_skill"}
         ):
             # Only Experience and a derived Skill propose a durable shared Candidate at this
             # checkpoint; every other shared operation refuses before plan validation.
@@ -796,6 +796,27 @@ class DreamService:
                         reason=plan.reason,
                         candidate_id=_candidate_id(record),
                     )
+            elif record.share_snapshot_id is not None:
+                # A shared Skill revision uses the same trusted handoff. The exact current
+                # target stays in its local lineage slot; foreign support stays qualified.
+                if not selected.adopted:
+                    raise DreamError("shared_use_candidate_unavailable")
+                adoption = bind_shared_adoption(
+                    record,
+                    cited=plan.evidence_ids,
+                    manifest=resolved.manifest,
+                )
+                if record.run.target is None:
+                    raise DreamError("invalid_target")
+                # The prepared package is the real proposal; it preserves the target's
+                # protected metadata and is what the Family write must publish.
+                prepared = await review.prepare_skill_revision(record.run.target, plan.proposal)
+                candidate = await review.admit_dream_shared_skill(
+                    prepared,
+                    adoption=adoption,
+                    reason=plan.reason,
+                    candidate_id=_candidate_id(record),
+                )
             else:
                 candidate = await review.propose_skill(
                     plan.proposal,
