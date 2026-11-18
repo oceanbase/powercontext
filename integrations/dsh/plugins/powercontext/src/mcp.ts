@@ -72,9 +72,6 @@ function rawOperation(name: string): string | undefined {
 }
 
 function usesScope(operation: string, args: unknown): 'current' | 'selection' | 'none' {
-  // Source business calls carry scope_id in their body; instance controls are Server-wide.
-  if (['pc_source_capabilities', 'pc_source_add', 'pc_source_status', 'pc_source_target_set_enabled'].includes(operation)) return 'current'
-  if (operation === 'pc_source_instances') return isRecord(args) && args.view === 'control' ? 'none' : 'current'
   const metadata = OPERATIONS[operation as keyof typeof OPERATIONS]
   // scopeMode describes implicit Scope resolution; path scope_id still binds an MCP call to the host Scope.
   if (metadata.pathParameters.some(parameter => parameter === 'scope_id')) return 'current'
@@ -92,6 +89,7 @@ function matchesScope(argumentsValue: unknown, mode: 'current' | 'selection', sc
 export function registerMcpPolicy(
   ctx: { on(event: string, handler: (...args: never[]) => unknown): unknown },
   resolveScope: McpScopeResolver,
+  authorization?: string,
 ): void {
   ctx.on('tools/pre-execute', (async (
     exec: McpToolExecution,
@@ -102,7 +100,7 @@ export function registerMcpPolicy(
       ? { kind: 'deny', reason: 'This PowerContext MCP operation is unavailable in the plugin catalog. No MCP request was sent; install a matching plugin and Server.' }
       : next()
 
-    if (hasSecretContent(operation, exec.arguments)) {
+    if (hasSecretContent(operation, exec.arguments, authorization)) {
       return { kind: 'deny', reason: 'secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent.' }
     }
 

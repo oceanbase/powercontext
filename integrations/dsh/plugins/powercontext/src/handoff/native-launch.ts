@@ -17,7 +17,7 @@
 
 import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
-import { containsSecret } from '../secrets.ts'
+import { containsSecret } from '../prompt-privacy.ts'
 import { HandoffError } from './errors.ts'
 import type { NativeLaunchIntent, NativeTargetId } from './targets.ts'
 

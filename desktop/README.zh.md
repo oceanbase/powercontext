@@ -144,6 +144,12 @@ pnpm --dir desktop desktop:dev
 - 连接超时 5 秒、完整请求超时 15 秒、响应上限 1 MiB、每个客户端最多 4 个并发读取；超限明确失败。
 - 主窗口可调用明确列出的连接、Scope、记忆和诊断命令；没有通用 fetch、shell、文件、数据库或读取秘密的 IPC。
 
+生成器 JAR 的 SHA-256 固定在 `desktop/openapi-generator-checksum.json` 中，升级生成器时需要与
+`openapitools.json` 一起更新。准备步骤会校验已有 JAR；没有通过校验的文件时，使用 `curl` 下载，并对 HTTP 429
+等临时错误进行有限重试。下载内容的摘要匹配后才会使用，因此只有缺少有效 JAR 时才需要访问网络。
+Windows、macOS 和 Linux 的 Desktop CI 都会恢复独立的 JAR 缓存，并在下载校验成功后立即保存，避免后续
+lint、测试或构建失败导致下载结果无法复用。
+
 普通连接和 Memory 操作不会启动或管理 Server；本地服务修改必须通过明确批准的 Ops 计划。应用不持久化正文或查询，关闭窗口即退出。当前语言和主题也仅保留于会话内。
 
 [安全边界](SECURITY.md)记录具体约束；[验证说明](VALIDATION.md)列出测试范围和仍未满足的 P0 门槛。构建成功、Mock 测试和当前用户机器上的运行都不能代替标准用户、签名、通知冷启动激活、独立服务和 Agent 宿主验收。
@@ -222,7 +228,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 使用 macOS 12 或更高版本、Xcode 命令行工具（`xcode-select --install`）、Node **24.14.1**、pnpm **11.13.1**、Rust **1.95.0** 和 **JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）**。请在目标架构（Apple Silicon 或 Intel）上构建。
 
-`lint` 和 `build` 包含 `generate:check`，会启动 Java OpenAPI Generator。首次运行可能从 Maven Central 下载固定版本的 JAR，因此需要网络访问；后续运行可以复用已下载的 JAR。
+`lint` 和 `build` 包含 `generate:check`，会启动 Java OpenAPI Generator。首次运行可能通过 `curl` 从 Maven Central 下载固定版本的 JAR；后续运行按上述规则校验并复用已有文件。
 
 ```sh
 cd desktop

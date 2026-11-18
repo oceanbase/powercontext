@@ -71,7 +71,8 @@ Load `.env` on the client. It contains the complete installation configuration, 
 
 MCP uses setup's persisted `server_url`, while `POWERCONTEXT_CLAUDE_SERVER_URL` can override the Hook.
 After changing that environment URL, also update the persisted connection with matching-source setup and `--server-url`.
-Both the Hook and MCP headersHelper need `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the client environment.
+Setup saves the client's `POWERCONTEXT_CLAUDE_AUTHORIZATION` for that `server_url`; the Hook and the MCP `headersHelper`
+both read it. See [Connect an authenticated Server](#connect-an-authenticated-server) for precedence and rotation.
 Desktop or other launch methods may not inherit terminal variables; restart the Claude process you actually use after changes.
 
 Running setup again updates the plugin configuration and verifies the installed version. It does not remove existing
@@ -203,16 +204,25 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-Start Claude Code from an environment containing the matching complete header:
+Run setup from an environment containing the matching complete header:
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-claude
+powercontext setup claude-code
 ```
 
-The Hook reads this process environment value directly, while the MCP configuration expands it into the
-`Authorization` header. The MCP header defaults to an empty value when the variable is absent. Never put the token in
-the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
+Setup stores a URL-bound credential under `$CLAUDE_CONFIG_DIR/powercontext/credentials.json` (by default,
+`~/.claude/powercontext/credentials.json`). The Hook reads that record, and the plugin's MCP server reads it through a
+`headersHelper` that runs `scripts/mcp_headers.py` with `python3`, as the Hooks do. New sessions, including ones that
+Desktop or another launcher starts, do not need an authorization export. Saved credentials are rejected for a
+different endpoint, malformed storage, or unsafe POSIX permissions, and are used only for an HTTPS or loopback
+Server; for a non-loopback HTTP Server, export the value before starting Claude Code.
+
+For the Hook, an explicit `POWERCONTEXT_CLAUDE_AUTHORIZATION` value overrides saved authorization without changing it.
+MCP sends that value as a static header only when no credential is saved for its endpoint: Claude Code removes
+credential-like variables before it runs a plugin's `headersHelper`, so the saved credential wins for MCP. To rotate
+the token, run setup again with the new value; rerunning setup without a token preserves the saved credential. Never
+put the token in the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
 
 Plain HTTP is allowed on loopback by default. For a non-loopback Server, use HTTPS or explicitly set
 `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP=true`. Guided setup can save this consent and configure both the Hook and
@@ -267,7 +277,7 @@ run with `--keep-data`.
 | `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL used by the Hook |
 | `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for PowerContext requests |
 | `POWERCONTEXT_CLAUDE_SCOPE_ID` | unset | Override durable bindings and the Server default Scope |
-| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header; the Hook prefers it over the credential saved by setup, while MCP uses it only when none is saved |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
@@ -279,7 +289,8 @@ run with `--keep-data`.
 
 `powercontext setup claude-code` stores `server_url` and `capture_prompts` as non-sensitive Claude Code plugin
 options. The corresponding `POWERCONTEXT_CLAUDE_*` variables take precedence for the process that starts Claude Code.
-Authorization is environment-only and must not be added to the Server URL or plugin options.
+Authorization comes from the credential saved by setup or from the environment, and must not be added to the Server
+URL or plugin options.
 
 The outer `UserPromptSubmit` Hook timeout is ten seconds. Recall and capture use one shared wall-clock budget but fail
 independently. HTTPS certificate validation remains enabled when HTTP is explicitly permitted. Restart Claude Code

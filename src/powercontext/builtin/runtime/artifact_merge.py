@@ -158,15 +158,27 @@ class ArtifactMergeApplication:
             raise ValueError(f"Artifact merge Family is already registered: {service.family}")  # noqa: TRY003
         self._services[service.family] = service
 
-    def for_scope(self, scope_id: str, family: str, /) -> ScopedArtifactMerge:
-        scope_id = validate_scope_id(scope_id)
+    def unregister(self, family: str) -> None:
+        """Forget a Family whose plugin was removed or changed; built-in Families are never unregistered."""
+
+        self._services.pop(family, None)
+
+    def _service(self, family: str) -> ArtifactMergeService:
         try:
-            service = self._services[family]
+            return self._services[family]
         except KeyError:
             raise BaseOperationNotSupportedError(
                 "artifact_family", family, "registered Artifact merge adapter"
             ) from None
-        return ScopedArtifactMerge(self, service, scope_id)
+
+    def for_scope(self, scope_id: str, family: str, /) -> ScopedArtifactMerge:
+        scope_id = validate_scope_id(scope_id)
+        return ScopedArtifactMerge(self, self._service(family), scope_id)
+
+    def content_type(self, family: str) -> type[BaseModel]:
+        """The content model a registered Family's merge results validate against."""
+
+        return self._service(family).artifacts.content_type(family)
 
 
 class ScopedArtifactMerge:
@@ -220,6 +232,25 @@ class ScopedArtifactMerge:
                 lineage=lineage,
             )
         prepared = await self.service.prepare_merge(plan)
+        async with self.application.database.transaction() as connection:
+            return await self.service.commit(connection, prepared, context)
+
+    async def forget(
+        self, artifact_id: str, *, expected_revision: int, expected_state_version: int, context: Any = None
+    ) -> ArtifactMergeMutationResult:
+        """Deprecate one exact current Artifact without a replacement or a new content revision."""
+
+        context = self._context(context)
+        async with self.application.database.transaction() as connection:
+            plan = await self.service.inspect_forget(
+                connection,
+                self.scope_id,
+                artifact_id,
+                context,
+                expected_revision=expected_revision,
+                expected_state_version=expected_state_version,
+            )
+        prepared = await self.service.prepare_forget(plan)
         async with self.application.database.transaction() as connection:
             return await self.service.commit(connection, prepared, context)
 

@@ -30,6 +30,7 @@ import pytest
 import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.exceptions import ToolError
 from pydantic import SecretStr
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
@@ -47,6 +48,7 @@ from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
+from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
@@ -513,6 +515,68 @@ def test_codex_session_binding_switch_resume_and_child_scope_flow(tmp_path: Path
         assert not thread.is_alive()
 
 
+def test_codex_tool_binding_keeps_an_unscoped_source_query_unscoped(tmp_path: Path) -> None:
+    plugins = tmp_path / "plugins"
+    shutil.copytree(
+        Path(__file__).resolve().parents[2] / "examples" / "source_plugins" / "tickets", plugins / "tickets"
+    )
+    token = ADMIN_AUTHORIZATION_VALUE
+
+    async def scenario() -> None:
+        mcp_enabled = {"POWERCONTEXT_SERVER_MCP_ENABLED": "true"}
+        async with running_server(tmp_path, plugins, identities={}, extra_env=mcp_enabled) as admin:
+            base_url = str(admin.base_url).rstrip("/")
+            scope_id = await create_scope(admin, "codex-source-bound")
+            other_scope_id = await create_scope(admin, "codex-source-other")
+            # One credential serves the hook and MCP, as in a Codex session: it administers the Server, which gives
+            # no access to Scopes, and reads only the bound Scope.
+            response = await admin.post(
+                "/v1/access/bindings/create",
+                json={
+                    "subject": {"type": "service", "id": "admin"},
+                    "resource": {"type": "scope", "scope_id": scope_id},
+                    "role": "scope.viewer",
+                    "idempotency_key": "bind-admin",
+                },
+            )
+            assert response.status_code == 201, response.text
+            plugin = _copy_plugin(tmp_path, base_url)
+
+            def bind(tool: str, tool_input: dict[str, object]) -> subprocess.CompletedProcess[str]:
+                return _run_codex_plugin_hook(
+                    plugin,
+                    "bind_tools.py",
+                    session_id="session-source",
+                    tool_name=f"mcp__powercontext__{tool}",
+                    tool_input=tool_input,
+                    plugin_settings={
+                        "POWERCONTEXT_CODEX_AUTHORIZATION": "Bearer " + token,
+                        "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,
+                    },
+                )
+
+            async with Client(base_url + "/mcp", auth=token) as mcp:
+                for tool_input in ({}, {"scope_id": None}):
+                    # Without a decision, Codex runs the call with the Agent's arguments.
+                    hook = await asyncio.to_thread(bind, "pc_source_runners", tool_input)
+                    assert hook.stdout == ""
+                runners = await mcp.call_tool("pc_source_runners", {})
+                assert [item["runner"] for item in runners.data["items"]] == ["server"]
+
+                # The credential cannot read the Scope the Agent names; the bound call reads the bound Scope instead.
+                named: dict[str, object] = {"scope_id": other_scope_id}
+                with pytest.raises(ToolError, match="403"):
+                    await mcp.call_tool("pc_source_status", named)
+                hook = await asyncio.to_thread(bind, "pc_source_status", named)
+                decision = json.loads(hook.stdout)["hookSpecificOutput"]
+                assert decision["permissionDecision"] == "allow", hook.stdout + hook.stderr
+                assert decision["updatedInput"] == {"scope_id": scope_id}
+                listed = await mcp.call_tool("pc_source_status", decision["updatedInput"])
+                assert listed.data["items"] == []
+
+    asyncio.run(scenario())
+
+
 def test_codex_workspace_cli_preserves_session_and_repository_boundaries(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
@@ -717,6 +781,7 @@ def _run_codex_plugin_hook(
     session_id: str,
     tool_name: str | None = None,
     tool_input: dict[str, object] | None = None,
+    plugin_settings: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     payload: dict[str, object] = {
         "session_id": session_id,
@@ -731,6 +796,7 @@ def _run_codex_plugin_hook(
     }
     environment.pop("POWERCONTEXT_CODEX_SCOPE_ID", None)
     environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
+    environment.update(plugin_settings or {})
     return subprocess.run(
         [sys.executable, str(plugin / "hooks" / script)],
         cwd=PROJECT_ROOT,

@@ -15,5 +15,6 @@
 """Deterministic host model fakes, one module per provider wire format.
 
 `ScriptedTurns` holds the wire-neutral script that every fake replays. A wire module translates that script into one
-provider protocol; Chat Completions lives in `tests/e2e/zcode_acceptance/protocol.py`.
+provider protocol: `responses` serves OpenAI Responses and `messages` Anthropic Messages; Chat Completions lives in
+`tests/e2e/zcode_acceptance/protocol.py`.
 """

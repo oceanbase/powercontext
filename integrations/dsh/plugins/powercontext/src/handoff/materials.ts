@@ -27,6 +27,9 @@ export const MAX_WORK_INPUT_BYTES = 32 * 1024
 
 type Citation = Wire<'HandoffCitation'>
 
+// Command evidence can carry credentials as CLI arguments, separately from the prose privacy rules.
+const CREDENTIAL_OPTION = /(?:^|[\s;&|])--(?:api[-_]key|access[-_](?:key|token)|client[-_]secret|secret(?:[-_]key)?|private[-_]key|password|passwd|passphrase|token|authorization)(?:[ \t]+|=)[^\s;&|]/iu
+
 export type WorkEvent = {
   sessionId: string
   seq: number
@@ -143,7 +146,7 @@ export async function collectMaterials(context: CallContext, source: SourceBound
       checksObserved = true
       const { command, status, details, exitCode, revision, workspaceObservedAt } = event
       if (!['passed', 'failed', 'interrupted', 'not_run', 'unknown'].includes(status)) invalid()
-      if (!available(command, 8192)) {
+      if (!available(command, 8192) || CREDENTIAL_OPTION.test(command)) {
         note(status === 'failed'
           ? 'At least one observed check failed but its command could not be included.'
           : 'A check was observed but its command could not be included.')

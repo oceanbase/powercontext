@@ -23,15 +23,17 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import Any
 
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience.recurrence import (
     RecurrenceMatch,
     RecurrenceObservation,
     TaskOutcomeItemRef,
     match_key,
+    normalize_match_text,
     selection_key,
     verdict_key,
 )
@@ -191,6 +193,70 @@ class RecurrenceRepository:
         ).mappings()
         return tuple(_decode_observation(row) for row in rows)
 
+    async def observations_for_target(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> tuple[RecurrenceObservation, ...]:
+        """Return the ledger events of one ``(artifact_ref, signature_key)`` bucket.
+
+        The artifact columns are covered by ``ix_pc_recurrence_observation_revision``.
+        No joint artifact-and-signature index exists, so the signature is
+        filtered within those rows: by its indexed hash first, then by its
+        plaintext, because a hash match alone cannot rule out a collision.
+        Callers that only need the event counts must use
+        ``event_counts_for_target`` instead of decoding every row here.
+        """
+
+        scope = validate_scope_id(scope_id)
+        _require_normalized_key(signature_key)
+        rows = (
+            await connection.execute(
+                select(RECURRENCE_OBSERVATION_TABLE)
+                .where(*_bucket_conditions(scope, artifact_ref, signature_key))
+                .order_by(
+                    RECURRENCE_OBSERVATION_TABLE.c.task_outcome_position,
+                    RECURRENCE_OBSERVATION_TABLE.c.observation_id,
+                )
+            )
+        ).mappings()
+        return tuple(_decode_observation(row) for row in rows)
+
+    async def event_counts_for_target(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> tuple[int, int, int]:
+        """Return the ``(selected, recurred, avoided)`` event counts of one bucket.
+
+        The database aggregates the bucket, so a projection read transfers at
+        most three rows and decodes no event. The aggregate still visits the
+        bucket's matching rows, so its work grows with the bucket; what stays
+        bounded is the result size and the Python-side work. The signature key
+        must already be normalized, exactly like the recorded events it is
+        compared against.
+        """
+
+        scope = validate_scope_id(scope_id)
+        _require_normalized_key(signature_key)
+        rows = (
+            await connection.execute(
+                select(RECURRENCE_OBSERVATION_TABLE.c.event, func.count())
+                .where(*_bucket_conditions(scope, artifact_ref, signature_key))
+                .group_by(RECURRENCE_OBSERVATION_TABLE.c.event)
+            )
+        ).all()
+        counts = dict.fromkeys(("selected", "recurred", "avoided"), 0)
+        for name, total in rows:
+            counts[str(name)] = int(total)
+        return counts["selected"], counts["recurred"], counts["avoided"]
+
     async def unlinked_handoff_citations(
         self,
         connection: AsyncConnection,
@@ -280,6 +346,32 @@ class RecurrenceRepository:
             )
         ).mappings()
         return tuple(_decode_match(row) for row in rows)
+
+
+def _require_normalized_key(signature_key: str) -> None:
+    """Reject an unnormalized cue before it becomes a silent empty bucket."""
+
+    if normalize_match_text(signature_key) != signature_key:
+        raise ValueError("signature_key must already be normalized")  # noqa: TRY003
+
+
+def _bucket_conditions(scope: str, artifact_ref: ArtifactRef, signature_key: str) -> tuple[Any, ...]:
+    """Return the WHERE parts that select exactly one ledger bucket.
+
+    The artifact columns hit ``ix_pc_recurrence_observation_revision``; the
+    signature is filtered by its indexed hash and its plaintext, because a
+    hash match alone cannot rule out a collision.
+    """
+
+    table = RECURRENCE_OBSERVATION_TABLE
+    return (
+        table.c.scope_id == scope,
+        table.c.family == artifact_ref.family,
+        table.c.artifact_id == artifact_ref.artifact_id,
+        table.c.revision == artifact_ref.revision,
+        table.c.signature_key_hash == sha256(signature_key.encode()).digest(),
+        table.c.signature_key == signature_key,
+    )
 
 
 def _decode_match(row: Any) -> RecurrenceMatch:

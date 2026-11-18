@@ -512,9 +512,12 @@ registration completes; check the current tool catalog before selecting an MCP o
 Native MCP frames pass through a process-local streaming boundary to the fixed configured endpoint; all redirects
 are rejected, including during initialization and tool calls. The native client still owns discovery and sessions.
 HTTP failures expose controlled status/code information without upstream response bodies or diagnostic headers.
-The plugin rejects likely secret content, including nested Handoff state, Drafts and prepared carriers, with
-`secret_rejected` before write approval or dispatch. Its MCP catalog and mutation approval classification are generated
-from the Server's public `tools/list`, not the HTTP tool table.
+Explicit writes, including nested Handoff state, Drafts and prepared carriers, are rejected with `secret_rejected`
+before write approval or dispatch when their content contains a credential that the
+[automatic prompt privacy](index.md#automatic-prompt-privacy) rule recognizes, including the configured Server token.
+Explicit writes are rejected rather than redacted, so prose such as `password: rotate it monthly` is rejected too;
+ordinary words such as `task-runner` or `risk-based` are accepted. The plugin's MCP catalog and mutation approval
+classification are generated from the Server's public `tools/list`, not the HTTP tool table.
 
 `mcp__powercontext__handoff_current_work` captures its own boundary and returns `{boundary, handoff}`. Transfer only
 the complete `handoff` member, then pass that exact value to `mcp__powercontext__continue_handoff` with
@@ -662,10 +665,16 @@ powercontext doctor dsh
 
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.
 
+Before each model step, automatic Scope resolution, preparation, and capture share `timeoutMs` (4000 ms by
+default), and each request is limited to `requestTimeoutMs` (3000 ms by default). The step waits for this budget, so
+a slow Server delays each step by at most `timeoutMs`. A preparation that times out still leaves the remaining
+budget for capture, and context prepared within the budget is still injected when capture or flush uses the rest of
+it. Only host cancellation withdraws prepared context.
+
 `get_readiness`, including `/pc doctor`, uses `max(requestTimeoutMs, 40000)` milliseconds so cold readiness
 can finish the default 30-second inference probe and subsequent access checks (up to 5 seconds), with
 transport headroom. Doctor reports this as `configuration.readiness_request_timeout_ms`, alongside the
-ordinary `request_timeout_ms` (1000 ms by default). For larger custom Server probe budgets, increase
+ordinary `request_timeout_ms` (3000 ms by default). For larger custom Server probe budgets, increase
 `requestTimeoutMs` accordingly. Other requests retain their configured deadline; caller cancellation
 still stops readiness immediately.
 
@@ -673,3 +682,37 @@ Plain HTTP is allowed on loopback by default. For remote HTTP, explicitly set
 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled. The host URL aliases are
 checked in the order `BASE_URL`, `SERVER_URL`, then `ENDPOINT`, before `POWERCONTEXT_CLIENT_SERVER_URL`.
 See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
+
+
+## Read-only companion memory service
+
+The host plugin provides the optional Cordis service `powercontextCompanionMemory`, with protocol
+`powercontext.companion-memory.v1`. Trusted sibling plugins can soft-look it up with `ctx.get()`;
+it adds no Server HTTP endpoint and does not expose credentials or the raw client.
+
+`prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` resolves the actual host session working directory
+and uses the running plugin's client, authentication, transport policy and Scope override. A durable DSH
+workspace binding or explicit Scope is required (`allow_default: false`). Without a query it returns
+`connected`; with a query it prepares the Memory family and returns `ready` or `empty`. Successful
+results include `bindingId`, `scopeId`, `workspace`, and optional `content`. Consumers must isolate local
+history using `bindingId`; it changes with connection credentials, workspace or Scope. Equal Scope IDs
+at different connections are not the same memory identity.
+
+The service rejects missing sessions, workspace changes during a request, unresolved Scopes, malformed
+prepared context, cancellation and timeouts. Safe failure reasons are `session-required`,
+`workspace-unavailable`, `scope-unavailable`, and `connection-unavailable`. Plugin disposal cancels
+requests and unregisters the service. Callers should validate the protocol, enforce their own deadline,
+and keep normal operation available when the service is absent or fails.
+
+This service only reads project Memory. It does not capture companion dialogue, start another Server,
+merge pet memory into coding projects, or add implicit parent/user Scope recall. It is for trusted
+plugins in the same DSH process; it is not a browser-facing credential proxy or a new authorization
+boundary between mutually untrusted plugins.
+
+For optional tracing, `traceContext: { traceparent }` accepts a valid W3C version-00 parent with
+nonzero trace and span IDs. The client forwards it only on this call's `prepare_context` HTTP request;
+invalid metadata is ignored. Concurrent calls retain their own parents. This extension does not join
+workspace-binding requests, configure a global tracer/exporter, forward arbitrary headers or baggage,
+change authorization, or put tracing metadata into the query. The Server must separately enable and
+configure its OTLP exporter for the downstream stages to be visible. Older companions may omit this
+field, and older service implementations may ignore it without affecting recall.

@@ -33,6 +33,114 @@ from powercontext_eval_longmemeval_v2.run_smoke import RunSmokeError, SmokeRunRe
 from powercontext_eval_longmemeval_v2.score_smoke import ScoreSmokeRun
 
 
+def _receipt_command(command: str, output: Path) -> list[str]:
+    return [
+        command,
+        "--data-root",
+        "/missing-data",
+        "--dataset-lock",
+        "/missing-lock.json",
+        "--harness-root",
+        "/missing-harness",
+        "--smoke-manifest",
+        "/missing-smoke.json",
+        "--output-dir",
+        str(output),
+        "--run-id",
+        "synthetic-receipt-run",
+        "--powercontext-revision",
+        "pc-sha",
+        "--integration-revision",
+        "adapter-sha",
+        *(
+            ["--harness-python", "/harness/python", "--processor-revision", "processor-sha"]
+            if command == "run-smoke"
+            else []
+        ),
+    ]
+
+
+@pytest.mark.parametrize("command", ["retrieval-smoke", "run-smoke"])
+def test_receipt_cli_options_reach_both_runners(command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+    output = tmp_path / "output"
+    revision = "0123456789abcdef" * 2 + "01234567"
+
+    def run(**kwargs: object) -> RetrievalSmokeRun | SmokeRunResult:
+        calls.append(kwargs)
+        if command == "retrieval-smoke":
+            return RetrievalSmokeRun(
+                output_dir=output,
+                manifest_path=output / "retrieval-manifest.json",
+                results_path=output / "retrieval-results.jsonl",
+                failures_path=output / "failures.jsonl",
+                summary_path=output / "summary.json",
+                audit_path=output / "adapter-audit.jsonl",
+            )
+        return SmokeRunResult(
+            output_dir=output,
+            manifest_path=output / "run-manifest.json",
+            summary_path=output / "run-summary.json",
+            failures_path=output / "failures.jsonl",
+            status="completed",
+            completed_phases=("preflight", "retrieval", "prepare", "reader", "score", "replay"),
+            skipped_phases=(),
+            failed_phase=None,
+        )
+
+    target = "run_retrieval_smoke" if command == "retrieval-smoke" else "run_smoke"
+    monkeypatch.setattr(f"powercontext_eval_longmemeval_v2.cli.{target}", run)
+    result = CliRunner().invoke(
+        app,
+        [
+            *_receipt_command(command, output),
+            "--experiment-arm",
+            "query-time-compact-v1",
+            "--receipt-diagnostics",
+            "--receipt-server-revision",
+            revision,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert calls[0]["experiment_arm"] == "query-time-compact-v1"
+    assert calls[0]["receipt_diagnostics"] is True
+    assert calls[0]["receipt_server_revision"] == revision
+
+
+@pytest.mark.parametrize("command", ["retrieval-smoke", "run-smoke"])
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (["--receipt-diagnostics"], "requires a prepared-context"),
+        (
+            ["--experiment-arm", "query-time-compact-v1", "--receipt-diagnostics"],
+            "40-character lowercase hexadecimal SHA",
+        ),
+        (
+            [
+                "--experiment-arm",
+                "query-time-compact-v1",
+                "--receipt-diagnostics",
+                "--receipt-server-revision",
+                "A" * 40,
+            ],
+            "40-character lowercase hexadecimal SHA",
+        ),
+    ],
+)
+def test_receipt_cli_rejects_invalid_config_before_output(
+    command: str, options: list[str], message: str, tmp_path: Path
+) -> None:
+    output = tmp_path / "output"
+    result = CliRunner().invoke(app, [*_receipt_command(command, output), *options])
+
+    assert result.exit_code == 1, result.output
+    assert message in result.output
+    assert not output.exists()
+
+
 def test_longmemeval_v2_retrieval_smoke_runs_without_reader_or_judge(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -89,6 +197,8 @@ def test_longmemeval_v2_retrieval_smoke_runs_without_reader_or_judge(
             "base_url": "http://127.0.0.1:8000",
             "token_env": "POWERCONTEXT_TOKEN",
             "experiment_arm": "current-memory-fts-v1",
+            "receipt_diagnostics": False,
+            "receipt_server_revision": None,
             "search_limit": 10,
             "timeout_seconds": 30.0,
         }
@@ -369,6 +479,8 @@ def test_longmemeval_v2_run_smoke_forwards_every_stage_option(
             "powercontext_base_url": "http://127.0.0.1:8000",
             "powercontext_token_env": "POWERCONTEXT_TOKEN",
             "experiment_arm": "current-memory-fts-v1",
+            "receipt_diagnostics": False,
+            "receipt_server_revision": None,
             "search_limit": 10,
             "timeout_seconds": 30.0,
             "reader_provider": "deepseek-openai",

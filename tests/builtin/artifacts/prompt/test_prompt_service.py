@@ -68,14 +68,15 @@ def test_configuration_read_preserves_saved_content_when_component_cannot_run(in
     asyncio.run(scenario())
 
 
-def test_concurrent_scopes_and_retries_use_frozen_prompt_selections() -> None:
+@pytest.mark.parametrize("custom", [False, True])
+def test_concurrent_scopes_and_retries_use_frozen_prompt_selections(custom: bool) -> None:
     async def scenario() -> None:
-        heads = {"a": _prompt("Scope Alpha only."), "b": _prompt("Scope Beta only.")}
-        entered = {scope: asyncio.Event() for scope in heads}
+        heads = {"a": _prompt("Scope Alpha only."), "b": _prompt("Scope Beta only.")} if custom else {}
+        entered = {scope: asyncio.Event() for scope in ("a", "b")}
         seen: dict[str, list[str]] = {"a": [], "b": []}
 
         async def read(scope: str, keys: tuple[str, ...]) -> dict[str, Prompt]:
-            return dict.fromkeys(keys, heads[scope])
+            return dict.fromkeys(keys, heads[scope]) if scope in heads else {}
 
         async def respond(messages, info) -> ModelResponse:
             selection = current_prompt("memory.extract")
@@ -100,19 +101,29 @@ def test_concurrent_scopes_and_retries_use_frozen_prompt_selections() -> None:
         )
 
         async def invoke(scope: str) -> None:
-            async with service.bind(scope, "memory.extract") as selection:
-                assert selection is not None and selection.artifact is not None
-                assert selection.artifact.revision == 1
+            async with service.snapshot(scope, ("memory.extract",)), service.bind(scope, "memory.extract") as selection:
+                assert selection is not None
+                assert selection.artifact == (heads[scope].as_ref() if custom else None)
                 await generator.generate(MemoryExtractionInput(evidence=(), current_entries=()))
-                async with service.bind(scope, "memory.extract") as nested:
-                    assert nested == selection
+                other = "b" if scope == "a" else "a"
+                async with (
+                    service.snapshot(other, ("memory.extract",)),
+                    service.bind(other, "memory.extract") as nested,
+                ):
+                    assert nested is not None and nested.scope_id == other
+                assert current_prompt("memory.extract") == selection
+                assert await service.resolve(scope, "memory.extract") == selection
             assert current_prompt("memory.extract") is None
 
         await asyncio.wait_for(asyncio.gather(invoke("a"), invoke("b")), timeout=10)
         assert seen["a"][0] == seen["a"][1]
         assert seen["b"][0] == seen["b"][1]
-        assert "Scope Alpha only." in seen["a"][0] and "Scope Beta only." not in seen["a"][0]
-        assert "Scope Beta only." in seen["b"][0] and "Scope Alpha only." not in seen["b"][0]
+        if custom:
+            assert "Scope Alpha only." in seen["a"][0] and "Scope Beta only." not in seen["a"][0]
+            assert "Scope Beta only." in seen["b"][0] and "Scope Alpha only." not in seen["b"][0]
+        else:
+            assert seen["a"][0] == seen["b"][0]
+            assert registry.get("memory.extract").default_instructions in seen["a"][0]
         next_selection = await service.resolve("a", "memory.extract")
         assert next_selection is not None and next_selection.artifact is not None
         assert next_selection.artifact.revision == 2
