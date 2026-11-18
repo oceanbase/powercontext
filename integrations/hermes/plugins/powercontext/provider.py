@@ -133,15 +133,33 @@ _AUTOMATIC_OPERATION_PATHS = {
 def _automatic_recall_query(prompt: str, authorization: str | None) -> str:
     """Return the query an automatic recall sends, or an empty query that skips the recall.
 
-    Recognized credentials are scrubbed before the query is bounded. A prompt holding unpaired surrogates, such as a
-    file name decoded with ``surrogateescape``, has no UTF-8 form, so no request can carry it. Skipping the recall
-    keeps that failure out of the Hermes turn.
+    Recognized credentials are scrubbed before the query is bounded, so a cut cannot leave a bare credential behind.
+    """
+    return _recall_query_tail(_scrub_secrets(prompt, authorization))
+
+
+def _recall_query_tail(text: str) -> str:
+    """Bound a redacted query, or return an empty query when it has no UTF-8 form.
+
+    A prompt holding unpaired surrogates, such as a file name decoded with ``surrogateescape``, cannot be carried by
+    any request. Skipping the recall keeps that failure out of the Hermes turn.
     """
     try:
-        return _bounded_recall_query(_scrub_secrets(prompt, authorization))
+        return _bounded_recall_query(text)
     except UnicodeEncodeError:
         logger.debug("Skipping PowerContext automatic recall: the query is not valid UTF-8 text")
         return ""
+
+
+def _trace_redaction(text: str, authorization: str | None) -> str:
+    """Redact evaluation-trace text with the shared rule and then the plugin's own rule.
+
+    The trace redacts everything the recall query redacts, and the plugin's rule then redacts what it still recognizes.
+    The shared rule must run first: the plugin's assignment pattern consumes a scheme word or the start of a
+    private-key block (``Authorization: Bearer X`` becomes ``[REDACTED] X``), and the shared rule no longer recognizes
+    what is left.
+    """
+    return _redact_secrets(_scrub_secrets(text, authorization))
 
 
 def _precompress_content_for_entries(
@@ -877,14 +895,12 @@ class PowerContextMemoryProvider(MemoryProvider):
             return ""
         if self._trace_enabled:
             authorization = getattr(client, "authorization", None)
-            # The trace keeps the plugin's own redaction on top of the shared rule, so it redacts at least what it did
-            # before the shared rule applied. The whole prompt is redacted before it is bounded, so a cut cannot leave
-            # a bare credential behind.
+            # The whole prompt is redacted before it is bounded, so a cut cannot leave a bare credential behind.
             self._record_trace_event(
                 "powercontext_injection",
                 session_id=session_key,
-                query=_automatic_recall_query(_redact_secrets(query), authorization),
-                injected_text=_scrub_secrets(_redact_secrets(content.strip()), authorization),
+                query=_recall_query_tail(_trace_redaction(query, authorization)),
+                injected_text=_trace_redaction(content.strip(), authorization),
                 status=trace_status,
                 content_bytes=len(content.encode("utf-8")),
             )
