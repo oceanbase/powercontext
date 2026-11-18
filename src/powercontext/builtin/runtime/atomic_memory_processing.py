@@ -881,7 +881,7 @@ class AtomicMemorySourceWindowProcessor:
             # inputs retain a short transaction across bounded observation chunks.
             connection_manager = (
                 self.application.database.engine.connect()
-                if len(generation_sources) <= 100 and not self.config.alias_recall
+                if len(generation_sources) <= 100
                 else self.application.database.transaction(consistent_snapshot=True)
             )
             async with deferred_decision_audit(context), connection_manager as connection:

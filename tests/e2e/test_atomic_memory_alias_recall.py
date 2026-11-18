@@ -219,3 +219,47 @@ def test_existing_unmanaged_database_initializes_empty_alias_table_without_chang
                 assert await connection.scalar(text("SELECT COUNT(*) FROM pc_atomic_memory_alias")) == 0
 
     asyncio.run(scenario())
+
+
+def test_alias_switch_does_not_add_transactions_without_recall_candidates(tmp_path):
+    from sqlalchemy import event
+
+    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionOutput
+    from powercontext.builtin.inference import GenerationResult
+
+    class EmptyExtractor:
+        async def generate(self, request):
+            return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=()))
+
+    async def process(enabled):
+        config = _config(tmp_path / str(enabled))
+        config = config.model_copy(
+            update={"runtime": config.runtime.model_copy(update={"atomic_memory_alias_recall": enabled})}
+        )
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=EmptyExtractor(), reconciler=RecordingReconciler(), estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            config, embedding_model=AliasEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            await contexts.get("project")
+            await contexts.records.create_source("project", "content", OLD)
+            statements = []
+
+            def record(_connection, _cursor, statement, *_args):
+                if statement.lstrip().upper().startswith(("BEGIN", "SAVEPOINT")):
+                    statements.append(statement)
+
+            engine = contexts.database.engine.sync_engine
+            event.listen(engine, "before_cursor_execute", record)
+            try:
+                await contexts.process_memory("project", 1)
+            finally:
+                event.remove(engine, "before_cursor_execute", record)
+            return len(statements)
+
+    async def scenario():
+        baseline = await process(False)
+        assert await process(True) == baseline
+
+    asyncio.run(scenario())
