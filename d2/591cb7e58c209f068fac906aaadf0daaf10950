@@ -1,0 +1,29 @@
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 91,96-108,118-130
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 64
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 257-258,295-303,399,859,863,873-882,938-939,967-968,1019-1020,1064-1065,1100-1101,1200-1201,1293-1294,1300,1303,1306-1316,1318-1332,1342-1348,1669-1670
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 11-25,34-36,41-42,45-46,50-60
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 13-20,31-41,50,55-56,60-63,65-72
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_27e4ef9d139f66 44,46,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2591cb7e58c209f068fac906aaadf0daaf10950",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
