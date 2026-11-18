@@ -43,7 +43,8 @@ agent = Agent(
 
 该 Capability 提供 `powercontext_search`、`powercontext_remember` 和 `powercontext_context`。它还会从最新文本
 User Prompt 请求 `prepare_context`，并在一个 run 内最多前置一次不可信证据块。即使新 run 复用旧 message
-history，也会重新准备 Context。
+history，也会重新准备 Context。超过 8192 个字符或 8192 个 UTF-8 字节的 prompt 改用最近的文本召回，先取末尾
+8192 个字符，再截到末尾 8192 字节。
 
 如果只需要工具，不需要自动准备与采集，可以只挂载 Toolset：
 

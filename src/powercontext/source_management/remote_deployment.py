@@ -27,7 +27,7 @@ import httpx
 
 from powercontext.source_management.bootstrap import _allowed, _grant, _principal, request
 from powercontext.source_management.config import Endpoint, RuntimeConfig, configuration_digest, secret
-from powercontext.source_management.durable import RuntimeOwner
+from powercontext.source_management.durable import RuntimeOwner, configuration_lock
 from powercontext.source_management.loading import load_runtime_plugin
 from powercontext.source_management.models import InstanceRegistration, ManagementError
 from powercontext.source_management.service import launch, protected_write
@@ -39,14 +39,10 @@ def load(path, local, *, update=False):
     root = path.expanduser().resolve(strict=True).parent
     deployment = local.deployment
     state = (root / deployment.state_dir).resolve()
-    lock = RuntimeOwner(state / "deployment-lock")
-    try:
-        with ExitStack() as updating:
-            if update:
-                updating.callback(RuntimeOwner(state).close)
-            return _load(root, state, local, deployment, update, updating)
-    finally:
-        lock.close()
+    with configuration_lock(state / "deployment-lock"), ExitStack() as updating:
+        if update:
+            updating.callback(RuntimeOwner(state).close)
+        return _load(root, state, local, deployment, update, updating)
 
 
 def _load(root, state, local, deployment, update, updating):  # noqa: C901 - validate identities before registering or starting

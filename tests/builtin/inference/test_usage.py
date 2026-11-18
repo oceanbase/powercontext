@@ -15,19 +15,23 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 
 import pytest
 from pydantic import ValidationError
 
+from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.inference.errors import InferencePrivacyError, InferenceUnavailableError
 from powercontext.builtin.inference.models import (
+    EmbeddingResult,
     GenerationResult,
     InferenceUsage,
     InputEncodingReport,
     combine_inference_usage,
 )
 from powercontext.builtin.inference.usage import (
+    UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
     approved_usage,
     bind_usage_reporter,
@@ -37,6 +41,7 @@ from powercontext.builtin.inference.usage import (
     record_input_encoding,
 )
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.server.logging import JsonFormatter, _HumanContextFilter
 
 _REPORT = InputEncodingReport(
     mode="active",
@@ -114,6 +119,62 @@ def test_failure_with_known_usage_keeps_diagnostics_and_original_error(requests:
         assert original.usage.input_encodings == (_REPORT,)
 
     asyncio.run(scenario())
+
+
+def test_reporter_failure_preserves_generation_and_embedding_results(caplog: pytest.LogCaptureFixture) -> None:
+    class EmbeddingModel:
+        profile = EmbeddingProfile(profile_id="test", model="fixture", dimension=1, distance="l2", normalization="none")
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            return EmbeddingResult(vectors=((1.0,),), usage=InferenceUsage(requests=1))
+
+    async def report(purpose: ModelUsagePurpose, operation: ModelUsageOperation, usage: InferenceUsage) -> None:
+        raise TimeoutError("private usage reporter detail")  # noqa: TRY003
+
+    async def scenario() -> None:
+        with bind_usage_reporter(
+            report,
+            generation_purpose=ModelUsagePurpose.HANDOFF_GENERATION,
+            embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL,
+        ):
+            generated = await UsageReportingStructuredGenerator(_Generator()).generate(2400)
+            embedded = await UsageReportingEmbeddingModel(EmbeddingModel()).embed_query(("private query",))
+        assert generated.output == 2400 and generated.usage.requests == 2
+        assert embedded.vectors == ((1.0,),) and embedded.usage.requests == 1
+
+    asyncio.run(scenario())
+    actual = []
+    for record in caplog.records:
+        if getattr(record, "event", None) != "model_usage.accounting.failed":
+            continue
+        assert _HumanContextFilter().filter(record)
+        console = vars(record)["processing_context"]
+        rendered = JsonFormatter().format(record)
+        fields = json.loads(rendered)
+        actual.append((fields["family"], fields["model_capability"]))
+        assert fields["processing_stage"] == "usage_accounting"
+        assert fields["failure_location"] == "report" and fields["failure_reason"] == "timeout"
+        assert fields["error_code"] == "usage_accounting_report_timeout"
+        assert fields["input_item_count"] == 1
+        assert fields["error_category"] == "timeout"
+        assert "exception" not in fields
+        assert 'processing_stage="usage_accounting"' in console
+        assert 'failure_reason="timeout"' in console
+        for output in (rendered, console):
+            assert "private usage reporter detail" not in output and "private query" not in output
+    assert actual == [("handoff", "generation"), ("topic-memory", "embedding")]
+
+
+def test_reporter_cancellation_propagates(caplog: pytest.LogCaptureFixture) -> None:
+    async def report(purpose: ModelUsagePurpose, operation: ModelUsageOperation, usage: InferenceUsage) -> None:
+        raise asyncio.CancelledError
+
+    async def scenario() -> None:
+        with bind_usage_reporter(report, generation_purpose=_PURPOSE), pytest.raises(asyncio.CancelledError):
+            await UsageReportingStructuredGenerator(_Generator()).generate(2400)
+
+    asyncio.run(scenario())
+    assert all(getattr(record, "event", None) != "model_usage.accounting.failed" for record in caplog.records)
 
 
 @pytest.mark.parametrize(

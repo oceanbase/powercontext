@@ -64,6 +64,7 @@ when updating a plugin; this policy adds credential checks without changing capt
 | WorkBuddy | Submitted joined prompt text | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS=false` |
 | OpenCode | User text parts, excluding synthetic parts | `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` |
 | Pi | `before_agent_start` prompt | `POWERCONTEXT_PI_CAPTURE_PROMPTS=false` |
+| OpenClaw | Latest user text at `agent_end` and `before_compaction` | plugin config `autoCapture=false` |
 | ZCode | `UserPromptSubmit` text | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code (experimental) | Text parts of `UserPromptSubmit` | setup `--no-capture-prompts` |
 

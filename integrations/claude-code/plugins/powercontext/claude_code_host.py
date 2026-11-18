@@ -20,7 +20,7 @@ from powercontext_lifecycle.host_profile import HostProfile
 
 CLAUDE_CODE = HostProfile(
     integration="claude-code",
-    user_agent="powercontext-claude-code-plugin/0.1.3",
+    user_agent="powercontext-claude-code-plugin/0.1.4",
     component="powercontext.claude_code",
     prompt_id_field="prompt_id",
     diagnostics=DiagnosticThrottle(state_file="claude-code-diagnostics.json"),

@@ -37,11 +37,13 @@ from powercontext.builtin.artifacts.experience.models import ExperienceContent
 from powercontext.builtin.artifacts.experience.recurrence import (
     RECURRENCE_REVIEW_STREAK_THRESHOLD,
     CandidateSetMode,
+    RecurrenceEffectiveness,
     RecurrenceMatch,
     RecurrenceRevisionProposal,
     TaskOutcomeItemRef,
     avoided_refs,
     candidate_set_digest,
+    effectiveness_from_counts,
     eligible_candidates,
     failure_item_text,
     failure_refs,
@@ -121,6 +123,38 @@ class RelationalRecurrenceLedger:
         for row, outcome in outcomes:
             proposals.extend(await self._record_outcome(connection, row, outcome, heads=heads))
         return tuple(proposals)
+
+    async def effectiveness(
+        self,
+        connection: AsyncConnection,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> RecurrenceEffectiveness:
+        """Return the read-only effectiveness projection of one ledger bucket.
+
+        The database aggregates the event counts of
+        ``(scope_id, artifact_ref, signature_key)``, so the reading transfers at
+        most three rows and decodes no event. The aggregate still visits the
+        bucket's matching rows, so its cost grows with the bucket rather than
+        staying constant. This method appends nothing, caches nothing, and never
+        consults the current head, so the same ledger always yields the same
+        reading.
+        """
+
+        selected, recurred, avoided = await self.recurrence.event_counts_for_target(
+            connection,
+            self.scope_id,
+            artifact_ref,
+            signature_key,
+        )
+        return effectiveness_from_counts(
+            artifact_ref,
+            signature_key,
+            selected=selected,
+            recurred=recurred,
+            avoided=avoided,
+        )
 
     async def _record_outcome(
         self,
