@@ -390,6 +390,10 @@ plugin = ArtifactPlugin(
   `ctx.scopes.update(scope_id, expected_version=..., title=..., summary=...)` changes a Scope this plugin created and
   also needs `server.admin`; the API returns 404 when the Scope does not exist and 403 when another plugin or user
   created it.
+- Scopes a plugin creates are used through the plugin: the `GET /v1/scopes` listing leaves them out, so the Dashboard's
+  Scope selector, the desktop app, and an agent's `list_scopes` do not show them, also after the plugin is removed. A
+  request with `external_reference_kind=powercontext.plugin` lists exactly these Scopes. Only listings change: reading a
+  Scope by ID, access to its data, and authorization stay as they are.
 - `request.body` is the validated `request_model` instance, `bytes`, or `None`, according to `body`;
   `request.path_params`, `request.query`, and `request.caller` are the path parameters, query parameters, and caller.
 - Return a Pydantic model or a dict for JSON, `BinaryResponse(content=..., content_type=..., filename=...)` for a file,

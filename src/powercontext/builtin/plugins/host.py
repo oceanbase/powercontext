@@ -59,6 +59,7 @@ from powercontext.builtin.plugins.storage import open_plugin_resources
 from powercontext.builtin.plugins.writer import PluginArtifactWriter, PluginContractError, PluginWriteError, UserChange
 from powercontext.builtin.records import ArtifactRevisionPreconditionError, BaseValueConflictError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess
+from powercontext.builtin.scope.models import PLUGIN_SCOPE_REFERENCE_KIND
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.errors import RevisionConflictError
 from powercontext.plugins import (
@@ -738,7 +739,7 @@ class _Sources:
 
 
 class _Scopes:
-    _KIND = "powercontext.plugin"
+    _KIND = PLUGIN_SCOPE_REFERENCE_KIND
 
     def __init__(self, host: _Host) -> None:
         self._host = host

@@ -617,7 +617,9 @@ paths:
         Query matches the selected original field using the database's native substring operation.
         Regular expressions and wildcard syntax are not supported. Case, accent, and full-width/half-width
         matching follow the underlying database collation; results need not be identical across backends.
-        Requests without query parameters preserve the existing complete-list behavior.
+        Requests without query parameters return the complete list in one response.
+        Scopes created by a plugin (external reference kind `powercontext.plugin`) are used through that plugin and
+        are left out of every listing, unless `external_reference_kind` is `powercontext.plugin`.
       operationId: list_scopes
       x-powercontext-feature-contracts: [scope.selection]
       x-powercontext-access: {action: server.observe, resource: {type: server}}
