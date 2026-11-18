@@ -2146,6 +2146,11 @@ main.pc-home > footer {
   background: var(--pc-footer);
 }
 
+/* Focused links must scroll into view instead of staying behind the page sheet. */
+main.pc-home > footer:focus-within {
+  position: relative;
+}
+
 .dark main.pc-home > footer {
   --pc-footer: hsl(24 12% 7%);
 }

@@ -102,7 +102,19 @@ export function HeroDemo({ hero }: { hero: Hero }) {
 
   useEffect(() => {
     const demo = root.current;
-    if (!demo || demo.dataset.step === String(FINAL_STEP)) return;
+    if (!demo) return;
+    delete demo.dataset.live;
+    delete demo.dataset.rested;
+    if (
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      || !('IntersectionObserver' in window)
+      || !demo.animate
+    ) {
+      demo.dataset.step = String(FINAL_STEP);
+      return;
+    }
+    // Client navigation mounts the demo without running the pre-paint script.
+    demo.dataset.step = '0';
     const cursors = new Map<Actor, HTMLElement>();
     for (const { id } of ACTORS) {
       const cursor = demo.querySelector<HTMLElement>(`.pc-cursor[data-agent="${id}"]`);
@@ -273,6 +285,9 @@ export function HeroDemo({ hero }: { hero: Hero }) {
       stopped = true;
       for (const timer of timers) window.clearTimeout(timer);
       for (const animation of running) animation.cancel();
+      delete demo.dataset.live;
+      delete demo.dataset.rested;
+      demo.dataset.step = String(FINAL_STEP);
     };
   }, []);
 
