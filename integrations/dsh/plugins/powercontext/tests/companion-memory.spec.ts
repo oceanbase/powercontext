@@ -145,6 +145,10 @@ describe('optional companion memory service', () => {
     const f = fixture()
     f.request.mockResolvedValue({ kind: 'json', value: { schema: 'wrong', status: 'ready', content: 'oversized', content_bytes: 9999 } })
     expect(await f.service.prepare({ sessionId: 'active', query: 'private-token' })).toMatchObject({ status: 'unavailable' })
+    expect(f.request).toHaveBeenCalledWith(
+      'prepare_context', expect.objectContaining({ query: '[REDACTED]' }),
+      expect.any(AbortSignal), { traceContext: undefined },
+    )
     expect(JSON.stringify(f.request.mock.calls)).not.toContain('private-token')
   })
 
