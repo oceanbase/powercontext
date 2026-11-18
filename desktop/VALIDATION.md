@@ -3586,3 +3586,34 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-source-plugins-9f113a72-v1 \
   --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl
 ```
+
+
+## Server bc22089e plugin Scope listing protocol qualification
+
+`sqlite-plugin-scope-listing-bc22089e-v1` qualifies all thirteen Desktop protocol operations against
+Server source `bc22089e9dc9fcefe6cc1d26d56a2a0c677bbd68`, which leaves plugin-created Scopes out of Scope listings and states
+that rule in the `list_scopes` description.
+
+- Normalized OpenAPI SHA-256: `eaa14b1581221ea89706140c5181c9ca701d685caaa9ebcbfdbcf5758db3d713`.
+- Wheel: `powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl`.
+- Wheel SHA-256: `d7c7644cb32bc54bba8e9a2c5dd64d88d7db58d8c46a96008bbe4c4134b43fde`.
+- Native debug probe SHA-256 (built without debug info): `0feb207b3fdb9be2293c67f6a0cdd4d01ea51c6685f71b20ac6af6c4fa2770f2`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-scope-listing/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-scope-listing-bc22089e-v1 \
+  --wheel desktop/.artifacts/plugin-scope-listing/powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl
+```
