@@ -136,6 +136,31 @@ class _DelegatingModel(_ScriptedModel):
         )
 
 
+class _AnsweringModel(BaseChatModel):
+    """Record the tools it is bound with, then answer."""
+
+    tool_names: list[str] = Field(default_factory=list)
+
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Callable[..., Any]],
+        *,
+        tool_choice: str | None = None,
+        **kwargs: Any,
+    ) -> Runnable:
+        self.tool_names = [
+            getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None) for item in tools
+        ]
+        return self
+
+    def _generate(self, messages: Sequence[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok"))])
+
+    @property
+    def _llm_type(self) -> str:
+        return "answering"
+
+
 def _system_texts(messages: Sequence[BaseMessage]) -> list[str]:
     return [message.text for message in messages if message.type == "system"]
 
@@ -179,6 +204,58 @@ def test_default_general_purpose_subagent_gets_recall() -> None:
     assert [item.auto_capture for item in general["middleware"]] == [False]
     assert "model" not in general, "Deep Agents must inherit the parent model"
     assert "tools" not in general, "Deep Agents must inherit the parent tools"
+
+
+def test_disabled_general_purpose_profile_is_respected() -> None:
+    """Opting into PowerContext must not re-enable delegation that the profile disabled."""
+    from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
+    from deepagents.profiles.harness import harness_profiles
+
+    registry = harness_profiles._HARNESS_PROFILES
+    snapshot = dict(registry)
+    try:
+        register_harness_profile(
+            "_scriptedmodel",
+            HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)),
+        )
+        model = _ScriptedModel()
+        assert powercontext_subagents(None, model=model) == []
+        assert [spec["name"] for spec in powercontext_subagents([SUBAGENT], model=model)] == ["researcher"]
+
+        captured: dict[str, Any] = {}
+
+        def fake_create(inner_model: Any = None, tools: Any = None, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "agent"
+
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setattr(deepagents, "create_deep_agent", fake_create)
+            assert create_powercontext_deep_agent(model) == "agent"
+        assert captured["subagents"] == [], "no general-purpose spec may be forwarded"
+    finally:
+        registry.clear()
+        registry.update(snapshot)
+
+
+def test_disabled_general_purpose_profile_keeps_delegation_disabled() -> None:
+    """The compiled agent must not offer ``task`` when the profile disabled it."""
+    from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
+    from deepagents.profiles.harness import harness_profiles
+
+    registry = harness_profiles._HARNESS_PROFILES
+    snapshot = dict(registry)
+    try:
+        register_harness_profile(
+            "_answeringmodel",
+            HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)),
+        )
+        model = _AnsweringModel()
+        agent = create_powercontext_deep_agent(model, tools=[])
+        agent.invoke({"messages": [{"role": "user", "content": "hi"}]}, context=PowerContextScope())
+        assert "task" not in model.tool_names
+    finally:
+        registry.clear()
+        registry.update(snapshot)
 
 
 def test_explicit_general_purpose_subagent_is_not_duplicated() -> None:

@@ -64,7 +64,8 @@ result = await agent.ainvoke(
 - 主 agent 获得一个 `PowerContextMiddleware(auto_capture=...)`。如果 `middleware=` 中已有
   `PowerContextMiddleware`，则复用该实例，不再重复添加。
 - 内置的 `general-purpose` subagent 会获得一个 `PowerContextMiddleware(auto_capture=False)`；否则 Deep Agents 会
-  在不带召回的情况下创建该 subagent。
+  在不带召回的情况下创建该 subagent。若 harness profile 禁用了它（`GeneralPurposeSubagentProfile(enabled=False)`），
+  适配层会尊重该配置，不会因为接入 PowerContext 而重新开启应用已关闭的委派能力。
 - 每个声明式 subagent 的 `middleware` 列表末尾追加一个 `PowerContextMiddleware(auto_capture=False)`。已有的
   `PowerContextMiddleware(auto_capture=True)` 会被替换为等价的 recall-only 副本，因此被委派的轮次绝不会被采集。
   适配层会复制规格与 middleware，不会修改调用方传入的对象。
@@ -110,7 +111,7 @@ result = await agent.ainvoke(
 
 ## 已验证版本
 
-18 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、声明式 subagent 与内置
+20 个确定性测试基于脚本模型和进程内 PowerContext Server（SQLite）运行，覆盖：中间件注入、声明式 subagent 与内置
 `general-purpose` subagent 的召回、对自带 `auto_capture=True` 的 subagent 做采集归一化、单次采集归属、流式
 `astream`、中断/恢复、重复模型调用不累积上下文，以及不同运行之间的 Scope 隔离。
 

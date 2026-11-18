@@ -64,7 +64,9 @@ result = await agent.ainvoke(
 - The main agent receives one `PowerContextMiddleware(auto_capture=...)`. An existing `PowerContextMiddleware` in
   `middleware=` is reused instead of duplicated.
 - The built-in `general-purpose` subagent receives one `PowerContextMiddleware(auto_capture=False)`; Deep Agents
-  would create that subagent without recall otherwise.
+  would create that subagent without recall otherwise. A harness profile that disables it
+  (`GeneralPurposeSubagentProfile(enabled=False)`) is respected, so opting into PowerContext does not re-enable
+  delegation the application turned off.
 - Each declarative subagent receives one `PowerContextMiddleware(auto_capture=False)` appended to its own
   `middleware` list. An existing `PowerContextMiddleware(auto_capture=True)` is replaced by an equivalent
   recall-only copy, so a delegated turn is never captured. The adapter copies the specification and the middleware;
@@ -116,7 +118,7 @@ generation model and an embedding model configured on the Server; the quickstart
 
 ## Validated versions
 
-Deterministic tests (18) run against scripted models and an in-process PowerContext Server over SQLite: middleware
+Deterministic tests (20) run against scripted models and an in-process PowerContext Server over SQLite: middleware
 injection, recall on declarative subagents and on the built-in `general-purpose` subagent, capture normalization for a
 subagent that arrives with `auto_capture=True`, single-capture ownership, streaming (`astream`), interrupt/resume,
 repeated model calls without context accumulation, and Scope isolation between runs.

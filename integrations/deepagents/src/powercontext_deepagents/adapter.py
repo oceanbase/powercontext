@@ -83,6 +83,29 @@ def _spec_name(spec: Any) -> str | None:
     return spec.get("name") if isinstance(spec, Mapping) else None
 
 
+def _default_general_purpose_enabled(model: Any) -> bool:
+    """Whether the active harness profile allows Deep Agents' default subagent.
+
+    A profile can disable the built-in ``general-purpose`` subagent, and Deep Agents honours that only when it
+    auto-adds the default. An explicit spec bypasses the setting, so the adapter must not add one in that case.
+    Profile resolution is best effort: any failure keeps the current default behavior.
+    """
+    if model is None:
+        return True
+    try:
+        from deepagents._models import resolve_model
+        from deepagents.profiles.harness.harness_profiles import _harness_profile_for_model
+    except ImportError:  # pragma: no cover - exercised only with a different deepagents layout
+        return True
+    try:
+        spec = model if isinstance(model, str) else None
+        profile = _harness_profile_for_model(resolve_model(model) if spec is not None else model, spec)
+    except Exception:
+        return True
+    general_purpose = profile.general_purpose_subagent
+    return general_purpose is None or general_purpose.enabled is not False
+
+
 def powercontext_deep_agent_middleware(middleware: Sequence[Any] = (), *, auto_capture: bool = False) -> list[Any]:
     """Return ``middleware`` with one capture-configured PowerContext entry appended when absent."""
     combined = list(middleware)
@@ -91,7 +114,7 @@ def powercontext_deep_agent_middleware(middleware: Sequence[Any] = (), *, auto_c
     return combined
 
 
-def powercontext_subagents(subagents: Iterable[Any] | None) -> list[Any]:
+def powercontext_subagents(subagents: Iterable[Any] | None, *, model: Any = None) -> list[Any]:
     """Return subagent specs that all recall through PowerContext.
 
     Declarative specs receive a recall-only ``PowerContextMiddleware``; an existing ``PowerContextMiddleware``
@@ -100,12 +123,17 @@ def powercontext_subagents(subagents: Iterable[Any] | None) -> list[Any]:
     their graph and are returned unchanged; add ``PowerContextMiddleware`` inside that graph explicitly.
 
     Deep Agents adds a built-in ``general-purpose`` subagent when no spec uses that name, and it would be
-    created without recall. This function always returns such a spec, carrying recall-only middleware, so
+    created without recall. This function normally returns such a spec, carrying recall-only middleware, so
     default delegation keeps the same Scope-bound recall as the main agent. A caller-supplied
-    ``general-purpose`` spec is normalized instead of duplicated.
+    ``general-purpose`` spec is normalized instead of duplicated, and a harness profile that disables the
+    default subagent is respected by returning no extra spec.
+
+    Args:
+        subagents: Caller-supplied subagent specifications.
+        model: The agent model, used only to resolve the active harness profile.
     """
     specs = [_recall_only_subagent(spec) for spec in subagents or ()]
-    if not any(_spec_name(spec) == _GENERAL_PURPOSE for spec in specs):
+    if not any(_spec_name(spec) == _GENERAL_PURPOSE for spec in specs) and _default_general_purpose_enabled(model):
         specs.insert(0, _general_purpose_subagent())
     return specs
 
@@ -127,7 +155,8 @@ def create_powercontext_deep_agent(
         subagents: Declarative subagent specs. Each one receives a recall-only
             ``PowerContextMiddleware``, and an existing capture-enabled entry is normalized to recall-only.
             The built-in ``general-purpose`` subagent receives the same recall middleware when the caller
-            does not pass a spec with that name; compiled and remote subagents are returned unchanged.
+            does not pass a spec with that name and the active harness profile does not disable it; compiled
+            and remote subagents are returned unchanged.
         middleware: Additional middleware for the main agent. An existing
             ``PowerContextMiddleware`` entry is reused instead of duplicated.
         auto_capture: Capture successful completed turns on the main agent. Subagents never capture, so a
@@ -152,7 +181,7 @@ def create_powercontext_deep_agent(
         model,
         tools,
         middleware=powercontext_deep_agent_middleware(middleware, auto_capture=auto_capture),
-        subagents=powercontext_subagents(subagents),
+        subagents=powercontext_subagents(subagents, model=model),
         **kwargs,
     )
 
