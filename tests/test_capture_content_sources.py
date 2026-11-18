@@ -91,6 +91,16 @@ def test_an_item_already_stored_with_the_same_content_counts_as_stored(client: T
     assert _stored(client, scope, "turn-2of2") == 200
 
 
+def test_an_item_already_stored_with_other_metadata_rejects_the_batch(client: TestClient, scope: str) -> None:
+    single = {"scope_id": scope, "source_id": "turn-1of2", "content": "first", "metadata": {"part": 1, "parts": 1}}
+    assert client.post("/v1/sources/content", json=single).status_code == 202
+
+    response = client.post(BATCH, json={"scope_id": scope, "sources": _parts("first", "second")})
+
+    assert response.status_code == 409
+    assert _stored(client, scope, "turn-2of2") == 404
+
+
 @pytest.mark.parametrize(
     "sources",
     [

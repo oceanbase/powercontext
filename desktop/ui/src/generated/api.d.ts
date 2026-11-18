@@ -472,7 +472,7 @@ export interface paths {
         put?: never;
         /**
          * Capture several ContentSources in one transaction
-         * @description Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation turn. Each item follows the rules of the single ContentSource capture operation. All items are stored in one transaction, or none is stored. Newly stored items receive consecutive journal positions in request order. An exact replay is idempotent, and an item whose identity already exists with the same content counts as stored and keeps its existing position. An item whose identity exists with different content rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
+         * @description Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation turn. Each item follows the rules of the single ContentSource capture operation. All items are stored in one transaction, or none is stored. Newly stored items receive consecutive journal positions in request order. An exact replay is idempotent, and an item whose identity already exists with the same content and metadata counts as stored and keeps its existing position. An item whose identity exists with different content or different metadata rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
          */
         post: operations["capture_content_sources"];
         delete?: never;

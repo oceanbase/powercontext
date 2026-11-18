@@ -1019,13 +1019,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "request order. An exact replay "
                 "is idempotent, and an item whose "
                 "identity already exists with the "
-                "same content counts as stored "
-                "and keeps its existing position. "
-                "An item whose identity exists "
-                "with different content rejects "
-                "the whole request. Accepted "
-                "Source evidence does not mean "
-                "Memory was extracted.",
+                "same content and metadata counts "
+                "as stored and keeps its existing "
+                "position. An item whose identity "
+                "exists with different content or "
+                "different metadata rejects the "
+                "whole request. Accepted Source "
+                "evidence does not mean Memory "
+                "was extracted.",
                 "operationId": "capture_content_sources",
                 "requestBody": {
                     "content": {
