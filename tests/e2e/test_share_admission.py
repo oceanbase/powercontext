@@ -51,6 +51,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_INTENTS_TABLE,
     CANDIDATE_HEADS_TABLE,
+    CANDIDATE_VERSIONS_TABLE,
     SHARE_SNAPSHOTS_TABLE,
     SOURCES_TABLE,
 )
@@ -2426,5 +2427,323 @@ def test_shared_experience_revision_approval_is_refused(tmp_path: Path) -> None:
                 with pytest.raises(InvalidCandidateError) as refused:
                     await review._verify_shared_binding(connection, candidate)
             assert refused.value.detail == "shared_use_revision_unavailable"
+
+    asyncio.run(scenario())
+
+
+def experience_draft_with_source(source_ref):
+    """An Experience draft whose lineage cites one exact Source."""
+
+    from powercontext.builtin.artifacts.experience import ExperienceDraft
+
+    return ExperienceDraft(content=experience(), sources=(source_ref,))
+
+
+def test_pinned_foreign_experience_adopts_reachable_source_not_in_pin(tmp_path: Path) -> None:
+    """A pinned foreign Experience pins only itself; its lineage Source is reachable."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'ancestry.db'}")
+        generator = _SelectingGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            artifacts = ArtifactRepository(BUILTIN_ARTIFACT_TYPES, sources=sources)
+            async with runtime.primary_database.transaction() as connection:
+                lineage_source = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="lineage",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="The lineage Source the Experience revision stands on.",
+                    ),
+                )
+            async with runtime.primary_database.transaction() as connection:
+                foreign_artifact = await artifacts.create(
+                    connection,
+                    origin,
+                    "foreign-exp",
+                    experience_draft_with_source(lineage_source.ref),
+                )
+            foreign_ref = ArtifactRef(family="experience", artifact_id="foreign-exp", revision=1)
+            foreign_digest = content_digest(foreign_artifact.model_dump_json().encode())
+            lineage_digest = content_digest(lineage_source.value.model_dump_json().encode())
+
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=sources,
+                artifacts=artifacts,
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    # ONLY the Experience is pinned; its lineage Source is not.
+                    inputs=(
+                        ShareInput(
+                            kind="artifact",
+                            origin_scope_id=origin,
+                            artifact=foreign_ref,
+                            digest=foreign_digest,
+                        ),
+                    ),
+                    notification_key="ancestry-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            assert {item.origin_scope_id for item in pin.inputs} == {origin}
+            assert all(item.artifact is not None for item in pin.inputs)
+            assert all(item.reference != lineage_source.ref for item in pin.inputs if item.artifact is None)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience",
+                artifacts=(foreign_ref,),
+                idempotency_key="ancestry-run",
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, target, run.run_id)
+                resolved = await service._resolve(record, connection)
+            generator.cite = next(node.evidence_id for node in resolved.manifest.nodes if node.digest == foreign_digest)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+
+            review = runtime.review.for_scope(target)
+            approved = await review.approve(
+                ApproveCandidateRequest(candidate_id=finished.candidate.candidate_id, expected_version=1)
+            )
+            assert approved.status == "approved"
+            result = approved.result_artifact
+            assert result is not None and result.family == "experience"
+
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_LINEAGE_ORIGINS_TABLE as ORIGINS
+
+            async with runtime.primary_database.transaction() as connection:
+                rows = (
+                    (
+                        await connection.execute(
+                            select(ORIGINS).where(
+                                ORIGINS.c.scope_id == target,
+                                ORIGINS.c.artifact_id == result.artifact_id,
+                                ORIGINS.c.revision == result.revision,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            recorded = {(str(row["origin_scope_id"]), str(row["origin_kind"]), str(row["digest"])) for row in rows}
+            # The pinned Experience is recorded exactly.
+            assert (origin, "artifact", foreign_digest) in recorded
+            # The reachable unpinned lineage Source is recorded too: ancestry is adopted,
+            # not rejected as a non-top-level dependency.
+            assert any(kind == "source" and digest == lineage_digest for _, kind, digest in recorded)
+            # Nothing outside the foreign origin is claimed.
+            assert {scope for scope, _, _ in recorded} == {origin}
+            # Uncited support is absent.
+            assert len(recorded) == 2
+
+    asyncio.run(scenario())
+
+
+def test_uncited_origin_tampered_into_the_audit_is_refused_by_identity(tmp_path: Path) -> None:
+    """An unrelated real origin added to the audit is rejected by identity, not by digest."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'uncited.db'}")
+        generator = _SelectingGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            for scope_id in (origin, target):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            async with runtime.primary_database.transaction() as connection:
+                cited = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="cited",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Replayed the write with key K; exactly one row remained.",
+                    ),
+                )
+                # A real, eligible, unchanged, but never-cited origin.
+                uncited = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(
+                        name="uncited",
+                        materialization=SourceMaterialization.CAPTURED,
+                        content="Real material the model never cited.",
+                    ),
+                )
+            cited_digest = content_digest(cited.value.model_dump_json().encode())
+            uncited_digest = content_digest(uncited.value.model_dump_json().encode())
+
+            agreement = ShareAgreementService(
+                runtime.primary_database, access=access, scopes=ScopeRepository(), sources=sources
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(target, origin)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for side, covered in (("origin", (origin,)), ("audience", (target,))):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side=side,
+                    covered_scope_ids=covered,
+                    context=AUDIT,
+                )
+            async with runtime.primary_database.transaction() as connection:
+                descriptors = {
+                    scope_id: await ScopeRepository().get(connection, scope_id) for scope_id in (target, origin)
+                }
+            assert all(d is not None for d in descriptors.values())
+            versions: tuple[tuple[str, int], ...] = tuple(
+                sorted((sid, d.version) for sid, d in descriptors.items() if d is not None)
+            )
+            # BOTH are pinned, so the uncited one is genuinely available and its bytes match.
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(versions),
+                    inputs=(
+                        ShareInput(kind="source", origin_scope_id=origin, source=cited.ref, digest=cited_digest),
+                        ShareInput(kind="source", origin_scope_id=origin, source=uncited.ref, digest=uncited_digest),
+                    ),
+                    notification_key="uncited-pin",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            citation = await _seed_evidence(runtime, target)
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="uncited-run"
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, target, run.run_id)
+                resolved = await service._resolve(record, connection)
+            generator.cite = next(node.evidence_id for node in resolved.manifest.nodes if node.digest == cited_digest)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded", finished.error
+
+            # Tamper the stored audit so it also claims the real, unchanged, uncited origin.
+            review = runtime._provider.review(target)
+            from powercontext.builtin.persistence.candidates import _encode_proposal
+
+            async with runtime.primary_database.transaction() as connection:
+                stored = await review._candidates.get(connection, target, finished.candidate.candidate_id)
+                assert stored.audit is not None
+                forged = stored.audit.model_copy(
+                    update={
+                        "adopted_origins": (
+                            *stored.audit.adopted_origins,
+                            QualifiedOrigin(scope_id=origin, source=uncited.ref, digest=uncited_digest),
+                        )
+                    }
+                )
+                await connection.execute(
+                    CANDIDATE_VERSIONS_TABLE
+                    .update()
+                    .where(
+                        CANDIDATE_VERSIONS_TABLE.c.scope_id == target,
+                        CANDIDATE_VERSIONS_TABLE.c.candidate_id == finished.candidate.candidate_id,
+                        CANDIDATE_VERSIONS_TABLE.c.version == 1,
+                    )
+                    .values(proposal=_encode_proposal(stored.model_copy(update={"audit": forged})))
+                )
+
+            # Rejection must be an identity mismatch, not a digest failure: the uncited origin
+            # exists and its bytes are unchanged.
+            async with runtime.primary_database.transaction() as connection:
+                current = await review._candidates.get(connection, target, finished.candidate.candidate_id)
+                with pytest.raises(InvalidCandidateError) as refused:
+                    await review._verify_shared_binding(connection, current)
+            assert refused.value.detail == "adopted support is not the selected support"
 
     asyncio.run(scenario())

@@ -973,43 +973,95 @@ class ReviewService:
         manifest = record.run.input_manifest
         if manifest is None:
             raise InvalidCandidateError("audit", "shared run has no persisted input manifest")
-        adopted = self._reproduce_adopted_support(manifest, snapshot, audit)
-        if self._evidence is None:
-            # Fail closed: without the authorized resolver no adopted origin can be re-read.
-            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
-        try:
-            await self._evidence.validate_qualified(connection, adopted)
-        except EvidenceResolutionError as error:
-            raise InvalidCandidateError("approval", "adopted support moved") from error
+        if not record.share_citations:
+            raise InvalidCandidateError("audit", "shared run has no persisted citations")
+        adopted = await self._regenerate_adopted_support(connection, record, snapshot, audit)
         return adopted
 
-    def _reproduce_adopted_support(self, manifest, snapshot, audit, /):
-        """Check the audit's support is exactly what the durable run declared.
+    async def _regenerate_adopted_support(
+        self, connection: AsyncConnection, record, snapshot, audit, /
+    ) -> tuple[QualifiedOrigin, ...]:
+        """Rerun the run's own selection and require it to equal the stored support.
 
-        Directly cited inputs must appear in the pin with their pinned digest. Reachable
-        support is verified separately by re-reading it, so a legitimate dependency the pin
-        never listed is not rejected merely for being absent from the pin.
+        The stored citations and the durable manifest are the only inputs: selection is
+        reproduced exactly as generation performed it, with the pin's qualified identities
+        as the direct inputs. The regenerated set must match the audit's adopted support on
+        every qualified reference *and* digest, so an origin that was never selected — even
+        with unchanged bytes and a still-current target — cannot be passed off as support.
+        Reachable foreign dependencies are then authorized for the acting principal before
+        their bytes are read.
         """
 
         from powercontext.builtin.dream.provenance import unique_origins
-        from powercontext.builtin.evidence.selection import qualified_direct_origins
+        from powercontext.builtin.evidence.selection import qualified_direct_origins, select_evidence
 
+        manifest = record.run.input_manifest
+        assert manifest is not None  # noqa: S101 - checked by the caller
+        if record.request is None:
+            raise InvalidCandidateError("audit", "shared run has no executable request")
+        regenerated = select_evidence(
+            manifest,
+            record.share_citations,
+            skill=record.run.operation == "derive_skill",
+            target=record.request.target,
+            scope_id=self._scope_id,
+        )
+        expected = unique_origins(regenerated.adopted)
+        if not expected:
+            raise InvalidCandidateError("audit", "shared run selected no adoptable support")
+        stored = unique_origins(audit.adopted_origins)
+        if _origin_keys(stored) != _origin_keys(expected):
+            # Identity mismatch, not a digest failure: the audit names support the run never
+            # selected, or omits support it did.
+            raise InvalidCandidateError("audit", "adopted support is not the selected support")
         declared = {(item.origin_scope_id, item.digest, item.reference.model_dump_json()) for item in snapshot.inputs}
-        adopted = unique_origins(audit.adopted_origins)
         direct = {
             (origin.scope_id, origin.reference.model_dump_json())
-            for origin in qualified_direct_origins(
-                manifest,
-                tuple(node.evidence_id for node in manifest.nodes if node.role != "target"),
-                scope_id=self._scope_id,
-            )
+            for origin in qualified_direct_origins(manifest, record.share_citations, scope_id=self._scope_id)
         }
-        for origin in adopted:
-            key = (origin.scope_id, origin.reference.model_dump_json())
-            if key in direct and (origin.scope_id, origin.digest, origin.reference.model_dump_json()) not in declared:
-                # A directly cited input must be the material the pin fixed, by digest.
+        for origin in expected:
+            if (origin.scope_id, origin.reference.model_dump_json()) in direct and (
+                origin.scope_id,
+                origin.digest,
+                origin.reference.model_dump_json(),
+            ) not in declared:
+                # A directly cited input must be the material the pin fixed.
                 raise InvalidCandidateError("audit", "direct support is not the pinned material")
-        return adopted
+        await self._authorize_reachable(connection, record, expected, direct)
+        if self._evidence is None:
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        try:
+            await self._evidence.validate_qualified(connection, expected)
+        except EvidenceResolutionError as error:
+            raise InvalidCandidateError("approval", "adopted support moved") from error
+        return expected
+
+    async def _authorize_reachable(self, connection, record, origins, direct, /) -> None:
+        """Authorize actual reachable foreign dependencies before reading their bytes."""
+
+        from powercontext.builtin.sharing.eligibility import require_origin_reference
+
+        if self._share_access is None or self._share_principal is None:
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        principal = self._share_principal(record.principal_id)
+        if principal is None:
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
+        access = self._share_access.with_connection(connection)
+        audit_context = AccessAuditContext(transport="background", operation="review.share_reachable")
+        for origin in origins:
+            reference = origin.reference
+            if origin.scope_id == self._scope_id or (origin.scope_id, reference.model_dump_json()) in direct:
+                continue
+            try:
+                await require_origin_reference(
+                    access=access,
+                    principal=principal,
+                    scope_id=origin.scope_id,
+                    ref=reference,
+                    audit=audit_context,
+                )
+            except Exception as error:
+                raise InvalidCandidateError("approval", "reachable support is not authorized") from error
 
     async def _write_shared_origins(
         self,
@@ -1648,6 +1700,12 @@ def _validate_approval_lineage(candidate: ReviewedCandidate) -> None:
         raise InvalidCandidateError("artifacts", "managed Skill lineage must include its exact target")
     if not candidate.sources:
         raise InvalidCandidateError("sources", "managed Skill replacement requires bounded Source evidence")
+
+
+def _origin_keys(origins) -> set[tuple[str, str, str]]:
+    """Compare qualified support on owning Scope, exact reference and exact digest."""
+
+    return {(origin.scope_id, origin.reference.model_dump_json(), origin.digest) for origin in origins}
 
 
 def _candidate_draft(candidate: ReviewedCandidate) -> ReviewedDraft:

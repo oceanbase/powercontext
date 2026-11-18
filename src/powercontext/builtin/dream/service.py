@@ -191,7 +191,7 @@ class DreamService:
     async def create(self, scope_id: str, principal_id: str, request: CreateDreamRunRequest) -> DreamRun:
         return await self._admit(scope_id, principal_id, request, snapshot_id=None)
 
-    async def _admit(
+    async def _admit(  # noqa: C901 - one admission transaction, ordinary and pinned
         self,
         scope_id: str,
         principal_id: str,
@@ -249,15 +249,19 @@ class DreamService:
             if request.tag_target is not None:
                 await self._check_tag_target(connection, scope_id, principal_id, request)
             artifacts, target = _resolve_references(request)
-            await resolver.resolve(
-                connection,
-                sources=request.sources,
-                artifacts=artifacts,
-                target=target,
-                project=False,
-                lock_memory=True,
-                expose_catalog_target=request.operation == "revise_tags",
-            )
+            if snapshot_id is None:
+                # An ordinary run admits its request's references here. A bound run admits
+                # only its pin, and the pin may name an identity that does not exist in this
+                # Scope at all, so admission must not resolve the request's references.
+                await resolver.resolve(
+                    connection,
+                    sources=request.sources,
+                    artifacts=artifacts,
+                    target=target,
+                    project=False,
+                    lock_memory=True,
+                    expose_catalog_target=request.operation == "revise_tags",
+                )
             if await self.repository.pending_count(connection, scope_id) >= self.max_pending_per_scope:
                 raise DreamError("capacity_exceeded")
             intent = await self.intents.request(connection, scope_id, binding)
@@ -659,6 +663,11 @@ class DreamService:
             resolved = await self._resolve(record, connection)
             candidate = None
             if plan.outcome == "proposed":
+                if record.share_snapshot_id is not None:
+                    # Persist exactly what the model cited, in this transaction with the
+                    # proposal, so approval regenerates the same selection from durable
+                    # state instead of trusting a stored summary.
+                    record = record.model_copy(update={"share_citations": plan.evidence_ids})
                 if self.attest_candidate is not None and run.operation != "revise_tags":
                     family = {
                         "derive_skill": "skill",
@@ -749,6 +758,7 @@ class DreamService:
                     reason=plan.reason,
                     candidate_id=_candidate_id(record),
                 )
+
             else:
                 candidate = await review.propose_experience(
                     plan.proposal,

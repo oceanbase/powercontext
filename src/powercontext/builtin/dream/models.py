@@ -275,6 +275,10 @@ class DreamRecord(BaseModel):
     profile_policy: ProfileDreamPolicy | None = None
     proposal_fingerprint: str | None = None
     share_snapshot_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # The evidence ids the model actually cited for a pinned shared run. Persisted in the
+    # same transaction as the proposal so approval can regenerate the exact same selection
+    # from durable state instead of trusting a stored summary. Absent for ordinary runs.
+    share_citations: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
 
 
 class DreamPlan(BaseModel):
