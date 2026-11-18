@@ -10,6 +10,10 @@ inputs:
     description: "uv version to use"
     required: true
     default: "0.10.12"
+  shared-cache:
+    description: "Share and save root dependencies after installation. Leave disabled when later steps install additional Python dependencies."
+    required: false
+    default: 'false'
   cache-dependency-glob:
     description: "Dependency files used to invalidate the uv cache, relative to the repository root"
     required: false
@@ -28,13 +32,23 @@ runs:
         python-version: ${{ inputs.python-version }}
 
     - name: Install uv
+      id: uv
       uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: 'true'
-        cache-suffix: ${{ github.job }}-py${{ inputs.python-version }}
+        save-cache: ${{ inputs.shared-cache == 'true' && 'false' || 'auto' }}
+        cache-suffix: ${{ inputs.shared-cache == 'true' && 'shared' || github.job }}-py${{ inputs.python-version }}
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
 
     - name: Install Python dependencies
       run: uv sync --frozen
       shell: bash
+
+    # Publish before tests so a later failure or timeout cannot discard the download cache.
+    - name: Save Python dependencies
+      if: inputs.shared-cache == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ env.UV_CACHE_DIR }}
+        key: ${{ steps.uv.outputs.cache-key }}

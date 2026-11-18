@@ -254,6 +254,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          # The 3.11 unit job also downloads minimum Pydantic after the root install.
+          shared-cache: ${{ matrix.suite == 'e2e' || matrix.python-version != '3.11' }}
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
@@ -289,6 +291,15 @@ jobs:
         run: >-
           uv run --with 'pydantic==2.12.0' python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
+
+      - name: Cache Gateway dependencies and compilation
+        if: matrix.suite == 'e2e'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
 
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
@@ -385,6 +396,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          shared-cache: 'true'
           python-version: "3.12"
 
       - name: Test documentation contracts
@@ -911,6 +923,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Check out the supported Hermes host
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -938,6 +952,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -988,6 +1004,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1031,6 +1049,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1065,6 +1085,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
@@ -1163,6 +1185,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       - name: Install the pinned Claude Code host
@@ -1254,6 +1278,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
@@ -1594,6 +1620,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
       - name: Install Helm
         run: |
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz
