@@ -200,7 +200,8 @@ jobs:
       - name: Prepare cached OpenAPI Generator
         uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
-      - run: pnpm test
+      # Limit concurrent jsdom workers on Intel runners so UI flows have CPU time.
+      - run: pnpm test ${{ matrix.runner == 'macos-15-intel' && '--maxWorkers=2' || '' }}
       - run: pnpm build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
