@@ -1,0 +1,71 @@
+name: Dependency cache acceptance
+
+on:
+  push:
+    branches: [codex/ci-dependency-cache-fix]
+    paths: [.github/workflows/ci-cache-canary.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  seed:
+    name: Seed caches then fail deliberately
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 15
+    outputs:
+      prepared: ${{ steps.prepared.outputs.value }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.14'
+          shared-cache: 'true'
+      - name: Cache Gateway dependencies and compilation
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+      - name: Build Gateway
+        run: cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+      - id: prepared
+        run: echo 'value=true' >> "$GITHUB_OUTPUT"
+      - name: Deliberate test failure after dependency preparation
+        run: exit 23
+
+  warm:
+    name: Restore caches in a different runner Pod
+    needs: seed
+    if: always() && needs.seed.outputs.prepared == 'true'
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.14'
+          shared-cache: 'true'
+      - name: Cache Gateway dependencies and compilation
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+      - name: Verify dependency availability offline
+        run: |
+          uv sync --frozen --offline
+          cargo build --locked --offline --manifest-path gateway/Cargo.toml -p pc-gateway-app
+      - name: Exercise Gateway with restored dependencies
+        env:
+          CARGO_NET_OFFLINE: 'true'
+          UV_OFFLINE: 'true'
+        run: uv run python -m pytest tests/e2e/test_gateway_authentication.py -q -n 0
