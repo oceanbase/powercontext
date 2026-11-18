@@ -871,25 +871,8 @@ class ReviewService:
             if current.status is CandidateStatus.REJECTED:
                 raise CandidateTerminalError(candidate_id, current.status)
             if current.family == "profile":
-                # A shared Profile Candidate must pass the same verified sharing gate as
-                # Experience and Skill before it can publish: exact persisted citations,
-                # current agreement and Access, and only the verified adopted origins.
-                if current.audit is not None and current.audit.share_snapshot_id is not None:
-                    locked = _reviewed_candidate(
-                        await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
-                    )
-                    await self._authorize_decision("approve", locked)
-                    await self._validate_candidate_audit(connection, locked)
-                    verified = await self._verify_shared_binding(connection, locked)
-                    return _reviewed_candidate(
-                        await decide_profile(
-                            self,
-                            connection,
-                            candidate_id,
-                            expected_version,
-                            verified_origins=verified,
-                        )
-                    )
+                # No pre-lock here: decide_profile owns the ordered Intent -> Policy ->
+                # Candidate locks and verifies a shared Candidate inside that transaction.
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
             if current.version != expected_version:
                 raise CandidateConflictError(candidate_id, expected_version, current.version)

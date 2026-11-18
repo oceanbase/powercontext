@@ -36,7 +36,7 @@ from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.sources import SourceCursor
 
 
-async def decide_profile(service, connection, candidate_id, expected_version, *, reason=None, verified_origins=None):
+async def decide_profile(service, connection, candidate_id, expected_version, *, reason=None):
     # Admission and Workers lock Intent before Policy. Source-window decisions
     # update this same Intent at commit, so acquire it before any business locks.
     intents = ArtifactProcessingIntentRepository()
@@ -50,9 +50,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     if not isinstance(proposal, ProfileCandidateProposal):
         raise InvalidCandidateError("family", "profile required")
     if proposal.dream_run_id is not None:
-        return await _decide_dream_profile(
-            service, connection, candidate, policy, reason=reason, verified_origins=verified_origins
-        )
+        return await _decide_dream_profile(service, connection, candidate, policy, reason=reason)
     if policy is None or policy.pending_candidate_id != candidate_id:
         raise BaseValueConflictError("profile_candidate", (service._scope_id,))
     cursors = SourceCursorRepository()
@@ -108,7 +106,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     return result
 
 
-async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None, verified_origins=None):
+async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None):
     proposal = candidate.proposal
     if reason is not None:
         return await service._candidates.reject(
@@ -118,13 +116,10 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
     if policy is None or proposal.policy_digest != ProfileDreamPolicy.from_policy(policy).digest:
         raise BaseValueConflictError("profile_policy", (service._scope_id,))
     shared = candidate.audit is not None and candidate.audit.share_snapshot_id is not None
-    if shared:
-        if verified_origins is None:
-            # A shared Profile Candidate must never publish on unverified audit provenance.
-            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
-        adopted = tuple(verified_origins)
-    else:
-        adopted = ()
+    # The decision is already authorized and its audit validated, and the ordered
+    # Intent -> Policy -> Candidate locks are held. A shared Candidate is verified here,
+    # inside this transaction and before any foreign evidence read or write.
+    adopted = tuple(await service._verify_shared_binding(connection, candidate)) if shared else ()
     await service._validate_evidence(
         connection,
         candidate.sources,
