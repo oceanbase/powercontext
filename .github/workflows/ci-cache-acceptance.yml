@@ -1,0 +1,165 @@
+name: Dependency early-save acceptance
+'on':
+  push:
+    branches:
+    - codex/ci-cache-acceptance-20261118
+    paths:
+    - .github/workflows/ci-cache-acceptance.yml
+permissions:
+  contents: read
+  actions: read
+env:
+  CACHE_ACCEPTANCE_PHASE: seed
+jobs:
+  dify-tools:
+    runs-on: powercontext-ci-light
+    timeout-minutes: 20
+    steps:
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Set up the environment
+      id: python
+      uses: ./.github/actions/setup-python-env
+      with:
+        python-version: '3.12'
+        save-cache: 'false'
+        cache-dependency-glob: 'pyproject.toml
+
+          uv.lock
+
+          integrations/langchain/pyproject.toml
+
+          integrations/langgraph/pyproject.toml
+
+          integrations/opendal/pyproject.toml
+
+          integrations/dify/pyproject.toml
+
+          integrations/dify/uv.lock
+
+          '
+    - name: Install isolated Dify dependencies
+      run: uv sync --locked --project integrations/dify --python 3.12
+    - name: Save complete Dify dependencies
+      if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.python.outputs.cache-path }}
+        key: ${{ steps.python.outputs.cache-key }}
+    - name: Record cache acceptance runner
+      run: printf "phase=%s runner=%s\n" "$CACHE_ACCEPTANCE_PHASE" "$RUNNER_NAME"
+    - name: Fail after successful dependency publication
+      run: echo 'Expected acceptance failure after cache publication'; exit 73
+  validate:
+    runs-on: powercontext-ci-light
+    timeout-minutes: 20
+    env:
+      UV_VERSION: 0.10.12
+    steps:
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Install uv
+      id: uv
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: ${{ env.UV_VERSION }}
+        python-version: '3.12'
+        enable-cache: 'true'
+        save-cache: 'false'
+        cache-suffix: harness-validate-py3.12
+        cache-dependency-glob: 'pyproject.toml
+
+          uv.lock
+
+          integrations/langchain/pyproject.toml
+
+          integrations/langgraph/pyproject.toml
+
+          integrations/opendal/pyproject.toml
+
+          integrations/bub/pyproject.toml
+
+          e2e/bub/pyproject.toml
+
+          e2e/bub/uv.lock
+
+          '
+    - name: Install harness validation dependencies
+      run: 'uv sync --frozen
+
+        make harness-sync
+
+        '
+    - name: Save harness validation dependencies
+      if: steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ env.UV_CACHE_DIR }}
+        key: ${{ steps.uv.outputs.cache-key }}
+    - name: Record cache acceptance runner
+      run: printf "phase=%s runner=%s\n" "$CACHE_ACCEPTANCE_PHASE" "$RUNNER_NAME"
+    - name: Fail after successful dependency publication
+      run: echo 'Expected acceptance failure after cache publication'; exit 73
+  openclaw-package:
+    runs-on: powercontext-ci-light
+    timeout-minutes: 25
+    env:
+      OPENCLAW_VERSION: 2026.8.1
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Set up the Python environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        shared-cache: 'true'
+    - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785
+    - run: mise install node@24.15.0
+    - name: Cache OpenClaw dependencies
+      id: pnpm
+      uses: ./.github/actions/cache-pnpm
+      with:
+        save-cache: 'false'
+        working-directory: integrations/openclaw/plugins/memory-powercontext
+        cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
+    - name: Install OpenClaw package dependencies
+      run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext
+        install --frozen-lockfile
+    - name: Save OpenClaw package dependencies
+      if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.pnpm.outputs.cache-path }}
+        key: ${{ steps.pnpm.outputs.cache-key }}
+    - name: Resolve OpenClaw npm cache directory
+      id: npm
+      run: echo "path=$(mise exec node@24.15.0 -- npm config get cache)" >> "$GITHUB_OUTPUT"
+    - name: Restore OpenClaw host downloads
+      id: openclaw-host-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.npm.outputs.path }}
+        key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-${{ env.OPENCLAW_VERSION
+          }}
+    - name: Install the pinned OpenClaw host
+      run: "mise exec node@24.15.0 -- npm install --prefix \"$RUNNER_TEMP/openclaw-host\"\
+        \ \\\n  --registry https://registry.npmjs.org --ignore-scripts --no-audit\
+        \ --no-fund \"openclaw@$OPENCLAW_VERSION\"\ncli=\"$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw\"\
+        \nmise exec node@24.15.0 -- \"$cli\" --version | grep -qx \"OpenClaw $OPENCLAW_VERSION\
+        \ (.*)\"\necho \"OPENCLAW_CLI_BIN=$cli\" >> \"$GITHUB_ENV\"\n"
+    - name: Save OpenClaw host downloads
+      if: steps.openclaw-host-cache.outputs.cache-hit != 'true' && github.event_name
+        != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.npm.outputs.path }}
+        key: ${{ steps.openclaw-host-cache.outputs.cache-primary-key }}
+    - name: Record cache acceptance runner
+      run: printf "phase=%s runner=%s\n" "$CACHE_ACCEPTANCE_PHASE" "$RUNNER_NAME"
+    - name: Fail after successful dependency publication
+      run: echo 'Expected acceptance failure after cache publication'; exit 73
