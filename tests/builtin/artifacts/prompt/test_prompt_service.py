@@ -29,7 +29,7 @@ from powercontext.builtin.artifacts.memory import MemoryExtractionInput, MemoryE
 from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptError, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import PromptService, current_prompt
-from powercontext.builtin.inference.pydantic_ai import PydanticAIStructuredGenerator
+from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 
 
 def _prompt(text: str, revision: int = 1) -> Prompt:
@@ -120,7 +120,8 @@ def test_concurrent_scopes_and_retries_use_frozen_prompt_selections() -> None:
     asyncio.run(scenario())
 
 
-def test_prompt_traces_include_identity_but_exclude_custom_content() -> None:
+@pytest.mark.parametrize("allow_continuations", [True, False])
+def test_prompt_traces_include_identity_but_exclude_custom_content(allow_continuations: bool) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -168,6 +169,7 @@ def test_prompt_traces_include_identity_but_exclude_custom_content() -> None:
             input_type=MemoryExtractionInput,
             output_type=MemoryExtractionOutput,
             prompt_key="memory.extract",
+            limits=InferenceLimits(allow_continuations=allow_continuations),
         )
         with provider.get_tracer("test").start_as_current_span("prompt operation"):
             async with service.bind("scope", "memory.extract"):

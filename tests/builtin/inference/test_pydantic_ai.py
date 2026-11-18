@@ -836,7 +836,8 @@ def test_invalid_structured_output_maps_to_stable_error() -> None:
     asyncio.run(scenario())
 
 
-def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
+@pytest.mark.parametrize("allow_continuations", [True, False])
+def test_instrumented_generation_spans_exclude_schema_retry_content(allow_continuations: bool) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -862,6 +863,7 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
             instructions="Propose candidates.",
             input_type=Question,
             output_type=Proposal,
+            limits=InferenceLimits(allow_continuations=allow_continuations),
         )
 
         result = await generator.generate(Question("bounded evidence"))
@@ -873,7 +875,13 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
     spans = exporter.get_finished_spans()
     # Both responses consumed and two chat spans recorded prove the retry path ran.
     assert not pending
-    assert len([span for span in spans if span.name.startswith("chat ")]) == 2
+    inference = [span for span in spans if span.name.startswith("invoke_agent ")]
+    assert len(inference) == 1
+    requests = [span for span in spans if span.name.startswith("chat ")]
+    assert len(requests) == 2
+    for span in requests:
+        assert span.parent is not None
+        assert span.parent.span_id == inference[0].context.span_id
     for span in spans:
         assert "traveler prefers aisle seats" not in str(span.attributes)
 

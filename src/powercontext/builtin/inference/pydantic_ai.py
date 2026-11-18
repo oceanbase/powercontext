@@ -113,6 +113,7 @@ try:
         UserPromptPart,
     )
     from pydantic_ai.models import Model, ModelRequestParameters
+    from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.models.wrapper import WrapperModel
     from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
@@ -392,8 +393,16 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 model,
                 merge_model_settings(model.settings, bounded_settings),
             )
+            # Keep the instrumentation outermost so Agent retains run spans and prompt metadata.
+            if isinstance(model, InstrumentedModel):
+                model = copy(model)
+                model.wrapped = _ResponseDiagnosticsModel(
+                    model.wrapped, allow_continuations=self._limits.allow_continuations
+                )
+            else:
+                model = _ResponseDiagnosticsModel(model, allow_continuations=self._limits.allow_continuations)
             self._agent = Agent(
-                _ResponseDiagnosticsModel(model, allow_continuations=self._limits.allow_continuations),
+                model,
                 deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
