@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
@@ -59,23 +60,43 @@ impl fmt::Display for ReplayHandle {
 }
 
 /// Host-generated attempt reference; possession grants no permission or model idempotency.
+///
+/// The wire format is exactly 43 unpadded base64url characters: an 8-byte big-endian Unix
+/// millisecond deadline followed by 24 cryptographically random bytes. Hosts must generate this
+/// layout rather than an arbitrary random payload, and save and reuse the entire value unchanged.
+/// The deadline limits establishment, not recovery of an existing association.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EstablishmentReference(pub(super) [u8; 32]);
+pub struct EstablishmentReference([u8; 32]);
 
 impl EstablishmentReference {
+    pub(super) const MAX_WINDOW: Duration = Duration::from_secs(60);
+
     pub fn parse(value: &str) -> Result<Self, ReplayError> {
         decode(value).map(Self)
     }
 
-    /// Generate before the host records its establishment attempt and starts network I/O.
+    /// Generate before recording the attempt and starting network I/O. The deadline is set to
+    /// 30 seconds after the host's current time, rounded down to the nearest millisecond.
     pub fn generate() -> Result<Self, ReplayError> {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| duration.checked_add(Duration::from_secs(30)))
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+            .ok_or(ReplayError::DependencyUnavailable)?;
         let mut bytes = [0; 32];
-        getrandom::getrandom(&mut bytes).map_err(|_| ReplayError::DependencyUnavailable)?;
+        bytes[..8].copy_from_slice(&millis.to_be_bytes());
+        getrandom::getrandom(&mut bytes[8..]).map_err(|_| ReplayError::DependencyUnavailable)?;
         Ok(Self(bytes))
     }
 
     pub fn to_header_value(&self) -> String {
         URL_SAFE_NO_PAD.encode(self.0)
+    }
+
+    pub(super) fn establishment_deadline(&self) -> Option<SystemTime> {
+        let millis = u64::from_be_bytes(*self.0.first_chunk::<8>()?);
+        UNIX_EPOCH.checked_add(Duration::from_millis(millis))
     }
 }
 

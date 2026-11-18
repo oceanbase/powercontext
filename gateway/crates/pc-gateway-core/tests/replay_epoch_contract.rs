@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use pc_gateway_core::replay_epoch::CloseResult;
 use pc_gateway_core::replay_epoch::{
     EstablishmentReference, ReplayCarrier, ReplayError, ReplayHandle,
@@ -20,7 +21,7 @@ use pc_gateway_core::replay_epoch::{
     ReplayLimits, ReplayStore, ReplaySupport, Resolution, TrustedContext,
 };
 use std::sync::{Arc, Barrier};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const REFERENCE: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const HANDLE: &str = "v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -122,13 +123,21 @@ fn context() -> TrustedContext<'static> {
     }
 }
 
+fn reference_at(elapsed: Duration) -> EstablishmentReference {
+    let deadline = SystemTime::now() + elapsed + Duration::from_secs(10);
+    let millis = u64::try_from(deadline.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap();
+    let mut bytes = [0; 32];
+    bytes[..8].copy_from_slice(&millis.to_be_bytes());
+    EstablishmentReference::parse(&URL_SAFE_NO_PAD.encode(bytes)).unwrap()
+}
+
 #[test]
 fn lost_response_recovery_restores_only_the_original_stable_association() {
     let store = ReplayStore::new(limits()).unwrap();
     let context = context();
     let now = Instant::now();
     let deadline = now + Duration::from_secs(60);
-    let reference = EstablishmentReference::parse(REFERENCE).unwrap();
+    let reference = EstablishmentReference::generate().unwrap();
     assert_eq!(
         store.resolve(&context, None, now),
         Ok(Resolution::CheckOnly)
@@ -150,15 +159,15 @@ fn lost_response_recovery_restores_only_the_original_stable_association() {
         store.establish(&context, reference, b"changed", deadline, now),
         Err(ReplayError::BoundaryExists)
     );
-    let recovered = store
-        .recover(&context, reference, now + Duration::from_secs(10))
-        .unwrap();
+    let recovery_at = now + Duration::from_secs(40);
+    assert_eq!(store.cleanup(recovery_at, 1).unwrap().removed, 0);
+    let recovered = store.recover(&context, reference, recovery_at).unwrap();
     assert_eq!(recovered, established);
     assert_eq!(recovered.expires_at, deadline);
     assert_eq!(recovered.compatibility.as_ref(), b"target/config/renderer");
     let returned = ReplayHandle::parse(&recovered.handle.to_header_value()).unwrap();
     assert_eq!(
-        store.resolve(&context, Some(returned), now),
+        store.resolve(&context, Some(returned), recovery_at),
         Ok(Resolution::Association(established))
     );
     assert_eq!(
@@ -173,7 +182,7 @@ fn exact_close_and_old_cleanup_cannot_affect_a_replacement_boundary() {
     let context = context();
     let now = Instant::now();
     let deadline = now + Duration::from_secs(60);
-    let old_reference = EstablishmentReference::parse(REFERENCE).unwrap();
+    let old_reference = EstablishmentReference::generate().unwrap();
     let old = store
         .establish(&context, old_reference, b"binding", deadline, now)
         .unwrap();
@@ -389,7 +398,8 @@ fn expiry_replacement_retains_old_reference_and_budget_until_bounded_cleanup() {
     })
     .unwrap();
     let now = Instant::now();
-    let deadline = now + Duration::from_secs(5);
+    let lifetime = Duration::from_secs(40);
+    let deadline = now + lifetime;
     let reference = EstablishmentReference::generate().unwrap();
     let old = store
         .establish(&context(), reference, b"old", deadline, now)
@@ -416,7 +426,7 @@ fn expiry_replacement_retains_old_reference_and_budget_until_bounded_cleanup() {
         ),
         Err(ReplayError::BoundaryExists)
     );
-    let new_reference = EstablishmentReference::generate().unwrap();
+    let new_reference = reference_at(lifetime);
     let new = store
         .establish(
             &context(),
@@ -433,7 +443,7 @@ fn expiry_replacement_retains_old_reference_and_budget_until_bounded_cleanup() {
     assert_eq!(
         store.establish(
             &other,
-            reference,
+            new_reference,
             b"other",
             deadline + Duration::from_secs(10),
             deadline
@@ -449,12 +459,76 @@ fn expiry_replacement_retains_old_reference_and_budget_until_bounded_cleanup() {
     assert!(store
         .establish(
             &other,
-            reference,
+            new_reference,
             b"other",
             deadline + Duration::from_secs(10),
             deadline
         )
         .is_ok());
+}
+
+#[test]
+fn reclaimed_establishment_reference_cannot_be_bound_again() {
+    let store = ReplayStore::new(ReplayLimits {
+        max_principal_records: 1,
+        max_total_records: 1,
+        ..limits()
+    })
+    .unwrap();
+    let now = Instant::now();
+    let epoch_deadline = now + Duration::from_secs(5);
+    let reference = EstablishmentReference::generate().unwrap();
+    store
+        .establish(&context(), reference, b"original", epoch_deadline, now)
+        .unwrap();
+    assert_eq!(
+        store.recover(&context(), reference, epoch_deadline),
+        Err(ReplayError::AssociationUnavailable)
+    );
+    assert_eq!(store.cleanup(epoch_deadline, 1).unwrap().removed, 0);
+
+    let elapsed = Duration::from_secs(40);
+    let reclaim_at = now + elapsed;
+    let next_deadline = reclaim_at + Duration::from_secs(20);
+    let fresh_reference = reference_at(elapsed);
+    assert_eq!(
+        store.establish(
+            &context(),
+            fresh_reference,
+            b"different",
+            next_deadline,
+            epoch_deadline,
+        ),
+        Err(ReplayError::CapacityRejected)
+    );
+    assert_eq!(store.cleanup(reclaim_at, 1).unwrap().removed, 1);
+    assert_eq!(
+        store.establish(
+            &context(),
+            reference,
+            b"different",
+            next_deadline,
+            reclaim_at
+        ),
+        Err(ReplayError::AssociationUnavailable)
+    );
+    let replacement = store
+        .establish(
+            &context(),
+            fresh_reference,
+            b"different",
+            next_deadline,
+            reclaim_at,
+        )
+        .unwrap();
+    assert_eq!(
+        store.recover(&context(), reference, reclaim_at),
+        Err(ReplayError::AssociationUnavailable)
+    );
+    assert_eq!(
+        store.recover(&context(), fresh_reference, reclaim_at),
+        Ok(replacement)
+    );
 }
 
 #[test]
@@ -466,7 +540,8 @@ fn principal_and_global_entry_limits_count_closed_records_until_cleanup() {
     })
     .unwrap();
     let now = Instant::now();
-    let deadline = now + Duration::from_secs(10);
+    let lifetime = Duration::from_secs(40);
+    let deadline = now + lifetime;
     let reference = EstablishmentReference::generate().unwrap();
     let first = store
         .establish(&context(), reference, b"frozen", deadline, now)
@@ -512,7 +587,7 @@ fn principal_and_global_entry_limits_count_closed_records_until_cleanup() {
     assert!(store
         .establish(
             &context(),
-            reference,
+            reference_at(lifetime),
             b"binding",
             deadline + Duration::from_secs(10),
             deadline
@@ -523,7 +598,8 @@ fn principal_and_global_entry_limits_count_closed_records_until_cleanup() {
 #[test]
 fn byte_budgets_charge_identifiers_bindings_and_indexes_even_at_low_record_counts() {
     let now = Instant::now();
-    let deadline = now + Duration::from_secs(60);
+    let lifetime = Duration::from_secs(60);
+    let deadline = now + lifetime;
     let reference = EstablishmentReference::generate().unwrap();
     let small = ReplayLimits {
         max_record_bytes: 1200,
@@ -583,7 +659,7 @@ fn byte_budgets_charge_identifiers_bindings_and_indexes_even_at_low_record_count
     assert!(store
         .establish(
             &context(),
-            reference,
+            reference_at(lifetime),
             b"binding",
             deadline + Duration::from_secs(60),
             deadline
@@ -642,7 +718,8 @@ fn closing_and_expiry_do_not_reclaim_byte_budget_before_cleanup() {
     })
     .unwrap();
     let now = Instant::now();
-    let deadline = now + Duration::from_secs(60);
+    let lifetime = Duration::from_secs(60);
+    let deadline = now + lifetime;
     let reference = EstablishmentReference::generate().unwrap();
     let first = store
         .establish(&context(), reference, b"binding", deadline, now)
@@ -651,12 +728,18 @@ fn closing_and_expiry_do_not_reclaim_byte_budget_before_cleanup() {
         store.close(&context(), first.epoch, now),
         Ok(CloseResult::Closed)
     );
-    let fresh_reference = EstablishmentReference::generate().unwrap();
     assert_eq!(
-        store.establish(&context(), fresh_reference, b"binding", deadline, now),
+        store.establish(
+            &context(),
+            EstablishmentReference::generate().unwrap(),
+            b"binding",
+            deadline,
+            now,
+        ),
         Err(ReplayError::CapacityRejected)
     );
-    let next_deadline = deadline + Duration::from_secs(60);
+    let next_deadline = deadline + lifetime;
+    let fresh_reference = reference_at(lifetime);
     assert_eq!(
         store.establish(
             &context(),
@@ -731,7 +814,8 @@ fn cleanup_caps_examined_entries_and_reclaims_all_indexes_at_scale() {
     })
     .unwrap();
     let now = Instant::now();
-    let deadline = now + Duration::from_secs(60);
+    let lifetime = Duration::from_secs(60);
+    let deadline = now + lifetime;
     let reference = EstablishmentReference::generate().unwrap();
     for index in 0..40 {
         let conversation = format!("powercontext:{index}");
@@ -755,6 +839,7 @@ fn cleanup_caps_examined_entries_and_reclaims_all_indexes_at_scale() {
     }
     assert_eq!(removed, 40);
     assert_eq!(store.cleanup(deadline, 1).unwrap().examined, 0);
+    let fresh_reference = reference_at(lifetime);
     for index in 0..40 {
         let conversation = format!("powercontext:{index}");
         let context = TrustedContext {
@@ -768,7 +853,7 @@ fn cleanup_caps_examined_entries_and_reclaims_all_indexes_at_scale() {
         store
             .establish(
                 &context,
-                reference,
+                fresh_reference,
                 b"binding",
                 deadline + Duration::from_secs(60),
                 deadline,

@@ -15,7 +15,7 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use super::{EstablishmentReference, ReplayError, ReplayHandle};
 
@@ -174,7 +174,8 @@ struct State {
     references: HashMap<(Arc<Partition>, EstablishmentReference), ReplayEpoch>,
     active: HashMap<Arc<Partition>, ReplayEpoch>,
     principals: HashMap<Arc<str>, Usage>,
-    expiry: BinaryHeap<Reverse<(Instant, ReplayEpoch)>>,
+    reclamation: BinaryHeap<Reverse<(Instant, ReplayEpoch)>>,
+    reclaimed_through: Option<Instant>,
     bytes: usize,
 }
 
@@ -185,6 +186,7 @@ struct State {
 /// entry and byte limits until cleanup removes them, although lookup rejects them immediately.
 pub struct ReplayStore {
     limits: ReplayLimits,
+    clock_origin: (Instant, SystemTime),
     state: Mutex<State>,
     #[cfg(test)]
     random_source: Option<TestRandomSource>,
@@ -194,15 +196,22 @@ pub struct ReplayStore {
 type TestRandomSource = fn(&mut [u8]) -> Result<(), ReplayError>;
 
 impl ReplayStore {
+    /// Reference deadlines are mapped to the monotonic clock using the store's creation time.
+    /// Hosts must generate references against a clock close to that time base.
     pub fn new(limits: ReplayLimits) -> Result<Self, ReplayError> {
         Ok(Self {
             limits: limits.validate()?,
+            clock_origin: (Instant::now(), SystemTime::now()),
             state: Mutex::new(State::default()),
             #[cfg(test)]
             random_source: None,
         })
     }
 
+    /// A retained reference conflicts within its trusted partition. Otherwise, a deadline that
+    /// is not in the next 60 seconds results in [`ReplayError::AssociationUnavailable`]. Once
+    /// reclaimed, the reference cannot be accepted again by this store, even with a time sample
+    /// taken before cleanup. The reference deadline does not shorten recovery of an association.
     pub fn establish(
         &self,
         context: &TrustedContext<'_>,
@@ -212,10 +221,11 @@ impl ReplayStore {
         now: Instant,
     ) -> Result<Association, ReplayError> {
         let mut partition = context.supported_partition()?;
+        let mut state = self.lock()?;
+        let now = now.max(state.reclaimed_through.unwrap_or(now));
         if expires_at <= now || compatibility.is_empty() {
             return Err(ReplayError::DependencyUnavailable);
         }
-        let mut state = self.lock()?;
         if state
             .active
             .get(&partition)
@@ -227,6 +237,7 @@ impl ReplayStore {
         {
             return Err(ReplayError::BoundaryExists);
         }
+        let reclaim_at = expires_at.max(self.reference_deadline(reference, now)?);
         let charged_bytes =
             metadata_bytes(&partition, compatibility.len()).ok_or(ReplayError::CapacityRejected)?;
         let principal_usage = state.principals.get(&partition.principal);
@@ -286,7 +297,7 @@ impl ReplayStore {
             .insert((partition.clone(), reference), epoch);
         state.active.remove(&partition);
         state.active.insert(partition.clone(), epoch);
-        state.expiry.push(Reverse((expires_at, epoch)));
+        state.reclamation.push(Reverse((reclaim_at, epoch)));
         let usage = state
             .principals
             .entry(partition.principal.clone())
@@ -380,9 +391,10 @@ impl ReplayStore {
 
     /// Reclaims expired records and their indexes, releasing entry and byte charges.
     ///
-    /// The store owner must drive cleanup; it is not scheduled automatically. Closed records remain
-    /// charged until their original expiry has been reached and cleanup removes them.
-    /// Examines at most `min(batch, cleanup_batch_limit)` expiry entries, including a future head.
+    /// The store owner must drive cleanup; it is not scheduled automatically. Records are eligible
+    /// for removal at or after the later of their epoch and reference deadlines, so an old
+    /// reference cannot establish another epoch once its index is removed.
+    /// Examines at most `min(batch, cleanup_batch_limit)` entries, including a future head.
     pub fn cleanup(&self, now: Instant, batch: usize) -> Result<CleanupResult, ReplayError> {
         if batch == 0 {
             return Err(ReplayError::InvalidCleanupBatch);
@@ -393,14 +405,14 @@ impl ReplayStore {
             removed: 0,
         };
         while result.examined < batch.min(self.limits.cleanup_batch_limit) {
-            let Some(&Reverse((expires_at, epoch))) = state.expiry.peek() else {
+            let Some(&Reverse((reclaim_at, epoch))) = state.reclamation.peek() else {
                 break;
             };
             result.examined += 1;
-            if expires_at > now {
+            if reclaim_at > now {
                 break;
             }
-            state.expiry.pop();
+            state.reclamation.pop();
             let Some(record) = state.records.remove(&epoch) else {
                 continue;
             };
@@ -419,9 +431,26 @@ impl ReplayStore {
                 }
             }
             state.bytes -= record.charged_bytes;
+            state.reclaimed_through = state.reclaimed_through.max(Some(reclaim_at));
             result.removed += 1;
         }
         Ok(result)
+    }
+
+    fn reference_deadline(
+        &self,
+        reference: EstablishmentReference,
+        now: Instant,
+    ) -> Result<Instant, ReplayError> {
+        let (origin, wall_time) = self.clock_origin;
+        reference
+            .establishment_deadline()
+            .and_then(|deadline| deadline.duration_since(wall_time).ok())
+            .and_then(|offset| origin.checked_add(offset))
+            .filter(|deadline| {
+                *deadline > now && *deadline - now <= EstablishmentReference::MAX_WINDOW
+            })
+            .ok_or(ReplayError::AssociationUnavailable)
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, State>, ReplayError> {
@@ -481,14 +510,14 @@ fn reserve_indexes(state: &mut State) -> Result<(), ReplayError> {
         .try_reserve(1)
         .map_err(|_| ReplayError::CapacityRejected)?;
     state
-        .expiry
+        .reclamation
         .try_reserve(1)
         .map_err(|_| ReplayError::CapacityRejected)?;
     Ok(())
 }
 
 /// Logical fixed reservations: record 256, partition/principal 192, handle index 128,
-/// reference index 160, active index 128, expiry index 128, accounting 32 bytes.
+/// reference index 160, active index 128, reclamation index 128, accounting 32 bytes.
 fn metadata_bytes(partition: &Partition, compatibility_bytes: usize) -> Option<usize> {
     let mut bytes = 1024usize;
     for length in [
@@ -528,6 +557,78 @@ mod tests {
         bytes.fill(8);
         bytes[32..].fill(7);
         Ok(())
+    }
+
+    #[test]
+    fn reference_deadline_bounds_establishment_and_reclamation_at_exact_clock_boundaries() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use std::time::UNIX_EPOCH;
+
+        let mut store = ReplayStore::new(ReplayLimits {
+            max_record_bytes: 4096,
+            max_principal_records: 1,
+            max_principal_bytes: 4096,
+            max_total_records: 1,
+            max_total_bytes: 4096,
+            cleanup_batch_limit: 1,
+        })
+        .unwrap();
+        let now = Instant::now();
+        store.clock_origin = (now, UNIX_EPOCH + Duration::from_secs(100));
+        let reference_with_deadline = |millis: u64| {
+            let mut bytes = [7; 32];
+            bytes[..8].copy_from_slice(&millis.to_be_bytes());
+            EstablishmentReference::parse(&URL_SAFE_NO_PAD.encode(bytes)).unwrap()
+        };
+        let context = TrustedContext {
+            deployment_id: "deployment",
+            generation: "generation",
+            principal: "principal",
+            scope: "scope",
+            conversation: Some("conversation"),
+            support: ReplaySupport::ReliableGateway,
+        };
+        let epoch_deadline = now + Duration::from_secs(5);
+        let reference = reference_with_deadline(160_000);
+        for invalid in [
+            reference_with_deadline(99_999),
+            reference_with_deadline(100_000),
+            reference_with_deadline(160_001),
+            reference_with_deadline(u64::MAX),
+        ] {
+            assert_eq!(
+                store.establish(&context, invalid, b"binding", epoch_deadline, now),
+                Err(ReplayError::AssociationUnavailable)
+            );
+        }
+        store
+            .establish(&context, reference, b"binding", epoch_deadline, now)
+            .unwrap();
+        let reclaim_at = now + Duration::from_secs(60);
+        let delayed_sample = reclaim_at - Duration::from_nanos(1);
+        assert_eq!(store.cleanup(delayed_sample, 1).unwrap().removed, 0);
+        assert_eq!(store.cleanup(reclaim_at, 1).unwrap().removed, 1);
+        for sample in [delayed_sample, reclaim_at] {
+            assert_eq!(
+                store.establish(
+                    &context,
+                    reference,
+                    b"changed",
+                    reclaim_at + Duration::from_secs(5),
+                    sample,
+                ),
+                Err(ReplayError::AssociationUnavailable)
+            );
+        }
+        assert!(store
+            .establish(
+                &context,
+                reference_with_deadline(220_000),
+                b"changed",
+                reclaim_at + Duration::from_secs(5),
+                reclaim_at,
+            )
+            .is_ok());
     }
 
     #[test]
