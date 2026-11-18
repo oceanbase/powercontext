@@ -22,7 +22,9 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from prometheus_client.exposition import choose_encoder
@@ -362,14 +364,24 @@ def create_server_app(  # noqa: C901
                     plugins_dir=resolved.plugins_dir,
                     register_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.register,
                     archive=runtime.archive,
+                    unregister_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.unregister,
                     dispatch=dispatch_plugins,
                     inference_config=config.inference,
                     storage_root=powercontext_data_dir() / "plugins",
+                    snapshot_root=powercontext_data_dir() / "plugin-versions",
+                    rescan_seconds=resolved.plugins_rescan_seconds,
                     # Host processes authorize callers in every role that serves requests.
                     host_security_builder=lambda: build_host_security(
                         resolved,
                         active_access_control,
                         legacy_static_principal=static_principal if legacy_static_admin else None,
+                        injected=configured_access_control is not None,
+                    ),
+                    upgrade_security_builder=partial(
+                        _upgrade_security,
+                        resolved,
+                        active_access_control,
+                        static_principal if legacy_static_admin else None,
                         injected=configured_access_control is not None,
                     ),
                     host_processes=resolved.plugin_host_processes,
@@ -522,6 +534,17 @@ def create_server_app(  # noqa: C901
         app.state.dashboard_runtime_configuration = runtime_configuration(config)
         mount_dashboard(app)
     return app
+
+
+def _upgrade_security(settings, access, legacy_static_principal, *, injected: bool) -> dict[str, Any] | None:
+    """The identity plugin upgrades write Artifacts as; without one, such writes are refused in the host."""
+
+    try:
+        return build_worker_security(
+            settings, access, legacy_static_principal=legacy_static_principal, injected=injected
+        )
+    except ValueError:
+        return None
 
 
 async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: bytes | None) -> str:

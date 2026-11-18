@@ -672,6 +672,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_plugin_scopes: {
 		method: "GET",
 		path: "/v1/plugins/{name}/scopes",
