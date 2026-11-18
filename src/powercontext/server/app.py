@@ -604,6 +604,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     MergeArtifactsRequest,
     PlanAccessOwnershipRequest,
+    PluginOpenApiDocument,
     PluginPage,
     PluginScopePage,
     PluginState,
@@ -840,6 +841,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PLUGIN,
+    GET_PLUGIN_OPENAPI,
     GET_PROFILE_POLICY,
     GET_PROMPT_CONFIGURATION,
     GET_READINESS,
@@ -1583,6 +1585,7 @@ def create_app(
     _add_route(app, GET_CAPABILITIES, get_capabilities)
     _add_route(app, LIST_PLUGINS, list_plugins)
     _add_route(app, GET_PLUGIN, get_plugin)
+    _add_route(app, GET_PLUGIN_OPENAPI, get_plugin_openapi)
     # Plugin routes are outside the main contract; core authenticates, the plugin host authorizes.
     app.router.add_api_route(
         "/v1/plugins/{name}/api/{path:path}",
@@ -1836,6 +1839,12 @@ async def get_plugin(
     name: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9-]*$")], http_request: Request
 ) -> PluginState:
     return _require_plugin_manager(http_request).get(name)
+
+
+async def get_plugin_openapi(
+    name: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9-]*$")], http_request: Request
+) -> PluginOpenApiDocument:
+    return PluginOpenApiDocument.model_validate(_require_plugin_manager(http_request).openapi(name))
 
 
 def _list_plugin_scopes_query(
@@ -3767,41 +3776,48 @@ async def call_plugin_api(name: str, path: str, http_request: Request) -> Respon
     from starlette.routing import compile_path
 
     manager = _require_plugin_manager(http_request)
-    manifest = manager.loaded_manifest(name)
-    if manifest is None or manifest.spec.api is None:
-        raise BaseValueNotFoundError("plugin", name)
     target = "/" + path
-    routes = sorted(manifest.spec.api.routes, key=lambda route: "{" in route.path)
-    for route in routes:
-        if route.method != http_request.method:
-            continue
-        pattern, _, _ = compile_path(route.path)
-        matched = pattern.match(target)
-        if matched is not None:
-            break
-    else:
-        raise BaseValueNotFoundError("plugin_route", f"{http_request.method} {target}")
-    body: Any = None
     ceiling = http_request.app.state.plugin_api_max_body_bytes
-    if route.body != "none":
-        default = PLUGIN_API_JSON_BODY_BYTES if route.body == "json" else ceiling
-        limit = min(route.max_body_bytes or default, ceiling)
-        declared = http_request.headers.get("content-length", "")
-        if declared.isdecimal() and int(declared) > limit:
-            raise PluginCallError(413, "request_too_large", "The request body is too large.")
-        raw = await http_request.body()
-        if len(raw) > limit:
-            raise PluginCallError(413, "request_too_large", "The request body is too large.")
-        if route.body == "json":
-            try:
-                body = json.loads(raw or b"null")
-            except ValueError:
-                raise PluginCallError(422, "invalid_json", "The request body is not JSON.") from None
+    while True:
+        # One plugin version serves the whole request: its route decides how the body is read, and
+        # its host receives the call. A reload while the body arrives starts over with the new version.
+        manifest = manager.loaded_manifest(name)
+        if manifest is None or manifest.spec.api is None:
+            raise BaseValueNotFoundError("plugin", name)
+        host = manager.host(name)
+        routes = sorted(manifest.spec.api.routes, key=lambda route: "{" in route.path)
+        for route in routes:
+            if route.method != http_request.method:
+                continue
+            pattern, _, _ = compile_path(route.path)
+            matched = pattern.match(target)
+            if matched is not None:
+                break
         else:
-            body = raw
+            raise BaseValueNotFoundError("plugin_route", f"{http_request.method} {target}")
+        raw = b""
+        if route.body != "none":
+            default = PLUGIN_API_JSON_BODY_BYTES if route.body == "json" else ceiling
+            limit = min(route.max_body_bytes or default, ceiling)
+            declared = http_request.headers.get("content-length", "")
+            if declared.isdecimal() and int(declared) > limit:
+                raise PluginCallError(413, "request_too_large", "The request body is too large.")
+            raw = await http_request.body()
+            if len(raw) > limit:
+                raise PluginCallError(413, "request_too_large", "The request body is too large.")
+        if manager.loaded_manifest(name) is manifest:
+            break
+    body: Any = None
+    if route.body == "json":
+        try:
+            body = json.loads(raw or b"null")
+        except ValueError:
+            raise PluginCallError(422, "invalid_json", "The request body is not JSON.") from None
+    elif route.body == "binary":
+        body = raw
     result = await _call_plugin_host(
         http_request,
-        manager.host(name),
+        host,
         "api",
         scope_id=None,
         payload={

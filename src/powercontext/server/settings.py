@@ -267,6 +267,8 @@ class ServerSettings(BaseSettings):
     code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     plugins_dir: Path | None = None
+    # How often each Server process rescans plugins_dir for added, changed, and removed plugins; 0 turns it off.
+    plugins_rescan_seconds: float = Field(default=60, ge=0)
     # Ceiling on plugin route request and response bodies; a route may declare a lower limit.
     plugin_api_max_body_bytes: int = Field(default=32 * 1024 * 1024, ge=1024)
     # Per-plugin ceilings on host processes, by plugin name, replacing the plugin's declared host_processes.
