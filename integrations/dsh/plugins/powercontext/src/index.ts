@@ -30,7 +30,9 @@ import { resolveScopeId } from './scope.ts'
 import { registerGuidance } from './guidance.ts'
 import { requireService } from './dsh-service.ts'
 import { RuntimeStatus } from './status.ts'
+import { registerCompanionMemory } from './companion-memory.ts'
 import { registerStatusBridge } from './status-bridge.ts'
+import { registerUpdateBridge } from './update-bridge.ts'
 
 export const name = PLUGIN_NAME
 
@@ -77,7 +79,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
     status: new RuntimeStatus(),
     client,
     config: resolved,
-    resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
+    resolveScope: (cwd, signal, allowDefault) => resolveScopeId(client, cwd, resolved.scopeId, signal, allowDefault),
     log: (event) => {
       const line = JSON.stringify({ component: 'powercontext.dsh', ...event })
       const quiet = event.outcome === 'ready' || event.outcome === 'ok' || event.outcome === 'empty'
@@ -177,11 +179,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   const sessionScope = createSessionScopeResolver(runtime)
-  registerMcpPolicy(ctx, sessionScope.forTool)
+  registerMcpPolicy(ctx, sessionScope.forTool, runtime.config.authorization)
   registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)
+  registerCompanionMemory(ctx, runtime)
   registerStatusBridge(ctx, runtime)
+  registerUpdateBridge(ctx, runtime)
   await registerMcp(ctx, runtime.config)
 }
+
+export { COMPANION_MEMORY_SERVICE, COMPANION_MEMORY_PROTOCOL } from './companion-memory.ts'
+export type { CompanionMemoryRequest, CompanionMemoryResult, CompanionMemoryService } from './companion-memory.ts'

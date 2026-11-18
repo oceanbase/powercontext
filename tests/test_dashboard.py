@@ -56,7 +56,6 @@ def dashboard(tmp_path: Path):
             access=AccessControlConfig(mode="enforced"),
             auth=BearerAuthConfig(token=SecretStr(token)),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         client.headers["Authorization"] = f"Bearer {token}"
@@ -200,9 +199,9 @@ def test_malformed_usage_preserves_authorized_page_sections(dashboard: TestClien
 
 
 def test_dashboard_preserves_injected_atomic_read_rules(dashboard: TestClient, monkeypatch) -> None:
+    from powercontext.builtin.authz import AccessDeniedError
     from powercontext.builtin.runtime.application import BuiltinRuntime
     from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryApplication
-    from powercontext.server.authz import AccessDeniedError
 
     class DenyRead(AtomicMemoryAccess):
         async def authorize(self, connection, scope_id, context, action, ref=None):
@@ -556,7 +555,6 @@ def test_memory_search_modes_surface_semantic_hits_and_keep_navigation(tmp_path:
             dashboard=DashboardConfig(enabled=True),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
         embedding_model=CoffeeEmbedding(),
     )
     with TestClient(app) as client:
@@ -1287,7 +1285,6 @@ def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) ->
             auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         assert client.get("/dashboard/home").status_code == 401
@@ -1315,6 +1312,37 @@ def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) ->
             ).status_code
             == 200
         )
+
+
+def test_sign_in_returns_to_selected_scope(tmp_path: Path) -> None:
+    token = token_urlsafe(24)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/auth-scope.db"),
+            dashboard=DashboardConfig(enabled=True),
+            auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
+            mcp=McpConfig(enabled=False),
+        ),
+    )
+    with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {token}"
+        scope = create_scope(client, "Embedded login scope")["scope_id"]
+        client.headers.pop("Authorization")
+        target = f"/dashboard/home?scope={scope}&lang=en&theme=dark"
+        login = client.get(target)
+        assert login.status_code == 401
+        next_field = re.search(r'name="next" value="([^"]+)"', login.text)
+        assert next_field is not None
+        destination = unescape(next_field[1])
+        assert destination == target
+        resumed = client.post(
+            "/dashboard/session", data={"token": token, "next": destination}, headers={"Origin": "http://testserver"}
+        )
+        assert resumed.status_code == 200
+        assert resumed.url.path == "/dashboard/home"
+        assert resumed.url.query.decode() == urlsplit(target).query
+        assert f'value="{scope}" selected' in resumed.text
+        assert token not in resumed.text
 
 
 def commit_handoff(dashboard: TestClient, scope: str) -> dict[str, Any]:
@@ -1364,13 +1392,13 @@ def test_committed_handoff_json_and_its_sources_are_readable(dashboard: TestClie
 
 
 def test_dashboard_is_opt_in_and_enforced_access_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
+    from powercontext.builtin.authz import PrincipalRef
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
-    from powercontext.server.authz import PrincipalRef
 
     monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "false")
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/disabled.db")
     settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         assert client.get("/health/ready").status_code == 200
         assert client.get("/v1/scopes/default").status_code == 200
         for path in ("/", "/dashboard/home", "/dashboard/static/layout.css"):
@@ -1403,7 +1431,7 @@ def test_disabled_dashboard_does_not_offer_token_login(tmp_path: Path) -> None:
         auth=BearerAuthConfig(token=SecretStr(token)),
         mcp=McpConfig(enabled=False),
     )
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         response = client.get("/dashboard/home")
         assert response.status_code == 401
         assert response.headers["content-type"].startswith("application/json")
@@ -1475,8 +1503,13 @@ def test_home_previews_are_independent_of_missing_or_corrupt_notes(
         dashboard.portal.call(corrupt_body)
     response = dashboard.get("/dashboard/home", params={"scope": scope})
     assert response.status_code == 200
-    assert (LABELS["error_503"] in response.text) is (broken_family is not None)
-    assert ("Healthy atomic preview." in response.text) is (broken_family not in {None, "atomic-memory"})
-    assert ("Review the HTTP contract" in response.text) is (broken_family != "handoff")
-    assert ("Healthy experience preview." in response.text) is (broken_family != "experience")
-    assert ("healthy-skill-preview" in response.text) is (broken_family != "skill")
+    saved = response.text.split('<section id="notes"', 1)[1].split("</section>", 1)[0]
+    if broken_family is None:
+        assert "Review the HTTP contract" in saved
+        assert "Healthy experience preview." in saved
+        assert "Read the report" in saved
+    else:
+        # One unreadable head is named in the overview and must not hide the other content.
+        expected = "Read the report" if broken_family == "handoff" else "Review the HTTP contract"
+        assert expected in saved
+        assert (LABELS["home_change_unreadable"] in saved) is (broken_family != "atomic-memory")

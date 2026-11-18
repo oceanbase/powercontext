@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -334,83 +334,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_plugins: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	get_artifact_plugin: {
-		method: "GET",
-		path: "/v1/admin/artifact-plugins/{binding_name}",
-		location: null,
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	enable_all_artifact_plugins: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/enable-all",
-		location: null,
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	reload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	enable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	disable_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
-	unload_artifact_plugin: {
-		method: "POST",
-		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["binding_name"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [202],
-		emptyStatuses: []
-	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
@@ -647,7 +570,7 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
+		headerParams: ["X-PowerContext-Resolve-Target"],
 		successStatuses: [200],
 		emptyStatuses: []
 	},
@@ -789,6 +712,216 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugins: {
+		method: "GET",
+		path: "/v1/plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin: {
+		method: "GET",
+		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_runners: {
+		method: "GET",
+		path: "/v1/source-runners",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	register_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	sync_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners/{runner}/sync",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	update_source_runner: {
+		method: "PATCH",
+		path: "/v1/source-runners/{runner}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	delete_source_runner: {
+		method: "DELETE",
+		path: "/v1/source-runners/{runner}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_status: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "PATCH",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_delete: {
+		method: "DELETE",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_target_transfer: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_plugin_scopes: {
+		method: "GET",
+		path: "/v1/plugins/{name}/scopes",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: ["cursor", "limit"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	merge_artifacts: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/merges",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_governance: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance",
+		location: null,
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	forget_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	restore_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1582,6 +1715,21 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_artifact_rendering: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["revision"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_artifact_revisions: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
@@ -1729,160 +1877,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	pc_source_capabilities: {
-		method: "POST",
-		path: "/v1/source-management/capabilities",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_add: {
-		method: "POST",
-		path: "/v1/source-management/add",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_status: {
-		method: "POST",
-		path: "/v1/source-management/status",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_target_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/target-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instances: {
-		method: "POST",
-		path: "/v1/source-management/instances",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instance_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/instance-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_configure: {
-		method: "POST",
-		path: "/v1/source-management/configure",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	load_source_write_plugin: {
-		method: "POST",
-		path: "/v1/source-management/write/load",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_open: {
-		method: "POST",
-		path: "/v1/source-management/channel/open",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_catalog: {
-		method: "POST",
-		path: "/v1/source-management/channel/catalog",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_poll: {
-		method: "POST",
-		path: "/v1/source-management/channel/poll",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_reply: {
-		method: "POST",
-		path: "/v1/source-management/channel/reply",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_close: {
-		method: "POST",
-		path: "/v1/source-management/channel/close",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_instance_exchange: {
-		method: "POST",
-		path: "/v1/source-management/instances/{instance_id}/{operation}",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["instance_id", "operation"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
 	plan_access_ownership: {
 		method: "POST",
 		path: "/v1/access/ownership/plan",
@@ -2002,6 +1996,17 @@ function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
 }
 
 //#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value) {
+	const parent = value?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
+}
+
+//#endregion
 //#region src/client.ts
 const MIN_READINESS_TIMEOUT_MS = 4e4;
 function combineSignals(signals) {
@@ -2078,9 +2083,9 @@ function isPlainObject(value) {
 }
 function queryString(payload) {
 	const params = new URLSearchParams();
-	for (const [key, value] of Object.entries(payload ?? {})) {
+	for (const [key$1, value] of Object.entries(payload ?? {})) {
 		if (value === void 0 || value === null) continue;
-		for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item));
+		for (const item of Array.isArray(value) ? value : [value]) params.append(key$1, String(item));
 	}
 	const encoded = params.toString();
 	return encoded ? `?${encoded}` : "";
@@ -2147,6 +2152,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -2476,11 +2482,11 @@ function createDiagnosticEmitter(write, now = Date.now, cooldownMs = 6e4) {
 			"empty",
 			"skipped"
 		].includes(outcome)) {
-			const key = outcome;
+			const key$1 = outcome;
 			const timestamp = now();
-			const previous = lastEmitted.get(key);
+			const previous = lastEmitted.get(key$1);
 			if (previous !== void 0 && timestamp - previous < cooldownMs) return;
-			lastEmitted.set(key, timestamp);
+			lastEmitted.set(key$1, timestamp);
 		}
 		return write(JSON.stringify(normalized));
 	};
@@ -2501,7 +2507,7 @@ function isRecord$1(value) {
 function validatePreparedContext(response, path = "/v1/context/prepare", maxBytes = MAX_CONTEXT_BYTES) {
 	if (!isRecord$1(response)) throw new InvalidResponseError(path, void 0, void 0, "prepared_object");
 	const keys = Object.keys(response);
-	if (keys.length !== PREPARED_FIELDS.size || keys.some((key) => !PREPARED_FIELDS.has(key))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
+	if (keys.length !== PREPARED_FIELDS.size || keys.some((key$1) => !PREPARED_FIELDS.has(key$1))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
 	if (response.schema !== PREPARED_CONTEXT_SCHEMA) throw new InvalidResponseError(path, void 0, void 0, "prepared_schema");
 	const status = response.status;
 	const content = response.content;
@@ -2784,7 +2790,7 @@ function capabilities(response) {
 		"artifact_families",
 		"search_modes",
 		"context_versions"
-	].every((key) => Array.isArray(body[key]) && body[key].every((value) => typeof value === "string"))) invalid(operation, response, "capabilities");
+	].every((key$1) => Array.isArray(body[key$1]) && body[key$1].every((value) => typeof value === "string"))) invalid(operation, response, "capabilities");
 	if (!body.context_versions.includes(PREPARED_CONTEXT_SCHEMA)) return {
 		...check(operation, "unsupported_context_schema", "The Server does not advertise the PreparedContext schema required by this plugin.", "Install Server and plugin from the same supported release tag or checkout commit."),
 		http_status: response.status,
@@ -2985,12 +2991,27 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 }
 
 //#endregion
-//#region src/secrets.ts
-const SECRET_MARKERS = [
-	"sk-",
-	"api_key",
-	"BEGIN PRIVATE"
+//#region src/prompt-privacy.ts
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
+}
+
+//#endregion
+//#region src/secrets.ts
 const PAYLOAD_WRITES = new Set([
 	"remember_memory",
 	"capture_content_source",
@@ -3000,7 +3021,8 @@ const PAYLOAD_WRITES = new Set([
 	"change_atomic_memory_lifecycle"
 ]);
 const CONTENT_FIELDS = new Map([
-	["pc_source_add", ["input"]],
+	["pc_source_add", ["parameters"]],
+	["pc_source_target_set_enabled", ["parameters"]],
 	["create_scope", [
 		"title",
 		"summary",
@@ -3023,20 +3045,18 @@ const CONTENT_FIELDS = new Map([
 	["finalize_handoff", ["draft"]],
 	["commit_handoff", ["handoff"]]
 ]);
-function containsSecret(text) {
-	return SECRET_MARKERS.some((marker) => text.includes(marker));
-}
-function containsSecretValue(value) {
-	if (typeof value === "string") return containsSecret(value);
+function containsSecretValue(value, authorization) {
+	if (typeof value === "string") return containsSecret(value, authorization);
 	if (!value || typeof value !== "object") return false;
-	return Object.values(value).some(containsSecretValue);
+	return Object.values(value).some((item) => containsSecretValue(item, authorization));
 }
-function hasSecretContent(operation, payload) {
-	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload);
+/** Detect secret content in an explicit write with the same rule as automatic capture. */
+function hasSecretContent(operation, payload, authorization) {
+	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload, authorization);
 	const fields = CONTENT_FIELDS.get(operation);
 	if (!fields || !payload || typeof payload !== "object") return false;
 	const content = payload;
-	return fields.some((field) => containsSecretValue(content[field]));
+	return fields.some((field) => containsSecretValue(content[field], authorization));
 }
 
 //#endregion
@@ -3290,7 +3310,7 @@ async function invokeOperation(client, operationId, payload, scopeId, signal, on
 	if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId));
 	const id = operationId;
 	const body = injectScope(id, payload, scopeId);
-	if (hasSecretContent(id, body)) return toToolResult(new SecretRejectedError());
+	if (hasSecretContent(id, body, client.authorization)) return toToolResult(new SecretRejectedError());
 	try {
 		if (signal?.aborted) throw new TransportError("", signal.reason);
 		return encodeSuccess(await requestMemoryOperation(client, id, body, scopeId, signal) ?? await client.request(id, body, signal));
@@ -3334,10 +3354,11 @@ function formatScopeRouting(scopeId, cwd) {
 		"If this routing metadata is unavailable, report the Scope as unavailable instead of guessing an identifier."
 	].join("\n");
 }
-async function resolveScopeId(client, cwd, configuredScopeId, signal) {
+async function resolveScopeId(client, cwd, configuredScopeId, signal, allowDefault = true) {
 	const workspace = sessionCwd(cwd);
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: configuredScopeId,
+		...allowDefault ? {} : { allow_default: false },
 		binding_keys: workspace ? [workspaceBindingKey(workspace)] : []
 	}, signal)).value;
 	const scopeId = value && typeof value === "object" ? value.scope_id : void 0;
@@ -3400,18 +3421,18 @@ var RuntimeStatus = class {
 		this.now = now;
 	}
 	begin(sessionId, cwd, turn) {
-		const key = sessionKey(sessionId, cwd);
+		const key$1 = sessionKey(sessionId, cwd);
 		const attempt = {
 			attempt: ++this.sequence,
 			turn: /^\d{1,20}$/.test(turn) ? turn : "(unavailable)",
 			started_at: this.now(),
 			stages: initialStages()
 		};
-		this.sessions.delete(key);
-		this.sessions.set(key, attempt);
+		this.sessions.delete(key$1);
+		this.sessions.set(key$1, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
 		const record$3 = (stage, result) => {
-			if (this.sessions.get(key) !== attempt) return;
+			if (this.sessions.get(key$1) !== attempt) return;
 			attempt.stages[stage] = {
 				...result,
 				operation: OPERATIONS$1[stage],
@@ -3420,7 +3441,7 @@ var RuntimeStatus = class {
 		};
 		return {
 			scope: (scopeId) => {
-				if (this.sessions.get(key) !== attempt) return;
+				if (this.sessions.get(key$1) !== attempt) return;
 				attempt.scope_key = fingerprint(scopeId);
 				attempt.scope_id = /^[a-zA-Z0-9_-]{1,128}$/.test(scopeId) ? scopeId : "(redacted)";
 				record$3("scope", { state: "resolved" });
@@ -3627,7 +3648,7 @@ const DEFAULTS = {
 	authorization: void 0,
 	scopeId: void 0,
 	timeoutMs: 4e3,
-	requestTimeoutMs: 1e3,
+	requestTimeoutMs: 3e3,
 	maxBytes: 8e3,
 	capturePrompts: true,
 	flushOnCapture: false,
@@ -3692,6 +3713,8 @@ function storedAuthorization(env, baseUrl) {
 }
 function resolveConfig(config = {}, env = process.env) {
 	const transport = resolveTransport("dsh", env, config.baseUrl, config.allowInsecureHttp, DEFAULTS.baseUrl);
+	if (config.updateChannel !== void 0 && config.updateChannel !== "stable" && config.updateChannel !== "preview") throw new Error("updateChannel must be stable or preview");
+	if (config.updateHold !== void 0 && typeof config.updateHold !== "boolean") throw new Error("updateHold must be a boolean");
 	const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
 	if (maxBytes < 512 || maxBytes > 32768) throw new Error("maxBytes must be between 512 and 32768");
 	return {
@@ -3711,7 +3734,9 @@ function resolveConfig(config = {}, env = process.env) {
 		capturePrompts: envBoolean(env, "POWERCONTEXT_DSH_CAPTURE_PROMPTS") ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
 		flushOnCapture: envBoolean(env, "POWERCONTEXT_DSH_FLUSH_ON_CAPTURE") ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
 		flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
-		ownerLocal: ownerLocal(env, config.ownerLocal)
+		ownerLocal: ownerLocal(env, config.ownerLocal),
+		updateChannel: config.updateChannel,
+		updateHold: config.updateHold
 	};
 }
 
@@ -3757,11 +3782,11 @@ const MCP_OPERATIONS = {
 	"list_scopes": { "readOnly": true },
 	"merge_atomic_memories": { "readOnly": false },
 	"pc_source_add": { "readOnly": false },
-	"pc_source_capabilities": { "readOnly": true },
-	"pc_source_instance_set_enabled": { "readOnly": false },
-	"pc_source_instances": { "readOnly": true },
+	"pc_source_runners": { "readOnly": true },
 	"pc_source_status": { "readOnly": true },
+	"pc_source_target_delete": { "readOnly": false },
 	"pc_source_target_set_enabled": { "readOnly": false },
+	"pc_source_target_transfer": { "readOnly": false },
 	"prepare_handoff_hint": { "readOnly": true },
 	"preview_atomic_memory_restoration": { "readOnly": true },
 	"propose_experience": { "readOnly": false },
@@ -3918,7 +3943,7 @@ async function loadPeer(specifier) {
 const POWERCONTEXT_MCP_SERVER_NAME = "powercontext";
 const MCP_TOOL_PREFIX = `mcp__${POWERCONTEXT_MCP_SERVER_NAME}__`;
 const MCP_STARTUP_WAIT_MS = 5e3;
-const MUTATING_MCP_OPERATIONS = new Set(Object.entries(MCP_OPERATIONS).filter(([, metadata]) => !metadata.readOnly).map(([operation]) => operation));
+const MUTATING_MCP_OPERATIONS = new Set(Object.entries(MCP_OPERATIONS).filter(([, metadata$1]) => !metadata$1.readOnly).map(([operation]) => operation));
 function isRecord(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3928,16 +3953,9 @@ function rawOperation(name$1) {
 	return Object.prototype.hasOwnProperty.call(MCP_OPERATIONS, operation) ? operation : void 0;
 }
 function usesScope(operation, args) {
-	if ([
-		"pc_source_capabilities",
-		"pc_source_add",
-		"pc_source_status",
-		"pc_source_target_set_enabled"
-	].includes(operation)) return "current";
-	if (operation === "pc_source_instances") return isRecord(args) && args.view === "control" ? "none" : "current";
-	const metadata = OPERATIONS[operation];
-	if (metadata.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
-	return metadata.scopeMode;
+	const metadata$1 = OPERATIONS[operation];
+	if (metadata$1.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
+	return metadata$1.scopeMode;
 }
 function matchesScope(argumentsValue, mode, scopeId) {
 	if (!isRecord(argumentsValue)) return false;
@@ -3946,14 +3964,14 @@ function matchesScope(argumentsValue, mode, scopeId) {
 	if (!isRecord(selection) || selection.mode !== "exact" || !Array.isArray(selection.scope_ids)) return false;
 	return selection.scope_ids.length === 1 && selection.scope_ids[0] === scopeId;
 }
-function registerMcpPolicy(ctx, resolveScope) {
+function registerMcpPolicy(ctx, resolveScope, authorization) {
 	ctx.on("tools/pre-execute", (async (exec, next) => {
 		const operation = rawOperation(exec.name);
 		if (!operation) return exec.name.startsWith(MCP_TOOL_PREFIX) ? {
 			kind: "deny",
 			reason: "This PowerContext MCP operation is unavailable in the plugin catalog. No MCP request was sent; install a matching plugin and Server."
 		} : next();
-		if (hasSecretContent(operation, exec.arguments)) return {
+		if (hasSecretContent(operation, exec.arguments, authorization)) return {
 			kind: "deny",
 			reason: "secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent."
 		};
@@ -4059,7 +4077,7 @@ async function captureUserPrompt(input) {
 		observation?.skip("capture", "capture_disabled");
 		return;
 	}
-	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+	if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt, input.config.authorization)) {
 		observation?.skip("capture", input.prompt.length > MAX_SOURCE_LENGTH ? "source_too_long" : "sensitive_content");
 		logSafely(input.log, {
 			event: "capture_content_source",
@@ -4175,7 +4193,7 @@ async function recallContent(input, query, scopeId, observation) {
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const result = await input.client.request("prepare_context", {
 			scope_id: scopeId,
-			query: boundedRecallQuery(query),
+			query: boundedRecallQuery(scrubSecrets(query, input.config.authorization)),
 			max_bytes: input.config.maxBytes,
 			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);
@@ -4270,12 +4288,13 @@ async function runRecallPreStep(input) {
 	}
 	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
 	if (recalled.content) observation?.record("injection", { state: "running" });
-	if (!recalled.scopeId && !recalled.content || signal.aborted) {
-		observation?.skip("injection", signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+	const cancelled = input.signal?.aborted === true;
+	if (!recalled.scopeId && !recalled.content || cancelled) {
+		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
 		return downstream;
 	}
 	try {
-		if (signal.aborted) throw new TransportError("", signal.reason);
+		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const additions = [];
 		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
 		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
@@ -4329,6 +4348,10 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 	}
 	observation?.scope(scopeId);
 	const content = await recallContent(input, query, scopeId, observation);
+	const settled = input.signal?.aborted ? {} : {
+		scopeId,
+		content: content ?? void 0
+	};
 	observation?.skip("capture", input.signal?.aborted ? cancellationReason(input.signal) : "no_user_text");
 	observation?.skip("flush", "capture_skipped");
 	if (userPrompt && !input.signal?.aborted) try {
@@ -4348,10 +4371,7 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 		observation?.fail("capture", error, true, input.signal);
 		reportFailure(input.log, "capture_content_source", error);
 	}
-	return input.signal?.aborted ? {} : {
-		scopeId,
-		content: content ?? void 0
-	};
+	return settled;
 }
 
 //#endregion
@@ -4419,6 +4439,217 @@ function registerGuidance(ctx) {
 		order: 120,
 		text: GUIDANCE
 	});
+}
+
+//#endregion
+//#region src/companion-memory.ts
+/** Read-only, optional memory access for companions running in the same trusted DSH host. */
+const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
+const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
+/** Keep the running client's credentials and transport policy inside the host plugin. */
+function registerCompanionMemory(ctx, runtime) {
+	if (typeof ctx.provide !== "function" || typeof ctx.effect !== "function") return;
+	const lifetime = new AbortController();
+	const cwdFor = (sessionId) => {
+		const cwd = ctx.get("sessions")?.get?.(sessionId)?.header?.cwd;
+		return typeof cwd === "string" && cwd.trim() ? resolve(cwd) : void 0;
+	};
+	const service = {
+		protocol: COMPANION_MEMORY_PROTOCOL,
+		async prepare(request$2) {
+			if (typeof request$2.sessionId !== "string" || !request$2.sessionId.trim() || request$2.sessionId.length > 256) return {
+				status: "unavailable",
+				reason: "session-required"
+			};
+			const signal = AbortSignal.any([
+				lifetime.signal,
+				AbortSignal.timeout(Math.max(1, runtime.config.timeoutMs)),
+				...request$2.signal ? [request$2.signal] : []
+			]);
+			const unavailable = {
+				status: "unavailable",
+				reason: "connection-unavailable"
+			};
+			const run = async () => {
+				signal.throwIfAborted();
+				const cwd = cwdFor(request$2.sessionId);
+				if (!cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const scopeId = await runtime.resolveScope(cwd, signal, false).catch((error) => {
+					if (error instanceof ServerResponseError && [404, 409].includes(error.statusCode)) return void 0;
+					throw error;
+				});
+				signal.throwIfAborted();
+				if (!scopeId) return {
+					status: "unavailable",
+					reason: "scope-unavailable"
+				};
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const binding = {
+					bindingId: createHash("sha256").update(JSON.stringify([
+						runtime.config.baseUrl,
+						runtime.config.authorization ?? "",
+						cwd,
+						scopeId
+					])).digest("hex"),
+					scopeId,
+					workspace: basename(cwd) || cwd
+				};
+				if (request$2.query === void 0) return {
+					status: "connected",
+					...binding
+				};
+				if (typeof request$2.query !== "string") return unavailable;
+				const query = boundedRecallQuery(scrubSecrets(request$2.query, runtime.config.authorization));
+				if (!query) return {
+					status: "empty",
+					...binding
+				};
+				const requested = request$2.maxBytes ?? runtime.config.maxBytes;
+				if (!Number.isInteger(requested) || requested < 512 || requested > 32768) return unavailable;
+				const maxBytes = Math.min(requested, runtime.config.maxBytes);
+				const result = await runtime.client.request("prepare_context", {
+					scope_id: scopeId,
+					query,
+					max_bytes: maxBytes,
+					assembly: { sections: [{
+						family: "memory",
+						limit: 3
+					}] }
+				}, signal, { traceContext: request$2.traceContext });
+				signal.throwIfAborted();
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const prepared = validatePreparedContext(result.kind === "json" ? result.value : void 0, "/v1/context/prepare", maxBytes);
+				return {
+					status: prepared.status,
+					...binding,
+					...prepared.content ? { content: prepared.content } : {}
+				};
+			};
+			let onAbort = () => {};
+			const cancelled = new Promise((resolveCancelled) => {
+				onAbort = () => resolveCancelled(unavailable);
+				if (signal.aborted) onAbort();
+				else signal.addEventListener("abort", onAbort, { once: true });
+			});
+			try {
+				return await Promise.race([run().catch(() => unavailable), cancelled]);
+			} finally {
+				signal.removeEventListener("abort", onAbort);
+			}
+		}
+	};
+	ctx.provide(COMPANION_MEMORY_SERVICE, service);
+	ctx.effect(() => () => lifetime.abort());
+}
+
+//#endregion
+//#region src/dashboard-contract.ts
+const DASHBOARD_ROUTE = "/powercontext/dashboard";
+const DASHBOARD_SCHEMA = "powercontext.dsh-dashboard.v1";
+
+//#endregion
+//#region src/dashboard-bridge.ts
+function send(response, status, body) {
+	if (response.writableEnded) return;
+	response.statusCode = status;
+	response.setHeader("content-type", "application/json; charset=utf-8");
+	response.setHeader("cache-control", "no-store");
+	response.setHeader("x-content-type-options", "nosniff");
+	response.end(JSON.stringify(body));
+}
+/** Read only the configured Server's Dashboard route; never return the Host's credential. */
+async function dashboardAvailability(config, bridge, sessionId, fetcher = fetch) {
+	const session = (await bridge.status(sessionId)).session;
+	const base = {
+		schema: DASHBOARD_SCHEMA,
+		state: "server_unavailable",
+		session_id: session?.id ?? null,
+		scope_id: session?.scope_id ?? null
+	};
+	if (sessionId !== void 0 && session?.id !== sessionId) return {
+		...base,
+		state: "session_unavailable"
+	};
+	const url = `${config.baseUrl.replace(/\/+$/, "")}/dashboard/home`;
+	const headers = { Accept: "text/html" };
+	if (config.authorization) headers.Authorization = config.authorization;
+	try {
+		const response = await fetcher(url, {
+			method: "GET",
+			headers,
+			redirect: "manual",
+			signal: AbortSignal.timeout(Math.max(1e3, Math.min(config.requestTimeoutMs, 8e3)))
+		});
+		await response.body?.cancel();
+		if (response.status === 404) return {
+			...base,
+			state: "disabled"
+		};
+		if (response.status === 401 || response.status === 403) return {
+			...base,
+			state: "authentication"
+		};
+		if (response.status !== 200 || response.headers.get("x-dashboard-html") !== "1") return {
+			...base,
+			state: "load_unavailable"
+		};
+		if (session !== null && session.scope_state !== "resolved") return {
+			...base,
+			state: "scope_unresolved"
+		};
+		const page = new URL(url);
+		if (session?.scope_id) page.searchParams.set("scope", session.scope_id);
+		return {
+			...base,
+			state: "available",
+			url: page.toString()
+		};
+	} catch {
+		return {
+			...base,
+			state: "server_unavailable"
+		};
+	}
+}
+/** Keep Dashboard availability separate from the API status palette. */
+function createDashboardRouteHandler(bridge, config, connection, facts, fetcher = fetch) {
+	return async (request$2, response) => {
+		const rejection = connection.requestRejection(request$2);
+		if (rejection !== void 0) {
+			send(response, rejection, { code: rejection === 401 ? "dsh_authentication_required" : "dsh_forbidden" });
+			return;
+		}
+		const deployment = deploymentRejection(request$2, facts);
+		if (deployment !== void 0) {
+			send(response, deployment.status, { code: deployment.code });
+			return;
+		}
+		if (request$2.method !== "GET") {
+			response.statusCode = 405;
+			response.setHeader("allow", "GET");
+			response.end();
+			return;
+		}
+		try {
+			const ids = new URL(String(request$2.url), "http://localhost").searchParams.getAll("session_id");
+			if (ids.length > 1 || ids.length === 1 && (!ids[0] || ids[0].length > 256)) {
+				send(response, 400, { code: "invalid_session_id" });
+				return;
+			}
+			send(response, 200, await dashboardAvailability(config, bridge, ids[0], fetcher));
+		} catch {
+			send(response, 500, { code: "dashboard_bridge_error" });
+		}
+	};
 }
 
 //#endregion
@@ -4722,8 +4953,8 @@ var StatusBridge = class {
 		};
 	}
 	async resolveScope(session, now) {
-		const key = `${session.id}\u0000${session.cwd ?? ""}`;
-		const cached = this.scopes.get(key);
+		const key$1 = `${session.id}\u0000${session.cwd ?? ""}`;
+		const cached = this.scopes.get(key$1);
 		if (cached !== void 0 && now - cached.observed_at < SCOPE_TTL_MS) return cached;
 		try {
 			const valid = safeScopeId(await this.options.resolveScope(session.cwd, this.abort.signal));
@@ -4738,7 +4969,7 @@ var StatusBridge = class {
 				state: "resolved",
 				observed_at: now
 			};
-			this.scopes.set(key, observation);
+			this.scopes.set(key$1, observation);
 			return observation;
 		} catch (error) {
 			const failure = operationFailure("resolve_scope_binding", error);
@@ -4749,7 +4980,7 @@ var StatusBridge = class {
 				...failure.message ? { message: failure.message } : {},
 				observed_at: now
 			};
-			this.scopes.set(key, observation);
+			this.scopes.set(key$1, observation);
 			return observation;
 		}
 	}
@@ -4826,8 +5057,8 @@ var StatusBridge = class {
 	}
 	async readPackageVersion() {
 		try {
-			const response = await this.options.client.request("get_server_info", {}, combineSignals([this.abort.signal, AbortSignal.timeout(1e3)]));
-			if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+			const version = await readServerPackageVersion(this.options.client, this.abort.signal);
+			if (!this.disposed) this.packageVersion = version;
 		} catch {
 			this.packageVersion = null;
 		}
@@ -4879,7 +5110,7 @@ var StatusBridge = class {
 				"artifact_families",
 				"search_modes",
 				"context_versions"
-			].every((key) => Array.isArray(value[key]) && value[key].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
+			].every((key$1) => Array.isArray(value[key$1]) && value[key$1].every((item) => typeof item === "string"))) throw new TypeError("Capabilities response does not match its schema");
 			const contextVersions = value.context_versions.slice(0, 32);
 			const observedAt = this.now();
 			if (!contextVersions.includes(PREPARED_CONTEXT_SCHEMA)) return {
@@ -4903,6 +5134,11 @@ var StatusBridge = class {
 		}
 	}
 };
+/** Read the running Server package identity without treating metadata as readiness. */
+async function readServerPackageVersion(client, signal) {
+	const response = await client.request("get_server_info", {}, combineSignals(signal ? [signal, AbortSignal.timeout(1e3)] : [AbortSignal.timeout(1e3)]));
+	return response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+}
 function sendJson(response, status, payload) {
 	if (response.writableEnded) return;
 	response.statusCode = status;
@@ -4979,7 +5215,366 @@ function registerStatusBridge(ctx, runtime) {
 			path: STATUS_ROUTE_PATH,
 			handler: createStatusRouteHandler(bridge, ui.connection, deploymentFacts)
 		}), "powercontext: GET /powercontext/status");
+		host.effect(() => ui.webServer.register({
+			kind: "exact",
+			path: DASHBOARD_ROUTE,
+			handler: createDashboardRouteHandler(bridge, runtime.config, ui.connection, deploymentFacts)
+		}), "powercontext: GET /powercontext/dashboard");
 		host.effect(() => () => bridge.dispose(), "powercontext: status bridge disposal");
+	});
+}
+
+//#endregion
+//#region src/update-contract.ts
+const UPDATE_ROUTE = "/powercontext/updates";
+const UPDATE_ACTION_HEADER = "x-powercontext-update-action";
+const UPDATE_PLAN_HEADER = "x-powercontext-update-plan";
+/** Releases use the same numeric version in Python and npm, with different RC spellings. */
+function releaseVersion(value) {
+	if (typeof value !== "string" || value.length > 64) return null;
+	const parts = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:(?:(a|b|rc)|-(alpha|beta|rc)\.)(0|[1-9]\d{0,8}))?$/.exec(value);
+	if (!parts) return null;
+	const stage = parts[4] ?? {
+		alpha: "a",
+		beta: "b",
+		rc: "rc"
+	}[parts[5]];
+	const core = parts.slice(1, 4).join(".");
+	const npmStage = stage === "a" ? "alpha" : stage === "b" ? "beta" : stage;
+	return {
+		python: stage ? core + stage + parts[6] : core,
+		npm: stage ? core + "-" + npmStage + "." + parts[6] : core,
+		prerelease: Boolean(stage),
+		order: [
+			...parts.slice(1, 4).map(Number),
+			stage === "a" ? 0 : stage === "b" ? 1 : stage === "rc" ? 2 : 3,
+			Number(parts[6] ?? 0)
+		]
+	};
+}
+function compareVersions(a, b) {
+	return a.order.map((part, index) => part - b.order[index]).find((part) => part !== 0) ?? 0;
+}
+
+//#endregion
+//#region src/release-updates.ts
+const RELEASES = "https://api.github.com/repos/oceanbase/powercontext/releases?per_page=30";
+const MAX_METADATA_BYTES = 2 * 1024 * 1024;
+function object(value) {
+	return value !== null && typeof value === "object" ? value : {};
+}
+async function metadata(url, fetcher) {
+	const response = await fetcher(url, {
+		redirect: "error",
+		signal: AbortSignal.timeout(6e3),
+		headers: {
+			accept: "application/json",
+			"user-agent": "powercontext-dsh-update-check"
+		}
+	});
+	if (!response.ok || !response.body) {
+		await response.body?.cancel();
+		throw new Error("release metadata unavailable");
+	}
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let json = "";
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return JSON.parse(json + decoder.decode());
+			size += value.byteLength;
+			if (size > MAX_METADATA_BYTES) throw new Error("release metadata too large");
+			json += decoder.decode(value, { stream: true });
+		}
+	} finally {
+		await reader.cancel();
+	}
+}
+async function officialRelease(channel, fetcher = fetch) {
+	const releases = await metadata(RELEASES, fetcher);
+	if (!Array.isArray(releases)) throw new Error("invalid release listing");
+	const candidates = releases.flatMap((raw) => {
+		const release = object(raw);
+		const tag = release.tag_name;
+		if (typeof tag !== "string" || !tag.startsWith("powercontext-v") || release.draft !== false || typeof release.published_at !== "string" || typeof release.prerelease !== "boolean") return [];
+		const version = releaseVersion(tag.slice(14));
+		if (!version || tag !== "powercontext-v" + version.python || channel === "stable" && (version.prerelease || release.prerelease)) return [];
+		const assets = Array.isArray(release.assets) ? release.assets.map(object).filter((asset) => asset.state === "uploaded") : [];
+		const plugin = assets.find((asset) => asset.name === "powercontext-dsh-" + version.npm + ".tgz");
+		const wheel = assets.find((asset) => asset.name === "powercontext-" + version.python + "-py3-none-any.whl");
+		const digest = typeof wheel?.digest === "string" && /^sha256:[a-f0-9]{64}$/.test(wheel.digest) ? wheel.digest.slice(7) : null;
+		return [{
+			tag,
+			version,
+			pluginPublished: plugin !== void 0,
+			wheelDigest: digest
+		}];
+	}).sort((a, b) => compareVersions(b.version, a.version));
+	if (!candidates[0]) throw new Error("no published PowerContext release found");
+	return candidates[0];
+}
+async function serverDistributionAvailable(release, fetcher = fetch) {
+	if (release.wheelDigest === null) return false;
+	try {
+		const value = object(await metadata("https://pypi.org/pypi/powercontext/" + release.version.python + "/json", fetcher));
+		return Array.isArray(value.urls) && value.urls.map(object).some((file) => file.filename === "powercontext-" + release.version.python + "-py3-none-any.whl" && file.yanked === false && object(file.digests).sha256 === release.wheelDigest);
+	} catch {
+		return false;
+	}
+}
+
+//#endregion
+//#region src/update-bridge.ts
+function supportsRegistryUpdate(bundle) {
+	return bundle.update === void 0 ? bundle.updatable === true : bundle.update === "registry";
+}
+const PUBLIC_REGISTRIES = new Set(["https://registry.npmjs.org/", "https://registry.npmmirror.com/"]);
+const UPDATE_CHECK_INTERVAL_MS = 60 * 6e4;
+const UPDATE_STARTUP_DELAY_MS = 15e3;
+const UPDATE_BUSY_RETRY_MS = 6e4;
+const PLAN_TTL_MS = UPDATE_CHECK_INTERVAL_MS + 5 * 6e4;
+const CHECK_COOLDOWN_MS = 5e3;
+function publicRegistry(registry) {
+	if (registry === null) return false;
+	try {
+		return PUBLIC_REGISTRIES.has(new URL(registry).href);
+	} catch {
+		return false;
+	}
+}
+function updateLedger() {
+	return {
+		snapshot: {
+			phase: "idle",
+			plugin_version: null,
+			plugin_target: null,
+			server_target: null,
+			server_state: "unknown",
+			plan: null,
+			release_tag: null
+		},
+		plan: null,
+		checkedAt: Number.NEGATIVE_INFINITY
+	};
+}
+const key = Symbol.for("powercontext.dsh-update-ledgers.v1");
+const global = globalThis;
+const ledgers = global[key] ??= /* @__PURE__ */ new WeakMap();
+var DshUpdates = class {
+	options;
+	constructor(options) {
+		this.options = options;
+	}
+	get ledger() {
+		return this.options.ledger;
+	}
+	now() {
+		return this.options.now?.() ?? Date.now();
+	}
+	read() {
+		const { snapshot, plan } = this.ledger;
+		const plugin_version = packageVersion(this.options.pluginVersion);
+		if (plan && (plan.expires <= this.now() || plan.from !== plugin_version || plan.channel !== this.options.channel || this.options.held)) {
+			this.ledger.plan = null;
+			this.ledger.snapshot = {
+				...snapshot,
+				phase: "idle",
+				plan: null
+			};
+		}
+		if (snapshot.phase === "restart_required" && snapshot.plugin_target === plugin_version) this.ledger.snapshot = {
+			...snapshot,
+			phase: "updated"
+		};
+		return {
+			...this.ledger.snapshot,
+			plugin_version
+		};
+	}
+	check() {
+		const current = this.read();
+		if ([
+			"checking",
+			"installing",
+			"restart_required"
+		].includes(current.phase) || this.now() - this.ledger.checkedAt < CHECK_COOLDOWN_MS) return current;
+		this.ledger.checkedAt = this.now();
+		this.ledger.plan = null;
+		this.ledger.snapshot = {
+			...current,
+			phase: "checking",
+			plan: null
+		};
+		this.resolveCheck().catch(() => this.phase("check_failed"));
+		return this.read();
+	}
+	/** Schedule the same read-only check once per hour, independent of the panel. */
+	scheduleChecks() {
+		let timer;
+		const remaining = () => this.ledger.checkedAt + UPDATE_CHECK_INTERVAL_MS - this.now();
+		const schedule = (delay) => {
+			timer = setTimeout(tick, delay);
+			timer.unref();
+		};
+		const tick = () => {
+			if (remaining() <= 0) this.check();
+			const delay = remaining();
+			schedule(delay > 0 ? delay : UPDATE_BUSY_RETRY_MS);
+		};
+		schedule(Math.max(UPDATE_STARTUP_DELAY_MS, remaining()));
+		return () => clearTimeout(timer);
+	}
+	install(id) {
+		if (this.read().phase !== "available" || this.ledger.plan?.id !== id) return null;
+		const plan = this.ledger.plan;
+		this.ledger.plan = null;
+		this.phase("installing");
+		this.apply(plan).catch(() => this.phase("unconfirmed"));
+		return this.read();
+	}
+	phase(phase) {
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			phase,
+			plan: null
+		};
+	}
+	async resolveCheck() {
+		const { fetch: fetcher, channel } = this.options;
+		const [release, server] = await Promise.all([officialRelease(channel, fetcher), this.options.serverVersion()]);
+		const installedServer = releaseVersion(server);
+		const serverHasUpdate = server === null || installedServer !== null && compareVersions(release.version, installedServer) > 0;
+		const serverAvailable = serverHasUpdate && await serverDistributionAvailable(release, fetcher);
+		const server_state = serverHasUpdate ? serverAvailable ? "available" : "artifact_unavailable" : installedServer ? "current" : "unknown";
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			server_state,
+			server_target: serverHasUpdate ? release.version.python : null,
+			release_tag: release.tag,
+			plugin_target: release.version.npm
+		};
+		const running = releaseVersion(this.options.pluginVersion);
+		const manager = this.options.manager();
+		const bundle = (await manager?.listBundles())?.find((bundle$1) => bundle$1.name === PLUGIN_NAME);
+		if (!running || !manager || !bundle?.installed || !bundle.enabled || !supportsRegistryUpdate(bundle) || !bundle.source || bundle.version !== running.npm) return this.phase("manual");
+		if (compareVersions(release.version, running) <= 0) return this.phase("current");
+		if (this.options.held) return this.phase("held");
+		if (!release.pluginPublished) return this.phase("artifact_unavailable");
+		const registries = await manager.registries();
+		if (!publicRegistry(registries.registry ?? registries.resolved) || registries.fallbackRegistries.some((registry$1) => !publicRegistry(registry$1))) return this.phase("manual");
+		const versions = await manager.listVersions(PLUGIN_NAME, void 0, AbortSignal.timeout(12e3));
+		if (versions.status !== "listed") return this.phase(versions.problem === "not-found" ? "artifact_unavailable" : "check_failed");
+		const registry = versions.registry ?? registries.resolved;
+		if (!publicRegistry(registry) || versions.installed !== running.npm) return this.phase("manual");
+		const target = versions.versions.find((version) => version.version === release.version.npm);
+		if (!target) return this.phase("artifact_unavailable");
+		if (!target.bundle || target.deprecated !== void 0 || target.incompatible) return this.phase("incompatible");
+		if (installedServer?.python !== release.version.python) return this.phase("server_first");
+		const plan = {
+			id: randomUUID(),
+			expires: this.now() + PLAN_TTL_MS,
+			from: running.npm,
+			source: bundle.source,
+			to: target.version,
+			server: release.version.python,
+			registry,
+			channel
+		};
+		this.ledger.plan = plan;
+		this.ledger.snapshot = {
+			...this.ledger.snapshot,
+			phase: "available",
+			plan: plan.id
+		};
+	}
+	async apply(plan) {
+		const manager = this.options.manager();
+		if (!manager || this.options.held) return this.phase("manual");
+		const [bundles, server, registries] = await Promise.all([
+			manager.listBundles(),
+			this.options.serverVersion(),
+			manager.registries()
+		]);
+		const current = bundles.find((bundle) => bundle.name === PLUGIN_NAME);
+		if (current?.version !== plan.from || current.source !== plan.source || !current.enabled || !current.installed || !supportsRegistryUpdate(current) || !publicRegistry(registries.registry ?? registries.resolved) || !publicRegistry(plan.registry) || registries.fallbackRegistries.some((registry) => !publicRegistry(registry))) return this.phase("manual");
+		if (releaseVersion(server)?.python !== plan.server) return this.phase("server_first");
+		if (!this.options.canInstall()) return this.phase("busy");
+		const { result, restore } = await manager.updateBundle(PLUGIN_NAME, plan.to, { registry: plan.registry });
+		if (result.application === "applied" || result.application === "restart-required") {
+			const installed = (await manager.listBundles()).find((bundle) => bundle.name === PLUGIN_NAME);
+			if (installed?.version !== plan.to || !installed.enabled || !installed.installed) return this.phase("unconfirmed");
+			return this.phase("restart_required");
+		}
+		if (restore?.application === "applied" || restore?.application === "restart-required") {
+			const installed = (await manager.listBundles()).find((bundle) => bundle.name === PLUGIN_NAME);
+			if (installed?.version === plan.from && installed.enabled && installed.installed) return this.phase("restored");
+		}
+		return this.phase("install_failed");
+	}
+};
+function createUpdateRouteHandler(updates, connection, facts) {
+	return (request$2, response) => {
+		const rejection = connection.requestRejection(request$2);
+		const deployment = deploymentRejection(request$2, facts);
+		if (rejection !== void 0 || deployment) return sendJson(response, rejection ?? 403, { code: "owner_required" });
+		if (request$2.method === "GET") return sendJson(response, 200, updates.read());
+		if (request$2.method !== "POST") {
+			response.setHeader("allow", "GET, POST");
+			return sendJson(response, 405, { code: "method_not_allowed" });
+		}
+		const action = request$2.headers[UPDATE_ACTION_HEADER];
+		if (action === "check") return sendJson(response, 202, updates.check());
+		if (action !== "install") return sendJson(response, 400, { code: "unknown_action" });
+		if (connection.admit?.(request$2).peer?.principal?.kind !== "owner") return sendJson(response, 403, { code: "owner_required" });
+		const id = request$2.headers[UPDATE_PLAN_HEADER];
+		const snapshot = typeof id === "string" && updates.install(id);
+		if (!snapshot) return sendJson(response, 409, { code: "update_plan_changed" });
+		return sendJson(response, 202, snapshot);
+	};
+}
+function hostUpdates(ctx, runtime, facts) {
+	let ledger = ledgers.get(ctx.root);
+	if (!ledger) ledgers.set(ctx.root, ledger = updateLedger());
+	return new DshUpdates({
+		ledger,
+		pluginVersion: PLUGIN_VERSION,
+		channel: runtime.config.updateChannel ?? "stable",
+		held: runtime.config.updateHold === true,
+		manager: () => {
+			if (typeof ctx.connection.admit !== "function") return void 0;
+			if (ctx.get("profileContext")?.name !== (facts.desktop ? "desktop" : "web")) return void 0;
+			const manager = ctx.root.get("pluginManager") ?? ctx.get("pluginManager");
+			return manager && typeof manager.listVersions === "function" && typeof manager.updateBundle === "function" ? manager : void 0;
+		},
+		serverVersion: async () => {
+			try {
+				return await readServerPackageVersion(runtime.client);
+			} catch {
+				return null;
+			}
+		},
+		canInstall: () => {
+			const sessions = ctx.get("sessions");
+			const agents = ctx.get("agents");
+			return typeof sessions?.list === "function" && typeof agents?.turnBoundaryOf === "function" && sessions.list().every((session) => agents.turnBoundaryOf(session).openTurnStartSeq === null);
+		}
+	});
+}
+function registerUpdateBridge(ctx, runtime) {
+	if (typeof ctx.inject !== "function") return;
+	ctx.inject(["webServer", "connection"], (host) => {
+		const ui = host;
+		const facts = localDeploymentFacts(ui, runtime.config.ownerLocal);
+		const updates = hostUpdates(ui, runtime, facts);
+		host.effect(() => ui.webServer.register({
+			kind: "exact",
+			path: UPDATE_ROUTE,
+			handler: createUpdateRouteHandler(updates, ui.connection, facts)
+		}), "powercontext: update route");
+		const profile = ui.get("profileContext");
+		if (resolveDeployment(facts) && profile?.name === (facts.desktop ? "desktop" : "web")) host.effect(() => updates.scheduleChecks(), "powercontext: hourly update check");
 	});
 }
 
@@ -5019,7 +5614,7 @@ function createRuntime(ctx, config) {
 		status: new RuntimeStatus(),
 		client,
 		config: resolved,
-		resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
+		resolveScope: (cwd, signal, allowDefault) => resolveScopeId(client, cwd, resolved.scopeId, signal, allowDefault),
 		log: (event) => {
 			const line = JSON.stringify({
 				component: "powercontext.dsh",
@@ -5037,12 +5632,12 @@ function createSessionScopeResolver(runtime) {
 	const cache = /* @__PURE__ */ new Map();
 	const keyFor = (sessionId, cwd) => sessionId ? `session:${sessionId}` : `cwd:${cwd ?? ""}`;
 	const resolve$1 = async (request$2, refresh) => {
-		const key = keyFor(request$2.sessionId, request$2.cwd);
-		const cached = cache.get(key);
+		const key$1 = keyFor(request$2.sessionId, request$2.cwd);
+		const cached = cache.get(key$1);
 		if (!refresh && cached && cached.cwd === request$2.cwd) return cached.scopeId;
-		cache.delete(key);
+		cache.delete(key$1);
 		const scopeId = await runtime.resolveScope(request$2.cwd, request$2.signal);
-		if (scopeId) cache.set(key, {
+		if (scopeId) cache.set(key$1, {
 			cwd: request$2.cwd,
 			scopeId
 		});
@@ -5122,14 +5717,16 @@ async function apply(ctx, config) {
 	const llmMod = await loadPeer("@deepseek-ai/dsh-llm");
 	const runtime = createRuntime(ctx, config);
 	const sessionScope = createSessionScopeResolver(runtime);
-	registerMcpPolicy(ctx, sessionScope.forTool);
+	registerMcpPolicy(ctx, sessionScope.forTool, runtime.config.authorization);
 	registerSkill(ctx);
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
+	registerCompanionMemory(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
+	registerUpdateBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }
 
 //#endregion
-export { Config, apply, inject, name };
+export { COMPANION_MEMORY_PROTOCOL, COMPANION_MEMORY_SERVICE, Config, apply, inject, name };

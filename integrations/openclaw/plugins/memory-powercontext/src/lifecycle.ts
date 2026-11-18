@@ -15,8 +15,8 @@
  */
 
 
-import { createHash } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import type { PowerContextConfig } from "./config.js";
 import { opaqueSessionId } from "./config.js";
 import {
@@ -29,7 +29,9 @@ import {
 } from "./content.js";
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
+import { type FlushProgress, nonNegativeInteger, readFlushProgress, scopeCorrelation } from "./flush-progress.js";
 import { resolvePowerContextScope } from "./scope.js";
+import { containsSecret, scrubSecrets } from "./secrets.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
@@ -40,12 +42,8 @@ type LifecycleDependencies = {
 };
 
 const MAX_SESSION_SCOPES = 32;
+const MAX_TRACKED_RUNS = 64;
 const CLOSING_BUDGET_MS = 1000;
-
-type FlushProgress = {
-  currentCursor: number;
-  remainingWork: boolean;
-};
 
 type CheckpointResult = {
   acknowledged: boolean;
@@ -57,8 +55,11 @@ type FlushCallBudget = {
   remaining: number;
 };
 
-function nonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+// OpenClaw resolves a run's agent from its agent-scoped session key before any other source, and it gives every run
+// such a key, so the key names the same agent that the run's other hooks report.
+function agentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  const agentId = sessionKey ? parseAgentSessionKey(sessionKey)?.agentId : undefined;
+  return agentId ? normalizeAgentId(agentId) : undefined;
 }
 
 function sourcePosition(value: unknown): number {
@@ -73,28 +74,16 @@ function sourcePosition(value: unknown): number {
 }
 
 function flushProgress(value: unknown): FlushProgress {
-  if (!value || typeof value !== "object") {
+  const progress = readFlushProgress(value);
+  if (!progress) {
     throw new Error("PowerContext returned an invalid flush payload");
   }
-  const result = value as Record<string, unknown>;
-  if (
-    !["idle", "processed"].includes(String(result.status))
-    || !nonNegativeInteger(result.previous_cursor)
-    || !nonNegativeInteger(result.current_cursor)
-    || !nonNegativeInteger(result.high_watermark)
-    || !nonNegativeInteger(result.processed_source_count)
-    || (result.remaining_work !== undefined && typeof result.remaining_work !== "boolean")
-  ) {
-    throw new Error("PowerContext returned an invalid flush payload");
-  }
-  return {
-    currentCursor: result.current_cursor,
-    remainingWork: result.remaining_work === true,
-  };
+  return progress;
 }
 
-function scopeCorrelation(scopeId: string): string {
-  return createHash("sha256").update(scopeId).digest("hex").slice(0, 16);
+// Fetch trims the Authorization header value, so the Server sees the trimmed token.
+function serverToken(config: PowerContextConfig): string | undefined {
+  return process.env[config.tokenEnv]?.trim() || undefined;
 }
 
 export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: LifecycleDependencies) {
@@ -127,6 +116,37 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     });
   };
   const sessionScopes = new Map<string, Set<string>>();
+  // OpenClaw supplies a run's active projects to `before_prompt_build` but not to `agent_end`; capture resolves
+  // with the projects of the run it captures, so it reaches the same project binding as that run's recall.
+  // A completed run moves to its own map instead of being dropped: a replayed `agent_end` must resolve the same
+  // Scope, because Source deduplication holds only within one Scope, and completed runs must not evict runs that
+  // are still in progress. Each map keeps its most recent runs.
+  const activeRunProjects = new Map<string, readonly string[]>();
+  const completedRunProjects = new Map<string, readonly string[]>();
+  const trackRun = (runs: Map<string, readonly string[]>, runId: string, projectKeys: readonly string[]) => {
+    runs.delete(runId);
+    runs.set(runId, projectKeys);
+    if (runs.size > MAX_TRACKED_RUNS) {
+      runs.delete(runs.keys().next().value!);
+    }
+  };
+  const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
+    if (runId && projectKeys) {
+      trackRun(activeRunProjects, runId, [...projectKeys]);
+    }
+  };
+  const completeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
+    if (!runId) {
+      return undefined;
+    }
+    const projectKeys = activeRunProjects.get(runId);
+    if (projectKeys === undefined) {
+      return completedRunProjects.get(runId);
+    }
+    activeRunProjects.delete(runId);
+    trackRun(completedRunProjects, runId, projectKeys);
+    return projectKeys;
+  };
   const pendingPositions = new Map<string, number>();
   const confirmedCursors = new Map<string, number>();
   const clearConfirmedPending = (scopeId: string): boolean => {
@@ -297,6 +317,11 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     ) {
       return;
     }
+    // Check the whole latest user text, because truncation can shorten a credential below a recognizable shape.
+    const text = latestUserText(params.messages);
+    if (!text || containsSecret(text, serverToken(config))) {
+      return;
+    }
     const content = captureTranscript(params.messages, config.captureMaxChars);
     if (!content) {
       return;
@@ -389,6 +414,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   };
 
   api.on("before_prompt_build", async (event, ctx) => {
+    rememberRunProjects(ctx.runId, ctx.activeProjectKeys);
     const config = deps.getConfig();
     const agentId = readAgentId(ctx.agentId);
     if (
@@ -412,7 +438,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
         scope_id: scopeId,
-        query: truncateUtf8(query, 8192),
+        query: truncateUtf8(scrubSecrets(query, serverToken(config)), 8192),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });
@@ -442,6 +468,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   });
 
   api.on("agent_end", async (event, ctx) => {
+    const runProjects = completeRunProjects(ctx.runId ?? event.runId);
     const agentId = readAgentId(ctx.agentId);
     if (!event.success || !agentId) {
       return;
@@ -451,7 +478,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         agentId,
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-        activeProjectKeys: ctx.activeProjectKeys,
+        activeProjectKeys: ctx.activeProjectKeys ?? runProjects,
         channel: ctx.channel ?? ctx.messageProvider,
         messages: event.messages,
         eventIdentity: lifecycleEventIdentity(event.messages, { runId: event.runId }),
@@ -462,7 +489,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   });
 
   api.on("before_compaction", async (event, ctx) => {
-    const agentId = readAgentId(ctx.agentId);
+    // The built-in runner's in-session auto-compaction supplies only the session key.
+    const agentId = readAgentId(ctx.agentId) ?? agentIdFromSessionKey(ctx.sessionKey);
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }

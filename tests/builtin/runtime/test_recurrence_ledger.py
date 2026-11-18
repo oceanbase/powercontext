@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -35,6 +36,7 @@ from powercontext.builtin.artifacts.experience.models import (
     FailureVerification,
     RepairSurface,
 )
+from powercontext.builtin.artifacts.experience.recurrence import signature_key
 from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.artifacts.handoff.models import (
     HandoffArtifactCitation,
@@ -597,5 +599,47 @@ def test_receipt_pointing_to_missing_handoff_does_not_fallback_to_scope_heads() 
                 await ledger.record_window(connection, rows)
                 assert await repository.matches(connection, SCOPE) == ()
                 assert await repository.observations(connection, SCOPE) == ()
+
+    asyncio.run(scenario())
+
+
+def test_effectiveness_reads_back_what_one_window_records() -> None:
+    """The projection must count the events the incubation window really writes.
+
+    Five linked Task Outcomes recall the same Experience: three fail (the cue
+    recurs) and two succeed with a proven condition and a passed check. The
+    window therefore writes five ``selected``, three ``recurred``, and two
+    ``avoided`` events, and the projection must read exactly that back.
+    """
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+            repository = RecurrenceRepository()
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+                artifacts = await _seed_artifacts(connection, sources)
+                await _add_receipt(sources, connection)
+                outcomes = (
+                    _failed_outcome(),
+                    _failed_outcome(),
+                    _failed_outcome(),
+                    _passed_outcome(),
+                    _passed_outcome(),
+                )
+                for index, outcome in enumerate(outcomes, start=1):
+                    await _add_source(sources, connection, f"outcome-{index:02d}", outcome.model_dump_json())
+
+            async with profile.database.transaction() as connection:
+                rows = await _window(sources, connection, after=1)
+                ledger = _ledger(profile.database, sources, artifacts, repository)
+                await ledger.record_window(connection, rows)
+                projection = await ledger.effectiveness(connection, EXPERIENCE_REF, signature_key(CUE))
+
+        assert (projection.selected, projection.recurred, projection.avoided) == (5, 3, 2)
+        assert projection.verdicts == 5
+        assert projection.effectiveness == pytest.approx(0.4)
 
     asyncio.run(scenario())

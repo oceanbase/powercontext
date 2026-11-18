@@ -20,16 +20,16 @@ import pytest
 from pymysql.err import IntegrityError as MySQLIntegrityError
 from sqlalchemy.exc import IntegrityError
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessConflictError,
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 
 
 def test_access_bootstrap_replays_a_lost_unique_key_race(monkeypatch: pytest.MonkeyPatch) -> None:

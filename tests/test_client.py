@@ -403,6 +403,72 @@ def test_check_client_requires_matching_phase_and_complete_allow(change) -> None
     asyncio.run(scenario())
 
 
+def test_check_client_opt_in_uses_a_header_and_requires_the_core_target_on_allow() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+        include_target = True
+        decision = "allow"
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            payload = {
+                "schema": "powercontext.context-check.v1",
+                "phase": "before_send",
+                "decision": decision,
+                "reason_codes": [],
+                "coverage": {"profile": "text-and-tools.v1", "complete": True},
+                "policy_version": "test",
+                "valid_until": "2026-10-26T12:00:00Z",
+            }
+            if decision == "allow":
+                payload["binding"] = "opaque"
+            if include_target and decision == "allow":
+                payload.update({"target_endpoint": "https://model.example/v1/chat", "target_protocol": "openai-chat"})
+            return httpx.Response(200, json=payload)
+
+        request = CheckContextRequest.model_validate({
+            "scope_id": "scope",
+            "phase": "before_send",
+            "target_profile": "model",
+            "prepared_contexts": [],
+            "payload": {
+                "schema": "powercontext.model-json-payload.v1",
+                "headers": {"content-type": "application/json"},
+                "body": "{}",
+            },
+        })
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            ordinary = await client.check_context(request)
+            assert ordinary.decision == "allow"
+            assert "X-PowerContext-Resolve-Target" not in requests[-1].headers
+            privileged = await client.check_context(request, resolve_target=True)
+            assert requests[-1].headers["X-PowerContext-Resolve-Target"] == "true"
+            assert json.loads(requests[-1].content) == json.loads(requests[-2].content)
+            assert privileged.target_endpoint == "https://model.example/v1/chat"
+            include_target = False
+            with pytest.raises(InvalidResponseError):
+                await client.check_context(request, resolve_target=True)
+            assert requests[-1].headers["X-PowerContext-Resolve-Target"] == "true"
+            decision = "block"
+            blocked = await client.check_context(request, resolve_target=True)
+            assert blocked.decision == "block" and blocked.target_endpoint is None
+            before_release = CheckContextRequest.model_validate({
+                "scope_id": "scope",
+                "phase": "before_release",
+                "target_profile": "model",
+                "request_binding": "opaque",
+                "completion": "complete",
+                "payload": request.root.payload.model_dump(by_alias=True),
+            })
+            count = len(requests)
+            with pytest.raises(ValueError, match="before_send"):
+                await client.check_context(before_release, resolve_target=True)
+            assert len(requests) == count
+
+    asyncio.run(scenario())
+
+
 def test_client_exposes_all_three_topic_memory_http_operations_without_search_mode() -> None:
     async def scenario() -> None:
         requests: list[httpx.Request] = []

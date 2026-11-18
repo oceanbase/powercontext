@@ -128,6 +128,8 @@ the supervisor records interruption or failure instead.
 
 The supervisor emits `artifact_processing.queued` on local queue admission, `artifact_processing.dispatched`
 when it starts an attempt, and `artifact_processing.attempt.completed` when it finalizes that attempt.
+An attempt that ends in a control conflict finalizes with outcome `conflict`; its `error_code` is `cursor_conflict` or
+`head_conflict`.
 `queue_wait_ms` uses a monotonic clock and excludes earlier policy waits and retry backoff before queue admission.
 On completion, `duration_ms` measures the supervisor attempt separately from queue time and child execution time.
 These are execution diagnostics, not counts of newly published Artifacts.
@@ -158,6 +160,12 @@ matching the span identity; an existing requested query kind moves to `code_oper
 they are not per-request allocations or simultaneous process-tree totals, and must not be added together.
 Failed code stages retain the diagnostic `error_code` and, for domain errors, `status_code`; logs and spans use these
 values to distinguish timeouts, conflicts, and invalid requests from internal failures.
+
+Plugin directory changes are recorded as `plugin.changed` events: `plugin_name` is the plugin, `plugin_event` is
+`loaded`, `updated`, `removed`, `check_failed`, or `upgrade_failed`, and `version_digest` and `declaration_digest` are
+the content and declaration digests of the version that took effect (or that stays in use after a failed check). Failed
+checks record only a known failure category, never the exception message. With reloading on, each scan records a
+`DEBUG` `plugin.scanned` event whose `scan_ms` is the scan's duration in milliseconds.
 
 Server-created workers use the configured log level and format. Importing or running the Runtime as an SDK does not
 configure global logging; an embedding application owns its logging configuration. Logging bootstrap failure does not
@@ -462,8 +470,8 @@ this timestamp does not bypass or describe the age of an individual cached probe
 | `artifact_processing_last_success_timestamp_seconds` | Latest supervisor-verified acknowledgement, not merely child return |
 | `artifact_processing_oldest_observed_pending_timestamp_seconds` | Earliest local admission still retained in ready/running/retry state; zero means none observed |
 | `artifact_processing_invocation_duration_seconds{family,outcome}` | Histogram of finalized invocation attempts including launch, execution and acknowledgement; each retry is another sample |
-| `model_usage_queue_depth`, `model_usage_queue_capacity` | Parent-process recorder queue and capacity; excludes the in-flight write and child queues |
-| `model_usage_dropped_records_total`, `model_usage_write_failures_total` | Parent recorder losses plus received child loss counters; best-effort statistics, not billing |
+| `model_usage_queue_depth`, `model_usage_queue_capacity` | Parent-process recorder queue and capacity in original records; excludes the in-flight batch (up to 32 records) and child queues |
+| `model_usage_dropped_records_total`, `model_usage_write_failures_total` | Original records dropped or whose writes failed/have indeterminate outcomes, including received child counters; a failed batch counts every original record, not one transaction; best-effort statistics, not billing |
 | `model_usage_worker_reports_total{outcome}` | Invocation attempts with `received` recorder counters or `missing` observations; missing does not mean zero losses |
 | `metrics_collection_failures_total` | Failed processing snapshot refreshes; an old snapshot can remain visible |
 
@@ -488,8 +496,8 @@ The dashboard labels a policy block as “被规则阻止” (“blocked by a ru
 another failure; it means the same Source frontier has reached its retry or resource allowance and the system stopped
 starting more model work. Common `error_code` values are:
 
-- `window_attempt_limit`: the same frontier has used three attempts and has not completed. Request and token budgets
-  may still be available.
+- `window_attempt_limit`: the same frontier has used three attempts and has not completed. Attempts that lost a
+  Topic head conflict to a concurrent replace or Dream are not counted. Request and token budgets may still be available.
 - `window_provider_budget_exceeded`: the same frontier reached its request or token budget.
 - `source_complexity_limit`: the Source window exceeds the processing limit.
 

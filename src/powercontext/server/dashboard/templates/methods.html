@@ -14,39 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<div class="methods-view text-break">
-{% set family = method_kind %}
-{% set collection = collections.get(family, {}) %}
-{% set pager = collection.get('pager', {}) %}
-
-<style>
-  me .method-grid { grid-template-rows: repeat({{ collection_page_size if pager.get('previous') or pager.get('next') else collection.get('items', [])|length or 1 }}, 1fr); }
-  me .method-row { min-width: 0; }
-  me .collection-empty { min-height: 65dvh; }
-</style>
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/pagination.html' import pagination %}
 {% from 'components/search.html' import search_form with context %}
-{{ page_heading(t.methods, t.methods_subtitle) }}
-<nav class="nav nav-tabs mb-4" aria-label="{{ t.method_filter }}">
-  {% for value, label in [('experience', 'experience'), ('skill', 'skill_reading')] %}<a class="nav-link {% if method_kind == value %}active{% endif %}" href="{{ link('methods', kind=value, q=none, skill_page=none, experience_page=none, experience_cursor=none, experience_history=none) }}" {% if method_kind == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}
-</nav>
-{{ search_form(t.search_experiences if method_kind == 'experience' else t.search_skills, 2000, method_kind) }}
-{% if collection.get('search_limited') %}<p class="text-secondary">{{ t.experiences_limit if method_kind == 'experience' else t.skills_limit }}</p>{% endif %}
-{% from 'components/read-error.html' import read_error with context %}
-{% if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endif %}
-<section>
-  <div class="method-grid d-grid gap-3" aria-label="{{ t[family] }}">
-    {% for record in collection.get('items', []) %}
-    {% if 'error' not in record %}<article class="card method-row"><div class="card-body">
-      <span class="method-type text-secondary small">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
-      <h2 class="card-title fw-normal"><a class="text-reset d-block text-truncate" href="{{ link(family, artifact=record.artifact_id, revision=record.revision, return_to=link('methods', artifact=none, revision=none)) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
-      <p class="text-secondary text-truncate">{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
-      <a href="{{ link(family, artifact=record.artifact_id, revision=record.revision, return_to=link('methods', artifact=none, revision=none)) }}">{{ t.read_experience if family == 'experience' else t.read_skill }}</a>
-    </div></article>{% endif %}
-    {% endfor %}
-    {% if not data[family] and not errors.get(family) %}<section class="card collection-empty"><div class="empty">{% if search_query %}<h2>{{ t.experiences_no_match if family == 'experience' else t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
-  </div>
-  <div class="collection-footer">{{ pagination(collection.get('pager'), t, always=family == 'skill') }}</div>
-</section>
-</div>
+{% set family = method_kind %}{% set collection = collections.get(family,{}) %}
+{% call page_heading(t.methods, t.methods_subtitle) %}{% if not generation_open %}<div class="btn-list justify-content-md-end"><a class="btn btn-primary" href="{{ link(generate='1',generation_mode='direct',evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}" title="{{ t.method_sync_notice }}">{{ t.method_generate_now }}</a><a class="btn btn-primary" href="{{ link(generate='1',generation_mode='dream',evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}">{{ t.method_generate_dream }}</a></div>{% endif %}{% endcall %}
+<nav class="nav nav-tabs mb-4" aria-label="{{ t.method_filter }}">{% for value,label in [('experience','experience'),('skill','skill_reading')] %}<a class="nav-link {{ 'active' if family == value else '' }}" href="{{ link('methods',kind=value,q=none,skill_page=none,experience_page=none,experience_cursor=none,experience_history=none,generate=none,generation_mode=none,evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}" {% if family == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}</nav>
+{% if generation_open %}{% include 'components/method-generation.html' %}{% else %}
+{% if request.query_params.get('generation_result') == 'no_op' %}<p class="alert alert-info" role="status">{{ t.method_generation_no_op }}</p>{% endif %}
+{{ search_form(t.search_experiences if family == 'experience' else t.search_skills,2000,family) }}
+{% if collection.get('search_limited') %}<p class="text-secondary">{{ t.experiences_limit if family == 'experience' else t.skills_limit }}</p>{% endif %}
+{% if errors.get(family) %}{{ read_error(errors[family],t[family]) }}{% endif %}
+<div class="record-list">
+{% for record in collection.get('items',[]) if 'error' not in record %}<a class="record-row" href="{{ link(family,artifact=record.artifact_id,revision=record.revision,return_to=link('methods',artifact=none,revision=none)) }}"><h2 class="record-row-title">{{ record.lesson if family == 'experience' else record.description or record.name }}</h2><p class="record-row-description">{{ (record.situation if family == 'experience' else record.name)|truncate(220,true) }}</p><div class="document-meta">{{ t[family] }} · {{ t.revision }} {{ record.revision }} <span>{{ t.read_experience if family == 'experience' else t.read_skill }} →</span></div></a>
+{% else %}{% if not errors.get(family) %}<div class="quiet-empty"><h2>{{ (t.experiences_no_match if family == 'experience' else t.skills_no_match) if search_query else (t.experience_empty if family == 'experience' else t.skills_empty) }}</h2><p>{{ t.methods_empty_body }}</p></div>{% endif %}{% endfor %}
+</div>{{ pagination(collection.get('pager'),t,always=family == 'skill') }}
+
+{% endif %}

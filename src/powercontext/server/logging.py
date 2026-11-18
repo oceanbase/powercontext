@@ -151,6 +151,13 @@ _CODE_FIELDS = (
     "limitations",
     "reason",
 )
+_PLUGIN_FIELDS = (
+    "plugin_name",
+    "plugin_event",
+    "version_digest",
+    "declaration_digest",
+    "scan_ms",
+)
 _MISSING_OTLP_LOG_EXPORTER = (
     "OpenTelemetry log export requires the 'tracing-otlp' extra; "
     "install 'powercontext[server,tracing-otlp]' before enabling OTLP logs"
@@ -168,8 +175,13 @@ def _operational_payload(record: logging.LogRecord) -> dict[str, Any]:
     """Return only the documented structured fields, never arbitrary record extras."""
 
     payload = {field: value for field in _OPERATIONAL_FIELDS if (value := getattr(record, field, None)) is not None}
-    if str(getattr(record, "event", "")).startswith("code."):
+    event = str(getattr(record, "event", ""))
+    if event.startswith("code."):
         payload.update((field, value) for field in _CODE_FIELDS if (value := getattr(record, field, None)) is not None)
+    elif event.startswith("plugin."):
+        payload.update(
+            (field, value) for field in _PLUGIN_FIELDS if (value := getattr(record, field, None)) is not None
+        )
     return payload
 
 
@@ -229,6 +241,20 @@ class JsonFormatter(logging.Formatter):
 
 
 class _HumanContextFilter(OperationalContextFilter):
+    def __init__(self, *, role: str = "server", target: str | None = None, owner_role: str | None = None) -> None:
+        super().__init__(role=role, target=target, owner_role=owner_role)
+        self._fields = tuple(
+            field
+            for field in _OPERATIONAL_FIELDS
+            if field not in self._identity and field not in {"request_id", "trace_id", "span_id"}
+        )
+        self._code_fields = tuple(dict.fromkeys((*self._fields, *_CODE_FIELDS)))
+        # A filter owns one service identity. Request and worker correlation
+        # still come from each record's current context below.
+        self._service_context = "".join(
+            f" {field}={json.dumps(value, ensure_ascii=False)}" for field, value in self._identity.items()
+        )
+
     @override
     def filter(self, record: logging.LogRecord) -> bool:
         super().filter(record)
@@ -241,21 +267,13 @@ class _HumanContextFilter(OperationalContextFilter):
         )
         event = getattr(record, "event", None)
         # Correlation and diagnostics apply to every event, including nested code stages.
-        fields = tuple(
-            field
-            for field in _OPERATIONAL_FIELDS
-            if field not in self._identity and field not in {"request_id", "trace_id", "span_id"}
-        )
-        if isinstance(event, str) and event.startswith("code."):
-            fields = tuple(dict.fromkeys((*fields, *_CODE_FIELDS)))
+        fields = self._code_fields if isinstance(event, str) and event.startswith("code.") else self._fields
         record.processing_context = "".join(
             f" {field}={json.dumps(value, ensure_ascii=False)}"
             for field in fields
             if (value := getattr(record, field, None)) is not None
         )
-        record.service_context = "".join(
-            f" {field}={json.dumps(value, ensure_ascii=False)}" for field, value in self._identity.items()
-        )
+        record.service_context = self._service_context
         return True
 
 

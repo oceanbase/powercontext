@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from pyobvector import VECTOR, VectorIndex
+from pyobvector import VectorIndex
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -58,6 +58,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryStorageInvariantError,
 )
 from powercontext.builtin.persistence.oceanbase.schema import create_vector_index
+from powercontext.builtin.persistence.oceanbase.vector import OceanBaseVector
 from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
@@ -381,7 +382,7 @@ class OceanBaseTopicMemoryVectorIndex:
             Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
             Column("revision", BigInteger, nullable=False),
             Column("profile_fingerprint", String(64), nullable=False),
-            Column("embedding", VECTOR(profile.dimension), nullable=False),
+            Column("embedding", OceanBaseVector(profile.dimension), nullable=False),
             UniqueConstraint("scope_id", "artifact_id", name="uq_pc_topic_memory_vector_topics_active"),
         )
         self.chunk_table = Table(
@@ -393,7 +394,7 @@ class OceanBaseTopicMemoryVectorIndex:
             Column("revision", BigInteger, nullable=False),
             Column("chunk_ordinal", BigInteger, nullable=False),
             Column("profile_fingerprint", String(64), nullable=False),
-            Column("embedding", VECTOR(profile.dimension), nullable=False),
+            Column("embedding", OceanBaseVector(profile.dimension), nullable=False),
             UniqueConstraint(
                 "scope_id",
                 "artifact_id",
@@ -407,7 +408,7 @@ class OceanBaseTopicMemoryVectorIndex:
             self.topic_table.c.embedding,
             params="distance=l2,type=hnsw",
         )
-        vector_type = VECTOR(profile.dimension)
+        vector_type = OceanBaseVector(profile.dimension)
         self._topic_search = text(_TOPIC_VECTOR_SEARCH).bindparams(bindparam("query_vector", type_=vector_type))
         self._chunk_search = text(_CHUNK_VECTOR_SEARCH).bindparams(bindparam("query_vector", type_=vector_type))
 

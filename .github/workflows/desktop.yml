@@ -58,7 +58,7 @@ jobs:
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') {
             throw 'Unexpected Server version baseline tag'
           }
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
@@ -76,13 +76,16 @@ jobs:
           cache-bin: false
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test Windows IPC and Desktop behavior
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
       - name: Verify diagnostic process containment
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example diagnostic_process_probe
@@ -184,7 +187,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
@@ -194,6 +197,8 @@ jobs:
           key: macos-${{ matrix.runner }}
           cache-bin: false
       - run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
@@ -244,6 +249,9 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
+    # Ubuntu Desktop qualification is optional under #2112; required Windows
+    # and macOS validation must remain independent of a Linux failure.
+    continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
@@ -271,7 +279,7 @@ jobs:
             libxdo-dev \
             openjdk-17-jre-headless \
             pkg-config
-      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
       - name: Install pinned Linux Rust toolchain
@@ -289,6 +297,8 @@ jobs:
           cache-bin: false
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare cached OpenAPI Generator
+        uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test

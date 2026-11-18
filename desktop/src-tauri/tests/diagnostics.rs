@@ -48,6 +48,30 @@ fn integration_status_is_projected_without_details_or_checks_text() {
     assert!(!output.contains("secret"));
 }
 #[test]
+fn dsh_pet_memory_projects_only_its_status() {
+    let input = serde_json::json!({
+        "ok": true,
+        "hosts": {"dsh": {
+            "ok": true, "status": "ok",
+            "checks": {"dsh_pet_memory": {
+                "ok": false, "status": "degraded", "detail": "private-detail",
+                "checks": {"server_url": "https://private.test", "bindings": "private-scope"}
+            }}
+        }}
+    });
+    let result = project(
+        DiagnosticKind::Integrations,
+        &serde_json::to_vec(&input).unwrap(),
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&result.hosts[0]).unwrap(),
+        serde_json::json!({"host": "dsh", "status": "ok",
+            "checks": [{"field": "dsh_pet_memory", "status": "degraded"}]})
+    );
+}
+#[test]
 fn malformed_unknown_and_oversized_diagnostics_are_rejected() {
     for output in [
         b"not json".as_slice(),
@@ -189,4 +213,25 @@ fn memory_protocol_checks_survive_projection_without_private_details() {
         assert!(!output.contains("private"));
         assert!(!output.contains("secret-token"));
     }
+}
+
+#[test]
+fn codex_doctor_report_projects_every_check_it_emits() {
+    // Python's test_desktop_fixture_holds_every_codex_doctor_check keeps this fixture in step with Codex doctor.
+    let fixture = include_bytes!("fixtures/doctor-codex.json");
+    let report = project(DiagnosticKind::Integrations, fixture, 1).unwrap();
+    let source: serde_json::Value = serde_json::from_slice(fixture).unwrap();
+    let emitted = source["hosts"]["codex"]["checks"].as_object().unwrap();
+
+    assert_eq!(report.hosts.len(), 1);
+    let projected: Vec<_> = report.hosts[0]
+        .checks
+        .iter()
+        .map(|check| check.field.as_str())
+        .collect();
+    assert_eq!(projected.len(), emitted.len());
+    assert!(projected.contains(&"plugin_runtime"));
+    let output = serde_json::to_string(&report).unwrap();
+    assert!(!output.contains("plugin environment is ready"));
+    assert!(!output.contains("/usr/bin/codex"));
 }

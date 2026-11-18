@@ -71,6 +71,22 @@ Call `POST /v1/context/check`, operation `check_context`, at two distinct points
 Both use root `scope_id`, current authentication/delegation, and current Scope/resource authorization.
 `scope.read` does not grant model spending or tool execution. Request fields cannot turn off deployment policy.
 
+The optional `X-PowerContext-Resolve-Target: true` header is reserved for an authenticated
+**service** principal with `gateway.invoke` and `scope.read` on the chosen Scope. On an allowed
+`before_send` only, the check also returns `target_endpoint` and `target_protocol` from Core's
+trusted profile; ordinary checks and blocked decisions never disclose the endpoint. Python
+callers may opt in with `PowerContextClient.check_context(request, resolve_target=True)`;
+an allowed response without target fields is rejected by the client. Gateway
+must send the exact approved bytes to this endpoint before `valid_until`, and require a new
+check after a definite no-send. Missing target fields, an unsupported protocol, or Core
+unavailable before admission must result in zero sends. An already issued admission remains
+usable until `valid_until`; neither a Core outage nor a configuration change retroactively revokes
+it. UDS alone is not authentication; remote Core access carrying this
+privileged credential requires HTTPS (loopback HTTP is allowed). This is an endpoint binding, not
+a claim about the provider account or region behind independently supplied credentials. The
+Gateway client key must be distinct from its Core service credential; this single service identity
+does not provide per-client Scope authorization.
+
 The versioned JSON carrier contains the original JSON text, not a reconstructed object:
 
 ```json

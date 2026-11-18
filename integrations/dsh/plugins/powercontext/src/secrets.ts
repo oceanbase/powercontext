@@ -14,13 +14,15 @@
  * limitations under the License.
  */
 
-const SECRET_MARKERS = ['sk-', 'api_key', 'BEGIN PRIVATE']
+import { containsSecret } from './prompt-privacy.ts'
+
 const PAYLOAD_WRITES = new Set([
   'remember_memory', 'capture_content_source', 'capture_working_note', 'revise_memory_entry',
   'replace_artifact', 'change_atomic_memory_lifecycle',
 ])
 const CONTENT_FIELDS = new Map<string, readonly string[]>([
-  ['pc_source_add', ['input']],
+  ['pc_source_add', ['parameters']],
+  ['pc_source_target_set_enabled', ['parameters']],
   ['create_scope', ['title', 'summary', 'external_references']],
   ['create_work_contract', ['contract']],
   ['record_task_outcome', ['outcome']],
@@ -40,20 +42,17 @@ const CONTENT_FIELDS = new Map<string, readonly string[]>([
   ['commit_handoff', ['handoff']],
 ])
 
-export function containsSecret(text: string): boolean {
-  return SECRET_MARKERS.some((marker) => text.includes(marker))
-}
-
-function containsSecretValue(value: unknown): boolean {
-  if (typeof value === 'string') return containsSecret(value)
+function containsSecretValue(value: unknown, authorization?: string): boolean {
+  if (typeof value === 'string') return containsSecret(value, authorization)
   if (!value || typeof value !== 'object') return false
-  return Object.values(value).some(containsSecretValue)
+  return Object.values(value).some(item => containsSecretValue(item, authorization))
 }
 
-export function hasSecretContent(operation: string, payload: unknown): boolean {
-  if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload)
+/** Detect secret content in an explicit write with the same rule as automatic capture. */
+export function hasSecretContent(operation: string, payload: unknown, authorization?: string): boolean {
+  if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload, authorization)
   const fields = CONTENT_FIELDS.get(operation)
   if (!fields || !payload || typeof payload !== 'object') return false
   const content = payload as Record<string, unknown>
-  return fields.some(field => containsSecretValue(content[field]))
+  return fields.some(field => containsSecretValue(content[field], authorization))
 }

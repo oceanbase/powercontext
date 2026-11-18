@@ -27,8 +27,6 @@ INSTALL_PAGES = (
     "README.md",
     "README_CN.md",
     "README_JP.md",
-    "docs/en/docs/get-started/quickstart.md",
-    "docs/zh/docs/get-started/quickstart.md",
     "docs/en/docs/get-started/manual-start.md",
     "docs/zh/docs/get-started/manual-start.md",
     "docs/en/docs/get-started/install-and-run.md",
@@ -36,6 +34,8 @@ INSTALL_PAGES = (
     "integrations/dsh/plugins/powercontext/README.md",
 )
 HISTORICAL_AND_INDEPENDENT_FILES = (
+    "docs/en/docs/get-started/quickstart.md",
+    "docs/zh/docs/get-started/quickstart.md",
     "docs/en/development/releasing.md",
     "docs/zh/development/releasing.md",
     "docs/en/docs/operate/artifact-processing-migration.md",
@@ -119,10 +119,10 @@ def test_release_updates_installation_references_and_preserves_history(release_r
             content = (release_repo / relative).read_text(encoding="utf-8")
             assert f"**PowerContext {version}**" in content or f"**{version}**" in content, relative
             if relative.startswith("docs/"):
-                assert "v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004" in content, relative
+                assert "v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005" in content, relative
                 assert '"software_version":"1.5.0"' in content, relative
             else:
-                assert "`v1_5_0_001`–`v1_5_0_004`" in content, relative  # noqa: RUF001 -- Documented range
+                assert "`v1_5_0_001`–`v1_5_2_pr2639`" in content, relative  # noqa: RUF001 -- Documented range
         for relative, original in preserved.items():
             assert (release_repo / relative).read_bytes() == original, relative
             if relative.endswith("development/releasing.md"):

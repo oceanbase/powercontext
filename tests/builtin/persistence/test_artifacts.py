@@ -133,6 +133,49 @@ def test_bulk_create_preserves_existing_artifact_lineage() -> None:
     asyncio.run(scenario())
 
 
+def test_lineage_reads_keep_scopes_revisions_and_selections_independent() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            expected = {}
+            for scope_id in ("scope-a", "scope-b"):
+                async with profile.database.transaction() as connection:
+                    source = await repositories.sources.add(
+                        connection,
+                        scope_id,
+                        NoteSource(name=scope_id, materialization=SourceMaterialization.CAPTURED, body=scope_id),
+                    )
+                    first = await repositories.artifacts.create(
+                        connection,
+                        scope_id,
+                        "shared-id",
+                        ReportDraft(content=ReportContent(status="first"), sources=(source.ref,)),
+                    )
+                    second = await repositories.artifacts.revise(
+                        connection,
+                        scope_id,
+                        first,
+                        ReportDraft(content=ReportContent(status="second")),
+                    )
+                    expected[scope_id] = first, second
+
+            async def read(scope_id, selected):
+                async with profile.database.transaction() as connection:
+                    wanted = tuple(expected[scope_id][index] for index in selected)
+                    actual = await repositories.artifacts.get_many(
+                        connection, scope_id, tuple(artifact.as_ref() for artifact in wanted)
+                    )
+                    assert actual == wanted
+
+            await asyncio.gather(
+                read("scope-a", (1, 0, 1)),
+                read("scope-b", (0,)),
+                read("scope-a", ()),
+                read("scope-b", (1, 0)),
+            )
+
+    asyncio.run(scenario())
+
+
 def test_source_citation_positions_survive_separate_transactions() -> None:
     async def scenario() -> None:
         async with repository_profile() as (profile, repositories):

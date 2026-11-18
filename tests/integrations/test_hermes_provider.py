@@ -214,7 +214,8 @@ def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
 
     recalled = provider.prefetch("What did we decide about the deployment?")
 
-    assert "remembered project context" in recalled
+    # The Server's prepared content carries the trust policy; the provider adds only its heading.
+    assert recalled == "## PowerContext recalled context\n\nremembered project context"
     assert client.calls[0] == (
         "prepare_context",
         ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
@@ -258,6 +259,33 @@ def test_evaluation_trace_is_partitioned_by_session_and_records_parent(tmp_path,
     index_events = [json.loads(line) for line in (trace_dir / "index.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [event["session_id"] for event in index_events] == ["session-1", "session-2"]
     assert index_events[1]["parent_session_id"] == "session-1"
+
+
+def test_evaluation_trace_redacts_a_credential_the_query_bound_cuts_through(tmp_path, hermes_modules):
+    provider_module, _cli_module = hermes_modules
+    client = FakeClient()
+    provider = provider_module.PowerContextMemoryProvider(
+        {"evaluation_trace": True},
+        client_factory=lambda _config: client,
+    )
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
+    # The query keeps the last 8,192 characters, so the cut drops ``api_key=`` and leaves the bare value.
+    prompt = ("api_key=synthetic-value-2084 " + "filler " * 3000)[:8200]
+
+    provider.prefetch(prompt)
+    provider.shutdown()
+
+    trace_dir = tmp_path / "powercontext" / "evaluation-trace"
+    events = [
+        json.loads(line)
+        for path in sorted((trace_dir / "sessions").glob("*.jsonl"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    injections = [event for event in events if event["event_type"] == "powercontext_injection"]
+    assert client.calls[0][1][1].startswith("synthetic-value-2084 ")
+    assert len(injections) == 1
+    assert prompt.endswith(injections[0]["query"][-100:])
+    assert "synthetic-value-2084" not in json.dumps(events)
 
 
 def test_evaluation_trace_slash_command_reads_named_session(tmp_path, hermes_modules):

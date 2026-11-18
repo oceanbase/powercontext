@@ -19,7 +19,7 @@ import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
 import { authenticationRejection, MAX_SOURCE_LENGTH, RequestNotSentError } from './errors.ts'
-import { containsSecret } from './secrets.ts'
+import { containsSecret } from './prompt-privacy.ts'
 import { cancellationReason, type StatusAttempt } from './status.ts'
 
 export interface CaptureInput {
@@ -72,7 +72,7 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     observation?.skip('capture', 'capture_disabled')
     return
   }
-  if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+  if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt, input.config.authorization)) {
     observation?.skip('capture', input.prompt.length > MAX_SOURCE_LENGTH ? 'source_too_long' : 'sensitive_content')
     logSafely(input.log, { event: 'capture_content_source', outcome: 'skipped' })
     return

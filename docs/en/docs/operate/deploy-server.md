@@ -198,11 +198,9 @@ UDS configurations. The configuration wizard also produces TCP configurations. A
 HTTP(S) URL when the Core uses UDS. Remote Skill Receiver endpoints retain their HTTPS or loopback-peer requirement;
 direct UDS does not supply a loopback peer and does not waive that check.
 
-Automatic Source deployment with `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` or
-`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` requires `POWERCONTEXT_SERVER_PUBLIC_URL` pointing to the proxy
-when the Server uses UDS. The collect manager and runtimes connect through that URL; missing configuration is rejected
-before deployment credentials or processes are created. `source load --kind write` accepts the same setting or an explicit
-`--server-url`. These commands do not infer a TCP endpoint from `HTTP_PORT` in UDS mode.
+When the Server uses UDS, `powercontext source-agent` on a device connects to it through the proxy's HTTP(S) URL given
+with `--server`; it does not infer a TCP endpoint from `HTTP_PORT`. The Server's own collection runner runs inside the
+Server and needs no address.
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199).
 The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state
@@ -307,8 +305,23 @@ Smaller, completely received responses still pass `before_release` before releas
 Transparent Core/MCP forwarding retains the deployment body limit rather than consuming the model input allowance.
 `PC_GATEWAY_MAX_CONCURRENT` (default 64) applies independently to model calls and fallback calls, so an active
 fallback SSE connection cannot exhaust the model semaphore. The combined ceiling is therefore up to twice the
-configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling. Each permit stays attached to the response body
-until drop; `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
+configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling.
+Model permits stay with the actual HTTP/1 connection owner through local response delivery and the end of
+related request work, including writes still buffered after body EOF/drop. Model responses declare
+`Connection: close`; normal connection completion establishes local completion, without proving client receipt.
+The original 180-second monotonic deadline covers intake, execution, and local delivery. Expiration ends the
+connection without an extra delivery/cleanup window; a response may be truncated and error JSON is best effort.
+Framework-observed disconnects stop local work with `request_cancelled`; unobserved network loss is bounded by
+the deadline. A delivery interruption preserves completed execution and model-send facts, including
+`ReleaseAuthorized` and `ResponseReceived`. Cancellation does not prove provider rollback or safe resend.
+The process-local `ExecutionSnapshot::local_delivery` reports model content delivery as `NotStarted`, `InProgress`,
+`Completed`, or `Interrupted(reason)`; rejection and lifecycle-error responses do not start model content delivery.
+It is independent of the execution terminal and does not retain response bytes or permits.
+Fallback permits remain attached to their response body until drop. Fallback retains authentication,
+keep-alive and streaming behavior without the model deadline or forced connection closure. Provider sends and HTTP
+Core RPCs use fresh HTTP/1 connections with idle pooling disabled; the UDS Core client retains its bounded idle pool.
+Gateway shutdown allows up to 25 seconds to drain and bounds process exit to 30 seconds from the first shutdown signal.
+`/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
 returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached
 Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not
 buffer an entire MCP stream to force a uniform error status.

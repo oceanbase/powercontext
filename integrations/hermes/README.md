@@ -85,7 +85,7 @@ Hermes asks the Server to resolve an explicit Scope, durable session and workspa
 
 | Event | PowerContext behavior |
 | --- | --- |
-| Context recall | Prepares bounded context and presents it as untrusted historical evidence. Background preparation caches the exact query for the next turn. |
+| Context recall | Prepares bounded context and injects it under a `## PowerContext recalled context` heading; the Server's trust policy at the top of that context marks it as untrusted historical evidence. Background preparation caches the exact query for the next turn. |
 | Completed primary-Agent turn | Queues Source capture without blocking the conversation. |
 | Session end | Waits for queued writes and requests Memory extraction when the Server supports it. |
 | Transcript compression | When enabled, captures filtered new user/assistant turns before compression and requests extraction. Overlapping captures use stable Source identities. |

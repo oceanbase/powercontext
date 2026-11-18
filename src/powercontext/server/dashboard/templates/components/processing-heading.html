@@ -1,0 +1,25 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% set heading = 'processing_dream_tab' if processing_kind == 'dreams' else 'processing_sources_title' %}
+{% set description = 'processing_dream_subtitle' if processing_kind == 'dreams' else 'processing_sources_subtitle' %}
+<header class="page-header m-0 mb-4 processing-mode-heading">
+  <div class="d-flex align-items-center gap-2"><h1 class="page-title page-title-lg">{{ t[heading] }}</h1>
+    {% if processing_kind == 'dreams' %}
+    <span class="processing-tab-hint"><button type="button" class="processing-tab-help" aria-label="{{ t[heading] }} · {{ t.processing_help_label }}" aria-describedby="processing-help-{{ processing_kind }}">?</button><span class="processing-tab-tooltip" id="processing-help-{{ processing_kind }}" role="tooltip">{{ t.processing_dream_help }}</span></span>
+    {% endif %}
+  </div>
+  <p class="text-secondary mt-2 mb-0">{{ t[description] }}</p>
+</header>

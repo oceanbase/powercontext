@@ -299,6 +299,13 @@ Every candidate fit calculation must include any required new section heading, a
 metadata, exact citation, and end marker. Do not truncate citations, rely on host-side tail trimming, or turn a
 budget failure into uncited text. Returned origins must correspond exactly to the entries actually included.
 
+Internal budget records follow [RFC 0028](0028_context_pack.md#internal-budget-records) with three differences on this
+path. The display body is the normalized and escaped body. The rank is the family-local recall rank, so it matches the
+optional recall-rank metadata and repeats across sections; the origin identifies the record. When a section limit is
+reached during fitting, each remaining unique candidate of that family is recorded with disposition `family_limit`,
+or `entry_limit` when code evidence limits the entry count, and ranks continue. The matching omission counter equals
+these records plus the duplicates that remain after the limit.
+
 No matches, no selected families, or insufficient budget for any cited item all return:
 
 ```json

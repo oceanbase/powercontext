@@ -142,12 +142,28 @@ class ConnectorCheckpointState(BaseModel):
     checkpoint: JsonValue | None
 
 
+class CollectionCommit(BaseModel):
+    """Who commits a checkpoint and what they report, used when the binding is a collection target."""
+
+    principal_type: str
+    principal_id: str
+    # The plugin whose version the Server accepted for this request, when the request named one.
+    plugin: str | None = None
+    # The target's configuration version the runner collected under.
+    config_version: int | None = None
+    # The attempt's outcome, recorded on the target with the checkpoint; None records nothing.
+    succeeded: bool | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 class CommitConnectorCheckpoint(BaseModel):
     """Compare and replace one binding checkpoint after durable submissions."""
 
     binding: ConnectorBinding
     expected: JsonValue | None
     checkpoint: JsonValue | None
+    collection: CollectionCommit | None = None
 
 
 class DreamOperationCapability(BaseModel):
@@ -294,16 +310,39 @@ class MemorySearchPage(BaseModel):
     rerank: MemoryRerankTrace | None = None
 
 
-class ContextAssemblySection(_PreparedContextModel):
-    """One selected Artifact family and its maximum output count."""
+BUILTIN_CONTEXT_FAMILIES = frozenset({"memory", "experience", "profile", "topic-memory"})
 
-    family: Literal["memory", "experience", "profile", "topic-memory"]
+
+class ContextPluginHit(_PreparedContextModel):
+    """One passage a plugin's search returned for an exact revision of its family."""
+
+    artifact: ArtifactRef
+    text: str
+
+
+class ContextAssemblySection(_PreparedContextModel):
+    """One selected Artifact family and its maximum output count.
+
+    A plugin family takes its entries from ``hits``, which the Server fills from the
+    plugin's ``search_artifacts`` before assembly; ``search`` carries the caller's
+    search fields for that plugin and is rejected for built-in families. The Server sets
+    ``search_failed`` when the plugin was unavailable, so the section stays empty.
+    """
+
+    family: Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9-]*$")]
     limit: Annotated[int, Field(ge=1, le=8)]
+    search: dict[str, JsonValue] | None = None
+    hits: tuple[ContextPluginHit, ...] = ()
+    search_failed: bool = False
 
     @model_validator(mode="after")
     def validate_limit(self) -> ContextAssemblySection:
         if self.family == "experience" and self.limit > 2:
             raise ValueError("Experience sections cannot include more than two entries")  # noqa: TRY003
+        if self.family in BUILTIN_CONTEXT_FAMILIES and (self.search is not None or self.hits or self.search_failed):
+            raise ValueError("search applies only to plugin families")  # noqa: TRY003
+        if any(hit.artifact.family != self.family for hit in self.hits):
+            raise ValueError("hits must belong to the section family")  # noqa: TRY003
         return self
 
 

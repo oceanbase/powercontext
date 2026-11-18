@@ -127,9 +127,16 @@ Scope IDs are Server-owned opaque identifiers. The adapter never derives one fro
 Git remote, or a filesystem path. An explicit ID is validated by the Server before the operation continues; obtain it
 from the Scope API rather than inventing it locally.
 
+## Recall query
+
+`PowerContextRecall` sends the latest human message, trimmed. A message longer than 8,192 characters or 8,192 UTF-8
+bytes recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192 bytes.
+
 ## Treat recalled context as untrusted history
 
-`PowerContextRecall` injects the prepared content as a system message labelled as untrusted historical evidence.
+`PowerContextRecall` injects the prepared content as a system message that starts with
+`PowerContext host-supplied context`, followed by the Server's prepared content. The trust policy at the top of that
+content labels everything after it as untrusted historical evidence.
 Memory content originates from prior model output and user input; presenting it as authoritative system instruction
 would extend the prompt-injection surface to historical data. The model must still check current code, the current
 user request, and system instructions before acting on recalled content.

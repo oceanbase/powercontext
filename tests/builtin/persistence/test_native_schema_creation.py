@@ -45,7 +45,7 @@ def test_mysql_access_startup_preserves_dml_only_table_access(state, monkeypatch
     from pymysql.err import OperationalError as MySQLOperationalError
     from sqlalchemy.exc import OperationalError
 
-    from powercontext.server.authz.repository import ACCESS_TABLES
+    from powercontext.builtin.authz.repository import ACCESS_TABLES
 
     async def scenario():
         statements = []
@@ -106,7 +106,9 @@ def test_relational_schema_creation_preserves_native_vector_index_ownership(fami
         )
         inspector = MagicMock()
         inspector.get_table_names.return_value = []
-        inspector.has_table.return_value = False
+        # The mocked evidence migration has already provisioned its tables.
+        evidence_names = {table.name for table in ATOMIC_MEMORY_EVIDENCE_TABLES}
+        inspector.has_table.side_effect = lambda name, **_kwargs: name in evidence_names
         monkeypatch.setattr(schema, "inspect", lambda _connection: inspector)
         connection = AsyncMock(spec=AsyncConnection)
         connection.dialect = dialect()

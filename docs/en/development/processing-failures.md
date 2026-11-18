@@ -16,7 +16,7 @@ Every processing failure keeps the existing identity and outcome fields (`family
 
 | Field | Meaning | Values |
 |---|---|---|
-| `processing_stage` | The stage that owned the failure | `generation`, `embedding`, `output_parsing`, `business_validation`, `persistence`, `usage_accounting` (reserved for usage reporting or persistence) |
+| `processing_stage` | The stage that owned the failure | `generation`, `embedding`, `output_parsing`, `business_validation`, `persistence`, `usage_accounting` (model usage reporting and recording) |
 | `failure_reason` | A bounded reason, only when evidence supports it | `context_overflow`, `output_truncated`, `rate_limit`, `timeout`, `schema_invalid`, `provider_unavailable`, `configuration`, `invalid_output`, `storage_failure`, `usage_limit` |
 | `input_item_count` | Number of input items in the failing call | Non-negative integer |
 | `estimated_input_tokens` | Estimated input tokens; for a window token ceiling, the charged or reserved token count | Non-negative integer |
@@ -53,13 +53,13 @@ in its processing path.
 
 | Family | Generation | Embedding | Output parsing | Business validation | Persistence | Usage accounting |
 |---|---|---|---|---|---|---|
-| Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Experience | Partial | N/A | Partial | Missing | Missing | Missing |
-| Profile | Partial | N/A | Partial | Missing | Missing | Missing |
-| Skill | Partial | N/A | Partial | Missing | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
-| Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
+| Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
+| Topic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
+| Experience | Partial | N/A | Partial | Partial | Partial | Partial |
+| Profile | Partial | N/A | Partial | Partial | Partial | Partial |
+| Skill | Partial | N/A | Partial | Partial | Partial | Partial |
+| Handoff | Partial | N/A | Partial | Partial | Partial | Partial |
+| Prompt | Partial | N/A | Partial | Partial | Partial | N/A |
 
 Memory / Atomic Memory and Topic Memory are tracked at operation granularity while they are the active slices:
 
@@ -73,7 +73,7 @@ Memory / Atomic Memory and Topic Memory are tracked at operation granularity whi
 | `atomic-memory.reconcile` | Business validation | Covered | Reconciliation output and content rules carry `business_validation` / `invalid_output`. |
 | Embedding (extract, reconcile, query) | Embedding | Covered | Provider status, wrong vector count/order/type, and embedding profile/input failures are classified. |
 | Publish / index | Persistence | Partial | `AtomicMemoryIndexError` codes are mapped; other storage failures keep unknown. |
-| Usage accounting | Usage accounting | Missing | Usage-reporting and persistence failures are not classified; inference usage limits are reported in their originating stage (generation, or embedding when an adapter reports the limit). |
+| Usage accounting | Usage accounting | Partial | The shared reporter and recorder classify usage failures. Inference usage limits keep the generation or embedding stage. |
 
 Topic Memory operation-level coverage:
 
@@ -83,22 +83,93 @@ Topic Memory operation-level coverage:
 | `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
 | `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
 | `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
-| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
-| Usage accounting | Usage accounting | Missing | The window provider budget is reported as `generation` / `usage_limit`; accounting failures are not classified. |
+| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. A Topic head conflict records `head_conflict` as the attempt's last error and does not spend a window attempt. |
+| Usage accounting | Usage accounting | Partial | The shared reporter and recorder classify usage failures. The window provider budget keeps `generation` / `usage_limit`. |
 
-The first two rollout slices cover Memory / Atomic Memory and Topic Memory: provider failures,
-budget exhaustion, and extraction/reconciliation/domain validation are classified, and safe
-accounting fields travel from the child Worker to the supervisor log. Other Families keep their
-current behavior until their own slice lands; the matrix is updated in the same change as each slice.
+Experience, Profile, and Skill operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `experience.incubate` | Business validation | Partial | Bounded input and out-of-window evidence carry explicit diagnostics; structural limits do not establish context overflow. |
+| `profile.generate` | Business validation | Partial | Invalid Markdown carries the input count and original validation exception type without exposing the content. |
+| Experience / Skill typed generation | Output parsing | Partial | Invalid typed results use the shared schema mapping; unclassified provider details remain unknown. |
+| Dream (`refine_experience`, `revise_profile`, `derive_skill`, `revise_skill`) | Generation / business validation | Partial | Caught attempt failures emit `dream.attempt.failed` using the existing worker/request identity. Evidence limits, unavailable evidence, and rejected request targets carry `business_validation` and their failure location. |
+| `experience.create` / `experience.replace`, `profile.create` / `profile.replace`, `skill.create` / `skill.replace` | Business validation / persistence | Partial | Scoped registry writes distinguish malformed content, concurrency rejections, and database driver errors. |
+| `experience.approve` / `profile.approve` / `skill.approve` | Business validation / persistence | Partial | Candidate approval reports final rejections after retry recovery. Stale targets and terminal Candidate decisions retain their domain outcomes. |
+| `profile.commit_generated`, `experience.publish`, `skill.publish` | Persistence | Partial | Generated Profile writes and cross-Scope delivery report driver failures, including transaction exit failures. Profile cross-Scope publication is N/A. Host Skill deployment and unrelated storage entry points are outside this coverage. |
+| Usage accounting | Usage accounting | Partial | Model usage paths that use the shared reporter and recorder are classified. |
+
+Handoff and Prompt operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `handoff.generate` | Generation / output parsing / business validation | Partial | Explicit preparation and source-triggered generation report known provider and schema failures. Objective, citation, rollover, and byte-limit violations are invalid output. Missing evidence carries the validation stage and location. |
+| `handoff.finalize` / `handoff.commit` | Business validation | Partial | Evidence, scope, and provenance rejections retain their domain errors. A revision conflict keeps its existing outcome and carries no storage-failure reason. |
+| `handoff.commit` | Persistence | Partial | Database driver failures in the Handoff commit path carry `persistence` / `storage_failure`. |
+| `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider/schema errors use shared classification. Invalid demonstration results are business validation. Demonstration generation never saves a Prompt revision. |
+| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | The scoped management operations report known Prompt rejections and database driver failures, including failures at transaction exit. Other Prompt write paths are outside this coverage. |
+| Handoff / Prompt | Embedding | N/A | These processing paths do not generate embeddings. |
+| Handoff | Usage accounting | Covered | Model usage reporting and recording use the shared diagnostics. |
+| Prompt demonstrations | Usage accounting | N/A | Demonstrations currently do not submit records to the shared recorder. |
+
+Covered boundaries emit up to one `artifact.operation.failed` event per failed operation. Each process
+emits at most 16 events in a rolling second for the same Family, operation, error code, and failure
+reason. The event carries the existing Scope and bound request or trace identity, when present. It uses the shared diagnostic
+fields and omits traceback, raw error text, SQL, and content. Unclassified errors omit unknown fields.
+Logging has no effect on the returned error, transaction outcome, or retry behavior.
+
+The matrices describe classification coverage, not completion of the whole issue. Dream failure
+records contain bounded diagnostic fields only, never exception text or evidence content. Its
+persisted run outcome and retry policy remain authoritative; the failure record is an observation,
+not a new durable failure history. Durable-block classification currently covers Topic Memory only;
+Dream uses its existing Run outcomes and attempt logs, not a durable scheduler block.
+
+A timeout from Dream's own execution deadline produces the terminal Run code `budget_exceeded`.
+Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded` and
+`exception_type=TimeoutError`. The stage identifies the owner of the execution budget. A bare
+`TimeoutError` raised before that deadline expires follows the terminal `generation_failed` path
+and logs `timeout` without inferring a stage.
+Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
+retryable within the existing Run budget.
+
+## Model usage accounting
+
+The shared model usage reporter and recorder emit `model_usage.accounting.failed` with
+`processing_stage=usage_accounting`. The operation is `model_usage` and the unit is `statistics`.
+These failures leave the model result, business outcome, and existing usage retry policy in place.
+
+| Failure location | Meaning | Reason |
+|---|---|---|
+| `report` | Bound reporter raised an error | `timeout` for a typed timeout |
+| `enqueue` / `queue_full` | Recorder could not accept a usage record | `timeout` for a typed error, otherwise omitted |
+| `write` | Recorder stopped trying to write a batch | `timeout` for a typed timeout, `storage_failure` for a database driver error |
+| `flush_timeout` | Caller stopped waiting for its recorder checkpoint | `timeout` |
+| `drain_timeout` / `cleanup_timeout` | Shutdown reached its drain or native cleanup deadline | `timeout` |
+| `consumer` | Recorder's consumer stopped with an unexpected error | `timeout` for a typed timeout |
+
+The error code uses the `usage_accounting_` prefix and the location, with a `_timeout` suffix when the
+reason is timeout and the location does not already end in it. Unknown reasons are omitted. Write
+failure can include an indeterminate commit, and a flush timeout only describes the wait. The
+`input_item_count` is the number of original usage records involved when known, including the queued
+backlog discarded at drain timeout. Family and model capability are recorded when known and
+unambiguous. Detached writes may span multiple requests and do not inherit a request or trace from
+the first offer. Built-in Workers keep their bound Worker and request-generation identity. The
+supervisor still receives the existing loss counters, while the child log carries the cause.
+
+The limit is 16 records per rolling second per process for the same family, operation, error code,
+and reason. Recorder counters still count all drops and failed records. No usage payloads, SQL, or
+exception messages are logged. Separate recall-token measurements and family-specific model budget
+accounting are outside this coverage. Prompt demonstration generation currently bypasses the shared
+recorder.
 
 ## Rollout
 
 1. Shared diagnostics contract, allowlisted fields, Worker propagation, and the Memory / Atomic
    Memory slice.
-2. Topic Memory: tag its staged generation, index/embedding, and persistence failures (this change).
+2. Topic Memory: tag its staged generation, index/embedding, and persistence failures.
 3. Experience, Profile, and Skill: tag generation output validation and persistence entry points.
-4. Handoff and Prompt: tag generation and publication failures, then add usage-accounting
-   classification and complete the matrix.
+4. Handoff and Prompt: tag generation and publication failures.
+5. Classify failures in shared model usage reporting and recording.
 
 For new instrumentation, cover the observable behavior: successful classification, propagation
 across a real spawned Worker, sensitive-value exclusion, and that a diagnostics failure does not

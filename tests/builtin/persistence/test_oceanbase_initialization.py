@@ -181,8 +181,8 @@ def test_live_profile_table_creation_is_concurrent_and_preserves_existing_rows()
 
 
 def test_live_access_bootstrap_is_concurrent_and_idempotent() -> None:
-    from powercontext.server.authz import AccessAction, AccessAuditContext, PrincipalRef, ResourceRef
-    from powercontext.server.authz.composition import open_builtin_access_control
+    from powercontext.builtin.authz import AccessAction, AccessAuditContext, PrincipalRef, ResourceRef
+    from powercontext.builtin.authz.composition import open_builtin_access_control
 
     async def scenario() -> None:
         async with _isolated_database(tables=()) as profile:

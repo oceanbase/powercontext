@@ -13,13 +13,20 @@ jobs:
   report:
     name: Nightly and manual acceptance report
     if: ${{ contains(fromJSON('["schedule","workflow_dispatch"]'), github.event.workflow_run.event) }}
-    runs-on: ubuntu-latest
+    runs-on: powercontext-ci-light
     timeout-minutes: 10
     steps:
       - name: Check out the report implementation from the default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Install GitHub CLI
+        run: |
+          if ! command -v gh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y gh
+          fi
 
       - name: Generate the completed attempt's report
         env:

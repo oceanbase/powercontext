@@ -118,9 +118,15 @@ await graph.ainvoke(state, context=PowerContextScope())
 Scope ID 是由 Server 拥有的不透明标识符。适配器绝不会从进程工作目录、Git remote 或文件系统路径推导 Scope ID。操作
 继续前，Server 会验证显式 ID；请通过 Scope API 获取它，不要在本地自行构造。
 
+## 召回 query
+
+`PowerContextRecall` 发送去掉首尾空白的最新人类消息。超过 8192 个字符或 8192 个 UTF-8 字节的消息改用最近的文本
+召回，先取末尾 8192 个字符，再截到末尾 8192 字节。
+
 ## 把召回内容当作不可信历史
 
-`PowerContextRecall` 把准备好的内容作为标记为不可信历史证据的系统消息注入。Memory 内容源自过往模型输出和用户输入；
+`PowerContextRecall` 把准备好的内容作为系统消息注入，消息以 `PowerContext host-supplied context` 开头，
+后接 Server 准备的内容，内容顶部的信任策略把其后的全部内容标为不可信历史证据。Memory 内容源自过往模型输出和用户输入；
 把它当作权威系统指令，会把提示词注入面扩大到历史数据。模型在据此行动前，仍必须核对当前代码、当前用户请求和系统指令。
 
 Server 返回空结果时，该节点不新增任何内容，原样返回状态。

@@ -17,7 +17,12 @@
       name: powercontext-dsh
       config:
         timeoutMs: 4000
-        requestTimeoutMs: 1000
+        requestTimeoutMs: 3000
         maxBytes: 8000
         capturePrompts: true
         flushOnCapture: false
+
+# The packaged Browser supplies the Web iframe and Desktop isolated webview.
+# Profile/home patches applied later may still disable it explicitly.
+- id: ui-sidebar-browser
+  disabled: false

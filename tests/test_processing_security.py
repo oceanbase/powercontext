@@ -21,16 +21,17 @@ from contextlib import asynccontextmanager
 import pytest
 from pydantic import SecretStr
 
+from powercontext.builtin.authz import AccessControlService, PrincipalRef
+from powercontext.builtin.authz.repository import ACCESS_TABLES, RelationalAccessRepository
+from powercontext.builtin.authz.service import BuiltinAuthorizationProvider
+from powercontext.builtin.authz.worker import HostSecuritySpec, WorkerSecuritySpec
 from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.runtime.composition import BuiltinConfigurationError
 from powercontext.builtin.runtime.config import InferenceConfig
-from powercontext.server.authz import AccessControlService, PrincipalRef
-from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
-from powercontext.server.authz.service import BuiltinAuthorizationProvider
 from powercontext.server.cli import _run_background_async
 from powercontext.server.factory import create_server_app
-from powercontext.server.processing_security import WorkerSecuritySpec, build_worker_security
+from powercontext.server.processing_security import build_host_security, build_worker_security
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 
@@ -74,6 +75,8 @@ def test_authorization_subclass_is_not_silently_replaced_by_builtin_provider(tmp
             )
             with pytest.raises(BuiltinConfigurationError, match="reconstructible Authorization Provider"):
                 build_worker_security(settings, access)
+            with pytest.raises(BuiltinConfigurationError, match="reconstructible Authorization Provider"):
+                build_host_security(settings, access)
             standard = AccessControlService(
                 BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
             )
@@ -151,3 +154,13 @@ def test_background_cli_preserves_deployment_identity_when_building_the_worker_s
         assert security["static_preset"] is False
 
     asyncio.run(scenario())
+
+
+def test_request_hosts_need_no_worker_identity_but_scheduled_workers_still_do():
+    settings = ServerSettings(access=AccessControlConfig(mode="enforced", deployment_id="test"))
+    spec = HostSecuritySpec.model_validate(build_host_security(settings, None))
+    assert spec.deployment_id == "test" and spec.static_scope_principal is None
+    with pytest.raises(ValueError, match="ACCESS_BACKGROUND_PRINCIPAL_ID"):
+        build_worker_security(settings, None)
+    with pytest.raises(BuiltinConfigurationError, match="reconstructible Authorization Provider"):
+        build_host_security(settings, None, injected=True)

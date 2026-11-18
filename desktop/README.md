@@ -81,7 +81,12 @@ Repeated launches activate the existing window for this channel. Profile storage
 
 Use Windows 11 x64, Visual Studio C++ Build Tools with a Windows SDK, Node **24.14.1**, pnpm **11.13.1**, Rust **1.95.0 MSVC**, **JDK 11 or newer with `java` available on `PATH`**, and WebView2. `desktop/.mise.toml`, `rust-toolchain.toml`, `pnpm-lock.yaml` and `src-tauri/Cargo.lock` pin the tools and dependencies independently of Python and the website.
 
-The OpenAPI Generator used by `generate` and `generate:check` runs on Java. On the first run, `openapi-generator-cli` may download the pinned generator JAR from Maven Central, so the first generation or drift check requires network access. Subsequent runs can reuse the downloaded JAR.
+The OpenAPI Generator used by `generate` and `generate:check` runs on Java. Its version is pinned in
+`openapitools.json` and its SHA-256 in `openapi-generator-checksum.json`; update both when upgrading the generator.
+Preparation verifies the cached JAR, or downloads it with `curl` and bounded retries for transient failures such as HTTP
+429. A download is used only after its checksum matches. Network access is needed when no verified JAR is available.
+Desktop CI restores a separate JAR cache and saves verified downloads before lint, tests, and build, so a later failure
+does not discard the download. This applies to Windows, macOS, and Linux jobs.
 
 Some machines default to Rust's GNU host. In PowerShell, explicitly select the pinned MSVC host for this process:
 
@@ -196,6 +201,16 @@ This explicit probe creates a uniquely named synthetic credential in the preview
 
 The Windows CI workflow runs on PRs and the preview branch, verifies native vault persistence, builds an unsigned internal installer, and tests Chinese-path installation/uninstallation on its disposable runner. It uploads the installer and a JSON smoke report. CI and mocked IPC tests do not prove clean-machine installation, notification activation, independent service login or Agent capture/recall.
 
+## Local service status
+
+On Linux, the Local Server settings page can inspect the PowerContext user service through the trusted Ops Bridge. This check is read-only: it reports supported, registration, ownership, manager, liveness, readiness and maintenance status, while keeping paths, commands, environment values and raw process output out of the UI.
+
+The bridge only addresses PowerContext's registered service target and rejects untrusted windows, remote origins and arbitrary renderer input. A missing or unavailable local service does not disable remote Server connections. The page uses `ops.inspect` for read-only status inspection; with a valid Linux binding, explicitly approved plans dispatched through `ops.apply` can install, repair, start, stop or restart the personal service. These lifecycle operations retain the same ownership and approval rules.
+
+The unit is written to the current user's `$XDG_CONFIG_HOME/systemd/user/` directory, or `~/.config/systemd/user/` when `XDG_CONFIG_HOME` is unset, and all manager calls use `systemctl --user`. Normal installation and recovery do not require `sudo`, never write a system unit under `/etc/systemd/system/`, and never call `loginctl enable-linger`. At login, the user's existing systemd manager may activate the enabled unit through `default.target`; at logout, the service follows that user manager's normal lifetime. If the account already has linger enabled by the user or administrator, PowerContext does not change that setting or silently create system-wide persistence.
+
+Linux validation combines the Desktop Rust IPC/Ops Bridge tests with the real systemd `--user` lifecycle suite in the [native personal service workflow](../.github/workflows/native-service.yml). The lifecycle suite covers installation, restart, uninstall, foreign registrations, unrelated user services, recovery after an external stop, an unavailable user manager, and the user-session boundary. It verifies that login activation is the user's `default.target`, explicit stop leaves that activation enabled, the pre-existing linger state is unchanged, and no system unit is created. The suite does not force a logout of the CI account; actual GNOME session logout/login qualification belongs to the Ubuntu Desktop package acceptance. The managed-resource candidate workflow also generates a real Linux Ops bundle from a pinned standalone Python runtime and runs it through the native manifest/digest trust boundary; that candidate check does not claim signed release qualification.
+
 ## Local CLI diagnostics
 
 Settings provides explicit local service and Agent integration checks. They remain separate from the active remote connection; a missing local CLI does not disable remote operations. Integration checks may start temporary Agent helpers and do not prove capture/recall.
@@ -243,7 +258,7 @@ pnpm **11.13.1**, Rust **1.95.0**, and **JDK 11 or newer with `java` available o
 Build on the target architecture (Apple Silicon or Intel).
 
 `generate:check`, included in `lint` and `build`, runs the Java OpenAPI Generator. The first run
-may download its pinned JAR from Maven Central and requires network access; later runs can reuse it.
+may download its pinned JAR from Maven Central using `curl`; later runs verify and reuse it as described above.
 
 ```sh
 cd desktop

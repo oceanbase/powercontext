@@ -1,0 +1,1831 @@
+{
+  "schema_version": "powercontext.prepared-context-budget-experiment.v1",
+  "dataset_version": "powercontext.prepared-context-budget.synthetic.v1",
+  "contract_version": "2026-11-06",
+  "description": "Fixed synthetic candidates for comparing the production prepared-context allocator with the evaluation-only waterfill-v1 allocator. Every body is synthetic; no case contains private content.",
+  "arms": {
+    "baseline": "production: PreparedContextBuilder().build_scopes_result with an internal budget recorder; selection, ordering, caps, truncation, rendering and the final byte check are the production code path.",
+    "candidate": "waterfill-v1: evaluation-only allocator over the same frozen candidates (the production budget trace order), the same caps, the same production truncation primitive, the same 2000-byte body quota, the same 64-byte floor for truncated bodies and the same production renderer. Phase 1 admits candidates in frozen order at their minimal honest form (the complete body when it is no larger than the smallest truncation of at least 64 bytes, otherwise that smallest truncation) only when the actual rendering of all admitted items fits max_bytes; a candidate whose minimal form does not fit is dropped_minimum_infeasible, and a candidate past its cap gets the production cap disposition. Phase 2 finds, by binary search on the actual rendering, the largest uniform body level t such that every admitted item delivered at min(complete_i, max(minimal_i, t)) fits. Phase 3 grows admitted items in frozen order, each to the longest form whose actual rendering still fits. waterfill-v1 has no tunable parameter."
+  },
+  "scoring": {
+    "position": "1-based position of a candidate in the frozen candidate order (production budget trace order).",
+    "rank_weight": "dcg",
+    "rank_weight_formula": "1 / log2(position + 1)",
+    "full_value": 1.0,
+    "truncated_value_factor": 0.5,
+    "truncated_value_formula": "truncated_value_factor * retained_fraction",
+    "retained_fraction_formula": "(delivered display body bytes - 3 ellipsis bytes) / complete display body bytes; 1.0 when delivered complete; 0.0 when not delivered",
+    "not_delivered_value": 0.0,
+    "coverage_formula": "sum(weight * value) / sum(weight) over the frozen candidates of one case",
+    "coverage_delta_formula": "coverage(candidate) - coverage(baseline)",
+    "top_item_truncation_loss_formula": "max(0, retained_fraction(baseline, position 1) - retained_fraction(candidate, position 1))",
+    "fact_retained": "a declared fact is retained when it occurs literally in the delivered display body of its candidate"
+  },
+  "decision": {
+    "outcomes": [
+      "invalid",
+      "improvement_established",
+      "improvement_not_established"
+    ],
+    "invalid_when": "any validity check fails for either arm: a rendering exceeds max_bytes, a cap is exceeded, a truncated body is below 64 bytes, a delivered body is not a form produced by the production truncation primitive, the baseline re-rendered from its budget trace differs from the production content, the budget trace does not reconcile with the production counters, or a replay differs",
+    "improvement_established_when": "not invalid, and mean coverage_delta over primary cases is strictly greater than min_mean_coverage_delta, and top_item_truncation_loss is at most max_top_item_truncation_loss in every primary case, and in every critical case the candidate retains every fact the baseline retains",
+    "min_mean_coverage_delta": 0.05,
+    "max_top_item_truncation_loss": 0.25,
+    "critical_fact_regressions_allowed": 0,
+    "sensitivity_cases": "reported separately and excluded from the decision"
+  },
+  "limitations": [
+    "The experiment measures allocation coverage of fixed synthetic candidates under one renderer. It does not measure answer quality, downstream model behavior, or real recall improvement.",
+    "A retained truncated prefix is credited at most half of a complete item; a prefix is never treated as a complete fact.",
+    "include_code preparations are outside the comparison; code evidence keeps its own reserved share."
+  ],
+  "cases": [
+    {
+      "id": "default-large-early-then-small",
+      "role": "primary",
+      "critical": true,
+      "path": "default",
+      "max_bytes": 3000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d1-m1",
+              "body": {
+                "head": "FACT-D1-M1-HEAD release notes are kept beside the changelog. ",
+                "fill": "Synthetic background about the release checklist and its review steps. ",
+                "tail": " FACT-D1-M1-TAIL",
+                "bytes": 1900
+              },
+              "facts": [
+                "FACT-D1-M1-HEAD",
+                "FACT-D1-M1-TAIL"
+              ]
+            },
+            {
+              "id": "d1-m2",
+              "body": {
+                "head": "FACT-D1-M2 the staging cluster uses port 7443. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M2"
+              ]
+            },
+            {
+              "id": "d1-m3",
+              "body": {
+                "head": "FACT-D1-M3 schema migrations run before seeding. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M3"
+              ]
+            },
+            {
+              "id": "d1-m4",
+              "body": {
+                "head": "FACT-D1-M4 the nightly job retries three times. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M4"
+              ]
+            },
+            {
+              "id": "d1-m5",
+              "body": {
+                "head": "FACT-D1-M5 fixtures live under tests/data. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M5"
+              ]
+            },
+            {
+              "id": "d1-m6",
+              "body": {
+                "head": "FACT-D1-M6 the cache directory is ignored. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M6"
+              ]
+            },
+            {
+              "id": "d1-m7",
+              "body": {
+                "head": "FACT-D1-M7 lint runs before unit tests. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M7"
+              ]
+            },
+            {
+              "id": "d1-m8",
+              "body": {
+                "head": "FACT-D1-M8 docs build with pnpm. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M8"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-all-fit-control",
+      "role": "primary",
+      "critical": true,
+      "path": "default",
+      "max_bytes": 8000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d2-m1",
+              "body": {
+                "head": "FACT-D2-M1 ",
+                "fill": "Synthetic control text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-D2-M1"
+              ]
+            },
+            {
+              "id": "d2-m2",
+              "body": {
+                "head": "FACT-D2-M2 ",
+                "fill": "Synthetic control text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-D2-M2"
+              ]
+            },
+            {
+              "id": "d2-m3",
+              "body": {
+                "head": "FACT-D2-M3 ",
+                "fill": "Synthetic control text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-D2-M3"
+              ]
+            },
+            {
+              "id": "d2-m4",
+              "body": {
+                "head": "FACT-D2-M4 ",
+                "fill": "Synthetic control text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-D2-M4"
+              ]
+            },
+            {
+              "id": "d2-m5",
+              "body": {
+                "head": "FACT-D2-M5 ",
+                "fill": "Synthetic control text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-D2-M5"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-infeasible-512",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 512,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d3-m01",
+              "body": {
+                "head": "FACT-D3-M01 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M01"
+              ]
+            },
+            {
+              "id": "d3-m02",
+              "body": {
+                "head": "FACT-D3-M02 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M02"
+              ]
+            },
+            {
+              "id": "d3-m03",
+              "body": {
+                "head": "FACT-D3-M03 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M03"
+              ]
+            },
+            {
+              "id": "d3-m04",
+              "body": {
+                "head": "FACT-D3-M04 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M04"
+              ]
+            },
+            {
+              "id": "d3-m05",
+              "body": {
+                "head": "FACT-D3-M05 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M05"
+              ]
+            },
+            {
+              "id": "d3-m06",
+              "body": {
+                "head": "FACT-D3-M06 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M06"
+              ]
+            },
+            {
+              "id": "d3-m07",
+              "body": {
+                "head": "FACT-D3-M07 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M07"
+              ]
+            },
+            {
+              "id": "d3-m08",
+              "body": {
+                "head": "FACT-D3-M08 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M08"
+              ]
+            },
+            {
+              "id": "d3-m09",
+              "body": {
+                "head": "FACT-D3-M09 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M09"
+              ]
+            },
+            {
+              "id": "d3-m10",
+              "body": {
+                "head": "FACT-D3-M10 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M10"
+              ]
+            },
+            {
+              "id": "d3-m11",
+              "body": {
+                "head": "FACT-D3-M11 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M11"
+              ]
+            },
+            {
+              "id": "d3-m12",
+              "body": {
+                "head": "FACT-D3-M12 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M12"
+              ]
+            },
+            {
+              "id": "d3-m13",
+              "body": {
+                "head": "FACT-D3-M13 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M13"
+              ]
+            },
+            {
+              "id": "d3-m14",
+              "body": {
+                "head": "FACT-D3-M14 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M14"
+              ]
+            },
+            {
+              "id": "d3-m15",
+              "body": {
+                "head": "FACT-D3-M15 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M15"
+              ]
+            },
+            {
+              "id": "d3-m16",
+              "body": {
+                "head": "FACT-D3-M16 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D3-M16"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-infeasible-640",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 640,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d4-m01",
+              "body": {
+                "head": "FACT-D4-M01 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M01"
+              ]
+            },
+            {
+              "id": "d4-m02",
+              "body": {
+                "head": "FACT-D4-M02 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M02"
+              ]
+            },
+            {
+              "id": "d4-m03",
+              "body": {
+                "head": "FACT-D4-M03 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M03"
+              ]
+            },
+            {
+              "id": "d4-m04",
+              "body": {
+                "head": "FACT-D4-M04 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M04"
+              ]
+            },
+            {
+              "id": "d4-m05",
+              "body": {
+                "head": "FACT-D4-M05 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M05"
+              ]
+            },
+            {
+              "id": "d4-m06",
+              "body": {
+                "head": "FACT-D4-M06 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M06"
+              ]
+            },
+            {
+              "id": "d4-m07",
+              "body": {
+                "head": "FACT-D4-M07 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M07"
+              ]
+            },
+            {
+              "id": "d4-m08",
+              "body": {
+                "head": "FACT-D4-M08 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M08"
+              ]
+            },
+            {
+              "id": "d4-m09",
+              "body": {
+                "head": "FACT-D4-M09 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M09"
+              ]
+            },
+            {
+              "id": "d4-m10",
+              "body": {
+                "head": "FACT-D4-M10 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M10"
+              ]
+            },
+            {
+              "id": "d4-m11",
+              "body": {
+                "head": "FACT-D4-M11 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M11"
+              ]
+            },
+            {
+              "id": "d4-m12",
+              "body": {
+                "head": "FACT-D4-M12 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M12"
+              ]
+            },
+            {
+              "id": "d4-m13",
+              "body": {
+                "head": "FACT-D4-M13 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M13"
+              ]
+            },
+            {
+              "id": "d4-m14",
+              "body": {
+                "head": "FACT-D4-M14 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M14"
+              ]
+            },
+            {
+              "id": "d4-m15",
+              "body": {
+                "head": "FACT-D4-M15 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M15"
+              ]
+            },
+            {
+              "id": "d4-m16",
+              "body": {
+                "head": "FACT-D4-M16 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D4-M16"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-long-citations",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 2000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:shared/synthetic-team-workspace/long-citation-fixture/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "hits": [
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000001",
+              "body": {
+                "head": "FACT-D5-M1 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M1"
+              ]
+            },
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000002",
+              "body": {
+                "head": "FACT-D5-M2 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M2"
+              ]
+            },
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000003",
+              "body": {
+                "head": "FACT-D5-M3 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M3"
+              ]
+            },
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000004",
+              "body": {
+                "head": "FACT-D5-M4 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M4"
+              ]
+            },
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000005",
+              "body": {
+                "head": "FACT-D5-M5 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M5"
+              ]
+            },
+            {
+              "id": "d5-memory-with-a-deliberately-long-artifact-identifier-0000000000000000000000000000000000006",
+              "body": {
+                "head": "FACT-D5-M6 ",
+                "fill": "Synthetic cross-scope text. ",
+                "bytes": 220
+              },
+              "facts": [
+                "FACT-D5-M6"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-mixed-families",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 2600,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d6-m1",
+              "body": {
+                "head": "FACT-D6-M1 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D6-M1"
+              ]
+            },
+            {
+              "id": "d6-m2",
+              "body": {
+                "head": "FACT-D6-M2 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D6-M2"
+              ]
+            },
+            {
+              "id": "d6-m3",
+              "body": {
+                "head": "FACT-D6-M3 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D6-M3"
+              ]
+            },
+            {
+              "id": "d6-m4",
+              "body": {
+                "head": "FACT-D6-M4 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D6-M4"
+              ]
+            }
+          ]
+        }
+      ],
+      "topic_memory": [
+        {
+          "id": "d6-t1",
+          "title": "Synthetic topic one",
+          "summary": {
+            "head": "FACT-D6-T1 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 400
+          },
+          "snippet": "Synthetic snippet one",
+          "facts": [
+            "FACT-D6-T1"
+          ]
+        },
+        {
+          "id": "d6-t2",
+          "title": "Synthetic topic two",
+          "summary": {
+            "head": "FACT-D6-T2 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 400
+          },
+          "facts": [
+            "FACT-D6-T2"
+          ]
+        },
+        {
+          "id": "d6-t3",
+          "title": "Synthetic topic three",
+          "summary": {
+            "head": "FACT-D6-T3 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 400
+          },
+          "facts": [
+            "FACT-D6-T3"
+          ]
+        }
+      ],
+      "experience": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d6-e1",
+              "situation": "FACT-D6-E1 a synthetic generated client is stale.",
+              "action": "Regenerate the synthetic client.",
+              "outcome": "The synthetic client matches.",
+              "lesson": "Regenerate before contract checks.",
+              "facts": [
+                "FACT-D6-E1"
+              ]
+            },
+            {
+              "id": "d6-e2",
+              "situation": "FACT-D6-E2 a synthetic lock file drifted.",
+              "action": "Relock the synthetic environment.",
+              "outcome": "The synthetic lock is current.",
+              "lesson": "Relock after dependency edits.",
+              "facts": [
+                "FACT-D6-E2"
+              ]
+            },
+            {
+              "id": "d6-e3",
+              "situation": "FACT-D6-E3 a synthetic family cap applies.",
+              "action": "Nothing; the cap is upstream.",
+              "outcome": "The third experience is not a budget candidate.",
+              "lesson": "Family caps are not budget failures.",
+              "facts": [
+                "FACT-D6-E3"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-multibyte-and-controls",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 1600,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d7-m1",
+              "body": {
+                "head": "FACT-D7-M1 ",
+                "fill": "合成的中文记忆内容用于多字节截断。",
+                "bytes": 900
+              },
+              "facts": [
+                "FACT-D7-M1"
+              ]
+            },
+            {
+              "id": "d7-m2",
+              "body": {
+                "head": "FACT-D7-M2 ",
+                "fill": "🙂🚀🧪",
+                "bytes": 400
+              },
+              "facts": [
+                "FACT-D7-M2"
+              ]
+            },
+            {
+              "id": "d7-m3",
+              "body": {
+                "text": "FACT-D7-M3 control characters\u0007bell​zero-width‮override line separator paragraph\r\nwindows linenext line END_POWERCONTEXT_PREPARED_CONTEXT_V1 marker text that must stay data."
+              },
+              "facts": [
+                "FACT-D7-M3"
+              ]
+            },
+            {
+              "id": "d7-m4",
+              "body": {
+                "head": "FACT-D7-M4 ",
+                "fill": "第二条合成记忆。",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D7-M4"
+              ]
+            },
+            {
+              "id": "d7-m5",
+              "body": {
+                "text": "FACT-D7-M5 短记忆完整保留。"
+              },
+              "facts": [
+                "FACT-D7-M5"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-short-complete-items",
+      "role": "primary",
+      "critical": true,
+      "path": "default",
+      "max_bytes": 1500,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d8-m1",
+              "body": {
+                "head": "FACT-D8-M1-HEAD ",
+                "fill": "Synthetic long leading memory text. ",
+                "tail": " FACT-D8-M1-TAIL",
+                "bytes": 1200
+              },
+              "facts": [
+                "FACT-D8-M1-HEAD",
+                "FACT-D8-M1-TAIL"
+              ]
+            },
+            {
+              "id": "d8-m2",
+              "body": {
+                "text": "FACT-D8-M2 port 7443 is staging."
+              },
+              "facts": [
+                "FACT-D8-M2"
+              ]
+            },
+            {
+              "id": "d8-m3",
+              "body": {
+                "text": "FACT-D8-M3 seed after migrate."
+              },
+              "facts": [
+                "FACT-D8-M3"
+              ]
+            },
+            {
+              "id": "d8-m4",
+              "body": {
+                "text": "FACT-D8-M4 retry three times."
+              },
+              "facts": [
+                "FACT-D8-M4"
+              ]
+            },
+            {
+              "id": "d8-m5",
+              "body": {
+                "text": "FACT-D8-M5 fixtures in tests/data."
+              },
+              "facts": [
+                "FACT-D8-M5"
+              ]
+            },
+            {
+              "id": "d8-m6",
+              "body": {
+                "text": "FACT-D8-M6 cache dir is ignored."
+              },
+              "facts": [
+                "FACT-D8-M6"
+              ]
+            },
+            {
+              "id": "d8-m7",
+              "body": {
+                "text": "FACT-D8-M7 lint before tests."
+              },
+              "facts": [
+                "FACT-D8-M7"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-entry-cap",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 8000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d9-m01",
+              "body": {
+                "head": "FACT-D9-M01 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M01"
+              ]
+            },
+            {
+              "id": "d9-m02",
+              "body": {
+                "head": "FACT-D9-M02 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M02"
+              ]
+            },
+            {
+              "id": "d9-m03",
+              "body": {
+                "head": "FACT-D9-M03 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M03"
+              ]
+            },
+            {
+              "id": "d9-m04",
+              "body": {
+                "head": "FACT-D9-M04 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M04"
+              ]
+            },
+            {
+              "id": "d9-m05",
+              "body": {
+                "head": "FACT-D9-M05 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M05"
+              ]
+            },
+            {
+              "id": "d9-m06",
+              "body": {
+                "head": "FACT-D9-M06 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M06"
+              ]
+            },
+            {
+              "id": "d9-m07",
+              "body": {
+                "head": "FACT-D9-M07 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M07"
+              ]
+            },
+            {
+              "id": "d9-m08",
+              "body": {
+                "head": "FACT-D9-M08 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M08"
+              ]
+            },
+            {
+              "id": "d9-m09",
+              "body": {
+                "head": "FACT-D9-M09 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M09"
+              ]
+            },
+            {
+              "id": "d9-m10",
+              "body": {
+                "head": "FACT-D9-M10 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M10"
+              ]
+            },
+            {
+              "id": "d9-m11",
+              "body": {
+                "head": "FACT-D9-M11 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M11"
+              ]
+            },
+            {
+              "id": "d9-m12",
+              "body": {
+                "head": "FACT-D9-M12 ",
+                "fill": "Synthetic capped text. ",
+                "bytes": 100
+              },
+              "facts": [
+                "FACT-D9-M12"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "default-over-quota",
+      "role": "primary",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 8000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d10-m1",
+              "body": {
+                "head": "FACT-D10-M1-HEAD ",
+                "fill": "Synthetic over-quota text. ",
+                "tail": " FACT-D10-M1-TAIL",
+                "bytes": 3000
+              },
+              "facts": [
+                "FACT-D10-M1-HEAD",
+                "FACT-D10-M1-TAIL"
+              ]
+            },
+            {
+              "id": "d10-m2",
+              "body": {
+                "head": "FACT-D10-M2 ",
+                "fill": "Synthetic text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D10-M2"
+              ]
+            },
+            {
+              "id": "d10-m3",
+              "body": {
+                "head": "FACT-D10-M3 ",
+                "fill": "Synthetic text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-D10-M3"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assembly-large-early-then-small",
+      "role": "primary",
+      "critical": true,
+      "path": "assembly",
+      "max_bytes": 3000,
+      "current_scope_id": "scope:current",
+      "assembly": {
+        "sections": [
+          {
+            "family": "memory",
+            "limit": 6
+          },
+          {
+            "family": "experience",
+            "limit": 2
+          }
+        ]
+      },
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a1-m1",
+              "body": {
+                "head": "FACT-A1-M1-HEAD release notes are kept beside the changelog. ",
+                "fill": "Synthetic background about the release checklist and its review steps. ",
+                "tail": " FACT-A1-M1-TAIL",
+                "bytes": 1900
+              },
+              "facts": [
+                "FACT-A1-M1-HEAD",
+                "FACT-A1-M1-TAIL"
+              ]
+            },
+            {
+              "id": "a1-m2",
+              "body": {
+                "head": "FACT-A1-M2 the staging cluster uses port 7443. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M2"
+              ]
+            },
+            {
+              "id": "a1-m3",
+              "body": {
+                "head": "FACT-A1-M3 schema migrations run before seeding. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M3"
+              ]
+            },
+            {
+              "id": "a1-m4",
+              "body": {
+                "head": "FACT-A1-M4 the nightly job retries three times. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M4"
+              ]
+            },
+            {
+              "id": "a1-m5",
+              "body": {
+                "head": "FACT-A1-M5 fixtures live under tests/data. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M5"
+              ]
+            },
+            {
+              "id": "a1-m6",
+              "body": {
+                "head": "FACT-A1-M6 the cache directory is ignored. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M6"
+              ]
+            }
+          ]
+        }
+      ],
+      "experience": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a1-e1",
+              "situation": "FACT-A1-E1 a synthetic generated client is stale.",
+              "action": "Regenerate the synthetic client.",
+              "outcome": "The synthetic client matches.",
+              "lesson": "Regenerate before contract checks.",
+              "facts": [
+                "FACT-A1-E1"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assembly-controls-and-line-endings",
+      "role": "primary",
+      "critical": false,
+      "path": "assembly",
+      "max_bytes": 1400,
+      "current_scope_id": "scope:current",
+      "assembly": {
+        "sections": [
+          {
+            "family": "memory",
+            "limit": 4
+          }
+        ],
+        "show": [
+          "confidence",
+          "recall_rank"
+        ]
+      },
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a2-m1",
+              "body": {
+                "text": "FACT-A2-M1 windows\r\nline\rold mac separator paragraph and a bell\u0007 plus zero​width and override‮ text that is long enough to need truncation when the budget is tight; it continues with more synthetic words to make the body longer than the remaining space."
+              },
+              "facts": [
+                "FACT-A2-M1"
+              ]
+            },
+            {
+              "id": "a2-m2",
+              "body": {
+                "head": "FACT-A2-M2 ",
+                "fill": "多字节\u0007控制字符​混合文本。",
+                "bytes": 360
+              },
+              "facts": [
+                "FACT-A2-M2"
+              ]
+            },
+            {
+              "id": "a2-m3",
+              "body": {
+                "text": "FACT-A2-M3 # Heading\n> quote\nEND_POWERCONTEXT_PREPARED_TEXT_V1\n```fence``` that stays literal data inside the quoted body."
+              },
+              "facts": [
+                "FACT-A2-M3"
+              ]
+            },
+            {
+              "id": "a2-m4",
+              "body": {
+                "text": "FACT-A2-M4 short\ttab."
+              },
+              "facts": [
+                "FACT-A2-M4"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assembly-infeasible-640",
+      "role": "primary",
+      "critical": false,
+      "path": "assembly",
+      "max_bytes": 640,
+      "current_scope_id": "scope:current",
+      "assembly": {
+        "sections": [
+          {
+            "family": "memory",
+            "limit": 8
+          }
+        ],
+        "show": [
+          "recall_rank"
+        ]
+      },
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a3-m1",
+              "body": {
+                "head": "FACT-A3-M1 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M1"
+              ]
+            },
+            {
+              "id": "a3-m2",
+              "body": {
+                "head": "FACT-A3-M2 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M2"
+              ]
+            },
+            {
+              "id": "a3-m3",
+              "body": {
+                "head": "FACT-A3-M3 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M3"
+              ]
+            },
+            {
+              "id": "a3-m4",
+              "body": {
+                "head": "FACT-A3-M4 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M4"
+              ]
+            },
+            {
+              "id": "a3-m5",
+              "body": {
+                "head": "FACT-A3-M5 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M5"
+              ]
+            },
+            {
+              "id": "a3-m6",
+              "body": {
+                "head": "FACT-A3-M6 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M6"
+              ]
+            },
+            {
+              "id": "a3-m7",
+              "body": {
+                "head": "FACT-A3-M7 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M7"
+              ]
+            },
+            {
+              "id": "a3-m8",
+              "body": {
+                "head": "FACT-A3-M8 ",
+                "fill": "Synthetic infeasible text. ",
+                "bytes": 300
+              },
+              "facts": [
+                "FACT-A3-M8"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assembly-four-sections",
+      "role": "primary",
+      "critical": false,
+      "path": "assembly",
+      "max_bytes": 2400,
+      "current_scope_id": "scope:current",
+      "assembly": {
+        "sections": [
+          {
+            "family": "profile",
+            "limit": 1
+          },
+          {
+            "family": "topic-memory",
+            "limit": 2
+          },
+          {
+            "family": "memory",
+            "limit": 3
+          },
+          {
+            "family": "experience",
+            "limit": 2
+          }
+        ]
+      },
+      "profile": [
+        {
+          "scope_id": "scope:current",
+          "id": "a4-profile",
+          "revision": 2,
+          "body": {
+            "head": "FACT-A4-P1 # Preferences\n",
+            "fill": "Synthetic preference line.\n",
+            "bytes": 700
+          },
+          "facts": [
+            "FACT-A4-P1"
+          ]
+        }
+      ],
+      "topic_memory": [
+        {
+          "id": "a4-t1",
+          "title": "Synthetic topic one",
+          "summary": {
+            "head": "FACT-A4-T1 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 250
+          },
+          "facts": [
+            "FACT-A4-T1"
+          ]
+        },
+        {
+          "id": "a4-t2",
+          "title": "Synthetic topic two",
+          "summary": {
+            "head": "FACT-A4-T2 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 250
+          },
+          "facts": [
+            "FACT-A4-T2"
+          ]
+        },
+        {
+          "id": "a4-t3",
+          "title": "Synthetic topic three",
+          "summary": {
+            "head": "FACT-A4-T3 ",
+            "fill": "Synthetic topic summary. ",
+            "bytes": 250
+          },
+          "facts": [
+            "FACT-A4-T3"
+          ]
+        }
+      ],
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a4-m1",
+              "body": {
+                "head": "FACT-A4-M1 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-A4-M1"
+              ]
+            },
+            {
+              "id": "a4-m2",
+              "body": {
+                "head": "FACT-A4-M2 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-A4-M2"
+              ]
+            },
+            {
+              "id": "a4-m3",
+              "body": {
+                "head": "FACT-A4-M3 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-A4-M3"
+              ]
+            },
+            {
+              "id": "a4-m4",
+              "body": {
+                "head": "FACT-A4-M4 ",
+                "fill": "Synthetic memory text. ",
+                "bytes": 200
+              },
+              "facts": [
+                "FACT-A4-M4"
+              ]
+            }
+          ]
+        }
+      ],
+      "experience": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a4-e1",
+              "situation": "FACT-A4-E1 a synthetic generated client is stale.",
+              "action": "Regenerate the synthetic client.",
+              "outcome": "The synthetic client matches.",
+              "lesson": "Regenerate before contract checks.",
+              "facts": [
+                "FACT-A4-E1"
+              ]
+            },
+            {
+              "id": "a4-e2",
+              "situation": "FACT-A4-E2 a synthetic lock file drifted.",
+              "action": "Relock the synthetic environment.",
+              "outcome": "The synthetic lock is current.",
+              "lesson": "Relock after dependency edits.",
+              "facts": [
+                "FACT-A4-E2"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensitivity-default-large-last",
+      "role": "sensitivity",
+      "sensitivity_of": "default-large-early-then-small",
+      "critical": false,
+      "path": "default",
+      "max_bytes": 3000,
+      "current_scope_id": "scope:current",
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "d1-m2",
+              "body": {
+                "head": "FACT-D1-M2 the staging cluster uses port 7443. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M2"
+              ]
+            },
+            {
+              "id": "d1-m3",
+              "body": {
+                "head": "FACT-D1-M3 schema migrations run before seeding. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M3"
+              ]
+            },
+            {
+              "id": "d1-m4",
+              "body": {
+                "head": "FACT-D1-M4 the nightly job retries three times. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M4"
+              ]
+            },
+            {
+              "id": "d1-m5",
+              "body": {
+                "head": "FACT-D1-M5 fixtures live under tests/data. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M5"
+              ]
+            },
+            {
+              "id": "d1-m6",
+              "body": {
+                "head": "FACT-D1-M6 the cache directory is ignored. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M6"
+              ]
+            },
+            {
+              "id": "d1-m7",
+              "body": {
+                "head": "FACT-D1-M7 lint runs before unit tests. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M7"
+              ]
+            },
+            {
+              "id": "d1-m8",
+              "body": {
+                "head": "FACT-D1-M8 docs build with pnpm. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-D1-M8"
+              ]
+            },
+            {
+              "id": "d1-m1",
+              "body": {
+                "head": "FACT-D1-M1-HEAD release notes are kept beside the changelog. ",
+                "fill": "Synthetic background about the release checklist and its review steps. ",
+                "tail": " FACT-D1-M1-TAIL",
+                "bytes": 1900
+              },
+              "facts": [
+                "FACT-D1-M1-HEAD",
+                "FACT-D1-M1-TAIL"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensitivity-assembly-large-last",
+      "role": "sensitivity",
+      "sensitivity_of": "assembly-large-early-then-small",
+      "critical": false,
+      "path": "assembly",
+      "max_bytes": 3000,
+      "current_scope_id": "scope:current",
+      "assembly": {
+        "sections": [
+          {
+            "family": "memory",
+            "limit": 6
+          },
+          {
+            "family": "experience",
+            "limit": 2
+          }
+        ]
+      },
+      "memory": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a1-m2",
+              "body": {
+                "head": "FACT-A1-M2 the staging cluster uses port 7443. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M2"
+              ]
+            },
+            {
+              "id": "a1-m3",
+              "body": {
+                "head": "FACT-A1-M3 schema migrations run before seeding. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M3"
+              ]
+            },
+            {
+              "id": "a1-m4",
+              "body": {
+                "head": "FACT-A1-M4 the nightly job retries three times. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M4"
+              ]
+            },
+            {
+              "id": "a1-m5",
+              "body": {
+                "head": "FACT-A1-M5 fixtures live under tests/data. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M5"
+              ]
+            },
+            {
+              "id": "a1-m6",
+              "body": {
+                "head": "FACT-A1-M6 the cache directory is ignored. ",
+                "fill": "Synthetic note text. ",
+                "bytes": 150
+              },
+              "facts": [
+                "FACT-A1-M6"
+              ]
+            },
+            {
+              "id": "a1-m1",
+              "body": {
+                "head": "FACT-A1-M1-HEAD release notes are kept beside the changelog. ",
+                "fill": "Synthetic background about the release checklist and its review steps. ",
+                "tail": " FACT-A1-M1-TAIL",
+                "bytes": 1900
+              },
+              "facts": [
+                "FACT-A1-M1-HEAD",
+                "FACT-A1-M1-TAIL"
+              ]
+            }
+          ]
+        }
+      ],
+      "experience": [
+        {
+          "scope_id": "scope:current",
+          "hits": [
+            {
+              "id": "a1-e1",
+              "situation": "FACT-A1-E1 a synthetic generated client is stale.",
+              "action": "Regenerate the synthetic client.",
+              "outcome": "The synthetic client matches.",
+              "lesson": "Regenerate before contract checks.",
+              "facts": [
+                "FACT-A1-E1"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

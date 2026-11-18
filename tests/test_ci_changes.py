@@ -92,10 +92,15 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
             {"tests", "database", "harness", "oceanbase_acceptance", "upgrade", "candidate_replay", "release_schema"},
         ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
-        (["scripts/generate_integration_lifecycle.py"], {"tests", "hermes"}),
+        (
+            ["scripts/generate_integration_lifecycle.py"],
+            {"tests", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"},
+        ),
+        (["integrations/lifecycle/transport.ts"], {"tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
+        ([".github/actions/setup-openapi-generator/action.yml"], {"desktop"}),
         ([".github/workflows/desktop-candidate.yml"], {"tests"}),
         ([".github/workflows/desktop-release.yml"], {"tests"}),
         (["scripts/desktop_candidate.py"], {"tests"}),
@@ -136,7 +141,8 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/test_database_migration_cli.py"], {"tests", "database", "upgrade"}),
         ([".github/workflows/skill-guidance.yml"], {"skill_guidance"}),
         ([".licenserc.yaml"], set()),
-        (["integrations/bub/src/powercontext_bub/__init__.py"], {"tests", "harness"}),
+        (["integrations/bub/src/powercontext_bub/__init__.py"], {"tests", "harness", "bub"}),
+        (["e2e/bub/uv.lock"], {"harness", "bub"}),
         (
             ["docs/en/docs/quickstart.md", "integrations/opencode/package.json"],
             {"website", "docs_tests", "tests", "opencode"},
@@ -170,7 +176,7 @@ def test_shared_or_unclassified_changes_run_every_suite(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "src/powercontext/server/authz/owner_recovery.py",
+        "src/powercontext/builtin/authz/owner_recovery.py",
         "src/powercontext/builtin/persistence/mysql.py",
         "uv.lock",
         "pyproject.toml",
@@ -187,6 +193,8 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "native",
         "desktop",
         "pi",
+        "bub",
+        "claude_code",
         "zcode",
         "cindy",
         "managed_resources",
@@ -194,7 +202,7 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "oceanbase_acceptance",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
-    assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
+    assert selected["seekdb_lock"] is (path != "src/powercontext/builtin/authz/owner_recovery.py")
 
 
 def git(repository: Path, *arguments: str) -> str:
@@ -257,6 +265,7 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
             {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
         ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
+        ("integrations/claude-code/plugins/powercontext/.mcp.json", {"tests", "claude-code-host"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
 )
@@ -279,10 +288,26 @@ def test_changed_shared_input_requires_its_consumers_in_result_gate(repository, 
         ("integrations/pi/plugins/powercontext/package.json", {"tests", "pi", "zcode"}),
         ("tests/e2e/test_cross_host_work_continuity.py", {"tests", "zcode"}),
         ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode", "pi"}),
-        ("tests/e2e/zcode_acceptance/protocol.py", {"tests", "zcode", "pi", "opencode"}),
-        ("tests/e2e/zcode_acceptance/runner.py", {"tests", "zcode", "pi", "opencode"}),
+        (
+            "tests/e2e/zcode_acceptance/protocol.py",
+            {"tests", "zcode", "pi", "opencode", "openclaw", "codex", "bub", "claude_code"},
+        ),
+        (
+            "tests/e2e/zcode_acceptance/runner.py",
+            {"tests", "zcode", "pi", "opencode", "openclaw", "codex", "bub", "claude_code"},
+        ),
         ("tests/e2e/test_pi_service_chain.py", {"tests", "pi"}),
         ("tests/e2e/test_opencode_service_chain.py", {"tests", "opencode"}),
+        ("tests/e2e/test_openclaw_service_chain.py", {"tests", "openclaw"}),
+        ("tests/e2e/test_bub_service_chain.py", {"tests", "bub"}),
+        ("tests/e2e/test_codex_host_service_chain.py", {"tests", "codex"}),
+        ("tests/e2e/host_models/responses.py", {"tests", "codex"}),
+        ("integrations/codex/plugins/powercontext/hooks/recall.py", {"tests", "codex"}),
+        ("tests/e2e/test_claude_code_host_service_chain.py", {"tests", "claude_code"}),
+        ("tests/e2e/host_models/messages.py", {"tests", "codex", "claude_code"}),
+        ("tests/e2e/host_models/script.py", {"tests", "codex", "claude_code"}),
+        ("integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py", {"tests", "claude_code"}),
+        (".claude-plugin/marketplace.json", {"tests", "claude_code"}),
         ("tests/e2e/cross_host_work_continuity/fixtures/task.py", {"tests", "zcode"}),
     ],
 )

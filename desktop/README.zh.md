@@ -144,9 +144,25 @@ pnpm --dir desktop desktop:dev
 - 连接超时 5 秒、完整请求超时 15 秒、响应上限 1 MiB、每个客户端最多 4 个并发读取；超限明确失败。
 - 主窗口可调用明确列出的连接、Scope、记忆和诊断命令；没有通用 fetch、shell、文件、数据库或读取秘密的 IPC。
 
+生成器 JAR 的 SHA-256 固定在 `desktop/openapi-generator-checksum.json` 中，升级生成器时需要与
+`openapitools.json` 一起更新。准备步骤会校验已有 JAR；没有通过校验的文件时，使用 `curl` 下载，并对 HTTP 429
+等临时错误进行有限重试。下载内容的摘要匹配后才会使用，因此只有缺少有效 JAR 时才需要访问网络。
+Windows、macOS 和 Linux 的 Desktop CI 都会恢复独立的 JAR 缓存，并在下载校验成功后立即保存，避免后续
+lint、测试或构建失败导致下载结果无法复用。
+
 普通连接和 Memory 操作不会启动或管理 Server；本地服务修改必须通过明确批准的 Ops 计划。应用不持久化正文或查询，关闭窗口即退出。当前语言和主题也仅保留于会话内。
 
 [安全边界](SECURITY.md)记录具体约束；[验证说明](VALIDATION.md)列出测试范围和仍未满足的 P0 门槛。构建成功、Mock 测试和当前用户机器上的运行都不能代替标准用户、签名、通知冷启动激活、独立服务和 Agent 宿主验收。
+
+## 本地服务状态
+
+在 Linux 上，「本地 Server」设置页可以通过可信的 Ops Bridge 检查 PowerContext 的用户服务。这个检查是只读的：它只显示是否支持、是否注册、管理归属、管理器状态、存活状态、就绪状态和维护状态，不会把路径、命令、环境值或原始进程输出显示给界面。
+
+Ops Bridge 只处理已登记的 PowerContext 服务目标，并拒绝不可信窗口、远程来源和渲染器传入的任意输入。本地服务缺失或暂时不可用时，远程 Server 连接仍然可以使用。页面通过 `ops.inspect` 执行只读状态检查；在有效的 Linux binding 下，经过明确批准并通过 `ops.apply` 派发的计划可以安装、修复、启动、停止或重启个人服务。这些生命周期操作仍然必须遵守相同的归属和审批规则。
+
+服务单元写入当前用户的 `$XDG_CONFIG_HOME/systemd/user/`；未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/systemd/user/`，所有管理器调用都使用 `systemctl --user`。正常安装和恢复不需要 `sudo`，不会写入 `/etc/systemd/system/` 之类的系统级 unit，也不会调用 `loginctl enable-linger`。用户登录时，已有的用户级 systemd manager 可以通过 `default.target` 激活已启用的服务；用户注销时，服务遵循该用户 manager 的正常生命周期。如果账户本来已经由用户或管理员启用了 linger，PowerContext 不会修改它，也不会默默创建系统级持久化。
+
+Linux 验收由 Desktop Rust IPC/Ops Bridge 测试和真实 systemd `--user` 生命周期测试共同覆盖，后者位于 [native personal service workflow](../.github/workflows/native-service.yml)。生命周期测试覆盖安装、重启、卸载、外部登记、无关用户服务、外部停止后的恢复、用户服务管理器不可用，以及用户会话边界。测试验证登录激活使用当前用户的 `default.target`，显式停止不会取消该激活，已有 linger 状态保持不变，也不会创建系统级 unit。测试不会强制注销 CI 账户；真实 GNOME 会话的注销/重新登录资格由 Ubuntu Desktop 打包验收覆盖。managed-resource candidate workflow 还会使用固定 SHA-256 的独立 Python runtime 生成真实 Linux Ops bundle，并通过原生 manifest/摘要信任边界验收；该 candidate 检查不等同于已签名发布包资格。
 
 ## 本机 CLI 诊断
 
@@ -212,7 +228,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 使用 macOS 12 或更高版本、Xcode 命令行工具（`xcode-select --install`）、Node **24.14.1**、pnpm **11.13.1**、Rust **1.95.0** 和 **JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）**。请在目标架构（Apple Silicon 或 Intel）上构建。
 
-`lint` 和 `build` 包含 `generate:check`，会启动 Java OpenAPI Generator。首次运行可能从 Maven Central 下载固定版本的 JAR，因此需要网络访问；后续运行可以复用已下载的 JAR。
+`lint` 和 `build` 包含 `generate:check`，会启动 Java OpenAPI Generator。首次运行可能通过 `curl` 从 Maven Central 下载固定版本的 JAR；后续运行按上述规则校验并复用已有文件。
 
 ```sh
 cd desktop

@@ -31,6 +31,42 @@ interface PluginConfig {
   flushMaxCalls?: number;
   /** Explicit owner assertion for an otherwise unverified local Web host. */
   ownerLocal?: boolean;
+  updateChannel?: 'stable' | 'preview';
+  updateHold?: boolean;
+}
+//#endregion
+//#region src/trace-context.d.ts
+/** Optional propagation from a trusted, in-process companion. Never accept arbitrary headers or baggage. */
+interface TraceContext {
+  traceparent: string;
+}
+//#endregion
+//#region src/companion-memory.d.ts
+declare const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
+declare const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
+interface CompanionMemoryRequest {
+  sessionId: string;
+  /** Omit to inspect the binding without retrieving memory. */
+  query?: string;
+  maxBytes?: number;
+  signal?: AbortSignal;
+  /** Optional W3C v00 parent for this recall; never grants access or changes Scope binding. */
+  traceContext?: TraceContext;
+}
+type CompanionMemoryResult = {
+  status: 'connected' | 'ready' | 'empty';
+  /** Opaque connection + workspace + Scope identity; safe for local history partitioning. */
+  bindingId: string;
+  scopeId: string;
+  workspace: string;
+  content?: string;
+} | {
+  status: 'unavailable';
+  reason: 'session-required' | 'workspace-unavailable' | 'scope-unavailable' | 'connection-unavailable';
+};
+interface CompanionMemoryService {
+  readonly protocol: typeof COMPANION_MEMORY_PROTOCOL;
+  prepare(request: CompanionMemoryRequest): Promise<CompanionMemoryResult>;
 }
 //#endregion
 //#region src/index.d.ts
@@ -54,4 +90,4 @@ declare const Config: {
 };
 declare function apply(ctx: Context, config: Config): Promise<void>;
 //#endregion
-export { Config, apply, inject, name };
+export { COMPANION_MEMORY_PROTOCOL, COMPANION_MEMORY_SERVICE, type CompanionMemoryRequest, type CompanionMemoryResult, type CompanionMemoryService, Config, apply, inject, name };

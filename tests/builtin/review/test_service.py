@@ -40,7 +40,7 @@ from powercontext.builtin.persistence.errors import InvalidStoredPayloadError, R
 from powercontext.builtin.persistence.experience_index import NoExperienceIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES
-from powercontext.builtin.records import ArtifactWrite
+from powercontext.builtin.records import ArtifactWrite, InvalidBaseAccessRequestError
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -830,7 +830,7 @@ def test_managed_skill_approval_validates_family_lineage() -> None:
 
 
 @pytest.mark.parametrize("rejected", [False, True])
-def test_stale_experience_target_preserves_candidate_decision(rejected: bool) -> None:
+def test_stale_experience_target_preserves_candidate_decision(rejected: bool, caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             scope_id = await _create_scope(runtime)
@@ -881,6 +881,12 @@ def test_stale_experience_target_preserves_candidate_decision(rejected: bool) ->
             assert winner_result.result_artifact == approved.result_artifact.model_copy(update={"revision": 2})
             assert current_stale.status == ("rejected" if rejected else "pending")
             assert current_stale.version == 1
+            (record,) = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+            fields = vars(record)
+            assert fields["operation"] == "experience.approve"
+            assert fields["failure_location"] == ("candidate_terminal" if rejected else "artifact_target_conflict")
+            assert "failure_reason" not in fields and "processing_stage" not in fields
+            assert stale.candidate_id not in repr(fields)
 
     asyncio.run(scenario())
 
@@ -1052,3 +1058,22 @@ def test_candidate_preserves_distinct_positions_from_one_source() -> None:
             assert result.lineage.sources == refs
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ["experience", "profile", "skill"])
+def test_scoped_artifact_write_logs_validation_rejection(family, caplog: pytest.LogCaptureFixture) -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime)
+            records = runtime.records.for_scope(scope_id)
+            with pytest.raises(InvalidBaseAccessRequestError):
+                await records.create_artifact(family, ArtifactWrite(content={"private_value": "private-content"}))
+
+    asyncio.run(scenario())
+    (record,) = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+    fields = vars(record)
+    assert (fields["family"], fields["operation"]) == (family, f"{family}.create")
+    assert fields["processing_stage"] == "business_validation"
+    assert fields["failure_location"] == "invalid_artifact_write"
+    assert "failure_reason" not in fields and record.exc_info is None
+    assert "private-content" not in repr(fields)

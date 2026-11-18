@@ -221,7 +221,6 @@ def test_sdk_retries_have_three_http_attempts_and_one_final_success(tmp_path, mo
         async def scenario():
             async with open_builtin_runtime(
                 _config(tmp_path, endpoint),
-                scheduler_path=tmp_path / "scheduler.db",
                 provider_observer=metrics.observe_provider,
             ) as runtime:
                 result = await _create(runtime)
@@ -252,7 +251,6 @@ def test_minimax_http_success_and_business_failure_are_separate(tmp_path):
         async def scenario():
             async with open_builtin_runtime(
                 _config(tmp_path, endpoint, "minimax"),
-                scheduler_path=tmp_path / "scheduler.db",
                 provider_observer=metrics.observe_provider,
             ) as runtime:
                 with pytest.raises(InferenceUnavailableError):
@@ -274,7 +272,6 @@ def test_readiness_traffic_is_excluded_from_model_operations(tmp_path, monkeypat
         async def scenario():
             async with open_builtin_runtime(
                 _config(tmp_path, endpoint),
-                scheduler_path=tmp_path / "scheduler.db",
                 provider_observer=metrics.observe_provider,
             ) as runtime:
                 await runtime.readiness()
@@ -298,7 +295,6 @@ def test_failed_observer_cannot_change_a_successful_model_operation(tmp_path, mo
         async def scenario():
             async with open_builtin_runtime(
                 _config(tmp_path, endpoint),
-                scheduler_path=tmp_path / "scheduler.db",
                 provider_observer=failed_observer,
             ) as runtime:
                 assert (await _create(runtime)).changed
@@ -437,7 +433,6 @@ def test_transport_observation_bootstrap_failure_keeps_minimax_usable(tmp_path, 
         async def scenario():
             async with open_builtin_runtime(
                 _config(tmp_path, endpoint, "minimax"),
-                scheduler_path=tmp_path / "scheduler.db",
                 provider_observer=metrics.observe_provider,
             ) as runtime:
                 assert (await _create(runtime)).changed

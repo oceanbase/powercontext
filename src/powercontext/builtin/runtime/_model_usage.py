@@ -22,13 +22,13 @@ from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from contextvars import Context
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-from powercontext._logging import log_safely
+from powercontext._logging import current_log_context
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.database import (
     AsyncDatabase,
@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.database import (
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics.usage_diagnostics import log_usage_accounting_failure, model_usage_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ _LOGGER = logging.getLogger(__name__)
 _WRITE_ATTEMPT_SLICES = 4
 _MIN_WRITE_ATTEMPT_SECONDS = 0.02
 _RETRY_BACKOFF_SECONDS = 0.02
+_WRITE_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +73,42 @@ def _snapshot(
     return _ModelUsageRecord(scope_id, usage_date, purpose, operation, counts)
 
 
+def _coalesce(records: tuple[_ModelUsageRecord, ...]) -> tuple[_ModelUsageRecord, ...]:
+    # Keep each completeness combination separate: merging a known token count
+    # with None into one InferenceUsage would discard the known subtotal. The
+    # repository adds these groups and ANDs their completeness flags atomically.
+    grouped: dict[tuple[str, date, ModelUsagePurpose, ModelUsageOperation, bool, bool], _ModelUsageRecord] = {}
+    for record in records:
+        usage = record.usage
+        key = (
+            record.scope_id,
+            record.usage_date,
+            record.purpose,
+            record.operation,
+            usage.input_tokens is not None,
+            usage.output_tokens is not None,
+        )
+        previous = grouped.get(key)
+        if previous is None:
+            grouped[key] = record
+        else:
+            grouped[key] = replace(
+                record,
+                usage=InferenceUsage(
+                    requests=previous.usage.requests + usage.requests,
+                    input_tokens=None
+                    if usage.input_tokens is None
+                    else (previous.usage.input_tokens or 0) + usage.input_tokens,
+                    output_tokens=None
+                    if usage.output_tokens is None
+                    else (previous.usage.output_tokens or 0) + usage.output_tokens,
+                ),
+            )
+    return tuple(grouped.values())
+
+
 class _ModelUsageRecorder:
-    """Offer without I/O; serialize independent writes on one owned consumer.
+    """Offer without I/O; coalesce bounded writes on one owned consumer.
 
     Checkpoints identify accepted records, not successful writes. A failed or
     indeterminate transaction is settled once and is never retried; only a
@@ -105,6 +141,17 @@ class _ModelUsageRecorder:
         self._consumer: asyncio.Task[None] | None = None
         self._closed = False
         self._observer = observer
+        # Preserve only the Worker's assignment identity for detached consumer logs.
+        context = current_log_context()
+        self._worker_fields = (
+            {
+                key: value
+                for key in ("worker_id", "binding", "request_generation")
+                if (value := context.get(key)) is not None
+            }
+            if context.get("worker_id") is not None
+            else {}
+        )
         self._dropped = 0
         self._write_failures = 0
         self._report()
@@ -132,7 +179,15 @@ class _ModelUsageRecorder:
             if len(self._pending) >= self._capacity:
                 self._dropped += 1
                 self._report()
-                log_safely(_LOGGER, logging.WARNING, "Model usage queue full; record dropped")
+                log_usage_accounting_failure(
+                    _LOGGER,
+                    "Model usage queue full; record dropped",
+                    "queue_full",
+                    family=model_usage_family(purpose),
+                    capability=operation,
+                    record_count=1,
+                    worker_fields=self._worker_fields,
+                )
                 return
             record = _snapshot(scope_id, purpose, operation, usage, usage_date)
             if self._consumer is None:
@@ -148,16 +203,24 @@ class _ModelUsageRecorder:
                     name="powercontext-model-usage",
                     context=Context(),
                 )
-                self._consumer.add_done_callback(self._consumer_finished)
+                self._consumer.add_done_callback(self._consumer_finished, context=Context())
             self._offered += 1
             self._pending.append((self._offered, record))
             self._ready.set()
             self._report()
-        except Exception:
+        except Exception as error:
             self._dropped += 1
             self._report()
-            # Never log usage payloads, identifiers, SQL or driver error text.
-            log_safely(_LOGGER, logging.WARNING, "Model usage record could not be queued")
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage record could not be queued",
+                "enqueue",
+                family=model_usage_family(purpose),
+                capability=operation,
+                record_count=1,
+                error=error,
+                worker_fields=self._worker_fields,
+            )
 
     def checkpoint(self) -> int:
         return self._offered
@@ -172,8 +235,14 @@ class _ModelUsageRecorder:
             async with asyncio.timeout(self._flush_timeout_seconds):
                 while self._settled < target:
                     await self._advanced.wait()
-        except TimeoutError:
-            log_safely(_LOGGER, logging.WARNING, "Model usage flush timed out; continuing without statistics")
+        except TimeoutError as error:
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage flush timed out; continuing without statistics",
+                "flush_timeout",
+                error=error,
+                worker_fields=self._worker_fields,
+            )
 
     async def close(self) -> None:
         """Stop offers, then drain every accepted record within a bounded budget."""
@@ -183,16 +252,23 @@ class _ModelUsageRecorder:
         if consumer is None:
             return
         self._ready.set()
-        # Each accepted record already carries a bounded write budget, so waiting
-        # one record plus one flush window lets an in-flight write finish instead
+        # Each batch already carries a bounded write budget, so waiting
+        # one batch plus one flush window lets an in-flight write finish instead
         # of abandoning it to a database that is about to close underneath it.
         budget = self._write_timeout_seconds + self._flush_timeout_seconds
         try:
             async with asyncio.timeout(budget):
                 while self._settled < self._offered:
                     await self._advanced.wait()
-        except TimeoutError:
-            log_safely(_LOGGER, logging.WARNING, "Model usage shutdown dropped queued records")
+        except TimeoutError as error:
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage shutdown timed out while draining",
+                "drain_timeout",
+                record_count=len(self._pending),
+                error=error,
+                worker_fields=self._worker_fields,
+            )
         finally:
             self._dropped += len(self._pending)
             self._pending.clear()
@@ -202,7 +278,12 @@ class _ModelUsageRecorder:
         # work; cleanup is still owned by the consumer if the OS itself stalls.
         _, pending = await asyncio.wait((consumer,), timeout=self._write_timeout_seconds)
         if pending:
-            log_safely(_LOGGER, logging.WARNING, "Model usage native cleanup still pending at shutdown")
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage native cleanup still pending at shutdown",
+                "cleanup_timeout",
+                worker_fields=self._worker_fields,
+            )
 
     async def _consume(self) -> None:
         try:
@@ -213,50 +294,75 @@ class _ModelUsageRecorder:
                     self._ready.clear()
                     await self._ready.wait()
                     continue
-                sequence, record = self._pending.popleft()
+                batch = tuple(self._pending.popleft() for _ in range(min(len(self._pending), _WRITE_BATCH_SIZE)))
+                sequence = batch[-1][0]
                 self._report()
                 try:
-                    # The record is already accepted, so it must survive whoever
+                    # These records are already accepted, so they must survive whoever
                     # cancels this consumer: nothing else will ever retry it, and
                     # `_settle` reports it as settled either way.
-                    await asyncio.shield(self._write(record))
-                except Exception:
-                    self._write_failures += 1
+                    await asyncio.shield(self._write(tuple(record for _, record in batch)))
+                except Exception as error:
+                    # Count original records, not coalesced groups or physical
+                    # transactions, so batching does not conceal usage losses.
+                    self._write_failures += len(batch)
                     self._report()
-                    log_safely(_LOGGER, logging.WARNING, "Model usage write failed; record will not be retried")
+                    families = {model_usage_family(record.purpose) for _, record in batch}
+                    capabilities = {
+                        record.operation if isinstance(record.operation, ModelUsageOperation) else None
+                        for _, record in batch
+                    }
+                    log_usage_accounting_failure(
+                        _LOGGER,
+                        "Model usage write failed; record will not be retried",
+                        "write",
+                        family=families.pop() if len(families) == 1 else None,
+                        capability=capabilities.pop() if len(capabilities) == 1 else None,
+                        record_count=len(batch),
+                        error=error,
+                        worker_fields=self._worker_fields,
+                    )
                 finally:
                     self._settle(sequence)
         finally:
             self._closed = True
+            self._dropped += len(self._pending)
             self._pending.clear()
+            self._report()
             self._settle(self._offered)
 
-    async def _write(self, record: _ModelUsageRecord) -> None:
-        """Write one record, retrying only a failure that rolled back cleanly.
+    async def _write(self, records: tuple[_ModelUsageRecord, ...]) -> None:
+        """Write one batch, retrying only a failure that rolled back cleanly.
 
         A busy or conflict error leaves nothing applied, so repeating it cannot
-        double count and is worth the rest of this record's budget. An attempt
+        double count and is worth the rest of this batch's budget. An attempt
         that expired before its body committed is the same shape and is worth the
-        same: a slow body must be allowed to finish rather than take the record's
+        same: a slow body must be allowed to finish rather than take the batch's
         usage with it. Any other failure may have committed with an unknown
         outcome and is never retried.
         """
 
+        grouped = _coalesce(records)
+        scopes = sorted({record.scope_id for record in grouped})
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._write_timeout_seconds
-        # The first attempt gets a fixed slice rather than the whole budget, so
-        # one attempt that really does wait cannot consume all of it before any
-        # repeat happens. Contended attempts normally return immediately, so the
-        # backoff interval, not this slice, is what decides how many attempts fit
-        # inside the deadline.
-        attempt_timeout = max(self._write_timeout_seconds / _WRITE_ATTEMPT_SLICES, _MIN_WRITE_ATTEMPT_SECONDS)
-        # Every repeat gets what the record has left. Repeating is only reached
-        # once a slice-sized attempt has already failed, and that failure is the
-        # evidence that a slice is not what this record needs: handing the repeat
-        # the same slice reaches the same wall and drops a record that still owns
+        # SQLite can prove that an expired body rolled back, so its first attempt
+        # gets a slice that leaves time for a repeat. Contended attempts normally
+        # return immediately, so backoff determines how many fit in the budget.
+        # MySQL's deadline closes the socket and may lose a COMMIT reply. That
+        # timeout cannot be retried, so give the batch its full configured budget.
+        attempt_timeout = (
+            self._write_timeout_seconds
+            if self._database.engine.dialect.name == "mysql"
+            else max(self._write_timeout_seconds / _WRITE_ATTEMPT_SLICES, _MIN_WRITE_ATTEMPT_SECONDS)
+        )
+        # Every repeat gets what the batch has left. Repeating is only reached
+        # after a provably unapplied attempt. On SQLite, that expiry is the
+        # evidence that a slice is not what this batch needs: handing the repeat
+        # the same slice reaches the same wall and drops a batch that still owns
         # most of its budget. The budget, not the slice, is what bounds the total.
         # On SQLite a retry after an interrupted body can hold the shared
-        # connection guard for the record's entire remaining budget, delaying a
+        # connection guard for the batch's entire remaining budget, delaying a
         # competing business write by up to the full write_timeout_seconds
         # (at most 30 seconds) plus transaction settlement/cleanup. The guard is
         # released between attempts; the first-attempt slice is not a retry cap.
@@ -268,15 +374,19 @@ class _ModelUsageRecorder:
             allowance = attempt_timeout if first_attempt else remaining
             try:
                 async with self._database.statistics_transaction(min(remaining, allowance)) as connection:
-                    # Lock the Scope row on MySQL so delete cannot race the
+                    # Lock Scope rows in a stable order so delete cannot race the
                     # increment. SQLite ignores FOR UPDATE; its real snapshot
                     # makes a competing delete fail the write upgrade instead.
                     scope = (
                         select(SCOPES_TABLE.c.scope_id)
-                        .where(SCOPES_TABLE.c.scope_id == record.scope_id)
+                        .where(SCOPES_TABLE.c.scope_id.in_(scopes))
+                        .order_by(SCOPES_TABLE.c.scope_id)
                         .with_for_update()
                     )
-                    if (await connection.execute(scope)).first() is not None:
+                    existing = set((await connection.execute(scope)).scalars())
+                    for record in grouped:
+                        if record.scope_id not in existing:
+                            continue
                         await self._repository.record(
                             connection,
                             record.scope_id,
@@ -297,7 +407,7 @@ class _ModelUsageRecorder:
                     # waits one write window for this consumer, so a repeat
                     # cannot be counted on, and failing now ends it as expected.
                     raise
-                # Unapplied and still inside the record's own budget, so hand the
+                # Unapplied and still inside the batch's own budget, so hand the
                 # loop over rather than let a slow machine decide its fate, and
                 # stop slicing: this attempt is the evidence that the body, not a
                 # wait, is what takes the time.
@@ -311,7 +421,15 @@ class _ModelUsageRecorder:
         self._advanced.set()
         self._advanced = asyncio.Event()
 
-    @staticmethod
-    def _consumer_finished(consumer: asyncio.Task[None]) -> None:
-        if not consumer.cancelled() and consumer.exception() is not None:
-            log_safely(_LOGGER, logging.WARNING, "Model usage consumer stopped unexpectedly")
+    def _consumer_finished(self, consumer: asyncio.Task[None]) -> None:
+        if consumer.cancelled():
+            return
+        error = consumer.exception()
+        if isinstance(error, Exception):
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage consumer stopped unexpectedly",
+                "consumer",
+                error=error,
+                worker_fields=self._worker_fields,
+            )
