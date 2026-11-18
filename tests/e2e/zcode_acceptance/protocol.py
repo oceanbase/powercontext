@@ -20,7 +20,7 @@ import asyncio
 import json
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from hashlib import sha256
 from typing import Any
 from uuid import uuid4
@@ -38,6 +38,11 @@ def strings(value: Any) -> list[str]:
     if isinstance(value, list):
         return [text for item in value for text in strings(item)]
     return []
+
+
+def _call_identity(value: Any) -> str:
+    """A tool call ID as hosts may replay it: without separators."""
+    return re.sub(r"[^A-Za-z0-9]", "", value) if isinstance(value, str) else ""
 
 
 def decode_response(raw: bytes) -> dict[str, Any]:
@@ -213,6 +218,9 @@ class HostModelFixture:
         self.requests: list[dict[str, Any]] = []
         self.generation_requests: list[dict[str, Any]] = []
         self.answer_from_context = False
+        # Prompt usage to report in streamed replies, which otherwise carry none; a host that compacts on reported usage
+        # compacts once this crosses its threshold.
+        self.streamed_prompt_tokens: int | None = None
         self.app = FastAPI()
         self.app.post("/v1/chat/completions")(self.complete)
 
@@ -231,8 +239,10 @@ class HostModelFixture:
         self.requests.append(body)
         if self.failure_code:
             return JSONResponse({"error": {"message": self.failure_code}}, status_code=400)
+        # OpenClaw strips the separators from a tool call ID before it replays the call.
         acknowledged = self.pending is not None and any(
-            message.get("role") == "tool" and message.get("tool_call_id") == self.pending["tool_calls"][0]["id"]
+            message.get("role") == "tool"
+            and _call_identity(message.get("tool_call_id")) == _call_identity(self.pending["tool_calls"][0]["id"])
             for message in body.get("messages", [])
         )
         # Replayed requests must not execute argument factories for the next action
@@ -298,22 +308,32 @@ class HostModelFixture:
                 "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
             })
 
-        def chunks():
-            for value, reason in ((delta, None), ({}, finish)):
-                yield (
-                    "data: "
-                    + json.dumps({
-                        "id": "synthetic-completion",
-                        "object": "chat.completion.chunk",
-                        "created": 1,
-                        "model": "zcode-protocol-fixture",
-                        "choices": [{"index": 0, "delta": value, "finish_reason": reason}],
-                    })
-                    + "\n\n"
-                )
-            yield "data: [DONE]\n\n"
+        return StreamingResponse(self._chunks(delta, finish), media_type="text/event-stream")
 
-        return StreamingResponse(chunks(), media_type="text/event-stream")
+    def _chunks(self, delta: dict[str, Any], finish: str) -> Iterator[str]:
+        payloads: list[dict[str, Any]] = [
+            {"choices": [{"index": 0, "delta": value, "finish_reason": reason}]}
+            for value, reason in ((delta, None), ({}, finish))
+        ]
+        if self.streamed_prompt_tokens is not None:
+            tokens = self.streamed_prompt_tokens
+            payloads.append({
+                "choices": [],
+                "usage": {"prompt_tokens": tokens, "completion_tokens": 20, "total_tokens": tokens + 20},
+            })
+        for payload in payloads:
+            yield (
+                "data: "
+                + json.dumps({
+                    "id": "synthetic-completion",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "zcode-protocol-fixture",
+                    **payload,
+                })
+                + "\n\n"
+            )
+        yield "data: [DONE]\n\n"
 
     def generate_memory(self, body: dict[str, Any]) -> JSONResponse:
         """Public inference protocol for real scheduler worker processes, not an injected Runtime pipeline."""

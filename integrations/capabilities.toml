@@ -1011,7 +1011,7 @@ tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.t
 [integrations.evidence]
 implementation = ["integrations/openclaw/plugins/memory-powercontext/src/tools.ts", "integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts"]
 documentation = ["docs/en/docs/integrations/openclaw.md", "docs/zh/docs/integrations/openclaw.md"]
-tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts"]
+tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts", "integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.test.ts"]
 
 [[integrations]]
 id = "opencode"
@@ -1116,7 +1116,7 @@ toolsets = ["bub-tools", "bub-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
 documentation = ["integrations/bub/README.md"]
-tests = ["e2e/bub/tests/test_workload_catalog.py"]
+tests = ["e2e/bub/tests/test_workload_catalog.py", "tests/e2e/test_bub_service_chain.py"]
 
 [[integrations]]
 id = "dify"

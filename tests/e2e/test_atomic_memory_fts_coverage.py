@@ -34,6 +34,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemorySearchRequest,
 )
 from powercontext.builtin.persistence.migrations.pinned import finish, pinned
+from powercontext.builtin.runtime.atomic_memory_processing import related_window_match
 from powercontext.builtin.tags import TagFilter
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 from tests.e2e.test_atomic_memory_vector_index import Embedding, _initialize_related_authority
@@ -275,5 +276,122 @@ def test_fts_coverage_counts_analyzer_terms_omitted_by_space_parser(migration_ba
                 assert await index.probe_recoverable(connection, "scope", strict, AdmissionFloor())
                 await index.delete(connection, "scope", "admitted")
                 assert not await index.probe_recoverable(connection, "scope", strict, AdmissionFloor())
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["fts", "hybrid"])
+def test_related_recall_finds_a_shorter_memory_of_the_same_fact(migration_backend: MigrationBackend, mode: str):
+    # Related recall also measures the stored memory's own words, so a long candidate reaches a short memory of the same
+    # fact while a memory sharing one incidental term stays out.
+    short = "The billing database is PostgreSQL 15."
+    long = (
+        "After last week's maintenance window, the billing team upgraded the billing database cluster "
+        "from PostgreSQL 15 to PostgreSQL 16 to get logical replication improvements, faster vacuum, "
+        "and better monitoring of slow checkout queries during the holiday traffic peak."
+    )
+    rows = (
+        ("same-fact", short),
+        ("one-shared-term", "The holiday party moved to Friday."),
+        ("unrelated", "Deploys to production never run on Friday afternoons."),
+    )
+
+    async def scenario():
+        # Every stored vector is far from the query vector, so hybrid relies on its lexical channel alone.
+        model = Embedding() if mode == "hybrid" else None
+        index = migration_index(migration_backend.config, None if model is None else model.profile)
+        preparer = AtomicMemoryProjectionPublisher(index, embedding_model=model)
+        async with migration_profile(migration_backend.config, load_vector_extension=model is not None) as profile:
+            async with profile.database.transaction() as connection:
+                await index.initialize(connection)
+                await _initialize_related_authority(connection)
+                for identity, body in rows:
+                    prepared = await preparer.prepare(AtomicMemoryContent(kind="fact", text=body))
+                    await index.replace_many(
+                        connection,
+                        "scope",
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=identity, revision=1),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=(),
+                            ),
+                        ),
+                    )
+            filters = AtomicMemoryIndexFilter()
+
+            def related_request(query: str) -> AtomicMemoryRelatedRequest:
+                if model is None:
+                    return AtomicMemoryRelatedRequest(query, filters)
+                return AtomicMemoryRelatedRequest(
+                    query,
+                    filters,
+                    mode="hybrid",
+                    query_vector=(0.0, 1.0, 0.0),
+                    embedding_profile=model.profile,
+                    max_distance=0.1,
+                )
+
+            async with profile.database.transaction() as connection:
+                related, _ = await index.enumerate_related_with_heads(connection, "scope", related_request(long))
+                assert [hit.artifact_ref.artifact_id for hit in related] == ["same-fact"]
+                reverse, _ = await index.enumerate_related_with_heads(connection, "scope", related_request(short))
+                assert [hit.artifact_ref.artifact_id for hit in reverse] == ["same-fact"]
+                # Search answers a query, so its admission still measures coverage of the query alone.
+                searched = await index.search(connection, "scope", AtomicMemorySearchRequest(long, filters))
+                assert not searched.fts
+
+    asyncio.run(scenario())
+
+
+def test_related_recall_admits_what_the_related_threshold_admits(migration_backend: MigrationBackend):
+    # Earlier window candidates are matched in Python; indexed memories must be admitted by the same threshold.
+    terms = tuple(f"t{number:02}" for number in range(12))
+    query = " ".join(terms)
+    bodies = {
+        f"shared-{shared}-filler-{filler}": " ".join((*terms[:shared], *(f"f{number:02}" for number in range(filler))))
+        for shared in range(1, 7)
+        for filler in (0, 1, 3, 7, 15, 30)
+    }
+    floors = (
+        None,
+        AdmissionFloor(lexical_coverage=0.3, lexical_min_matched_terms=1),
+        AdmissionFloor(lexical_coverage=0.1, lexical_min_matched_terms=3),
+        AdmissionFloor(lexical_coverage=0.7),
+        AdmissionFloor(lexical_coverage=0.0),
+    )
+
+    async def scenario():
+        index = migration_index(migration_backend.config)
+        preparer = AtomicMemoryProjectionPublisher(index)
+        async with migration_profile(migration_backend.config) as profile:
+            async with profile.database.transaction() as connection:
+                await index.initialize(connection)
+                await _initialize_related_authority(connection)
+                for identity, body in bodies.items():
+                    prepared = await preparer.prepare(AtomicMemoryContent(kind="fact", text=body))
+                    await index.replace_many(
+                        connection,
+                        "scope",
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=identity, revision=1),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=(),
+                            ),
+                        ),
+                    )
+            async with profile.database.transaction() as connection:
+                for floor in floors:
+                    request = AtomicMemoryRelatedRequest(query, AtomicMemoryIndexFilter(), admission=floor)
+                    hits, _ = await index.enumerate_related_with_heads(connection, "scope", request)
+                    expected = {
+                        identity
+                        for identity, body in bodies.items()
+                        if related_window_match(request, "fact", body, None)
+                    }
+                    assert {hit.artifact_ref.artifact_id for hit in hits} == expected, floor
 
     asyncio.run(scenario())

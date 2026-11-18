@@ -21,7 +21,7 @@ import json
 import logging
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, cast
@@ -1573,6 +1573,7 @@ class RelationalContexts:
         *,
         processing: ScopeInvocation | None = None,
         on_commit: ExperienceCommitHook | None = None,
+        commit_lock: AbstractAsyncContextManager[None] | None = None,
     ) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window for Review."""
 
@@ -1582,7 +1583,7 @@ class RelationalContexts:
         return await _RelationalExperienceIncubator(
             services=services,
             lock=self._state_for(services.scope_id).scope_locks.setdefault("experience", asyncio.Lock()),
-        ).flush(limit=limit, processing=processing, on_commit=on_commit)
+        ).flush(limit=limit, processing=processing, on_commit=on_commit, commit_lock=commit_lock)
 
     async def get(
         self,
@@ -1862,7 +1863,9 @@ class _RelationalExperienceIncubator:
         limit: int,
         processing: ScopeInvocation | None = None,
         on_commit: ExperienceCommitHook | None = None,
+        commit_lock: AbstractAsyncContextManager[None] | None = None,
     ) -> ExperienceIncubationResult:
+        commit_lock = nullcontext() if commit_lock is None else commit_lock
         async with self._lock:
             async with self._services.database.transaction() as connection:
                 if processing is not None:
@@ -1899,7 +1902,7 @@ class _RelationalExperienceIncubator:
             action = transition.actions[0]
             eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
             if not eligible_rows:
-                async with self._services.database.transaction() as connection:
+                async with commit_lock, self._services.database.transaction() as connection:
                     if processing is not None:
                         await processing.guard(connection)
                     await self._services.repositories.cursors.save(
@@ -1924,7 +1927,7 @@ class _RelationalExperienceIncubator:
             _validate_experience_plans(plans, eligible_rows)
             candidate_ids: list[str] = []
             candidates: list[Candidate[ExperienceContent]] = []
-            async with self._services.database.transaction() as connection:
+            async with commit_lock, self._services.database.transaction() as connection:
                 if processing is not None:
                     await processing.guard(connection)
                 review = self._services.review(connection)

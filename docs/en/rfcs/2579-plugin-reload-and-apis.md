@@ -249,12 +249,17 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
 ### 1.1 Scanning and checks
 
 - Each Server process computes a content digest for every direct subdirectory of the plugin directory at startup and
-  every scan interval.
+  every scan interval. A subdirectory may be a symbolic link; it is resolved again at every scan, so deployers publish
+  another release by pointing the link at it.
 - A digest equal to the current version is skipped; a digest that differs from the previous scan waits, and a directory is
   checked only once its digest is the same for two consecutive scans and differs from the current version, so
-  half-written directories are never checked.
+  half-written directories are never checked. Removal also needs two consecutive scans that miss the directory, so
+  replacing a directory by renames does not take the plugin offline.
 - The check is RFC #2549's startup check, run on a version snapshot (see 1.3); the plugin is added, updated, or unloaded
   according to the result.
+- A version that failed is not checked again at every scan: it is retried after 5 minutes, with the wait doubling after
+  each failure up to 1 hour; changed directory contents are checked at once. A plugin that failed because another plugin
+  had its family is checked again at the next scan after that plugin unloads or moves to another family.
 
 - The digest is computed from file contents, like the code fingerprint in RFC #2549. File sizes and modification times
   are not enough: a new version unpacked from an archive with normalized timestamps can have exactly the same sizes and
@@ -275,6 +280,7 @@ await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, if
 | Updated, check passes, declaration unchanged | Switch to the new snapshot: replace the host process (see 1.4); background calls use the new snapshot from the next dispatch |
 | Updated, check passes, declaration changed | Register again from the new declaration: added Source types, routes, and pages take effect and removed ones become unavailable; the binding's scheduling parameters follow the new declaration; switch to the new snapshot |
 | Updated, check fails | Keep using the current snapshot and record the check failure; `GET /v1/plugins` shows the category of the latest check failure |
+| Updated, registration fails | Same as a failed check. Registrations that can fail (such as the database rejecting a Source Definition with the same name and version but another schema) run before the old version is released; the switch that follows only replaces this process's registrations and, should it fail, puts the old version's registrations back |
 | Removed | Unregister Source types, the family, APIs, pages, and the binding; stop the host process once in-flight synchronous calls finish or time out |
 
 - Renaming a family is removing the old family and adding a new one. Artifacts of the old family stay in core and are
@@ -293,17 +299,22 @@ code. Plugin code is therefore imported only from version snapshots:
 
 - **Creation**: once the digest settles, core copies the plugin directory into a read-only snapshot under the data
   directory, named by its content digest, and runs the check on the snapshot. Dependencies are not in the plugin
-  directory, so snapshots are usually small.
+  directory, so snapshots are usually small. Symbolic links inside the plugin directory are copied as the content they
+  lead to, so a snapshot holds no links and later changes to their targets never reach a call in progress; a link that
+  leads outside the plugin directory fails the check, so a snapshot never brings in files from outside the plugin.
 - **Use**: check child processes, host processes, and Workers put the snapshot directory on the import path, and
   `ctx.plugin_dir` points to the snapshot; page static files are also served from the current snapshot. The plugin
   directory itself is used only for scanning.
 - **Replaces the code fingerprint check**: in RFC #2549, Workers and host processes check the code fingerprint before
   importing. With snapshots, the dispatch hands the snapshot path to the Worker, and since snapshots never change, no check
   is needed; with hot reload disabled, RFC #2549's check still applies.
-- **Cleanup**: each Server process deletes, at its next scan, only snapshots it created that are neither the current
-  version nor in use by a host process or Worker of this process. At startup it deletes only snapshots older than its own
-  start that are not any current version. When several Server processes on one machine share a data directory (such as
-  `api` and `background` roles), one process starting never deletes a snapshot another is using. Snapshots are derived local files that can be regenerated from the plugin directory and need no backup.
+- **Cleanup**: several Server processes on one machine may share a data directory (such as `api` and `background`
+  roles). Each Server process keeps its snapshots in a subdirectory of its own that lives as long as the process: it holds
+  a lock file next to the subdirectory while it runs, deletes at its next scan the snapshots that are neither the current
+  version nor in use by a host process or Worker of this process, and deletes the whole subdirectory when it exits. A
+  subdirectory left by a process that exited abnormally has a lock file nobody holds, and the next Server process to
+  start deletes it. No process deletes a snapshot another process is using. Snapshots are derived local files that can be
+  regenerated from the plugin directory and need no backup.
 
 ### 1.4 Host process replacement and background calls
 
@@ -337,7 +348,7 @@ The active plugin record lives only in each process's memory and is not synchron
 async def upgrade(ctx: PluginContext) -> None:
     """Called each time this version loads; decides whether existing data needs upgrading."""
 
-plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600)
+plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600, setup_timeout_seconds=60)
 ```
 
 - **When**: on every load of a plugin version, both at Server startup and when hot reload switches to a new version, not
@@ -354,9 +365,24 @@ plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_secon
   the script uses the plugin's own storage and core's public APIs, and core provides no extra mechanism for it.
 - **Failure**: if `upgrade` raises or exceeds `upgrade_timeout_seconds` (600 seconds by default), core treats the new
   version as failing its check: hot reload keeps the old version, and at Server startup the plugin is `failed`.
+- **Startup phase limits**: a host process starts in three phases that Server times separately. When a phase's message
+  has not arrived by its limit, Server terminates the process and names the phase in `last_check_failure`:
+
+  | Phase | Limit | Host process sends at its end |
+  | --- | --- | --- |
+  | Core startup: start the interpreter, import the plugin, connect to the database, open dedicated storage | Fixed by core at 60 seconds (`start_timeout`) | Startup complete |
+  | `upgrade` (only when declared) | `upgrade_timeout_seconds`, 600 seconds by default (`upgrade_timeout`) | Upgrade complete |
+  | `setup(ctx)` | `setup_timeout_seconds`, 60 seconds by default (`setup_timeout`) | Ready |
+
+  `setup` is timed from the end of `upgrade`, or from startup complete when there is no `upgrade`, so a long `upgrade`
+  does not use up the `setup` limit. Timing does not rely on the host process itself: code that blocks synchronously in
+  `upgrade` or `setup` is also terminated at the limit. A plugin with heavy dependencies imports them in `setup` and
+  raises `setup_timeout_seconds` as needed.
 - **Context**: dedicated storage, models, and the logger. `ctx.reads(scope_id)` and `ctx.writer(scope_id)` act as the
   plugin itself, as in a Worker, without checking a caller's permissions, so the plugin can rewrite a small number of old-format
-  Artifacts as new revisions; write transaction rules are the same as in Workers, and one `upgrade` opens at most one
+  Artifacts as new revisions. With access control enforced, the plugin itself is the background identity set by
+  `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID`; without one, writes to Artifacts fail while dedicated storage
+  stays usable; write transaction rules are the same as in Workers, and one `upgrade` opens at most one
   write transaction block. Core does not list the Scopes that hold plugin data; the plugin walks its own records. Earlier Artifact
   revisions are immutable, so code that reads history still has to understand old formats.
 - **Repetition and concurrency**: every Server instance calls `upgrade` on every load, and core does not coordinate
@@ -605,7 +631,7 @@ the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins
 | Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/{name}/artifacts/{scope_id}/...`, `/dashboard/plugins/_client.js` |
 | Added | Routes a plugin declares with `mcp=True` appear as MCP tools on Server's MCP endpoint |
 | Added | `powercontext.plugins`: `PluginApi`, `Route`, `ApiRequest`, `BinaryResponse`, `ApiError`, `Caller`, `PluginPages`; the context's `require`, `reads`, `writer`, `sources`, and `scopes` |
-| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, and `upgrade_timeout_seconds` fields |
+| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, `upgrade_timeout_seconds`, and `setup_timeout_seconds` fields |
 | Changed | Responses of `GET /v1/plugins` and `GET /v1/plugins/{name}` add `version_digest`, `declaration_digest`, `state`, `activated_at`, the category of the latest check failure, the route list, and page information |
 | Added | Environment variables `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` (default 60; 0 disables hot reload) and `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` (default 32 MiB) |
 

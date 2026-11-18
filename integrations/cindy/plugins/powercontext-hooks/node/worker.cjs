@@ -671,6 +671,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_plugin_scopes: {
 		method: "GET",
 		path: "/v1/plugins/{name}/scopes",
@@ -1892,6 +1903,17 @@ function normalizeServerUrl(value, allowInsecureHttp = false, name = "PowerConte
 }
 
 //#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value) {
+	const parent = value?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
+}
+
+//#endregion
 //#region src/client.ts
 const MIN_READINESS_TIMEOUT_MS = 4e4;
 function combineSignals(signals) {
@@ -2037,6 +2059,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -2198,7 +2221,7 @@ function validatePreparedContext(response, path = "/v1/context/prepare", maxByte
 }
 
 //#endregion
-//#region src/secrets.ts
+//#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
 	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
@@ -2222,6 +2245,7 @@ function containsSecret(text, authorization$1) {
 const CONTEXT_START = "<!-- powercontext:cindy-context:v1 -->";
 const CONTEXT_END = "<!-- /powercontext:cindy-context:v1 -->";
 const HOOK_BUDGET_MS = 1800;
+const CAPTURE_RESERVE_MS = 500;
 function authorization(config, raw) {
 	if (config.allow_insecure_http !== void 0 && typeof config.allow_insecure_http !== "boolean") throw new Error("invalid_transport_consent");
 	const baseUrl = normalizeServerUrl(config.server_url ?? "http://127.0.0.1:8000", config.allow_insecure_http ?? false);
@@ -2373,6 +2397,7 @@ async function runHook(input, credential, fetchImpl) {
 		code: "hook_deadline",
 		capture: "not_sent"
 	};
+	const hookEnd = Date.now() + remaining;
 	if (typeof input.text !== "string" || !input.text.trim() || typeof input.session_id !== "string" || !input.session_id.trim() || input.session_id.length > 256 || typeof input.hook_id !== "string" || !input.hook_id.trim() || input.hook_id.length > 256) return {
 		...outcome,
 		ok: false,
@@ -2426,9 +2451,11 @@ async function runHook(input, credential, fetchImpl) {
 				code: failureCode(error)
 			};
 		}
+		const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now();
 		if (input.text.length > 8192) outcome.prepare = "query_too_long";
+		else if (prepareMs <= 0) outcome.prepare = "not_sent";
 		else try {
-			const signal = combineSignals([controller.signal, AbortSignal.timeout(800)]);
+			const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)]);
 			const response = await client.request("prepare_context", {
 				scope_id: scopeId,
 				query: input.text,

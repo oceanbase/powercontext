@@ -72,8 +72,11 @@ export function authorization(useToken) {
   return token === undefined ? undefined : 'Bearer ' + token
 }
 
+// Each request may use most of the Hook's 4-second budget; context preparation can exceed one second.
+const REQUEST_TIMEOUT_MS = 3000
+
 export async function request(settings, method, path, body, budgetSignal) {
-  const signal = AbortSignal.any([budgetSignal, AbortSignal.timeout(1000)])
+  const signal = AbortSignal.any([budgetSignal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
   if (signal.aborted) throw new Failure('server_unavailable')
   let response
   try {

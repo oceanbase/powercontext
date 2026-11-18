@@ -76,6 +76,29 @@ The operational field contract is documented in [Logs, metrics, and tracing](doc
 
 Use [REVIEW.md](REVIEW.md) when reviewing changes.
 
+## Database Migration Names
+
+Read the migration guide before changing managed storage:
+[English](docs/en/docs/operate/database-migrations.md) / [中文](docs/zh/docs/operate/database-migrations.md).
+
+- New Server revisions use `v<major>_<minor>_<patch>_pr<PR number>`, for example
+  `v1_5_2_pr2674`. Create a draft PR first. Use its number in this repository; keep the full ID within 32 characters.
+  Each PR adds at most one logical schema revision, shared by its backend implementations.
+  It may contain multiple DDL operations, data tasks and validations. If independent revision
+  checkpoints are necessary, split the work into dependent PRs.
+- Agree on the target release before registering migrations, using the version declared in
+  `openapi/powercontext.yaml` and `release/upgrade-support.json`. At registration, the new prefix must
+  match both declarations. This does not require existing prefixes to track later version bumps. Feature PRs do not independently
+  bump the release. Once registered, keep the ID even if the change ships in a later release.
+- Before merging, update against master, reconcile unpublished dependencies and conflicting schema
+  changes, and rerun migration validation. Keep a single head; `down_revision` determines order,
+  not PR numbers or lexical sorting. Check for duplicate IDs across the combined changes.
+- Release preparation records the package-to-head mapping and verifies upgrades; it does not rename
+  revisions or postpone dependency reconciliation until publication. No schema change means no new revision.
+- Preserve existing revision IDs, frozen resources, plans and checksums. Do not rewrite published
+  migrations. A development database that ran an earlier branch chain must be rebuilt or use an
+  explicitly validated conversion; changing `down_revision` alone does not migrate that database.
+
 ## Generated API Contract
 
 `openapi/powercontext.yaml` is the source of truth for the HTTP API contract. The Python sources in `src/powercontext/http/_generated/` are checked in; do not edit them by hand. After changing the contract, run `make api-generate` and `make contract-test`.

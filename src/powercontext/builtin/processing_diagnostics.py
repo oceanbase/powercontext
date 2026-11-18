@@ -47,7 +47,6 @@ class ProcessingStage(StrEnum):
     OUTPUT_PARSING = "output_parsing"
     BUSINESS_VALIDATION = "business_validation"
     PERSISTENCE = "persistence"
-    # Reserved for usage reporting or persistence failures.
     USAGE_ACCOUNTING = "usage_accounting"
 
 
@@ -387,8 +386,8 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
     return "processing_failed"
 
 
-def _allow_failure_log(family: str, operation: str, code: str, reason: str | None) -> bool:
-    # The operation and family come from fixed call sites, and the code and reason are bounded.
+def allow_processing_failure_log(family: str, operation: str, code: str, reason: str | None) -> bool:
+    """Apply the process log limit to a bounded diagnostic signature."""
     key = (family, operation, code, reason)
     with _failure_log_lock:
         times = _failure_log_times.setdefault(key, deque(maxlen=_FAILURE_LOG_BURST))
@@ -423,10 +422,11 @@ async def observe_processing_failure(
                         failure_location=storage_location,
                         cause_exception_type=None if error.orig is None else type(error.orig).__name__,
                     )
+                    attach_diagnostics(error, diagnostics)
             fields = safe_log_fields(diagnostics)
             code = processing_error_code(type(error))
             reason = diagnostics.reason if diagnostics is not None else None
-            if _allow_failure_log(family, operation, code, reason):
+            if allow_processing_failure_log(family, operation, code, reason):
                 log_safely(
                     _logger,
                     logging.WARNING,
@@ -606,11 +606,37 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
         return ProcessingDiagnostics(
             stage=ProcessingStage.BUSINESS_VALIDATION, failure_location="handoff_scope_mismatch"
         )
+    publication = _publication_error_diagnostics(names)
+    if publication is not None:
+        return publication
     if "PromptError" in names:
         return _prompt_error_diagnostics(getattr(error, "code", None))
     if "EvidenceResolutionError" in names:
         code = str(getattr(error, "code", "") or "").lower()
         return _dream_error_diagnostics(code)
+    return None
+
+
+def _publication_error_diagnostics(names: set[str]) -> ProcessingDiagnostics | None:
+    for exception_type, location in (
+        ("ArtifactTargetConflictError", "artifact_target_conflict"),
+        ("ArtifactRevisionPreconditionError", "artifact_revision_precondition"),
+        ("ArtifactPublicationConflictError", "artifact_publication_conflict"),
+        ("ArtifactAlreadyExistsError", "artifact_already_exists"),
+        ("RevisionConflictError", "artifact_revision_conflict"),
+        ("CandidateConflictError", "candidate_version_conflict"),
+        ("CandidateTerminalError", "candidate_terminal"),
+        ("BaseValueConflictError", "artifact_write_conflict"),
+    ):
+        if exception_type in names:
+            return ProcessingDiagnostics(failure_location=location)
+    for exception_type, location in (
+        ("InvalidBaseAccessRequestError", "invalid_artifact_write"),
+        ("InvalidCandidateError", "invalid_candidate"),
+        ("ScopeNotFoundError", "scope_not_found"),
+    ):
+        if exception_type in names:
+            return ProcessingDiagnostics(stage=ProcessingStage.BUSINESS_VALIDATION, failure_location=location)
     return None
 
 
@@ -640,6 +666,7 @@ __all__ = [
     "ProcessingDiagnostics",
     "ProcessingFailureReason",
     "ProcessingStage",
+    "allow_processing_failure_log",
     "attach_diagnostics",
     "classify_block_code",
     "classify_processing_error",

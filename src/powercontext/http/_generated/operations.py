@@ -140,6 +140,7 @@ from powercontext.http._generated.models import (
     MergeArtifactsRequest,
     MergeAtomicMemoryRequest,
     PlanAccessOwnershipRequest,
+    PluginOpenApiDocument,
     PluginPage,
     PluginScopePage,
     PluginState,
@@ -1587,7 +1588,7 @@ LIST_PLUGINS = Operation[None, PluginPage](
     tags=("plugins",),
     scope_mode="none",
     responses={
-        200: {"description": "Plugins found in the plugin directory at startup."},
+        200: {"description": "Plugins found in the plugin directory by this instance."},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         503: {"$ref": "#/components/responses/Unavailable"},
@@ -1608,13 +1609,35 @@ GET_PLUGIN = Operation[None, PluginState](
     tags=("plugins",),
     scope_mode="none",
     responses={
-        200: {"description": "The plugin's startup check result and declaration."},
+        200: {"description": "The plugin's check result, version in use, and declaration on this instance."},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         404: {"$ref": "#/components/responses/NotFound"},
         503: {"$ref": "#/components/responses/Unavailable"},
     },
     access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+GET_PLUGIN_OPENAPI = Operation[None, PluginOpenApiDocument](
+    method="GET",
+    path="/v1/plugins/{name}/openapi.json",
+    operation_id="get_plugin_openapi",
+    request_type=None,
+    request_location=None,
+    path_parameters=("name",),
+    response_type=PluginOpenApiDocument,
+    success_status=200,
+    summary="Describe a plugin's own routes",
+    tags=("plugins",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The plugin's route description."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
 )
 
 LIST_PLUGIN_SCOPES = Operation[ListPluginScopesRequest, PluginScopePage](
