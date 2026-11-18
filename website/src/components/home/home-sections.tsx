@@ -16,6 +16,7 @@
 
 import { ArrowRight, ArrowUpRight, Check, FileText } from 'lucide-react';
 import Link from 'next/link';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import type { ReactNode } from 'react';
 import type { HomeContent } from '@/lib/home-content';
 import type { Language } from '@/lib/i18n';
@@ -337,7 +338,15 @@ export function OnboardingSection({ content, lang }: { content: HomeContent['onb
             <div className="pc-step-body">
               <h3><span className="pc-step-index">{index + 1}</span>{step.title}</h3>
               <p>{step.description}</p>
-              {step.command ? (
+              {step.command_tabs ? (
+                <Tabs className="pc-command-tabs" items={step.command_tabs.map((tab) => tab.label)}>
+                  {step.command_tabs.map((tab) => (
+                    <Tab key={tab.label} value={tab.label}>
+                      <CopyCommand command={tab.command} copiedLabel={content.copied_label} copyLabel={content.copy_label} />
+                    </Tab>
+                  ))}
+                </Tabs>
+              ) : step.command ? (
                 <CopyCommand command={step.command} copiedLabel={content.copied_label} copyLabel={content.copy_label} />
               ) : null}
             </div>

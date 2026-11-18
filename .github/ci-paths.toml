@@ -27,6 +27,8 @@ gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [
   "tests/**", "integrations/**", "examples/**", "scripts/generate_js_operations.py",
+  # The Claude Code plugin's contract tests read the repository's Marketplace.
+  ".claude-plugin/**",
   "scripts/ci_nightly_report.py", ".github/workflows/nightly-report.yml",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/generate_integration_lifecycle.py",
@@ -89,6 +91,13 @@ openclaw = [
 codex = [
   "integrations/codex/**", "tests/e2e/test_codex_host_service_chain.py", "tests/e2e/host_models/**",
   "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+]
+# Setup installs the Claude Code plugin through the repository's Marketplace; the service chain reuses the shared
+# host model script and the ZCode acceptance wire fixtures.
+claude_code = [
+  "integrations/claude-code/**", ".claude-plugin/**", "tests/e2e/test_claude_code_host_service_chain.py",
+  "tests/e2e/test_host_model_messages.py", "tests/e2e/host_models/__init__.py", "tests/e2e/host_models/script.py",
+  "tests/e2e/host_models/messages.py", "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
 ]
 opendal = ["integrations/opendal/**"]
 website = [
@@ -211,8 +220,8 @@ suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
   "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "bub", "openclaw", "codex",
-  "opendal", "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability",
-  "packaging", "desktop", "managed_resources",
+  "claude_code", "opendal", "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade",
+  "observability", "packaging", "desktop", "managed_resources",
 ]
 
 [shared.openapi_guidance]
@@ -255,6 +264,7 @@ opencode = ["opencode-package"]
 bub = ["bub-host"]
 openclaw = ["openclaw-package"]
 codex = ["codex-host"]
+claude_code = ["claude-code-host"]
 opendal = ["opendal-package"]
 website = ["check-website", "website-link-validation-windows"]
 docs_tests = ["docs-tests"]

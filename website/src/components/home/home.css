@@ -1054,6 +1054,27 @@ html:lang(zh) .pc-section-title {
   color: var(--pc-muted);
 }
 
+.pc-command-tabs {
+  min-width: 0;
+  margin: 20px 0 0;
+  border: 0;
+  background: transparent;
+}
+
+.pc-command-tabs [role="tablist"] {
+  padding-inline: 0;
+}
+
+.pc-command-tabs [role="tabpanel"] {
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.pc-command-tabs .pc-command {
+  margin-top: 0;
+}
+
 .pc-command {
   display: flex;
   align-items: center;
@@ -1070,7 +1091,8 @@ html:lang(zh) .pc-section-title {
     flex-direction: column;
   }
 
-  .pc-command {
+  .pc-command,
+  .pc-command-tabs {
     margin-top: auto;
   }
 

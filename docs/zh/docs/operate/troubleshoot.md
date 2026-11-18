@@ -380,7 +380,7 @@ component 为 `powercontext.claude_code.recall`：
 | Outcome | 处理方式 |
 | --- | --- |
 | `empty` | 没有准备出相关 Memory，无需处理 |
-| `authentication_failed` | 启动 Claude Code 前导出完整的 `POWERCONTEXT_CLAUDE_AUTHORIZATION` header |
+| `authentication_failed` | 用完整的 `POWERCONTEXT_CLAUDE_AUTHORIZATION` header 重新运行 setup，或在启动 Claude Code 前导出它 |
 | `version_mismatch` | 从同一个 ref 安装 package 和插件，再重启两个进程 |
 | `server_unavailable` | 启动 Server，或修正 `POWERCONTEXT_CLAUDE_SERVER_URL` |
 | `invalid_response` | 检查 proxy、redirect、不兼容 schema、错误 JSON 或超大响应；`error_code: scope_not_found` 表示配置的 Scope 不存在或没有可解析的绑定 |
@@ -391,13 +391,17 @@ component 为 `powercontext.claude_code.recall`：
 
 ## Claude Code MCP 认证失败
 
-Hook 从启动 Claude Code 的进程环境读取 `POWERCONTEXT_CLAUDE_AUTHORIZATION`，MCP 配置则把同一个值展开到
-`Authorization` header。停止当前进程，导出完整 header，再重新启动：
+Hook 与 MCP `headersHelper` 读取 setup 为已配置 `server_url` 保存的凭据。Hook 优先使用启动 Claude Code 的进程
+环境中显式的 `POWERCONTEXT_CLAUDE_AUTHORIZATION`；MCP 只在其 endpoint 没有已保存凭据时使用该值，因此只在环境中
+修改 token 时，MCP 仍会使用旧的已保存 token。重新保存完整 header，再重启 Claude Code：
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-claude
+powercontext setup claude-code
 ```
+
+插件的 `server_url` 与保存时的 URL 不同、文件格式错误、POSIX 权限允许 group 或 other 访问，或 Server 使用非环回
+HTTP 时，不会发送已保存的凭据；此时 MCP 只发送导出的值。helper 使用 `PATH` 中的 `python3` 运行。
 
 不要把 token 加入 `.mcp.json`、Server URL 或插件选项。重启后使用 `/mcp` 确认 `powercontext` Server 已连接。
 

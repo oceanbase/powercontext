@@ -20,7 +20,7 @@ import type { ResolvedConfig } from './config.ts'
 import type { DiagnosticEvent } from './diagnostics.ts'
 import type { PendingFlushResult } from './flush.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
-import { scrubSecrets } from './secrets.ts'
+import { scrubSecrets } from './prompt-privacy.ts'
 
 export interface PluginRuntime {
   client: PowerContextClient

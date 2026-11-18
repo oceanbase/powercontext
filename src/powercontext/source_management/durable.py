@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -36,19 +37,37 @@ def protected_directory(directory: Path) -> None:
     os.chmod(directory, 0o700)
 
 
+def _lock_stream(directory: Path):
+    protected_directory(directory)
+    path = directory / "owner.lock"
+    if path.is_symlink():
+        raise ManagementError("invalid-storage", "Runtime owner lock must not be a symlink")
+    stream = path.open("a+b")
+    os.chmod(path, 0o600)
+    return stream
+
+
+@contextmanager
+def configuration_lock(directory: Path):
+    """Serialize configuration writes; unlike RuntimeOwner, a second writer waits instead of failing.
+
+    There is no deadline: every critical section is bounded by its own I/O timeouts.
+    """
+    import fcntl
+
+    with _lock_stream(directory) as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        yield
+
+
 class RuntimeOwner:
     """A process lock held across control reconnects and all business Contexts."""
 
     def __init__(self, directory: Path) -> None:
         import fcntl
 
-        protected_directory(directory)
+        self.stream = _lock_stream(directory)
         self.directory = directory.resolve()
-        path = directory / "owner.lock"
-        if path.is_symlink():
-            raise ManagementError("invalid-storage", "Runtime owner lock must not be a symlink")
-        self.stream = path.open("a+b")
-        os.chmod(path, 0o600)
         try:
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
