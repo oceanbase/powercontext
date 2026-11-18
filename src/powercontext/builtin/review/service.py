@@ -242,44 +242,35 @@ class ReviewService:
         proposal: ExperienceContent,
         /,
         *,
-        run_id: str,
-        snapshot_id: str,
-        adopted_origins: tuple[QualifiedOrigin, ...],
-        sources: tuple[SourceRef, ...],
-        artifacts: tuple[ArtifactRef, ...],
-        target: ArtifactRef | None,
+        adoption,
         reason: str | None,
         candidate_id: str,
-        validation_policy_digest: str,
         on_commit: CandidateCommitHook | None = None,
     ) -> Candidate[ExperienceContent]:
         """Admit one pinned shared Experience proposal through the single trusted handoff.
 
-        This is the only entry point a shared proposal may use. It is a trusted-domain call
-        from Dream admission, not a caller-facing route: the audit is built here from the run
-        and pin, and the foreign support is derived from the adopted origins rather than
-        trusted as a separate argument. A caller therefore cannot assert provenance, and an
+        ``adoption`` is the server-owned binding Dream derived from its own durable run,
+        manifest and citations. This method takes no run id, pin, adopted set or policy
+        digest separately, so a caller cannot assert provenance it did not observe, and an
         ordinary :meth:`propose_experience` call cannot claim to be shared.
         """
 
         from powercontext.builtin.dream.provenance import shared_candidate_audit
 
-        foreign = tuple(origin for origin in adopted_origins if origin.scope_id and origin.scope_id != self._scope_id)
-        audit = shared_candidate_audit(
-            run_id=run_id,
-            snapshot_id=snapshot_id,
-            operation="refine_experience",
-            proposal=proposal,
-            adopted_origins=adopted_origins,
-            target=target,
-            validation_policy_digest_value=validation_policy_digest,
-        )
+        if not adoption.snapshot_id or not adoption.run_id:
+            raise InvalidCandidateError("audit", "shared adoption is incomplete")
+        if not adoption.direct:
+            # An adoption with no directly cited support cannot be recorded: the audit would
+            # claim support the model never named.
+            raise InvalidCandidateError("audit", "shared adoption has no direct support")
+        foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
+        audit = shared_candidate_audit(adoption, proposal)
         candidate = await self._propose(
             Experience.family,
             proposal,
-            sources=sources,
-            artifacts=artifacts,
-            target=target,
+            sources=adoption.local_sources,
+            artifacts=adoption.local_artifacts,
+            target=adoption.target,
             reason=reason,
             candidate_id=candidate_id,
             on_commit=on_commit,
@@ -922,7 +913,7 @@ class ReviewService:
             foreign=foreign,
         )
 
-    async def _verify_shared_binding(
+    async def _verify_shared_binding(  # noqa: C901 - one verified binding recheck
         self, connection: AsyncConnection, candidate: Candidate[Any], /
     ) -> tuple[QualifiedOrigin, ...] | None:
         """Recheck a shared Candidate's exact pin, run and adopted support before commit.
@@ -970,17 +961,55 @@ class ReviewService:
             )
         except DreamError as error:
             raise InvalidCandidateError("approval", error.code) from error
-        # The approved audit's adopted set must still be exactly the pin's support: a profile
-        # of the pin cannot be swapped for support the run never admitted.
-        pinned = {(item.origin_scope_id, item.reference.model_dump_json()) for item in snapshot.inputs}
-        adopted = {(origin.scope_id, origin.reference.model_dump_json()) for origin in audit.adopted_origins}
-        if not adopted <= pinned:
-            raise InvalidCandidateError("audit", "adopted support is not part of the pin")
+        # The audit's adopted set must be exactly what the durable run declared: reconstructed
+        # from its persisted manifest, not from a bare reference list that cannot name a
+        # foreign identity. A direct input must also be one the pin declared, with its
+        # recorded digest. Reachable support needs current reads, not pin membership.
+        if record.run.target is not None:
+            # A shared revision would need a proven stale-target conflict under the pin's
+            # binding. That is not implemented, so refuse rather than let an unverified
+            # revise path publish.
+            raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
+        manifest = record.run.input_manifest
+        if manifest is None:
+            raise InvalidCandidateError("audit", "shared run has no persisted input manifest")
+        adopted = self._reproduce_adopted_support(manifest, snapshot, audit)
+        if self._evidence is None:
+            # Fail closed: without the authorized resolver no adopted origin can be re-read.
+            raise InvalidCandidateError("approval", "shared_use_approval_unavailable")
         try:
-            await self._evidence.validate_qualified(connection, audit.adopted_origins) if self._evidence else None
+            await self._evidence.validate_qualified(connection, adopted)
         except EvidenceResolutionError as error:
             raise InvalidCandidateError("approval", "adopted support moved") from error
-        return audit.adopted_origins
+        return adopted
+
+    def _reproduce_adopted_support(self, manifest, snapshot, audit, /):
+        """Check the audit's support is exactly what the durable run declared.
+
+        Directly cited inputs must appear in the pin with their pinned digest. Reachable
+        support is verified separately by re-reading it, so a legitimate dependency the pin
+        never listed is not rejected merely for being absent from the pin.
+        """
+
+        from powercontext.builtin.dream.provenance import unique_origins
+        from powercontext.builtin.evidence.selection import qualified_direct_origins
+
+        declared = {(item.origin_scope_id, item.digest, item.reference.model_dump_json()) for item in snapshot.inputs}
+        adopted = unique_origins(audit.adopted_origins)
+        direct = {
+            (origin.scope_id, origin.reference.model_dump_json())
+            for origin in qualified_direct_origins(
+                manifest,
+                tuple(node.evidence_id for node in manifest.nodes if node.role != "target"),
+                scope_id=self._scope_id,
+            )
+        }
+        for origin in adopted:
+            key = (origin.scope_id, origin.reference.model_dump_json())
+            if key in direct and (origin.scope_id, origin.digest, origin.reference.model_dump_json()) not in declared:
+                # A directly cited input must be the material the pin fixed, by digest.
+                raise InvalidCandidateError("audit", "direct support is not the pinned material")
+        return adopted
 
     async def _write_shared_origins(
         self,

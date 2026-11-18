@@ -82,7 +82,7 @@ def select_evidence(
     # A model that cites a root must retain the exact selected entry/Artifact path. The
     # manifest already names each admitted input's node id, so no identity is recomputed
     # from a bare reference here.
-    for node_id in admitted_artifact_ids(manifest):
+    for node_id in admitted_artifact_ids(manifest, scope_id):
         if nodes[node_id].role != "target" and _reachable(node_id, manifest) & chosen:
             chosen.add(node_id)
     dependencies = set().union(*(_reachable(node_id, manifest) for node_id in chosen))
@@ -110,16 +110,7 @@ def select_evidence(
         raise EvidenceResolutionError("invalid_generation_output")
     if len(sources) + len(artifacts) > 32:
         raise EvidenceResolutionError("evidence_limit_exceeded")
-    adopted = tuple(
-        QualifiedOrigin(
-            scope_id=nodes[key].origin_scope_id or "",
-            source=nodes[key].source,
-            artifact=nodes[key].artifact,
-            digest=nodes[key].digest,
-        )
-        for key in sorted(chosen | dependencies)
-        if _adoptable(nodes[key])
-    )
+    adopted = tuple(_origin_of(nodes[key]) for key in sorted(chosen | dependencies) if _adoptable(nodes[key]))
     foreign = tuple(origin for origin in adopted if origin.scope_id != local_scope)
     return SelectedEvidence(sources=sources, artifacts=artifacts, adopted=adopted, foreign=foreign)
 
@@ -144,6 +135,17 @@ def _owns(node: EvidenceNode, scope_id: str, /) -> bool:
     return node.origin_scope_id is None or node.origin_scope_id == scope_id
 
 
+def _origin_of(node: EvidenceNode, /) -> QualifiedOrigin:
+    """One node's exact qualified identity, with the Scope that owns it."""
+
+    return QualifiedOrigin(
+        scope_id=node.origin_scope_id or "",
+        source=node.source,
+        artifact=node.artifact,
+        digest=node.digest,
+    )
+
+
 def _adoptable(node: EvidenceNode) -> bool:
     """Whether this node is support the revision stands on, rather than a view of it."""
 
@@ -152,20 +154,55 @@ def _adoptable(node: EvidenceNode) -> bool:
     return node.source is not None or (node.artifact is not None and node.kind in SUPPORTING_ARTIFACT_KINDS)
 
 
-def admitted_artifact_ids(manifest: EvidenceManifest) -> tuple[str, ...]:
+def admitted_artifact_ids(manifest: EvidenceManifest, scope_id: str | None = None, /) -> tuple[str, ...]:
     """Node ids of the Artifact revisions this manifest admitted as direct input.
 
-    Only the manifest's declared ``artifacts`` count, exactly as before: a node merely
-    reachable through lineage is not a selected input. The id is taken from the node, so
-    the owning Scope is never re-derived from a bare reference.
+    ``manifest.artifacts`` is an unqualified list, so it cannot name a foreign direct
+    Artifact: an equal identity in another Scope would match by bare reference. When the
+    run's Scope is known, a declared Artifact is matched only against a node owned by that
+    same Scope. A node reachable purely through lineage is never a selected input.
     """
 
+    if scope_id is not None:
+        return tuple(
+            node.evidence_id
+            for node in manifest.nodes
+            if node.artifact is not None
+            and node.origin_scope_id == scope_id
+            and any(_same_reference(node.artifact, ref) for ref in manifest.artifacts)
+        )
     admitted = {reference_key(ref) for ref in manifest.artifacts}
     return tuple(
         node.evidence_id
         for node in manifest.nodes
         if node.artifact is not None and reference_key(node.artifact) in admitted
     )
+
+
+def _same_reference(left, right, /) -> bool:
+    return reference_key(left) == reference_key(right)
+
+
+def qualified_direct_origins(
+    manifest: EvidenceManifest, used: tuple[str, ...], /, *, scope_id: str | None = None
+) -> tuple[QualifiedOrigin, ...]:
+    """The exact qualified identity of every directly cited input.
+
+    A direct input is a node the model cited, resolved with the Scope that owns it. This is
+    what a durable adoption must reproduce: a bare reference cannot distinguish an equal
+    identity in two Scopes, and ``manifest.artifacts`` cannot name a foreign one at all.
+    """
+
+    nodes = {node.evidence_id: node for node in manifest.nodes}
+    origins = []
+    for node_id in used:
+        node = nodes.get(node_id)
+        if node is None or node.role == "target" or not _adoptable(node):
+            continue
+        if scope_id is not None and not _owns(node, scope_id) and node.origin_scope_id is None:
+            continue
+        origins.append(_origin_of(node))
+    return tuple(origins)
 
 
 def _reachable(start: str, manifest: EvidenceManifest) -> set[str]:

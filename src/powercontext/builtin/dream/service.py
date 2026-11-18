@@ -64,7 +64,11 @@ from powercontext.builtin.dream.models import (
     DreamUsage,
     ListDreamRunsRequest,
 )
-from powercontext.builtin.dream.provenance import candidate_audit, proposal_fingerprint, validation_policy_digest
+from powercontext.builtin.dream.provenance import (
+    bind_shared_adoption,
+    candidate_audit,
+    proposal_fingerprint,
+)
 from powercontext.builtin.evidence.models import (
     EvidenceResolutionError,
     ResolvedEvidence,
@@ -731,19 +735,19 @@ class DreamService:
                     # A shared proposal must stand on identifiable support; refusing here
                     # keeps a Candidate from existing without the audit that names it.
                     raise DreamError("shared_use_candidate_unavailable")
-                # The one trusted shared handoff: it derives the audit and the foreign slots
-                # from the verified adopted support, so no caller asserts provenance.
+                # One server-owned adoption binding, derived here from the durable run, the
+                # persisted manifest and the citations. The review boundary receives only
+                # this value, so it cannot be handed provenance the run did not select.
+                adoption = bind_shared_adoption(
+                    record,
+                    cited=plan.evidence_ids,
+                    manifest=resolved.manifest,
+                )
                 candidate = await review.admit_dream_shared_experience(
                     plan.proposal,
-                    run_id=record.run.run_id,
-                    snapshot_id=record.share_snapshot_id,
-                    adopted_origins=selected.adopted,
-                    sources=selected.sources,
-                    artifacts=selected.artifacts,
-                    target=record.run.target,
+                    adoption=adoption,
                     reason=plan.reason,
                     candidate_id=_candidate_id(record),
-                    validation_policy_digest=validation_policy_digest(record),
                 )
             else:
                 candidate = await review.propose_experience(
