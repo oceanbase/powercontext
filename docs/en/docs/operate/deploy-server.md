@@ -147,7 +147,7 @@ Here `http://localhost` is a routing label; the transport connects to the socket
 
 Personal `service` commands, local `ops` management, and Desktop local management support TCP listeners only and reject UDS configurations. The configuration wizard also produces TCP configurations. Agent host setup needs an explicit proxy HTTP(S) URL when the Core uses UDS. Remote Skill Receiver endpoints retain their HTTPS or loopback-peer requirement; direct UDS does not supply a loopback peer and does not waive that check.
 
-Automatic Source deployment with `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` or `POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` requires `POWERCONTEXT_SERVER_PUBLIC_URL` pointing to the proxy when the Server uses UDS. The collect manager and runtimes connect through that URL; missing configuration is rejected before deployment credentials or processes are created. `source load --kind write` accepts the same setting or an explicit `--server-url`. These commands do not infer a TCP endpoint from `HTTP_PORT` in UDS mode.
+When the Server uses UDS, `powercontext source-agent` on a device connects to it through the proxy's HTTP(S) URL given with `--server`; it does not infer a TCP endpoint from `HTTP_PORT`. The Server's own collection runner runs inside the Server and needs no address.
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199). The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over UDS with channel and user authentication.
 
