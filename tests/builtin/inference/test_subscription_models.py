@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UserError
 
+from powercontext.builtin.artifacts.memory.reranking import MemoryRerankCandidate
 from powercontext.builtin.inference import gemini_cli
 from powercontext.builtin.inference.claude_cli import ClaudeCliModel
 from powercontext.builtin.inference.errors import InvalidInferenceOutputError
@@ -34,8 +35,17 @@ from powercontext.builtin.inference.pydantic_ai import (
     InferenceLimits,
     PydanticAIStructuredGenerator,
 )
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.processing_diagnostics import ProcessingFailureReason, classify_processing_error
-from powercontext.builtin.runtime.composition import _open_pydantic_ai_model
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, preflight_builtin_runtime
+from powercontext.builtin.runtime.composition import (
+    BuiltinConfigurationError,
+    _generation_pipelines,
+    _open_pydantic_ai_model,
+)
+from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.decision_model import DecisionOutcome, DecisionRequest
+from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 
 
 class _Input(BaseModel):
@@ -131,7 +141,7 @@ with Path({str(record)!r}).open("a") as handle:
 if sys.argv[1:] == ["auth", "status"]:
     print(json.dumps({{"authMethod":os.getenv("SYNTHETIC_CLAUDE_AUTH", "claude.ai")}}))
 else:
-    print(json.dumps({{"is_error":False,"result":'{{"value":"synthetic-output"}}',
+    print(json.dumps({{"is_error":False,"result":os.getenv("SYNTHETIC_CLAUDE_RESULT",'{{"value":"synthetic-output"}}'),
         "stop_reason":os.getenv("SYNTHETIC_CLAUDE_STOP_REASON", "end_turn"),
         "usage":{{"input_tokens":2,"output_tokens":3}}}}))
 """)
@@ -197,6 +207,53 @@ def test_claude_cli_rejects_console_auth_before_inference(claude_executable, mon
 
     asyncio.run(run())
     assert len(record.read_text().splitlines()) == 1
+
+
+def test_claude_cli_can_supply_composed_rerank_and_decision(tmp_path, claude_executable, monkeypatch) -> None:
+    _, record = claude_executable
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+        inference=InferenceConfig(generation_model="claude-cli:sonnet"),
+        runtime=RuntimeConfig(memory_rerank_enabled=True, decision_assistance_enabled=True),
+    )
+
+    async def run() -> None:
+        await preflight_builtin_runtime(config)
+        async with AsyncExitStack() as resources:
+            pipelines = await _generation_pipelines(
+                config.inference, config.runtime, resources, None, BUILTIN_SOURCE_REGISTRY
+            )
+            reranker, decision = pipelines[6:8]
+            assert reranker is not None and decision is not None
+            monkeypatch.setenv("SYNTHETIC_CLAUDE_RESULT", '{"selected_ranks":[2]}')
+            reranked = await reranker.rerank(
+                "Find the relevant Memory",
+                (MemoryRerankCandidate(rank=1, text="first"), MemoryRerankCandidate(rank=2, text="second")),
+                1,
+            )
+            assert reranked.selected_ranks == (2,)
+            monkeypatch.setenv("SYNTHETIC_CLAUDE_RESULT", '{"answer":"yes"}')
+            result = await decision.evaluate(DecisionRequest("test", "Is the Memory relevant?", "second"))
+            assert result.outcome == DecisionOutcome.YES and not result.used_fallback
+
+    asyncio.run(run())
+    assert record.exists()
+
+
+@pytest.mark.parametrize("operation", ["generation", "rerank", "decision"])
+def test_claude_cli_preflight_rejects_explicit_sampling_settings(tmp_path, claude_executable, operation) -> None:
+    _, record = claude_executable
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+        inference=InferenceConfig.model_validate({
+            "generation_model": "claude-cli:sonnet",
+            f"{operation}_model_settings": {"temperature": 0},
+        }),
+        runtime=RuntimeConfig(memory_rerank_enabled=True, decision_assistance_enabled=True),
+    )
+    with pytest.raises(BuiltinConfigurationError, match="Claude CLI accepts only a positive max_tokens"):
+        asyncio.run(preflight_builtin_runtime(config))
+    assert not record.exists()
 
 
 def test_claude_cli_rejects_api_key_override_before_start(claude_executable, monkeypatch) -> None:

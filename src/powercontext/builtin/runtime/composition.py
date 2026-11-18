@@ -260,6 +260,7 @@ class BuiltinConfigurationError(RuntimeError):
             "inference-endpoint-provider": (
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
+            "claude-cli-settings": "Claude CLI accepts only a positive max_tokens model setting",
             "inference-profile": "validated inference profile is incomplete",
             "inference-protection-injected-provider": (
                 "enforcing inference protection requires owned provider transports; custom inference injection is unsupported"
@@ -1574,7 +1575,7 @@ async def _generation_pipelines(
     ):
         return (None, None, None, None, None, None, None, None, None, None, None)
 
-    from pydantic_ai.settings import ModelSettings, merge_model_settings
+    from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.artifacts.experience import (
         EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -1633,7 +1634,9 @@ async def _generation_pipelines(
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
             protection=settings.protection,
         )
-        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
+        generation_request_settings = _composed_model_settings(
+            generation_provider_model, cast(ModelSettings, dict(settings.generation_model_settings))
+        )
         generation_limits = InferenceLimits(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
@@ -1836,10 +1839,8 @@ async def _generation_pipelines(
                 if inherits_generation
                 else settings.rerank_model_settings
             )
-            rerank_request_settings = cast(ModelSettings, dict(rerank_values))
-            rerank_request_settings = merge_model_settings(
-                rerank_request_settings,
-                ModelSettings(temperature=0.0),
+            rerank_request_settings = _composed_model_settings(
+                rerank_provider_model, cast(ModelSettings, dict(rerank_values)), deterministic=True
             )
             rerank_generator = PydanticAIStructuredGenerator(
                 model=rerank_model,
@@ -1921,7 +1922,7 @@ async def _generation_decision(
     if not runtime.decision_assistance_enabled and not runtime.memory_write_gate_enabled:
         return None, None
 
-    from pydantic_ai.settings import ModelSettings, merge_model_settings
+    from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.inference.pydantic_ai import (
         InferenceLimits,
@@ -1961,10 +1962,8 @@ async def _generation_decision(
         if inherits_generation
         else settings.decision_model_settings
     )
-    decision_request_settings = cast(ModelSettings, dict(decision_values))
-    decision_request_settings = merge_model_settings(
-        decision_request_settings,
-        ModelSettings(temperature=0.0),
+    decision_request_settings = _composed_model_settings(
+        decision_provider_model, cast(ModelSettings, dict(decision_values)), deterministic=True
     )
     decision_generator = PydanticAIStructuredGenerator(
         model=decision_model,
@@ -2007,6 +2006,23 @@ async def _generation_decision(
             )
         )
     return generated_decision, decision_readiness
+
+
+def _composed_model_settings(
+    model: Model, settings: ModelSettings, *, deterministic: bool = False
+) -> ModelSettings | None:
+    from pydantic_ai.exceptions import UserError
+
+    from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+
+    if isinstance(model, ClaudeCliModel):
+        try:
+            model.validate_settings(settings)
+        except UserError as error:
+            raise BuiltinConfigurationError("claude-cli-settings") from error
+    elif deterministic:
+        settings["temperature"] = 0.0
+    return settings or None
 
 
 async def preflight_builtin_runtime(

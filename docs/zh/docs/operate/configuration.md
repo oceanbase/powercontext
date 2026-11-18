@@ -483,10 +483,7 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 ```
 
-Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过
-search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索引。Provider 与结构化输出失败仍作为 inference error
-显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
-[RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
+Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过 search request 最终 `limit` 的结果。Claude CLI 使用自身的采样设置。Rerank 不会修改已存储的 Memory 或索引。Provider 与结构化输出失败会作为 inference error 返回。如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见 [RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
 
 内置 reranker 是 LLM listwise reranker，不是独立的 cross-encoder protocol。默认复用 generation model 及其 provider
 settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、

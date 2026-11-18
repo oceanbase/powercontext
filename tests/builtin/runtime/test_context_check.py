@@ -22,7 +22,8 @@ from typing import Any
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
+from powercontext.builtin.inference.carrier_checks import inspect_upstream_response
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy, UpstreamProfile
 from powercontext.builtin.runtime.context_bindings import BindingCodec
 from powercontext.builtin.runtime.context_check import (
     CHECK_CONTEXT_REQUEST,
@@ -787,3 +788,22 @@ async def test_upstream_responses_evidence_joins_deltas_by_output_position(event
         config=config,
     )
     assert result.decision == "block" and result.reason_codes == ("forbidden_content",)
+
+
+@pytest.mark.parametrize(
+    "event_type,field,carrier",
+    [
+        ("response.output_item.done", "item", {"type": "reasoning", "encrypted_content": "opaque"}),
+        ("response.content_part.done", "part", {"type": "image_generation_call"}),
+    ],
+)
+def test_upstream_responses_evidence_withholds_opaque_event_carriers(event_type, field, carrier):
+    config = _config()
+    config = config.model_copy(
+        update={"targets": {"test": config.targets["test"].model_copy(update={"protocol": "openai-responses"})}}
+    )
+    event = {"type": event_type, field: carrier}
+    result = inspect_upstream_response(
+        PrivacyPolicy(config), f"data: {json.dumps(event)}\n\n".encode(), {"content-type": "text/event-stream"}, "test"
+    )
+    assert result.decision == "withhold" and result.reason_codes == ("content_unsupported",)

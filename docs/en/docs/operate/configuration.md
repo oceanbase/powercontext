@@ -532,11 +532,7 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 ```
 
-Reranking is disabled by default. When enabled, the Runtime retrieves and fuses the configured candidate pool, then
-uses the generation model at temperature zero to select no more than the search request's final `limit`. It does not
-change stored Memory or indexes. Provider and structured-output failures remain visible as inference errors; disable
-reranking when search must remain independent of model availability. See
-[RFC 0080](/en/rfcs/0080_memory_search_reranking/) for the algorithm, concurrency, and API boundaries.
+Reranking is disabled by default. When enabled, the Runtime retrieves and fuses the configured candidate pool, then uses the generation model at temperature zero to select up to the search request's final `limit`. Claude CLI uses its own sampling settings. Reranking leaves stored Memory and indexes intact. Provider and structured output failures surface as inference errors. Disable reranking when search must work independently of model availability. See [RFC 0080](/en/rfcs/0080_memory_search_reranking/) for the algorithm, concurrency, and API boundaries.
 
 The built-in reranker is an LLM listwise reranker, not a dedicated cross-encoder protocol. By default it reuses the
 generation model and its provider settings. Set `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` to give that LLM operation

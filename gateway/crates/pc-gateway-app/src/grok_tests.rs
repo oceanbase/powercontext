@@ -25,6 +25,7 @@ use std::{num::NonZeroU32, sync::Mutex, time::Duration};
 #[derive(Default)]
 struct Peers {
     reply: Mutex<Bytes>,
+    reply_error: Mutex<Option<StatusCode>>,
     block_body: Mutex<Option<Bytes>>,
     sent: Mutex<Vec<Bytes>>,
     checks: Mutex<Vec<Value>>,
@@ -42,7 +43,11 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
             "/v1/responses",
             post(|State(peers): State<Arc<Peers>>, body: Bytes| async move {
                 peers.sent.lock().unwrap().push(body);
-                ([(header::CONTENT_TYPE, "application/json")], peers.reply.lock().unwrap().clone())
+                if let Some(status) = *peers.reply_error.lock().unwrap() {
+                    (status, [(header::CONTENT_TYPE, "text/plain")], "upstream error").into_response()
+                } else {
+                    ([(header::CONTENT_TYPE, "application/json")], peers.reply.lock().unwrap().clone()).into_response()
+                }
             }),
         )
         .route(
@@ -80,11 +85,17 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
         subscription: Some(SubscriptionProtocol::Grok),
     };
     for case in fixture["cases"].as_array().unwrap() {
-        for (stream, degraded) in [(false, false), (true, false), (true, true)] {
-            // One degraded namespace case covers the distinct bypass path.
-            if degraded && case["id"] != "namespaced-calls" {
+        for (stream, degraded, upstream_error) in [
+            (false, false, None),
+            (true, false, None),
+            (true, true, None),
+            (false, false, Some(StatusCode::TOO_MANY_REQUESTS)),
+            (true, true, Some(StatusCode::BAD_GATEWAY)),
+        ] {
+            if (degraded || upstream_error.is_some()) && case["id"] != "namespaced-calls" {
                 continue;
             }
+            *peers.reply_error.lock().unwrap() = upstream_error;
             peers.sent.lock().unwrap().clear();
             peers.checks.lock().unwrap().clear();
             *peers.reply.lock().unwrap() = serde_json::to_vec(&case["response"]).unwrap().into();
@@ -126,6 +137,16 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 respond(outcome, OutputProtocol::OpenAiResponses)
             };
             let status = response.status();
+            if let Some(expected) = upstream_error {
+                assert_eq!(status, expected);
+                assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                assert_eq!(body.as_ref(), b"upstream error");
+                assert_eq!(peers.sent.lock().unwrap().len(), 1);
+                continue;
+            }
             if degraded && status == StatusCode::OK {
                 assert_eq!(
                     response.headers()["x-pc-degraded"],
@@ -207,6 +228,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
             }
         }
     }
+    *peers.reply_error.lock().unwrap() = None;
     // Raw spellings and flattened names remain evidence even if normalization changes them.
     let raw = br#"{"id":"r","object":"response","status":"completed","output":[{"type":"function_call","name":"collaboration__spawn_agent","call_id":"c9","arguments":"{}"}],"metadata":{"number":1e+03}}"#;
     let duplicate_arguments = br#"{"id":"r","object":"response","status":"completed","output":[{"type":"function_call","name":"collaboration__spawn_agent","call_id":"c9","arguments":"{\"secret\":\"synthetic-review-forbidden\"}","arguments":"{}"}]}"#;

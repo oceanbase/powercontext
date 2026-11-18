@@ -980,12 +980,14 @@ fn restore_protocol_response<R: WireRenderer>(
     renderer: &R,
     mut raw: RawResponse,
 ) -> Result<RawResponse, ManagedOutcome> {
-    raw.body = renderer
-        .restore_response(request, raw.body)
-        .ok_or_else(|| ManagedOutcome::Withheld {
-            reason_codes: vec!["response_identity_unavailable".into()],
-            retryable: false,
-        })?;
+    if (200..300).contains(&raw.status) {
+        raw.body = renderer
+            .restore_response(request, raw.body)
+            .ok_or_else(|| ManagedOutcome::Withheld {
+                reason_codes: vec!["response_identity_unavailable".into()],
+                retryable: false,
+            })?;
+    }
     if raw.body.len() > pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT {
         return Err(indeterminate_outcome(
             SendIndeterminateReason::BufferLimitExceeded,
@@ -1011,29 +1013,14 @@ fn content_headers(headers: &[(String, String)], content_type: &str) -> BTreeMap
     out.insert("content-type".to_string(), content_type.to_string());
     for (k, v) in headers {
         let lower = k.to_ascii_lowercase();
-        // Subscription account/device identity is configured by the gateway, never copied
-        // from caller headers. It belongs to authentication, not the model-json carrier.
+        // Core receives only headers that describe the model carrier. New
+        // subscription authentication metadata stays on the upstream request.
         if matches!(
             lower.as_str(),
-            "authorization"
-                | "x-api-key"
-                | "cookie"
-                | "chatgpt-account-id"
-                | "user-agent"
-                | "copilot-integration-id"
-                | "x-github-api-version"
-                | "editor-version"
-                | "editor-plugin-version"
-                | "x-msh-platform"
-                | "x-msh-version"
-                | "x-msh-device-name"
-                | "x-msh-device-model"
-                | "x-msh-os-version"
-                | "x-msh-device-id"
+            "content-type" | "anthropic-version" | "anthropic-beta"
         ) {
-            continue;
+            out.insert(lower, v.clone());
         }
-        out.insert(lower, v.clone());
     }
     out
 }

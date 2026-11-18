@@ -4551,6 +4551,7 @@ async fn subscription_final_bytes_are_checked_and_auth_metadata_stays_outside_co
         ("editor-version".into(), "vscode/1.140.0".into()),
         ("x-msh-device-id".into(), "synthetic-device".into()),
         ("user-agent".into(), "PowerContextGateway/0.1.0".into()),
+        ("x-future-auth-context".into(), "synthetic-identity".into()),
     ]);
     let renderer = SubscriptionRenderer {
         inner: GatewayRenderer::Responses(Default::default()),

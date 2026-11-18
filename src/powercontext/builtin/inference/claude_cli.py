@@ -62,6 +62,19 @@ class ClaudeCliModel(Model):
     def system(self) -> str:
         return "claude-cli"
 
+    @staticmethod
+    def validate_settings(settings: ModelSettings | None) -> int | None:
+        if settings and set(settings) - {"max_tokens"}:
+            message = "Claude CLI supports only the max_tokens model setting"
+            raise UserError(message)
+        max_tokens = None if settings is None else settings.get("max_tokens")
+        if max_tokens is not None and (
+            not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens <= 0
+        ):
+            message = "Claude CLI max_tokens must be a positive integer"
+            raise UserError(message)
+        return max_tokens
+
     @override
     async def request(
         self,
@@ -70,14 +83,10 @@ class ClaudeCliModel(Model):
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
         settings, parameters = self.prepare_request(model_settings, model_request_parameters)
-        if (
-            (settings and set(settings) - {"max_tokens"})
-            or parameters.function_tools
-            or parameters.output_tools
-            or parameters.native_tools
-        ):
-            message = "Claude CLI supports text and prompted JSON only, without model settings or tools"
+        if parameters.function_tools or parameters.output_tools or parameters.native_tools:
+            message = "Claude CLI supports text and prompted JSON only, without tools"
             raise UserError(message)
+        max_tokens = self.validate_settings(settings)
         if any(
             os.getenv(name)
             for name in (
@@ -91,12 +100,6 @@ class ClaudeCliModel(Model):
             )
         ):
             message = "Claude CLI subscription requires its existing login without API or cloud credential overrides"
-            raise UserError(message)
-        max_tokens = None if settings is None else settings.get("max_tokens")
-        if max_tokens is not None and (
-            not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens <= 0
-        ):
-            message = "Claude CLI max_tokens must be a positive integer"
             raise UserError(message)
         prompt = self._prompt(self.prepare_messages(messages, parameters))
         with tempfile.TemporaryDirectory(prefix="powercontext-claude-") as directory:

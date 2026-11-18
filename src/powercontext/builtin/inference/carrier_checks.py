@@ -220,9 +220,18 @@ def inspect_upstream_response(  # noqa: C901 - JSON uses its native checker; SSE
                 return policy.decision(phase, "withhold", "json_duplicate_key")
             if contains_opaque_content(value, protocol="openai-responses"):
                 return policy.decision(phase, "withhold", "content_unsupported")
+            event_type = value.get("type")
+            if (
+                event_type in ("response.output_item.added", "response.output_item.done")
+                and contains_opaque_content(value.get("item"))
+            ) or (
+                event_type in ("response.content_part.added", "response.content_part.done")
+                and contains_opaque_content(value.get("part"))
+            ):
+                return policy.decision(phase, "withhold", "content_unsupported")
             identity = json_unsigned_integer(value.get("output_index")) or 0
             content = json_unsigned_integer(value.get("content_index")) or 0
-            _stream_fragments(value, parts, (str(identity), str(content), str(value.get("type"))))
+            _stream_fragments(value, parts, (str(identity), str(content), str(event_type)))
         joined = tuple("".join(fragments) for fragments in parts.values())
         nested, repeated = nested_json_text(joined, policy.config.max_json_depth)
         if policy.forbidden(joined + nested):

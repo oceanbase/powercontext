@@ -384,18 +384,26 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
     let replies = cases.clone();
     let safe_reply = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let selected = safe_reply.clone();
+    let omit_content_type = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let omit_header = omit_content_type.clone();
     let router = Router::new().route(
         "/*path",
         route_post(move |uri: Uri| {
             let (media, body) = replies[uri.path()].clone();
             let safe = selected.load(std::sync::atomic::Ordering::SeqCst);
+            let omit = omit_header.load(std::sync::atomic::Ordering::SeqCst);
             async move {
                 let body = if safe {
                     body.replace("1.2300e+20", "1.23e20")
                 } else {
                     body
                 };
-                ([("content-type", media)], body)
+                use axum::response::IntoResponse;
+                let mut response = ([("content-type", media)], body).into_response();
+                if omit {
+                    response.headers_mut().remove("content-type");
+                }
+                response
             }
         }),
     );
@@ -451,8 +459,12 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
                 .with_subscription_responses_sse(provider == "responses"),
             NonZeroU32::new(1).unwrap(),
         );
-        for safe in [false, true] {
+        for (safe, omit) in [(false, false), (true, false), (true, true)] {
+            if omit && provider != "responses" {
+                continue;
+            }
             safe_reply.store(safe, std::sync::atomic::Ordering::SeqCst);
+            omit_content_type.store(omit, std::sync::atomic::Ordering::SeqCst);
             let request: CanonicalRequest = serde_json::from_value(json!({"model":"test","messages":[{"role":"user","content":["safe"],"content_null":false}],"output_limits":{"max_output_tokens":64},"store":if provider == "responses" { json!(false) } else { Value::Null }})).unwrap();
             let call = ManagedCall {
                 scope_id: scope.clone(),

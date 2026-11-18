@@ -128,12 +128,14 @@ impl Transport for ReqwestTransport {
                 Ok(resp) => resp,
             };
             let status = resp.status().as_u16();
-            let mut content_type = resp
+            let declared_content_type = resp
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
-                .unwrap_or("application/json")
-                .to_string();
+                .map(str::to_owned);
+            let mut content_type = declared_content_type
+                .clone()
+                .unwrap_or_else(|| "application/json".into());
 
             // 两种接收模式共用逐块累积 + 字节上限（review P2：非流式路径
             // 此前用 resp.bytes() 一次性收集，max_buffer_bytes 完全不生效）。
@@ -169,7 +171,7 @@ impl Transport for ReqwestTransport {
             }
             let complete_ms = start.elapsed().as_millis() as u64;
             let upstream_body = Bytes::from(body);
-            let upstream_type = content_type.clone();
+            let mut upstream_type = content_type.clone();
             let mut body = upstream_body.clone();
             if self.copilot_chat
                 && send.target_url.ends_with("/chat/completions")
@@ -223,6 +225,9 @@ impl Transport for ReqwestTransport {
                 let terminal = pc_gateway_protocol::buffered_subscription_response(&body);
                 match terminal {
                     Some(terminal) => {
+                        if declared_content_type.is_none() {
+                            upstream_type = "text/event-stream".into();
+                        }
                         body = terminal.into();
                         content_type = "application/json".into();
                     }
