@@ -506,12 +506,14 @@ def test_openclaw_group_and_incognito_sessions_are_excluded(openclaw_stack: Open
 
 
 def test_openclaw_checkpoints_the_prompt_before_in_session_compaction(openclaw_stack: OpenClawStack) -> None:
-    agent_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction")
+    agent_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction agent")
+    project_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction project")
     openclaw_stack.bind("agent", "main", agent_scope)
+    openclaw_stack.bind("project", f"path:{openclaw_stack.workspace}", project_scope)
     # OpenClaw's default `safeguard` mode turns off the built-in runner's in-session auto-compaction. In `default` mode
     # the runner starts a compaction once a reply reports more usage than the context window less its reserve, and it
-    # reports that compaction to `before_compaction` with only the session key. This transcript is too short for
-    # OpenClaw to compact anything, so the case covers the checkpoint, not the compaction itself.
+    # reports that compaction to `before_compaction` with only the session key and no active projects. This transcript
+    # is too short for OpenClaw to compact anything, so the case covers the checkpoint, not the compaction itself.
     openclaw_stack.config["agents"]["defaults"]["compaction"] = {"mode": "default"}
     openclaw_stack.config["models"]["providers"]["fixture"]["models"][0]["contextWindow"] = 32000
     openclaw_stack.model.streamed_prompt_tokens = 31000
@@ -519,17 +521,21 @@ def test_openclaw_checkpoints_the_prompt_before_in_session_compaction(openclaw_s
         gateway.turn("compact", FACT)
 
         # The checkpoint captures the prompt under its own event identity, beside the turn's `agent_end` capture, and
-        # flushes the agent's Scope while the Gateway is still running.
+        # flushes the project Scope that the turn's recall read while the Gateway is still running.
         def checkpointed() -> bool:
-            captured = openclaw_stack.sources(agent_scope).count(f"User: {FACT}")
-            return captured >= 2 and FACT in openclaw_stack.memories(agent_scope)
+            captured = openclaw_stack.sources(project_scope).count(f"User: {FACT}")
+            return captured >= 2 and FACT in openclaw_stack.memories(project_scope)
 
         deadline = time.monotonic() + 15
         while not checkpointed() and time.monotonic() < deadline:
             time.sleep(0.1)
         assert checkpointed()
+    # OpenClaw builds the prompt again after the compaction; every preparation reads the project Scope.
+    prepared = {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/context/prepare")}
+    assert prepared == {project_scope}
     flushed = {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/memory/flush")}
-    assert flushed == {agent_scope}
+    assert flushed == {project_scope}
+    assert openclaw_stack.sources(agent_scope) == []
 
 
 def test_openclaw_turn_proceeds_when_the_server_is_unavailable(openclaw_stack: OpenClawStack) -> None:
