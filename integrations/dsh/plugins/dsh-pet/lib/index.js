@@ -2017,6 +2017,7 @@ var PowerContextClient = class {
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
 		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
+		if (id === "prepare_handoff" && options.handoffLanguage) prepared.headers["Accept-Language"] = options.handoffLanguage;
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));

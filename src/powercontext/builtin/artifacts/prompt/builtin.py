@@ -205,6 +205,7 @@ Preserve applicability, failure handling, and validation status. Return proposal
             invariant_instructions=_COMMON_INVARIANTS
             + """
 Generate a Handoff for the supplied objective. Every state and next-action statement must cite supplied evidence IDs.
+Respect output_language when supplied, preserving exact identifiers, commands, paths, and quotations.
 Treat rollover_reasons as advisory preparation context only; do not claim they are committed Handoff content.
 When rollover_reasons is non-empty, draft a fresh-session checkpoint: do not depend on the old transcript,
 avoid "continue above" wording, and make the next participant's first safe action explicit.

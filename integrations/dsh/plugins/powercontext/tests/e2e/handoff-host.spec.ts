@@ -64,6 +64,7 @@ it('revalidates preflight, persists one real Server package, and recovers launch
   const plan = vi.fn(() => ({ dispatch }))
   const assemble = () => createHandoffServices({
     root, catalog, client, signal: lifetime.signal, plan,
+    resolveReceiptConnection: async () => ({ client, accessMode: 'disabled' }),
     authority: {
       requireLocal() {},
       async verifySource(context, boundary, requireLatest) {
@@ -176,6 +177,22 @@ it('revalidates preflight, persists one real Server package, and recovers launch
     expect(receiptAttempt.sourceType).toBe('content')
 
     const deliver = `/deliveries/${deliveryId}`
+    expect(await (await request('/deliveries?sessionId=another-session')).json()).toEqual({ deliveries: [] })
+    expect(await (await request('/deliveries?sessionId=' + source.sessionId, undefined, 'other')).json())
+      .toEqual({ deliveries: [] })
+    expect(await (await request('/deliveries?sessionId=' + source.sessionId)).json())
+      .toMatchObject({ deliveries: expect.arrayContaining([{ ...prepared.delivery }]) })
+    expect(await (await request(deliver + '/pin', { sessionId: source.sessionId, pinned: true })).json())
+      .toMatchObject({ deliveryId, pinned: true })
+    expect((await request(deliver + '/pin', { sessionId: 'other-session', pinned: false })).status).toBe(404)
+    expect(await (await request(deliver + '/receipt?sessionId=' + source.sessionId)).json())
+      .toMatchObject({ state: 'awaiting', readState: 'not_found' })
+    expect((await request(deliver + '/receipt?sessionId=other-session')).status).toBe(404)
+    await client.request('acknowledge_handoff', { scope_id: scopeId, source_id: receiptAttempt.sourceId,
+      receiver: 'test-receiver', status: 'accepted', selection: 'prepared', prepared: carrier.prepared,
+      receiver_checks: { live_state: 'confirmed', capability: 'confirmed', authorization: 'confirmed' } })
+    expect(await (await request(deliver + '/receipt?sessionId=' + source.sessionId)).json())
+      .toMatchObject({ state: 'accepted', readState: 'verified', attribution: { kind: 'self_reported' } })
     expect((await request(deliver + '/launch', { ...launchInput, sessionId: 'different-session' })).status).toBe(404)
     expect((await request(deliver + '?sessionId=' + source.sessionId, undefined, 'other')).status).toBe(404)
     expect((await request(deliver + '/export?sessionId=different-session')).status).toBe(404)
@@ -203,6 +220,8 @@ it('revalidates preflight, persists one real Server package, and recovers launch
       delivery: { preparationState: 'prepared', receiptAttempt, source },
       launchAttempts: [launched],
     })
+    expect(await (await request(deliver + '/receipt?sessionId=' + source.sessionId)).json())
+      .toMatchObject({ state: 'accepted', readState: 'verified' })
     expect(await (await request(deliver + '/launch', launchInput)).json()).toEqual(launched)
     expect(await (await request(deliver + '/launch', { ...launchInput, requestId: 'implicit-repeat' })).json())
       .toMatchObject({ code: 'outcome_unknown' })

@@ -22,8 +22,12 @@ import {
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
 import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+import { PowerContextMark } from './brand.tsx'
 import { UpdateDetails, useVersionUpdates, VersionFooter } from './update-panel.tsx'
 import { dashboardTextKey, hasMismatchedLoopbackSite, readDashboard } from './dashboard.ts'
+import { HandoffAction, type HandoffActionProps } from './handoff/panel.tsx'
+import { HandoffHttp, type HandoffPorts } from './handoff/client.ts'
+import { HANDOFF_STYLES } from './handoff/styles.ts'
 
 const LocaleContext = createContext<Locale>('zh-CN')
 function useText() {
@@ -69,15 +73,6 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export const inject = ['slots']
-
-function PowerContextMark({ size = 20 }: { size?: number }) {
-  return (
-    <span className="pc-brand-icon" style={{ width: size, height: size }} aria-hidden="true">
-      <img className="pc-brand-icon-color" src="/plugins/powercontext-dsh/assets/powercontext.svg" width={size} height={size} alt="" />
-      <img className="pc-brand-icon-reverse" src="/plugins/powercontext-dsh/assets/powercontext-reverse.svg" width={size} height={size} alt="" />
-    </span>
-  )
-}
 
 function Dot({ state }: { state: DisplayState }) {
   return <span className={`pc-dot pc-dot-${state}`} aria-hidden="true" />
@@ -451,7 +446,7 @@ function installStyles(ctx: Context): void {
     document.getElementById(STYLE_ID)?.remove()
     const style = document.createElement('style')
     style.id = STYLE_ID
-    style.textContent = STATUS_STYLES
+    style.textContent = STATUS_STYLES + HANDOFF_STYLES
     document.head.append(style)
     return () => { style.remove() }
   }, 'powercontext: sidebar status styles')
@@ -464,6 +459,17 @@ function installStyles(ctx: Context): void {
  */
 export function apply(ctx: Context): void {
   installStyles(ctx)
+  // All boundary and receipt reads go through the authenticated local Host.
+  const handoffPorts = new HandoffHttp()
+  const handoffSlots = ctx.slots as unknown as {
+    inject(key: 'conversation.chat.assistant-actions', callback: () => () => void): void
+    register(options: { name: 'conversation.chat.assistant-actions'; id: string; order: number;
+      inject(sessionId: string): { ports?: HandoffPorts } }, component: (props: HandoffActionProps) => ReturnType<typeof HandoffAction>): () => void
+  }
+  handoffSlots.inject('conversation.chat.assistant-actions', () => handoffSlots.register({
+    name: 'conversation.chat.assistant-actions', id: 'powercontext-handoff', order: 40,
+    inject: () => ({ ports: handoffPorts }),
+  }, HandoffAction))
   const controller = new StatusController()
   ctx.effect(() => () => controller.dispose(), 'powercontext: status controller disposal')
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

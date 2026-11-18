@@ -77,19 +77,23 @@ async function startHost() {
 const diagnosePath = '/targets/codex-desktop/diagnose'
 const deliveryPath = '/deliveries/missing?sessionId=session'
 
-it('ships Codex diagnostics through the owner-local Host without enabling launch', async () => {
+it('ships the default target catalog and diagnostics through the owner-local Host', async () => {
   const { request } = await startHost()
   expect((await request(diagnosePath, false)).status).toBe(401)
   const response = await request('/targets')
   expect(response.status).toBe(200)
   const catalog = await response.json() as { targets: Array<{ targetId: string }> }
-  expect(catalog.targets.find(target => target.targetId === 'codex-desktop')).toMatchObject({
+  const availability = process.platform === 'darwin' ? 'requires_preflight' : 'unavailable'
+  for (const targetId of ['codex-desktop', 'claude-code-cli']) {
+    expect(catalog.targets.find(target => target.targetId === targetId)).toMatchObject({ diagnostics: 'available', availability })
+  }
+  expect(catalog.targets.find(target => target.targetId === 'claude-desktop')).toMatchObject({
     diagnostics: 'available', qualification: null, availability: 'unavailable', action: 'manual_setup_or_export',
   })
   const detection = await request(diagnosePath)
   expect(detection.status).toBe(200)
   expect(await detection.json()).toMatchObject({ targetId: 'codex-desktop',
-    state: process.platform === 'darwin' ? expect.stringMatching(/^(present|missing|unknown|unsupported)$/) : 'unsupported' })
+    state: process.platform === 'darwin' ? expect.stringMatching(/^(present|unqualified|missing|unknown|unsupported)$/) : 'unsupported' })
 }, 30_000)
 
 it.skipIf(process.platform !== 'darwin')('initializes delivery services and releases the macOS writer lease on Host disposal', async () => {
