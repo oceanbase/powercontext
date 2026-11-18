@@ -418,6 +418,17 @@ const OPERATIONS = {
 		successStatuses: [202],
 		emptyStatuses: []
 	},
+	capture_content_sources: {
+		method: "POST",
+		path: "/v1/sources/content/batch",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
 	capture_working_note: {
 		method: "POST",
 		path: "/v1/sources/working-notes",
