@@ -26,6 +26,7 @@ import type { TargetEnvironment } from '../targets.ts'
 
 const execute = promisify(execFile)
 const powercontextMcpServer = 'plugin:powercontext:powercontext'
+const mcpHeadersHelper = 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_headers.py"'
 const PROBE = String.raw`
 import json, os, sys, time
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -38,6 +39,11 @@ settings = ClaudeCodePluginSettings.from_environment()
 endpoint = sys.argv[3].rstrip('/')
 if endpoint != settings.server_url.rstrip('/'):
     raise ValueError('MCP and hook endpoints differ')
+# Claude merges the helper's saved credential over the static header.
+mcp_authorization_header = os.environ.get('POWERCONTEXT_CLAUDE_AUTHORIZATION')
+if sys.argv[4] == 'headers-helper':
+    from claude_code_settings import mcp_authorization
+    mcp_authorization_header = mcp_authorization(endpoint + '/mcp') or mcp_authorization_header
 def identity(authorization):
     headers = {'Accept': 'application/json'}
     if authorization: headers['Authorization'] = authorization
@@ -45,7 +51,7 @@ def identity(authorization):
     with build_opener(NoRedirect()).open(req, timeout=3) as response:
         return json.loads(response.read(1048577))
 a = identity(settings.authorization)
-b = identity(os.environ.get('POWERCONTEXT_CLAUDE_AUTHORIZATION'))
+b = identity(mcp_authorization_header)
 fields = ('server_id', 'authentication', 'access_mode', 'principal')
 if any(a.get(k) != b.get(k) for k in fields): raise ValueError('MCP and hook identities differ')
 if a.get('authentication') not in ('disabled', 'authenticated'): raise ValueError('unknown authentication')
@@ -58,8 +64,8 @@ if a.get('authentication') == 'authenticated':
 if not isinstance(a.get('server_id'), str) or not a['server_id']: raise ValueError('missing server identity')
 # Verify the actual MCP authentication and the operations the receiver needs.
 headers = {'Accept': 'application/json, text/event-stream', 'Content-Type': 'application/json'}
-if os.environ.get('POWERCONTEXT_CLAUDE_AUTHORIZATION'):
-    headers['Authorization'] = os.environ['POWERCONTEXT_CLAUDE_AUTHORIZATION']
+if mcp_authorization_header:
+    headers['Authorization'] = mcp_authorization_header
 def rpc(message):
     req = Request(endpoint + '/mcp/', data=json.dumps(message).encode(), headers=headers, method='POST')
     with build_opener(NoRedirect()).open(req, timeout=3) as response:
@@ -123,6 +129,13 @@ async function readObject(path: string): Promise<Record<string, any>> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
   }
+}
+
+async function hashPluginFile(root: string, file: string, signal: AbortSignal) {
+  const path = join(root, file)
+  const info = await lstat(path)
+  if (!info.isFile() || info.size < 1 || info.size > 64 * 1024) throw new Error('Invalid receiving plugin file')
+  return createHash('sha256').update(await readFile(path, { signal })).digest('hex')
 }
 
 async function command(file: string, args: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, cwd?: string) {
@@ -329,12 +342,15 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
         && entry.hooks.some((hook: any) => hook?.type === 'command' && hook.command === 'python3'
           && Array.isArray(hook.args) && hook.args.length === 1
           && hook.args[0] === '${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py'))) return undefined
-      const receive = join(pluginRoot, 'hooks/dsh_handoff.py')
-      const receiveInfo = await lstat(receive)
-      if (!receiveInfo.isFile() || receiveInfo.size < 1 || receiveInfo.size > 64 * 1024) return undefined
-      const receiverHash = createHash('sha256').update(await readFile(receive, { signal })).digest('hex')
       if (mcp.powercontext?.url !== '${user_config.server_url}/mcp'
         || mcp.powercontext?.headers?.Authorization !== '${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}') return undefined
+      const helper = mcp.powercontext.headersHelper
+      if (helper !== undefined && helper !== mcpHeadersHelper) return undefined
+      const usesHelper = helper === mcpHeadersHelper
+      const receiverFile = usesHelper ? 'powercontext_lifecycle/dsh_handoff.py' : 'hooks/dsh_handoff.py'
+      const receiverFiles = [await hashPluginFile(pluginRoot, 'hooks/user_prompt_submit.py', signal),
+        await hashPluginFile(pluginRoot, receiverFile, signal)]
+      if (usesHelper) receiverFiles.push(await hashPluginFile(pluginRoot, 'scripts/mcp_headers.py', signal))
       const pluginConfig = settings.pluginConfigs?.['powercontext@powercontext']
       if (pluginConfig !== undefined && !object(pluginConfig)
         || pluginConfig?.options !== undefined && !object(pluginConfig.options)) return undefined
@@ -343,7 +359,8 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       if (typeof endpoint !== 'string' || !endpoint.trim()) return undefined
       targetEnv.CLAUDE_PLUGIN_OPTION_SERVER_URL = endpoint
       if (typeof opts.allow_insecure_http === 'boolean') targetEnv.CLAUDE_PLUGIN_OPTION_ALLOW_INSECURE_HTTP = String(opts.allow_insecure_http)
-      const parsed = object(JSON.parse(await command(options.pythonExecutable, ['-c', PROBE, pluginRoot, cwd, endpoint], targetEnv, signal, cwd)))
+      const parsed = object(JSON.parse(await command(options.pythonExecutable, ['-c', PROBE, pluginRoot, cwd, endpoint,
+        usesHelper ? 'headers-helper' : 'static-header'], targetEnv, signal, cwd)))
       if (!parsed || typeof parsed.serverIdentity !== 'string' || !parsed.serverIdentity
         || typeof parsed.scopeId !== 'string' || !parsed.scopeId) return undefined
       const { generationKey, qualifiedPackageRoots } = options.packageStorage()
@@ -355,7 +372,7 @@ export function createClaudeCodeCliReceiver(options: ClaudeCodeCliRuntimeOptions
       const clients = await readObject(clientsFile)
       const generation = createHmac('sha256', generationKey).update(JSON.stringify([await realpath(executable), pluginRoot,
         manifest, mcp, settings, Object.fromEntries(Object.entries(targetEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
-        credentials, clients, roots, parsed, promptHooks, receiverHash, options.environmentEvidence, terminal, projectMcp])).digest('hex')
+        credentials, clients, roots, parsed, promptHooks, receiverFiles, options.environmentEvidence, terminal, projectMcp])).digest('hex')
       return { effectiveCwd: cwd, serverIdentity: parsed.serverIdentity, scopeId: parsed.scopeId,
         configurationGeneration: generation, newSession: true, unsentPrefill: true, packageAccess: roots.length > 0 }
     } catch {

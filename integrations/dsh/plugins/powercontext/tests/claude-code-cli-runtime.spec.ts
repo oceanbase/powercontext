@@ -31,10 +31,11 @@ interface ReceiverFixture {
   executable: string
   endpoint: string
   receiver: ReturnType<typeof createClaudeCodeCliReceiver>
-  createReceiver: (path?: string) => ReturnType<typeof createClaudeCodeCliReceiver>
+  createReceiver: (path?: string, authorization?: string) => ReturnType<typeof createClaudeCodeCliReceiver>
   signal: AbortSignal
   launch: LaunchBundle
   setHandoffToolsAvailable: (available: boolean) => void
+  requireAuthentication: () => void
 }
 
 async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
@@ -45,9 +46,15 @@ async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
   const plugin = resolve('../../../claude-code/plugins/powercontext')
   const executable = join(root, 'claude')
   let handoffToolsAvailable = true
+  let authenticated = false
   const server = createServer((req, res) => {
     res.setHeader('content-type', 'application/json')
-    if (req.url === '/v1/connection/identity') res.end(JSON.stringify({ server_id: 'server-one', authentication: 'disabled', access_mode: 'disabled', principal: null }))
+    const owner = req.headers.authorization === 'Bearer saved-fixture' ? 'saved'
+      : req.headers.authorization === 'Bearer other-fixture' ? 'other' : undefined
+    if (authenticated && !owner) { res.statusCode = 401; res.end('{}'); return }
+    if (req.url === '/v1/connection/identity') res.end(JSON.stringify({ server_id: 'server-one',
+      authentication: authenticated ? 'authenticated' : 'disabled', access_mode: authenticated ? 'enforced' : 'disabled',
+      principal: authenticated ? { type: 'user', id: owner } : null }))
     else if (req.url === '/v1/scope-bindings/resolve') res.end(JSON.stringify({ scope_id: 'scope-one' }))
     else if (req.url === '/mcp/') {
       let body = ''
@@ -73,10 +80,11 @@ async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
     await writeFile(join(config, 'settings.json'), JSON.stringify({ pluginConfigs: { 'powercontext@powercontext': { options: { server_url: endpoint } } } }))
     const output = JSON.stringify([{ id: 'powercontext@powercontext', enabled: true, installPath: plugin }])
     await writeFile(executable, `#!/bin/sh\nprintf '%s' '${output}'\n`, { mode: 0o755 })
-    const createReceiver = (path = '/usr/bin:/bin') => createClaudeCodeCliReceiver({
+    const createReceiver = (path = '/usr/bin:/bin', authorization?: string) => createClaudeCodeCliReceiver({
       configDir: config, pythonExecutable: '/usr/bin/python3',
       environmentEvidence: { terminal: 'Terminal', evidence: 'fixture' },
-      launchEnvironment: { HOME: root, PATH: path, CLAUDE_CONFIG_DIR: config },
+      launchEnvironment: { HOME: root, PATH: path, CLAUDE_CONFIG_DIR: config,
+        ...(authorization ? { POWERCONTEXT_CLAUDE_AUTHORIZATION: authorization } : {}) },
       packageStorage: () => ({ generationKey: Buffer.alloc(32, 1), qualifiedPackageRoots: [packages] }),
     })
     const signal = new AbortController().signal
@@ -85,7 +93,8 @@ async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
     const packageSha256 = createHash('sha256').update('handoff').digest('hex')
     const launch = { packagePath, packageSha256, binding: { effectiveCwd: workspace } } as LaunchBundle
     await use({ root, config, workspace, executable, endpoint, receiver: createReceiver(), createReceiver, signal, launch,
-      setHandoffToolsAvailable: available => { handoffToolsAvailable = available } })
+      setHandoffToolsAvailable: available => { handoffToolsAvailable = available },
+      requireAuthentication: () => { authenticated = true } })
   } finally {
     await new Promise<void>(resolveServer => server.close(() => resolveServer()))
     await rm(root, { recursive: true, force: true })
@@ -94,6 +103,21 @@ async function withReceiver(use: (fixture: ReceiverFixture) => Promise<void>) {
 
 const test = it.extend<{ fixture: ReceiverFixture }>({
   fixture: async ({}, use) => withReceiver(use),
+})
+
+test('qualifies saved authorization in both receiver surfaces and rejects a conflicting static credential', async ({ fixture }) => {
+  const { config, workspace, endpoint, executable, signal, receiver, createReceiver, requireAuthentication } = fixture
+  requireAuthentication()
+  const credentialDir = join(config, 'powercontext')
+  await mkdir(credentialDir)
+  await writeFile(join(credentialDir, 'credentials.json'), JSON.stringify({
+    version: 1, server_url: endpoint, authorization: 'Bearer saved-fixture',
+  }), { mode: 0o600 })
+  expect(await receiver.environment(executable, workspace, signal)).toMatchObject({
+    serverIdentity: 'server-one', scopeId: 'scope-one', packageAccess: true,
+  })
+  const conflicting = createReceiver(undefined, 'Bearer other-fixture')
+  expect(await conflicting.environment(executable, workspace, signal)).toBeUndefined()
 })
 
 function gitWorktree(main: string, linked: string) {

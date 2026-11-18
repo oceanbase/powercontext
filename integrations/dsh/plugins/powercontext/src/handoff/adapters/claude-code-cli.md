@@ -37,7 +37,9 @@ unsent-prefill behavior, and its ability to read the delivery package. The Host'
 own filesystem access, a manifest entry, and the existence of a URL handler app
 are insufficient evidence for these claims. The CLI runtime checks the selected
 Launch Services handler and executable, the installed plugin, MCP authentication
-and required tools, and resolves Scope with the installed plugin. This also
+and required tools, and resolves Scope with the installed plugin. When the plugin
+uses the PowerContext headers helper, the probe checks the credential saved for
+that endpoint and requires the hook and MCP to resolve the same identity. This also
 invokes `claude plugin list` and may write Claude configuration. It does not
 independently prove the terminal environment or receiver sandbox. Record the exact
 macOS terminal preference (for example, `Terminal` for Terminal.app). The runtime
