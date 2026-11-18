@@ -279,6 +279,54 @@ class ReviewService:
         )
         return _experience_candidate(candidate)
 
+    async def admit_dream_shared_skill(
+        self,
+        proposal: SkillContent,
+        /,
+        *,
+        adoption,
+        reason: str | None,
+        candidate_id: str,
+        on_commit: CandidateCommitHook | None = None,
+    ) -> Candidate[SkillContent]:
+        """Admit one pinned shared Skill proposal through the same trusted handoff.
+
+        A derived Skill is supported by Experience, and that Experience may be owned by
+        another Scope. The adopted foreign Experience is presented as the Skill's lineage
+        support while being verified at its own origin by :meth:`_validate_evidence`, so the
+        foreign reference never occupies a local slot and the local evidence rules are not
+        loosened.
+        """
+
+        from powercontext.builtin.dream.provenance import shared_candidate_audit
+
+        if not adoption.snapshot_id or not adoption.run_id:
+            raise InvalidCandidateError("audit", "shared adoption is incomplete")
+        if not adoption.direct:
+            raise InvalidCandidateError("audit", "shared adoption has no direct support")
+        if adoption.target is not None:
+            # A shared Skill revision needs target CAS under the pin, which is not proven.
+            raise InvalidCandidateError("approval", "shared_use_revision_unavailable")
+        foreign = tuple(origin for origin in adoption.adopted if origin.scope_id != self._scope_id)
+        # The foreign Experience is the Skill's real support, but it must not enter the
+        # Family's local lineage slots: those carry a same-Scope FK. It travels qualified,
+        # is verified at its own Scope, and is recorded in the target-owned origin rows.
+        artifacts = _unique_artifacts(adoption.local_artifacts)
+        audit = shared_candidate_audit(adoption, proposal)
+        candidate = await self._propose(
+            Skill.family,
+            proposal,
+            sources=adoption.local_sources,
+            artifacts=artifacts,
+            target=None,
+            reason=reason,
+            candidate_id=candidate_id,
+            on_commit=on_commit,
+            audit=audit,
+            foreign=foreign,
+        )
+        return _skill_candidate(candidate)
+
     async def propose_skill(
         self,
         proposal: SkillContent,
@@ -1409,10 +1457,14 @@ class ReviewService:
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
+        # Support owned by another Scope is never looked up here: it is verified at its own
+        # origin below, so an equal local decoy can neither satisfy nor mask it.
+        foreign_keys = {origin.reference.model_dump_json() for origin in foreign}
+        local_artifacts = tuple(ref for ref in artifacts if ref.model_dump_json() not in foreign_keys)
         try:
             source_rows = await self._sources.require_for_generation(connection, self._scope_id, sources)
             # Existence check only: the loaded revisions are intentionally unused.
-            await self._artifacts.get_many(connection, self._scope_id, artifacts)
+            await self._artifacts.get_many(connection, self._scope_id, local_artifacts)
         except RepositoryNotFoundError as error:
             raise InvalidCandidateError("evidence", "reference is not available in this scope") from error
         await self._validate_foreign(connection, foreign)
@@ -1420,7 +1472,7 @@ class ReviewService:
             roots = await self._evidence.validate(
                 connection,
                 sources=sources,
-                artifacts=supporting_artifacts,
+                artifacts=tuple(ref for ref in supporting_artifacts if ref in local_artifacts),
             )
             sources = _unique_sources((*sources, *roots))
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:

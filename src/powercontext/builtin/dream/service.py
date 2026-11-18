@@ -508,10 +508,10 @@ class DreamService:
         if (
             generated.output.outcome == "proposed"
             and record.share_snapshot_id is not None
-            and record.run.operation != "refine_experience"
+            and record.run.operation not in {"refine_experience", "derive_skill"}
         ):
-            # Only Experience proposes a durable shared Candidate at this checkpoint; every
-            # other shared operation still refuses before plan validation or preparation.
+            # Only Experience and a derived Skill propose a durable shared Candidate at this
+            # checkpoint; every other shared operation refuses before plan validation.
             raise DreamError("shared_use_candidate_unavailable")
         operation_spec(run.operation).validator(generated.output, record.request)
         plan = _supported_plan(record, generated.output, resolved)
@@ -770,15 +770,41 @@ class DreamService:
                 )
         elif isinstance(plan.proposal, SkillContent):
             if record.run.operation == "derive_skill":
-                validate_skill_lineage(SkillGenerationOrigin.EXPERIENCE, selected.sources, selected.artifacts, None)
-            candidate = await review.propose_skill(
-                plan.proposal,
-                sources=selected.sources,
-                artifacts=selected.artifacts,
-                target=record.run.target,
-                reason=plan.reason,
-                candidate_id=_candidate_id(record),
-            )
+                if record.share_snapshot_id is not None:
+                    if not selected.adopted:
+                        raise DreamError("shared_use_candidate_unavailable")
+                    # The same server-owned binding and trusted handoff as Experience; the
+                    # foreign Experience becomes the derived Skill's real lineage support.
+                    adoption = bind_shared_adoption(
+                        record,
+                        cited=plan.evidence_ids,
+                        manifest=resolved.manifest,
+                    )
+                    candidate = await review.admit_dream_shared_skill(
+                        plan.proposal,
+                        adoption=adoption,
+                        reason=plan.reason,
+                        candidate_id=_candidate_id(record),
+                    )
+                else:
+                    validate_skill_lineage(SkillGenerationOrigin.EXPERIENCE, selected.sources, selected.artifacts, None)
+                    candidate = await review.propose_skill(
+                        plan.proposal,
+                        sources=selected.sources,
+                        artifacts=selected.artifacts,
+                        target=record.run.target,
+                        reason=plan.reason,
+                        candidate_id=_candidate_id(record),
+                    )
+            else:
+                candidate = await review.propose_skill(
+                    plan.proposal,
+                    sources=selected.sources,
+                    artifacts=selected.artifacts,
+                    target=record.run.target,
+                    reason=plan.reason,
+                    candidate_id=_candidate_id(record),
+                )
         elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "revise_profile":
             await self._check_profile_policy(connection, record)
             policy = record.profile_policy

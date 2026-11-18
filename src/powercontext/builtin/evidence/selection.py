@@ -106,7 +106,10 @@ def select_evidence(
     memory_derived = any(nodes[key].kind == "memory" for key in dependencies)
     if memory_derived and not sources:
         raise EvidenceResolutionError("needs_evidence")
-    if skill and not artifacts:
+    if skill and not artifacts and not any(_origin_of(nodes[key]).artifact is not None for key in chosen):
+        # A derived Skill is supported by Experience. That Experience may be owned by another
+        # Scope, in which case it is carried as qualified support rather than a local slot;
+        # the cited set is what matters, not whether the reference is local.
         raise EvidenceResolutionError("invalid_generation_output")
     if len(sources) + len(artifacts) > 32:
         raise EvidenceResolutionError("evidence_limit_exceeded")
