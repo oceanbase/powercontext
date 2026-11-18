@@ -75,7 +75,6 @@ def _repeated_input() -> ArtifactGenerationInput:
                 evidence_id=f"source:content/task-{index}",
                 kind=GenerationEvidenceKind.SOURCE,
                 content=content,
-                truncated=index == 2,
             )
             for index in range(3)
         ),
@@ -246,7 +245,9 @@ def test_configured_experience_survives_review_approval_and_database_reopen(
                 f"source:{ref.source_type}/{ref.source_id}" for ref in refs
             ]
             assert [json.loads(item["content"])["content"] for item in document["evidence"]] == [content, content]
-            assert all(not item["truncated"] for item in document["evidence"])
+            # Evidence beyond the contract bound is rejected before generation, so the
+            # rendered input carries no truncation marker at all.
+            assert all("truncated" not in item for item in document["evidence"])
             assert all(report.stage == "experience.generate" for report in reports)
             assert len(reports) == (0 if mode == "off" else 1)
             approved = await runtime.review.for_scope(scope).approve(

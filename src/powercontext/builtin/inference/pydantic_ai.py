@@ -30,13 +30,20 @@ from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.artifacts.prompt.service import current_prompt
+from powercontext.builtin.inference.budget import (
+    EffectiveRequestBudget,
+    EmbeddingBudget,
+    validate_embedding_batches,
+)
 from powercontext.builtin.inference.errors import (
+    InferenceBudgetExceededError,
     InferenceConfigurationError,
     InferenceError,
     InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
+    find_admission_error,
     find_privacy_error,
 )
 from powercontext.builtin.inference.models import (
@@ -50,6 +57,7 @@ from powercontext.builtin.inference.observability import (
     current_provider_observer,
     provider_name,
 )
+from powercontext.builtin.inference.request_accounting import BudgetedModel, budgeted_exchange
 from powercontext.builtin.inference.usage import approved_usage, collect_approved_usage
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
@@ -109,6 +117,7 @@ try:
         UserPromptPart,
     )
     from pydantic_ai.models import Model, ModelRequestParameters
+    from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.models.wrapper import WrapperModel
     from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
@@ -300,11 +309,19 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         prompt_key: str | None = None,
         output_check: Callable[[InputT, OutputT], None] | None = None,
         input_renderer: Callable[[InputT], str] | None = None,
+        budget: EffectiveRequestBudget | None = None,
+        operation: str | None = None,
+        stage: str | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
         if not instructions.strip():
             raise PydanticAIConfigurationError("instructions")
+        if budget is not None and not operation:
+            raise PydanticAIConfigurationError("budget-operation")
+        self._budget = budget
+        self._exchange_operation = operation or ""
+        self._stage = stage
         self._limits = InferenceLimits() if limits is None else limits
         self._receipt_model = model
         self._input_type = input_type
@@ -316,6 +333,13 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         try:
             self._input_adapter = TypeAdapter(input_type)
             bounded_settings = model_settings
+            if budget is not None:
+                merged = merge_model_settings(model.settings, model_settings) or {}
+                requested = self._limits.max_output_tokens_per_request or merged.get("max_tokens")
+                self._budget = budget.with_output_limit(requested)
+                self._limits = self._limits.model_copy(
+                    update={"max_output_tokens_per_request": self._budget.output_reserve_tokens}
+                )
             if self._limits.max_output_tokens_per_request is not None:
                 bounded_settings = merge_model_settings(
                     model_settings,
@@ -325,8 +349,20 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 model,
                 merge_model_settings(model.settings, bounded_settings),
             )
+            # Keep request identity across streaming/continuation wrappers; owned SDK
+            # clients admit their serialized body in the task-local HTTP hook.
+            # Agent discovers explicit instrumentation only on the outermost model.
+            # Keep that layer outside the request-control wrappers.
+            instrumentation = model.instrumentation_settings if isinstance(model, InstrumentedModel) else None
+            agent_model = model.wrapped if isinstance(model, InstrumentedModel) else model
+            guarded_model: Model = (
+                agent_model if self._limits.allow_continuations else _CompleteResponseModel(agent_model)
+            )
+            guarded_model = (
+                InstrumentedModel(guarded_model, instrumentation) if instrumentation is not None else guarded_model
+            )
             self._agent = Agent(
-                model if self._limits.allow_continuations else _CompleteResponseModel(model),
+                guarded_model if budget is None else BudgetedModel.wrap(guarded_model),
                 deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
@@ -395,7 +431,12 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     if selection is not None and selection.selection == "artifact"
                     else nullcontext()
                 )
-                with override, collect_approved_usage() as raw_usage:
+                exchange = (
+                    nullcontext()
+                    if self._budget is None
+                    else budgeted_exchange(self._budget, operation=self._exchange_operation, stage=self._stage)
+                )
+                with override, exchange, collect_approved_usage() as raw_usage:
                     result = await asyncio.wait_for(
                         self._agent.run(
                             prompt,
@@ -420,8 +461,10 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 if mapped is not None and raw_usage:
                     prior = approved_usage(raw_usage)
                     mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
-                elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+                elif isinstance(mapped, (InferencePrivacyError, InferenceBudgetExceededError)) and run_usage.requests:
                     prior = _generation_usage(run_usage)
+                    if isinstance(mapped, InferenceBudgetExceededError):
+                        prior = prior.model_copy(update={"requests": mapped.requests_sent})
                     mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
                 if mapped is None:
                     raise
@@ -443,6 +486,7 @@ class PydanticAIEmbeddingModel:
         profile: EmbeddingProfile,
         batch_size: int = 10,
         limits: InferenceLimits | None = None,
+        budget: EmbeddingBudget | None = None,
     ) -> None:
         if not isinstance(embedder, Embedder) or isinstance(embedder.model, str):
             raise PydanticAIConfigurationError("embedder-instance")
@@ -461,6 +505,7 @@ class PydanticAIEmbeddingModel:
         self.profile = profile
         self._batch_size = batch_size
         self._limits = InferenceLimits() if limits is None else limits
+        self._budget = budget
 
     def _without_instrumentation(self) -> Self:
         """Copy this adapter for readiness without changing operational tracing."""
@@ -517,6 +562,8 @@ class PydanticAIEmbeddingModel:
     async def _embed_batches(
         self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]
     ) -> EmbeddingResult:
+        if self._budget is not None and self._budget.has_limits:
+            validate_embedding_batches(self._budget, texts, self._batch_size)
         vectors: list[tuple[float, ...]] = []
         usage = InferenceUsage(requests=0)
         for start in range(0, len(texts), self._batch_size):
@@ -524,23 +571,22 @@ class PydanticAIEmbeddingModel:
             try:
                 with collect_approved_usage() as raw_usage:
                     result = await self._embedder.embed(batch, input_type=input_type)
+                batch_usage = (
+                    approved_usage(raw_usage)
+                    if raw_usage
+                    else InferenceUsage(requests=1, input_tokens=result.usage.input_tokens)
+                )
+                usage = combine_inference_usage(usage, batch_usage)
+                vectors.extend(
+                    self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings, input_type)
+                )
             except Exception as error:
-                privacy_error = find_privacy_error(error)
-                if privacy_error is not None and usage.requests:
-                    prior = usage
-                    privacy_error.usage = (
-                        prior if privacy_error.usage is None else combine_inference_usage(prior, privacy_error.usage)
-                    )
+                mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
+                if mapped is not None and usage.requests:
+                    mapped.usage = usage if mapped.usage is None else combine_inference_usage(usage, mapped.usage)
+                if mapped is not None and mapped is not error:
+                    raise mapped from error
                 raise
-            vectors.extend(
-                self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings, input_type)
-            )
-            batch_usage = (
-                approved_usage(raw_usage)
-                if raw_usage
-                else InferenceUsage(requests=1, input_tokens=result.usage.input_tokens)
-            )
-            usage = combine_inference_usage(usage, batch_usage)
         return EmbeddingResult(
             vectors=tuple(vectors),
             usage=usage,
@@ -636,6 +682,9 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
     operation: str,
     timeout_seconds: float,
 ) -> InferenceError | None:
+    budget_error = find_admission_error(error)
+    if budget_error is not None:
+        return budget_error
     privacy_error = find_privacy_error(error)
     if privacy_error is not None:
         return privacy_error

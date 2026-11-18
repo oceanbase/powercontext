@@ -16,8 +16,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RUL
 from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.persistence.records import _canonical_source_text
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.processing_diagnostics import (
@@ -158,6 +159,8 @@ class AtomicMemoryGenerationPipeline:
     estimator: TokenEstimator
     extraction_instructions: str = atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING)
     input_renderer: Callable[[AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput], str] | None = None
+
+    request_budgets: Mapping[str, EffectiveRequestBudget] = field(default_factory=dict)
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
         result = await self.extractor.generate(value)

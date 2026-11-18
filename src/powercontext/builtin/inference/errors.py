@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Literal
 from powercontext.errors import PowerContextError
 
 if TYPE_CHECKING:
+    from powercontext.builtin.inference.budget import AdmissionDecision
     from powercontext.builtin.inference.models import InferenceUsage
 
 
@@ -59,6 +60,38 @@ def find_privacy_error(error: BaseException) -> InferencePrivacyError | None:
     current: BaseException | None = error
     while current is not None and id(current) not in seen:
         if isinstance(current, InferencePrivacyError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
+
+
+class InferenceBudgetExceededError(InferenceError):
+    """A protected request could not be admitted against its effective budget.
+
+    This is a local, pre-send fact: the request never reached the provider. It is
+    neither an unavailable-provider error nor an invalid-output error, so
+    advisory fallbacks and output retries must not consume it.
+    """
+
+    code = "inference_budget_exceeded"
+    requests_sent: int = 0
+
+    def __init__(self, decision: AdmissionDecision) -> None:
+        self.decision = decision
+        super().__init__(f"inference budget exceeded for {decision.operation} ({decision.dimension})")
+
+    def details(self) -> dict[str, object]:
+        return self.decision.details()
+
+
+def find_admission_error(error: BaseException) -> InferenceError | None:
+    """Recover a local rejection wrapped as an SDK connection failure."""
+
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (InferenceBudgetExceededError, InferenceConfigurationError)):
             return current
         seen.add(id(current))
         current = current.__cause__ or current.__context__

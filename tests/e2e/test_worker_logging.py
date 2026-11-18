@@ -899,3 +899,52 @@ def test_concurrent_spawned_workers_share_file_output(tmp_path, capfd, log_forma
         assert len(output.splitlines()) == 9
         for index in range(3):
             assert output.count(f'worker_id="file-attempt-{index}"') == 3
+
+
+def _budget_logging_probe(initializer: WorkerLogging) -> None:
+    initializer()
+    from powercontext.builtin.inference.budget import AdmissionDecision
+    from powercontext.builtin.inference.errors import InferenceBudgetExceededError
+    from powercontext.server.app import _observe_inference_budget_rejection
+
+    _observe_inference_budget_rejection(
+        InferenceBudgetExceededError(
+            AdmissionDecision(
+                allowed=False,
+                operation="profile.generate",
+                dimension="input_tokens",
+                estimated_value=100,
+                limit_value=50,
+                estimator_id="character:weighted",
+                estimator_version="1",
+            )
+        )
+    )
+
+
+def test_budget_rejection_fields_survive_real_worker_logging(tmp_path) -> None:
+    config = ServerLoggingConfig(file=True, directory=tmp_path, format="json")
+    with worker_logging(config, role="background") as initializer:
+        assert isinstance(initializer, WorkerInitializerPreparation)
+        with initializer.prepare() as child_initializer:
+            process = multiprocessing.get_context("spawn").Process(
+                target=_budget_logging_probe, args=(child_initializer,)
+            )
+            process.start()
+        try:
+            process.join(timeout=30)
+            assert process.exitcode == 0
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            process.close()
+    records = _json_records((tmp_path / "background.log").read_text(encoding="utf-8"))
+    record = next(record for record in records if record.get("event") == "inference.budget.rejected")
+    assert record["operation"] == "profile.generate"
+    assert record["budget_dimension"] == "input_tokens"
+    assert record["estimated_value"] == 100
+    assert record["limit_value"] == 50
+    assert record["budget_unit"] == "tokens"
+    assert record["estimator_version"] == "1"
+    assert "request_id" not in record

@@ -32,12 +32,15 @@ class GenerationEvidenceKind(StrEnum):
 
 
 class GenerationEvidence(BaseModel):
-    """One exact bounded evidence projection."""
+    """One exact evidence projection.
+
+    Evidence that does not fit the contract bound is rejected before generation
+    instead of being shortened, so a Candidate never reflects partial evidence.
+    """
 
     evidence_id: str
     kind: GenerationEvidenceKind
     content: str = Field(min_length=1, max_length=MAX_GENERATION_EVIDENCE_CHARS)
-    truncated: bool = False
 
 
 class ArtifactGenerationInput(BaseModel):

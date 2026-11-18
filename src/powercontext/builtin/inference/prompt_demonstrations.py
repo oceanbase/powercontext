@@ -30,6 +30,7 @@ from powercontext.builtin.artifacts.prompt import (
     PromptDemonstrationResult,
 )
 from powercontext.builtin.artifacts.prompt.validation import validate_demonstration
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 
 
@@ -54,10 +55,14 @@ class PromptDemonstrationGenerator:
         *,
         limits: InferenceLimits,
         model_settings: ModelSettings | None,
+        budget: EffectiveRequestBudget | None = None,
+        operation: str = "prompt_demonstrations",
     ) -> None:
         self._model = model
         self._limits = limits
         self._model_settings = model_settings
+        self._budget = budget
+        self._operation = operation
 
     async def __call__(
         self, definition: PromptDefinition, request: GeneratePromptDemonstrations
@@ -100,6 +105,8 @@ class PromptDemonstrationGenerator:
                 limits=self._limits,
                 model_settings=self._model_settings,
                 name="prompt_demonstrations",
+                budget=self._budget,
+                operation=self._operation,
             )
         )
         result = await generator.generate(request)

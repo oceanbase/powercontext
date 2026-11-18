@@ -48,7 +48,6 @@ def test_public_projection_preserves_all_parts_without_fabricating_success():
         assert "".join(row["content"] for row in records if row["metadata"]["kind"] == key) == original
     value = projection(instance)
     assert len(value.evidence) == len(records)
-    assert all(not evidence.truncated for evidence in value.evidence)
     assert all(
         json.loads(evidence.content)["metadata"]["test_execution"] == "not_executed_by_this_evaluation"
         for evidence in value.evidence

@@ -11,6 +11,7 @@
     "plugin-contract",
     "capture-coverage",
     "pydantic-ai-inference",
+    "inference-budgets",
     "observability",
     "processing-failures",
     "remote-access-implementation",

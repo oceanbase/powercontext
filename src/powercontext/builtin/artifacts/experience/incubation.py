@@ -130,12 +130,23 @@ def _incubation_input(
         if not isinstance(source, ContentSource) or source.metadata.get("kind") != TASK_OUTCOME_SOURCE_KIND:
             continue
         evidence_id = f"source:{CONTENT_SOURCE_NAME}/{source.name}"
-        projected.append(
-            ExperienceIncubationEvidence(
-                evidence_id=evidence_id,
-                content=source.content[:MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS],
+        if len(source.content) > MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS:
+            # Keeping the whole case boundary matters more than admitting a cut-down
+            # Task Outcome: truncation would let the generator reason about a case it
+            # only partially received.
+            from powercontext.builtin.inference import InferenceBudgetExceededError
+            from powercontext.builtin.inference.budget import hard_limit_decision
+
+            raise InferenceBudgetExceededError(
+                hard_limit_decision(
+                    operation="experience.incubate",
+                    dimension="input_bytes",
+                    estimated_value=len(source.content),
+                    limit_value=MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS,
+                    unit="characters",
+                )
             )
-        )
+        projected.append(ExperienceIncubationEvidence(evidence_id=evidence_id, content=source.content))
         evidence[evidence_id] = SourceRef(source_type=CONTENT_SOURCE_NAME, source_id=source.name)
     if not projected:
         return None, {}
