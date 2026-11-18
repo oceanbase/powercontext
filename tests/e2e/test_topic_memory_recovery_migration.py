@@ -18,6 +18,7 @@
 # ruff: noqa: S608
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -747,3 +748,65 @@ def test_alias_layout_change_rejects_original_interrupted_journal(atomic_mainten
         replacement.plan()
     assert journals[0].read_bytes() == original_journal
     assert path.read_bytes() == original
+
+
+def test_topic_resource_documentation_does_not_invalidate_plan(atomic_maintenance_database, tmp_path, monkeypatch):
+    _, config = atomic_maintenance_database
+    resources = tmp_path / "resources"
+    shutil.copytree(recovery_migration.RESOURCE.parent, resources)
+    monkeypatch.setattr(recovery_migration, "RESOURCE", resources / "schema.json")
+    runner = TopicMemoryRecoveryMigrationRunner(config)
+    plan = runner.plan()
+    readme = resources / "README.md"
+    readme.write_bytes(readme.read_bytes() + b"\n")
+    assert runner.plan().plan_id == plan.plan_id
+
+
+@pytest.mark.parametrize("schema_changed", [False, True])
+def test_released_topic_journal_resumes_with_original_backup(tmp_path, monkeypatch, schema_changed):
+
+    path = tmp_path / "legacy.db"
+    config, _ = _legacy(path)
+    current_checksum = recovery_migration._resource_checksum
+    with monkeypatch.context() as legacy:
+        legacy.setattr(
+            recovery_migration,
+            "_resource_checksum",
+            lambda: hashlib.sha256(recovery_migration.RESOURCE.read_bytes()).hexdigest(),
+        )
+        runner = TopicMemoryRecoveryMigrationRunner(config)
+
+        def interrupt(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().startswith("CREATE TABLE pc_topic_memory_work_budgets_upgrade"):
+                raise RuntimeError("injected legacy interruption")  # noqa: TRY003
+
+        event.listen(Engine, "before_cursor_execute", interrupt)
+        try:
+            with pytest.raises(RuntimeError, match="injected legacy interruption"):
+                _apply(runner)
+        finally:
+            event.remove(Engine, "before_cursor_execute", interrupt)
+    journal = next(runner.directory.rglob("topic-memory-recovery.json"))
+    before = json.loads(journal.read_text())
+    if schema_changed:
+        resources = tmp_path / "resources"
+        shutil.copytree(recovery_migration.RESOURCE.parent, resources)
+        schema = resources / "schema.json"
+        schema.write_bytes(schema.read_bytes() + b"\n")
+        monkeypatch.setattr(recovery_migration, "RESOURCE", schema)
+    replacement = TopicMemoryRecoveryMigrationRunner(config)
+    if schema_changed:
+        original = path.read_bytes()
+        with pytest.raises(MigrationError, match="recovery_required"):
+            replacement.plan()
+        assert path.read_bytes() == original
+        assert json.loads(journal.read_text()) == before
+        return
+    assert replacement.checksum == current_checksum()
+    assert replacement.plan().state == "recovery_required"
+    assert json.loads(journal.read_text()) == before
+    assert _apply(replacement).changed
+    assert replacement.verify().state == "ready"
+    after = json.loads(journal.read_text())
+    assert after["checksum"] == before["checksum"]
+    assert after["backup"] == before["backup"]

@@ -110,8 +110,7 @@ def _resource_checksum() -> str:
     root = RESOURCE.parent
     return digest({
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(root.rglob("*"))
-        if path.is_file()
+        for path in (RESOURCE, root / "atomic_maintenance_sqlite_v2.json")
     })
 
 
@@ -372,7 +371,17 @@ class TopicMemoryRecoveryMigrationRunner:
         active = evidence is not None and evidence.get("state") != "complete"
         if evidence and (
             evidence.get("revision") != self.revision
-            or evidence.get("checksum") != self.checksum
+            or (
+                evidence.get("checksum") != self.checksum
+                and not (
+                    # Released journals bound only the original frozen schema. The
+                    # added alias layout cannot have been their source.
+                    evidence["source"] != "atomic-maintenance-sqlite-v1"
+                    and evidence["checksum"]
+                    == hashlib.sha256(RESOURCE.read_bytes()).hexdigest()
+                    == "f28d5c527cf11d8ac37d87ff149a64f2688b80498c3ac814b1db12c42cebf6cc"
+                )
+            )
             or evidence.get("configuration") != self.configuration
         ):
             raise MigrationError(
@@ -457,11 +466,13 @@ class TopicMemoryRecoveryMigrationRunner:
             )
         return MigrationResult(revision=self.revision, changed=False)
 
-    def _context(self, identity: BackendIdentity, source: str, window: str) -> BackupContext:
+    def _context(
+        self, identity: BackendIdentity, source: str, window: str, *, checksum: str | None = None
+    ) -> BackupContext:
         return BackupContext(
             database_id=identity.database_id,
             source_revision=None if source == "empty" else source,
-            bundle_checksum=self.checksum,
+            bundle_checksum=checksum or self.checksum,
             maintenance_window_id=window,
             objects=_BACKUP_OBJECTS,
             writers_stopped=True,
@@ -554,11 +565,12 @@ class TopicMemoryRecoveryMigrationRunner:
             raise MigrationError("recovery_required", "Resume with the original backup policy and recovery point.")
         provider = self._provider(connection, identity)
         connection.commit()
+        context = self._context(identity, evidence["source"], evidence["window"], checksum=evidence["checksum"])
         if evidence["state"] == "preparing":
             if evidence["source"] == "empty":
                 evidence.update(backup_state="not_required", backup=None)
             elif backup_policy == "auto":
-                ref = provider.create_backup(self._context(identity, evidence["source"], evidence["window"]))
+                ref = provider.create_backup(context)
                 if provider.inspect_backup(ref).state != "completed":
                     raise MigrationError("backup_failed", "The recovery point did not pass provider inspection.")
                 evidence.update(backup_state="completed", backup=ref.model_dump(mode="json"))
@@ -575,7 +587,7 @@ class TopicMemoryRecoveryMigrationRunner:
                 ref = BackupRef.model_validate(evidence.get("backup"))
             except ValidationError as error:
                 raise MigrationError("backup_required", "The retained recovery point has an invalid format.") from error
-            expected = self._context(identity, evidence["source"], evidence["window"])
+            expected = context
             if (
                 any(
                     getattr(ref, name) != getattr(expected, name)

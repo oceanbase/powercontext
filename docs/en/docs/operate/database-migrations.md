@@ -502,6 +502,8 @@ powercontext server db-migrate verify --env-file oceanbase.env \
   --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 ```
 
+Topic recovery checksums cover `schema.json` and `atomic_maintenance_sqlite_v2.json`, excluding `README.md`. Journals using the released schema-only checksum remain resumable only with the exact frozen schema and an original source other than the added atomic maintenance layout. Recovery preserves the original journal and backup checksum identities; configuration and backup validation still apply.
+
 Replace `PLAN_ID` with the returned plan ID. Do not move evidence to an empty directory to bypass a recovery error.
 Missing or inconsistent evidence for an interrupted migration returns `recovery_required`; selecting manual backup or
 accepting no-backup risk does not authorize an unknown schema or an unproven DDL transition.
