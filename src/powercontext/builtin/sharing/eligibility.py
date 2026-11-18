@@ -111,20 +111,19 @@ async def _require_target_audience(
     access: AccessControlService,
     rule: ShareRule,
     scope_id: str,
-    declared: tuple[tuple[str, int], ...],
     audit: AccessAuditContext,
     /,
 ) -> None:
     """The audience side must be an authentic acceptance of exactly the target Scope.
 
-    The minimal contract is ``project-members``: the agreement is addressed to the Scope
-    that owns the rule. An origin-side acceptance, or an audience acceptance recorded for a
-    different Scope, is not a substitute. The accepting principal must currently administer
-    exactly that target Scope.
+    The minimal contract is ``project-members``: the agreement is addressed to the Scope that
+    owns the rule, and that is *independent of the origin selector*. A target is not required
+    to appear in the declared origin membership — an origin-only range whose target is
+    excluded is the normal shape. An origin-side acceptance, or an audience acceptance
+    recorded for a different Scope, is not a substitute. The accepting principal must
+    currently administer exactly that target Scope.
     """
 
-    if scope_id not in {declared_id for declared_id, _ in declared}:
-        raise ShareIneligibleError("shared_use_audience")
     audience = tuple(
         acceptance
         for acceptance in rule.acceptances
@@ -207,11 +206,11 @@ async def require_bound_eligibility(
         if not _spec_admits(spec.allowed_evidence, item):
             raise ShareIneligibleError("shared_use_ineligible_operation")
 
-    declared = await _declared_scopes(scopes, rule.selection)
+    declared = await _declared_scopes(scopes, connection, rule.selection)
     _require_membership(declared, snapshot)
     try:
         await _require_acceptances(access, rule, snapshot, declared, audit)
-        await _require_target_audience(access, rule, scope_id, declared, audit)
+        await _require_target_audience(access, rule, scope_id, audit)
         await _require_target_contribution(access, principal, scope_id, audit)
         await _require_origin_rights(access, principal, snapshot, audit)
     except AccessControlError as error:
@@ -254,11 +253,15 @@ def _require_membership(declared: tuple[tuple[str, int], ...], snapshot: ShareSn
         raise ShareIneligibleError("shared_use_terms")
 
 
-async def _declared_scopes(scopes: ScopeApplication, selection, /) -> tuple[tuple[str, int], ...]:
+async def _declared_scopes(
+    scopes: ScopeApplication, connection: AsyncConnection, selection, /
+) -> tuple[tuple[str, int], ...]:
     """Resolve the rule's declared range through P1's bounded membership owner.
 
-    Expansion is complete or refused: the bounded resolver raises rather than returning a
-    truncated membership, so a pin is never validated against part of its own range.
+    Expansion is complete or refused on the caller's own transaction: the bounded resolver
+    raises rather than returning a truncated membership, so a pin is never validated
+    against part of its own range, and it reads the same snapshot the rest of this check
+    sees instead of opening a second connection.
     """
 
     from powercontext.builtin.scope.errors import ScopeRangeLimitError
@@ -267,7 +270,7 @@ async def _declared_scopes(scopes: ScopeApplication, selection, /) -> tuple[tupl
         # An unbounded collection is not a bounded agreement.
         raise ShareIneligibleError("shared_use_unsupported")
     try:
-        resolved = await scopes.resolve_range(selection)
+        resolved = await scopes.resolve_range_on(connection, selection)
     except ScopeRangeLimitError as error:
         raise ShareIneligibleError("shared_use_scope_range") from error
     return tuple(sorted((scope.scope_id, int(scope.version)) for scope in resolved.scopes))

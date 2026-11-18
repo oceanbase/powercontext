@@ -328,15 +328,32 @@ class ScopeApplication:
         instead of returning a partial range.
         """
 
-        bounds = ScopeRangeLimits() if limits is None else limits
         async with self._database.transaction() as connection:
-            if selection.mode == "all":
-                raise ScopeRangeLimitError("mode")
-            scopes = (
-                await self._exact_range(connection, selection, bounds)
-                if selection.mode == "exact"
-                else await self._structural_range(connection, selection, bounds)
-            )
+            return await self.resolve_range_on(connection, selection, limits=limits)
+
+    async def resolve_range_on(
+        self,
+        connection: AsyncConnection,
+        selection: ScopeSelection,
+        /,
+        *,
+        limits: ScopeRangeLimits | None = None,
+    ) -> ScopeRange:
+        """Resolve a range on the caller's own transaction, without opening another.
+
+        A caller that already owns a transaction must read membership from that same
+        snapshot, or it would confirm a structure the surrounding admission never saw.
+        The traversal is the one ``resolve_range`` uses; there is no second walk.
+        """
+
+        bounds = ScopeRangeLimits() if limits is None else limits
+        if selection.mode == "all":
+            raise ScopeRangeLimitError("mode")
+        scopes = (
+            await self._exact_range(connection, selection, bounds)
+            if selection.mode == "exact"
+            else await self._structural_range(connection, selection, bounds)
+        )
         return ScopeRange(
             selection=selection,
             scopes=scopes,

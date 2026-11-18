@@ -39,6 +39,7 @@ from powercontext.builtin.authz.models import AccessAction, ResourceRef
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
 from powercontext.builtin.persistence.share_agreement import ShareAgreementRepository, _RulePayload
+from powercontext.builtin.scope.application import ScopeApplication
 from powercontext.builtin.scope.models import ScopeDescriptor, ScopeSelection
 from powercontext.builtin.scope.repository import ScopeRepository
 from powercontext.builtin.sharing.models import (
@@ -65,7 +66,6 @@ if TYPE_CHECKING:
     from powercontext.builtin.persistence.sources import SourceRepository
 
 _SIDES = frozenset({"origin", "audience"})
-_DECLARED_CHILD_PAGE = 512
 
 
 def _require_scope(scope_id: object) -> str:
@@ -126,6 +126,9 @@ class ShareAgreementService:
         # The owning readers of the structures a pin must verify. When one is absent the
         # pin refuses the input it cannot check instead of recording an unverified claim.
         self.scopes = ScopeRepository() if scopes is None else scopes
+        # The bounded membership owner. Used for a structural declared range so the sharing
+        # service never walks Scope children itself.
+        self._range_owner = ScopeApplication(database)
         self.sources = sources
         self.artifacts = artifacts
         self._id_factory = id_factory
@@ -204,8 +207,15 @@ class ShareAgreementService:
         """Record one authentic acceptance of an existing rule version.
 
         The recorded identity is derived from ``principal`` after authorization, so no
-        parameter lets a caller name another acceptor. Every claimed Scope must be
-        administered by that principal now and must be one the rule actually declares.
+        parameter lets a caller name another acceptor. The two sides are addressed
+        differently, and the difference is the contract:
+
+        - ``audience`` consent covers exactly the rule-owning Scope. It is independent of
+          the origin selector, so an origin-only range that excludes the target is the
+          normal shape; the target is never forced into origin membership. The acceptor
+          must currently administer that target.
+        - ``origin`` consent covers only Scopes the rule actually declares, and the
+          acceptor must currently administer each of them exactly.
         """
 
         scope_id = _require_scope(scope_id)
@@ -218,10 +228,16 @@ class ShareAgreementService:
             rule = await self.repository.build_rule(connection, scope_id, rule_id, version)
             if rule.status != "active":
                 raise ShareTermsChangedError()
-            declared = {scope.scope_id for scope in await self._declared_scopes(connection, rule.selection)}
-            uncovered = next((covered for covered in claimed if covered not in declared), None)
-            if uncovered is not None:
-                raise ShareRejectedError("shared_use_audience")
+            if side == "audience":
+                # Consent to receive is consent of the rule-owning target itself, and it
+                # does not depend on whether the selector happens to include that Scope.
+                if claimed != (scope_id,):
+                    raise ShareRejectedError("shared_use_audience")
+            else:
+                declared = {scope.scope_id for scope in await self._declared_scopes(connection, rule.selection)}
+                uncovered = next((covered for covered in claimed if covered not in declared), None)
+                if uncovered is not None:
+                    raise ShareRejectedError("shared_use_audience")
             actor = await self._require_acceptance_authority(principal, side, claimed, context)
             acceptance = ShareAcceptance(
                 acceptance_id=self._new_id("acc"),
@@ -364,42 +380,25 @@ class ShareAgreementService:
     async def _declared_scopes(
         self, connection: AsyncConnection, selection: ScopeSelection, /
     ) -> tuple[ScopeDescriptor, ...]:
-        """Resolve the rule's own declared Scope range from the owning store.
+        """Resolve the rule's own declared Scope range through P1's bounded owner.
 
-        A pin compares against this, never against the versions a caller reports.
+        Complete or refuse, on every mode: the owner raises instead of truncating a subtree or
+        scanning the whole collection, so a pin is never validated against part of its own
+        range and an unbounded ``all`` selection is not treated as a bounded agreement. A pin
+        compares against this, never against versions a caller reports.
         """
 
-        if selection.mode == "exact":
-            declared = await self.scopes.get_many(connection, selection.scope_ids)
-            found = {scope.scope_id for scope in declared}
-            missing = next((scope_id for scope_id in selection.scope_ids if scope_id not in found), None)
-            if missing is not None:
-                from powercontext.builtin.scope.errors import ScopeNotFoundError
+        from powercontext.builtin.scope.errors import ScopeRangeLimitError
 
-                raise ScopeNotFoundError(missing)
-            return declared
-        if selection.mode == "subtree":
-            root_scope_id = selection.root_scope_id
-            if root_scope_id is None:
-                raise ShareRejectedError("shared_use_audience")
-            root = await self.scopes.get(connection, root_scope_id)
-            if root is None:
-                from powercontext.builtin.scope.errors import ScopeNotFoundError
-
-                raise ScopeNotFoundError(root_scope_id)
-            resolved = [root]
-            pending = [root_scope_id]
-            visited = {root_scope_id}
-            while pending:
-                children = await self.scopes.children(connection, (pending.pop(),), limit=_DECLARED_CHILD_PAGE)
-                for child in children:
-                    if child.scope_id in visited:
-                        continue
-                    visited.add(child.scope_id)
-                    resolved.append(child)
-                    pending.append(child.scope_id)
-            return tuple(resolved)
-        return await self.scopes.list(connection)
+        if selection.mode == "all":
+            # An unbounded collection is not a bounded agreement; it is unsupported, not
+            # merely over budget, and it never falls back to a whole-collection scan.
+            raise ShareRejectedError("shared_use_unsupported")
+        try:
+            resolved = await self._range_owner.resolve_range_on(connection, selection)
+        except ScopeRangeLimitError as error:
+            raise ShareRejectedError("shared_use_scope_range") from error
+        return tuple(resolved.scopes)
 
     async def _require_current_rule(
         self, connection: AsyncConnection, scope_id: str, draft: ShareSnapshotDraft, /
@@ -441,6 +440,11 @@ class ShareAgreementService:
         is rechecked now against the owning store, because a recorded acceptance is not a
         perpetual grant. The pinning principal separately needs current read authority at
         each origin it actually pins.
+
+        This checks the *origin* side only. Audience consent is the target's own agreement
+        to receive, and it is enforced where the target is actually the audience: at bound
+        execution and at approval. Requiring it here would also make writing a pin depend
+        on the target's relation to the origin range.
         """
 
         assert self.access is not None  # noqa: S101 - the public pin path rejects a missing service

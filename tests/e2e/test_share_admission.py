@@ -48,7 +48,7 @@ from powercontext.builtin.inference.models import GenerationResult, InferenceUsa
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_INTENTS_TABLE,
     ARTIFACTS_TABLE,
@@ -67,10 +67,12 @@ from powercontext.builtin.runtime.models import (
     GetSkillRequest,
 )
 from powercontext.builtin.runtime.relational import BUILTIN_ARTIFACT_TYPES
-from powercontext.builtin.scope import ScopeDraft, ScopeSelection
+from powercontext.builtin.scope import ScopeApplication, ScopeDraft, ScopeRangeLimits, ScopeSelection
 from powercontext.builtin.scope.repository import ScopeRepository
 from powercontext.builtin.sharing.models import (
     ShareInput,
+    ShareRejectedError,
+    ShareRule,
     ShareRuleDraft,
     ShareRuleTerms,
     ShareSnapshot,
@@ -1181,10 +1183,8 @@ def test_foreign_origin_without_an_origin_authorizer_is_refused(tmp_path: Path) 
     asyncio.run(scenario())
 
 
-async def _setup_pin_without_audience(
-    admindb, access, scope_id: str, *, side_scope: str | None, other_scope: str | None = None
-) -> ShareSnapshot:
-    """Record a pin whose audience side is missing or recorded for another Scope."""
+async def _setup_pin_without_audience(admindb, access, scope_id: str) -> ShareSnapshot:
+    """Record a pin whose audience side was never consented to by the target."""
 
     sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
     async with admindb.transaction() as connection:
@@ -1194,10 +1194,9 @@ async def _setup_pin_without_audience(
             ContentSource(name="write-test", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
         )
     service = ShareAgreementService(admindb, access=access, scopes=ScopeRepository(), sources=sources)
-    declared = (scope_id,) if other_scope is None else (scope_id, other_scope)
     rule = await service.create(
         scope_id,
-        ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=declared), terms=_terms()),
+        ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(scope_id,)), terms=_terms()),
         principal=OWNER,
         context=AUDIT,
     )
@@ -1210,31 +1209,16 @@ async def _setup_pin_without_audience(
         covered_scope_ids=(scope_id,),
         context=AUDIT,
     )
-    if side_scope is not None:
-        await service.accept(
-            scope_id,
-            rule.rule_id,
-            rule.version,
-            principal=OWNER,
-            side="audience",
-            covered_scope_ids=(side_scope,),
-            context=AUDIT,
-        )
     async with admindb.transaction() as connection:
         descriptor = await ScopeRepository().get(connection, scope_id)
-        other_descriptor = None if other_scope is None else await ScopeRepository().get(connection, other_scope)
     assert descriptor is not None
-    versions: tuple[tuple[str, int], ...] = ((scope_id, descriptor.version),)
-    if other_descriptor is not None:
-        assert other_scope is not None
-        versions = (*versions, (other_scope, other_descriptor.version))
     return await service.pin(
         scope_id,
         ShareSnapshotDraft(
             rule_id=rule.rule_id,
             rule_version=rule.version,
             terms_digest=rule.terms_digest,
-            membership_digest=membership_digest(versions),
+            membership_digest=membership_digest(((scope_id, descriptor.version),)),
             inputs=(
                 ShareInput(
                     kind="source",
@@ -1243,7 +1227,7 @@ async def _setup_pin_without_audience(
                     digest=content_digest(stored.value.model_dump_json().encode()),
                 ),
             ),
-            notification_key=f"audience-{side_scope}",
+            notification_key="audience-absent",
         ),
         principal=OWNER,
         context=AUDIT,
@@ -1279,27 +1263,49 @@ def test_missing_or_misdirected_audience_acceptance_refuses(tmp_path: Path) -> N
                 operation="refine_experience", artifacts=(citation,), idempotency_key="audience-run"
             )
 
-            for label, side_scope in (("absent", None), ("wrong-scope", other)):
-                pin = await _setup_pin_without_audience(
-                    runtime.primary_database,
-                    access,
-                    target,
-                    side_scope=side_scope,
-                    other_scope=other if side_scope == other else None,
-                )
-                run = await service._admit(
-                    target,
-                    "runtime",
-                    request.model_copy(update={"idempotency_key": f"audience-{label}"}),
-                    snapshot_id=pin.snapshot_id,
-                )
-                calls_before = len(generator.inputs)
-                async with runtime.primary_database.transaction() as connection:
-                    record = await service.repository.get(connection, target, run.run_id)
-                    with pytest.raises(DreamError) as refused:
-                        await service._resolve(record, connection)
-                assert refused.value.code == "shared_use_audience", label
-                assert len(generator.inputs) == calls_before == 0, label
+            # A misdirected audience consent cannot even be recorded: consent to receive is
+            # consent of the rule-owning target itself, not of a Scope in its origin range,
+            # and it never depends on the target appearing among the origins.
+            agreement = ShareAgreementService(
+                runtime.primary_database,
+                access=access,
+                scopes=ScopeRepository(),
+                sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
+            )
+            recorded = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(other,)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            for misdirected in ((other,), (target, other)):
+                with pytest.raises(ShareRejectedError):
+                    await agreement.accept(
+                        target,
+                        recorded.rule_id,
+                        recorded.version,
+                        principal=OWNER,
+                        side="audience",
+                        covered_scope_ids=misdirected,
+                        context=AUDIT,
+                    )
+
+            # Without the target's own audience consent the bound run still refuses, and no
+            # model call is spent proving it.
+            pin = await _setup_pin_without_audience(runtime.primary_database, access, target)
+            run = await service._admit(
+                target,
+                "runtime",
+                request.model_copy(update={"idempotency_key": "audience-absent"}),
+                snapshot_id=pin.snapshot_id,
+            )
+            calls_before = len(generator.inputs)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, target, run.run_id)
+                with pytest.raises(DreamError) as refused:
+                    await service._resolve(record, connection)
+            assert refused.value.code == "shared_use_audience"
+            assert len(generator.inputs) == calls_before == 0
 
     asyncio.run(scenario())
 
@@ -4053,5 +4059,340 @@ def test_shared_profile_revision_reaches_two_and_stale_candidate_refuses(tmp_pat
                 )
             assert heads_after == heads_before
             assert origins_after == origins_before
+
+    asyncio.run(scenario())
+
+
+async def _count_pins(admindb, scope_id: str) -> int:
+    """How many pins the store holds for this rule owner, read from its own table."""
+
+    async with admindb.transaction() as connection:
+        return int(
+            await connection.scalar(
+                select(func.count())
+                .select_from(SHARE_SNAPSHOTS_TABLE)
+                .where(SHARE_SNAPSHOTS_TABLE.c.scope_id == scope_id)
+            )
+            or 0
+        )
+
+
+async def _consented_origin_declaring_other_target(
+    admindb, access, target: str, origin: str
+) -> tuple[ShareRule, SourceRef, str]:
+    """A rule whose declared origin range excludes the target, with exact target consent.
+
+    This is the intended shape: the target owns the agreement and receives the conclusion,
+    while the material it may use lives in an origin that is not the target. Audience
+    consent is recorded for exactly the target, which the selector never names.
+    """
+
+    sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+    async with admindb.transaction() as connection:
+        stored = await sources.add(
+            connection,
+            origin,
+            ContentSource(name="origin-material", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+        )
+    service = ShareAgreementService(admindb, access=access, scopes=ScopeRepository(), sources=sources)
+    rule = await service.create(
+        target,
+        # Only the origin is declared. The target is deliberately not a member.
+        ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(origin,)), terms=_terms()),
+        principal=OWNER,
+        context=AUDIT,
+    )
+    await service.accept(
+        target,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="origin",
+        covered_scope_ids=(origin,),
+        context=AUDIT,
+    )
+    # Delivery consent is the target's own, recorded independently of that selector.
+    await service.accept(
+        target,
+        rule.rule_id,
+        rule.version,
+        principal=OWNER,
+        side="audience",
+        covered_scope_ids=(target,),
+        context=AUDIT,
+    )
+    return rule, stored.ref, content_digest(stored.value.model_dump_json().encode())
+
+
+def test_target_outside_the_declared_origin_range_runs_through_the_worker(tmp_path: Path) -> None:
+    """A target excluded from the origin range works under its own distinct agreement.
+
+    The pin declares only the origin; the audience side is the target's separate consent.
+    This must reach the real Worker path, not merely be "less refused".
+    """
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'outside.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            assert target != origin
+            for scope_id in (target, origin):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            rule, source_ref, digest = await _consented_origin_declaring_other_target(
+                runtime.primary_database, access, target, origin
+            )
+            citation = await _seed_evidence(runtime, target)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            agreement = ShareAgreementService(
+                runtime.primary_database, access=access, scopes=ScopeRepository(), sources=sources
+            )
+            async with runtime.primary_database.transaction() as connection:
+                origin_descriptor = await ScopeRepository().get(connection, origin)
+            assert origin_descriptor is not None
+            # The recorded structure is exactly the declared origin, with no target member.
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(((origin, origin_descriptor.version),)),
+                    inputs=(ShareInput(kind="source", origin_scope_id=origin, source=source_ref, digest=digest),),
+                    notification_key="outside-range",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="outside-1"
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+            supervisor = runtime.artifact_processing_supervisor
+            assert supervisor is not None
+            supervisor.wake(binding_for_request(request))
+            await process_pending(runtime)
+
+            finished = await runtime.dream.for_scope(target, principal_id="runtime").get(
+                GetDreamRunRequest(run_id=run.run_id)
+            )
+            assert finished.status == "succeeded"
+            assert finished.outcome == "no_change"
+            assert len(generator.inputs) == 1
+            manifest = finished.input_manifest
+            assert manifest is not None
+            # The origin's material was admitted from the owner's Scope, and the target is
+            # never smuggled in as an origin member.
+            assert any(node.origin_scope_id == origin for node in manifest.nodes)
+
+    asyncio.run(scenario())
+
+
+def test_exhausted_or_unsupported_range_refuses_without_writing_a_pin(tmp_path: Path) -> None:
+    """An over-budget subtree or an unbounded selection refuses and records no new pin."""
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'range.db'}")
+        from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SHARE_TABLES
+
+        async with (
+            SQLiteProfile.open(database, tables=BUILTIN_TABLES + SHARE_TABLES) as profile,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            scopes = ScopeApplication(profile.database)
+            await scopes.bootstrap_default()
+            root = (await scopes.create(ScopeDraft(title="R", summary="r", idempotency_key="r"))).scope_id
+            # One more nested level than the owner's declared depth budget, so the real
+            # bounded resolver must refuse instead of returning a truncated subtree.
+            parent = root
+            for level in range(ScopeRangeLimits().max_depth + 1):
+                parent = (
+                    await scopes.create(
+                        ScopeDraft(
+                            title=f"d{level}", summary=f"d{level}", parent_scope_id=parent, idempotency_key=f"d{level}"
+                        )
+                    )
+                ).scope_id
+            for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                await _grant(access, OWNER, root, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            async with profile.database.transaction() as connection:
+                stored = await sources.add(
+                    connection,
+                    root,
+                    ContentSource(name="n", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+                )
+            digest = content_digest(stored.value.model_dump_json().encode())
+            service = ShareAgreementService(profile.database, access=access, scopes=ScopeRepository(), sources=sources)
+
+            async def pin_under(selection: ScopeSelection, key: str) -> None:
+                rule = await service.create(
+                    root, ShareRuleDraft(selection=selection, terms=_terms()), principal=OWNER, context=AUDIT
+                )
+                await service.accept(
+                    root,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side="origin",
+                    covered_scope_ids=(root,),
+                    context=AUDIT,
+                )
+                async with profile.database.transaction() as connection:
+                    descriptor = await ScopeRepository().get(connection, root)
+                assert descriptor is not None
+                await service.pin(
+                    root,
+                    ShareSnapshotDraft(
+                        rule_id=rule.rule_id,
+                        rule_version=rule.version,
+                        terms_digest=rule.terms_digest,
+                        membership_digest=membership_digest(((root, descriptor.version),)),
+                        inputs=(ShareInput(kind="source", origin_scope_id=root, source=stored.ref, digest=digest),),
+                        notification_key=key,
+                    ),
+                    principal=OWNER,
+                    context=AUDIT,
+                )
+
+            # An unbounded collection is unsupported, not silently scanned.
+            before = await _count_pins(profile.database, root)
+            with pytest.raises(ShareRejectedError) as unsupported:
+                await pin_under(ScopeSelection(mode="all"), "all")
+            # Distinct causes: an unbounded collection is unsupported outright.
+            assert str(unsupported.value) == "shared_use_unsupported"
+            assert await _count_pins(profile.database, root) == before
+
+            # The real depth budget is exhausted by the real tree, so no partial range is
+            # accepted and no pin is written.
+            with pytest.raises(ShareRejectedError) as deep:
+                await pin_under(ScopeSelection(mode="subtree", root_scope_id=root), "deep")
+            # A real over-budget subtree is refused as a range, never truncated.
+            assert str(deep.value) == "shared_use_scope_range"
+            assert await _count_pins(profile.database, root) == before
+
+    asyncio.run(scenario())
+
+
+def test_wrong_audience_consent_refuses_without_reaching_the_model(tmp_path: Path) -> None:
+    """Consent recorded for a Scope that is not the target never admits the run.
+
+    The selector names only the origin, so a plausible mistake is to record delivery
+    consent for the origin instead of the target. That is not consent *of the target*, so a
+    bound run under it must refuse, and the rule must not be silently upgraded to cover it.
+    """
+
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'wrong-audience.db'}")
+        generator = NoChangeGenerator()
+        async with (
+            open_dream_runtime(
+                _config(database),
+                candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
+                dream_generator=generator,
+            ) as runtime,
+            open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access,
+        ):
+            await _ensure_share_tables(runtime.primary_database)
+            target = (await runtime.scopes.create(ScopeDraft(title="T", summary="t", idempotency_key="t"))).scope_id
+            origin = (await runtime.scopes.create(ScopeDraft(title="O", summary="o", idempotency_key="o"))).scope_id
+            for scope_id in (target, origin):
+                for role in (AccessRole.SCOPE_ADMIN, AccessRole.SCOPE_CONTRIBUTOR, AccessRole.SCOPE_VIEWER):
+                    await _grant(access, OWNER, scope_id, role)
+
+            sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
+            async with runtime.primary_database.transaction() as connection:
+                storedOrigin = await sources.add(
+                    connection,
+                    origin,
+                    ContentSource(name="m", materialization=SourceMaterialization.CAPTURED, content=ROOT_TEXT),
+                )
+            agreement = ShareAgreementService(
+                runtime.primary_database, access=access, scopes=ScopeRepository(), sources=sources
+            )
+            rule = await agreement.create(
+                target,
+                ShareRuleDraft(selection=ScopeSelection(mode="exact", scope_ids=(origin,)), terms=_terms()),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            await agreement.accept(
+                target,
+                rule.rule_id,
+                rule.version,
+                principal=OWNER,
+                side="origin",
+                covered_scope_ids=(origin,),
+                context=AUDIT,
+            )
+            # The origin's own consent is not the target's consent to receive.
+            with pytest.raises(ShareRejectedError):
+                await agreement.accept(
+                    target,
+                    rule.rule_id,
+                    rule.version,
+                    principal=OWNER,
+                    side="audience",
+                    covered_scope_ids=(origin,),
+                    context=AUDIT,
+                )
+
+            async with runtime.primary_database.transaction() as connection:
+                origin_descriptor = await ScopeRepository().get(connection, origin)
+            assert origin_descriptor is not None
+            pin = await agreement.pin(
+                target,
+                ShareSnapshotDraft(
+                    rule_id=rule.rule_id,
+                    rule_version=rule.version,
+                    terms_digest=rule.terms_digest,
+                    membership_digest=membership_digest(((origin, origin_descriptor.version),)),
+                    inputs=(
+                        ShareInput(
+                            kind="source",
+                            origin_scope_id=origin,
+                            source=storedOrigin.ref,
+                            digest=content_digest(storedOrigin.value.model_dump_json().encode()),
+                        ),
+                    ),
+                    notification_key="wrong-audience",
+                ),
+                principal=OWNER,
+                context=AUDIT,
+            )
+            citation = await _seed_evidence(runtime, target)
+
+            _compose_sharing(runtime, access, OWNER)
+            service = runtime._dream_service
+            assert service is not None
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="wrong-audience-run"
+            )
+            run = await service._admit(target, "runtime", request, snapshot_id=pin.snapshot_id)
+
+            calls_before = len(generator.inputs)
+            async with runtime.primary_database.transaction() as connection:
+                record = await service.repository.get(connection, target, run.run_id)
+                with pytest.raises(DreamError) as refused:
+                    await service._resolve(record, connection)
+            assert refused.value.code == "shared_use_audience"
+            assert len(generator.inputs) == calls_before == 0
 
     asyncio.run(scenario())
