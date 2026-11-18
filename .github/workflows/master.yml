@@ -237,7 +237,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 65 || 50 }}
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
