@@ -394,7 +394,9 @@ profile 契约之外的 Server MCP 工具。插件不会注册 Pi/Hermes 风格�
 
 原生 MCP 消息经过本进程内的流式转发边界，只能发往配置的固定端点；初始化和工具调用中的所有重定向都会被拒绝。
 工具发现和 session 仍由原生 client 管理。HTTP 失败仅返回受控的状态码和错误码，不转发上游响应正文或诊断头。
-包含疑似秘密的内容写入（包括嵌套的 Handoff 状态、Draft 和准备载体）会在审批和发送前以 `secret_rejected` 拒绝。
+显式写入（包括嵌套的 Handoff 状态、Draft 和准备载体）的内容含有[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)
+识别的凭据（包括配置的 Server token）时，会在审批和发送前以 `secret_rejected` 拒绝。显式写入是拒绝而不是脱敏，
+所以 `password: rotate it monthly` 这样的正文也会被拒绝；`task-runner`、`risk-based` 这类普通词语可以写入。
 插件的 MCP 目录和写操作审批分类由 Server 公开的 `tools/list` 生成，不使用 HTTP 工具表冒充 MCP 目录。
 
 `mcp__powercontext__handoff_current_work` 自行采集边界并返回 `{boundary, handoff}`，不需要预先采集 Source。
@@ -534,10 +536,15 @@ powercontext doctor dsh
 
 `timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置。Server 不可用时，召回和采集会降级；修改这些变量后需要重启 `dsh web`。
 
+每次模型调用前，自动 Scope 解析、上下文准备和采集共用 `timeoutMs`（默认 4000 毫秒），单个请求受
+`requestTimeoutMs`（默认 3000 毫秒）限制。模型调用会等待这段预算，所以 Server 响应慢时，每次调用最多延迟
+`timeoutMs`。上下文准备超时后，剩余预算仍可用于采集；预算内已准备好的上下文，即使采集或 flush 用完剩余预算，
+也照常注入。只有宿主取消会撤回已准备的上下文。
+
 `get_readiness`（包括 `/pc doctor` 中的检查）使用 `max(requestTimeoutMs, 40000)` 毫秒的请求预算，
 以容纳冷缓存下默认 30 秒的推理探测、后续最多 5 秒的访问控制检查，并留出网络传输余量。
 Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同时保留普通请求的
-`request_timeout_ms`（默认 1000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
+`request_timeout_ms`（默认 3000 毫秒）。如果 Server 配置了更长的探测预算，需要相应增加
 `requestTimeoutMs`。其他请求沿用配置的期限，调用方取消仍会立即终止 readiness 请求。
 
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，
@@ -551,3 +558,32 @@ HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SE
 显示为未验证/degraded，并提示更新；不能仅凭包版本号或健康检查判定兼容。会话内的 `/pc doctor` 还会核对 Server 的
 Memory 协议声明、Atomic 路由及过期的原生 MCP 修改工具。恢复时保留 `legacy_memory_operation_unsupported`，不移除
 CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。
+
+
+## 只读桌宠记忆服务
+
+宿主插件提供可选 Cordis 服务 `powercontextCompanionMemory`，协议为
+`powercontext.companion-memory.v1`。同一宿主内受信任的插件可以通过 `ctx.get()` 软查询，
+不增加 Server HTTP 路由，也不暴露凭据或原始客户端。
+
+`prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` 从真实宿主会话读取工作目录，复用运行中插件的
+客户端、认证、传输策略和 Scope 覆盖设置。必须有持久的 DSH 工作区绑定或显式 Scope，
+解析时使用 `allow_default: false`。省略 query 时返回 `connected`；给定 query 时仅准备 Memory
+类型，返回 `ready` 或 `empty`。成功结果包含 `bindingId`、`scopeId`、`workspace` 以及可选的
+`content`。消费方应以 `bindingId` 隔离本地历史；连接凭据、工作区或 Scope 变化时，绑定身份也会变化。
+不同连接上相同的 Scope ID 不代表同一份记忆。
+
+服务拒绝缺失会话、请求期间工作目录变化、无法解析 Scope、格式错误的召回结果、取消和超时。
+脱敏失败原因为 `session-required`、`workspace-unavailable`、`scope-unavailable` 和
+`connection-unavailable`。插件卸载时取消请求并注销服务。调用方应校验协议、自设等待上限，
+在服务不存在或失败时继续正常工作。
+
+该接口只读取项目 Memory，不采集桌宠对话、不启动另一个 Server、不将桌宠私有记忆合并进代码项目，
+也不隐式跨父级或用户 Scope 召回。它服务于同一 DSH 进程内受信任的插件，不是浏览器凭据代理，
+也不是互不信任插件之间新增的授权边界。
+
+可选追踪字段 `traceContext: { traceparent }` 接受有效的 W3C version-00 父级，trace ID 和 span ID
+不能全为零。客户端只在本次 `prepare_context` HTTP 请求上转发它；无效元数据会被忽略，并发调用
+各自保留父级。本扩展不关联工作区绑定请求、不配置全局 tracer／exporter、不转发任意请求头或
+baggage、不改变授权，也不将追踪元数据放入查询。Server 需要单独启用并配置 OTLP 导出器，才能
+看到下游阶段。旧调用方可以省略该字段，旧服务实现也可忽略它，不影响召回。

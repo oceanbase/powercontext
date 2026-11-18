@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import await_only
 
+from powercontext.builtin import processing_diagnostics
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.inference.models import InputEncodingReport
 from powercontext.builtin.persistence.database import AsyncDatabase, ModelUsageAttemptExpired
@@ -195,7 +196,10 @@ def test_batch_preserves_scope_date_purpose_and_operation_boundaries() -> None:
                         version=1,
                     )
                 )
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            # Leave a loaded runner time to repeat a first attempt that outlives its slice.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5, flush_timeout_seconds=5
+            )
             try:
                 expected = {}
                 for scope in (_SCOPE, other):
@@ -221,7 +225,12 @@ def test_batch_preserves_scope_date_purpose_and_operation_boundaries() -> None:
     asyncio.run(scenario())
 
 
-def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCaptureFixture) -> None:
+def test_queue_capacity_drops_without_sql_or_sensitive_logs(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(processing_diagnostics, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(processing_diagnostics, "_failure_log_times", {})
+
     async def scenario() -> None:
         async with _database() as database:
             observations = []
@@ -238,19 +247,26 @@ def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCa
                 flush_timeout_seconds=capacity * write_budget + 1,
             )
             try:
-                for _ in range(8):
+                for _ in range(40):
                     _offer(recorder)
-                assert observations[-1] == (2, 2, 6, 0)
+                assert observations[-1] == (2, 2, 38, 0)
                 assert recorder.checkpoint() == 2
                 await recorder.flush()
                 assert (await _rows(database))[0].requests == 2
-                assert observations[-1] == (0, 2, 6, 0)
+                assert observations[-1] == (0, 2, 38, 0)
             finally:
                 await recorder.close()
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(scenario())
     assert "queue full" in caplog.text
+    records = [
+        vars(record) for record in caplog.records if getattr(record, "event", None) == "model_usage.accounting.failed"
+    ]
+    assert len(records) == 16
+    assert {record["error_code"] for record in records} == {"usage_accounting_queue_full"}
+    assert {record["processing_stage"] for record in records} == {"usage_accounting"}
+    assert all("failure_reason" not in record for record in records)
     assert _SCOPE not in caplog.text
     assert "INSERT" not in caplog.text
 
@@ -495,6 +511,29 @@ def test_a_body_that_outlives_its_slice_is_repeated_not_dropped(tmp_path: Path) 
     asyncio.run(scenario())
 
 
+def test_close_repeats_an_attempt_that_outlives_its_slice() -> None:
+    """Shutdown drains a slow batch inside its own budget, as a flush does.
+
+    close() waits for the write and flush budgets together, so an attempt that
+    expired before its body committed is still repeated while that wait lasts.
+    """
+
+    async def scenario() -> None:
+        async with _database() as database:
+            # The first 1.25s slice expires during the 1.5s body. Leave several
+            # seconds for the real SQLite retry and commit on a loaded runner.
+            repository = _SlowBodyRepository(delay=1.5)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5.0, flush_timeout_seconds=5.0)
+            _offer(recorder)
+            # Closing must drain accepted batches even without a prior flush.
+            await recorder.close()
+            assert repository.calls == 2
+            assert (await _rows(database))[0].requests == 1
+            await _assert_connection_restored(database)
+
+    asyncio.run(scenario())
+
+
 def test_oceanbase_slow_batch_keeps_the_configured_write_budget() -> None:
     url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
     if not url:
@@ -647,7 +686,9 @@ def test_close_under_a_held_writer_lock_is_bounded(tmp_path: Path) -> None:
                 _offer(recorder)
                 start = asyncio.get_running_loop().time()
                 await recorder.close()
-                assert asyncio.get_running_loop().time() - start < 1.0
+                # The regression boundary is SQLite's five-second busy timeout,
+                # not sub-second event-loop scheduling on a loaded runner.
+                assert asyncio.get_running_loop().time() - start < 2.5
             finally:
                 holder.rollback()
                 holder.close()
@@ -1046,6 +1087,17 @@ def test_an_interrupted_commit_reply_does_not_repeat_applied_usage(caplog: pytes
         asyncio.run(scenario())
     assert "will not be retried" in caplog.text
     assert "secret commit reply" not in caplog.text
+    (record,) = [
+        vars(item)
+        for item in caplog.records
+        if getattr(item, "event", None) == "model_usage.accounting.failed"
+        and getattr(item, "failure_location", None) == "write"
+    ]
+    assert record["processing_stage"] == "usage_accounting" and record["failure_reason"] == "storage_failure"
+    assert record["input_item_count"] == 1
+    assert record["family"] == "memory" and record["model_capability"] == "generation"
+    assert record["cause_exception_type"] == "OperationalError"
+    assert record["exc_info"] is None
 
 
 class _BlockingNativeRepository(StatisticsRepository):
@@ -1201,6 +1253,33 @@ class _GatedRepository(StatisticsRepository):
         self.entered[index].set()
         await self.release[index].wait()
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
+
+
+def test_flush_timeout_does_not_report_a_lost_write(caplog: pytest.LogCaptureFixture) -> None:
+    async def scenario() -> None:
+        async with _database() as database:
+            repository = _GatedRepository()
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5, flush_timeout_seconds=0.02)
+            try:
+                _offer(recorder)
+                await asyncio.wait_for(repository.entered[0].wait(), timeout=2)
+                await recorder.flush()
+                (record,) = [
+                    vars(item)
+                    for item in caplog.records
+                    if getattr(item, "event", None) == "model_usage.accounting.failed"
+                ]
+                assert record["processing_stage"] == "usage_accounting"
+                assert record["failure_location"] == "flush_timeout"
+                assert record["failure_reason"] == "timeout"
+                assert "family" not in record or record["family"] is None
+            finally:
+                repository.release[0].set()
+                await recorder.close()
+            assert (await _rows(database))[0].requests == 1
+            assert all(getattr(item, "failure_location", None) != "write" for item in caplog.records)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("explicit_checkpoint", [False, True])

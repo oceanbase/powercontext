@@ -196,11 +196,17 @@ ScopeQueryField = Literal[
 ]
 
 
+# Scopes a plugin creates carry this external reference kind, with the plugin's name as the value.
+PLUGIN_SCOPE_REFERENCE_KIND = "powercontext.plugin"
+
+
 class ScopeDiscovery(_ScopeValue):
     query: str | None = Field(default=None, max_length=256)
     query_field: ScopeQueryField | None = None
     parent_scope_id: str | None = None
     external_reference_kind: str | None = None
+    # Scopes with a reference of this kind are left out; not part of the cursor's query identity.
+    exclude_external_reference_kind: str | None = None
     binding_integration: str | None = None
     binding_kind: str | None = None
     limit: StrictInt = Field(default=50, ge=1, le=100)

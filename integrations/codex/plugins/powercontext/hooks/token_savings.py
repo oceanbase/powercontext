@@ -32,7 +32,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from codex_host import CODEX  # noqa: E402
 from hooks.recall import (  # noqa: E402
     _decode_error_code,
     _HttpStatusError,
@@ -41,14 +41,14 @@ from hooks.recall import (  # noqa: E402
     _ServerUnavailableError,
 )
 from plugin_version import PLUGIN_VERSION  # noqa: E402
-from scope_binding import (  # noqa: E402
+from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
-    open_bounded,
-    resolve_scope_id,
 )
-from settings import CodexPluginSettings  # noqa: E402
+from powercontext_lifecycle.transport import open_bounded  # noqa: E402
+from scope_binding import resolve_scope_id  # noqa: E402
+from settings import CodexPluginSettings, host_bounded_http_budget  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
 _USER_AGENT = f"powercontext-codex-token-savings/{PLUGIN_VERSION}"
@@ -57,17 +57,6 @@ _REQUEST_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": _USER_AGENT,
 }
-# The Stop entry has a 10-second host deadline (hooks.json). Keep
-# the internal HTTP budget below it so uv/Python start-up and the bounded output
-# fit inside the host limit instead of being killed mid-request.
-_HOST_TIMEOUT_SECONDS = 10.0
-_STARTUP_AND_OUTPUT_MARGIN_SECONDS = 2.0
-
-
-def stop_http_budget(configured_seconds: float) -> float:
-    """Bound the Stop hook's HTTP budget below the host process deadline."""
-
-    return min(configured_seconds, _HOST_TIMEOUT_SECONDS - _STARTUP_AND_OUTPUT_MARGIN_SECONDS)
 
 
 def compact_tokens(value: int) -> str:
@@ -255,7 +244,7 @@ def _append_event(
     if outcome in emitted:
         return
     emitted.add(outcome)
-    if not _should_emit_diagnostic(outcome):
+    if not CODEX.diagnostics.should_emit(outcome):
         return
     event: dict[str, object] = {"component": _COMPONENT, "event": "status", "outcome": outcome}
     event.update(fields)
@@ -287,7 +276,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(cwd, str) or not cwd.strip():
             return 0
         settings = CodexPluginSettings() if settings is None else settings
-        http_deadline = monotonic() + stop_http_budget(settings.http_budget_seconds)
+        http_deadline = monotonic() + host_bounded_http_budget(settings.http_budget_seconds)
         session_id = next(
             (
                 value

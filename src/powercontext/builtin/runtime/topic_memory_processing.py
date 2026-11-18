@@ -32,7 +32,6 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
-from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.artifacts.topic_memory import (
@@ -1475,30 +1474,8 @@ class TopicMemoryProcessor:
         if reporter is None:
             return nullcontext()
 
-        async def safe_report(
-            reported_purpose: ModelUsagePurpose,
-            operation: ModelUsageOperation,
-            usage: Any,
-        ) -> None:
-            try:
-                await reporter(reported_purpose, operation, usage)
-            except Exception as error:
-                log_safely(
-                    logger,
-                    logging.ERROR,
-                    "Topic Memory model usage recording failed",
-                    extra={
-                        "event": "topic_memory.usage.failed",
-                        "exception_type": type(error).__name__,
-                        "purpose": reported_purpose.value,
-                        "operation": operation.value,
-                        "outcome": "failure",
-                        "unit": "topic_memory",
-                    },
-                )
-
         return bind_usage_reporter(
-            safe_report,
+            reporter,
             generation_purpose=None if embedding else purpose,
             embedding_purpose=purpose if embedding else None,
         )

@@ -64,7 +64,9 @@ def preflight(connection, *, configuration):
             "unsupported_plugin_data",
             "Plugins of the removed Artifact plugin framework still hold data in "
             + ", ".join(retained)
-            + "; export it and remove those plugins on the previous version before upgrading.",
+            + "; no supported in-place upgrade path is available. Unloading plugins or exporting archives does not"
+            " clear retained framework records. Keep this database on the previous version; do not manually delete"
+            " framework records to bypass this check.",
         )
 
 

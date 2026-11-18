@@ -19,7 +19,7 @@ import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
 import { authenticationRejection, MAX_SOURCE_LENGTH, RequestNotSentError } from './errors.ts'
-import { containsSecret } from './secrets.ts'
+import { containsSecret } from './prompt-privacy.ts'
 import { cancellationReason, type StatusAttempt } from './status.ts'
 
 export interface CaptureInput {

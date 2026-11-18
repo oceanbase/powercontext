@@ -98,8 +98,8 @@ class AtomicMemoryProjections(Protocol):
         records: Sequence[tuple[AtomicMemoryRecord, PreparedAtomicMemoryProjection]],
     ) -> None: ...
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None: ...
-    async def capture_evidence(
-        self, connection: AsyncConnection, scope_id: str, record: AtomicMemoryRecord
+    async def capture_evidence_many(
+        self, connection: AsyncConnection, scope_id: str, records: Sequence[AtomicMemoryRecord]
     ) -> None: ...
 
 
@@ -332,11 +332,14 @@ class _AtomicMemoryMergeService(ArtifactMergeService):
     ) -> tuple[ArtifactMergeMutationResult, ...]:
         results = await super()._commit_locked(connection, prepared, current, context, source_read_set)
         projections = cast(AtomicMemoryMergeAdapter, self.adapter).projections
+        records = []
         for (item, _), result in zip(prepared, results, strict=True):
             revisions = {write.artifact_id for write in item.plan.writes if write.draft is not None}
             for record in result.records:
                 if record.ref.artifact_id in revisions:
-                    await projections.capture_evidence(connection, item.plan.scope_id, _atomic_record(record))
+                    records.append(_atomic_record(record))
+        if records:
+            await projections.capture_evidence_many(connection, prepared[0][0].plan.scope_id, tuple(records))
         return results
 
     @override
@@ -466,6 +469,14 @@ class AtomicMemoryService:
         ):
             raise AtomicMemoryConflictError("Related memory changed before comparison")  # noqa: TRY003
         return read
+
+    async def authorize_comparison_reads(
+        self, connection: AsyncConnection, scope_id: str, reads: Sequence[AtomicMemoryRead], context: Any
+    ) -> None:
+        """Recheck mutable heads and authority; exact bodies already belong to the Workset."""
+        await self.shared._check_dependencies(
+            connection, scope_id, tuple(_common_read(read) for read in reads), context, full_records=set()
+        )
 
     async def read_state(self, connection, scope_id: str, artifact_id: str, context) -> AtomicMemoryRead:
         """Read the current reference and lifecycle from one authoritative head."""
