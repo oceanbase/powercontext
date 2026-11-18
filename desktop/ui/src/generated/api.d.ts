@@ -6005,6 +6005,10 @@ export interface components {
             source_id: string;
             /** @description Persisted canonical JSON content. */
             content: unknown;
+            /** @description Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata. */
+            metadata: {
+                [key: string]: unknown;
+            };
             position: number;
             content_digest: string;
         };
