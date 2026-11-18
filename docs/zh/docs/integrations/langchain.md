@@ -63,7 +63,8 @@ middleware 本身支持同步 `invoke` 和 `stream`；异步应用应直接使�
 每个模型步骤中，middleware 都会：
 
 1. 读取最新的人类消息，不修改 state；
-2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`；
+2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`。query 是去掉首尾空白的该消息；超过 8192 个字符或
+   8192 个 UTF-8 字节的消息改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节；
 3. 向当前 system message 追加一个独立文本块；
 4. 文本块以 `PowerContext host-supplied context` 开头，后接 Server 准备的内容；
    内容顶部的信任策略把其后的全部内容标为不可信的历史数据。

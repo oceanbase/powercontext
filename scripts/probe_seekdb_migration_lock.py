@@ -269,7 +269,8 @@ def run_attempt(
         "-vv",
         "--log-cli-level=INFO",
         "-o",
-        f"faulthandler_timeout={min(120, max(1, timeout // 2))}",
+        # Keep external snapshots and deadlines without the unsafe C watchdog.
+        "faulthandler_timeout=0",
         f"--junitxml={report}",
         node,
     ]

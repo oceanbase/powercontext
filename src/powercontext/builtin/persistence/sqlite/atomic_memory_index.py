@@ -46,6 +46,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_page_from_ranks,
     atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_requirement_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
     sqlite_fts_coverage_sql,
@@ -430,14 +431,16 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         match_query = fts_match_query(request.query)
         if match_query is None:
             return None
-        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        terms = fts_query_requirements(request.query, floor=request.admission)[0]
         coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
-        parameters.update(coverage_parameters)
+        requirement, requirement_parameters, _ = atomic_memory_related_requirement_sql(
+            len(terms), "sqlite", floor=request.admission
+        )
+        parameters.update(coverage_parameters, **requirement_parameters)
         grouped = f"searchable_text:({match_query})"
         parameters.update(
             fts_query=grouped,
             fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
-            fts_required=required,
         )
         rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
         return (
@@ -446,7 +449,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
             "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
             "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
-            f"AND ({eligibility}) AND {coverage} >= :fts_required"
+            f"AND ({eligibility}) AND {coverage} >= {requirement}"
         )
 
     async def _require_related_vectors(

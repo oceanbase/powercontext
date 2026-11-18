@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.search import (
     RecallChannelWeights,
     analyze_text,
     fts_query_requirements,
+    fts_required_matches,
     lexical_search_score,
 )
 from powercontext.builtin.inference import EmbeddingModel
@@ -472,6 +473,56 @@ def oceanbase_fts_coverage_sql(terms: tuple[str, ...], /) -> tuple[str, dict[str
             for index in range(0, len(coverage), 2)
         ]
     return coverage[0] if coverage else "0", parameters
+
+
+def _memory_words_requirement(word_count: int, floor: AdmissionFloor | None) -> int:
+    floor = DEFAULT_ADMISSION_FLOOR if floor is None else floor
+    return max(floor.lexical_min_matched_terms, math.ceil(word_count * floor.lexical_coverage))
+
+
+def atomic_memory_related_requirement(
+    term_count: int, word_count: int, /, *, floor: AdmissionFloor | None = None
+) -> int:
+    """Return how many distinct candidate terms a stored memory must contain to be related.
+
+    The shared terms must meet the lexical admission threshold for the candidate's ``term_count`` distinct terms, or
+    number at least the minimum match count and cover the coverage fraction of the memory's own ``word_count`` indexed
+    words. The requirement never grows beyond what a short memory can supply, so a long candidate still finds a short
+    memory of the same fact. Prepare-time search keeps the query-only threshold.
+    """
+
+    return min(fts_required_matches(term_count, floor=floor), _memory_words_requirement(word_count, floor))
+
+
+def atomic_memory_related_requirement_sql(
+    term_count: int, dialect: Literal["sqlite", "mysql"], /, *, floor: AdmissionFloor | None = None
+) -> tuple[str, dict[str, object], int]:
+    """Render ``atomic_memory_related_requirement`` over each row's indexed words.
+
+    Returns the SQL expression, its parameters, and the lowest requirement any row can have. A shared-term count is an
+    integer, so comparing it with ``words * coverage`` equals comparing it with that product's ceiling. Both backends
+    multiply in double precision, as Python does, so SQL and Python admit the same rows.
+    """
+
+    floor = DEFAULT_ADMISSION_FLOOR if floor is None else floor
+    required = fts_required_matches(term_count, floor=floor)
+    parameters: dict[str, object] = {"fts_related_required": required}
+    lowest = min(required, floor.lexical_min_matched_terms)
+    if lowest == required:
+        return ":fts_related_required", parameters, lowest
+    length, least, greatest = ("length", "MIN", "MAX") if dialect == "sqlite" else ("CHAR_LENGTH", "LEAST", "GREATEST")
+    # Analyzed text joins encoded words with single spaces; encoded words never contain one.
+    words = (
+        f"(CASE WHEN searchable_text = '' THEN 0 ELSE {length}(searchable_text) - "
+        f"{length}(REPLACE(searchable_text, ' ', '')) + 1 END)"
+    )
+    parameters.update(
+        fts_related_min_matched=floor.lexical_min_matched_terms, fts_related_coverage=float(floor.lexical_coverage)
+    )
+    expression = (
+        f"{least}(:fts_related_required, {greatest}(:fts_related_min_matched, {words} * :fts_related_coverage))"
+    )
+    return expression, parameters, lowest
 
 
 def atomic_memory_filter_sql(
@@ -1117,6 +1168,8 @@ __all__ = [
     "atomic_memory_page_from_ranks",
     "atomic_memory_page_slice",
     "atomic_memory_profile_fingerprint",
+    "atomic_memory_related_requirement",
+    "atomic_memory_related_requirement_sql",
     "combine_atomic_memory_channels",
     "combine_atomic_memory_related_ranks",
     "load_atomic_memory_tags",

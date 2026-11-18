@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -742,6 +742,17 @@ const OPERATIONS = {
 	get_plugin: {
 		method: "GET",
 		path: "/v1/plugins/{name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
 		location: null,
 		scopeMode: "none",
 		pathParameters: ["name"],
@@ -2040,6 +2051,17 @@ function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
 }
 
 //#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value) {
+	const parent = value?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
+}
+
+//#endregion
 //#region src/client.ts
 const MIN_READINESS_TIMEOUT_MS = 4e4;
 function combineSignals(signals) {
@@ -2185,6 +2207,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -3023,6 +3046,26 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 }
 
 //#endregion
+//#region src/prompt-privacy.ts
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+];
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
+}
+
+//#endregion
 //#region src/secrets.ts
 const PAYLOAD_WRITES = new Set([
 	"remember_memory",
@@ -3056,23 +3099,6 @@ const CONTENT_FIELDS = new Map([
 	["finalize_handoff", ["draft"]],
 	["commit_handoff", ["handoff"]]
 ]);
-const SECRET_PATTERNS = [
-	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
-	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
-	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
-];
-/** Return text with recognized credential-shaped values replaced. */
-function scrubSecrets(text, authorization) {
-	const credential = authorization?.replace(/^Bearer\s+/iu, "");
-	if (credential) text = text.replaceAll(credential, "[REDACTED]");
-	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
-}
-/** Detect secrets without rejecting ordinary words that merely contain a marker. */
-function containsSecret(text, authorization) {
-	return scrubSecrets(text, authorization) !== text;
-}
 function containsSecretValue(value, authorization) {
 	if (typeof value === "string") return containsSecret(value, authorization);
 	if (!value || typeof value !== "object") return false;
@@ -3382,10 +3408,11 @@ function formatScopeRouting(scopeId, cwd) {
 		"If this routing metadata is unavailable, report the Scope as unavailable instead of guessing an identifier."
 	].join("\n");
 }
-async function resolveScopeId(client, cwd, configuredScopeId, signal) {
+async function resolveScopeId(client, cwd, configuredScopeId, signal, allowDefault = true) {
 	const workspace = sessionCwd(cwd);
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: configuredScopeId,
+		...allowDefault ? {} : { allow_default: false },
 		binding_keys: workspace ? [workspaceBindingKey(workspace)] : []
 	}, signal)).value;
 	const scopeId = value && typeof value === "object" ? value.scope_id : void 0;
@@ -4476,6 +4503,116 @@ function registerGuidance(ctx) {
 }
 
 //#endregion
+//#region src/companion-memory.ts
+/** Read-only, optional memory access for companions running in the same trusted DSH host. */
+const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
+const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
+/** Keep the running client's credentials and transport policy inside the host plugin. */
+function registerCompanionMemory(ctx, runtime) {
+	if (typeof ctx.provide !== "function" || typeof ctx.effect !== "function") return;
+	const lifetime = new AbortController();
+	const cwdFor = (sessionId) => {
+		const cwd = ctx.get("sessions")?.get?.(sessionId)?.header?.cwd;
+		return typeof cwd === "string" && cwd.trim() ? resolve(cwd) : void 0;
+	};
+	const service = {
+		protocol: COMPANION_MEMORY_PROTOCOL,
+		async prepare(request$2) {
+			if (typeof request$2.sessionId !== "string" || !request$2.sessionId.trim() || request$2.sessionId.length > 256) return {
+				status: "unavailable",
+				reason: "session-required"
+			};
+			const signal = AbortSignal.any([
+				lifetime.signal,
+				AbortSignal.timeout(Math.max(1, runtime.config.timeoutMs)),
+				...request$2.signal ? [request$2.signal] : []
+			]);
+			const unavailable = {
+				status: "unavailable",
+				reason: "connection-unavailable"
+			};
+			const run = async () => {
+				signal.throwIfAborted();
+				const cwd = cwdFor(request$2.sessionId);
+				if (!cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const scopeId = await runtime.resolveScope(cwd, signal, false).catch((error) => {
+					if (error instanceof ServerResponseError && [404, 409].includes(error.statusCode)) return void 0;
+					throw error;
+				});
+				signal.throwIfAborted();
+				if (!scopeId) return {
+					status: "unavailable",
+					reason: "scope-unavailable"
+				};
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const binding = {
+					bindingId: createHash("sha256").update(JSON.stringify([
+						runtime.config.baseUrl,
+						runtime.config.authorization ?? "",
+						cwd,
+						scopeId
+					])).digest("hex"),
+					scopeId,
+					workspace: basename(cwd) || cwd
+				};
+				if (request$2.query === void 0) return {
+					status: "connected",
+					...binding
+				};
+				if (typeof request$2.query !== "string") return unavailable;
+				const query = boundedRecallQuery(scrubSecrets(request$2.query, runtime.config.authorization));
+				if (!query) return {
+					status: "empty",
+					...binding
+				};
+				const requested = request$2.maxBytes ?? runtime.config.maxBytes;
+				if (!Number.isInteger(requested) || requested < 512 || requested > 32768) return unavailable;
+				const maxBytes = Math.min(requested, runtime.config.maxBytes);
+				const result = await runtime.client.request("prepare_context", {
+					scope_id: scopeId,
+					query,
+					max_bytes: maxBytes,
+					assembly: { sections: [{
+						family: "memory",
+						limit: 3
+					}] }
+				}, signal, { traceContext: request$2.traceContext });
+				signal.throwIfAborted();
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const prepared = validatePreparedContext(result.kind === "json" ? result.value : void 0, "/v1/context/prepare", maxBytes);
+				return {
+					status: prepared.status,
+					...binding,
+					...prepared.content ? { content: prepared.content } : {}
+				};
+			};
+			let onAbort = () => {};
+			const cancelled = new Promise((resolveCancelled) => {
+				onAbort = () => resolveCancelled(unavailable);
+				if (signal.aborted) onAbort();
+				else signal.addEventListener("abort", onAbort, { once: true });
+			});
+			try {
+				return await Promise.race([run().catch(() => unavailable), cancelled]);
+			} finally {
+				signal.removeEventListener("abort", onAbort);
+			}
+		}
+	};
+	ctx.provide(COMPANION_MEMORY_SERVICE, service);
+	ctx.effect(() => () => lifetime.abort());
+}
+
+//#endregion
 //#region src/dashboard-contract.ts
 const DASHBOARD_ROUTE = "/powercontext/dashboard";
 const DASHBOARD_SCHEMA = "powercontext.dsh-dashboard.v1";
@@ -5538,7 +5675,7 @@ function createRuntime(ctx, config) {
 		status: new RuntimeStatus(),
 		client,
 		config: resolved,
-		resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
+		resolveScope: (cwd, signal, allowDefault) => resolveScopeId(client, cwd, resolved.scopeId, signal, allowDefault),
 		log: (event) => {
 			const line = JSON.stringify({
 				component: "powercontext.dsh",
@@ -5646,10 +5783,11 @@ async function apply(ctx, config) {
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
+	registerCompanionMemory(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
 	registerUpdateBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }
 
 //#endregion
-export { Config, apply, inject, name };
+export { COMPANION_MEMORY_PROTOCOL, COMPANION_MEMORY_SERVICE, Config, apply, inject, name };
