@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import multiprocessing
 import sqlite3
 from contextlib import asynccontextmanager, closing
@@ -43,6 +44,76 @@ from powercontext.server.settings import AccessControlConfig, McpConfig, Metrics
 from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="admin")
+
+
+@pytest.mark.parametrize("source_release", [None, "1.4.0"])
+def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_release) -> None:
+    """Both registered histories upgrade the published Source checkpoint before keyed writes."""
+    import shutil
+
+    from powercontext.builtin.persistence.migrations import MigrationBundle, SQLiteMigrationRunner
+    from powercontext.builtin.persistence.migrations.deployment import server_bundle
+    from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+    database = tmp_path / "source-collection.db"
+    bundle = server_bundle(source_release=source_release)
+    configuration = {"processing_manifest": canonical_processing_manifest(BuiltinConfig()), "embedding_enabled": False}
+    previous_directory = tmp_path / "source-collection-bundle"
+    shutil.copytree(bundle.snapshot_directory, previous_directory)
+    revision = bundle.script.get_revision("v1_5_2_001")
+    (previous_directory / Path(revision.path).relative_to(bundle.snapshot_directory)).unlink()
+    manifest_path = previous_directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for field in ("revision_resources", "sqlite_fingerprints", "domain_readiness"):
+        del manifest[field]["v1_5_2_001"]
+    manifest["mysql_state_layouts"].remove("schemas/mysql-v1_5_2_001.json")
+    manifest["affected_objects"].remove("pc_atomic_memory_idempotency")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    previous = SQLiteMigrationRunner(database, MigrationBundle(previous_directory), configuration=configuration)
+    previous.apply(
+        plan_id=previous.plan(backup_policy="skip").plan_id,
+        backup_policy="skip",
+        accepted=True,
+        maintenance_confirmed=True,
+        accept_no_backup=True,
+    )
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "INSERT INTO pc_source_runners "
+            "(runner,display_name,principal_type,principal_id,registered_at,capabilities,capabilities_digest) "
+            "VALUES ('preserved','Preserved runner','service','runner','2026-01-01 00:00:00',?,?)",
+            (b"[]", "0" * 64),
+        )
+
+    runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
+    plan = runner.plan(backup_policy="skip")
+    assert plan.source_revision == "v1_5_2_pr2639"
+    assert plan.revisions == ("v1_5_2_001",)
+    runner.apply(
+        plan_id=plan.plan_id,
+        backup_policy="skip",
+        accepted=True,
+        maintenance_confirmed=True,
+        accept_no_backup=True,
+    )
+    assert runner.verify().state == "ready"
+    assert not runner.apply().changed
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT runner,capabilities FROM pc_source_runners").fetchall() == [
+            ("preserved", b"[]")
+        ]
+
+    async def scenario() -> None:
+        async with _open(database) as client:
+            scope_id = await _default_scope(client)
+            created = await _remember(client, scope_id, "Keep the Source runner", "after-upgrade")
+            assert created.status_code == 200, created.text
+            replayed = await _remember(client, scope_id, "Keep the Source runner", "after-upgrade")
+            assert replayed.status_code == 200, replayed.text
+            assert replayed.json() == created.json()
+            assert _memories(database) == 1
+
+    asyncio.run(scenario())
 
 
 def _settings(database: Path, **options) -> ServerSettings:

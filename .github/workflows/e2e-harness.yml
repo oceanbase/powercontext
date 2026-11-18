@@ -50,7 +50,7 @@ jobs:
           ((inputs.suites == '' && needs.changes.result != 'success') ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').oceanbase_acceptance) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -116,7 +116,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Bounded tests total about 146m; allow separate image pull/startup and final evidence.
     timeout-minutes: 185
     env:
@@ -336,7 +336,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
     timeout-minutes: 295
     strategy:
@@ -484,7 +484,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Eight cases (including three parser fallbacks), bounded setup, and diagnostics.
     timeout-minutes: 80
     env:
@@ -582,7 +582,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     timeout-minutes: 5
     steps:
       - name: Require every shard to succeed
@@ -620,7 +620,7 @@ jobs:
     needs: validate
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # OceanBase: 15m setup + 60m native + 40m replay + 10m diagnostics/evidence/cleanup.
     # Replay includes image builds and a separate full Server schema migration.
     timeout-minutes: ${{ matrix.database == 'oceanbase' && 125 || 50 }}

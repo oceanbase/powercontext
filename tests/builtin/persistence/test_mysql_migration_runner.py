@@ -476,7 +476,7 @@ def test_mysql_plugin_cleanup_resumes_without_removing_independent_storage(backe
     assert recovery.state == "recovery_required" and recovery.source_revision == PREVIOUS
     token = (recovery.coordination or {}).get("pending_run_id")
     resumed = _full_server_runner(backend, acknowledge_previous_run=token)
-    assert _apply(resumed, policy="skip").revision == "v1_5_0_005"
+    assert _apply(resumed, policy="skip").revision == "v1_5_2_001"
     assert resumed.verify().state == "ready"
 
     def inspect(connection, _identity, _guard):
@@ -1045,7 +1045,11 @@ def test_mysql_registered_projection_repair_preserves_authority_and_revision(bac
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_content) == ("v1_5_2_001", content, "Preserve immutable nebula evidence.")
+    assert backend.connections().run(inspect_content) == (
+        "v1_5_2_001",
+        content,
+        "Preserve immutable nebula evidence.",
+    )
 
 
 @pytest.mark.parametrize("origin", ("empty", "released"))

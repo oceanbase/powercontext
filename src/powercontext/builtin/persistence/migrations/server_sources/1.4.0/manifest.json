@@ -52,6 +52,10 @@
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
     ],
+    "v1_5_2_pr2639": [
+      "schemas/sqlite-v1_5_2_pr2639.json",
+      "schemas/mysql-v1_5_2_pr2639.json"
+    ],
     "v1_5_2_001": [
       "schemas/sqlite-v1_5_2_001.json",
       "schemas/mysql-v1_5_2_001.json"
@@ -97,8 +101,11 @@
     "v1_5_0_005": [
       "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
+    "v1_5_2_pr2639": [
+      "893b1b3ce4893b11f5f68478f54dc8484f696e0e1dc039b8fd01ce56e2dbb478"
+    ],
     "v1_5_2_001": [
-      "38dbe05ad3a5f771e6cf5d1b214d7200b7769e0440b606339577a095f2ec48a7"
+      "5852cff91fa212c6961d588d1668ec52affd05231e4b8d9ae2f6cfb302634f88"
     ]
   },
   "affected_objects": [
@@ -160,7 +167,6 @@
     "pc_atomic_memory_evidence",
     "pc_atomic_memory_evidence_history",
     "pc_atomic_memory_evidence_schema",
-    "pc_atomic_memory_idempotency",
     "pc_candidate_heads",
     "pc_candidate_versions",
     "pc_connector_checkpoints",
@@ -217,7 +223,10 @@
     "pc_topic_memory_topic_fts_docsize",
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
-    "pc_topic_memory_work_budgets"
+    "pc_topic_memory_work_budgets",
+    "pc_source_runners",
+    "pc_source_collect_targets",
+    "pc_atomic_memory_idempotency"
   ],
   "readiness_scope": "server",
   "retained_objects": [
@@ -333,6 +342,28 @@
         "seekdb",
         "oceanbase"
       ]
+    },
+    {
+      "id": "source_collection",
+      "revision": "v1_5_2_pr2639",
+      "kind": "data",
+      "module": "source_collection_readiness.py",
+      "resources": [
+        "server_domain.py",
+        "server_vector_domain.py",
+        "atomic_memory_readiness_1300.py",
+        "dream/upgrade.py",
+        "dream/schema.json",
+        "plugin_artifact_readiness.py"
+      ],
+      "depends_on": [
+        "plugin_artifacts"
+      ],
+      "backends": [
+        "sqlite",
+        "seekdb",
+        "oceanbase"
+      ]
     }
   ],
   "domain_readiness": {
@@ -382,8 +413,13 @@
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
+    "v1_5_2_pr2639": [
+      "source_collection",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
     "v1_5_2_001": [
-      "plugin_artifacts",
+      "source_collection",
       "portable_storage",
       "atomic_memory_evidence_projection"
     ]
@@ -409,6 +445,7 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
+    "schemas/mysql-v1_5_2_pr2639.json",
     "schemas/mysql-v1_5_2_001.json"
   ],
   "mysql_history": "mysql",

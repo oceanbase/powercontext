@@ -857,11 +857,57 @@ SOURCE_DEFINITION_MANIFESTS_TABLE = Table(
     UniqueConstraint("definition_name", "fingerprint", name="uq_pc_source_definition_manifest_fingerprint"),
 )
 
-SOURCE_WRITE_PLUGINS_TABLE = Table(
-    "pc_source_write_plugins",
+
+def _instant_type():
+    return DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql")
+
+
+# Collection runners: the Server's own runner and every device runner that synced. A runner reports
+# the Source plugins it loaded; a name is bound to the credential subject that first synced with it.
+SOURCE_RUNNERS_TABLE = Table(
+    "pc_source_runners",
     SHARED_METADATA,
-    Column("plugin_id", identity_string(128), primary_key=True),
-    Column("definition", _canonical_payload_type(), nullable=False),
+    # The name: unique across the deployment, decided by the Server at registration, and never changed.
+    Column("runner", identity_string(128), primary_key=True),
+    Column("display_name", identity_string(256), nullable=False),
+    # The principal that registered the runner; only it syncs and reports under this name.
+    Column("principal_type", identity_string(64), nullable=False),
+    Column("principal_id", identity_string(256), nullable=False),
+    # Makes a suggested-name registration repeatable for its principal; null for a fixed name.
+    Column("registration_id", identity_string(64), nullable=True),
+    Column("registered_at", _instant_type(), nullable=False),
+    Column("capabilities", _canonical_payload_type(), nullable=False),
+    Column("capabilities_digest", identity_string(64), nullable=False),
+    # Null until the runner syncs, including after a restore.
+    Column("last_seen_at", _instant_type(), nullable=True),
+    UniqueConstraint("principal_type", "principal_id", "registration_id", name="uq_pc_source_runner_registration"),
+)
+
+# Collection targets users assign to runners. Users write the configuration columns; the runner writes
+# the status columns together with the target's checkpoint.
+SOURCE_COLLECT_TARGETS_TABLE = Table(
+    "pc_source_collect_targets",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_id", identity_string(64), primary_key=True),
+    Column("runner", identity_string(128), nullable=False),
+    Column("capability", identity_string(64), nullable=False),
+    Column("target_key", identity_string(64), nullable=False),
+    Column("parameters", _canonical_payload_type(), nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    # Increases with every change a runner must not collect across: parameters, enabling, transfer, checkpoint reset.
+    Column("config_version", BigInteger, nullable=False, server_default="1"),
+    Column("updated_at", _instant_type(), nullable=False),
+    Column("updated_by", identity_string(256), nullable=False),
+    Column("last_attempt_at", _instant_type(), nullable=True),
+    Column("last_success_at", _instant_type(), nullable=True),
+    Column("consecutive_failures", BigInteger, nullable=False, server_default="0"),
+    Column("last_error_code", identity_string(128), nullable=True),
+    Column("last_error_message", identity_string(1024), nullable=True),
+    # The last successful attempt left more to collect; such targets go first in the Server runner's next call.
+    Column("has_more", Boolean, nullable=False, server_default="0"),
+    UniqueConstraint("scope_id", "runner", "capability", "target_key", name="uq_pc_source_collect_target_key"),
+    Index("ix_pc_source_collect_targets_runner", "runner"),
 )
 
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
@@ -1140,7 +1186,8 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
-    SOURCE_WRITE_PLUGINS_TABLE,
+    SOURCE_RUNNERS_TABLE,
+    SOURCE_COLLECT_TARGETS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
     SKILL_PACKAGES_TABLE,
     AGENT_SKILL_TARGETS_TABLE,
