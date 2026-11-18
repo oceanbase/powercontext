@@ -167,22 +167,6 @@ class BearerAuthConfig(BaseModel):
         return self
 
 
-class SourceManagementConfig(BaseModel):
-    """One trusted manager and optional local background deployment."""
-
-    process_mode: Literal["background", "local-service"] = Field(
-        default="background",
-        description="Local collect deployment requires Linux; local-service also requires systemd --user.",
-    )
-    manager_subject: str | None = None
-    manager_id: str = "sources"
-    autostart: bool = False
-    state_dir: Path | None = None
-    request_seconds: float = Field(default=10, gt=0, le=60)
-    lease_seconds: float = Field(default=30, ge=3, le=300)
-    write_wait_timeout_seconds: float = Field(default=300, ge=1, le=300)
-
-
 class DashboardConfig(BaseModel):
     """Optional personal and demonstration UI sharing the Server access mode."""
 
@@ -255,7 +239,6 @@ class ServerSettings(BaseSettings):
     allow_insecure_http: bool = False
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
-    source_management: SourceManagementConfig = Field(default_factory=SourceManagementConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
     allow_unauthenticated_non_loopback: bool = False
@@ -275,7 +258,6 @@ class ServerSettings(BaseSettings):
     plugin_host_processes: dict[str, Annotated[int, Field(ge=1)]] = Field(default_factory=dict)
     # Ceiling on host processes of all plugins; each plugin's first process starts regardless.
     plugin_total_host_processes: int | None = Field(default=None, ge=1)
-    source_plugins_dir: Path | None = None
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
@@ -400,8 +382,6 @@ class ServerSettings(BaseSettings):
                 raise ValueError("Configure either the identity map or the legacy token")  # noqa: TRY003
             if self.access.mode != "enforced":
                 raise ValueError("An identity map requires enforced Access Mode")  # noqa: TRY003
-        if self.source_management.manager_subject is not None and self.access.mode != "enforced":
-            raise ValueError("Source management requires authenticated enforced Access Mode")  # noqa: TRY003
         if (
             self.dashboard.enabled
             and self.access.mode == "enforced"

@@ -142,12 +142,28 @@ class ConnectorCheckpointState(BaseModel):
     checkpoint: JsonValue | None
 
 
+class CollectionCommit(BaseModel):
+    """Who commits a checkpoint and what they report, used when the binding is a collection target."""
+
+    principal_type: str
+    principal_id: str
+    # The plugin whose version the Server accepted for this request, when the request named one.
+    plugin: str | None = None
+    # The target's configuration version the runner collected under.
+    config_version: int | None = None
+    # The attempt's outcome, recorded on the target with the checkpoint; None records nothing.
+    succeeded: bool | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 class CommitConnectorCheckpoint(BaseModel):
     """Compare and replace one binding checkpoint after durable submissions."""
 
     binding: ConnectorBinding
     expected: JsonValue | None
     checkpoint: JsonValue | None
+    collection: CollectionCommit | None = None
 
 
 class DreamOperationCapability(BaseModel):

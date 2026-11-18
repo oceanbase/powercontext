@@ -210,7 +210,10 @@ async def _register_plugins(archive: PortableBundleService, directory: Path | No
         families: set[str] = set()
         for entry in entries:
             manifest = await check_plugin_directory(entry)
-            family = manifest.spec.family
+            if manifest.artifact is None:
+                # Source plugins write no Artifact family.
+                continue
+            family = manifest.artifact.family
             if family in families:
                 raise ValueError("family is provided by multiple plugins")  # noqa: TRY003, TRY301
             families.add(family)

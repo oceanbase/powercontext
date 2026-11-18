@@ -175,7 +175,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             return 0
         # An operation outside the contract's current and selection modes may still take a Scope argument; bind any
         # Scope the Agent names rather than letting it pick one. A null argument names none, so such a call keeps its
-        # unscoped meaning, such as an instance control view.
+        # unscoped meaning, such as listing collection runners.
         selection = operation in _SELECTION_OPERATIONS or (
             operation not in _CURRENT_OPERATIONS and tool_input.get("selection") is not None
         )
