@@ -5,12 +5,12 @@ description: 数据库大赛如何用 Harbor 组织赛题、公开自测和 Agen
 cover: assets/blog/three-days-four-thousand-evaluations/cover.png
 cover_alt: 提交记录经过有界队列与多个独立验收环境，汇入持久化的结果与回传记录。
 date: 2026-11-05
-updated: 2026-11-11
+updated: 2026-11-18
 authors:
   - chojan-shang
 categories:
   - 工程实践
-draft: true
+draft: false
 pin: false
 ---
 
