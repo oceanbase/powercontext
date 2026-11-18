@@ -179,6 +179,10 @@ struct State {
 }
 
 /// Single-process authoritative correlation store. There is no persistence, eviction, or model I/O.
+///
+/// The owner must drive [`Self::cleanup`]; the store starts no background task and
+/// [`Self::establish`] does not reclaim records. Closed or expired records remain charged against
+/// entry and byte limits until cleanup removes them, although lookup rejects them immediately.
 pub struct ReplayStore {
     limits: ReplayLimits,
     state: Mutex<State>,
@@ -374,6 +378,10 @@ impl ReplayStore {
         Ok(CloseResult::Closed)
     }
 
+    /// Reclaims expired records and their indexes, releasing entry and byte charges.
+    ///
+    /// The store owner must drive cleanup; it is not scheduled automatically. Closed records remain
+    /// charged until their original expiry has been reached and cleanup removes them.
     /// Examines at most `min(batch, cleanup_batch_limit)` expiry entries, including a future head.
     pub fn cleanup(&self, now: Instant, batch: usize) -> Result<CleanupResult, ReplayError> {
         if batch == 0 {
