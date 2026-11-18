@@ -1,10 +1,14 @@
 ---
 title: 给 DeepSeek Harness 写一个 PowerContext 插件
 description: 用 Cordis 薄适配层把项目级 Memory、自动召回和 Handoff 接入 DeepSeek Harness。
-draft: true
-authors: []
+draft: false
+authors:
+  - knqiufan
 slug: deepseek-harness-powercontext-plugin
 date: 2026-08-14
+updated: 2026-11-18
+cover: assets/blog/deepseek-harness-powercontext-plugin/cover.png
+cover_alt: 模块化插件连接会话工作台与独立的项目上下文档案柜。
 ---
 
 # 给 DeepSeek Harness 写一个 PowerContext 插件
@@ -16,6 +20,8 @@ date: 2026-08-14
 
 这正适合 PowerContext。PowerContext 已经把项目 Memory、Experience、Skill 和 Handoff 放在独立 Server 中，
 DeepSeek Harness 只需要一个薄适配层，把 Cordis 的生命周期、工具和命令连接到 PowerContext HTTP API。
+
+下面以独立插件 [powercontext-dsh v0.0.2](https://github.com/knqiufan/powercontext-dsh/tree/v0.0.2) 为例，介绍它如何接入 Cordis。
 
 <!-- more -->
 
@@ -56,11 +62,10 @@ DeepSeek Harness 中有两个容易混淆的概念：
 
 ## 为什么采用两个进程
 
-PowerContext 与 DeepSeek Harness 通过两个进程协作：
+运行时有两个后端进程，浏览器是访问 Harness 界面的客户端：
 
-1. **DeepSeek Harness Web** 管理浏览器 UI、会话和 Agent 循环。
-2. **PowerContext DSH 插件** 运行在 Harness 进程内，注册钩子、`pc_*` 工具、`/pc` 命令和使用说明。
-3. **PowerContext Server** 是独立 Python 进程，默认监听 `http://127.0.0.1:8000`，负责持久化、检索、审核和 Handoff。
+1. **DeepSeek Harness** 管理会话和 Agent 循环。PowerContext DSH 插件运行在这个进程内，注册钩子、`pc_*` 工具、`/pc` 命令和使用说明。
+2. **PowerContext Server** 是独立 Python 进程，默认监听 `http://127.0.0.1:8000`，负责持久化、检索、审核和 Handoff。
 
 [![两个进程，通过 HTTP 连接](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.zh.svg)](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.zh.svg "查看大图")
 
@@ -81,17 +86,19 @@ PowerContext 与 DeepSeek Harness 通过两个进程协作：
 | 模型工具通过 `defineTool` 注册 | 为输入和输出提供稳定 schema |
 | bundle 交付已构建的 `lib/` | profile 不负责替外部插件编译 TypeScript |
 
-PowerContext 插件的入口可以概括为：
+入口先从 Harness 安装中动态加载 peer 模块，再注册工具和召回钩子，避免树外插件无法解析这些依赖：
 
 ```ts
 export const name = 'powercontext-dsh'
 export const inject = ['tools', 'agents']
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const toolsMod = await loadPeer<{ defineTool: DefineTool }>('@deepseek-ai/dsh-tools')
+  const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   registerGuidance(ctx)
-  registerTools(ctx, runtime)
-  registerRecall(ctx, runtime)
+  registerTools(ctx, runtime, toolsMod.defineTool)
+  registerRecall(ctx, runtime, llmMod.createUserMessage)
   registerCommands(ctx, runtime)
   registerSkill(ctx)
 }
@@ -137,10 +144,10 @@ PowerContext 的公开 API 不应该全部变成模型工具，否则工具表�
 
 ## 每轮先召回，再采集
 
-自动钩子是跨会话连续性的关键。用户每次发出消息后、模型开始分析前，插件独立执行两步：
+插件在每个模型步骤开始前，通过 `agent/pre-step` 钩子执行两步：
 
 1. 调用 `prepare_context`，取得与当前问题相关、大小受限的项目上下文，并作为参考材料注入本轮对话。
-2. 调用 `capture_content_source`，把当前用户输入保存成 Source 原始证据。
+2. 调用 `capture_content_source`，把该步骤的文本输入保存成 Source 原始证据。
 
 Source 采集不等于 Memory 提取。显式写入 Memory 不需要 generation model；若希望 Server 从 Source 自动提取 Memory，
 仍需配置 generation model。
@@ -152,10 +159,11 @@ Source 采集不等于 Memory 提取。显式写入 Memory 不需要 generation 
 
 ## 安装和验证
 
-先安装并启动 PowerContext Server：
+文中的实现对应早期独立插件，需要与其 HTTP 契约匹配的 PowerContext Server。当前版本的安装和配置见 [DeepSeek Harness 接入文档](/zh/docs/integrations/dsh/)。
+
+先启动已配置好的 Server：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 
@@ -166,16 +174,16 @@ curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
 ```
 
-确保 DeepSeek Harness 的 `web` profile 已经创建，然后安装集成：
+创建 DeepSeek Harness 的 `web` profile 后，加载对应的独立插件 [Release 包](https://github.com/knqiufan/powercontext-dsh/releases/tag/v0.0.2)：
 
 ```bash
-powercontext setup dsh --source oceanbase/powercontext --ref master
+dsh plugin --profile web add ./powercontext-dsh-0.0.2.tgz
 ```
 
-`--ref` 应与 PowerContext 工具使用的版本保持一致。本地 checkout 可以使用：
+本地已有该版本插件的源码时，也可以直接加载：
 
 ```bash
-powercontext setup dsh --source .
+dsh plugin --profile web add /path/to/powercontext-dsh
 ```
 
 启动 DeepSeek Harness：
@@ -188,13 +196,6 @@ dsh web
 
 ```bash
 dsh --profile web --dump-config
-```
-
-也可以运行完整诊断：
-
-```bash
-powercontext doctor
-powercontext doctor dsh
 ```
 
 ![插件列表中的 powercontext-dsh](../../../assets/blog/deepseek-harness-powercontext/plugin-list.png)
@@ -249,6 +250,7 @@ DeepSeek Harness 解决模型如何在环境中行动，PowerContext 解决项�
 
 - [PowerContext](https://github.com/oceanbase/powercontext)
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- [powercontext-dsh](https://github.com/knqiufan/powercontext-dsh)
 - [Cordis](https://github.com/cordiverse/cordis)
 - [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 - [DeepSeek Harness 官方介绍](https://deepseek.com/harness/en/)
