@@ -1,0 +1,32 @@
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_466dd78f666794 183-187
+tests/knowledge_base/test_sql_backends.py
+  s_13fec9a57c9104::t_e338b5aca8da61 25,29,62,73-74,76-80,89-97,100-102
+  s_13fec9a57c9104::t_2a6e730475995c 36,38,75,81-88,98-99
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_466dd78f666794 203-207
+tests/test_ci_pipeline.py
+  s_13fec9a57c9104::t_ac4af3c142dfcd 243
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_ac4af3c142dfcd 239-240
+plugins/knowledge-base/pc_knowledge_base/store.py
+  s_13fec9a57c9104::t_ac4af3c142dfcd 42,128-129,131-147
+tests/e2e/test_knowledge_base.py
+  s_13fec9a57c9104::t_88a1b905e45219 145-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1bfd14cc80f0227efaa4c9859ac9c29a788f5a42",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
