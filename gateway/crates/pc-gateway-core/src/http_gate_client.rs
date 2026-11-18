@@ -41,6 +41,9 @@ impl HttpGateClient {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
+                // A proxy could impersonate a loopback Core and forge privileged target approval.
+                // Keep every Core RPC on a direct connection, regardless of ambient proxy settings.
+                .no_proxy()
                 .retry(reqwest::retry::never())
                 // Avoid hyper's implicit stale pooled-connection resend as well.
                 .http1_only()

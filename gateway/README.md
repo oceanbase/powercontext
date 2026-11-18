@@ -110,6 +110,8 @@ For a TCP Core link, privileged target resolution requires HTTPS, except for HTT
 loopback IP addresses such as `PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000` or `http://[::1]:8000`.
 Plain HTTP hostnames, including `http://localhost:8000`, are rejected: DNS resolution does not
 establish loopback trust. Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
+All TCP Core RPCs connect directly and ignore ambient HTTP proxy settings (including `HTTP_PROXY`
+and `ALL_PROXY`); a loopback URL is trusted only when it actually reaches the loopback listener.
 `PC_GATEWAY_API_KEY` is a separate mandatory client-facing secret: missing or identical credentials
 prevent startup. This first iteration authenticates the Gateway client, but does not map individual
 client identities to distinct Core principals or enforce per-client Scope authorization. Gateway

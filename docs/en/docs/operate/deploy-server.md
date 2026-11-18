@@ -226,6 +226,8 @@ For TCP Core calls (`PC_GATEWAY_CORE_BASE`), privileged target resolution requir
 loopback IP over HTTP, such as `http://127.0.0.1:8000` or `http://[::1]:8000`. Plain HTTP hostnames,
 including `http://localhost:8000`, are rejected; DNS resolution does not establish loopback trust.
 Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
+All TCP Core calls bypass ambient HTTP proxies (`HTTP_PROXY`, `ALL_PROXY`, etc.); the Core address must
+be directly reachable so a proxy cannot forge a privileged target approval for a loopback URL.
 
 ### Gateway model destination
 
