@@ -79,3 +79,48 @@ def test_scope_navigation_keeps_picker_closed(dashboard: TestClient, selection: 
         assert page.evaluate("document.querySelector('#scope').tomselect.isOpen") is False
         assert not errors
         browser.close()
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_prompt_groups_search_and_source_filter(dashboard: TestClient, language: str) -> None:
+    playwright = pytest.importorskip("playwright.sync_api")
+    scope = create_scope(dashboard, "Grouped prompts")["scope_id"]
+    with playwright.sync_playwright() as runtime:
+        try:
+            browser = runtime.chromium.launch(channel=os.environ.get("POWERCONTEXT_TEST_BROWSER_CHANNEL"))
+        except playwright.Error as error:
+            if "Executable doesn't exist" in str(error):
+                pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
+            raise
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(error))
+
+        def serve(route):
+            response = dashboard.get(route.request.url)
+            headers = {k: v for k, v in response.headers.items() if k not in {"content-length", "content-encoding"}}
+            route.fulfill(status=response.status_code, headers=headers, body=response.content)
+
+        page.route("http://testserver/**", serve)
+        page.goto(f"http://testserver/dashboard/prompts?scope={scope}&lang={language}")
+        assert page.locator(".prompt-group").count() == 6
+        assert page.locator(".prompt-group[open]").count() == 0
+        assert page.locator("[data-prompt-count]").all_text_contents() == ["3", "7", "2", "1", "1", "1"]
+        topics = page.locator(".prompt-group").nth(1)
+        topics.locator(":scope > summary").click()
+        assert topics.locator(".prompt-record > summary:visible").count() == 7
+        assert topics.locator(".page-body-pre:visible").count() == 0
+        topics.locator(".prompt-record > summary").first.click()
+        assert topics.locator(".page-body-pre:visible").count() == 1
+        page.locator("#prompt-search").fill("PROFILE.GENERATE")
+        assert page.locator(".prompt-group:visible").count() == 1
+        assert page.locator(".prompt-record > summary:visible").count() == 1
+        page.locator("#prompt-source").select_option("custom")
+        assert page.locator("[data-prompt-empty]").is_visible()
+        page.locator("#prompt-source").select_option("auto")
+        assert page.locator(".prompt-group:visible").count() == 1
+        page.locator("#prompt-search").fill("")
+        assert page.locator(".prompt-group:visible").count() == 6
+        assert page.locator("[data-prompt-empty]").is_hidden()
+        assert not errors
+        browser.close()

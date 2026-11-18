@@ -111,6 +111,8 @@ def test_dashboard_displays_topic_and_profile_prompts(dashboard: TestClient, lan
     scope = create_scope(dashboard, "Prompt visibility")["scope_id"]
     response = dashboard.get("/dashboard/prompts", params={"scope": scope, "lang": language})
     assert response.status_code == 200
+    assert response.text.count('class="supporting-details prompt-group mb-3"') == 6
+    assert CATALOGS[language]["prompt_topic_conditional"] in response.text
     for key in (
         "topic_memory.probe",
         "topic_memory.global",
