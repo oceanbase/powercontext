@@ -1,7 +1,7 @@
 {
   "format": "powercontext.mysql-state-layouts.v1",
   "revisions": {
-    "v1_5_0_006": {
+    "v1_5_2_pr2674": {
       "statements": [
         "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
       ],

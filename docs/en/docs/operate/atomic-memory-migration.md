@@ -351,7 +351,7 @@ Enabled recall retains the matching bodies until snapshot authorization complete
 with the complete matching set rather than only one comparison page.
 
 For unmanaged databases, supported index initialization creates this derived table. Managed Server databases
-require the explicit schema upgrade to `v1_5_0_006` through `db-migrate --bundle server`; ordinary startup remains
+require the explicit schema upgrade to `v1_5_2_pr2674` through `db-migrate --bundle server`; ordinary startup remains
 read-only and reports `migration_required` until that upgrade completes. The schema upgrade installs an empty
 alias table. Installation does not backfill earlier merges: explicitly rebuild the projection while writers are stopped
 using the maintenance flow above. Rebuild reads each merged identity's latest authoritative content revision,

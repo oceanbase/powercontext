@@ -30,6 +30,7 @@ HostMethod = Literal[
     "forget_artifact",
     "restore_artifact",
     "create_source",
+    "project_source",
     "render_artifact",
     "search_artifacts",
     "api",

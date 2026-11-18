@@ -30,10 +30,11 @@ import re
 import sys
 from pathlib import Path, PurePosixPath
 from types import ModuleType
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
-from powercontext.plugins import ArtifactPlugin, ArtifactPluginSpec
+from powercontext.plugins import ArtifactPlugin, ArtifactPluginSpec, PluginSpec, SourcePlugin, SourcePluginSpec
 
 CHECK_TIMEOUT_SECONDS = 60
 ENTRY_FILE = "plugin.py"
@@ -52,7 +53,7 @@ class PluginManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(pattern=_NAME.pattern)
-    spec: ArtifactPluginSpec
+    spec: Annotated[ArtifactPluginSpec | SourcePluginSpec, Field(discriminator="kind")]
     # Content digest of the plugin directory when it was checked; see ``code_fingerprint``.
     fingerprint: str = ""
     # Declarative manifests of the Source Definitions the plugin submits through its routes.
@@ -64,6 +65,14 @@ class PluginManifest(BaseModel):
     @property
     def binding_name(self) -> str:
         return f"plugin:{self.name}"
+
+    @property
+    def artifact(self) -> ArtifactPluginSpec | None:
+        return self.spec if isinstance(self.spec, ArtifactPluginSpec) else None
+
+    @property
+    def source(self) -> SourcePluginSpec | None:
+        return self.spec if isinstance(self.spec, SourcePluginSpec) else None
 
 
 def mcp_tool_name(plugin: str, handler: str) -> str:
@@ -134,7 +143,7 @@ def load_module(directory: Path, name: str) -> ModuleType:
     return module
 
 
-def load_plugin(directory: Path, name: str | None = None) -> tuple[PluginManifest, ArtifactPlugin]:
+def load_plugin(directory: Path, name: str | None = None) -> tuple[PluginManifest, ArtifactPlugin | SourcePlugin]:
     """Import ``plugin.py`` and validate its declaration without calling the factory.
 
     ``name`` defaults to the directory name; a version snapshot passes the plugin's name.
@@ -144,14 +153,14 @@ def load_plugin(directory: Path, name: str | None = None) -> tuple[PluginManifes
     if _NAME.fullmatch(name) is None:
         raise PluginConfigError("the directory name is not a valid plugin name")  # noqa: TRY003
     declaration = getattr(load_module(directory, name), "plugin", None)
-    if not isinstance(declaration, ArtifactPlugin):
-        raise PluginConfigError(f"{ENTRY_FILE} must assign an ArtifactPlugin to plugin")  # noqa: TRY003
-    if not inspect.iscoroutinefunction(declaration.setup):
-        raise PluginConfigError("setup must be an async function")  # noqa: TRY003
-    if declaration.upgrade is not None and not inspect.iscoroutinefunction(declaration.upgrade):
-        raise PluginConfigError("upgrade must be an async function")  # noqa: TRY003
+    if not isinstance(declaration, ArtifactPlugin | SourcePlugin):
+        raise PluginConfigError(f"{ENTRY_FILE} must assign an ArtifactPlugin or a SourcePlugin to plugin")  # noqa: TRY003
+    for function in (declaration.setup, declaration.upgrade):
+        if function is not None and not inspect.iscoroutinefunction(function):
+            raise PluginConfigError("setup and upgrade must be async functions")  # noqa: TRY003
+    model: type[PluginSpec] = ArtifactPluginSpec if isinstance(declaration, ArtifactPlugin) else SourcePluginSpec
     try:
-        spec = ArtifactPluginSpec.model_validate(declaration.model_dump(mode="json"))
+        spec = model.model_validate(declaration.model_dump(mode="json"))
     except ValidationError as error:
         fields = ", ".join(".".join(str(part) for part in item["loc"]) or "plugin" for item in error.errors())
         raise PluginConfigError(f"invalid declaration fields: {fields}") from error  # noqa: TRY003
@@ -212,7 +221,7 @@ async def check_plugin_directory(directory: Path, name: str | None = None) -> Pl
     return PluginManifest.model_validate(result["manifest"])
 
 
-def _check_routes_and_pages(directory: Path, name: str, spec: ArtifactPluginSpec) -> None:
+def _check_routes_and_pages(directory: Path, name: str, spec: PluginSpec) -> None:
     tools: set[str] = set()
     for route in () if spec.api is None else spec.api.routes:
         if not route.mcp:
