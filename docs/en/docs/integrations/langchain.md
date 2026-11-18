@@ -92,10 +92,9 @@ not store the recalled system block, tool outputs, or intermediate tool-calling 
 
 Capture creates Source evidence, not an inferred Memory entry. The configured scheduler or an explicit
 `flush_memory` operation performs the normal Source-to-Memory extraction later. This keeps lineage intact and avoids
-treating raw model output as an already reviewed durable fact. A turn whose user message contains a recognized
-credential is skipped as a whole. Detection is best effort and the assistant response is not checked, so captured
-content is not guaranteed to be free of secrets; applications must apply their own input and output policy before
-opting in.
+treating raw model output as an already reviewed durable fact. A turn whose user message or assistant response
+contains a recognized credential is skipped as a whole. Detection is best effort, so captured content is not
+guaranteed to be free of secrets; applications must apply their own input and output policy before opting in.
 
 LangChain does not run `after_agent` when a model or tool aborts the run, so a failed run without a final response is
 not captured.

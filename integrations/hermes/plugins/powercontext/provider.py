@@ -976,10 +976,13 @@ class PowerContextMemoryProvider(MemoryProvider):
         assistant_content = _message_text(assistant_content)
         if not user_content and not assistant_content:
             return
-        if _scrub_secrets(user_content, getattr(self._client, "authorization", None)) != user_content:
-            # A recognized credential skips the whole turn; a redacted copy would be stored under the turn's identity.
-            logger.debug("Skipping PowerContext turn capture: sensitive_content")
-            return
+        authorization = getattr(self._client, "authorization", None)
+        for side, text in (("user", user_content), ("assistant", assistant_content)):
+            if _scrub_secrets(text, authorization) != text:
+                # A recognized credential on either side skips the whole turn; a redacted copy would be stored under
+                # the turn's identity.
+                logger.debug("Skipping PowerContext turn capture: sensitive_content in the %s text", side)
+                return
         effective_session = session_id or self._session_id
         scope_id = self._scope_id
         projected = f"[user]\n{user_content}\n\n[assistant]\n{assistant_content}"

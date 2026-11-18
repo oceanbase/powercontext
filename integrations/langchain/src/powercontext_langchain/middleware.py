@@ -177,10 +177,12 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     ) -> None:
         try:
             config = resolve_config(scope)
-            if scrub_secrets(user_text, _authorization(config.token)) != user_text:
-                # A recognized credential skips the whole turn rather than storing a redacted copy of it.
-                _LOGGER.debug("PowerContext LangChain capture skipped: sensitive_content.")
-                return
+            authorization = _authorization(config.token)
+            for side, text in (("user", user_text), ("assistant", assistant_text)):
+                if scrub_secrets(text, authorization) != text:
+                    # A recognized credential on either side skips the whole turn rather than storing a redacted copy.
+                    _LOGGER.debug("PowerContext LangChain capture skipped: sensitive_content in the %s text.", side)
+                    return
             content, metadata = _source_content(user_text, assistant_text)
             with genai_client_context():
                 async with open_client(config) as client:

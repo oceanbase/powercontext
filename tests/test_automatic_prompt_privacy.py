@@ -182,3 +182,33 @@ def test_inprocess_adapter_skips_credentials_without_disabling_recall(
         assert turn.queries == [prompt]
         if adapter != "langgraph":
             assert any(prompt in content or json.dumps(prompt)[1:-1] in content for content in turn.captures)
+
+
+@pytest.mark.parametrize("case", [case for case in CASES if case["sensitive"]], ids=lambda case: case["id"])
+@pytest.mark.parametrize("adapter", ["hermes", "langchain"])
+def test_inprocess_turn_capture_skips_a_credential_only_in_the_assistant_reply(
+    adapter: str,
+    case: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The completed-turn Source stores the reply too, for example a reply that echoes a configuration file.
+    token = str(case["authorization"]).removeprefix("Bearer ") if "authorization" in case else None
+    with caplog.at_level(logging.DEBUG):
+        turn = run_turn(
+            adapter,
+            "Show me the deployment settings.",
+            monkeypatch=monkeypatch,
+            home=tmp_path,
+            token=token,
+            capture=True,
+            answer=str(case["prompt"]),
+        )
+
+    assert turn.queries == ["Show me the deployment settings."]
+    assert turn.captures == []
+    sent = json.dumps(turn.requests)
+    assert "synthetic-value-2084" not in sent
+    assert "synthetic_value_2084" not in sent
+    assert "sensitive_content in the assistant text" in caplog.text

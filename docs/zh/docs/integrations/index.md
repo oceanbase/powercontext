@@ -72,10 +72,11 @@ powercontext setup
 | LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
 | Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
 
-这些适配器只检查用户文本。识别到凭据时整轮跳过完成轮次捕获（Hermes、LangChain），或跳过 `user_prompt` 事件
-（Pydantic AI）；助手文本不做检查。Pydantic AI 的模型响应和工具事件继续按键名和已知凭据值脱敏，Hermes 的压缩前
-捕获继续使用自身的脱敏规则。当前 Server 凭据指适配器配置的 token，或 Hermes 的 Authorization 值。跳过时在 debug
-日志中记录原因 `sensitive_content`，不包含被拒绝的文本。
+用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain），因为轮次 Source 同时保存两者；
+User Prompt 中识别到凭据时跳过 `user_prompt` 事件（Pydantic AI）。Pydantic AI 的模型响应和工具事件继续按键名和
+已知凭据值脱敏，Hermes 的压缩前捕获继续使用自身的脱敏规则。当前 Server 凭据指适配器配置的 token，或 Hermes 的
+Authorization 值。跳过时在 debug 日志中记录原因 `sensitive_content`，不包含被拒绝的文本；完成轮次的跳过还注明
+凭据所在的一侧（用户或助手）。
 
 自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、client/private key、secret、password、
 passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/GitHub/Slack token
