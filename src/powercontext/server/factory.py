@@ -22,7 +22,9 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from prometheus_client.exposition import choose_encoder
@@ -187,9 +189,6 @@ def create_server_app(  # noqa: C901
             authentication_provider=authentication_provider,
         )
     )
-    from powercontext.source_management.deployment import prepare as prepare_source_deployment
-
-    configured_authentication, _ = prepare_source_deployment(resolved, configured_authentication)
     config = BuiltinConfig(
         code=resolved.code,
         runtime=resolved.runtime,
@@ -214,7 +213,7 @@ def create_server_app(  # noqa: C901
     readiness_probe = _ServerReadinessProbe(metrics, tracing=resolved_tracing)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901 - shared Server and plugin resource lifecycle
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
         if resolved.allow_insecure_http:
             _log_insecure_remote_http_warning()
@@ -362,14 +361,24 @@ def create_server_app(  # noqa: C901
                     plugins_dir=resolved.plugins_dir,
                     register_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.register,
                     archive=runtime.archive,
+                    unregister_merge=None if runtime.artifact_merge is None else runtime.artifact_merge.unregister,
                     dispatch=dispatch_plugins,
                     inference_config=config.inference,
                     storage_root=powercontext_data_dir() / "plugins",
+                    snapshot_root=powercontext_data_dir() / "plugin-versions",
+                    rescan_seconds=resolved.plugins_rescan_seconds,
                     # Host processes authorize callers in every role that serves requests.
                     host_security_builder=lambda: build_host_security(
                         resolved,
                         active_access_control,
                         legacy_static_principal=static_principal if legacy_static_admin else None,
+                        injected=configured_access_control is not None,
+                    ),
+                    upgrade_security_builder=partial(
+                        _upgrade_security,
+                        resolved,
+                        active_access_control,
+                        static_principal if legacy_static_admin else None,
                         injected=configured_access_control is not None,
                     ),
                     host_processes=resolved.plugin_host_processes,
@@ -386,9 +395,6 @@ def create_server_app(  # noqa: C901
                 )
                 await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
-            gateway = await _source_gateway(runtime, resolved)
-            await resources.enter_async_context(gateway)
-            app.state.source_gateway = gateway
             app.state.plugin_api_max_body_bytes = resolved.plugin_api_max_body_bytes
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
@@ -411,24 +417,15 @@ def create_server_app(  # noqa: C901
             app.state.capability_provider = current_capabilities
             app.state.server_info = server_info(server_id)
             await readiness_probe()
-            deployment_task = None
-            if resolved.source_plugins_dir is not None or resolved.source_management.autostart:
-                from powercontext.source_management.deployment import DeploymentCoordinator
-
-                deployment_task = asyncio.create_task(DeploymentCoordinator(resolved).startup())
             if metrics is not None:
                 await resources.enter_async_context(readiness_probe.monitor())
             try:
                 yield
             finally:
-                if deployment_task is not None:
-                    deployment_task.cancel()
-                    await asyncio.gather(deployment_task, return_exceptions=True)
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
                 app.state.plugin_manager = None
                 app.state.application = None
-                app.state.source_gateway = None
                 app.state.dashboard_runtime = None
                 app.state.capability_provider = None
                 app.state.access_control = configured_access_control
@@ -524,6 +521,17 @@ def create_server_app(  # noqa: C901
     return app
 
 
+def _upgrade_security(settings, access, legacy_static_principal, *, injected: bool) -> dict[str, Any] | None:
+    """The identity plugin upgrades write Artifacts as; without one, such writes are refused in the host."""
+
+    try:
+        return build_worker_security(
+            settings, access, legacy_static_principal=legacy_static_principal, injected=injected
+        )
+    except ValueError:
+        return None
+
+
 async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: bytes | None) -> str:
     identity_repository = ServerIdentityRepository(runtime.primary_database)
     await identity_repository.initialize()
@@ -535,18 +543,6 @@ async def _initialize_server_identity(runtime: BuiltinRuntime, cursor_secret: by
             deployment_id=server_id,
         )
     return server_id
-
-
-async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
-    from powercontext.source_management.gateway import SourceGateway
-    from powercontext.source_management.write import SourceWritePlugins
-
-    records = runtime._records()
-    write_plugins = None
-    if isinstance(records, RelationalRecordService):
-        write_plugins = SourceWritePlugins(records.database, settings.workspace)
-        await write_plugins.restore()
-    return SourceGateway(settings, write_plugins)
 
 
 def _state_access_checks(app: FastAPI) -> Callable[[], Awaitable[Mapping[str, str]]]:

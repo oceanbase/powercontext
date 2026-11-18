@@ -202,33 +202,33 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 
 ## mcp__powercontext__pc_source_add
 
-- Required: `capability: string`, `capability_version: string`, `input: object`, `scope_id: string`.
-- Optional: `instance_id: string`.
-
-## mcp__powercontext__pc_source_capabilities
-
-- Required: `scope_id: string`.
-- Optional: `capability: string`, `input: object`, `instance_id: string`.
-
-## mcp__powercontext__pc_source_instance_set_enabled
-
-- Required: `enabled: boolean`, `instance_id: string`.
+- Required: `capability: string`, `parameters: object`, `runner: string`, `scope_id: string`.
 - Optional: (none).
 
-## mcp__powercontext__pc_source_instances
+## mcp__powercontext__pc_source_runners
 
 - Required: (none).
-- Optional: `capability: string`, `input: object`, `instance_id: string`, `scope_id: string`, `view: "discovery" | "control" = "discovery"`.
+- Optional: (none).
 
 ## mcp__powercontext__pc_source_status
 
+- Required: `scope_id: string`.
+- Optional: (none).
+
+## mcp__powercontext__pc_source_target_delete
+
 - Required: `scope_id: string`, `target_id: string`.
-- Optional: `view: "result" | "control" = "result"`.
+- Optional: (none).
 
 ## mcp__powercontext__pc_source_target_set_enabled
 
-- Required: `enabled: boolean`, `scope_id: string`, `target_id: string`.
-- Optional: (none).
+- Required: `scope_id: string`, `target_id: string`.
+- Optional: `enabled: boolean`, `parameters: object`.
+
+## mcp__powercontext__pc_source_target_transfer
+
+- Required: `runner: string`, `scope_id: string`, `target_id: string`.
+- Optional: `reset_checkpoint: boolean = false`.
 
 ## mcp__powercontext__prepare_handoff_hint
 

@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-id: my-tickets
-plugin: .
-scope_ids: [SCOPE_ID]
-config:
-  file: tickets.json
-  poll_interval: 10
+"""Add Source collection runners and targets, and drop the empty write plugin registry they replace."""
+
+import json
+from pathlib import Path
+
+from alembic import op
+
+revision = "v1_5_2_pr2639"
+down_revision = "v1_5_0_005"
+
+
+def upgrade():
+    resource = Path(__file__).parents[1] / "schemas/sqlite-v1_5_2_pr2639.json"
+    for statement in json.loads(resource.read_text(encoding="utf-8"))["statements"]:
+        op.get_bind().exec_driver_sql(statement)

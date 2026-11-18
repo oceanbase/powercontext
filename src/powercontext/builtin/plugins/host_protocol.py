@@ -30,6 +30,7 @@ HostMethod = Literal[
     "forget_artifact",
     "restore_artifact",
     "create_source",
+    "project_source",
     "render_artifact",
     "search_artifacts",
     "api",
@@ -62,6 +63,18 @@ class PluginHostSpec:
     plugin_families: tuple[str, ...] = ()
     source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...] = ()
     storage_root: str | None = None
+    # The background identity upgrade writes act as; None when access is disabled or none is configured.
+    upgrade_security: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class HostStarted:
+    """Core's own startup finished; ``upgrade`` or ``setup`` runs next, each within its own time limit."""
+
+
+@dataclass(frozen=True)
+class HostUpgraded:
+    """``upgrade`` finished; ``setup`` runs next."""
 
 
 @dataclass(frozen=True)
@@ -74,6 +87,8 @@ class HostFailed:
     error: str
     # The plugin breaks its contract, for example it lacks a required method; restarting cannot help.
     permanent: bool = False
+    # "upgrade_failed" when the version's upgrade raised or timed out.
+    category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +124,14 @@ class HostCancel:
     """The request outlived its time limit; cancel its task so its write transaction rolls back."""
 
     id: str
+
+
+@dataclass(frozen=True)
+class HostRegistry:
+    """The plugin families and Source bindings loaded in the Server now, after a plugin was added or removed."""
+
+    plugin_families: tuple[str, ...]
+    source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
 
 
 @dataclass(frozen=True)
