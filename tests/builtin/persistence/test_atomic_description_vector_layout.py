@@ -166,7 +166,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
         "v1_5_0_004",
         "v1_5_0_005",
         "v1_5_2_pr2639",
-"v1_5_0_007",
+        "v1_5_0_007",
     )
     assert plan.domain_steps == (
         "artifact_storage",

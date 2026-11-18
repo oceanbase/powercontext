@@ -169,7 +169,7 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         "v1_5_0_004",
         "v1_5_0_005",
         "v1_5_2_pr2639",
-"v1_5_0_007",
+        "v1_5_0_007",
     )
     assert plan.domain_steps == (
         "artifact_storage",
@@ -201,7 +201,7 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         "v1_5_0_004",
         "v1_5_0_005",
         "v1_5_2_pr2639",
-"v1_5_0_007",
+        "v1_5_0_007",
     }
     ready = reopened.plan()
     assert ready.state == "ready"
