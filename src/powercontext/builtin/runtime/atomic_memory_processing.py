@@ -70,6 +70,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryRelatedCursor,
     AtomicMemoryRelatedRequest,
     atomic_memory_embedding_input,
+    atomic_memory_related_requirement,
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
@@ -719,9 +720,9 @@ class AtomicMemorySourceWindowProcessor:
     async def _related_rank_snapshot(self, scope_id, request):
         application = self.application
         while True:
-            # Complete ranks are immutable facts. One statement owns their snapshot;
-            # no transaction survives into model work or the next body's admission.
-            async with application.database.engine.connect() as connection:
+            # One statement owns the rank snapshot. The transaction boundary also
+            # guards the shared in-memory SQLite connection.
+            async with application.database.transaction() as connection:
                 try:
                     ranks = await application.index.related_ranks(connection, scope_id, request)
                 except AtomicMemoryIndexError as error:
@@ -750,19 +751,14 @@ class AtomicMemorySourceWindowProcessor:
                 if not self.config.related_fts_fallback:
                     raise
                 request = replace(request, mode="fts")
-        terms, required = (
-            fts_query_requirements(request.query, floor=request.admission)
-            if request.mode in {"fts", "hybrid"}
-            else ((), 0)
-        )
+        terms = fts_query_requirements(request.query, floor=request.admission)[0] if request.mode != "vector" else ()
         return tuple(
             item.key
             for item in items
             if _related_window_match(
                 request,
                 terms,
-                required,
-                item.lexical_terms if request.mode in {"fts", "hybrid"} else frozenset(),
+                item.lexical_terms_and_count if terms else None,
                 vectors.get(atomic_memory_embedding_input(item.content.kind, item.content.text)),
             )
         )
@@ -846,10 +842,10 @@ class AtomicMemorySourceWindowProcessor:
         )
         refs = tuple(artifact_refs)
         if local_policy or context is None or (access is None and context.trusted_local):
-            # A single SELECT owns its snapshot on both SQLite and MySQL. Larger
-            # inputs retain a short transaction across bounded observation chunks.
+            # A single SELECT needs no pinned snapshot. Larger inputs must keep
+            # the same snapshot across bounded observation chunks.
             connection_manager = (
-                self.application.database.engine.connect()
+                self.application.database.transaction()
                 if len(generation_sources) <= 100
                 else self.application.database.transaction(consistent_snapshot=True)
             )
@@ -1118,20 +1114,22 @@ def related_window_match(
 ) -> bool:
     """Apply the related-enumeration threshold to one unindexed item, as the backends do for indexed rows.
 
-    Lexical coverage counts whole analyzed terms of the projection's searchable text; the vector channel compares the
-    item's document embedding by exact L2 distance. Hybrid admits an item that meets either channel.
+    Lexical coverage counts whole analyzed terms of the projection's searchable text against the related threshold,
+    which also measures the item's own indexed words; the vector channel compares the item's document embedding by
+    exact L2 distance. Hybrid admits an item that meets either channel.
     """
 
-    terms, required = (
-        fts_query_requirements(request.query, floor=request.admission) if request.mode in {"fts", "hybrid"} else ((), 0)
-    )
-    searchable = frozenset(analyze_text(atomic_memory_embedding_input(kind, body)).split()) if terms else frozenset()
-    return _related_window_match(request, terms, required, searchable, vector)
+    terms = fts_query_requirements(request.query, floor=request.admission)[0] if request.mode != "vector" else ()
+    words = analyze_text(atomic_memory_embedding_input(kind, body)).split() if terms else []
+    return _related_window_match(request, terms, (frozenset(words), len(words)), vector)
 
 
-def _related_window_match(request, terms, required, searchable, vector) -> bool:
-    if request.mode in {"fts", "hybrid"} and terms and sum(term in searchable for term in terms) >= required:
-        return True
+def _related_window_match(request, terms, lexical, vector) -> bool:
+    if terms and lexical is not None:
+        searchable, word_count = lexical
+        required = atomic_memory_related_requirement(len(terms), word_count, floor=request.admission)
+        if sum(term in searchable for term in terms) >= required:
+            return True
     if request.mode in {"vector", "hybrid"}:
         if request.query_vector is None or vector is None or request.max_distance is None:
             raise AtomicMemoryIndexError("embedding-profile", "Related vector matching requires both vectors")

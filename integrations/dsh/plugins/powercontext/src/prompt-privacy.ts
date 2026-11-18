@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Generated from integrations/lifecycle/prompt-privacy.ts; do not edit.
+// Edit the source and run `make integration-lifecycle` instead.
+
+// The automatic prompt-privacy rule. tests/fixtures/automatic_prompt_privacy.json lists the cases every host must
+// handle the same way.
 const SECRET_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
   // Consume complete headers before the assignment rule can consume just a scheme or first cookie.
@@ -23,12 +28,14 @@ const SECRET_PATTERNS = [
   /(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu,
 ] as const
 
+/** Return text with recognized credential-shaped values replaced. */
 export function scrubSecrets(text: string, authorization?: string): string {
   const credential = authorization?.replace(/^Bearer\s+/iu, '')
   if (credential) text = text.replaceAll(credential, '[REDACTED]')
-  return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, '[REDACTED]'), text)
+  return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, '[REDACTED]'), text)
 }
 
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
 export function containsSecret(text: string, authorization?: string): boolean {
   return scrubSecrets(text, authorization) !== text
 }

@@ -185,9 +185,10 @@ class AtomicMemoryWorkingItem:
     retain: bool = True
 
     @cached_property
-    def lexical_terms(self) -> frozenset[str]:
+    def lexical_terms_and_count(self) -> tuple[frozenset[str], int]:
         """Derived from this immutable body; replacing or releasing the item drops it."""
-        return frozenset(analyze_text(f"{self.content.kind}\n{self.content.text}").split())
+        words = analyze_text(f"{self.content.kind}\n{self.content.text}").split()
+        return frozenset(words), len(words)
 
     def comparison(self) -> AtomicMemoryComparisonItem:
         return AtomicMemoryComparisonItem(
