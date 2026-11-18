@@ -430,7 +430,8 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 插件创建的 Scope：
 
 - core 在创建时给 Scope 加上外部引用 `{"kind": "powercontext.plugin", "value": "<插件名>"}`，`ctx.scopes.list()` 和
-  `ctx.scopes.update()` 据此判断归属，部署者也能看出 Scope 由哪个插件创建。
+  `ctx.scopes.update()` 据此判断归属，部署者也能看出 Scope 由哪个插件创建。`GET /v1/scopes` 的列表不包含带有这类引用的
+  Scope，请求带上 `external_reference_kind=powercontext.plugin` 时才列出它们。
 - 创建 Scope 的权限要求不因插件而放宽。允许非管理员创建 Scope（例如在父 Scope 下创建子 Scope）需要修改 core 的授权
   模型，不在本提案范围内。
 - 插件的业务配置（例如知识库的分块策略）不写入 Scope，由插件以 `scope_id` 为键存进自己的存储。先创建 Scope，再写配置；

@@ -140,6 +140,7 @@ class _ModelUsageRecorder:
         self._advanced = asyncio.Event()
         self._consumer: asyncio.Task[None] | None = None
         self._closed = False
+        self._drain_ended = False
         self._observer = observer
         # Preserve only the Worker's assignment identity for detached consumer logs.
         context = current_log_context()
@@ -270,6 +271,7 @@ class _ModelUsageRecorder:
                 worker_fields=self._worker_fields,
             )
         finally:
+            self._drain_ended = True
             self._dropped += len(self._pending)
             self._pending.clear()
             self._report()
@@ -402,10 +404,12 @@ class _ModelUsageRecorder:
                 first_attempt = False
                 await asyncio.sleep(min(_RETRY_BACKOFF_SECONDS, max(remaining, 0)))
             except ModelUsageAttemptExpired:
-                if self._closed:
-                    # Shutdown is already draining: it dropped the backlog and
-                    # waits one write window for this consumer, so a repeat
-                    # cannot be counted on, and failing now ends it as expected.
+                if self._drain_ended:
+                    # close() has stopped waiting for the drain and gives this
+                    # consumer one more write window. Failing now ends it inside
+                    # that window instead of spending the window on a repeat.
+                    # While close() still waits, the repeat below is what lets
+                    # it drain a batch inside its own budget.
                     raise
                 # Unapplied and still inside the batch's own budget, so hand the
                 # loop over rather than let a slow machine decide its fate, and

@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+// Generated from integrations/lifecycle/prompt-privacy.ts; do not edit.
+// Edit the source and run `make integration-lifecycle` instead.
+
+// The automatic prompt-privacy rule. tests/fixtures/automatic_prompt_privacy.json lists the cases every host must
+// handle the same way.
 const SECRET_PATTERNS = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
   // Consume complete headers before the assignment rule can consume just a scheme or first cookie.

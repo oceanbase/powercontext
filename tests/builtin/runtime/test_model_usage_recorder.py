@@ -196,7 +196,10 @@ def test_batch_preserves_scope_date_purpose_and_operation_boundaries() -> None:
                         version=1,
                     )
                 )
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            # Leave a loaded runner time to repeat a first attempt that outlives its slice.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5, flush_timeout_seconds=5
+            )
             try:
                 expected = {}
                 for scope in (_SCOPE, other):
@@ -547,6 +550,29 @@ def test_a_body_that_outlives_its_slice_is_repeated_not_dropped(tmp_path: Path) 
     asyncio.run(scenario())
 
 
+def test_close_repeats_an_attempt_that_outlives_its_slice() -> None:
+    """Shutdown drains a slow batch inside its own budget, as a flush does.
+
+    close() waits for the write and flush budgets together, so an attempt that
+    expired before its body committed is still repeated while that wait lasts.
+    """
+
+    async def scenario() -> None:
+        async with _database() as database:
+            # The first 1.25s slice expires during the 1.5s body. Leave several
+            # seconds for the real SQLite retry and commit on a loaded runner.
+            repository = _SlowBodyRepository(delay=1.5)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5.0, flush_timeout_seconds=5.0)
+            _offer(recorder)
+            # Closing must drain accepted batches even without a prior flush.
+            await recorder.close()
+            assert repository.calls == 2
+            assert (await _rows(database))[0].requests == 1
+            await _assert_connection_restored(database)
+
+    asyncio.run(scenario())
+
+
 def test_oceanbase_slow_batch_keeps_the_configured_write_budget() -> None:
     url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
     if not url:
@@ -699,7 +725,9 @@ def test_close_under_a_held_writer_lock_is_bounded(tmp_path: Path) -> None:
                 _offer(recorder)
                 start = asyncio.get_running_loop().time()
                 await recorder.close()
-                assert asyncio.get_running_loop().time() - start < 1.0
+                # The regression boundary is SQLite's five-second busy timeout,
+                # not sub-second event-loop scheduling on a loaded runner.
+                assert asyncio.get_running_loop().time() - start < 2.5
             finally:
                 holder.rollback()
                 holder.close()
