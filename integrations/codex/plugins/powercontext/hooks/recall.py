@@ -39,6 +39,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from hooks.dsh_handoff import receiver_context  # noqa: E402
 from hooks.prompt_privacy import scrub_secrets  # noqa: E402
 from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import (  # noqa: E402
@@ -134,7 +135,7 @@ def _decode_error_code(raw: bytes) -> str | None:
     return code if isinstance(code, str) else None
 
 
-def main(settings: CodexPluginSettings | None = None) -> int:
+def main(settings: CodexPluginSettings | None = None) -> int:  # noqa: C901 - One fail-open hook lifecycle.
     """Process one Codex hook payload and fail open."""
 
     try:
@@ -145,19 +146,31 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
         else:
             payload = cast(dict[str, Any], json.load(stdin))
-        if not _is_user_prompt_submit(payload.get("hook_event_name")) or not (
-            settings.prompt_recall or settings.capture_prompts
-        ):
+        if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
         emitted_diagnostics: set[str] = set()
         diagnostic_events: list[dict[str, object]] = []
         prompt = payload.get("prompt")
         cwd = payload.get("cwd")
+        session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
+        if isinstance(prompt, str) and isinstance(cwd, str):
+            handoff = receiver_context(
+                prompt,
+                cwd=cwd,
+                target_ids=("codex-desktop",),
+                resolve_scope=lambda: resolve_scope_id(
+                    cwd, session_id=session_id, settings=settings, deadline=http_deadline
+                ),
+            )
+            if handoff is not None:
+                _write_hook_output(context=handoff, diagnostic_events=[])
+                return 0
+        if not (settings.prompt_recall or settings.capture_prompts):
+            return 0
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
             _emit_context_event("skipped", diagnostic_events=diagnostic_events)
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
-        session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
         try:
             scope_id = resolve_scope_id(
                 cwd,

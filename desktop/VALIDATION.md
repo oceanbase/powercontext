@@ -3432,3 +3432,29 @@ profiles retain their original source, contract, artifact and evidence identitie
 This is local SQLite protocol qualification, not an installed WebView or
 credential-persistence test, other-platform qualification, external database
 deployment, gateway transport acceptance, or release approval.
+## DSH receipt contract protocol qualification
+
+`sqlite-dsh-receipt-d1adea81-v1` qualifies the thirteen bundled Desktop operations
+against Server source `d1adea81a1462493b686bd5ba40227b635a8c1d6` and the OpenAPI
+contract containing the optional Server-owned `SourceRecord.handoff_receipt` field.
+
+- Normalized OpenAPI SHA-256: `cd4d0547dd9b48f913585e8d1bf370992750485396438b7a336451b45c5a3a4c`.
+- Wheel: `powercontext-1.5.2.dev0+gd1adea81-py3-none-any.whl`.
+- Wheel SHA-256: `f92b13a2aba31bfae1c94fc148fe6b2a257537a63402ba5af1243e836d42ff3b`.
+
+All 794 packaged Server and service bootstrap files match the archived commit
+after CRLF normalization. On 2026-11-14, the macOS arm64 Desktop probe selected
+the bundled record and passed anonymous loopback, static Bearer, HTTPS with an
+explicit CA and base path, and enforced Provider cases against real SQLite Servers.
+
+```bash
+mkdir -p desktop/.artifacts/dsh-receipt-source desktop/.artifacts/dsh-receipt-wheel
+git archive d1adea81a1462493b686bd5ba40227b635a8c1d6 | tar -x -C desktop/.artifacts/dsh-receipt-source
+SETUPTOOLS_SCM_PRETEND_VERSION=1.5.2.dev0+gd1adea81 uv build --offline --wheel desktop/.artifacts/dsh-receipt-source --out-dir desktop/.artifacts/dsh-receipt-wheel
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk cargo +1.95.0 build --offline --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-dsh-receipt-d1adea81-v1 --wheel desktop/.artifacts/dsh-receipt-wheel/powercontext-1.5.2.dev0+gd1adea81-py3-none-any.whl
+make contract-test
+```
+
+This evidence covers the recorded wheel and contract in the native protocol
+probe. It does not qualify an installed UI, external databases or other platforms.

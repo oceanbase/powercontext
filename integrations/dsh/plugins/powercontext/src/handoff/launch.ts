@@ -22,13 +22,14 @@ import { isDeepStrictEqual } from 'node:util'
 import type { CallContext, DeliveryService, LaunchBundle } from './contracts.ts'
 import { HandoffError } from './errors.ts'
 import type { LaunchPlanner } from './native-launch.ts'
-import { sameSource, type PreflightService } from './preflight.ts'
+import { PREFLIGHT_CHECK_TIMEOUT_MS, sameSource, type PreflightService } from './preflight.ts'
 import { HandoffRecords, keyFor } from './records.ts'
 import { NATIVE_TARGET_IDS } from './targets.ts'
 
 const SCHEMA = 'powercontext.dsh-launch-attempts.v1'
 const MAX_ATTEMPTS = 64
-const CHECK_TIMEOUT_MS = 30_000
+// Leave a separate allowance for the exact-package check after revalidation.
+const CHECK_TIMEOUT_MS = PREFLIGHT_CHECK_TIMEOUT_MS + 15_000
 
 export type LaunchState = 'requested' | 'opened' | 'failed' | 'unknown' | 'cancelled'
 

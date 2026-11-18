@@ -1403,18 +1403,34 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             source = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
             assert source.status_code == 200, source.text
             assert source.json()["receipt_identity"] == identity
+            assert source.json()["handoff_receipt"] is True
+
+            # A Source can exist after attribution was reserved but before the
+            # commit event was written. It must not expose reserved attribution.
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "commit_receipt_identity", identity_unavailable)
+                pending = await client.post(
+                    "/v1/work/handoffs/acknowledge", headers=bob, json=payload | {"source_id": "pending-receipt"}
+                )
+                assert pending.status_code == 503, pending.text
+            pending = await client.get(f"/v1/scopes/{scope_id}/sources/content/pending-receipt")
+            assert pending.status_code == 503, pending.text
+            recovered = await client.post(
+                "/v1/work/handoffs/acknowledge", headers=bob, json=payload | {"source_id": "pending-receipt"}
+            )
+            assert recovered.status_code == 200, recovered.text
 
             async def identity_missing(*args, **kwargs):
                 return None
 
             with monkeypatch.context() as patch:
-                patch.setattr(access, "receipt_identity", identity_missing)
+                patch.setattr(access, "committed_receipt_identity", identity_missing)
                 exact_missing = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
                 list_missing = await client.get(f"/v1/scopes/{scope_id}/sources")
                 assert exact_missing.status_code == 503, exact_missing.text
                 assert list_missing.status_code == 503, list_missing.text
             with monkeypatch.context() as patch:
-                patch.setattr(access, "receipt_identity", identity_unavailable)
+                patch.setattr(access, "committed_receipt_identity", identity_unavailable)
                 exact_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
                 list_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources")
                 assert exact_unavailable.status_code == 503, exact_unavailable.text
@@ -1518,9 +1534,11 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
     async def check_upgrade():
         async with _server(tmp_path) as (_, client, access):
             exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
-            assert exact.status_code == 200 and exact.json() == before
+            assert before["handoff_receipt"] is False
+            assert exact.status_code == 200 and exact.json() == before | {"handoff_receipt": True}
             ordinary = await client.get(f"/v1/scopes/{scope_id}/sources/content/{ordinary_id}")
             assert ordinary.status_code == 200 and ordinary.json()["receipt_identity"] is None
+            assert ordinary.json()["handoff_receipt"] is False
             reserved_only = await client.get(f"/v1/scopes/{scope_id}/sources/content/{reserved_only_id}")
             assert reserved_only.status_code == 200 and reserved_only.json()["receipt_identity"] is None
             page = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 100})
@@ -1533,7 +1551,7 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
                 return None
 
             with monkeypatch.context() as patch:
-                patch.setattr(access, "receipt_identity", missing)
+                patch.setattr(access, "committed_receipt_identity", missing)
                 exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
                 page = await client.get(f"/v1/scopes/{scope_id}/sources")
                 assert exact.status_code == 503, exact.text

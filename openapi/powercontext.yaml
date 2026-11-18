@@ -13623,6 +13623,9 @@ components:
       type: object
       required: [scope_id, source_type, source_id, content, position, content_digest]
       properties:
+        handoff_receipt:
+          type: boolean
+          description: Server-owned marker that this Source was captured as a Handoff Receipt.
         receipt_identity:
           $ref: "#/components/schemas/HandoffReceiptIdentity"
           nullable: true

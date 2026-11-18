@@ -1684,5 +1684,27 @@
       "search_memory"
     ],
     "evidence": "desktop/VALIDATION.md#server-a211ba84-merged-gateway-contract-protocol-qualification"
+  },
+  {
+    "id": "sqlite-dsh-receipt-d1adea81-v1",
+    "serverCommit": "d1adea81a1462493b686bd5ba40227b635a8c1d6",
+    "contractSha256": "cd4d0547dd9b48f913585e8d1bf370992750485396438b7a336451b45c5a3a4c",
+    "artifactSha256": "f92b13a2aba31bfae1c94fc148fe6b2a257537a63402ba5af1243e836d42ff3b",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_connection_identity",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#dsh-receipt-contract-protocol-qualification"
   }
 ]

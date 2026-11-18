@@ -5777,6 +5777,8 @@ export interface components {
             reason?: string | null;
         };
         SourceRecord: {
+            /** @description Server-owned marker that this Source was captured as a Handoff Receipt. */
+            handoff_receipt?: boolean;
             /** @description Server-owned identity attestation when this Source contains an enforced-mode Handoff Receipt. */
             receipt_identity?: components["schemas"]["HandoffReceiptIdentity"];
             scope_id: string;

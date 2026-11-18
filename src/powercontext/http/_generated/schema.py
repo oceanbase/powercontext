@@ -14196,6 +14196,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SourceRecord": {
                 "properties": {
+                    "handoff_receipt": {
+                        "type": "boolean",
+                        "description": "Server-owned marker that this Source was captured as a Handoff Receipt.",
+                    },
                     "receipt_identity": {
                         "$ref": "#/components/schemas/HandoffReceiptIdentity",
                         "description": "Server-owned "

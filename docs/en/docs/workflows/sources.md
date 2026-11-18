@@ -21,6 +21,22 @@ A successful capture means evidence was stored; it does not mean extraction succ
 keeping. Use Source references to trace a generated result back to its input. Do not retry a capture with changed
 content under the same identity as if it were a new observation.
 
+### Read a Handoff Receipt
+
+A Handoff acknowledgement is a `content` Source. Read it by the exact Scope, Source type and Source ID assigned to
+the acknowledgement; do not use the latest Source or scan the journal to infer a match. `SourceRecord.handoff_receipt`
+is a Server-owned marker for a Source captured as a Handoff Receipt. It is separate from Source content and does not
+by itself prove that a receiver accepted a particular Handoff. Validate the receipt schema, exact prepared digest or
+committed Revision, receiver checks, and the expected Source identity as well.
+
+When access control is enforced, `receipt_identity` reports the Principal only after its attribution is committed.
+An unavailable or pending attribution can make the read return 503; do not interpret that as a rejection. Match a
+known expected Principal, and do not treat a mismatched receiver as authenticated confirmation. With access control
+disabled, there is no authenticated receiver attribution: the receipt is self-reported. An older Server may omit
+`handoff_receipt`; absence is not proof that the Source is a receipt. Upgrade the Server before relying on this marker.
+Legacy receipts acquire the marker only when the Server can safely establish their receipt provenance; an unresolved
+legacy record remains unconfirmed. Existing Source content, identities, and exact references remain unchanged.
+
 ## Choose a capture path
 
 - Agent prompt hooks: use the host-specific capture switch in [Connect Agents](../integrations/index.md).
