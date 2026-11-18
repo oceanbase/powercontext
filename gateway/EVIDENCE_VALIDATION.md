@@ -6,14 +6,17 @@
 - Platform / 平台: Darwin arm64, Rust `1.95.0 (59807616e 2026-04-14)`, Python 3.13.15.
 - Scope / 范围: [#2463](https://github.com/oceanbase/powercontext/issues/2463),
   [planning discussion / 规划讨论 #2433](https://github.com/oceanbase/powercontext/discussions/2433).
-- G3-0 dependency / 依赖: [#2499](https://github.com/oceanbase/powercontext/pull/2499) is included in the base.
-  Pending execution destruction records abandonment plus cancellation/deadline observations; the owner still decides
-  when to stop the future. Cancellation intent and deadline passage alone do not interrupt execution.
-  pending 执行销毁时记录 abandoned 与取消/期限事实；仍由所有者决定何时停止 future，信号与期限本身不中断执行。
-  #2462 remains open: total-deadline/RPC integration and real disconnect/cancellation/drain are subsequent G3 stages.
-  #2462 仍开放；总期限/RPC 集成与真实断连/取消/drain 属于后续 G3 阶段，#2499 未交付这些生产 owner。
+- G3 dependency / 依赖: [#2462](https://github.com/oceanbase/powercontext/issues/2462) was completed by
+  [#2538](https://github.com/oceanbase/powercontext/pull/2538), merged as `3585149a678dd3dae7470b2653394137a951d9b6`.
+  The production HTTP/1 connection owner now stops pending execution on request disconnect, total deadline and
+  bounded shutdown. `CallRecorder` copies the confirmed stopped terminal and model-send state from the shared
+  lifecycle before exporting a dropped call; a handed-off interrupted attempt remains `possibly_sent` and usage
+  remains unknown. See the lifecycle integration revalidation below.
+  G3 依赖由 #2538 完成，合并提交为 `3585149a678dd3dae7470b2653394137a951d9b6`。生产 HTTP/1 连接所有者现会在
+  请求断连、总期限和有界 shutdown 时停止 pending execution。`CallRecorder` 在导出被销毁的调用前，从共享生命周期复制
+  已确认的 stopped 终态与发送状态；已交接后被中断的尝试仍记为 `possibly_sent`，usage 保持 unknown。详见下方生命周期复核。
 
-Related open PR snapshots checked / 已核查相关开放 PR 源码快照:
+Related PR snapshots reviewed during the original implementation / 初始实现期间复核的相关 PR 源码快照:
 
 | PR | Head | Relevant ownership / 相关职责 |
 | --- | --- | --- |
@@ -40,6 +43,37 @@ Cargo was invoked through `/Users/lioky/.cargo/bin/cargo` because the shell's mi
 | `uv run prek run -a` | Passed with all implementation files staged / 实现文件暂存后通过 |
 | `make docs-test` | Passed: bilingual links and static build, 1097 public pages verified / 双语链接与静态构建通过，验证 1097 个公开页面 |
 | `git diff --check` | Passed / 通过 |
+
+## Lifecycle integration revalidation / 生命周期集成复核
+
+- Date / 日期: 2026-11-14.
+- Base / 基线: `3585149a678dd3dae7470b2653394137a951d9b6` (#2538 merged into master).
+- Platform / 平台: Darwin arm64, Rust `1.95.0`.
+- `mise exec rust@1.95.0 -- cargo test --locked --workspace -- --skip real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_replayed`
+  passed: 247 tests; the single skipped test requires `PC_TEST_PYTHON` and a running real Python Core.
+  通过 247 个测试；唯一跳过项需要设置 `PC_TEST_PYTHON` 并运行真实 Python Core。
+- The unfiltered workspace command passed the Gateway app, HTTP/1 connection-owner, evidence-process, evidence-output,
+  transport, protocol and executor suites, but the real-Core recovery test could not start because `PC_TEST_PYTHON`
+  was unset. It is not real-Core acceptance evidence.
+  未过滤的 workspace 命令中 Gateway app、HTTP/1 connection-owner、evidence-process、evidence-output、transport、protocol
+  和 executor suites 均通过；真实 Core 恢复测试因未设置 `PC_TEST_PYTHON` 而无法启动，因此不算真实 Core 验收证据。
+- The Python lifecycle E2E file was present, but could not start in this checkout: the available installed Python
+  environment imports a different workspace package and lacks `powercontext.builtin.authz`. The E2E result reported
+  in #2538 remains that PR's validation, not a rerun here.
+  Python lifecycle E2E 文件存在，但本 checkout 无法启动：当前可用 Python 环境导入了另一工作区的 package，缺少
+  `powercontext.builtin.authz`。#2538 中报告的 E2E 结果属于该 PR 的验证，本轮未复跑。
+
+The #2538 lifecycle regression tests cover real HTTP/1 disconnect, total deadline and shutdown ownership. Executor
+evidence tests verify each confirmed stop maps to a readable `stopped` call terminal, preserves `possibly_sent`,
+keeps usage unknown and emits no release. The production evidence-process fixture separately verifies real Gateway
+JSONL output with a real local HTTP provider/Core fixture. Together with #2506's usage, queue-loss, privacy and
+transport fixtures, all local Gateway-owned #2463 acceptance criteria are covered; real hosted-provider, third-party
+agent adoption and external telemetry-backend ingestion/readback were not executed.
+
+#2538 的生命周期回归覆盖真实 HTTP/1 断连、总期限与 shutdown owner。Executor evidence 测试验证每种已确认停止原因都会映射为可读
+`stopped` 调用终态、保留 `possibly_sent`、usage 保持 unknown 且不会释放响应。生产 evidence-process fixture 另以真实 Gateway
+子进程和本地 HTTP Core/provider fixture 核对 JSONL 输出。结合 #2506 的 usage、队列丢失、隐私及 transport fixture，#2463
+所有由本地 Gateway 控制的验收项均已覆盖；未执行真实托管 provider、第三方 agent 采用行为及外部遥测后端采集/读回。
 
 The workspace runner prints 189 passing test cases. Four `live_context_check` cases return early when the real Core
 at `127.0.0.1:8000` is unavailable; readiness was unavailable here. Those four are not real-Core acceptance evidence.
@@ -122,9 +156,9 @@ not a third-party agent's cancellation, socket-write visibility or task adoption
 `first_model_content` observes the framework polling a frame containing the first encoded byte of supported
 model output; it is separate from `first_body_frame` and does not prove socket writing or client receipt.
 Unsupported/empty output and bodies dropped before content have no content event; missing records and sink loss
-must remain unavailable evidence. Closing #2463 still requires integration acceptance of actual total-deadline and
-cancellation interruption owned by [#2462](https://github.com/oceanbase/powercontext/issues/2462). The shared control
-and future-destruction observations tested here do not establish automatic interruption. Common operational fields
+must remain unavailable evidence. The actual total-deadline, cancellation and shutdown owner are implemented by
+[#2538](https://github.com/oceanbase/powercontext/pull/2538); this report verifies the evidence mapping for those
+confirmed stops. Common operational fields
 align with #2388 vocabulary, but its current Server OTLP pipeline does not ingest this stdout stream or preserve
 nested evidence/loss automatically; external backend ingestion/storage/readback was not executed.
 
@@ -133,8 +167,8 @@ nested evidence/loss automatically; external backend ingestion/storage/readback 
 不证明第三方 agent 的取消能力、实际 socket 写出或任务采用，没有调用付费模型。
 `first_model_content` 记录框架轮询到包含受支持模型输出首个编码字节的 frame，与 `first_body_frame` 分开，
 不证明 socket 写出或客户端收到。不支持/空输出及内容之前丢弃的 body 不产生内容事件；记录缺失与 sink 丢失
-均不能当作耗时为零。关闭 #2463 仍需验收 #2462 所拥有的实际总期限与取消中断集成；
-本报告验证的共享控制与 future 销毁观测不能证明自动中断。
+均不能当作耗时为零。#2462 的实际总期限、取消与 shutdown owner 已由 #2538 实现；本报告验证这些已确认停止原因对应的
+evidence 映射。
 通用运维字段已与 #2388 词汇对齐，但其当前 Server OTLP pipeline 不会自动采集此 stdout 流，
 也不会自动保全嵌套 evidence/loss；未执行外部后端采集、存储与读回。
 

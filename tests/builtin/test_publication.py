@@ -18,6 +18,7 @@ import asyncio
 
 import pytest
 from sqlalchemy import update
+from sqlalchemy.exc import OperationalError
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft
@@ -191,7 +192,7 @@ def test_published_experience_is_searchable_in_target_scope_immediately() -> Non
     asyncio.run(scenario())
 
 
-def test_experience_publication_rolls_back_when_projection_update_fails() -> None:
+def test_experience_publication_rolls_back_when_projection_update_fails(caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
             source_scope = await contexts.scopes.create(
@@ -229,6 +230,29 @@ def test_experience_publication_rolls_back_when_projection_update_fails() -> Non
 
             with pytest.raises(_IndexUnavailableError):
                 await publications.publish(request)
+
+            async def invalid_commit(connection, _publication):
+                await connection.exec_driver_sql("SELECT 1 FROM private_publication_owner")
+
+            healthy = ArtifactPublicationApplication(
+                contexts.database,
+                contexts.repositories.artifacts,
+                contexts.scopes,
+                experience_index=NoExperienceIndex(),
+                id_factory=lambda: "pub_retry",
+            )
+            with pytest.raises(OperationalError):
+                await healthy.publish(request, on_commit=invalid_commit)
+            published = await healthy.publish(request)
+            assert await healthy.publish(request) == published
+
+            failed = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+            assert [vars(item)["operation"] for item in failed] == ["experience.publish"] * 2
+            assert "failure_reason" not in vars(failed[0])
+            assert vars(failed[1])["processing_stage"] == "persistence"
+            assert vars(failed[1])["failure_reason"] == "storage_failure"
+            assert "private_publication_owner" not in repr(vars(failed[1]))
+            assert failed[1].exc_info is None
 
             target = ArtifactAddress(
                 scope_id=target_scope.scope_id,

@@ -381,17 +381,21 @@ def fts_query_requirements(value: str, /, *, floor: AdmissionFloor | None = None
     query_terms = tuple(sorted(set(analyze_fts_query(value).split())))
     if not query_terms:
         return (), 0
+    return query_terms, fts_required_matches(len(query_terms), floor=floor)
+
+
+def fts_required_matches(term_count: int, /, *, floor: AdmissionFloor | None = None) -> int:
+    """Return how many shared terms the admission threshold requires of a set of ``term_count`` terms.
+
+    A set of at most two terms requires one match; a larger set requires
+    ``max(lexical_min_matched_terms, ceil(lexical_coverage * term_count))``.
+    """
+
+    if term_count <= _FTS_SHORT_QUERY_MAX_TERMS:
+        return 1
     coverage = _FTS_MIN_QUERY_COVERAGE if floor is None else floor.lexical_coverage
     min_matched = _FTS_MIN_MATCHED_TERMS if floor is None else floor.lexical_min_matched_terms
-    required_matches = (
-        1
-        if len(query_terms) <= _FTS_SHORT_QUERY_MAX_TERMS
-        else max(
-            min_matched,
-            math.ceil(len(query_terms) * coverage),
-        )
-    )
-    return query_terms, required_matches
+    return max(min_matched, math.ceil(term_count * coverage))
 
 
 def fts_match_query(value: str) -> str | None:
@@ -434,6 +438,7 @@ __all__ = [
     "analyze_text_with_spans",
     "fts_match_query",
     "fts_query_requirements",
+    "fts_required_matches",
     "lexical_search_score",
     "unit_l2_cosine_similarity",
 ]

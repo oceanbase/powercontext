@@ -22,7 +22,7 @@ import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { formatScopeRouting, sessionCwd } from './scope.ts'
-import { scrubSecrets } from './secrets.ts'
+import { scrubSecrets } from './prompt-privacy.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
 export interface TextBlock {

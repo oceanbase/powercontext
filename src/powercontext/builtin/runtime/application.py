@@ -20,12 +20,14 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from hashlib import sha256
 from time import perf_counter
+from types import MethodType
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 from uuid import uuid4
 
@@ -795,9 +797,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.create", self.scope_id, storage_location="prompt-create-storage"
+                    family, f"{family}.create", self.scope_id, storage_location=f"{family}-create-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
@@ -914,9 +916,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.replace", self.scope_id, storage_location="prompt-replace-storage"
+                    family, f"{family}.replace", self.scope_id, storage_location=f"{family}-replace-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
@@ -2942,18 +2944,26 @@ class ScopedExperienceApplication:
     ) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window into Review."""
 
+        from powercontext.builtin.runtime.relational import RelationalContexts
+
         incubator = self._runtime._experience_incubator
         if incubator is None:
             raise _RuntimeStateError("experience-incubation")
         window_limit = EXPERIENCE_INCUBATION_WINDOW_LIMIT if limit is None else limit
         if window_limit < 1:
             raise _RuntimeConfigurationError("limit")
+        scope_lock: AbstractAsyncContextManager[None] = self._runtime._locked(self.scope_id)
+        # The relational incubator can acquire the Scope lock at commit.
+        # Other callbacks rely on the Runtime to serialize the whole invocation.
+        if isinstance(incubator, MethodType) and incubator.__func__ is RelationalContexts.incubate_experience:
+            incubator = partial(incubator, commit_lock=scope_lock)
+            scope_lock = nullcontext()
         async with (
             self._runtime._scoped_operation(
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._locked(self.scope_id),
+            scope_lock,
         ):
             with self._runtime._stage("experience.incubation", attributes={}) as span:
                 result = await incubator(

@@ -340,3 +340,24 @@ def test_statusline_shows_token_savings_on_python_3_9(
 
     assert "PC online" in output
     assert "saved 1.2k today" in output
+
+
+def test_mcp_headers_helper_emits_the_saved_credential_on_python_3_9(python_floor: str, tmp_path: Path) -> None:
+    credential = tmp_path / "claude" / "powercontext" / "credentials.json"
+    credential.parent.mkdir(parents=True)
+    credential.write_text(
+        json.dumps({"version": 1, "server_url": "http://127.0.0.1:8000", "authorization": "Bearer saved-token"}),
+        encoding="utf-8",
+    )
+    credential.chmod(0o600)
+
+    output = _run(
+        python_floor,
+        "scripts/mcp_headers.py",
+        {},
+        server_url="http://127.0.0.1:8000",
+        home=tmp_path,
+        settings={"CLAUDE_CODE_MCP_SERVER_URL": "http://127.0.0.1:8000/mcp"},
+    )
+
+    assert json.loads(output) == {"Authorization": "Bearer saved-token"}
