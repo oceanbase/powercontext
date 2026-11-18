@@ -54,6 +54,7 @@ _CURRENT_OPERATIONS = frozenset({
     "activate_handoff",
     "approve_candidate",
     "capture_content_source",
+    "capture_content_sources",
     "change_atomic_memory_lifecycle",
     "check_context",
     "capture_working_note",
