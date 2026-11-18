@@ -76,6 +76,7 @@ TYPESCRIPT_COPIES = {
     ),
     "prompt-privacy.ts": (
         f"{_DSH}/src/prompt-privacy.ts",
+        f"{_OPENCLAW}/src/prompt-privacy.ts",
         f"{_OPENCODE}/src/prompt-privacy.ts",
         f"{_PI}/src/prompt-privacy.ts",
     ),

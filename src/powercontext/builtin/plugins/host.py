@@ -39,15 +39,18 @@ from powercontext.builtin.artifacts.merge_models import ArtifactMergeConflictErr
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.plugins.executor import open_plugin_profile
-from powercontext.builtin.plugins.families import register_plugin_family, register_source_binding, revision_metadata
+from powercontext.builtin.plugins.families import replace_registrations, revision_metadata
 from powercontext.builtin.plugins.host_protocol import (
     HostCancel,
     HostFailed,
     HostHeartbeat,
     HostReady,
+    HostRegistry,
     HostRequest,
     HostResponse,
     HostShutdown,
+    HostStarted,
+    HostUpgraded,
     PipeChannel,
     PluginHostSpec,
 )
@@ -56,6 +59,7 @@ from powercontext.builtin.plugins.storage import open_plugin_resources
 from powercontext.builtin.plugins.writer import PluginArtifactWriter, PluginContractError, PluginWriteError, UserChange
 from powercontext.builtin.records import ArtifactRevisionPreconditionError, BaseValueConflictError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess
+from powercontext.builtin.scope.models import PLUGIN_SCOPE_REFERENCE_KIND
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.errors import RevisionConflictError
 from powercontext.plugins import (
@@ -63,6 +67,7 @@ from powercontext.plugins import (
     AccessDenied,
     ApiError,
     ApiRequest,
+    ArtifactPluginSpec,
     BinaryResponse,
     Caller,
     CreateRequest,
@@ -104,10 +109,40 @@ class _Call:
 _CURRENT: contextvars.ContextVar[_Call] = contextvars.ContextVar("powercontext_plugin_call")
 
 
+def _control(message: object, tasks: dict[str, asyncio.Task[None]]) -> None:
+    if isinstance(message, HostCancel):
+        running = tasks.get(message.id)
+        if running is not None:
+            running.cancel()
+    elif isinstance(message, HostRegistry):
+        replace_registrations(message.plugin_families, message.source_bindings)
+
+
+class _UpgradeFailed(Exception):
+    """The version's upgrade raised or ran past upgrade_timeout_seconds."""
+
+
 def run_plugin_host(connection: Any, spec: PluginHostSpec) -> None:
     """Spawn target: serve requests from the Server until the Pipe closes or a shutdown arrives."""
 
     asyncio.run(_Host(connection, spec).serve())
+
+
+def run_plugin_upgrade(spec: PluginHostSpec) -> None:
+    """Spawn target on instances without host processes: run only the version's upgrade, then exit.
+
+    The exit code tells the Server whether the new version may be used for background calls.
+    """
+
+    async def upgrade() -> None:
+        async with AsyncExitStack() as resources:
+            await _Host(None, spec)._start(resources, serve=False)
+
+    try:
+        asyncio.run(upgrade())
+    except Exception as error:
+        logger.warning("Plugin upgrade failed (%s)", type(error).__name__)
+        raise SystemExit(1) from None
 
 
 class _Host:
@@ -116,12 +151,18 @@ class _Host:
         self.channel: PipeChannel | None = None
         self.spec = spec
         self.manifest = PluginManifest.model_validate(spec.manifest)
-        self.family = self.manifest.spec.family
+        artifact = self.manifest.artifact
+        # Source plugins own no family: they have no Artifact reads, writes, presentation, or search.
+        self.family = None if artifact is None else artifact.family
         self.access: Any = None
         self.deployment_id: str | None = None
         self.plugin: Any = None
         self.routes: dict[tuple[str, str], Any] = {}
         self.definitions: Any = None
+        self.security: Any = None
+        # While upgrade runs, reads and writes act as the plugin itself and no caller exists.
+        self.upgrading = False
+        self.upgrade_writer: PluginArtifactWriter | None = None
 
     async def _send(self, message: object) -> None:
         assert self.channel is not None  # noqa: S101 - opened before anything is sent
@@ -134,6 +175,9 @@ class _Host:
                 implemented = await self._start(resources)
             except PluginConfigError as error:
                 await self._send(HostFailed(error=str(error), permanent=True))
+                return
+            except _UpgradeFailed as error:
+                await self._send(HostFailed(error=str(error), category="upgrade_failed"))
                 return
             except Exception as error:
                 await self._send(
@@ -150,10 +194,8 @@ class _Host:
                     break
                 if isinstance(message, HostShutdown):
                     break
-                if isinstance(message, HostCancel):
-                    running = tasks.get(message.id)
-                    if running is not None:
-                        running.cancel()
+                if not isinstance(message, HostRequest):
+                    _control(message, tasks)
                     continue
                 task = asyncio.create_task(self._handle(message))
                 tasks[message.id] = task
@@ -161,6 +203,11 @@ class _Host:
             if tasks:
                 await asyncio.wait(tasks.values(), timeout=10)
             heartbeat.cancel()
+
+    async def _report(self, message: object) -> None:
+        # The Server times each startup phase; the upgrade-only child has no Server to report to.
+        if self.channel is not None:
+            await self._send(message)
 
     async def _beat(self) -> None:
         while True:
@@ -170,21 +217,21 @@ class _Host:
                 return
             await asyncio.sleep(HEARTBEAT_SECONDS)
 
-    async def _start(self, resources: AsyncExitStack) -> tuple[str, ...]:
+    async def _start(self, resources: AsyncExitStack, *, serve: bool = True) -> tuple[str, ...]:
         spec = self.spec
         directory = Path(spec.directory)
-        loaded, declaration = load_plugin(directory)
+        loaded, declaration = load_plugin(directory, self.manifest.name)
         if loaded != self.manifest:
             raise PluginConfigError("the plugin changed after the Server checked it; restart the Server")  # noqa: TRY003
-        for family in {*spec.plugin_families, self.family}:
-            register_plugin_family(family)
-        for binding, scopes, source_types in spec.source_bindings:
-            register_source_binding(binding, None if scopes is None else frozenset(scopes), frozenset(source_types))
+        families = {*spec.plugin_families, *(() if self.family is None else (self.family,))}
+        replace_registrations(tuple(families), spec.source_bindings)
         profile = await resources.enter_async_context(open_plugin_profile(spec.database))
         self.database = profile.database
-        from powercontext.builtin.authz.worker import build_host_access
+        from powercontext.builtin.authz.worker import build_host_access, open_worker_security
 
         self.access = build_host_access(spec.security, self.database)
+        # Upgrade writes act as the plugin itself, with the background identity the Server passes.
+        self.security = await resources.enter_async_context(open_worker_security(spec.upgrade_security, self.database))
         if spec.security is not None:
             self.deployment_id = spec.security.get("deployment_id")
         storage, models = await open_plugin_resources(
@@ -211,14 +258,65 @@ class _Host:
             models=models,
             host=self,
         )
-        self.plugin = await declaration.setup(context)
-        declared = self.manifest.spec
+        await self._report(HostStarted())
+        if declaration.upgrade is not None:
+            await self._upgrade(declaration.upgrade, context)
+            await self._report(HostUpgraded())
+        if not serve:
+            return ()
+        self.plugin = None if declaration.setup is None else await declaration.setup(context)
+        declared = self.manifest.artifact
+        if declared is None:
+            return ()
         background = declared.schedule is not None or declared.on_sources
         required = ("render_artifact", *(("generate",) if background else ()))
         missing = [name for name in required if not callable(getattr(self.plugin, name, None))]
         if missing:
             raise PluginConfigError("setup returned an object without " + ", ".join(missing))
         return tuple(name for name in USER_CHANGE_METHODS if callable(getattr(self.plugin, name, None)))
+
+    async def _upgrade(self, upgrade: Any, context: PluginContext) -> None:
+        self.upgrading = True
+        try:
+            async with asyncio.timeout(self.manifest.spec.upgrade_timeout_seconds):
+                await upgrade(context)
+        except Exception as error:
+            raise _UpgradeFailed(type(error).__name__) from error
+        finally:
+            self.upgrading = False
+            self.upgrade_writer = None
+
+    def _plugin_writer(self, scope_id: str) -> PluginArtifactWriter:
+        """A writer acting as the plugin, like a Worker's, with no invocation cursor."""
+
+        spec = self._artifact()
+        security = self.security
+        enforced = self.access is not None
+
+        async def authorize(connection: Any) -> None:
+            if spec.scopes is not None and scope_id not in spec.scopes:
+                raise PluginWriteError("the Scope is outside the plugin's scopes")  # noqa: TRY003
+            if security is not None:
+                await security.authorize_transaction(connection, scope_id)
+            elif enforced:
+                raise PluginWriteError(  # noqa: TRY003
+                    "upgrade writes Artifacts under enforced access only with ACCESS_BACKGROUND_PRINCIPAL_ID"
+                )
+
+        return PluginArtifactWriter(
+            database=self.database,
+            scope_id=scope_id,
+            family=spec.family,
+            sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
+            metadata=revision_metadata(self.manifest.name, self.manifest.fingerprint),
+            begin=authorize,
+            transaction_timeout_seconds=spec.transaction_timeout_seconds,
+            security=security,
+        )
+
+    def _no_caller(self) -> None:
+        if self.upgrading:
+            raise RuntimeError("upgrade runs as the plugin itself; there is no caller")  # noqa: TRY003
 
     # Request handling
 
@@ -264,6 +362,8 @@ class _Host:
             return await self._api(request)
         if request.method == "create_source":
             return await self._create_source(request)
+        if request.method == "project_source":
+            return self._project_source(request)
         if request.method == "render_artifact":
             return await self._render(request)
         if request.method == "search_artifacts":
@@ -328,12 +428,33 @@ class _Host:
         ref = await self.store_source(scope_id, request.payload["source_type"], value)
         return HostResponse(request.id, "ok", result=ref.model_dump(mode="json"))
 
+    def _artifact(self) -> ArtifactPluginSpec:
+        spec = self.manifest.artifact
+        if spec is None:
+            raise RuntimeError("Source plugins have no Artifact family to read or write")  # noqa: TRY003
+        return spec
+
+    def _project_source(self, request: HostRequest) -> HostResponse:
+        """Recompute a runner's observation with this plugin version; the Server stores the result."""
+
+        from powercontext.builtin.plugins.observations import ObservationRejected, reproject
+        from powercontext.sources.observations import SourceObservation
+
+        if self.definitions is None:
+            return HostResponse(request.id, "not_found")
+        observation = SourceObservation.model_validate(request.payload["observation"])
+        try:
+            projected = reproject(self.definitions, self.manifest.source_manifests, observation)
+        except ObservationRejected as error:
+            return HostResponse(request.id, "invalid_content", message=str(error))
+        return HostResponse(request.id, "ok", result=projected.model_dump(mode="json"))
+
     def _writer(self, scope_id: str, *, change: UserChange | None = None) -> PluginArtifactWriter:
-        spec = self.manifest.spec
+        spec = self._artifact()
         return PluginArtifactWriter(
             database=self.database,
             scope_id=scope_id,
-            family=self.family,
+            family=spec.family,
             sources=SourceRepository(BUILTIN_SOURCE_REGISTRY),
             metadata=revision_metadata(self.manifest.name, self.manifest.fingerprint),
             transaction_timeout_seconds=spec.transaction_timeout_seconds,
@@ -344,9 +465,10 @@ class _Host:
 
     async def _authorize(self, scope_id: str, action: str, artifact_id: str | None) -> None:
         call = _CURRENT.get()
-        ref = None if artifact_id is None else ArtifactRef(family=self.family, artifact_id=artifact_id, revision=1)
+        family = self._artifact().family
+        ref = None if artifact_id is None else ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
         async with self.database.transaction() as connection:
-            await ArtifactMergeAccess(self.family).authorize(connection, scope_id, call.context, action, ref)
+            await ArtifactMergeAccess(family).authorize(connection, scope_id, call.context, action, ref)
 
     async def _change(self, request: HostRequest) -> HostResponse:
         method = getattr(self.plugin, request.method, None)
@@ -489,15 +611,19 @@ class _Host:
     # Request helpers behind PluginContext
 
     def caller(self) -> Caller:
+        self._no_caller()
         principal = _CURRENT.get().request.caller
         return Caller(principal_id="local" if principal is None else f"{principal.type}:{principal.id}")
 
     async def require(self, action: str, scope_id: str | None, *, artifact_id: str | None = None) -> None:
+        self._no_caller()
         call = _CURRENT.get()
         if action in {"scope.read", "scope.contribute", "artifact.write"} and scope_id is None:
             raise ValueError("Scope and Artifact permissions need a scope_id")  # noqa: TRY003
         if (action == "artifact.write") != (artifact_id is not None):
             raise ValueError("artifact.write needs an artifact_id, and only artifact.write takes one")  # noqa: TRY003
+        if artifact_id is not None and self.family is None:
+            raise ValueError("artifact.write applies to plugins with an Artifact family")  # noqa: TRY003
         if self.access is None or call.request.caller is None:
             if action == "scope.contribute" and scope_id is not None:
                 call.contribute_scopes.add(scope_id)
@@ -509,11 +635,10 @@ class _Host:
         else:
             assert scope_id is not None  # noqa: S101 - checked above for Scope actions
             # An Artifact check always names this plugin's family; a plugin cannot ask about another's.
-            resource = (
-                ResourceRef.scope(scope_id)
-                if artifact_id is None
-                else ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id)
-            )
+            if artifact_id is None or self.family is None:
+                resource = ResourceRef.scope(scope_id)
+            else:
+                resource = ResourceRef.artifact(scope_id, family=self.family, artifact_id=artifact_id)
             await self.access.bootstrap_static_scope(call.request.caller, scope_id, context=call.request.audit)
         try:
             await self.access.require(call.request.caller, AccessAction(action), resource, context=call.request.audit)
@@ -540,6 +665,8 @@ class _Host:
         return {scope_id for scope_id, decision in zip(scope_ids, decisions, strict=True) if decision.allowed}
 
     def reads(self, scope_id: str) -> Any:
+        if self.upgrading:
+            return self._plugin_writer(scope_id)
         return _CheckedReads(self, scope_id)
 
     async def store_source(self, scope_id: str, definition: str, value: BaseModel) -> SourceRef:
@@ -550,33 +677,32 @@ class _Host:
             raise AccessDenied("the Scope is outside the plugin's declared scopes")  # noqa: TRY003
         if self.definitions is None:
             raise ValueError("the plugin declares no Source Definitions")  # noqa: TRY003
-        from powercontext.builtin.sources.observation_validation import validate_source_observation
-        from powercontext.sources.observations import SourceDefinitionManifest, project_source_for_transport
+        from powercontext.builtin.plugins.observations import observe
 
-        selected = self.definitions.definition_for_name(definition)
-        if not isinstance(value, selected.input_class):
-            raise TypeError(f"{definition} expects {selected.input_class.__name__}")  # noqa: TRY003
-        observation = project_source_for_transport(self.definitions, await self.definitions.resolve(value))
-        manifest = next(
-            SourceDefinitionManifest.model_validate(item)
-            for item in self.manifest.source_manifests
-            if item["name"] == definition
-        )
-        validate_source_observation(observation, manifest)
+        observation = await observe(self.definitions, self.manifest.source_manifests, definition, value)
         repository = SourceRepository(BUILTIN_SOURCE_REGISTRY)
         async with self.database.transaction() as connection:
             stored = await repository.add(connection, scope_id, observation)
         return stored.ref
 
     def writer(self, scope_id: str) -> PluginArtifactWriter:
+        if self.upgrading:
+            # Like a Worker invocation, one upgrade opens at most one write transaction.
+            if self.upgrade_writer is None:
+                self.upgrade_writer = self._plugin_writer(scope_id)
+            elif self.upgrade_writer.scope_id != scope_id:
+                raise PluginWriteError("an upgrade opens at most one write transaction")  # noqa: TRY003
+            return self.upgrade_writer
         if scope_id not in _CURRENT.get().contribute_scopes:
             raise AccessDenied("call ctx.require('scope.contribute', scope_id) before writing")  # noqa: TRY003
         return self._writer(scope_id)
 
     def sources(self) -> _Sources:
+        self._no_caller()
         return _Sources(self)
 
     def scopes(self) -> _Scopes:
+        self._no_caller()
         return _Scopes(self)
 
 
@@ -613,7 +739,7 @@ class _Sources:
 
 
 class _Scopes:
-    _KIND = "powercontext.plugin"
+    _KIND = PLUGIN_SCOPE_REFERENCE_KIND
 
     def __init__(self, host: _Host) -> None:
         self._host = host

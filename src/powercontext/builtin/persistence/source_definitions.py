@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -154,6 +154,29 @@ class SourceDefinitionManifestRepository:
             .one_or_none()
         )
         return None if row is None else _decode_row(row)
+
+    async def evidence_many(
+        self, connection: AsyncConnection, identities: Iterable[tuple[str, str]], /
+    ) -> dict[tuple[str, str], SourceDefinitionManifest | None]:
+        """Read retained evidence schemas; an invalid ancillary row neutralizes only its own identity."""
+        keys = tuple(dict.fromkeys(identities))
+        table = SOURCE_DEFINITION_MANIFESTS_TABLE
+        manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
+        for offset in range(0, len(keys), 400):
+            rows = (
+                await connection.execute(
+                    select(table).where(
+                        tuple_(table.c.definition_name, table.c.definition_version).in_(keys[offset : offset + 400])
+                    )
+                )
+            ).mappings()
+            for row in rows:
+                identity = (str(row["definition_name"]), str(row["definition_version"]))
+                try:
+                    manifests[identity] = _decode_row(row)
+                except (IdentityMismatchError, InvalidStoredColumnError, InvalidStoredPayloadError):
+                    manifests[identity] = None
+        return manifests
 
 
 def _decode_row(row: Mapping[Any, Any]) -> SourceDefinitionManifest:
