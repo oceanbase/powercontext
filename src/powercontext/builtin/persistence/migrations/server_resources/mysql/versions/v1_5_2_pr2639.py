@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Source management contracts; plugins own their collection schedule."""
+"""Add Source collection runners and targets through the shared DDL executor."""
 
-from .models import Capability, ManagementError, SourceTarget, TargetIdentity, TargetIdentityRequest
+from alembic import context
 
-__all__ = ["Capability", "ManagementError", "SourceTarget", "TargetIdentity", "TargetIdentityRequest"]
+revision = "v1_5_2_pr2639"
+down_revision = "v1_5_0_005"
+
+
+def upgrade() -> None:
+    context.config.attributes["execute_revision"](revision)
