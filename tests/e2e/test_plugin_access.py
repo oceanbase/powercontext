@@ -315,4 +315,15 @@ def test_plugin_scopes_list_only_readable_own_scopes_and_update_checks_admin_fir
             assert renamed.json()["title"] == "renamed"
             assert west["scope_id"] not in listed.json()["scope_ids"]
 
+            # Scope listings leave a plugin's Scopes out, as one complete list and as pages with any filter.
+            rooms = {east["scope_id"], west["scope_id"]}
+            for query in ("", "?limit=100", "?query=e&query_field=title"):
+                page = await admin.get(f"/v1/scopes{query}")
+                assert page.status_code == 200, page.text
+                assert not rooms & {item["scope_id"] for item in page.json()["items"]}
+            assert other in {item["scope_id"] for item in (await admin.get("/v1/scopes")).json()["items"]}
+            # Asking for the plugin reference kind lists exactly them.
+            asked = await admin.get("/v1/scopes?external_reference_kind=powercontext.plugin")
+            assert {item["scope_id"] for item in asked.json()["items"]} == rooms
+
     asyncio.run(scenario())

@@ -235,6 +235,7 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
+from powercontext.builtin.persistence.source_collection import SourceCollectionError
 from powercontext.builtin.publication import (
     ArtifactPublicationApplication,
     ArtifactPublicationConflictError,
@@ -420,6 +421,7 @@ from powercontext.builtin.scope import (
 from powercontext.builtin.scope import (
     ScopeSelection as DomainScopeSelection,
 )
+from powercontext.builtin.scope.models import PLUGIN_SCOPE_REFERENCE_KIND
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import (
     ObservedInvocation,
@@ -604,6 +606,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     MergeArtifactsRequest,
     PlanAccessOwnershipRequest,
+    PluginOpenApiDocument,
     PluginPage,
     PluginScopePage,
     PluginState,
@@ -683,6 +686,17 @@ from powercontext.http import (
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
+    SourceRunnerPage,
+    SourceRunnerRegisterRequest,
+    SourceRunnerRegistration,
+    SourceRunnerSyncRequest,
+    SourceRunnerSyncResult,
+    SourceRunnerUpdateRequest,
+    SourceTarget,
+    SourceTargetCreateRequest,
+    SourceTargetPage,
+    SourceTargetTransferRequest,
+    SourceTargetUpdateRequest,
     SourceType,
     SubmitSourceObservationRequest,
     TopicMemoryArtifact,
@@ -809,6 +823,7 @@ from powercontext.http._generated.operations import (
     CREATE_SOURCE,
     CREATE_SUBJECT_SOURCE,
     CREATE_WORK_CONTRACT,
+    DELETE_SOURCE_RUNNER,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
     ENROLL_REMOTE_SKILL_TARGET,
@@ -840,6 +855,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PLUGIN,
+    GET_PLUGIN_OPENAPI,
     GET_PROFILE_POLICY,
     GET_PROMPT_CONFIGURATION,
     GET_READINESS,
@@ -873,6 +889,12 @@ from powercontext.http._generated.operations import (
     LIST_SOURCES,
     MERGE_ARTIFACTS,
     OPENAPI_VERSION,
+    PC_SOURCE_ADD,
+    PC_SOURCE_RUNNERS,
+    PC_SOURCE_STATUS,
+    PC_SOURCE_TARGET_DELETE,
+    PC_SOURCE_TARGET_SET_ENABLED,
+    PC_SOURCE_TARGET_TRANSFER,
     PLAN_ACCESS_OWNERSHIP,
     PREPARE_BOOTSTRAP_CONTEXT,
     PREPARE_CONTEXT,
@@ -892,6 +914,7 @@ from powercontext.http._generated.operations import (
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_SOURCE_DEFINITION,
+    REGISTER_SOURCE_RUNNER,
     REJECT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
@@ -917,9 +940,11 @@ from powercontext.http._generated.operations import (
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
     SUBMIT_SOURCE_OBSERVATION,
+    SYNC_SOURCE_RUNNER,
     UNPUBLISH_REMOTE_SKILL,
     UPDATE_SCOPE,
     UPDATE_SKILL_LIFECYCLE,
+    UPDATE_SOURCE_RUNNER,
     AccessRequirement,
     Operation,
 )
@@ -1550,6 +1575,7 @@ def create_app(
     @app.exception_handler(PromptError)
     @app.exception_handler(SourceNotEligibleError)
     @app.exception_handler(PluginCallError)
+    @app.exception_handler(SourceCollectionError)
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
@@ -1583,6 +1609,7 @@ def create_app(
     _add_route(app, GET_CAPABILITIES, get_capabilities)
     _add_route(app, LIST_PLUGINS, list_plugins)
     _add_route(app, GET_PLUGIN, get_plugin)
+    _add_route(app, GET_PLUGIN_OPENAPI, get_plugin_openapi)
     # Plugin routes are outside the main contract; core authenticates, the plugin host authorizes.
     app.router.add_api_route(
         "/v1/plugins/{name}/api/{path:path}",
@@ -1595,10 +1622,6 @@ def create_app(
     _add_route(app, MERGE_ARTIFACTS, merge_artifacts)
     _add_route(app, FORGET_ARTIFACT, forget_artifact)
     _add_route(app, RESTORE_ARTIFACT, restore_artifact)
-    from powercontext.source_management.gateway import mount_source_routes
-
-    mount_source_routes(app)
-
     _add_route(app, LIST_SCOPES, list_scopes)
     _add_route(app, CREATE_SCOPE, create_scope)
     _add_route(app, GET_DEFAULT_SCOPE, get_default_scope)
@@ -1666,6 +1689,16 @@ def create_app(
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
     _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
     _add_route(app, SUBMIT_SOURCE_OBSERVATION, submit_source_observation)
+    _add_route(app, PC_SOURCE_RUNNERS, list_source_runners)
+    _add_route(app, SYNC_SOURCE_RUNNER, sync_source_runner)
+    _add_route(app, DELETE_SOURCE_RUNNER, delete_source_runner)
+    _add_route(app, REGISTER_SOURCE_RUNNER, register_source_runner)
+    _add_route(app, UPDATE_SOURCE_RUNNER, update_source_runner)
+    _add_route(app, PC_SOURCE_TARGET_TRANSFER, transfer_source_target)
+    _add_route(app, PC_SOURCE_ADD, create_source_target)
+    _add_route(app, PC_SOURCE_STATUS, list_source_targets)
+    _add_route(app, PC_SOURCE_TARGET_SET_ENABLED, update_source_target)
+    _add_route(app, PC_SOURCE_TARGET_DELETE, delete_source_target)
     _add_route(app, COMMIT_CONNECTOR_CHECKPOINT, commit_connector_checkpoint)
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
@@ -1836,6 +1869,12 @@ async def get_plugin(
     name: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9-]*$")], http_request: Request
 ) -> PluginState:
     return _require_plugin_manager(http_request).get(name)
+
+
+async def get_plugin_openapi(
+    name: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9-]*$")], http_request: Request
+) -> PluginOpenApiDocument:
+    return PluginOpenApiDocument.model_validate(_require_plugin_manager(http_request).openapi(name))
 
 
 def _list_plugin_scopes_query(
@@ -2572,8 +2611,12 @@ async def list_scopes(
         )
         or "limit" in http_request.query_params
     )
+    # A plugin's Scopes hold what the plugin manages and are reached through the plugin. Listings leave
+    # them out unless the request asks for that reference kind.
+    hidden = None if request.external_reference_kind == PLUGIN_SCOPE_REFERENCE_KIND else PLUGIN_SCOPE_REFERENCE_KIND
     if not pagination_requested:
-        return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list()])
+        listed = await scopes.list(exclude_external_reference_kind=hidden)
+        return ScopePage(items=[_scope_descriptor_response(scope) for scope in listed])
 
     principal = current_principal()
     caller = "anonymous" if principal is None else f"{principal.type}:{principal.id}"
@@ -2583,6 +2626,7 @@ async def list_scopes(
             query_field=None if request.query_field is None else request.query_field.value,
             parent_scope_id=request.parent_scope_id,
             external_reference_kind=request.external_reference_kind,
+            exclude_external_reference_kind=hidden,
             binding_integration=request.binding_integration,
             binding_kind=request.binding_kind,
             limit=request.limit,
@@ -3767,41 +3811,54 @@ async def call_plugin_api(name: str, path: str, http_request: Request) -> Respon
     from starlette.routing import compile_path
 
     manager = _require_plugin_manager(http_request)
-    manifest = manager.loaded_manifest(name)
-    if manifest is None or manifest.spec.api is None:
-        raise BaseValueNotFoundError("plugin", name)
     target = "/" + path
-    routes = sorted(manifest.spec.api.routes, key=lambda route: "{" in route.path)
-    for route in routes:
-        if route.method != http_request.method:
-            continue
-        pattern, _, _ = compile_path(route.path)
-        matched = pattern.match(target)
-        if matched is not None:
-            break
-    else:
-        raise BaseValueNotFoundError("plugin_route", f"{http_request.method} {target}")
-    body: Any = None
     ceiling = http_request.app.state.plugin_api_max_body_bytes
-    if route.body != "none":
-        default = PLUGIN_API_JSON_BODY_BYTES if route.body == "json" else ceiling
-        limit = min(route.max_body_bytes or default, ceiling)
-        declared = http_request.headers.get("content-length", "")
-        if declared.isdecimal() and int(declared) > limit:
-            raise PluginCallError(413, "request_too_large", "The request body is too large.")
-        raw = await http_request.body()
-        if len(raw) > limit:
-            raise PluginCallError(413, "request_too_large", "The request body is too large.")
-        if route.body == "json":
-            try:
-                body = json.loads(raw or b"null")
-            except ValueError:
-                raise PluginCallError(422, "invalid_json", "The request body is not JSON.") from None
+    runner_version = http_request.headers.get("x-powercontext-plugin-version")
+    while True:
+        # One plugin version serves the whole request: its route decides how the body is read, and
+        # its host receives the call. A reload while the body arrives starts over with the new version.
+        manifest = manager.loaded_manifest(name)
+        if manifest is None or manifest.spec.api is None:
+            raise BaseValueNotFoundError("plugin", name)
+        if runner_version is not None and (manifest.source is None or not manifest.source.accepts(runner_version)):
+            # A device's copy of the plugin calls its own routes here; versions follow the Source plugin range.
+            raise PluginCallError(
+                409, "plugin_version_incompatible", "This Server does not accept the plugin version of the caller."
+            )
+        host = manager.host(name)
+        routes = sorted(manifest.spec.api.routes, key=lambda route: "{" in route.path)
+        for route in routes:
+            if route.method != http_request.method:
+                continue
+            pattern, _, _ = compile_path(route.path)
+            matched = pattern.match(target)
+            if matched is not None:
+                break
         else:
-            body = raw
+            raise BaseValueNotFoundError("plugin_route", f"{http_request.method} {target}")
+        raw = b""
+        if route.body != "none":
+            default = PLUGIN_API_JSON_BODY_BYTES if route.body == "json" else ceiling
+            limit = min(route.max_body_bytes or default, ceiling)
+            declared = http_request.headers.get("content-length", "")
+            if declared.isdecimal() and int(declared) > limit:
+                raise PluginCallError(413, "request_too_large", "The request body is too large.")
+            raw = await http_request.body()
+            if len(raw) > limit:
+                raise PluginCallError(413, "request_too_large", "The request body is too large.")
+        if manager.loaded_manifest(name) is manifest:
+            break
+    body: Any = None
+    if route.body == "json":
+        try:
+            body = json.loads(raw or b"null")
+        except ValueError:
+            raise PluginCallError(422, "invalid_json", "The request body is not JSON.") from None
+    elif route.body == "binary":
+        body = raw
     result = await _call_plugin_host(
         http_request,
-        manager.host(name),
+        host,
         "api",
         scope_id=None,
         payload={
@@ -4003,7 +4060,26 @@ async def get_connector_checkpoint(
 async def submit_source_observation(
     request: SubmitSourceObservationRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> SourceObservationReceipt:
+    if request.plugin is not None:
+        manifest, host = _accepted_source_plugin(http_request, request.plugin)
+        if not any(item["name"] == request.observation.source_type for item in manifest.source_manifests):
+            raise PluginCallError(422, "invalid_content", "The Source type does not belong to this plugin.")
+        _require_declared_scope(manifest, request.scope_id)
+        if host is None:
+            raise PluginCallError(503, "plugin_unavailable", "The plugin is temporarily unavailable.")
+        # The Server's own plugin version resolves and projects what the runner collected.
+        projected = await _call_plugin_host(
+            http_request,
+            host,
+            "project_source",
+            scope_id=request.scope_id,
+            payload={"observation": request.observation.model_dump(mode="json")},
+            timeout=manifest.spec.change_timeout_seconds,
+            operation=SUBMIT_SOURCE_OBSERVATION.operation_id,
+        )
+        request = request.model_copy(update={"observation": type(request.observation).model_validate(projected)})
     result = await application.ingestion.submit(mapping.submit_source_observation_request(request))
     return mapping.source_observation_receipt_response(result)
 
@@ -4011,9 +4087,451 @@ async def submit_source_observation(
 async def commit_connector_checkpoint(
     request: CommitConnectorCheckpointRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ConnectorCheckpointState:
-    result = await application.ingestion.commit(mapping.commit_connector_checkpoint_request(request))
+    from powercontext.builtin.runtime.models import CollectionCommit
+
+    if request.plugin is not None:
+        _accepted_source_plugin(http_request, request.plugin)
+    principal = _runner_principal()
+    status = request.status
+    # Whether the binding is a collection target is decided with the commit, from what is stored; the
+    # caller and what it reports go along so that the decision never depends on the request's optional fields.
+    collection = CollectionCommit(
+        principal_type=principal.type,
+        principal_id=principal.id,
+        plugin=None if request.plugin is None else request.plugin.name,
+        config_version=request.config_version,
+        succeeded=None if status is None else status.succeeded,
+        error_code=None if status is None else status.error_code,
+        error_message=None if status is None else status.error_message,
+    )
+    runtime_request = mapping.commit_connector_checkpoint_request(request).model_copy(update={"collection": collection})
+    result = await application.ingestion.commit(runtime_request)
     return mapping.connector_checkpoint_response(result)
+
+
+def _caller_id() -> str:
+    principal = current_principal()
+    return "local" if principal is None else f"{principal.type}:{principal.id}"
+
+
+def _require_declared_scope(manifest: Any, scope_id: str) -> None:
+    """A plugin that declares its Scopes writes Sources only there, whichever path they arrive by."""
+
+    scopes = manifest.spec.scopes
+    if scopes is not None and scope_id not in scopes:
+        raise PluginCallError(403, "access_denied", "The Scope is outside the plugin's declared scopes.")
+
+
+def _accepted_source_plugin(http_request: Request, plugin: Any) -> tuple[Any, Any]:
+    """The loaded Source plugin a runner used, when this Server accepts the runner's version."""
+
+    found = _require_plugin_manager(http_request).source_plugin(plugin.name)
+    if found is None or found[0].source is None or not found[0].source.accepts(plugin.version):
+        raise PluginCallError(
+            409,
+            "plugin_version_incompatible",
+            "This Server does not accept the plugin version; upgrade the Server first, then the runner.",
+        )
+    return found
+
+
+def _runner_principal() -> Any:
+    """The identity a runner is registered under: the authenticated principal's type and identifier."""
+
+    from powercontext.builtin.persistence.source_collection import LOCAL_PRINCIPAL, RunnerPrincipal
+
+    principal = current_principal()
+    return LOCAL_PRINCIPAL if principal is None else RunnerPrincipal(principal.type, principal.id)
+
+
+async def _own_runner(connection: Any, repository: Any, runner: str) -> Any:
+    """The registered runner of this name, when the caller is the principal that registered it."""
+
+    from powercontext.builtin.persistence.source_collection import SourceCollectionError
+
+    record = await repository.runner(connection, runner)
+    if record is None:
+        raise SourceCollectionError(404, "runner_not_registered", "The runner is not registered; register it first.")
+    if record.principal != _runner_principal():
+        raise SourceCollectionError(
+            403, "access_denied", "A runner syncs and reports only as the principal it is registered under."
+        )
+    return record
+
+
+async def _runner_assigner(http_request: Request, runner: str, operation: str) -> Any:
+    """Authorize deciding what a runner collects; the principal the runner must still belong to at the write.
+
+    A device runner collects with its device's credential, network position, and files, so only the
+    principal that registered it, or an administrator, gives it work. The Server's runner is an
+    operator's. None means an administrator decided, for whichever principal the runner belongs to.
+    """
+
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    if runner == SERVER_RUNNER:
+        await _require_server_admin(http_request, operation)
+        return None
+    caller = _runner_principal()
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        record = await SourceCollectionRepository().runner(connection, runner)
+    if record is not None and record.principal != caller:
+        await _require_server_admin(http_request, operation)
+        return None
+    return caller
+
+
+async def _require_server_admin(http_request: Request, operation: str) -> None:
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    if access is None:
+        return
+    await access.require(
+        _require_principal(),
+        AccessAction.SERVER_ADMIN,
+        ResourceRef.server(access.deployment_id),
+        context=_access_audit_context(operation),
+    )
+
+
+def _capability(manager: Any, name: str, version: str | None, error: str | None) -> dict[str, Any]:
+    found = manager.source_plugin(name)
+    declared = None if found is None else found[0].source
+    target = None if declared is None else declared.target
+    return {
+        "name": name,
+        "version": version,
+        "error": error,
+        "compatible": declared is not None and error is None and version is not None and declared.accepts(version),
+        "description": None if target is None else target.description,
+        "parameters_schema": None if target is None else target.parameters_schema,
+        "identity": None if target is None else {key: list(steps) for key, steps in target.identity.items()},
+    }
+
+
+async def list_source_runners(http_request: Request) -> SourceRunnerPage:
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    manager = _require_plugin_manager(http_request)
+    async with manager.database.transaction() as connection:
+        runners = await SourceCollectionRepository().runners(connection)
+    collecting = [
+        (name, declared.version)
+        for name in sorted(manager.plugins)
+        if (manifest := manager.loaded_manifest(name)) is not None
+        and (declared := manifest.source) is not None
+        and declared.collect is not None
+    ]
+    items: list[dict[str, Any]] = [
+        {
+            "runner": SERVER_RUNNER,
+            "display_name": SERVER_RUNNER,
+            "last_seen_at": None,
+            "capabilities": [_capability(manager, name, version, None) for name, version in collecting],
+        }
+    ]
+    for runner in runners:
+        if runner.runner == SERVER_RUNNER:
+            continue
+        capabilities = []
+        for item in runner.capabilities:
+            version, error = item.get("version"), item.get("error")
+            capabilities.append(
+                _capability(
+                    manager,
+                    str(item["name"]),
+                    None if version is None else str(version),
+                    None if error is None else str(error),
+                )
+            )
+        items.append({
+            "runner": runner.runner,
+            "display_name": runner.display_name,
+            "last_seen_at": runner.last_seen_at,
+            "capabilities": capabilities,
+        })
+    return SourceRunnerPage.model_validate({"items": items})
+
+
+async def sync_source_runner(
+    runner: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]*$")],
+    request: SourceRunnerSyncRequest,
+    http_request: Request,
+) -> SourceRunnerSyncResult:
+    from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
+    from powercontext.builtin.persistence.source_collection import (
+        SERVER_RUNNER,
+        TARGET_CHECKPOINT_VERSION,
+        SourceCollectionError,
+        SourceCollectionRepository,
+    )
+    from powercontext.sources import ConnectorBinding
+
+    if runner == SERVER_RUNNER:
+        raise SourceCollectionError(403, "access_denied", "The name server is reserved for the Server's own runner.")
+    manager = _require_plugin_manager(http_request)
+    accepted = []
+    rejected = []
+    for plugin in request.plugins:
+        found = manager.source_plugin(plugin.name)
+        declared = None if found is None else found[0].source
+        if declared is None or declared.collect is None:
+            rejected.append({"name": plugin.name, "code": "plugin_not_loaded"})
+        elif plugin.error is None and plugin.version is not None and declared.accepts(plugin.version):
+            accepted.append(plugin.name)
+        elif plugin.error is None:
+            rejected.append({"name": plugin.name, "code": "plugin_version_incompatible"})
+    repository = SourceCollectionRepository()
+    checkpoints = ConnectorCheckpointRepository()
+    async with manager.database.transaction() as connection:
+        # A sync never creates a runner: the name must be registered, by this principal. The record is
+        # held first, so it is not deleted or registered again by someone else before the sync is recorded.
+        await repository.lock_runner(connection, runner)
+        await _own_runner(connection, repository, runner)
+        await repository.record_sync(connection, runner, [plugin.model_dump(mode="json") for plugin in request.plugins])
+        targets = []
+        for target in await repository.assigned(connection, runner, accepted):
+            checkpoint = await checkpoints.load(
+                connection,
+                ConnectorBinding(
+                    scope_id=target.scope_id,
+                    binding_id=target.target_id,
+                    connector_name=target.capability,
+                    connector_version=TARGET_CHECKPOINT_VERSION,
+                ),
+            )
+            targets.append({
+                "scope_id": target.scope_id,
+                "target_id": target.target_id,
+                "capability": target.capability,
+                "parameters": target.parameters,
+                "config_version": target.config_version,
+                "checkpoint": checkpoint,
+            })
+    return SourceRunnerSyncResult.model_validate({"targets": targets, "rejected": rejected})
+
+
+async def delete_source_runner(
+    runner: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]*$")],
+    http_request: Request,
+) -> Response:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionError, SourceCollectionRepository
+
+    repository = SourceCollectionRepository()
+    database = _require_plugin_manager(http_request).database
+    async with database.transaction() as connection:
+        record = await repository.runner(connection, runner)
+    if record is None:
+        raise SourceCollectionError(404, "not_found", "The runner was not found.")
+    if record.principal != _runner_principal():
+        # Other principals' records are an operator's to remove.
+        await _require_server_admin(http_request, DELETE_SOURCE_RUNNER.operation_id)
+    async with database.transaction() as connection:
+        await repository.delete_runner(connection, record)
+    return Response(status_code=204)
+
+
+def _runner_registration(runner: Any) -> SourceRunnerRegistration:
+    return SourceRunnerRegistration(runner=runner.runner, display_name=runner.display_name)
+
+
+async def register_source_runner(
+    request: SourceRunnerRegisterRequest, http_request: Request, response: Response
+) -> SourceRunnerRegistration:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    if (request.name is None) == (request.registration_id is None) or (
+        request.name is not None and request.suggested_name is not None
+    ):
+        raise InvalidBaseAccessRequestError(
+            "name", "give either registration_id, optionally with suggested_name, or name"
+        )
+    repository = SourceCollectionRepository()
+    principal = _runner_principal()
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        if request.name is not None:
+            runner, created = await repository.register_fixed(connection, principal, request.name)
+        else:
+            assert request.registration_id is not None  # noqa: S101 - checked above
+            runner, created = await repository.register_suggested(
+                connection, principal, request.registration_id, request.suggested_name
+            )
+    if not created:
+        response.status_code = 200
+    return _runner_registration(runner)
+
+
+async def update_source_runner(
+    runner: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]*$")],
+    request: SourceRunnerUpdateRequest,
+    http_request: Request,
+) -> SourceRunnerRegistration:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        updated = await SourceCollectionRepository().set_display_name(connection, runner, request.display_name.strip())
+    return _runner_registration(updated)
+
+
+def _source_target_response(target: Any) -> SourceTarget:
+    return SourceTarget.model_validate({
+        "scope_id": target.scope_id,
+        "target_id": target.target_id,
+        "runner": target.runner,
+        "capability": target.capability,
+        "target_key": target.target_key,
+        "parameters": target.parameters,
+        "enabled": target.enabled,
+        "config_version": target.config_version,
+        "updated_at": target.updated_at,
+        "updated_by": target.updated_by,
+        "status": vars(target.status),
+    })
+
+
+def _target_key(manager: Any, capability: str, parameters: dict[str, Any]) -> str:
+    from powercontext.builtin.portability.bundle import BundleFormatError, require_exportable_target_parameters
+    from powercontext.sources.collection import InvalidTargetParameters, target_key, validate_parameters
+
+    found = manager.source_plugin(capability)
+    declared = None if found is None else found[0].source
+    if declared is None or declared.target is None:
+        raise InvalidBaseAccessRequestError("capability", "must be a loaded Source plugin that collects")
+    try:
+        validate_parameters(declared.target.parameters_schema, parameters)
+        key = target_key(capability, parameters, declared.target.identity)
+    except InvalidTargetParameters as error:
+        raise PluginCallError(422, "invalid_parameters", str(error)) from None
+    try:
+        # Targets are stored centrally, shown to the Scope's readers, and exported with the Scope.
+        require_exportable_target_parameters(parameters)
+    except BundleFormatError:
+        raise PluginCallError(
+            422, "invalid_parameters", "Target parameters cannot hold credentials; the plugin reads them on its runner."
+        ) from None
+    return key
+
+
+async def create_source_target(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: SourceTargetCreateRequest,
+    http_request: Request,
+    response: Response,
+) -> SourceTarget:
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    owner = await _runner_assigner(http_request, request.runner, PC_SOURCE_ADD.operation_id)
+    manager = _require_plugin_manager(http_request)
+    key = _target_key(manager, request.capability, request.parameters)
+    found = manager.source_plugin(request.capability)
+    assert found is not None  # noqa: S101 - _target_key refused an unknown capability
+    _require_declared_scope(found[0], scope_id)
+    async with manager.database.transaction() as connection:
+        target, created = await SourceCollectionRepository().add_target(
+            connection,
+            scope_id=scope_id,
+            runner=request.runner,
+            capability=request.capability,
+            target_key=key,
+            parameters=request.parameters,
+            actor=_caller_id(),
+            owner=owner,
+        )
+    if not created:
+        response.status_code = 200
+    elif request.runner == SERVER_RUNNER:
+        await manager.request_collection(request.capability, scope_id)
+    return _source_target_response(target)
+
+
+async def list_source_targets(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")], http_request: Request
+) -> SourceTargetPage:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        targets = await SourceCollectionRepository().targets(connection, scope_id)
+    return SourceTargetPage(items=[_source_target_response(target) for target in targets])
+
+
+async def _managed_target(http_request: Request, scope_id: str, target_id: str, operation: str) -> Any:
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        target = await SourceCollectionRepository().target(connection, scope_id, target_id)
+    if target is None:
+        raise BaseValueNotFoundError("source_target", target_id)
+    if target.runner == SERVER_RUNNER:
+        await _require_server_admin(http_request, operation)
+    return target
+
+
+async def update_source_target(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    target_id: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[0-9a-f]{1,64}$")],
+    request: SourceTargetUpdateRequest,
+    http_request: Request,
+) -> SourceTarget:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    target = await _managed_target(http_request, scope_id, target_id, PC_SOURCE_TARGET_SET_ENABLED.operation_id)
+    manager = _require_plugin_manager(http_request)
+    if request.parameters is not None or request.enabled:
+        # New parameters and enabling give the runner work, like a new target; disabling does not.
+        await _runner_assigner(http_request, target.runner, PC_SOURCE_TARGET_SET_ENABLED.operation_id)
+    if (
+        request.parameters is not None
+        and _target_key(manager, target.capability, request.parameters) != target.target_key
+    ):
+        # A checkpoint always belongs to one external object; collect another one with a new target.
+        raise PluginCallError(422, "identity_immutable", "Identity parameters of a target cannot change.")
+    async with manager.database.transaction() as connection:
+        updated = await SourceCollectionRepository().update_target(
+            connection, target, parameters=request.parameters, enabled=request.enabled, actor=_caller_id()
+        )
+    return _source_target_response(updated)
+
+
+async def delete_source_target(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    target_id: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[0-9a-f]{1,64}$")],
+    http_request: Request,
+) -> Response:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionRepository
+
+    target = await _managed_target(http_request, scope_id, target_id, PC_SOURCE_TARGET_DELETE.operation_id)
+    async with _require_plugin_manager(http_request).database.transaction() as connection:
+        await SourceCollectionRepository().delete_target(connection, target)
+    return Response(status_code=204)
+
+
+async def transfer_source_target(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    target_id: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[0-9a-f]{1,64}$")],
+    request: SourceTargetTransferRequest,
+    http_request: Request,
+) -> SourceTarget:
+    from powercontext.builtin.persistence.source_collection import SERVER_RUNNER, SourceCollectionRepository
+
+    operation = PC_SOURCE_TARGET_TRANSFER.operation_id
+    # Moving a target away from the Server's runner needs what changing it there needs.
+    target = await _managed_target(http_request, scope_id, target_id, operation)
+    manager = _require_plugin_manager(http_request)
+    # Transferring a target is adding it to the destination runner.
+    owner = await _runner_assigner(http_request, request.runner, operation)
+    async with manager.database.transaction() as connection:
+        transferred = await SourceCollectionRepository().transfer_target(
+            connection,
+            target,
+            request.runner,
+            reset_checkpoint=bool(request.reset_checkpoint),
+            actor=_caller_id(),
+            owner=owner,
+        )
+    if request.runner == SERVER_RUNNER:
+        await manager.request_collection(transferred.capability, scope_id)
+    return _source_target_response(transferred)
 
 
 async def flush_memory(
@@ -6782,8 +7300,12 @@ def _set_error_headers(response: Response, error: Exception) -> None:
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    from powercontext.builtin.persistence.source_collection import SourceCollectionError
+
     if isinstance(error, PluginCallError):
         return error.status, error.code, error.message, error.details
+    if isinstance(error, SourceCollectionError):
+        return error.status, error.code, error.message, None
     if isinstance(error, DreamError) and error.code == "client_upgrade_required":
         return 426, error.code, "Upgrade to a client supporting Dream contract 2.", {"required_dream_contract": 2}
     if isinstance(error, ArtifactSearchFamilyNotFound):

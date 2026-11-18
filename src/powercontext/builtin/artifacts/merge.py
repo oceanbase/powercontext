@@ -594,27 +594,37 @@ class ArtifactMergeService:
                 )
                 if verified != plan:
                     raise self.errors.conflict("restoration relations changed; prepare the whole group again")  # noqa: TRY003
-        independent_creates = all(
-            item.plan.operation == "change"
-            and len(item.plan.writes) == 1
-            and item.plan.writes[0].current is None
-            and item.plan.writes[0].draft is not None
-            and not item.plan.writes[0].draft.artifacts
-            and item.plan.writes[0].state is ArtifactLifecycleState.ACTIVE
-            and not item.plan.writes[0].merge_input_ids
-            and item.plan.writes[0].merged_into_id is None
-            and item.plan.writes[0].replacement_artifact_id is None
-            for item in prepared
-        )
-        groups = (
-            (tuple(zip(prepared, operation_sources, strict=True)),)
-            if independent_creates
-            else tuple(((item, source),) for item, source in zip(prepared, operation_sources, strict=True))
-        )
         results = []
-        for group in groups:
+        for group in self._commit_groups(prepared, operation_sources):
             results.extend(await self._commit_locked(connection, group, current, context, source_read_set))
         return tuple(results)
+
+    @staticmethod
+    def _commit_groups(prepared, operation_sources):
+        """Group disjoint plans without crossing read dependencies or Source events."""
+        group = []
+        group_reads: set[str] = set()
+        group_writes: set[str] = set()
+        for item, source in zip(prepared, operation_sources, strict=True):
+            plan = item.plan
+            reads = {read.ref.artifact_id for read in plan.reads}
+            writes = {write.artifact_id for write in plan.writes}
+            # Restoration appends a Source before its writes. Preserve that journal
+            # boundary; other plans share a batch only without cross-plan dependencies.
+            restoration = plan.operation in {"restore", "undo_merge"}
+            if group and (restoration or reads & group_writes or writes & group_reads):
+                yield tuple(group)
+                group.clear()
+                group_reads.clear()
+                group_writes.clear()
+            if restoration:
+                yield ((item, source),)
+            else:
+                group.append((item, source))
+                group_reads.update(reads)
+                group_writes.update(writes)
+        if group:
+            yield tuple(group)
 
     def _require_window(self, plans: Sequence[ArtifactMergePlan], scope_id: str, subject: str) -> None:
         identities: set[str] = set()
@@ -858,26 +868,20 @@ class ArtifactMergeService:
                     write.replacement_artifact_id,
                 )
             records[write.artifact_id] = ArtifactMergeRecord(artifact=artifact, state=state)
-        if (
-            created
-            and len(created) == len(writes)
-            and all(record.state.lifecycle_state is ArtifactLifecycleState.ACTIVE for record in records.values())
-        ):
-            await self.projections.publish_many(
-                connection,
-                scope_id,
-                tuple((record, projections[artifact_id]) for artifact_id, record in records.items()),
-                context,
-            )
-        else:
-            for artifact_id, record in records.items():
-                if record.state.lifecycle_state is ArtifactLifecycleState.ACTIVE:
-                    projection = projections.get(artifact_id)
-                    if projection is None:
-                        raise self.errors.relation("active publication requires a prepared projection")  # noqa: TRY003
-                    await self.projections.publish(connection, scope_id, record, projection, context)
-                else:
-                    await self.projections.remove(connection, scope_id, artifact_id)
+        active = []
+        for artifact_id, record in records.items():
+            if record.state.lifecycle_state is ArtifactLifecycleState.ACTIVE:
+                projection = projections.get(artifact_id)
+                if projection is None:
+                    raise self.errors.relation("active publication requires a prepared projection")  # noqa: TRY003
+                active.append((record, projection))
+            else:
+                if active:
+                    await self.projections.publish_many(connection, scope_id, tuple(active), context)
+                    active.clear()
+                await self.projections.remove(connection, scope_id, artifact_id)
+        if active:
+            await self.projections.publish_many(connection, scope_id, tuple(active), context)
         return records
 
     async def _check_dependencies(

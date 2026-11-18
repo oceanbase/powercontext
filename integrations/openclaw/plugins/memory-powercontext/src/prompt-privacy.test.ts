@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { resolvePowerContextConfig } from "./config.js";
 import type { PowerContextClient } from "./http.js";
 import { registerPowerContextLifecycle } from "./lifecycle.js";
-import { containsSecret, scrubSecrets } from "./secrets.js";
+import { containsSecret, scrubSecrets } from "./prompt-privacy.js";
 
 type PrivacyCase = { id: string; prompt: string; sensitive: boolean; authorization?: string };
 type Hook = (event: unknown, context: unknown) => unknown;

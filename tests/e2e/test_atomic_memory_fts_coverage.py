@@ -206,12 +206,19 @@ def test_hybrid_coverage_keeps_vectors_and_validates_rows_outside_lexical_matche
                     assert {hit.artifact_ref.artifact_id for hit in channels.vector} == expected
                     assert {hit.artifact_ref.artifact_id for hit in strict_complete} == expected
                     assert all(set(hit.channel_scores or {}) == {"vector"} for hit in strict_complete)
+                    if mode == "hybrid":
+                        assert tuple(hit.score for hit in strict_complete) == pytest.approx((1 / 61, 1 / 62))
                     assert not await index.probe_recoverable(
                         connection, "scope", strict, AdmissionFloor(lexical_min_matched_terms=4)
                     )
                     assert await index.probe_recoverable(
                         connection, "scope", strict, AdmissionFloor(lexical_min_matched_terms=3)
                     )
+
+                without_terms, _ = await index.enumerate_related_with_heads(
+                    connection, "scope", replace(related, query="!!!")
+                )
+                assert tuple(hit.score for hit in without_terms) == pytest.approx((1 / 61, 1 / 62))
 
                 await connection.execute(
                     update(index.table)
