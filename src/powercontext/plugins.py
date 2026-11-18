@@ -233,6 +233,10 @@ class ArtifactPluginSpec(BaseModel):
     change_timeout_seconds: float = Field(default=30, gt=0)
     # Suggested ceiling on this plugin's host processes in each Server process; deployers may override it.
     host_processes: int = Field(default=1, ge=1)
+    # Time limit of ``upgrade``, which runs every time a version of the plugin loads.
+    upgrade_timeout_seconds: float = Field(default=600, gt=0)
+    # Time limit of ``setup``, counted from the end of ``upgrade``, or of core's startup when there is none.
+    setup_timeout_seconds: float = Field(default=60, gt=0)
     api: PluginApiSpec | None = None
     pages: PluginPages | None = None
 
@@ -742,6 +746,8 @@ class ArtifactPlugin(ArtifactPluginSpec):
     # Source Definitions this plugin's own routes submit; their manifests register when the plugin loads.
     definitions: tuple[Any, ...] = Field(default=(), exclude=True)
     api: PluginApi | None = None
+    # Called every time a version of the plugin loads, before setup; it must be fast and safe to repeat.
+    upgrade: Callable[[PluginContext], Awaitable[None]] | None = Field(default=None, exclude=True)
 
 
 def _path_parameters(path: str) -> tuple[str, ...]:

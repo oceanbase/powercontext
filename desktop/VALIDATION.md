@@ -3524,3 +3524,34 @@ record was not yet committed. Historical profiles retain their original evidence
 These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
+
+
+## Server 0d56ec37 plugin reload protocol qualification
+
+`sqlite-plugin-reload-0d56ec37-v1` qualifies all thirteen Desktop protocol operations against
+Server source `0d56ec3773e7a65a95538e38eb8ae9c150eb3461`, which reloads plugin directories, describes
+plugin routes, and adds version fields to the plugin listing.
+
+- Normalized OpenAPI SHA-256: `3200acfd5f802d74ce349249c22c9c0038822732e939818382cce0efd4757940`.
+- Wheel: `powercontext-1.5.2.dev245+g0d56ec377-py3-none-any.whl`.
+- Wheel SHA-256: `4fef79a944dd077a413cb65ef4183f536ae9b3db4c0839168cacc35b271760bc`.
+- Native debug probe SHA-256 (built without debug info): `1b3ed1767e09e12efb44880d36a7d084c48a4e95a2eb991761f555aa5f32395c`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-reload/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-reload-0d56ec37-v1 \
+  --wheel desktop/.artifacts/plugin-reload/powercontext-1.5.2.dev245+g0d56ec377-py3-none-any.whl
+```

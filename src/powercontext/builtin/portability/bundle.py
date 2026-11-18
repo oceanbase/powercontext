@@ -544,6 +544,12 @@ class PortableBundleService:
         if self._supported_artifact_families is not None:
             self._supported_artifact_families = self._supported_artifact_families | {family}
 
+    def unregister_artifact_family(self, family: str) -> None:
+        """Forget the decoder of a family whose plugin was removed or now declares another family."""
+
+        if self._family_decoders.pop(family, None) is not None and self._supported_artifact_families is not None:
+            self._supported_artifact_families = self._supported_artifact_families - {family}
+
     async def export(
         self,
         scopes: Iterable[str],

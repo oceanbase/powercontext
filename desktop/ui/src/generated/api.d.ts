@@ -887,7 +887,7 @@ export interface paths {
         };
         /**
          * List loaded plugins
-         * @description Lists the plugins checked at Server startup, whether each loaded or failed, and what each one declares. Plugins have no persisted lifecycle state; change the plugin directory and restart Server.
+         * @description Lists the plugins in the plugin directory as this Server instance sees them: whether each loaded or failed, the version in use, and what it declares. Plugins have no persisted lifecycle state. Each instance rescans the directory on its own, so instances may briefly differ after a plugin changes.
          */
         get: operations["list_plugins"];
         put?: never;
@@ -907,6 +907,26 @@ export interface paths {
         };
         /** Get one loaded plugin */
         get: operations["get_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plugins/{name}/openapi.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe a plugin's own routes
+         * @description Returns an OpenAPI 3.1 document that core generates from the routes the loaded plugin version declares: paths, methods, the access each route requires, request and response schemas, and the shared error responses. The plugin owns the compatibility of its routes.
+         */
+        get: operations["get_plugin_openapi"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3515,11 +3535,33 @@ export interface components {
         PluginLoadStatus: "loaded" | "failed";
         /** @enum {string} */
         PluginTrigger: "schedule" | "sources";
+        PluginRoute: {
+            /** @enum {string} */
+            method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+            /** @description Route template under /v1/plugins/{name}/api. */
+            path: string;
+            /** @enum {string} */
+            access: "authenticated" | "scope.read" | "scope.contribute";
+            /** @description The route is also an MCP tool. */
+            mcp: boolean;
+        };
+        /** @description An OpenAPI 3.1 document describing one plugin's routes. */
+        PluginOpenApiDocument: {
+            [key: string]: unknown;
+        };
+        PluginPagesState: {
+            /** @description Navigation title by language. */
+            title: {
+                [key: string]: string;
+            };
+            /** @description Dashboard path of the plugin's page. */
+            path: string;
+        };
         PluginState: {
             name: string;
             kind: components["schemas"]["PluginKind"];
             status: components["schemas"]["PluginLoadStatus"];
-            /** @description Safe failure category from the startup check. */
+            /** @description Safe failure category when the plugin is not loaded. */
             error: string | null;
             family: string | null;
             binding_name: string | null;
@@ -3527,6 +3569,19 @@ export interface components {
             /** @description Source types delivered to the plugin; null when it consumes no Sources. */
             source_types: string[] | null;
             triggers: components["schemas"]["PluginTrigger"][];
+            /** @description Content digest of the plugin version in use on this instance; null when none loaded. */
+            version_digest: string | null;
+            /** @description Digest of the declaration in use. */
+            declaration_digest: string | null;
+            /**
+             * Format: date-time
+             * @description When this instance switched to the version in use.
+             */
+            activated_at: string | null;
+            /** @description Safe category of the latest failed check of a newer version; the version in use stays active. Cleared when a version activates. */
+            last_check_failure: string | null;
+            routes: components["schemas"]["PluginRoute"][];
+            pages: components["schemas"]["PluginPagesState"] | null;
         };
         PluginPage: {
             items: components["schemas"]["PluginState"][];
@@ -8184,7 +8239,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Plugins found in the plugin directory at startup. */
+            /** @description Plugins found in the plugin directory by this instance. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8209,13 +8264,39 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The plugin's startup check result and declaration. */
+            /** @description The plugin's check result, version in use, and declaration on this instance. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_plugin_openapi: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plugin's route description. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginOpenApiDocument"];
                 };
             };
             401: components["responses"]["Unauthorized"];

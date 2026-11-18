@@ -21,7 +21,7 @@ description: 用一个目录和 plugin.py 扩展 PowerContext：生成、展示�
 
 ## 启用插件目录
 
-设置插件目录，然后重启 Server：
+设置插件目录并启动 Server：
 
 ```bash
 export POWERCONTEXT_SERVER_PLUGINS_DIR=/srv/powercontext/plugins
@@ -31,7 +31,7 @@ powercontext server run
 - 目录下每个子目录是一个插件，子目录名就是插件名（小写字母开头，只含小写字母、数字和 `-`）。
 - 插件依赖的第三方库需要装进 Server 的 Python 环境，例如 `uv pip install pypdf`。插件目录中的 `requirements.txt` 只是给
   部署者看的说明，Server 不会自动安装。
-- 修改插件后需要重启 Server。Server 在加载时记录插件目录的内容指纹，运行中发现插件文件变了会拒绝执行，避免新旧代码混用。
+- 新增、修改或删除插件目录不需要重启 Server，见"更新插件"。
 
 用管理员凭据查看加载结果：
 
@@ -121,6 +121,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 | `timeout_seconds`、`transaction_timeout_seconds` | 一次生成和其中写事务的时限 |
 | `change_timeout_seconds` | 一次用户修改、展示或检索的时限 |
 | `host_processes` | 每个 Server 进程中本插件宿主进程数的上限，默认 1；部署者可以覆盖 |
+| `upgrade`、`upgrade_timeout_seconds` | 每次加载本版本时在 `setup` 之前调用的数据升级函数及其时限（默认 600 秒），见"更新插件" |
+| `setup_timeout_seconds` | `setup` 的时限，默认 60 秒，从 `upgrade` 结束时算起，没有 `upgrade` 时从 core 启动完成时算起 |
 | `definitions` | 插件自己的 Source 定义，见"定义 Source 类型" |
 | `api` | 插件的接口，见"提供接口" |
 | `pages` | Dashboard 页面，见"Dashboard 页面" |
@@ -361,6 +363,15 @@ plugin = ArtifactPlugin(
 - 请求体上限：JSON 默认 1 MiB，二进制默认 32 MiB，可以用 `max_body_bytes` 为单个路由声明，但不会超过部署者设置的
   `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES`。超出时 core 返回 413，不调用插件。
 - 每次调用受 `timeout_seconds`（默认 30 秒）约束，超时返回 504。
+- 路由声明 `mcp=True`（需要填写 `description`，请求体只能是 JSON 或没有）时，同时作为 Server MCP 端点上的工具，工具名为
+  `<插件名>__<handler>`，参数由路径参数、`query` 和 `body` 组成。调用工具等同于以 MCP 会话的身份调用该路由；`GET` 且
+  `access` 为 `scope.read` 或 `authenticated` 的路由标为只读工具。
+  - 工具名取自 handler，作为不同工具暴露的路由要使用不同的 handler。多个路由共用一个 handler 时，只给其中一个声明
+    `mcp=True` 作为工具入口；两个都声明时插件检查失败。
+  - `query` 和 `body` 是查询参数和请求体的保留参数名。MCP 路由的路径参数使用 `{document_id}`、`{scope_id}` 这类业务名称；
+    路径参数名为 `query` 或 `body` 的 MCP 路由（例如 `/documents/{body}`）插件检查失败。
+- `GET /v1/plugins/<插件名>/openapi.json` 返回 core 根据路由声明生成的 OpenAPI 文档。接口的兼容性由插件自己负责，需要不兼容
+  的变更时可以在路径中带上版本，例如 `/v2/notes`。
 
 接口、展示、检索和用户修改方法在宿主进程中执行。每个插件有自己的一组宿主进程，不与其他插件共用：插件加载后启动第一个并
 一直保留；所有进程都忙、且有请求排队时再启动一个，直到 `host_processes`；多出的进程空闲 5 分钟后停止。工厂 `setup(ctx)`
@@ -435,6 +446,51 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 - 只提供静态文件（HTML、JavaScript、CSS、图片、字体），单个文件不超过 5 MiB；脚本只能来自插件自己的目录和
   `/dashboard/plugins/_client.js`。
 
+## 更新插件
+
+每个 Server 进程每隔 `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS`（默认 60 秒，0 关闭）扫描一次插件目录，按文件内容判断
+插件是否变化：
+
+- 目录内容连续两次扫描都相同、且与正在使用的版本不同时，Server 把它复制成数据目录下的只读快照，检查通过后切换到新版本。
+  所以修改最晚在两个扫描间隔之后生效，写到一半的目录不会被加载。新增的目录同样处理；删除的目录连续两次扫描都不存在时才
+  卸载，用改名替换目录时的中间状态不会让插件下线。插件目录可以是符号链接，每次扫描都重新解析，切换链接指向即可发布新版本。
+  插件目录内部的符号链接按链接到的内容复制进快照，之后修改链接目标不影响已加载的版本；指向插件目录之外的链接会让检查
+  失败。
+- 插件代码只从快照导入。新版本的宿主进程就绪后，新请求才发往新版本；旧版本的宿主进程完成手头的请求后停止，已经开始的
+  后台生成用旧版本完成。
+- 新版本检查失败、`upgrade` 失败、注册失败（例如 Source 定义改了结构却没改版本号）或任何启动阶段超时，都继续使用旧版本，
+  `GET /v1/plugins/<插件名>` 的 `last_check_failure` 给出失败分类；`version_digest` 和 `activated_at` 是正在使用的版本及其
+  生效时间。失败的版本在 5 分钟后重新检查，之后每次失败等待时间翻倍，最长 1 小时；修改目录会立即重新检查。因为插件族已被
+  其他插件占用而失败的插件，在占用它的插件卸载或换了插件族后的下一次扫描重新检查。
+- 宿主进程的启动分三个阶段，各自计时，超时的阶段写进 `last_check_failure`：core 启动和导入插件（60 秒，`start_timeout`）、
+  `upgrade`（`upgrade_timeout_seconds`，`upgrade_timeout`）、`setup`（`setup_timeout_seconds`，`setup_timeout`）。
+  依赖很重的插件把耗时的导入放进 `setup`，并按需调大 `setup_timeout_seconds`。
+- 多个 Server 实例各自扫描，在所有实例完成切换之前，不同实例可能使用不同版本。同一台机器上共用数据目录的多个 Server
+  进程（例如 `api` 和 `background` 进程）各自保存快照，只删除自己的；进程异常退出留下的快照由之后启动的进程清理。
+
+`upgrade(ctx)` 用于插件数据的升级，每次加载一个插件版本都会调用（包括 Server 启动时），插件自己判断是否需要做什么：
+
+```python
+from sqlalchemy import text
+
+
+async def upgrade(ctx):
+    async with ctx.storage.engine().begin() as connection:
+        await connection.execute(text("CREATE TABLE IF NOT EXISTS note_tags (note_id TEXT, tag TEXT)"))
+
+plugin = ArtifactPlugin(family="notes", setup=setup, upgrade=upgrade)
+```
+
+- 每个加载新版本的 Server 实例都会执行，必须可以重复执行，也可以在多个实例上同时执行；需要互斥时在专属存储中自己加锁。
+- 只做快速的变更，例如专属存储的 schema 变更。大量数据的格式变化在读取时惰性迁移，或者提供单独的迁移脚本由部署者在
+  升级前执行。
+- `ctx.reads(scope_id)` 和 `ctx.writer(scope_id)` 以插件自身的身份执行，一次 `upgrade` 最多开启一个写事务块；
+  `ctx.caller`、`ctx.require`、`ctx.sources`、`ctx.scopes` 不可用。启用权限控制时，插件自身的身份就是
+  `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的后台身份，需要在写入的 Scope 上有 `scope.contribute`；
+  没有配置这个身份时，`upgrade` 仍然可以修改专属存储，但写 Artifact 会失败。
+- 升级期间旧版本可能仍在其他实例上运行，先做新旧版本都能使用的变更，等旧版本不再运行后再在后续版本中清理。core 不支持
+  降级，旧代码读不了新数据由插件负责。
+
 ## 排错
 
 | 现象 | 处理 |
@@ -443,11 +499,10 @@ plugin = ArtifactPlugin(..., pages=PluginPages(directory="ui", entry="index.html
 | 接口返回 503 | 宿主进程正在启动或重启，或者因事件循环被阻塞而被终止；查看 Server 日志中的插件错误 |
 | 接口返回 504 `plugin_timeout` | 调用超过了时限；耗时的工作放进 `asyncio.to_thread` 或交给 `generate`，或者调大时限 |
 | 接口返回 500 `plugin_error` | 处理函数抛出了未处理的异常；Server 日志记录了异常类型 |
-| 修改插件后 Worker 不再执行 | 插件文件在运行中被修改，重启 Server |
+| 修改插件后没有生效 | 等待两个扫描间隔；查看 `GET /v1/plugins/<插件名>` 的 `last_check_failure` 和 Server 日志中的 `plugin.changed` |
 | 生成的 Artifact 没有出现 | 用 `GET /v1/plugins/<插件名>/scopes` 查看各 Scope 是否还有待处理的 Source |
 
 ## 当前限制
 
-- 插件更新需要重启 Server，还不支持热加载。
 - 插件依赖由部署者手动安装到 Server 环境。
 - 插件代码与 Server 有相同的权限，宿主进程和 Worker 隔离的是故障，不是不可信代码。
