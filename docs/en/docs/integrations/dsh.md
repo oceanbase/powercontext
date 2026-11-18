@@ -339,7 +339,8 @@ The source conversation is preserved. Review and send the draft in the destinati
 to close the menu.
 
 Open **Installation checks** to check the listed agents automatically. Each row shows the installed version or
-why the agent could not be detected as soon as its check finishes.
+why the agent could not be detected as soon as its check finishes. An installed version that has not been
+validated for handoff is marked accordingly. If the handoff options fail to load, close and reopen the menu to retry.
 
 ### Availability and current status
 

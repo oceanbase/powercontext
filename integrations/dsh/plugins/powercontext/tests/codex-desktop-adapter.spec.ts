@@ -88,7 +88,7 @@ describe('Codex Desktop handoff adapter', () => {
     expect(await adapter.detect(signal)).toEqual(target)
     const unqualified = createCodexDesktopAdapter({ appPath, runtime: runtime(), buildReceiverPrompt: () => 'draft',
       qualification: { evidence: 'fixture only', targetVersion: 'different build' } })
-    expect(await unqualified.detect(signal)).toEqual({ state: 'unsupported' })
+    expect(await unqualified.detect(signal)).toEqual({ state: 'unqualified', version: targetVersion })
     await rm(join(appPath, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'))
     expect(await adapter.detect(signal)).toEqual({ state: 'unknown' })
     await rm(appPath, { recursive: true })

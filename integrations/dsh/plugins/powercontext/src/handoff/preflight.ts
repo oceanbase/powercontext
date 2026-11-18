@@ -330,6 +330,7 @@ export class PreflightService implements PreflightGate {
     const target = await adapter.detect(context.signal)
     if (target.state === 'missing') return set({ state: 'needs_user_action', agent: 'missing', nextAction: 'install_agent' })
     if (target.state === 'unsupported') return set({ state: 'failed', agent: 'unsupported', code: 'integration_unavailable' })
+    if (target.state === 'unqualified') return set({ state: 'needs_user_action', agent: 'present', nextAction: 'configure_target' })
     if (target.state !== 'present') return set({ state: 'unknown', agent: 'unknown', code: 'outcome_unknown', nextAction: 'check_target' })
     const detection = { configurationKey: target.configurationKey, targetVersion: target.version, adapterVersion: adapter.version }
     set({ state: record.state === 'checking_agent' ? 'checking_integration' : 'verifying', agent: 'present', detection })

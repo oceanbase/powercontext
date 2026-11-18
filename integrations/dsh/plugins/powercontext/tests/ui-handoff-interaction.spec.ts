@@ -124,6 +124,38 @@ it('rebinds the toolbar anchor when switching compact secondary views and back',
   expect(document.body.querySelector('[role="menu"]')?.getAttribute('data-trigger-anchor')).toBe('交接给其他 Agent')
 })
 
+it.each(['boundary', 'targets'] as const)('retries %s discovery after reopening without starting a handoff', async failedRead => {
+  const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url) === '/powercontext/targets') {
+      return json({ targets: [{ targetId: 'codex-desktop', diagnostics: 'available', availability: 'requires_preflight' }] })
+    }
+    if (String(url) === '/powercontext/targets/codex-desktop/diagnose') {
+      return json({ targetId: 'codex-desktop', state: 'present', version: '1.2.3' })
+    }
+    throw new Error(`unexpected request ${url}`)
+  })
+  const resolveBoundary = vi.fn(async () => source)
+  if (failedRead === 'boundary') resolveBoundary.mockRejectedValueOnce(new HandoffHttpError('integration_unavailable', 503))
+  else fetcher.mockResolvedValueOnce(json({ code: 'integration_unavailable' }, 503))
+  vi.stubGlobal('fetch', fetcher)
+  localStorage.setItem('powercontext.dsh.locale', 'en')
+  const ports: HandoffPorts = { resolveBoundary, readReceipt: async () => { throw new Error('unused') } }
+  await act(async () => root.render(React.createElement(HandoffAction, props(ports))))
+  await click('Hand off to another agent')
+  expect(button('Codex Desktop').getAttribute('aria-disabled')).toBe('true')
+  if (failedRead === 'boundary') {
+    await click('Installation checks')
+    expect(document.body.textContent).toContain('Installed, version: 1.2.3')
+    await click('Back')
+  }
+  await closeMenu()
+  await click('Hand off to another agent')
+  expect(button('Codex Desktop').getAttribute('aria-disabled')).not.toBe('true')
+  expect(resolveBoundary).toHaveBeenCalledTimes(failedRead === 'boundary' ? 2 : 1)
+  expect(fetcher.mock.calls.filter(([url]) => url === '/powercontext/targets')).toHaveLength(failedRead === 'targets' ? 2 : 1)
+  expect(fetcher.mock.calls.some(([url]) => /preflights|deliveries/u.test(String(url)))).toBe(false)
+})
+
 it('checks installation without allowing unqualified targets to prepare or launch', async () => {
   const ids = ['codex-desktop', 'claude-desktop', 'claude-code-cli']
   const targets = ids.map(targetId => ({ targetId, name: targetId, diagnostics: 'available', availability: 'unavailable', action: 'manual_setup_or_export' }))
@@ -136,7 +168,7 @@ it('checks installation without allowing unqualified targets to prepare or launc
     if (path === '/powercontext/targets/codex-desktop/diagnose') return ++codexChecks === 1
       ? json({ targetId: ids[0], state: 'present', version: '1.2.3' }) : json({ code: 'integration_unavailable' }, 503)
     if (path === '/powercontext/targets/claude-desktop/diagnose') return json({ targetId: ids[1], state: 'missing' })
-    if (path === '/powercontext/targets/claude-code-cli/diagnose') return json({ targetId: ids[2], state: 'unknown' })
+    if (path === '/powercontext/targets/claude-code-cli/diagnose') return json({ targetId: ids[2], state: 'unqualified', version: '2.1.324' })
     if (path === '/powercontext/deliveries?sessionId=s1') return json({ deliveries: [saved] })
     if (path === '/powercontext/deliveries/saved?sessionId=s1') return json(snapshot(saved))
     throw new Error(`unexpected request ${path}`)
@@ -151,7 +183,7 @@ it('checks installation without allowing unqualified targets to prepare or launc
   expect(document.body.querySelectorAll('.pc-handoff-diagnostic-row button')).toHaveLength(0)
   expect(document.body.textContent).toContain('已安装，版本: 1.2.3')
   expect(document.body.textContent).toContain('未检测到安装')
-  expect(document.body.textContent).toContain('无法确定安装状态')
+  expect(document.body.textContent).toContain('已安装，版本: 2.1.324 · 当前版本尚未通过交接验证')
   await click('返回'); await click('安装检查')
   expect(document.body.textContent).not.toContain('已安装，版本: 1.2.3')
   expect(document.body.textContent).toContain('检查失败')

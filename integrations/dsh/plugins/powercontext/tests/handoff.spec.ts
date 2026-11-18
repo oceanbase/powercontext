@@ -152,6 +152,15 @@ async function fixture(options: { maxPreflights?: number; referenced?: ReadonlyS
 }
 
 describe('preflight and installation', () => {
+  it('reports an unqualified installation but cannot prepare work for it', async () => {
+    const f = await fixture()
+    f.state.detection = { state: 'unqualified', version: '1.3' }
+    const preflight = await f.create()
+    expect(preflight).toMatchObject({ state: 'needs_user_action', agent: 'present', nextAction: 'configure_target' })
+    await expect(f.validate(preflight)).rejects.toMatchObject({ code: 'not_ready' })
+    expect(f.install).not.toHaveBeenCalled()
+  })
+
   it('distinguishes absent applications and absent integration; declining is repeatable', async () => {
     const f = await fixture()
     const unavailable = new TargetCatalog().list()

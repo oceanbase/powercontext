@@ -1447,8 +1447,8 @@ var HandoffHttp = class {
 		}
 		return response.json();
 	}
-	async resolveBoundary(sessionId, messageId) {
-		const source = (await this.json(`boundaries?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`))?.source;
+	async resolveBoundary(sessionId, messageId, signal) {
+		const source = (await this.json(`boundaries?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`, void 0, signal))?.source;
 		if (!source || source.sessionId !== sessionId || source.messageId !== messageId || !Number.isSafeInteger(source.throughSeq) || source.throughSeq < 0 || typeof source.cwd !== "string" || !source.cwd || !Number.isFinite(Date.parse(source.workspaceObservedAt))) throw new HandoffHttpError("binding_mismatch", 409);
 		return Object.freeze({ ...source });
 	}
@@ -1471,17 +1471,18 @@ var HandoffHttp = class {
 		if (attribution && (typeof attribution.receiver !== "string" || !attribution.receiver.trim() || attribution.kind !== "self_reported" && attribution.kind !== "authenticated" || attribution.kind === "authenticated" && (!attribution.principal || typeof attribution.principal.type !== "string" || typeof attribution.principal.id !== "string"))) throw new HandoffHttpError("receipt_invalid", 422);
 		return result;
 	}
-	targets() {
-		return this.json("targets");
+	targets(signal) {
+		return this.json("targets", void 0, signal);
 	}
 	async diagnoseTarget(targetId, signal) {
 		const result = await this.json(`targets/${encodeURIComponent(targetId)}/diagnose`, void 0, signal);
 		if (!result || result.targetId !== targetId || ![
 			"present",
+			"unqualified",
 			"missing",
 			"unknown",
 			"unsupported"
-		].includes(result.state) || result.state === "present" && (typeof result.version !== "string" || !result.version.trim())) throw new HandoffHttpError("integration_unavailable", 503);
+		].includes(result.state) || (result.state === "present" || result.state === "unqualified") && (typeof result.version !== "string" || !result.version.trim())) throw new HandoffHttpError("integration_unavailable", 503);
 		return result;
 	}
 	preflight(source, targetId, requestId, signal) {
@@ -1601,6 +1602,7 @@ const copy = {
 		checkFailed: "检查失败",
 		checkUnavailable: "检查不可用",
 		loading: "正在加载目标",
+		discoveryFailed: "无法加载交接选项。请关闭后重新打开。",
 		notAvailable: "目标当前不可用",
 		unqualifiedShort: "当前版本尚未通过交接验证",
 		installationPresent: "已安装，版本",
@@ -1676,6 +1678,7 @@ const copy = {
 		checkFailed: "Check failed",
 		checkUnavailable: "Check unavailable",
 		loading: "Loading targets",
+		discoveryFailed: "Could not load handoff options. Close and reopen to retry.",
 		notAvailable: "Target unavailable",
 		unqualifiedShort: "Current version not yet validated for handoff",
 		installationPresent: "Installed, version",
@@ -1841,6 +1844,7 @@ const nativeTargets = [
 		name: "Claude Code CLI"
 	}
 ];
+const noTargets = [];
 function pendingOperations(sessionId, messageId) {
 	const key = JSON.stringify([sessionId, messageId]);
 	let pending = pendingByReply.get(key);
@@ -1879,7 +1883,6 @@ function HandoffActionInstance(props) {
 		...props,
 		locale,
 		active: open,
-		visited,
 		latest,
 		onOpen: () => {
 			setVisited(true);
@@ -1888,7 +1891,7 @@ function HandoffActionInstance(props) {
 		onClose: () => setOpen(false)
 	});
 }
-function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, latest, onOpen, onClose }) {
+function HandoffPanel({ sessionId, messageId, ports, locale, active, latest, onOpen, onClose }) {
 	const t = copy[locale];
 	const f = flowCopy[locale];
 	const api = (0, react.useRef)(new HandoffHttp()).current;
@@ -1907,7 +1910,10 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 	const [replySource, setReplySource] = (0, react.useState)();
 	const [confirmedOriginal, setConfirmedOriginal] = (0, react.useState)(false);
 	const [recoveredFromHistory, setRecoveredFromHistory] = (0, react.useState)(false);
-	const [targets, setTargets] = (0, react.useState)([]);
+	const [targetList, setTargetList] = (0, react.useState)();
+	const targets = targetList ?? noTargets;
+	const [boundaryFailed, setBoundaryFailed] = (0, react.useState)(false);
+	const [targetsFailed, setTargetsFailed] = (0, react.useState)(false);
 	const [view, setView] = (0, react.useState)("targets");
 	const [target, setTarget] = (0, react.useState)("");
 	const [diagnostics, setDiagnostics] = (0, react.useState)({});
@@ -1971,28 +1977,46 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 		else if (preflight) run(async (signal) => setPreflight(await api.cancelPreflight(preflight, signal)));
 	};
 	(0, react.useEffect)(() => {
-		let active$1 = true;
-		if (!ports || !visited) return;
-		Promise.all([ports.resolveBoundary(sessionId, messageId), api.targets()]).then(([boundary, result]) => {
-			if (!active$1) return;
+		if (!ports || !active || replySource) return;
+		const controller = new AbortController();
+		setBoundaryFailed(false);
+		ports.resolveBoundary(sessionId, messageId, controller.signal).then((boundary) => {
+			if (controller.signal.aborted) return;
 			if (boundary.sessionId !== sessionId || boundary.messageId !== messageId) {
-				setError("binding_mismatch");
+				setBoundaryFailed(true);
 				return;
 			}
 			setReplySource(Object.freeze({ ...boundary }));
-			setTargets(result.targets);
 		}).catch(() => {
-			if (active$1) setError("integration_unavailable");
+			if (!controller.signal.aborted) setBoundaryFailed(true);
 		});
 		return () => {
-			active$1 = false;
+			controller.abort();
 		};
 	}, [
-		api,
+		active,
 		ports,
 		sessionId,
 		messageId,
-		visited
+		replySource
+	]);
+	(0, react.useEffect)(() => {
+		if (!ports || !active || targetList) return;
+		const controller = new AbortController();
+		setTargetsFailed(false);
+		api.targets(controller.signal).then((result) => {
+			if (!controller.signal.aborted) setTargetList(result.targets);
+		}).catch(() => {
+			if (!controller.signal.aborted) setTargetsFailed(true);
+		});
+		return () => {
+			controller.abort();
+		};
+	}, [
+		active,
+		api,
+		ports,
+		targetList
 	]);
 	(0, react.useEffect)(() => {
 		if (!active || view !== "diagnostics") return;
@@ -2261,6 +2285,11 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 				role: "status",
 				children: t.unavailable
 			}),
+			(boundaryFailed || targetsFailed) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				role: "alert",
+				className: "pc-handoff-notice",
+				children: t.discoveryFailed
+			}),
 			error && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 				role: "alert",
 				className: "pc-handoff-notice",
@@ -2269,7 +2298,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 			nativeTargets.map((item) => {
 				const targetInfo = targets.find((candidate) => candidate.targetId === item.id);
 				const available = !!replySource && latest && !busy && targetInfo?.availability === "requires_preflight";
-				const reason = !replySource ? error ? t.notAvailable : t.loading : !latest ? t.boundary : busy ? t.processing : targetInfo?.diagnostics === "available" ? t.unqualifiedShort : t.notAvailable;
+				const reason = !replySource || !targetList ? boundaryFailed || targetsFailed ? t.notAvailable : t.loading : !latest ? t.boundary : busy ? t.processing : targetInfo?.diagnostics === "available" ? t.unqualifiedShort : t.notAvailable;
 				return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.MenuItemButton, {
 					disabled: !available,
 					disabledReason: reason,
@@ -2353,6 +2382,11 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 					role: "status",
 					children: t.unavailable
 				}),
+				view === "diagnostics" && targetsFailed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					role: "alert",
+					className: "pc-handoff-notice",
+					children: t.discoveryFailed
+				}),
 				error && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 					role: "alert",
 					className: "pc-handoff-notice",
@@ -2377,7 +2411,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
 								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: "pc-sr-only",
 									children: t.checkingInstallation
-								})] }) : result?.state === "present" ? `${t.installationPresent}: ${result.version}` : result?.state === "missing" ? t.installationMissing : result?.state === "unsupported" ? t.installationUnsupported : result?.state === "unknown" ? t.installationUnknown : result?.state === "error" ? t.checkFailed : t.checkUnavailable
+								})] }) : result?.state === "present" ? `${t.installationPresent}: ${result.version}` : result?.state === "unqualified" ? `${t.installationPresent}: ${result.version} · ${t.unqualifiedShort}` : result?.state === "missing" ? t.installationMissing : result?.state === "unsupported" ? t.installationUnsupported : result?.state === "unknown" ? t.installationUnknown : result?.state === "error" ? t.checkFailed : t.checkUnavailable
 							})]
 						})
 					}, item.id);

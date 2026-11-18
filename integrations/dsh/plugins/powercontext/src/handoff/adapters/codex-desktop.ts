@@ -148,7 +148,7 @@ export function createCodexDesktopAdapter(options: CodexDesktopAdapterOptions): 
         const cliVersion = (await run(cli, ['--version'], signal)).trim()
         if (!/^codex-cli [^\s]+$/u.test(cliVersion)) return { state: 'unknown' }
         const version = `${appVersion}; ${cliVersion}`
-        if (qualification && version !== qualification.targetVersion) return { state: 'unsupported' }
+        if (qualification && version !== qualification.targetVersion) return { state: 'unqualified', version }
         return { state: 'present', version, configurationKey }
       } catch {
         signal.throwIfAborted()

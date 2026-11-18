@@ -170,7 +170,7 @@ export function createClaudeDesktopAdapter(options: ClaudeDesktopAdapterOptions 
     const bundle = await inspectClaudeDesktopBundle(appPath, signal)
     if (bundle.state === 'present') return !qualified || bundle.version === qualification!.appVersion
       ? { state: 'present', version: bundle.version, configurationKey }
-      : { state: 'unsupported' }
+      : { state: 'unqualified', version: bundle.version }
     return { state: bundle.state === 'invalid' ? 'unknown' : bundle.state }
   }
   const requireTarget = (target: PresentTarget) => {
@@ -227,7 +227,9 @@ export function createClaudeDesktopAdapter(options: ClaudeDesktopAdapterOptions 
       if (!qualified || !buildReceiverPrompt) throw new HandoffError('integration_unavailable')
       if (bundle.binding.targetId !== 'claude-desktop'
         || bundle.binding.targetVersion !== target.version) throw new HandoffError('binding_mismatch')
-      return { draft: buildReceiverPrompt(bundle, locale) }
+      const draft = buildReceiverPrompt(bundle, locale)
+      if (typeof draft !== 'string' || !draft.trim()) throw new HandoffError('payload_invalid')
+      return { draft }
     },
   }
 }

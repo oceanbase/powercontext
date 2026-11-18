@@ -121,7 +121,7 @@ test.skipIf(process.platform !== 'darwin')('Desktop adapter gates unobserved run
     assert.equal(qualifiedTarget.configurationKey, runtime.configurationKey)
     assert.deepEqual(await wrongHandler.checkIntegration(qualifiedTarget, signal), { state: 'needs_user_action', action: 'configure_target' })
     assert.deepEqual(await unknownHandler.checkIntegration(qualifiedTarget, signal), { state: 'unknown' })
-    assert.deepEqual(await createClaudeDesktopAdapter({ ...options, runtime, qualification: { ...options.qualification, appVersion: '4.28' } }).detect(signal), { state: 'unsupported' })
+    assert.deepEqual(await createClaudeDesktopAdapter({ ...options, runtime, qualification: { ...options.qualification, appVersion: '4.28' } }).detect(signal), { state: 'unqualified', version: '4.29.0' })
     assert.deepEqual(await qualified.checkIntegration(qualifiedTarget, signal), integration)
     integration = { state: 'disabled', repairable: false }
     assert.deepEqual(await qualified.checkIntegration(qualifiedTarget, signal), integration)
@@ -135,6 +135,8 @@ test.skipIf(process.platform !== 'darwin')('Desktop adapter gates unobserved run
     assert.equal(`${url.protocol}//${url.host}${url.pathname}`, 'claude://code/new')
     assert.equal(url.searchParams.get('folder'), root)
     assert.equal(url.searchParams.get('q'), 'Read /tmp/example.json')
+    const emptyDraft = createClaudeDesktopAdapter({ ...options, runtime, buildReceiverPrompt: () => '  ' })
+    assert.throws(() => emptyDraft.launchIntent(qualifiedTarget, bundle), { code: 'payload_invalid' })
     assert.throws(() => qualified.launchIntent(qualifiedTarget, { ...bundle, binding: { ...bundle.binding, targetVersion: 'other' } }), { code: 'binding_mismatch' })
     await assert.rejects(qualified.checkIntegration({ ...qualifiedTarget, configurationKey: 'wrong' }, signal), { code: 'binding_mismatch' })
     const controller = new AbortController()

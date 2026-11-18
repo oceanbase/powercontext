@@ -7210,6 +7210,11 @@ var PreflightService = class {
 			agent: "unsupported",
 			code: "integration_unavailable"
 		});
+		if (target.state === "unqualified") return set({
+			state: "needs_user_action",
+			agent: "present",
+			nextAction: "configure_target"
+		});
 		if (target.state !== "present") return set({
 			state: "unknown",
 			agent: "unknown",
@@ -7584,8 +7589,8 @@ var TargetCatalog = class {
 		const adapter = this.adapters.get(targetId);
 		if (!adapter) throw new HandoffError("integration_unavailable");
 		const result$1 = await adapter.detect(signal);
-		return result$1.state === "present" ? {
-			state: "present",
+		return result$1.state === "present" || result$1.state === "unqualified" ? {
+			state: result$1.state,
 			version: result$1.version
 		} : { state: result$1.state };
 	}
@@ -8302,7 +8307,10 @@ function createCodexDesktopAdapter(options) {
 				const cliVersion = (await run$1(cli, ["--version"], signal)).trim();
 				if (!/^codex-cli [^\s]+$/u.test(cliVersion)) return { state: "unknown" };
 				const version = `${appVersion}; ${cliVersion}`;
-				if (qualification && version !== qualification.targetVersion) return { state: "unsupported" };
+				if (qualification && version !== qualification.targetVersion) return {
+					state: "unqualified",
+					version
+				};
 				return {
 					state: "present",
 					version,
@@ -9242,7 +9250,10 @@ function createClaudeDesktopAdapter(options = {}) {
 			state: "present",
 			version: bundle.version,
 			configurationKey
-		} : { state: "unsupported" };
+		} : {
+			state: "unqualified",
+			version: bundle.version
+		};
 		return { state: bundle.state === "invalid" ? "unknown" : bundle.state };
 	};
 	const requireTarget = (target) => {
@@ -9307,7 +9318,9 @@ function createClaudeDesktopAdapter(options = {}) {
 			requireTarget(target);
 			if (!qualified || !buildReceiverPrompt$1) throw new HandoffError("integration_unavailable");
 			if (bundle.binding.targetId !== "claude-desktop" || bundle.binding.targetVersion !== target.version) throw new HandoffError("binding_mismatch");
-			return { draft: buildReceiverPrompt$1(bundle, locale) };
+			const draft = buildReceiverPrompt$1(bundle, locale);
+			if (typeof draft !== "string" || !draft.trim()) throw new HandoffError("payload_invalid");
+			return { draft };
 		}
 	};
 }
@@ -9771,7 +9784,10 @@ function createClaudeCodeCliAdapter(options = {}) {
 		const result$1 = await probeClaudeCodeCli(signal, path);
 		if (result$1.state !== "present") return result$1;
 		if (!integration.configurationKey) return { state: "unknown" };
-		if (qualified && result$1.version !== qualification.targetVersion) return { state: "unsupported" };
+		if (qualified && result$1.version !== qualification.targetVersion) return {
+			state: "unqualified",
+			version: result$1.version
+		};
 		return {
 			state: "present",
 			version: result$1.version,

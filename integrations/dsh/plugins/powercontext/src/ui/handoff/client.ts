@@ -21,12 +21,12 @@ import type { LaunchView } from '../../handoff/launch.ts'
 import type { ReceiptView } from '../../handoff/receipt-contract.ts'
 
 export interface Target { targetId: string; name: string; availability: string; action: string; diagnostics?: string }
-export type TargetDiagnostic = { targetId: string; state: 'present'; version: string }
+export type TargetDiagnostic = { targetId: string; state: 'present' | 'unqualified'; version: string }
   | { targetId: string; state: 'missing' | 'unknown' | 'unsupported' }
 export interface DeliverySnapshot { delivery: DeliveryView; preflight: PreflightView | null; launchAttempts: LaunchView[] }
 /** Both operations are served by the owner-local Host, after DSH authentication. */
 export interface HandoffPorts {
-  resolveBoundary(sessionId: string, messageId: string): Promise<SourceBoundary>
+  resolveBoundary(sessionId: string, messageId: string, signal?: AbortSignal): Promise<SourceBoundary>
   readReceipt: (deliveryId: string, sessionId: string) => Promise<ReceiptView>
 }
 
@@ -48,9 +48,9 @@ export class HandoffHttp implements HandoffPorts {
     }
     return response.json() as Promise<T>
   }
-  async resolveBoundary(sessionId: string, messageId: string): Promise<SourceBoundary> {
+  async resolveBoundary(sessionId: string, messageId: string, signal?: AbortSignal): Promise<SourceBoundary> {
     const response = await this.json<{ source?: SourceBoundary }>(
-      `boundaries?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`)
+      `boundaries?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`, undefined, signal)
     const source = response?.source
     if (!source || source.sessionId !== sessionId || source.messageId !== messageId
       || !Number.isSafeInteger(source.throughSeq) || source.throughSeq < 0
@@ -75,11 +75,11 @@ export class HandoffHttp implements HandoffPorts {
     }
     return result
   }
-  targets() { return this.json<{ targets: Target[] }>('targets') }
+  targets(signal?: AbortSignal) { return this.json<{ targets: Target[] }>('targets', undefined, signal) }
   async diagnoseTarget(targetId: string, signal?: AbortSignal): Promise<TargetDiagnostic> {
     const result = await this.json<TargetDiagnostic>(`targets/${encodeURIComponent(targetId)}/diagnose`, undefined, signal)
-    if (!result || result.targetId !== targetId || !['present', 'missing', 'unknown', 'unsupported'].includes(result.state)
-      || (result.state === 'present' && (typeof result.version !== 'string' || !result.version.trim()))) {
+    if (!result || result.targetId !== targetId || !['present', 'unqualified', 'missing', 'unknown', 'unsupported'].includes(result.state)
+      || ((result.state === 'present' || result.state === 'unqualified') && (typeof result.version !== 'string' || !result.version.trim()))) {
       throw new HandoffHttpError('integration_unavailable', 503)
     }
     return result

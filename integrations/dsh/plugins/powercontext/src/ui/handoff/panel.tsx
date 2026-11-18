@@ -36,7 +36,7 @@ export interface HandoffActionProps {
 
 const copy = {
   zh: { action: '交接给其他 Agent', title: '交接当前工作', close: '关闭', unavailable: '交接边界服务不可用。请等待集成完成。',
-    target: '目标', select: '选择目标', check: '重新检查目标', back: '返回', diagnostics: '安装检查', checkingInstallation: '正在检查', checkFailed: '检查失败', checkUnavailable: '检查不可用', loading: '正在加载目标', notAvailable: '目标当前不可用', unqualifiedShort: '当前版本尚未通过交接验证', installationPresent: '已安装，版本', installationMissing: '未检测到安装', installationUnknown: '无法确定安装状态', installationUnsupported: '当前平台不支持检查', unqualified: '当前版本尚未通过交接验证。可以检查安装状态；交接准备和启动暂不可用。', preflight: '预检与安装', preparation: '准备', launch: '启动', receipt: '接收确认',
+    target: '目标', select: '选择目标', check: '重新检查目标', back: '返回', diagnostics: '安装检查', checkingInstallation: '正在检查', checkFailed: '检查失败', checkUnavailable: '检查不可用', loading: '正在加载目标', discoveryFailed: '无法加载交接选项。请关闭后重新打开。', notAvailable: '目标当前不可用', unqualifiedShort: '当前版本尚未通过交接验证', installationPresent: '已安装，版本', installationMissing: '未检测到安装', installationUnknown: '无法确定安装状态', installationUnsupported: '当前平台不支持检查', unqualified: '当前版本尚未通过交接验证。可以检查安装状态；交接准备和启动暂不可用。', preflight: '预检与安装', preparation: '准备', launch: '启动', receipt: '接收确认',
     original: '继续使用原来的回复', yes: '同意安装', no: '不安装并取消', verify: '已完成，重新检查', prepare: '整理交接', manual: '手动填写并检查交接内容',
     disposition: '工作状态', selectDisposition: '选择状态', continuable: '可以继续', blocked: '受阻', complete: '已完成', objective: '工作目标', state: '当前状态与已知问题', next: '下一步', omissions: '遗漏或未验证项（每行一项）',
     newVersion: '明确创建新的交接', submit: '使用填写内容准备', open: '打开目标', retry: '明确重试打开', cancel: '取消交接', refresh: '刷新状态',
@@ -44,7 +44,7 @@ const copy = {
     receiptState: '接收状态', receiptRead: '本次读取', noReceipt: '尚未读取', selfReported: '接收方自行报告', authenticated: '已认证的接收方', receiver: '接收方', principal: '认证身份', receiptUnavailable: '回执读取服务不可用', instruction: '打开仅表示系统接受请求。请在目标中检查并发送预填提示。',
     interrupted: '已请求停止，结果可能未知。请刷新预检或在交接历史中恢复；已完成的安装不会自动撤销。', processing: '正在处理…', fixedOmission: '交接会注明无法取得历史工作区快照。', reset: '重新选择目标', error: '操作未完成', boundary: '回复已变化，请重新选择最新回复。', empty: '请选择支持预检的目标。' },
   en: { action: 'Hand off to another agent', title: 'Hand off current work', close: 'Close', unavailable: 'The handoff boundary service is unavailable. Integration is required.',
-    target: 'Target', select: 'Choose a target', check: 'Check target again', back: 'Back', diagnostics: 'Installation checks', checkingInstallation: 'Checking', checkFailed: 'Check failed', checkUnavailable: 'Check unavailable', loading: 'Loading targets', notAvailable: 'Target unavailable', unqualifiedShort: 'Current version not yet validated for handoff', installationPresent: 'Installed, version', installationMissing: 'Installation not detected', installationUnknown: 'Installation status unknown', installationUnsupported: 'Installation check is not supported on this platform', unqualified: 'This version has not yet been validated for handoff. You can check installation; preparation and launch are unavailable.', preflight: 'Preflight and installation', preparation: 'Preparation', launch: 'Launch', receipt: 'Receipt',
+    target: 'Target', select: 'Choose a target', check: 'Check target again', back: 'Back', diagnostics: 'Installation checks', checkingInstallation: 'Checking', checkFailed: 'Check failed', checkUnavailable: 'Check unavailable', loading: 'Loading targets', discoveryFailed: 'Could not load handoff options. Close and reopen to retry.', notAvailable: 'Target unavailable', unqualifiedShort: 'Current version not yet validated for handoff', installationPresent: 'Installed, version', installationMissing: 'Installation not detected', installationUnknown: 'Installation status unknown', installationUnsupported: 'Installation check is not supported on this platform', unqualified: 'This version has not yet been validated for handoff. You can check installation; preparation and launch are unavailable.', preflight: 'Preflight and installation', preparation: 'Preparation', launch: 'Launch', receipt: 'Receipt',
     original: 'Continue with the original reply', yes: 'Allow installation', no: 'Decline and cancel', verify: 'Done, check again', prepare: 'Prepare handoff', manual: 'Enter and review handoff details',
     disposition: 'Work disposition', selectDisposition: 'Choose a status', continuable: 'Continuable', blocked: 'Blocked', complete: 'Complete', objective: 'Objective', state: 'Current state and known issues', next: 'Next action', omissions: 'Omissions or unverified items (one per line)',
     newVersion: 'Explicitly create a new handoff', submit: 'Prepare with these details', open: 'Open target', retry: 'Retry opening explicitly', cancel: 'Cancel handoff', refresh: 'Refresh status',
@@ -112,6 +112,7 @@ const nativeTargets = [
   { id: 'claude-code-cli', name: 'Claude Code CLI' },
 ] as const
 type DiagnosticStatus = TargetDiagnostic | { state: 'checking' | 'error' }
+const noTargets: readonly Target[] = []
 function pendingOperations(sessionId: string, messageId: string): PendingOperations {
   const key = JSON.stringify([sessionId, messageId])
   let pending = pendingByReply.get(key)
@@ -144,11 +145,11 @@ function HandoffActionInstance(props: HandoffActionProps) {
   const [visited, setVisited] = useState(false)
   const locale = useSyncExternalStore(subscribeLocale, readLocale) === 'en' ? 'en' : 'zh'
   if (!latest && !visited) return null
-  return <HandoffPanel {...props} locale={locale} active={open} visited={visited} latest={latest}
+  return <HandoffPanel {...props} locale={locale} active={open} latest={latest}
     onOpen={() => { setVisited(true); setOpen(true) }} onClose={() => setOpen(false)} />
 }
 
-function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, latest, onOpen, onClose }: HandoffActionProps & { locale: 'zh' | 'en'; active: boolean; visited: boolean; latest: boolean; onOpen(): void; onClose(): void }) {
+function HandoffPanel({ sessionId, messageId, ports, locale, active, latest, onOpen, onClose }: HandoffActionProps & { locale: 'zh' | 'en'; active: boolean; latest: boolean; onOpen(): void; onClose(): void }) {
   const t = copy[locale]
   const f = flowCopy[locale]
   const api = useRef(new HandoffHttp()).current
@@ -160,7 +161,10 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
   const [replySource, setReplySource] = useState<SourceBoundary>()
   const [confirmedOriginal, setConfirmedOriginal] = useState(false)
   const [recoveredFromHistory, setRecoveredFromHistory] = useState(false)
-  const [targets, setTargets] = useState<Target[]>([])
+  const [targetList, setTargetList] = useState<Target[]>()
+  const targets = targetList ?? noTargets
+  const [boundaryFailed, setBoundaryFailed] = useState(false)
+  const [targetsFailed, setTargetsFailed] = useState(false)
   const [view, setView] = useState<'targets' | 'flow' | 'diagnostics' | 'history'>('targets')
   const [target, setTarget] = useState('')
   const [diagnostics, setDiagnostics] = useState<Record<string, DiagnosticStatus>>({})
@@ -209,16 +213,25 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
     else if (preflight) void run(async signal => setPreflight(await api.cancelPreflight(preflight, signal)))
   }
   useEffect(() => {
-    let active = true
-    if (!ports || !visited) return
-    void Promise.all([ports.resolveBoundary(sessionId, messageId), api.targets()]).then(([boundary, result]) => {
-      if (!active) return
-      if (boundary.sessionId !== sessionId || boundary.messageId !== messageId) { setError('binding_mismatch'); return }
+    if (!ports || !active || replySource) return
+    const controller = new AbortController()
+    setBoundaryFailed(false)
+    void ports.resolveBoundary(sessionId, messageId, controller.signal).then(boundary => {
+      if (controller.signal.aborted) return
+      if (boundary.sessionId !== sessionId || boundary.messageId !== messageId) { setBoundaryFailed(true); return }
       setReplySource(Object.freeze({ ...boundary }))
-      setTargets(result.targets)
-    }).catch(() => { if (active) setError('integration_unavailable') })
-    return () => { active = false }
-  }, [api, ports, sessionId, messageId, visited])
+    }).catch(() => { if (!controller.signal.aborted) setBoundaryFailed(true) })
+    return () => { controller.abort() }
+  }, [active, ports, sessionId, messageId, replySource])
+  useEffect(() => {
+    if (!ports || !active || targetList) return
+    const controller = new AbortController()
+    setTargetsFailed(false)
+    void api.targets(controller.signal).then(result => {
+      if (!controller.signal.aborted) setTargetList(result.targets)
+    }).catch(() => { if (!controller.signal.aborted) setTargetsFailed(true) })
+    return () => { controller.abort() }
+  }, [active, api, ports, targetList])
   useEffect(() => {
     if (!active || view !== 'diagnostics') return
     const controller = new AbortController()
@@ -408,11 +421,13 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
     {view === 'targets' && <>
       <div className="pc-handoff-brand"><PowerContextMark size={15} /><span>PowerContext</span></div>
       {!ports && <p role="status">{t.unavailable}</p>}
+      {(boundaryFailed || targetsFailed) && <p role="alert" className="pc-handoff-notice">{t.discoveryFailed}</p>}
       {error && <p role="alert" className="pc-handoff-notice">{errorMessage}</p>}
       {nativeTargets.map(item => {
         const targetInfo = targets.find(candidate => candidate.targetId === item.id)
         const available = !!replySource && latest && !busy && targetInfo?.availability === 'requires_preflight'
-        const reason = !replySource ? (error ? t.notAvailable : t.loading) : !latest ? t.boundary : busy ? t.processing
+        const reason = !replySource || !targetList ? (boundaryFailed || targetsFailed ? t.notAvailable : t.loading)
+          : !latest ? t.boundary : busy ? t.processing
           : targetInfo?.diagnostics === 'available' ? t.unqualifiedShort : t.notAvailable
         return <MenuItemButton key={item.id} disabled={!available} disabledReason={reason} onSelect={() => startPreflight(item.id)}>{item.name}</MenuItemButton>
       })}
@@ -435,6 +450,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
       </div>
       {busy && <div className="pc-handoff-progress" role="status"><span className="pc-handoff-spinner" aria-hidden="true" />{busyLabel}</div>}
       {!ports && <p role="status">{t.unavailable}</p>}
+      {view === 'diagnostics' && targetsFailed && <p role="alert" className="pc-handoff-notice">{t.discoveryFailed}</p>}
       {error && <p role="alert" className="pc-handoff-notice">{errorMessage}</p>}
       {view === 'diagnostics' && nativeTargets.map(item => {
         const info = targets.find(candidate => candidate.targetId === item.id)
@@ -445,6 +461,7 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, visited, la
             result?.state === 'checking' || (!result && info?.diagnostics === 'available')
               ? <><span className="pc-handoff-spinner" aria-hidden="true" /><span className="pc-sr-only">{t.checkingInstallation}</span></>
               : result?.state === 'present' ? `${t.installationPresent}: ${result.version}`
+              : result?.state === 'unqualified' ? `${t.installationPresent}: ${result.version} · ${t.unqualifiedShort}`
               : result?.state === 'missing' ? t.installationMissing : result?.state === 'unsupported' ? t.installationUnsupported
               : result?.state === 'unknown' ? t.installationUnknown : result?.state === 'error' ? t.checkFailed : t.checkUnavailable}</span>
           </div></div>

@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { LaunchBundle } from '../src/handoff/contracts.ts'
+import { TargetCatalog } from '../src/handoff/targets.ts'
 import { createClaudeCodeCliAdapter, createClaudeCodeCliTarget, createDefaultClaudeCodeCliAdapter,
   createDeferredClaudeCodeCliTarget, type ClaudeCliReceiver } from '../src/handoff/adapters/claude-code-cli.ts'
 import type { ClaudeIntegration } from '../src/handoff/adapters/claude-runtime.ts'
@@ -167,7 +168,8 @@ esac
     vi.mocked(integration.check).mockResolvedValueOnce({ state: 'missing', repairable: true })
     expect(await adapter.checkIntegration(target, signal)).toEqual({ state: 'missing', repairable: true })
     probe.mockResolvedValueOnce({ state: 'present', version: '3.0.0', executable: '/bin/claude' })
-    expect(await adapter.detect(signal)).toEqual({ state: 'unsupported' })
+    expect(await new TargetCatalog([adapter], 'darwin').diagnose(adapter.id, signal))
+      .toEqual({ state: 'unqualified', version: '3.0.0' })
     probe.mockResolvedValueOnce({ state: 'missing' })
     expect(await adapter.detect(signal)).toEqual({ state: 'missing' })
   })

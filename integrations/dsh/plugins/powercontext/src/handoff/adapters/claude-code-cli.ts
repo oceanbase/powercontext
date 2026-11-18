@@ -71,7 +71,7 @@ export function createClaudeCodeCliAdapter(options: ClaudeCodeCliOptions = {}): 
     const result = await probeClaudeCodeCli(signal, path)
     if (result.state !== 'present') return result
     if (!integration.configurationKey) return { state: 'unknown' }
-    if (qualified && result.version !== qualification!.targetVersion) return { state: 'unsupported' }
+    if (qualified && result.version !== qualification!.targetVersion) return { state: 'unqualified', version: result.version }
     return { state: 'present', version: result.version, configurationKey: integration.configurationKey }
   }
   const executableFor = async (target: PresentTarget, signal: AbortSignal) => {
