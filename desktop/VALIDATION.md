@@ -3600,3 +3600,16 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-source-plugins-9f113a72-v1 \
   --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl
 ```
+
+## Server 6832af4e merged OAuth protocol qualification
+
+`sqlite-oauth-6832af4e-v1` qualifies all thirteen bundled Desktop operations against Server source `6832af4e2ecc253566559c8b0d30ab9c1162dbe1`, which combines the OAuth response evidence contract with the plugin and Source API changes from master. All 813 packaged runtime files match a Git archive of that commit.
+
+- OpenAPI SHA-256: `463d5307d44c5d1ab7655f9379a207a768ac453fd75e51fff92527f292cf87ad`.
+- Wheel: `powercontext-1.5.2.dev0-py3-none-any.whl`.
+- Wheel SHA-256: `49d9e2fc932fd1b0c2ab6632e17259d6833983f4fbaa2dba6519e23646352ea5`.
+- Native debug probe SHA-256: `c064a25d2d05ffe88523ef3cd1f87297e5a48260e2d6a7bba9a6c3717ec34f42`.
+
+On 2026-11-18, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6. The product ConnectionManager selected the bundled qualification and both contract digests matched. The harness checks save, search, exact revision reads, lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination, and scoped authorization. Model usage is fixture input.
+
+The native probe used Rust 1.97.1 and the unchanged product adapter modules in an isolated Cargo crate. Registry dependency pins match the product Cargo lock. The crate omits Tauri/WebView and platform keyring features and enables no `ci-fixtures`. This evidence covers the local SQLite protocol. The wheel and report are retained locally in `/tmp/pc-oauth-nov18-sync/`.
