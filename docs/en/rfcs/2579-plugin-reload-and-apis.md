@@ -511,7 +511,8 @@ Scopes created by plugins:
 
 - At creation, core adds the external reference `{"kind": "powercontext.plugin", "value": "<plugin name>"}` to the Scope;
   `ctx.scopes.list()` and `ctx.scopes.update()` use it to decide ownership, and deployers can see which plugin created a
-  Scope.
+  Scope. The `GET /v1/scopes` listing leaves out Scopes with a reference of this kind; a request with
+  `external_reference_kind=powercontext.plugin` lists them.
 - The permission to create Scopes is not relaxed for plugins. Letting non-administrators create Scopes (for example,
   child Scopes under a parent) requires changing core's authorization model and is out of scope for this proposal.
 - A plugin's business configuration (for example, a knowledge base's chunking strategy) is not written into the Scope;

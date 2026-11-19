@@ -13,6 +13,7 @@ A plugin is a folder in the Server's plugin directory, with `plugin.py` as its e
 | Present and search | Give each revision's default presentation, and optionally search, so the generic search API and Prepared Context can use the plugin's data |
 | Support user changes | Implement create, update, merge, forget, and restore methods so the generic Artifact APIs work on the plugin's family |
 | Define Source types | Declare the plugin's own Source types and Projections to record what users asked for, such as an upload |
+| Collect Sources | Collect continuously from external systems with a `SourcePlugin`, run by the Server's runner or runners on devices for assigned targets; see [Source plugins](../workflows/source-plugins.md) |
 | Provide APIs | Declare HTTP routes under `/v1/plugins/<plugin name>/api/`; core authenticates callers and forwards requests to the plugin |
 | Provide Dashboard pages | Ship static pages that the Dashboard shows in a sandboxed iframe |
 | Use dedicated storage and models | Keep the plugin's own data in separate storage that core allocates, and call the embedding and generation models Server configures |
@@ -328,6 +329,10 @@ plugin = ArtifactPlugin(
 
   In `generate`, branch on `source.ref.source_type`.
 
+To provide only Source types without generating Artifacts, or to collect continuously from external systems, assign a
+`SourcePlugin` in `plugin.py` instead; see [Source plugins](../workflows/source-plugins.md). Source plugins can declare
+`api`, `pages`, and `upgrade` too.
+
 ## Provide APIs
 
 A plugin can declare its own HTTP routes; handlers are async methods of the plugin object:
@@ -385,6 +390,10 @@ plugin = ArtifactPlugin(
   `ctx.scopes.update(scope_id, expected_version=..., title=..., summary=...)` changes a Scope this plugin created and
   also needs `server.admin`; the API returns 404 when the Scope does not exist and 403 when another plugin or user
   created it.
+- Scopes a plugin creates are used through the plugin: the `GET /v1/scopes` listing leaves them out, so the Dashboard's
+  Scope selector, the desktop app, and an agent's `list_scopes` do not show them, also after the plugin is removed. A
+  request with `external_reference_kind=powercontext.plugin` lists exactly these Scopes. Only listings change: reading a
+  Scope by ID, access to its data, and authorization stay as they are.
 - `request.body` is the validated `request_model` instance, `bytes`, or `None`, according to `body`;
   `request.path_params`, `request.query`, and `request.caller` are the path parameters, query parameters, and caller.
 - Return a Pydantic model or a dict for JSON, `BinaryResponse(content=..., content_type=..., filename=...)` for a file,

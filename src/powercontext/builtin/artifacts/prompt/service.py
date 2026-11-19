@@ -44,6 +44,9 @@ DemonstrationGenerator = Callable[
     [PromptDefinition, GeneratePromptDemonstrations], Awaitable[PromptDemonstrationResult]
 ]
 _SELECTIONS: ContextVar[tuple[ResolvedPrompt, ...]] = ContextVar("powercontext_prompt_selections", default=())
+_HEADS: ContextVar[tuple[PromptService, str, dict[str, Prompt | None]] | None] = ContextVar(
+    "powercontext_prompt_heads", default=None
+)
 
 
 def current_prompt(key: str, /) -> ResolvedPrompt | None:
@@ -111,8 +114,27 @@ class PromptService:
 
     async def read_configurations(self, scope_id: str, keys: tuple[str, ...], /) -> tuple[PromptConfiguration, ...]:
         definitions = tuple(self.registry.get(key) for key in keys)
-        heads = await self._heads_reader(scope_id, keys)
+        heads = await self._read_heads(scope_id, keys)
         return tuple(self._configuration(scope_id, definition, heads.get(definition.key)) for definition in definitions)
+
+    @asynccontextmanager
+    async def snapshot(self, scope_id: str, keys: tuple[str, ...], /) -> AsyncIterator[None]:
+        """Read one operation's heads together, including explicit absent heads."""
+        heads = await self._read_heads(scope_id, keys)
+        token = _HEADS.set((self, scope_id, {key: heads.get(key) for key in keys}))
+        try:
+            yield
+        finally:
+            _HEADS.reset(token)
+
+    async def _read_heads(self, scope_id: str, keys: tuple[str, ...]) -> dict[str, Prompt]:
+        snapshot = _HEADS.get()
+        if snapshot is None or snapshot[0] is not self or snapshot[1] != scope_id:
+            return await self._heads_reader(scope_id, keys)
+        known = snapshot[2]
+        missing = tuple(key for key in keys if key not in known)
+        heads = await self._heads_reader(scope_id, missing) if missing else {}
+        return {key: head for key in keys if (head := known.get(key, heads.get(key))) is not None}
 
     def _configuration(self, scope_id: str, definition: PromptDefinition, head: Prompt | None) -> PromptConfiguration:
         capability = self.registry.capabilities[definition.key]
@@ -143,7 +165,7 @@ class PromptService:
 
     async def resolve(self, scope_id: str, key: str, /) -> ResolvedPrompt | None:
         definition = self.registry.get(key)
-        head = (await self._heads_reader(scope_id, (key,))).get(key)
+        head = (await self._read_heads(scope_id, (key,))).get(key)
         if head is not None and head.content.mode == "custom":
             self.registry.require_customization(key, during_inference=True)
         elif self.registry.capabilities[key].status != "supported":
