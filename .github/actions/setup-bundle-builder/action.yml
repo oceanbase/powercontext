@@ -1,0 +1,62 @@
+name: Set up the locked bundle wheel builder
+description: Restore pinned build-tool downloads and create an isolated packaging environment
+inputs:
+  working-directory:
+    description: Directory containing the exported bundle requirements
+    default: build/artifact-input
+outputs:
+  python-path:
+    description: Python interpreter with the locked packaging tools
+    value: ${{ steps.plan.outputs.python-path }}
+  cache-path:
+    description: Raw build-tool wheel directory
+    value: ${{ steps.plan.outputs.cache-path }}
+  cache-key:
+    description: Build-tool lock fingerprint
+    value: ${{ steps.plan.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact raw build-tool snapshot was restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        BUNDLE_WORK: ${{ inputs.working-directory }}
+      run: python "$GITHUB_ACTION_PATH/../../../scripts/prepare_bundle_dependencies.py" tools-plan --work "$BUNDLE_WORK"
+
+    - id: restore
+      uses: $/.github/actions/cache-restore
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+
+    - name: Download and verify pinned build-tool wheels
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TOOL_WHEELS: ${{ steps.plan.outputs.cache-path }}
+        TOOL_REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
+      run: |
+        python -m pip download --no-deps --require-hashes --only-binary=:all: \
+          --dest "$TOOL_WHEELS" --requirement "$TOOL_REQUIREMENTS"
+
+    - name: Save build-tool downloads before building
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: $/.github/actions/cache-save
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+
+    - name: Install the pinned builder offline
+      shell: bash
+      env:
+        BUILDER_DIRECTORY: ${{ steps.plan.outputs.builder-directory }}
+        BUILDER_PYTHON: ${{ steps.plan.outputs.python-path }}
+        TOOL_WHEELS: ${{ steps.plan.outputs.cache-path }}
+        TOOL_REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
+      run: |
+        python -m venv --clear "$BUILDER_DIRECTORY"
+        "$BUILDER_PYTHON" -m pip install --no-index --no-deps --require-hashes \
+          --find-links "$TOOL_WHEELS" --requirement "$TOOL_REQUIREMENTS"

@@ -1,6 +1,9 @@
 name: Restore pip HTTP downloads
 description: Restore dependency downloads without reusing locally built wheels
 inputs:
+  python-executable:
+    description: Python interpreter whose pip performs the downloads
+    default: python
   cache-dependency-glob:
     description: Exported dependency file globs relative to the source checkout, one per line
     required: true
@@ -20,8 +23,9 @@ runs:
     - id: snapshot
       shell: bash
       env:
+        CI_CACHE_PYTHON: ${{ inputs.python-executable }}
         CI_CACHE_DEPENDENCY_PATH: ${{ inputs.cache-dependency-glob }}
-      run: python "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" pip
+      run: '"$CI_CACHE_PYTHON" "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" pip'
 
     - id: restore
       uses: $/.github/actions/cache-restore
