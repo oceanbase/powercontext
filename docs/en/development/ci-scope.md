@@ -33,15 +33,17 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 | Entry point or input | Python validation | Other acceptance |
 | --- | --- | --- |
-| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Selected SQLite, installation-role, platform and host acceptance; seekDB/OceanBase are deferred to nightly |
-| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations | Conservative affected or full selection within the SQLite-only database policy |
-| PR update/reopen already carrying `ci:full` | 8 combinations | Complete PR scope with SQLite-only database execution |
-| `master` push | 8 combinations | Compare with a successful trunk baseline; database execution remains SQLite-only |
-| Daily at 18:00 UTC (02:00 the following day in Asia/Shanghai) | 8 combinations | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
-| Manual Main | 8 combinations | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
+| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations, 4 jobs | Selected SQLite, installation-role, platform and host acceptance; seekDB/OceanBase are deferred to nightly |
+| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations, 12 jobs | Conservative affected or full selection within the SQLite-only database policy |
+| PR update/reopen already carrying `ci:full` | 8 combinations, 12 jobs | Complete PR scope with SQLite-only database execution |
+| `master` push | 8 combinations, 12 jobs | Compare with a successful trunk baseline; database execution remains SQLite-only |
+| Daily at 18:00 UTC (02:00 the following day in Asia/Shanghai) | 8 combinations, 12 jobs | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
+| Manual Main | 8 combinations, 12 jobs | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
 | Published release | Independent installed-package and publication checks | Complete upgrade evidence and validated publication bytes; PR scope cannot bypass acceptance |
 
 Ordinary PR Python combinations drop from eight to three, a 62.5% reduction in combination count. This is not a measured reduction in runner minutes or queue latency. Dependency and CI-policy changes keep the full matrix, so a PR editing CI itself may still run eight combinations.
+
+Each Linux E2E combination runs in two jobs, partitioned by a stable digest of each collected test ID. The two partitions are disjoint and together preserve the complete parallel E2E suite. The first partition also runs the serial ZCode acceptance once per Python version. Unit tests remain one job per Python version, so the ordinary profile runs four jobs and the full profile runs twelve. Per-Pod resources and the 55-minute job deadline are unchanged; splitting jobs does not guarantee an equal runtime split. Local `make e2e-test` still runs the complete parallel and serial suites.
 
 When packaging is selected, installation validation uses two jobs, one each for Python 3.11 and 3.14. Each job builds its wheel once and verifies five roles: `core` without extras, plus `builtin`, `cli`, `builtin,cli` and `server,cli`. Each role gets its own virtual environment, application state and temporary directory, and runs against the installed wheel with checkout imports excluded. The core role checks public imports without optional dependencies. The CLI role also verifies that adding unrelated SQLAlchemy and FastAPI packages does not enable optional roles. Every role produces a result; any failed role fails its job. All ten Python/role combinations remain covered while eight runner allocations and eight duplicate wheel builds are removed. The job-count reduction does not establish a queue-latency or throughput improvement without measurements.
 
