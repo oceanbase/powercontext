@@ -838,6 +838,7 @@ async def open_builtin_runtime(  # noqa: C901
                 handoff_committer=contexts.commit_handoff,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
+                    atomic_memory_input_tokens_limit=config.runtime.atomic_memory_input_tokens_limit,
                     experience_generation=contexts.experience_generation,
                     managed_skill_generation=contexts.managed_skill_generation,
                     artifact_dreaming=bool(configured_operations),
@@ -1543,6 +1544,32 @@ async def _dream_generator(
     )
 
 
+def _prefixed_extractor(
+    settings: InferenceConfig, runtime: RuntimeConfig, resources: AsyncExitStack, estimator: TokenEstimator
+) -> UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None:
+    if settings.prefix_extraction_gateway_url is None:
+        return None
+    import httpx
+
+    from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import GatewayPrefixedExtractor
+
+    client = httpx.AsyncClient(
+        base_url=str(settings.prefix_extraction_gateway_url),
+        headers={name: value.get_secret_value() for name, value in settings.prefix_extraction_gateway_headers.items()},
+        timeout=settings.generation_timeout_seconds,
+        follow_redirects=False,
+    )
+    resources.push_async_callback(client.aclose)
+    return UsageReportingStructuredGenerator(
+        GatewayPrefixedExtractor(
+            client=client,
+            instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            estimator=estimator,
+            cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
+        )
+    )
+
+
 async def _generation_pipelines(
     settings: InferenceConfig,
     runtime: RuntimeConfig,
@@ -1783,6 +1810,7 @@ async def _generation_pipelines(
             estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_renderer=memory_input_renderer,
+            prefixed=_prefixed_extractor(settings, runtime, resources, memory_estimator),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))

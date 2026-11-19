@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import ValidationError
@@ -192,6 +193,9 @@ from powercontext.http import (
     CandidateStatus,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CaptureContentSourcesRequest,
+    CaptureContentSourcesResponse,
+    CapturedContentSource,
     CaptureStatus,
     CaptureWorkingNoteRequest,
     CatalogChangeProposal,
@@ -388,6 +392,23 @@ def capture_request(value: CaptureContentSourceRequest) -> CaptureSource:
     )
 
 
+# The most Sources one batch ContentSource capture accepts, as the contract states; capabilities report it.
+MAX_CAPTURE_BATCH_SOURCES = 128
+
+
+def capture_requests(value: CaptureContentSourcesRequest) -> tuple[CaptureSource, ...]:
+    if len({item.source_id for item in value.sources}) != len(value.sources):
+        raise InvalidRuntimeRequestError("capture-batch-duplicate-source")
+    return tuple(
+        CaptureSource(
+            source_id=item.source_id,
+            content=item.content,
+            metadata={} if item.metadata is None else item.metadata,
+        )
+        for item in value.sources
+    )
+
+
 def working_note_capture_request(value: CaptureWorkingNoteRequest) -> CaptureWorkingNote:
     try:
         return CaptureWorkingNote(
@@ -542,6 +563,16 @@ def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
         status=CaptureStatus.ACCEPTED,
         source=source_reference(value.source_ref),
         position=value.sequence,
+    )
+
+
+def captures_response(values: Sequence[SourceReceipt]) -> CaptureContentSourcesResponse:
+    return CaptureContentSourcesResponse(
+        status=CaptureStatus.ACCEPTED,
+        sources=[
+            CapturedContentSource(source=source_reference(value.source_ref), position=value.sequence)
+            for value in values
+        ],
     )
 
 

@@ -17,7 +17,8 @@
 
 use pc_gateway_core::{GateClient, GateError, HttpGateClient, UdsGateClient};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, ContextCheckRequest, ModelJsonPayload, PrepareContextRequest,
+    CaptureContentSource, CaptureContentSourcesRequest, ContextCheckRequest, ModelJsonPayload,
+    PrepareContextRequest,
 };
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -60,11 +61,13 @@ async fn invoke(client: &impl GateClient, operation: &str) -> Result<Value, Gate
             .map(|v| serde_json::to_value(v).unwrap()),
         "capture" => {
             client
-                .capture(CaptureContentSourceRequest {
+                .capture(CaptureContentSourcesRequest {
                     scope_id: "scope".into(),
-                    source_id: "stable-source".into(),
-                    content: "准确正文".into(),
-                    metadata: Some(json!({"nested": {"key": ["value", 1]}, "other": true})),
+                    sources: vec![CaptureContentSource {
+                        source_id: "stable-source".into(),
+                        content: "准确正文".into(),
+                        metadata: Some(json!({"nested": {"key": ["value", 1]}, "other": true})),
+                    }],
                 })
                 .await
         }
