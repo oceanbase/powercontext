@@ -1,0 +1,22 @@
+src/powercontext/builtin/persistence/database.py
+  s_2ef0feea0a110d::t_f5c54951ff23ab 384-386
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_2ef0feea0a110d::t_8dc8d3ab58dcaa 36,460-493
+  s_2ef0feea0a110d::t_fe96e613950c35 494-498
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "041061c8a61a1311a9553cb00123edaadec9d11d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

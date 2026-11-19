@@ -1,0 +1,46 @@
+.github/workflows/nightly-report.yml
+  s_2ef0feea0a110d::t_bf89bfe2265388 24-30
+  s_2ef0feea0a110d::t_4c95ee99f2ff15 16
+.github/workflows/candidate-schema-replay.yml
+  s_2ef0feea0a110d::t_a71b3faa81af6e 31
+.github/workflows/capture-release-schema.yml
+  s_2ef0feea0a110d::t_48ce2b43b16d29 31
+.github/workflows/ci-changes.yml
+  s_2ef0feea0a110d::t_97bf4739a7fb78 27
+.github/workflows/desktop-candidate.yml
+  s_2ef0feea0a110d::t_dbd0d1ed5a2ba5 30,153
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_7c47cdccf9aac6 53,119,339,487,585,623
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_3faf966e88c335 32
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_a839e912b3bc9d 34
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_a3e99b057cebcd 36
+.github/workflows/managed-resource-candidates.yml
+  s_2ef0feea0a110d::t_a43ba784782260 45
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_2696cb00021ac7 38,101,121,181,241,308,378,402,449,514,664,839,905,932,982,1025,1059,1114,1210,1248,1303,1349,1560,1590
+.github/workflows/seekdb-lock-probe.yml
+  s_2ef0feea0a110d::t_9ef985e1b201d9 30
+.github/workflows/skill-guidance.yml
+  s_2ef0feea0a110d::t_1bd2aa31b2ceb2 30
+.github/workflows/upgrade-release.yml
+  s_2ef0feea0a110d::t_07b09220e04c4f 41,259,327
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1c206e4cd67dfa74e32ea5ed9964f263314ebb10",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

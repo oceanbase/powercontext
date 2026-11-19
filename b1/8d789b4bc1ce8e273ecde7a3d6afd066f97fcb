@@ -1,0 +1,28 @@
+tests/e2e/test_homepage_browser.py
+  s_6a2bddf5f4af27::t_f747f32b926613 77-82,98-99,101-104,109-120,133-136
+  s_6a2bddf5f4af27::t_b145aa2598109c 1-76,83-97,100,105-108,121,125-132,137-152,154-155,157-160,162-169
+  s_6a2bddf5f4af27::t_c0045cf32d4260 122-124
+  s_6a2bddf5f4af27::t_328ce4089a9041 153,156,161
+website/src/components/home/home.css
+  s_6a2bddf5f4af27::t_4f8764d8100fe9 2149-2153
+website/src/components/home/hero-demo.tsx
+  s_6a2bddf5f4af27::t_4f8764d8100fe9 105-117,288-290
+website/src/components/home/testimonial-wall.tsx
+  s_6a2bddf5f4af27::t_4f8764d8100fe9 40-44,54,77,80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b18d789b4bc1ce8e273ecde7a3d6afd066f97fcb",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

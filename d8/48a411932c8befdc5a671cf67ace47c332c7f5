@@ -1,0 +1,19 @@
+integrations/dsh/plugins/powercontext/src/companion-memory.ts
+  s_1dc7d92681d5aa::t_a6165a95a8a01f 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d848a411932c8befdc5a671cf67ace47c332c7f5",
+  "prompts": {},
+  "sessions": {
+    "s_1dc7d92681d5aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19db9-d0ca-7db2-8730-6878cbc5ae02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

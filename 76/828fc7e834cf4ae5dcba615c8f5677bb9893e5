@@ -1,0 +1,27 @@
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_0ec37f0df63317 35,47-49,51-54
+  s_2ef0feea0a110d::t_6ef842975fc822 13-16,40-41,50
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_c4fc5068912dbf 44,46
+  s_2ef0feea0a110d::t_cfd76435f84a9c 55
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_c4fc5068912dbf 295-303
+  s_2ef0feea0a110d::t_26787517363451 257
+  s_2ef0feea0a110d::t_cfd76435f84a9c 258,399,926-927,955-956,1007-1008,1052-1053,1088-1089,1188-1189,1281-1282,1623-1624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "76828fc7e834cf4ae5dcba615c8f5677bb9893e5",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

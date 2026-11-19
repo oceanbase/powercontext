@@ -1,0 +1,21 @@
+scripts/ci_cache.py
+  s_2ef0feea0a110d::t_17c9cc38ea12dd 60-64
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_9ac1eed265fe68 66-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "16aab7516f96f0e68c36f114a41262530a3e7828",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

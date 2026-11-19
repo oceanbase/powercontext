@@ -1,0 +1,33 @@
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_92bdc6187cc608 91,96-108,118-130
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_97378be2ae0ccd 11-14,25,46,52-56
+  s_2ef0feea0a110d::t_8e56372b1cae2f 22,34-36,41-42,50-51,59-60
+  s_2ef0feea0a110d::t_92bdc6187cc608 16-21,23-24,45
+  s_2ef0feea0a110d::t_aa705576cd19ca 15,57-58
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_35939fa88224fc 64
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_97378be2ae0ccd 17-20,55
+  s_2ef0feea0a110d::t_92bdc6187cc608 31-41,60-63
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_97378be2ae0ccd 863,1303
+  s_2ef0feea0a110d::t_92bdc6187cc608 859,873-882,1300,1306-1316,1318-1332,1342-1347
+  s_2ef0feea0a110d::t_19eca0abcec2b4 1348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f7abf526b9db525df08938cd334bd1d2f2619aa4",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

@@ -1,0 +1,100 @@
+.github/workflows/skill-guidance.yml
+  s_2ef0feea0a110d::t_8a45ee15825923 39
+.github/actions/setup-openapi-generator/action.yml
+  s_2ef0feea0a110d::t_ce9df308184769 15,28
+.github/actions/cache-save/action.yml
+  s_2ef0feea0a110d::t_cebc82ddfb2f0a 1-24,26-49
+  s_2ef0feea0a110d::t_ce9df308184769 25
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_8a45ee15825923 42,63
+  s_2ef0feea0a110d::t_3e19cb08cfd684 41,62,72-77
+.github/actions/setup-rust-cache/action.yml
+  s_2ef0feea0a110d::t_3008619e606b58 65,70-73
+  s_2ef0feea0a110d::t_ce9df308184769 36,60
+  s_2ef0feea0a110d::t_19642c030b4010 66-69
+  s_2ef0feea0a110d::t_18d3d065fd5eb4 1-35,37-59,61-64
+.github/actions/setup-mise/action.yml
+  s_2ef0feea0a110d::t_18d3d065fd5eb4 1-20,22-34,36-49,51-53
+  s_2ef0feea0a110d::t_ce9df308184769 21,35,50
+.github/actions/setup-go/action.yml
+  s_2ef0feea0a110d::t_c15935f0a86a7c 33
+  s_2ef0feea0a110d::t_18d3d065fd5eb4 1-29,31-32,34-49,51-54
+  s_2ef0feea0a110d::t_ce9df308184769 30,50
+.github/actions/setup-uv/action.yml
+  s_2ef0feea0a110d::t_18d3d065fd5eb4 6,25-28,30-31
+  s_2ef0feea0a110d::t_c15935f0a86a7c 74,82
+  s_2ef0feea0a110d::t_ce9df308184769 55,75,83
+  s_2ef0feea0a110d::t_184a601b990735 1-5,7-24,29,32-54,56-73,76-81,84-86
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_3e19cb08cfd684 60
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_8c5a59e22d632a 137
+  s_2ef0feea0a110d::t_7fe467c4648e25 120-133,135,138-139
+  s_2ef0feea0a110d::t_38144a1e68cf0e 134
+  s_2ef0feea0a110d::t_c2608812900e29 136
+.github/workflows/desktop-candidate.yml
+  s_2ef0feea0a110d::t_8a45ee15825923 36,165
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_8a45ee15825923 94,127,666
+.github/actions/cache-backend/action.yml
+  s_2ef0feea0a110d::t_cebc82ddfb2f0a 1-13
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_7fe467c4648e25 120-133,135,138-139
+  s_2ef0feea0a110d::t_c2608812900e29 136
+  s_2ef0feea0a110d::t_8c5a59e22d632a 137
+  s_2ef0feea0a110d::t_38144a1e68cf0e 134
+.github/actions/cache-restore/action.yml
+  s_2ef0feea0a110d::t_cebc82ddfb2f0a 1-32,34-59
+  s_2ef0feea0a110d::t_ce9df308184769 33
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_19642c030b4010 175-176,193-203,212-213,217-218
+  s_2ef0feea0a110d::t_14942d9a4d2679 24,96-132
+  s_2ef0feea0a110d::t_c78d6aab28d5cf 1-17,19-22,26-28,33-54,56-91,93-95,133-151,154-156,158-159,161-172
+  s_2ef0feea0a110d::t_c8e63cb8cf6f0e 29-32,152-153,157,160
+  s_2ef0feea0a110d::t_20139545fca30a 55
+  s_2ef0feea0a110d::t_5efecb74585a53 18,23,25,92,173-174,177-192,204-211,214-216,219-225
+tests/test_workflow_actions.py
+  s_2ef0feea0a110d::t_ce9df308184769 85-87
+  s_2ef0feea0a110d::t_49c57605b7a8a2 73-84,88-93
+scripts/check_workflow_actions.py
+  s_2ef0feea0a110d::t_3008619e606b58 131-134
+.github/actions/cache/action.yml
+  s_2ef0feea0a110d::t_ce9df308184769 36
+  s_2ef0feea0a110d::t_cebc82ddfb2f0a 1-13,17-35,37-44,46-53,55-64
+  s_2ef0feea0a110d::t_184a601b990735 14-16,45,54
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_ce9df308184769 51,69
+scripts/ci_cache.py
+  s_2ef0feea0a110d::t_c15935f0a86a7c 50
+  s_2ef0feea0a110d::t_90355f23fba14f 111-113,201-204
+  s_2ef0feea0a110d::t_c51f9a03b12233 27,59-62
+  s_2ef0feea0a110d::t_20139545fca30a 53-54,115,199
+  s_2ef0feea0a110d::t_ce9df308184769 182-191
+  s_2ef0feea0a110d::t_90995349eb1061 178,194
+  s_2ef0feea0a110d::t_3008619e606b58 159-177,179-181,192-193,195-196,217
+  s_2ef0feea0a110d::t_1056f316ed6557 1-26,28-49,51-52,55-58,63-110,114,116-158,197-198,200,205-216,218-220
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_3e19cb08cfd684 296,316-321
+  s_2ef0feea0a110d::t_8a45ee15825923 223,262,298,344,886,919,982,1034,1079,1114,1169,1307,1323,1340,1355,1443
+  s_2ef0feea0a110d::t_73256c952c3b61 322
+.github/workflows/build-artifacts.yml
+  s_2ef0feea0a110d::t_8c5a59e22d632a 58-59
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_ce9df308184769 47,56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "abdc1aa497badbd2849d9db21f300ad446fa05dc",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

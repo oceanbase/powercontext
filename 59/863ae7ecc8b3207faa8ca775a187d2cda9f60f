@@ -1,0 +1,19 @@
+.github/workflows/ci-cache-canary.yml
+  s_2ef0feea0a110d::t_0aa0d4b8496e42 33-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59863ae7ecc8b3207faa8ca775a187d2cda9f60f",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
