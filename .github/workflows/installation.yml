@@ -1,79 +1,500 @@
-name: Script installation
-
-on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
-  workflow_dispatch:
-
+# Copyright (c) 2026 OceanBase.
+# SPDX-License-Identifier: Apache-2.0
+name: Remaining internal cache GitHub Actions acceptance
+'on':
+  workflow_dispatch: null
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
-
+env:
+  SOURCE_SHA: be857cb7c01d0116e4f0af640e4227c40e39897f
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: installation.yml
-
-  installation:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 20
+  quality:
+    name: Verify preflight caches and pinned tools
+    runs-on: powercontext-ci-light
+    timeout-minutes: 25
+    outputs:
+      runner-name: ${{ steps.identity.outputs.runner-name }}
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
+    - name: Check out the reviewed cache implementation
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ env.SOURCE_SHA }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify runner, source and pinned License Eye
+      shell: bash
+      run: |
+        test "$GITHUB_EVENT_NAME" = workflow_dispatch
+        test "$RUNNER_OS" = Linux
+        test "$RUNNER_ENVIRONMENT" = self-hosted
+        test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+        binary=/opt/powercontext-ci-tools/license-eye/a196742f472feaffafea537ce5a2a4c3c53a8de4/license-eye
+        test -x "$binary"
+        echo "4a5331a10a140ccb465685092688d3663f528ea31c6c93852baa5e39d2553b3e  $binary" | sha256sum --check
+        printf 'runner-name=%s\n' "$RUNNER_NAME" >> "$GITHUB_OUTPUT"
+        printf 'Reviewed source: %s; runner: %s\n' "$SOURCE_SHA" "$RUNNER_NAME"
+        python3 - <<'PY'
+        import os
+        import shutil
+        import subprocess
+        from pathlib import Path
+        seed = Path(subprocess.check_output(['uv', 'cache', 'dir'], text=True).strip())
+        backup = Path(os.environ['RUNNER_TEMP']) / 'cache-acceptance-image-seed'
+        if seed.exists():
+            shutil.move(str(seed), str(backup))
+        shutil.rmtree(Path.home() / '.cache/prek', ignore_errors=True)
+        PY
+      id: identity
+    - name: Select the internal cache backend
+      uses: ./.github/actions/cache-backend
+      id: backend
+    - name: Require internal cache selection
+      shell: bash
+      run: |
+        test "$CACHE_BACKEND" = s3
+      env:
+        CACHE_BACKEND: ${{ steps.backend.outputs.backend }}
+    - name: Check license headers with the pinned image tool
+      uses: ./.github/actions/check-license
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        INSTALL_DIR: ${{ runner.temp }}
+        PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      with:
+        config: .licenserc.yaml
+        mode: check
+    - name: Set up the quality Python environment
+      uses: ./.github/actions/setup-python-env
+      id: python-env
+      with:
+        save-cache: 'false'
+    - name: Save preflight Python dependencies before checks
+      uses: ./.github/actions/cache-save
+      if: steps.python-env.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.python-env.outputs.cache-path }}
+        key: ${{ steps.python-env.outputs.cache-key }}
+    - name: Resolve the exact Python version for the prek key
+      shell: bash
+      run: |
+        echo "version=$(python -c 'import platform; print(platform.python_version())')" >> "$GITHUB_OUTPUT"
+      id: python
+    - name: Restore the prewarmed prek environments
+      uses: ./.github/actions/cache-restore
+      id: prek-cache
+      with:
+        path: ~/.cache/prek
+        key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+    - name: Prepare the restored prek environments
+      shell: bash
+      run: |
+        uv run prek install-hooks
+    - name: Save prek environments before checks
+      uses: ./.github/actions/cache-save
+      if: steps.prek-cache.outputs.cache-hit != 'true'
+      with:
+        path: ~/.cache/prek
+        key: ${{ steps.prek-cache.outputs.cache-primary-key }}
+    - name: Require exact quality snapshots and rebuild the venv offline
+      shell: bash
+      run: |
+        test "$PYTHON_CACHE_HIT" = true
+        test "$PREK_CACHE_HIT" = true
+        printf 'Quality Python key: %s\nPrek key: %s\n' "$PYTHON_CACHE_KEY" "$PREK_CACHE_KEY"
+        python - <<'PY'
+        import shutil
+        shutil.rmtree('.venv', ignore_errors=True)
+        PY
+        uv sync --frozen --offline --python "$(command -v python)"
+        UV_OFFLINE=1 uv run --locked --no-sync prek run check-yaml --all-files
+      env:
+        PYTHON_CACHE_HIT: ${{ steps.python-env.outputs.cache-hit }}
+        PYTHON_CACHE_KEY: ${{ steps.python-env.outputs.cache-key }}
+        PREK_CACHE_HIT: ${{ steps.prek-cache.outputs.cache-hit }}
+        PREK_CACHE_KEY: ${{ steps.prek-cache.outputs.cache-primary-key }}
+  application:
+    name: Verify prewarmed application caches offline
+    needs: quality
+    runs-on: powercontext-ci-light
+    timeout-minutes: 45
+    steps:
+    - name: Check out the reviewed cache implementation
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ env.SOURCE_SHA }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify a separate Linux runner and prepare acceptance helpers
+      shell: bash
+      run: |
+        test "$RUNNER_OS" = Linux
+        test "$RUNNER_ENVIRONMENT" = self-hosted
+        test "$RUNNER_NAME" != "$QUALITY_RUNNER_NAME"
+        test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+        test "$(uv --version)" = 'uv 0.10.12'
+        printf 'Application runner: %s\n' "$RUNNER_NAME"
+        cat > "$RUNNER_TEMP/pip-cache-acceptance.py" <<'PY'
+        import json
+        import os
+        import re
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
 
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
-
-      - name: Build the installation fixture
-        shell: bash
-        env:
-          # Qualify this commit using release-shaped metadata, without publishing it.
-          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
-
-      - name: Check shared installer behavior and source resolution
-        shell: bash
-        run: >-
-          uv run --no-sync pytest -q tests/test_installation_contract.py tests/native/test_install_sources.py
-          --junitxml "$RUNNER_TEMP/installation-contract.xml"
-          --basetemp "$RUNNER_TEMP/installation-contract-tests"
-
-      - name: Exercise bootstrap, version selection, profiles, and persistent memory
-        shell: bash
-        env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
-        run: >-
-          uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
-          --junitxml "$RUNNER_TEMP/installation.xml"
-          --basetemp "$RUNNER_TEMP/installation-tests"
-
-      - name: Upload installation diagnostics after failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: installation-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/installation.xml
-            ${{ runner.temp }}/installation-contract.xml
-            ${{ runner.temp }}/installation-tests/**/*.log
-          if-no-files-found: ignore
+        root = Path('build/artifact-input')
+        for requirement, destination in [('requirements.lock', 'wheelhouse'), ('plugin-requirements.lock', 'plugin-wheelhouse')]:
+            wheels_dir = root / destination
+            shutil.rmtree(wheels_dir, ignore_errors=True)
+            command = [sys.executable, '-m', 'pip', 'download', '--require-hashes', '--only-binary=:all:', '--dest', str(wheels_dir), '--requirement', str(root / requirement)]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            print(result.stdout, end='')
+            if result.returncode:
+                raise SystemExit(result.returncode)
+            wheels = sorted(path.name for path in wheels_dir.glob('*.whl'))
+            cached = set(re.findall(r'Using cached (?:https?://[^\s]+/)?([^/\s]+\.whl)(?:\s|$)', result.stdout))
+            missing = sorted(set(wheels) - cached)
+            assert wheels and not missing, f'Not every wheel body came from restored HTTP cache: {missing}'
+            print(json.dumps({'python': sys.version.split()[0], 'wheelhouse': destination, 'cached_wheels': wheels}))
+            environment = Path(os.environ['RUNNER_TEMP']) / ('pip-offline-' + sys.version.split()[0] + '-' + destination)
+            assert not environment.exists(), 'Offline installation must use a fresh environment'
+            subprocess.run([sys.executable, '-m', 'venv', str(environment)], check=True)
+            subprocess.run([str(environment / 'bin/python'), '-m', 'pip', 'install', '--no-index', '--find-links', str(wheels_dir), '--require-hashes', '--requirement', str(root / requirement)], check=True)
+        PY
+      env:
+        QUALITY_RUNNER_NAME: ${{ needs.quality.outputs.runner-name }}
+    - name: Select the internal application cache backend
+      uses: ./.github/actions/cache-backend
+      id: backend
+    - name: Require internal application cache selection
+      shell: bash
+      run: |
+        test "$CACHE_BACKEND" = s3
+      env:
+        CACHE_BACKEND: ${{ steps.backend.outputs.backend }}
+    - name: Use the workflow Node version for gateway
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: '22'
+        package-manager-cache: false
+    - name: Clear installed content and download cache for gateway
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import shutil
+        import subprocess
+        from pathlib import Path
+        cache = Path(subprocess.check_output(['npm', 'config', 'get', 'cache'], text=True).strip()) / '_cacache'
+        shutil.rmtree(cache, ignore_errors=True)
+        PY
+    - name: Restore prewarmed gateway downloads
+      uses: $/.github/actions/cache-npm
+      id: gateway-cache
+      with:
+        cache-dependency-glob: gateway/tck/package-lock.json
+    - name: Require exact gateway cache and install offline
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact npm key: %s\n' "$CACHE_KEY"
+        test ! -e gateway/tck/node_modules
+        npm ci --prefix gateway/tck --no-audit --no-fund --offline
+        test "$(gateway/tck/node_modules/.bin/bun --version)" = '1.4.4'
+      env:
+        CACHE_HIT: ${{ steps.gateway-cache.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.gateway-cache.outputs.cache-key }}
+    - name: Use the same Node version as the CLI jobs
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 22.19.0
+        package-manager-cache: false
+    - name: Select the actual OpenCode platform package
+      shell: bash
+      run: |
+        package="opencode-$(node -p 'process.platform + "-" + process.arch')"
+        if [ "$package" = opencode-linux-x64 ] && ! grep -qw avx2 /proc/cpuinfo; then
+          package=opencode-linux-x64-baseline
+        fi
+        printf 'package=%s\n' "$package" >> "$GITHUB_OUTPUT"
+      id: opencode-package
+    - name: Clear installed content and download cache for opencode
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import shutil
+        import subprocess
+        from pathlib import Path
+        cache = Path(subprocess.check_output(['npm', 'config', 'get', 'cache'], text=True).strip()) / '_cacache'
+        shutil.rmtree(cache, ignore_errors=True)
+        PY
+    - name: Restore prewarmed opencode downloads
+      uses: $/.github/actions/cache-npm
+      id: opencode-cache
+      with:
+        packages: ${{ steps.opencode-package.outputs.package }}@1.19.5
+    - name: Require exact opencode cache and install offline
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact npm key: %s\n' "$CACHE_KEY"
+        test ! -e "$RUNNER_TEMP/opencode-acceptance"
+        npm install --prefix "$RUNNER_TEMP/opencode-acceptance" --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund --offline "$OPENCODE_PACKAGE@1.19.5"
+        test "$("$RUNNER_TEMP/opencode-acceptance/node_modules/$OPENCODE_PACKAGE/bin/opencode" --version)" = '1.19.5'
+      env:
+        CACHE_HIT: ${{ steps.opencode-cache.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.opencode-cache.outputs.cache-key }}
+        OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
+    - name: Clear installed content and download cache for codex
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import shutil
+        import subprocess
+        from pathlib import Path
+        cache = Path(subprocess.check_output(['npm', 'config', 'get', 'cache'], text=True).strip()) / '_cacache'
+        shutil.rmtree(cache, ignore_errors=True)
+        PY
+    - name: Restore prewarmed codex downloads
+      uses: $/.github/actions/cache-npm
+      id: codex-cache
+      with:
+        packages: '@openai/codex@0.167.2'
+    - name: Require exact codex cache and install offline
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact npm key: %s\n' "$CACHE_KEY"
+        test ! -e "$RUNNER_TEMP/codex-acceptance"
+        npm install --prefix "$RUNNER_TEMP/codex-acceptance" --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund --offline '@openai/codex@0.167.2'
+        test "$("$RUNNER_TEMP/codex-acceptance/node_modules/.bin/codex" --version)" = 'codex-cli 0.167.2'
+      env:
+        CACHE_HIT: ${{ steps.codex-cache.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.codex-cache.outputs.cache-key }}
+    - name: Use the workflow Node version for kimi
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24.21.0
+        package-manager-cache: false
+    - name: Clear installed content and download cache for kimi
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import shutil
+        import subprocess
+        from pathlib import Path
+        cache = Path(subprocess.check_output(['npm', 'config', 'get', 'cache'], text=True).strip()) / '_cacache'
+        shutil.rmtree(cache, ignore_errors=True)
+        PY
+    - name: Restore prewarmed kimi downloads
+      uses: $/.github/actions/cache-npm
+      id: kimi-cache
+      with:
+        packages: '@moonshot-ai/kimi-code@2.1.1'
+    - name: Require exact kimi cache and install offline
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact npm key: %s\n' "$CACHE_KEY"
+        test ! -e "$RUNNER_TEMP/kimi-acceptance"
+        npm install --prefix "$RUNNER_TEMP/kimi-acceptance" --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund --offline '@moonshot-ai/kimi-code@2.1.1'
+        test "$(node "$RUNNER_TEMP/kimi-acceptance/node_modules/@moonshot-ai/kimi-code/dist/main.mjs" --version)" = '2.1.1'
+      env:
+        CACHE_HIT: ${{ steps.kimi-cache.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.kimi-cache.outputs.cache-key }}
+    - name: Restore the project tools used by OpenClaw
+      id: mise
+      uses: ./.github/actions/setup-mise
+    - name: Select OpenClaw Node and clear its full npm cache
+      id: openclaw-path
+      shell: bash
+      env:
+        MISE_CACHE_HIT: ${{ steps.mise.outputs.cache-hit }}
+      run: |
+        test "$MISE_CACHE_HIT" = true
+        mise install node@24.15.0
+        python3 - <<'PYCODE'
+        import os
+        import shutil
+        import subprocess
+        from pathlib import Path
+        cache = Path(subprocess.check_output(['mise', 'exec', 'node@24.15.0', '--', 'npm', 'config', 'get', 'cache'], text=True).strip())
+        shutil.rmtree(cache, ignore_errors=True)
+        with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+            output.write(f'path={cache}\n')
+        PYCODE
+    - name: Restore the prewarmed OpenClaw host downloads
+      id: openclaw-cache
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ${{ steps.openclaw-path.outputs.path }}
+        key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-2026.8.1
+    - name: Require exact OpenClaw cache and install offline
+      shell: bash
+      env:
+        CACHE_BACKEND: ${{ steps.openclaw-cache.outputs.cache-backend }}
+        CACHE_HIT: ${{ steps.openclaw-cache.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.openclaw-cache.outputs.cache-primary-key }}
+      run: |
+        test "$CACHE_BACKEND" = s3
+        test "$CACHE_HIT" = true
+        printf 'Exact OpenClaw key: %s\n' "$CACHE_KEY"
+        test ! -e "$RUNNER_TEMP/openclaw-acceptance"
+        mise exec node@24.15.0 -- npm install --prefix "$RUNNER_TEMP/openclaw-acceptance" --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund --offline 'openclaw@2026.8.1'
+        mise exec node@24.15.0 -- "$RUNNER_TEMP/openclaw-acceptance/node_modules/.bin/openclaw" --version | grep -qx 'OpenClaw 2026.8.1 (.*)'
+    - name: Require empty protocol source destinations
+      shell: bash
+      run: |
+        test ! -e .cache/gateway-tck
+    - name: Restore pinned protocol suite source cache
+      uses: $/.github/actions/cache-restore
+      id: tck-source
+      with:
+        path: |-
+          .cache/gateway-tck/openai_sdk-*
+          .cache/gateway-tck/openresponses-*
+        key: gateway-tck-upstreams-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gateway/tck/upstreams.json') }}
+    - name: Verify exact source restoration without network fetches
+      shell: bash
+      run: |
+        test "$CACHE_BACKEND" = s3
+        test "$CACHE_HIT" = true
+        printf 'Exact TCK source key: %s\n' "$CACHE_KEY"
+        GIT_ALLOW_PROTOCOL=file python3 tests/e2e/gateway_tck.py --prepare-only
+      env:
+        CACHE_BACKEND: ${{ steps.tck-source.outputs.cache-backend }}
+        CACHE_HIT: ${{ steps.tck-source.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.tck-source.outputs.cache-primary-key }}
+    - name: Export the same locked bundle requirements
+      shell: bash
+      run: |
+        mkdir -p build/artifact-input
+        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/requirements.lock
+        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/plugin-requirements.lock
+    - name: Select bundle Python 3.11
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.11'
+    - name: Clear pip response cache before Python 3.11 restore
+      shell: bash
+      run: |
+        python - <<'PY'
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
+        root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
+        for name in ('http', 'http-v2'):
+            shutil.rmtree(root / name, ignore_errors=True)
+        PY
+    - name: Restore prewarmed Python 3.11 wheel downloads
+      uses: $/.github/actions/cache-pip
+      id: pip311
+      with:
+        cache-dependency-glob: |-
+          build/artifact-input/requirements.lock
+          build/artifact-input/plugin-requirements.lock
+    - name: Verify every Python 3.11 wheel cache hit and offline install
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+        python "$RUNNER_TEMP/pip-cache-acceptance.py"
+      env:
+        CACHE_HIT: ${{ steps.pip311.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.pip311.outputs.cache-key }}
+    - name: Select bundle Python 3.12
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.12'
+    - name: Clear pip response cache before Python 3.12 restore
+      shell: bash
+      run: |
+        python - <<'PY'
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
+        root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
+        for name in ('http', 'http-v2'):
+            shutil.rmtree(root / name, ignore_errors=True)
+        PY
+    - name: Restore prewarmed Python 3.12 wheel downloads
+      uses: $/.github/actions/cache-pip
+      id: pip312
+      with:
+        cache-dependency-glob: |-
+          build/artifact-input/requirements.lock
+          build/artifact-input/plugin-requirements.lock
+    - name: Verify every Python 3.12 wheel cache hit and offline install
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+        python "$RUNNER_TEMP/pip-cache-acceptance.py"
+      env:
+        CACHE_HIT: ${{ steps.pip312.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.pip312.outputs.cache-key }}
+    - name: Select bundle Python 3.13
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.13'
+    - name: Clear pip response cache before Python 3.13 restore
+      shell: bash
+      run: |
+        python - <<'PY'
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
+        root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
+        for name in ('http', 'http-v2'):
+            shutil.rmtree(root / name, ignore_errors=True)
+        PY
+    - name: Restore prewarmed Python 3.13 wheel downloads
+      uses: $/.github/actions/cache-pip
+      id: pip313
+      with:
+        cache-dependency-glob: |-
+          build/artifact-input/requirements.lock
+          build/artifact-input/plugin-requirements.lock
+    - name: Verify every Python 3.13 wheel cache hit and offline install
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+        python "$RUNNER_TEMP/pip-cache-acceptance.py"
+      env:
+        CACHE_HIT: ${{ steps.pip313.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.pip313.outputs.cache-key }}
+    - name: Select bundle Python 3.14
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.14'
+    - name: Clear pip response cache before Python 3.14 restore
+      shell: bash
+      run: |
+        python - <<'PY'
+        import shutil
+        import subprocess
+        import sys
+        from pathlib import Path
+        root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
+        for name in ('http', 'http-v2'):
+            shutil.rmtree(root / name, ignore_errors=True)
+        PY
+    - name: Restore prewarmed Python 3.14 wheel downloads
+      uses: $/.github/actions/cache-pip
+      id: pip314
+      with:
+        cache-dependency-glob: |-
+          build/artifact-input/requirements.lock
+          build/artifact-input/plugin-requirements.lock
+    - name: Verify every Python 3.14 wheel cache hit and offline install
+      shell: bash
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+        python "$RUNNER_TEMP/pip-cache-acceptance.py"
+      env:
+        CACHE_HIT: ${{ steps.pip314.outputs.cache-hit }}
+        CACHE_KEY: ${{ steps.pip314.outputs.cache-key }}
