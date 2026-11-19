@@ -1,0 +1,37 @@
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_6966b556379b27 138-139
+.github/actions/cache-pip/action.yml
+  s_2ef0feea0a110d::t_368e856a75d75d 4-6,26,28
+scripts/prepare_bundle_dependencies.py
+  s_2ef0feea0a110d::t_13f888c3390573 126,177
+  s_2ef0feea0a110d::t_368e856a75d75d 1-125,127,129-176,178-193
+  s_2ef0feea0a110d::t_ad16cfaa6763d3 128
+.github/actions/prepare-bundle-wheels/action.yml
+  s_2ef0feea0a110d::t_368e856a75d75d 1-21
+tests/test_bundle_dependencies.py
+  s_2ef0feea0a110d::t_368e856a75d75d 36-187
+  s_2ef0feea0a110d::t_2a27350982b8cc 1-35,188-203
+.github/actions/setup-bundle-builder/action.yml
+  s_2ef0feea0a110d::t_368e856a75d75d 1-35,37-62
+  s_2ef0feea0a110d::t_a1f277046d6a1e 36
+.github/workflows/build-artifacts.yml
+  s_2ef0feea0a110d::t_368e856a75d75d 117,127,129-133,135,138,140-142,144-150,157-162,182-186
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_6966b556379b27 138-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4f0276d45ff47453111293abfeb3803481a868dd",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
