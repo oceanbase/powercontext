@@ -1,0 +1,19 @@
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_13fec9a57c9104::t_feaaceb52cd2b1 47-49,54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e6f2736f017e8f428277272beb7bdc215df23ccb",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

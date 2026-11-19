@@ -1,0 +1,27 @@
+.github/workflows/e2e-harness.yml
+  s_13fec9a57c9104::t_42d000b92a6e84 54
+.github/workflows/gateway.yml
+  s_13fec9a57c9104::t_dd6614070f903a 33
+.github/workflows/installation.yml
+  s_13fec9a57c9104::t_88a9c2303007d9 35
+.github/workflows/kimi-code-acceptance.yml
+  s_13fec9a57c9104::t_839d8b1eaef5d9 37,55
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_c9b105a66170db 217-218,320,415,462,852,933,962,1014,1059,1095,1152,1162-1163,1252,1290,1381,1600,1702
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d766a09a5293013e5ab808641fd5d83f1d8d2fbe",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

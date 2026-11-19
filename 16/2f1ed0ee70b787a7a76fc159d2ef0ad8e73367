@@ -1,0 +1,23 @@
+tests/e2e/test_knowledge_base_context.py
+  s_13fec9a57c9104::t_ec670334c3c960 79-80
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_13fec9a57c9104::t_03dc16acbcad9b 136
+tests/knowledge_base/test_content_store.py
+  s_13fec9a57c9104::t_ec670334c3c960 106-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "162f1ed0ee70b787a7a76fc159d2ef0ad8e73367",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
