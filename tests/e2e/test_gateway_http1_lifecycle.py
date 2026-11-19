@@ -22,14 +22,12 @@ from __future__ import annotations
 import http.client
 import json
 import os
-import shutil
 import signal
 import socket
 import subprocess
 import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from threading import Event, Lock, Thread
 
 import httpx
@@ -37,31 +35,7 @@ import pytest
 
 from tests.e2e.test_server_uds import _HEADERS, _TOKEN, _environment, _running_server
 
-_ROOT = Path(__file__).resolve().parents[2]
 _KEY = "disposable-gateway-lifecycle-key"
-
-
-@pytest.fixture(scope="module")
-def gateway_binary():
-    cargo = shutil.which("cargo") or str(Path.home() / ".cargo/bin/cargo")
-    subprocess.run(
-        [
-            cargo,
-            "build",
-            "--locked",
-            "--manifest-path",
-            str(_ROOT / "gateway/Cargo.toml"),
-            "--target-dir",
-            str(_ROOT / "gateway/target"),
-            "-p",
-            "pc-gateway-app",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    return _ROOT / "gateway/target/debug/pc-gateway"
 
 
 class _Provider(ThreadingHTTPServer):

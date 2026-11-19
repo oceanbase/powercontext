@@ -304,6 +304,26 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
+      - name: Build Gateway before parallel end-to-end tests
+        if: matrix.suite == 'e2e'
+        timeout-minutes: 15
+        run: |
+          mkdir -p .artifacts/gateway-build
+          # bash pipefail keeps compiler errors fatal while tee preserves all output.
+          cargo build --locked --manifest-path gateway/Cargo.toml \
+            --target-dir gateway/target -p pc-gateway-app --verbose \
+            2>&1 | tee .artifacts/gateway-build/build.log
+          test -x "$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway"
+          echo "POWERCONTEXT_TEST_GATEWAY_BINARY=$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway" >> "$GITHUB_ENV"
+
+      - name: Upload Gateway build log
+        if: always() && matrix.suite == 'e2e'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gateway-build-python-${{ matrix.python-version }}
+          path: .artifacts/gateway-build/build.log
+          if-no-files-found: ignore
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.

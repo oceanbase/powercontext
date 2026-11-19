@@ -19,7 +19,6 @@ from __future__ import annotations
 import http.client
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -34,23 +33,9 @@ import pytest
 from tests.e2e.test_rfc2086_transport_acceptance import completion, upstream
 from tests.e2e.test_server_uds import _TOKEN, _environment, _running_server
 
-_ROOT = Path(__file__).resolve().parents[2]
 _KEY = "synthetic-gateway-key+/=="
 _PROVIDER_KEY = "synthetic-provider-key"
 pytestmark = pytest.mark.skipif(sys.platform not in {"linux", "darwin"}, reason="Gateway Core link requires UDS")
-
-
-@pytest.fixture(scope="session")
-def gateway_binary() -> Path:
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        pytest.skip("Gateway process acceptance requires the Rust toolchain")
-    subprocess.run(
-        [cargo, "build", "--locked", "--manifest-path", str(_ROOT / "gateway/Cargo.toml"), "-p", "pc-gateway-app"],
-        check=True,
-        timeout=300,
-    )
-    return _ROOT / "gateway/target/debug/pc-gateway"
 
 
 def gateway_environment() -> dict[str, str]:
