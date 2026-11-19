@@ -37,6 +37,15 @@ runs:
         path: ${{ steps.snapshot.outputs.cache-path }}
         key: ${{ steps.snapshot.outputs.cache-key }}
 
+    # Older tool snapshots may contain no bootstrap binary, or an older bin tree.
+    # Overlay the action's binary, version record and signed checksums afterward.
+    - id: bootstrap
+      if: steps.backend.outputs.backend == 's3'
+      uses: $/.github/actions/cache-restore
+      with:
+        path: ${{ steps.snapshot.outputs.bootstrap-cache-path }}
+        key: ${{ steps.snapshot.outputs.bootstrap-cache-key }}
+
     - id: mise
       uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       with:
@@ -44,6 +53,22 @@ runs:
         version: ${{ inputs.version }}
         install_args: ${{ inputs.install_args }}
         cache: ${{ steps.backend.outputs.backend != 's3' }}
+
+    # Upstream checksum caching is best-effort even after a successful install.
+    - id: bootstrap-ready
+      if: steps.backend.outputs.backend == 's3' && steps.bootstrap.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CI_CACHE_BOOTSTRAP_PATH: ${{ steps.snapshot.outputs.bootstrap-cache-path }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" mise-bootstrap-ready
+
+    - name: Save mise bootstrap
+      id: bootstrap-save
+      if: steps.backend.outputs.backend == 's3' && steps.bootstrap.outputs.cache-hit != 'true' && steps.bootstrap-ready.outputs.ready == 'true'
+      uses: $/.github/actions/cache-save
+      with:
+        path: ${{ steps.snapshot.outputs.bootstrap-cache-path }}
+        key: ${{ steps.snapshot.outputs.bootstrap-cache-key }}
 
     - name: Save installed tools
       if: steps.backend.outputs.backend == 's3' && steps.internal.outputs.cache-hit != 'true'

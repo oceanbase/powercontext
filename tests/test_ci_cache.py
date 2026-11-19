@@ -121,6 +121,13 @@ def test_hosted_runner_uses_github_even_when_process_has_internal_configuration(
     assert environment == ""
 
 
+def test_unconfigured_internal_runner_keeps_github_cache_backend(tmp_path: Path) -> None:
+    result, output, environment = run_cache(tmp_path, "backend", RUNNER_ENVIRONMENT="self-hosted")
+    assert result.returncode == 0, result.stderr
+    assert "backend=github" in output
+    assert environment == ""
+
+
 def test_configured_internal_cache_does_not_fall_back_when_credentials_are_missing(tmp_path: Path) -> None:
     result, output, environment = run_cache(
         tmp_path,
@@ -216,6 +223,126 @@ def test_mise_cache_key_tracks_tool_configuration(tmp_path: Path) -> None:
     changed, updated, _ = run_cache(tmp_path, "mise")
     assert changed.returncode == 0, changed.stderr
     assert initial != updated
+
+
+def test_mise_bootstrap_snapshot_is_independent_of_installed_tool_configuration(tmp_path: Path) -> None:
+    config = tmp_path / "mise.toml"
+    config.write_text('[tools]\nnode = "22"\n')
+    values = {
+        "CI_CACHE_MISE_ACTION": "a" * 40,
+        "CI_CACHE_MISE_VERSION": "",
+        "CI_CACHE_MISE_WORKING_DIRECTORY": "",
+        "CI_CACHE_MISE_INSTALL_ARGS": "",
+        "MISE_ENV": "",
+        "MISE_DATA_DIR": str(tmp_path / "mise-data"),
+    }
+    result, original, _ = run_cache(tmp_path, "mise", **values)
+    assert result.returncode == 0, result.stderr
+    # Existing objects must remain usable after adding the separate bootstrap snapshot.
+    assert output_value(original, "cache-key").startswith("mise-internal-v1-Linux-X64-")
+    assert output_value(original, "cache-key").endswith("-ae10cec526c635f921dfcd0a-3c68db27eff00b925cd4a310")
+    assert output_value(original, "bootstrap-cache-path") == str(tmp_path / "mise-data" / "bin")
+    config.write_text('[tools]\nnode = "24"\n')
+    changed, updated, _ = run_cache(tmp_path, "mise", **values)
+    assert changed.returncode == 0, changed.stderr
+    assert output_value(original, "cache-key") != output_value(updated, "cache-key")
+    assert output_value(original, "bootstrap-cache-key") == output_value(updated, "bootstrap-cache-key")
+
+
+@pytest.mark.parametrize(
+    "changed_input",
+    [
+        {"CI_CACHE_MISE_VERSION": "2026.11.2"},
+        {"CI_CACHE_MISE_ACTION": "b" * 40},
+        {"RUNNER_ARCH": "ARM64"},
+        {"RUNNER_OS": "macOS"},
+    ],
+)
+def test_mise_bootstrap_cache_isolates_version_action_and_platform(
+    tmp_path: Path, changed_input: dict[str, str]
+) -> None:
+    values = {"CI_CACHE_MISE_ACTION": "a" * 40, "CI_CACHE_MISE_VERSION": ""}
+    result, original, _ = run_cache(tmp_path, "mise", **values)
+    assert result.returncode == 0, result.stderr
+    result, changed, _ = run_cache(tmp_path, "mise", **(values | changed_input))
+    assert result.returncode == 0, result.stderr
+    assert output_value(original, "bootstrap-cache-key") != output_value(changed, "bootstrap-cache-key")
+
+
+@pytest.mark.parametrize(
+    ("backend", "tools_hit", "bootstrap_hit", "ready", "expected"),
+    [
+        ("s3", "true", "false", "true", {"bootstrap", "bootstrap-ready", "bootstrap-save"}),
+        ("s3", "true", "false", "false", {"bootstrap", "bootstrap-ready"}),
+        ("s3", "true", "true", "true", {"bootstrap"}),
+        ("s3", "false", "false", "true", {"bootstrap", "bootstrap-ready", "bootstrap-save"}),
+        ("github", "true", "false", "true", set()),
+    ],
+)
+def test_mise_bootstrap_restores_after_tools_and_saves_even_when_tools_already_hit(
+    backend: str, tools_hit: str, bootstrap_hit: str, ready: str, expected: set[str]
+) -> None:
+    action = yaml.safe_load((SCRIPT.parents[1] / ".github/actions/setup-mise/action.yml").read_text())
+    steps = action["runs"]["steps"]
+    by_id = {step["id"]: step for step in steps if "id" in step}
+    # An older installed-tool object can contain an absent or stale bin directory.
+    assert steps.index(by_id["internal"]) < steps.index(by_id["bootstrap"]) < steps.index(by_id["mise"])
+    assert steps.index(by_id["mise"]) < steps.index(by_id["bootstrap-ready"]) < steps.index(by_id["bootstrap-save"])
+    assert by_id["bootstrap"]["with"] == {
+        "path": "${{ steps.snapshot.outputs.bootstrap-cache-path }}",
+        "key": "${{ steps.snapshot.outputs.bootstrap-cache-key }}",
+    }
+    assert by_id["bootstrap-save"]["with"] == by_id["bootstrap"]["with"]
+    context = {
+        "steps.backend.outputs.backend": backend,
+        "steps.internal.outputs.cache-hit": tools_hit,
+        "steps.bootstrap.outputs.cache-hit": bootstrap_hit,
+        "steps.bootstrap-ready.outputs.ready": ready,
+    }
+    selected = set()
+    for name in ("bootstrap", "bootstrap-ready", "bootstrap-save"):
+        expression = by_id[name]["if"]
+        for key, value in context.items():
+            expression = expression.replace(key, repr(value))
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        if eval(expression, {"__builtins__": {}}):  # noqa: S307 - checked-in condition and fixed test values
+            selected.add(name)
+    assert selected == expected
+    # The upstream verifier and hosted-runner cache behavior still own bootstrap/install.
+    assert "if" not in by_id["mise"]
+    assert by_id["mise"]["uses"] == "jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785"
+    assert by_id["mise"]["with"] == {
+        "working_directory": "${{ inputs.working_directory }}",
+        "version": "${{ inputs.version }}",
+        "install_args": "${{ inputs.install_args }}",
+        "cache": "${{ steps.backend.outputs.backend != 's3' }}",
+    }
+
+
+@pytest.mark.parametrize(
+    "incomplete", [None, "mise", "mise-version", "SHASUMS256-2026.11.9.txt", "SHASUMS256-2026.11.9.txt.minisig"]
+)
+def test_mise_bootstrap_does_not_publish_partial_successful_install(tmp_path: Path, incomplete: str | None) -> None:
+    bootstrap = tmp_path / "mise" / "bin"
+    bootstrap.mkdir(parents=True)
+    files = {
+        "mise": "binary fixture; signature verification remains upstream",
+        "mise-version": "2026.11.9",
+        "SHASUMS256-2026.11.9.txt": "checksums fixture",
+        "SHASUMS256-2026.11.9.txt.minisig": "signature fixture",
+    }
+    for name, content in files.items():
+        (bootstrap / name).write_text(content)
+    if incomplete == "mise-version":
+        (bootstrap / incomplete).write_text(" \n")
+    elif incomplete:
+        (bootstrap / incomplete).unlink()
+    result, output, _ = run_cache(tmp_path, "mise-bootstrap-ready", CI_CACHE_BOOTSTRAP_PATH=str(bootstrap))
+    # Missing optional cache state must not turn upstream installation success into failure.
+    assert result.returncode == 0, result.stderr
+    assert output_value(output, "ready") == ("true" if incomplete is None else "false")
+    if incomplete:
+        assert "skipping" in result.stdout.lower()
 
 
 @pytest.mark.parametrize("changed_input", ["source", "included-fixture"])

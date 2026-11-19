@@ -135,6 +135,8 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。已有的依赖安装后显式保存步骤仍在测试前执行；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
 
+内部 mise 缓存还会单独保存启动所需的二进制、版本记录和签名校验文件，并在已安装工具恢复后恢复该快照，避免旧工具快照覆盖这些文件。固定版本的上游 action 仍会在本地校验二进制、安装项目工具并导出环境。已安装工具精确命中时，仍可保存尚未命中的启动快照；显式指定 mise 版本时使用独立的启动缓存键。只发布文件齐全的启动快照；校验文件缺失时仅跳过缓存写入，不使已成功的工具安装失败。
+
 打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
 
 缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。
