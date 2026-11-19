@@ -103,8 +103,28 @@ def test_markdown_html_tables_keep_content_and_source_lines():
             "# Runbook\n\n- ## Embedded heading\n\nOutside the list.",
             [["Runbook"]],
         ),
+        (
+            "> ## Example\n\nOutside the quote.",
+            [[]],
+        ),
+        (
+            "# Runbook\n\n> ## Example\n>\n> Quoted paragraph.\n\nOutside the quote.\n\n## Execution",
+            [["Runbook"], ["Runbook", "Execution"]],
+        ),
+        (
+            "# Runbook\n\n> ## Example\n>\n> > # Nested heading\n> >\n> > Nested paragraph.\n\nOutside the quotes.",
+            [["Runbook"]],
+        ),
     ],
-    ids=["h2-siblings", "skipped-level-siblings", "return-to-ancestor", "atomic-list-heading"],
+    ids=[
+        "h2-siblings",
+        "skipped-level-siblings",
+        "return-to-ancestor",
+        "atomic-list-heading",
+        "quoted-heading-without-parent",
+        "quoted-heading-with-parent",
+        "nested-quoted-headings",
+    ],
 )
 def test_markdown_heading_paths_follow_levels_and_block_boundaries(body, expected_paths):
     blocks = parse(body.encode(), "runbook.md", {"max_chars": 360, "overlap": 40})

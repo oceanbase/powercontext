@@ -133,6 +133,7 @@ def markdown_blocks(text):
             "code_block",
             "table_open",
             "html_block",
+            "blockquote_open",
             "bullet_list_open",
             "ordered_list_open",
         }:

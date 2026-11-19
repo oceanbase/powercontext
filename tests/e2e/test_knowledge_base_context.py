@@ -76,7 +76,8 @@ def test_document_context_keeps_all_matched_chunks_and_current_versions(tmp_path
 
             first = await upload(
                 "runbook.md",
-                "## Restart prerequisites\n\nRestart requires BACKUP_APPROVED. See [guide][g].\n\n"
+                "## Restart prerequisites\n\n> ### Example\n>\n> Quoted guidance only.\n\n"
+                "Restart requires BACKUP_APPROVED. See [guide][g].\n\n"
                 "## Restart execution\n\nRestart requires SERVICE_DRAINED.\n\n[g]: https://example.com/guide",
             )
             hits = (await call("POST", base + "/retrieve", json={"query": "Restart", "mode": "fts"}))["hits"]
