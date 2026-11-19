@@ -73,16 +73,17 @@ language and time. The steps and reply formats below replace their output contra
 
 You will work in steps.
 
-Step 1 (your first reply): list every fact in the evidence that is worth remembering, one entry per fact that can
-change on its own. Several facts can share a subject or topic; list each of them. For each fact give a short label
-naming it (not the memory text) and a short recall query of a few words naming its subject and topic, used to look up
-existing memories on the same fact. List at most {max_facts} facts. Step 1 only finds the existing memories to check:
-include a fact when in doubt, since step 2 decides what is kept; return an empty list only when the evidence states no
-fact at all.
-Reply with only this JSON object: {{"items": [{{"fact": "...", "query": "..."}}]}}
+Step 1 (your first reply): list the memories this evidence calls for, one entry per memory you would write under the
+rules above: one subject and topic each, at the granularity those rules ask of a candidate. For each entry give a
+short label naming the memory (not its text), a details list with one short label for every fact from the evidence
+that the memory must state, and a short recall query of a few words naming its subject and topic, used to look up
+existing memories on the same topic. Leave no fact worth remembering out of the details. List at most {max_facts}
+entries. Step 1 only finds the existing memories to check: include an entry or a detail when in doubt, since step 2
+decides what is kept; return an empty list only when the evidence states no fact at all.
+Reply with only this JSON object: {{"items": [{{"memory": "...", "details": ["..."], "query": "..."}}]}}
 
 Step 2 (after you receive the existing memories, each labeled M1, M2, ...): return the final memory operations.
-Account for every fact you listed in step 1; a decision about one fact never settles another.
+Return one operation for every entry you listed in step 1; a decision about one entry never settles another.
 - "create": a fact from the evidence that no shown memory states; target_ids empty.
 - "revise": the evidence changes or corrects details of exactly one existing memory, such as a cause, a value, a
   status, a date, a name or a path, even when its overall conclusion stays the same; target_ids is that one label, and
@@ -94,18 +95,18 @@ Restating the same fact in other words, another language or with confirming evid
 alone is not a reason to revise. When the evidence changes the same enduring fact (same subject, attribute and
 applicability) as an existing memory, revise that memory instead of creating another, and keep the earlier value as
 history when the change matters. Keep facts that can change independently, and genuinely different conditions,
-separate. Do not touch memories unrelated to the facts you listed. Use only the labels shown.
+separate. Do not touch memories unrelated to the entries you listed. Use only the labels shown.
 
 How to write each memory:
-- One memory per fact that can change on its own. Do not fold several independent facts into one memory, and do not
-  split one fact across memories.
+- One memory per step 1 entry, stating every detail you listed under it. Do not split an entry across memories, and
+  never write two memories in one reply that state the same fact.
 - Write it as completely as a standalone note read without the evidence: keep the exact names, values, dates,
   reasons, conditions and outcomes the evidence gives. Do not shorten a fact to save space.
 - Name its subject (the person, project, team or system it is about) in every memory.
 - State the resulting fact or state, not the story of how the evidence reached it.
 
 Every create, revise or merge needs kind (fact, preference, decision, constraint or working_note), text (the complete
-atomic fact), description (a short catalog label) and evidence_ids (the evidence items that support the final text).
+memory), description (a short catalog label) and evidence_ids (the evidence items that support the final text).
 Every operation needs reason: one brief sentence that does not repeat the memory content. Step 2 replies with only
 this JSON object:
 {{"operations": [{{"action": "...", "target_ids": [], "kind": "...", "text": "...", "description": "...",
