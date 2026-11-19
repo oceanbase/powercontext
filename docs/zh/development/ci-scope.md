@@ -135,6 +135,8 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 npm helper 根据实际 Node/npm 版本及依赖文件或固定软件包版本生成内容下载缓存键，不恢复已安装的软件包。Bundle 构建根据 Python/pip 版本及导出的依赖清单缓存 pip HTTP 响应，本地构建的 wheel 不进入共享快照。Gateway TCK 任务还会缓存固定提交的上游源码。准备步骤在测试前填充这些缓存；原有的依赖安装、源码版本检查、构建和测试仍会执行。
 
+Bundle 准备过程在隔离环境中安装固定版本的打包工具，并单独缓存其原始 wheel。依赖缓存使用原始依赖清单、工具版本清单及构建环境实际的 Python/pip 版本生成标识。锁定的 `jieba` 源码归档会先通过校验，再离线构建为 wheel。每份 bundle 都保留原始依赖清单和源码到 wheel 的来源记录，安装清单则记录最终 wheel 的哈希。重新构建 wheel 不会改变下载缓存标识，也不会将该 wheel 发布到共享下载缓存。
+
 内部 Linux 镜像可以在 `/opt/powercontext-ci-tools` 下预装固定版本的 `license-eye` 可执行文件和 `skill-up`。工作流复用匹配的已安装工具，工具不存在时保留原有下载或构建路径。Helm 同样复用符合要求的已安装版本。
 
 Docker 镜像缓存与依赖快照分开配置。Runner 可以通过 `PC_CI_OCEANBASE_435_IMAGE` 和 `PC_CI_OCEANBASE_442_IMAGE` 使用对应固定版本 OceanBase 镜像的内部副本，也可以通过 `PC_CI_DOCKER_REGISTRY_MIRROR` 为嵌套 E2E daemon 指定 Docker Hub 镜像缓存；runner 外层 daemon 需要单独配置镜像缓存。嵌套 harness 也可以直接接收 `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR`。未配置这些变量时，沿用原有公共镜像地址和 daemon 行为。应逐个预热镜像，核对复制后的平台摘要，再将 runner 切换到内部副本。

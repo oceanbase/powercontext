@@ -6,7 +6,7 @@ name: Remaining internal cache GitHub Actions acceptance
 permissions:
   contents: read
 env:
-  SOURCE_SHA: be857cb7c01d0116e4f0af640e4227c40e39897f
+  SOURCE_SHA: 4f0276d45ff47453111293abfeb3803481a868dd
 jobs:
   quality:
     name: Verify preflight caches and pinned tools
@@ -133,34 +133,62 @@ jobs:
         test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
         test "$(uv --version)" = 'uv 0.10.12'
         printf 'Application runner: %s\n' "$RUNNER_NAME"
-        cat > "$RUNNER_TEMP/pip-cache-acceptance.py" <<'PY'
+        cat > "$RUNNER_TEMP/bundle-acceptance-python" <<'SH'
+        #!/usr/bin/env bash
+        set -euo pipefail
+        "$BUNDLE_REAL_PYTHON" "$@" 2>&1 | tee "$BUNDLE_DOWNLOAD_LOG"
+        SH
+        chmod +x "$RUNNER_TEMP/bundle-acceptance-python"
+        cat > "$RUNNER_TEMP/verify-bundle-originals.py" <<'PYCODE'
         import json
         import os
         import re
-        import shutil
+        import sys
+        from pathlib import Path
+        from urllib.parse import unquote, urlsplit
+
+        root = Path('build/artifact-input')
+        log = Path(os.environ['BUNDLE_DOWNLOAD_LOG']).read_text()
+        manifest = json.loads((root / 'dependency-downloads.json').read_text())
+        originals = [item for group in manifest['dependencies'] for item in group['sources']]
+        cached = set()
+        for value in re.findall(r'Using cached ([^\r\n]+)', log):
+            token = value.split()[0]
+            filename = unquote(urlsplit(token).path.rsplit('/', 1)[-1])
+            if filename.endswith(('.whl', '.tar.gz', '.zip')):
+                cached.add(filename)
+        expected = {item['filename'] for item in originals}
+        missing = sorted(expected - cached)
+        assert expected and not missing, f'Original bodies not supplied by restored HTTP cache: {missing}'
+        assert any(item['name'] == 'jieba' and item['version'] == '0.42.1' and item['kind'] == 'sdist' for item in originals)
+        print(json.dumps({'python': sys.version.split()[0], 'cached_originals': sorted(expected), 'source_archives': sorted(item['filename'] for item in originals if item['kind'] == 'sdist')}))
+        PYCODE
+        cat > "$RUNNER_TEMP/verify-bundle-install.py" <<'PYCODE'
+        import hashlib
+        import json
+        import os
         import subprocess
         import sys
         from pathlib import Path
 
         root = Path('build/artifact-input')
-        for requirement, destination in [('requirements.lock', 'wheelhouse'), ('plugin-requirements.lock', 'plugin-wheelhouse')]:
-            wheels_dir = root / destination
-            shutil.rmtree(wheels_dir, ignore_errors=True)
-            command = [sys.executable, '-m', 'pip', 'download', '--require-hashes', '--only-binary=:all:', '--dest', str(wheels_dir), '--requirement', str(root / requirement)]
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            print(result.stdout, end='')
-            if result.returncode:
-                raise SystemExit(result.returncode)
-            wheels = sorted(path.name for path in wheels_dir.glob('*.whl'))
-            cached = set(re.findall(r'Using cached (?:https?://[^\s]+/)?([^/\s]+\.whl)(?:\s|$)', result.stdout))
-            missing = sorted(set(wheels) - cached)
-            assert wheels and not missing, f'Not every wheel body came from restored HTTP cache: {missing}'
-            print(json.dumps({'python': sys.version.split()[0], 'wheelhouse': destination, 'cached_wheels': wheels}))
-            environment = Path(os.environ['RUNNER_TEMP']) / ('pip-offline-' + sys.version.split()[0] + '-' + destination)
+        provenance = json.loads((root / 'dependency-provenance.json').read_text())
+        for group in provenance['dependencies']:
+            original = root / group['requirements']
+            assert hashlib.sha256(original.read_bytes()).hexdigest() == group['requirements_sha256']
+            for source in group['sources']:
+                if source['kind'] == 'sdist':
+                    built = [item for item in group['wheels'] if (item['name'], item['version']) == (source['name'], source['version'])]
+                    assert len(built) == 1 and built[0]['sha256'] != source['sha256']
+        for requirements, destination in [('requirements.lock', 'wheelhouse'), ('plugin-requirements.lock', 'plugin-wheelhouse')]:
+            environment = Path(os.environ['RUNNER_TEMP']) / ('bundle-offline-' + sys.version.split()[0] + '-' + destination)
             assert not environment.exists(), 'Offline installation must use a fresh environment'
             subprocess.run([sys.executable, '-m', 'venv', str(environment)], check=True)
-            subprocess.run([str(environment / 'bin/python'), '-m', 'pip', 'install', '--no-index', '--find-links', str(wheels_dir), '--require-hashes', '--requirement', str(root / requirement)], check=True)
-        PY
+            python = str(environment / 'bin/python')
+            subprocess.run([python, '-m', 'pip', 'install', '--no-index', '--find-links', str(root / destination), '--require-hashes', '--requirement', str(root / requirements)], check=True)
+            subprocess.run([python, '-m', 'pip', 'check'], check=True)
+            print(json.dumps({'python': sys.version.split()[0], 'wheelhouse': destination, 'offline_install': 'passed', 'requirements_sha256': hashlib.sha256((root / requirements).read_bytes()).hexdigest()}))
+        PYCODE
       env:
         QUALITY_RUNNER_NAME: ${{ needs.quality.outputs.runner-name }}
     - name: Select the internal application cache backend
@@ -364,137 +392,359 @@ jobs:
         CACHE_BACKEND: ${{ steps.tck-source.outputs.cache-backend }}
         CACHE_HIT: ${{ steps.tck-source.outputs.cache-hit }}
         CACHE_KEY: ${{ steps.tck-source.outputs.cache-primary-key }}
-    - name: Export the same locked bundle requirements
-      shell: bash
-      run: |
-        mkdir -p build/artifact-input
-        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/requirements.lock
-        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/plugin-requirements.lock
     - name: Select bundle Python 3.11
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: '3.11'
-    - name: Clear pip response cache before Python 3.11 restore
+    - name: Prepare empty bundle paths and original exports for Python 3.11
       shell: bash
       run: |
-        python - <<'PY'
+        python - <<'PYCODE'
+        import shutil
+        from pathlib import Path
+        work = Path('build/artifact-input')
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        PYCODE
+        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-requirements.lock
+        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-plugin-requirements.lock
+    - name: Restore raw tools and create the pinned Python 3.11 builder
+      id: builder311
+      uses: $/.github/actions/setup-bundle-builder
+    - name: Require exact raw tools and clear Python 3.11 HTTP cache
+      shell: bash
+      env:
+        TOOLS_HIT: ${{ steps.builder311.outputs.cache-hit }}
+        TOOLS_KEY: ${{ steps.builder311.outputs.cache-key }}
+        BUILDER_PYTHON: ${{ steps.builder311.outputs.python-path }}
+      run: |
+        test "$TOOLS_HIT" = true
+        printf 'Exact raw build-tool key: %s\n' "$TOOLS_KEY"
+        "$BUILDER_PYTHON" - <<'PYCODE'
+        import importlib.metadata
+        import json
         import shutil
         import subprocess
         import sys
         from pathlib import Path
+        pins = json.loads(Path('build/artifact-input/build-tools.json').read_text())
+        for package in pins['packages']:
+            assert importlib.metadata.version(package['name']) == package['version']
         root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
         for name in ('http', 'http-v2'):
             shutil.rmtree(root / name, ignore_errors=True)
-        PY
-    - name: Restore prewarmed Python 3.11 wheel downloads
-      uses: $/.github/actions/cache-pip
+        print(json.dumps({'python': sys.version.split()[0], 'pip': importlib.metadata.version('pip'), 'raw_tool_packages': len(pins['packages'])}))
+        PYCODE
+    - name: Restore original Python 3.11 dependency downloads
       id: pip311
+      uses: $/.github/actions/cache-pip
       with:
+        python-executable: ${{ steps.builder311.outputs.python-path }}
         cache-dependency-glob: |-
-          build/artifact-input/requirements.lock
-          build/artifact-input/plugin-requirements.lock
-    - name: Verify every Python 3.11 wheel cache hit and offline install
+          build/artifact-input/upstream-requirements.lock
+          build/artifact-input/upstream-plugin-requirements.lock
+          build/artifact-input/build-tools.lock
+    - name: Require exact Python 3.11 dependency cache
       shell: bash
-      run: |
-        test "$CACHE_HIT" = true
-        printf 'Exact pip key: %s\n' "$CACHE_KEY"
-        python "$RUNNER_TEMP/pip-cache-acceptance.py"
       env:
         CACHE_HIT: ${{ steps.pip311.outputs.cache-hit }}
         CACHE_KEY: ${{ steps.pip311.outputs.cache-key }}
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+    - name: Download Python 3.11 originals through the real bundle action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: download
+        python-executable: ${{ runner.temp }}/bundle-acceptance-python
+      env:
+        BUNDLE_REAL_PYTHON: ${{ steps.builder311.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.11.log
+    - name: Verify every Python 3.11 original body came from cache
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder311.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.11.log
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-originals.py"
+    - name: Build Python 3.11 dependency wheels offline with the real action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: build
+        python-executable: ${{ steps.builder311.outputs.python-path }}
+      env:
+        PIP_NO_INDEX: '1'
+    - name: Install Python 3.11 derived locks in fresh offline environments
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder311.outputs.python-path }}
+        PIP_NO_INDEX: '1'
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-install.py"
     - name: Select bundle Python 3.12
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: '3.12'
-    - name: Clear pip response cache before Python 3.12 restore
+    - name: Prepare empty bundle paths and original exports for Python 3.12
       shell: bash
       run: |
-        python - <<'PY'
+        python - <<'PYCODE'
+        import shutil
+        from pathlib import Path
+        work = Path('build/artifact-input')
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        PYCODE
+        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-requirements.lock
+        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-plugin-requirements.lock
+    - name: Restore raw tools and create the pinned Python 3.12 builder
+      id: builder312
+      uses: $/.github/actions/setup-bundle-builder
+    - name: Require exact raw tools and clear Python 3.12 HTTP cache
+      shell: bash
+      env:
+        TOOLS_HIT: ${{ steps.builder312.outputs.cache-hit }}
+        TOOLS_KEY: ${{ steps.builder312.outputs.cache-key }}
+        BUILDER_PYTHON: ${{ steps.builder312.outputs.python-path }}
+      run: |
+        test "$TOOLS_HIT" = true
+        printf 'Exact raw build-tool key: %s\n' "$TOOLS_KEY"
+        "$BUILDER_PYTHON" - <<'PYCODE'
+        import importlib.metadata
+        import json
         import shutil
         import subprocess
         import sys
         from pathlib import Path
+        pins = json.loads(Path('build/artifact-input/build-tools.json').read_text())
+        for package in pins['packages']:
+            assert importlib.metadata.version(package['name']) == package['version']
         root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
         for name in ('http', 'http-v2'):
             shutil.rmtree(root / name, ignore_errors=True)
-        PY
-    - name: Restore prewarmed Python 3.12 wheel downloads
-      uses: $/.github/actions/cache-pip
+        print(json.dumps({'python': sys.version.split()[0], 'pip': importlib.metadata.version('pip'), 'raw_tool_packages': len(pins['packages'])}))
+        PYCODE
+    - name: Restore original Python 3.12 dependency downloads
       id: pip312
+      uses: $/.github/actions/cache-pip
       with:
+        python-executable: ${{ steps.builder312.outputs.python-path }}
         cache-dependency-glob: |-
-          build/artifact-input/requirements.lock
-          build/artifact-input/plugin-requirements.lock
-    - name: Verify every Python 3.12 wheel cache hit and offline install
+          build/artifact-input/upstream-requirements.lock
+          build/artifact-input/upstream-plugin-requirements.lock
+          build/artifact-input/build-tools.lock
+    - name: Require exact Python 3.12 dependency cache
       shell: bash
-      run: |
-        test "$CACHE_HIT" = true
-        printf 'Exact pip key: %s\n' "$CACHE_KEY"
-        python "$RUNNER_TEMP/pip-cache-acceptance.py"
       env:
         CACHE_HIT: ${{ steps.pip312.outputs.cache-hit }}
         CACHE_KEY: ${{ steps.pip312.outputs.cache-key }}
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+    - name: Download Python 3.12 originals through the real bundle action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: download
+        python-executable: ${{ runner.temp }}/bundle-acceptance-python
+      env:
+        BUNDLE_REAL_PYTHON: ${{ steps.builder312.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.12.log
+    - name: Verify every Python 3.12 original body came from cache
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder312.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.12.log
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-originals.py"
+    - name: Build Python 3.12 dependency wheels offline with the real action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: build
+        python-executable: ${{ steps.builder312.outputs.python-path }}
+      env:
+        PIP_NO_INDEX: '1'
+    - name: Install Python 3.12 derived locks in fresh offline environments
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder312.outputs.python-path }}
+        PIP_NO_INDEX: '1'
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-install.py"
     - name: Select bundle Python 3.13
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: '3.13'
-    - name: Clear pip response cache before Python 3.13 restore
+    - name: Prepare empty bundle paths and original exports for Python 3.13
       shell: bash
       run: |
-        python - <<'PY'
+        python - <<'PYCODE'
+        import shutil
+        from pathlib import Path
+        work = Path('build/artifact-input')
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        PYCODE
+        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-requirements.lock
+        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-plugin-requirements.lock
+    - name: Restore raw tools and create the pinned Python 3.13 builder
+      id: builder313
+      uses: $/.github/actions/setup-bundle-builder
+    - name: Require exact raw tools and clear Python 3.13 HTTP cache
+      shell: bash
+      env:
+        TOOLS_HIT: ${{ steps.builder313.outputs.cache-hit }}
+        TOOLS_KEY: ${{ steps.builder313.outputs.cache-key }}
+        BUILDER_PYTHON: ${{ steps.builder313.outputs.python-path }}
+      run: |
+        test "$TOOLS_HIT" = true
+        printf 'Exact raw build-tool key: %s\n' "$TOOLS_KEY"
+        "$BUILDER_PYTHON" - <<'PYCODE'
+        import importlib.metadata
+        import json
         import shutil
         import subprocess
         import sys
         from pathlib import Path
+        pins = json.loads(Path('build/artifact-input/build-tools.json').read_text())
+        for package in pins['packages']:
+            assert importlib.metadata.version(package['name']) == package['version']
         root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
         for name in ('http', 'http-v2'):
             shutil.rmtree(root / name, ignore_errors=True)
-        PY
-    - name: Restore prewarmed Python 3.13 wheel downloads
-      uses: $/.github/actions/cache-pip
+        print(json.dumps({'python': sys.version.split()[0], 'pip': importlib.metadata.version('pip'), 'raw_tool_packages': len(pins['packages'])}))
+        PYCODE
+    - name: Restore original Python 3.13 dependency downloads
       id: pip313
+      uses: $/.github/actions/cache-pip
       with:
+        python-executable: ${{ steps.builder313.outputs.python-path }}
         cache-dependency-glob: |-
-          build/artifact-input/requirements.lock
-          build/artifact-input/plugin-requirements.lock
-    - name: Verify every Python 3.13 wheel cache hit and offline install
+          build/artifact-input/upstream-requirements.lock
+          build/artifact-input/upstream-plugin-requirements.lock
+          build/artifact-input/build-tools.lock
+    - name: Require exact Python 3.13 dependency cache
       shell: bash
-      run: |
-        test "$CACHE_HIT" = true
-        printf 'Exact pip key: %s\n' "$CACHE_KEY"
-        python "$RUNNER_TEMP/pip-cache-acceptance.py"
       env:
         CACHE_HIT: ${{ steps.pip313.outputs.cache-hit }}
         CACHE_KEY: ${{ steps.pip313.outputs.cache-key }}
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+    - name: Download Python 3.13 originals through the real bundle action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: download
+        python-executable: ${{ runner.temp }}/bundle-acceptance-python
+      env:
+        BUNDLE_REAL_PYTHON: ${{ steps.builder313.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.13.log
+    - name: Verify every Python 3.13 original body came from cache
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder313.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.13.log
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-originals.py"
+    - name: Build Python 3.13 dependency wheels offline with the real action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: build
+        python-executable: ${{ steps.builder313.outputs.python-path }}
+      env:
+        PIP_NO_INDEX: '1'
+    - name: Install Python 3.13 derived locks in fresh offline environments
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder313.outputs.python-path }}
+        PIP_NO_INDEX: '1'
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-install.py"
     - name: Select bundle Python 3.14
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: '3.14'
-    - name: Clear pip response cache before Python 3.14 restore
+    - name: Prepare empty bundle paths and original exports for Python 3.14
       shell: bash
       run: |
-        python - <<'PY'
+        python - <<'PYCODE'
+        import shutil
+        from pathlib import Path
+        work = Path('build/artifact-input')
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        PYCODE
+        uv export --locked --no-dev --extra cli --extra server --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-requirements.lock
+        uv export --project integrations/codex/plugins/powercontext --locked --no-dev --no-emit-project --no-header --no-annotate --format requirements-txt --output-file build/artifact-input/upstream-plugin-requirements.lock
+    - name: Restore raw tools and create the pinned Python 3.14 builder
+      id: builder314
+      uses: $/.github/actions/setup-bundle-builder
+    - name: Require exact raw tools and clear Python 3.14 HTTP cache
+      shell: bash
+      env:
+        TOOLS_HIT: ${{ steps.builder314.outputs.cache-hit }}
+        TOOLS_KEY: ${{ steps.builder314.outputs.cache-key }}
+        BUILDER_PYTHON: ${{ steps.builder314.outputs.python-path }}
+      run: |
+        test "$TOOLS_HIT" = true
+        printf 'Exact raw build-tool key: %s\n' "$TOOLS_KEY"
+        "$BUILDER_PYTHON" - <<'PYCODE'
+        import importlib.metadata
+        import json
         import shutil
         import subprocess
         import sys
         from pathlib import Path
+        pins = json.loads(Path('build/artifact-input/build-tools.json').read_text())
+        for package in pins['packages']:
+            assert importlib.metadata.version(package['name']) == package['version']
         root = Path(subprocess.check_output([sys.executable, '-m', 'pip', 'cache', 'dir'], text=True).strip())
         for name in ('http', 'http-v2'):
             shutil.rmtree(root / name, ignore_errors=True)
-        PY
-    - name: Restore prewarmed Python 3.14 wheel downloads
-      uses: $/.github/actions/cache-pip
+        print(json.dumps({'python': sys.version.split()[0], 'pip': importlib.metadata.version('pip'), 'raw_tool_packages': len(pins['packages'])}))
+        PYCODE
+    - name: Restore original Python 3.14 dependency downloads
       id: pip314
+      uses: $/.github/actions/cache-pip
       with:
+        python-executable: ${{ steps.builder314.outputs.python-path }}
         cache-dependency-glob: |-
-          build/artifact-input/requirements.lock
-          build/artifact-input/plugin-requirements.lock
-    - name: Verify every Python 3.14 wheel cache hit and offline install
+          build/artifact-input/upstream-requirements.lock
+          build/artifact-input/upstream-plugin-requirements.lock
+          build/artifact-input/build-tools.lock
+    - name: Require exact Python 3.14 dependency cache
       shell: bash
-      run: |
-        test "$CACHE_HIT" = true
-        printf 'Exact pip key: %s\n' "$CACHE_KEY"
-        python "$RUNNER_TEMP/pip-cache-acceptance.py"
       env:
         CACHE_HIT: ${{ steps.pip314.outputs.cache-hit }}
         CACHE_KEY: ${{ steps.pip314.outputs.cache-key }}
+      run: |
+        test "$CACHE_HIT" = true
+        printf 'Exact pip key: %s\n' "$CACHE_KEY"
+    - name: Download Python 3.14 originals through the real bundle action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: download
+        python-executable: ${{ runner.temp }}/bundle-acceptance-python
+      env:
+        BUNDLE_REAL_PYTHON: ${{ steps.builder314.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.14.log
+    - name: Verify every Python 3.14 original body came from cache
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder314.outputs.python-path }}
+        BUNDLE_DOWNLOAD_LOG: ${{ runner.temp }}/bundle-download-3.14.log
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-originals.py"
+    - name: Build Python 3.14 dependency wheels offline with the real action
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: build
+        python-executable: ${{ steps.builder314.outputs.python-path }}
+      env:
+        PIP_NO_INDEX: '1'
+    - name: Install Python 3.14 derived locks in fresh offline environments
+      shell: bash
+      env:
+        BUILDER_PYTHON: ${{ steps.builder314.outputs.python-path }}
+        PIP_NO_INDEX: '1'
+      run: |
+        "$BUILDER_PYTHON" "$RUNNER_TEMP/verify-bundle-install.py"
