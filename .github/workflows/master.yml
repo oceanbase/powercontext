@@ -207,6 +207,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          # Self-hosted runner home caches may be owned by the image build user.
+          GOCACHE: ${{ runner.temp }}/license-go-build
+          GOMODCACHE: ${{ runner.temp }}/license-go-mod
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
