@@ -1,0 +1,27 @@
+integrations/dsh/plugins/powercontext/package.json
+  s_13fec9a57c9104::t_a377f8ac7289eb 73
+integrations/dsh/plugins/powercontext/scripts/e2e-server.mjs
+  s_13fec9a57c9104::t_9ed56e45405d24 129-131
+integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts
+  s_13fec9a57c9104::t_31b8bdb09fe5f5 236
+integrations/dsh/plugins/powercontext/tests/e2e/handoff-delivery.spec.ts
+  s_13fec9a57c9104::t_b4b77152a09ad5 88
+integrations/dsh/plugins/powercontext/tests/e2e/unscoped-session.spec.ts
+  s_13fec9a57c9104::t_8504beae9b3cfc 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3584d820c4c781fde8e173dfd8a5e7b054715921",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
