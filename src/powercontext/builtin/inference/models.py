@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeAlias, TypeVar
 
@@ -103,3 +104,28 @@ class EmbeddingResult(BaseModel):
 
     vectors: tuple[EmbeddingVector, ...]
     usage: InferenceUsage = Field(default_factory=lambda: InferenceUsage(requests=0))
+
+
+@dataclass(frozen=True)
+class ConversationTurn(Generic[OutputT]):
+    """One message appended to a text conversation, and the rule its reply must satisfy.
+
+    ``history`` is the opaque value a previous reply returned. A turn that repeats the instructions and history of an
+    earlier one sends the same request prefix, which a provider's prefix cache can serve.
+    ``check`` parses the reply text. Its ``InvalidInferenceOutputError`` detail is returned to the model for a
+    bounded correction, so it must name the broken rule and never repeat content.
+    """
+
+    instructions: str
+    message: str
+    check: Callable[[str], OutputT]
+    history: tuple[object, ...] = ()
+    metadata: Mapping[str, str | int] | None = None
+
+
+@dataclass(frozen=True)
+class ConversationReply(Generic[OutputT]):
+    """A checked reply and the conversation to continue from."""
+
+    output: OutputT
+    history: tuple[object, ...]

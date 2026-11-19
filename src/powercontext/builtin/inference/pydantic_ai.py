@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack, nullcontext
 from copy import copy
 from typing import Any, Generic, Literal, Self, TypeVar, cast
@@ -40,6 +40,8 @@ from powercontext.builtin.inference.errors import (
     find_privacy_error,
 )
 from powercontext.builtin.inference.models import (
+    ConversationReply,
+    ConversationTurn,
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
@@ -385,52 +387,126 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             raise PydanticAIConfigurationError("serialize") from error
 
         with self._provider_observations.operation():
-            run_usage = RunUsage()
-            raw_usage: list[InferenceUsage] = []
-            try:
-                selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
-                # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
-                override = (
-                    self._agent.override(instructions=selection.compiled_instructions)
-                    if selection is not None and selection.selection == "artifact"
-                    else nullcontext()
+            selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
+            # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
+            override = (
+                self._agent.override(instructions=selection.compiled_instructions)
+                if selection is not None and selection.selection == "artifact"
+                else nullcontext()
+            )
+            with override:
+                result, usage = await _run_bounded(
+                    lambda run_usage, usage_limits: self._agent.run(
+                        prompt,
+                        deps=value,
+                        usage=run_usage,
+                        usage_limits=usage_limits,
+                        metadata=None if selection is None else selection.trace_attributes(),
+                    ),
+                    self._limits,
                 )
-                with override, collect_approved_usage() as raw_usage:
-                    result = await asyncio.wait_for(
-                        self._agent.run(
-                            prompt,
-                            deps=value,
-                            usage=run_usage,
-                            usage_limits=UsageLimits(
-                                request_limit=self._limits.max_requests,
-                                output_tokens_limit=self._limits.output_tokens_limit,
-                            ),
-                            metadata=None if selection is None else selection.trace_attributes(),
-                        ),
-                        timeout=self._limits.timeout_seconds,
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                # An exhausted retry budget reports the rule the last response broke, not a generic failure.
-                rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
-                mapped = rejected or _map_error(
-                    error, operation="generate", timeout_seconds=self._limits.timeout_seconds
-                )
-                if mapped is not None and raw_usage:
-                    prior = approved_usage(raw_usage)
-                    mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
-                elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
-                    prior = _generation_usage(run_usage)
-                    mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
-                if mapped is None:
-                    raise
-                if mapped is error:
-                    raise
-                raise mapped from error
-
-            usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
             return GenerationResult(output=cast(OutputT, result.output), usage=usage)
+
+
+class PydanticAIConversationGenerator:
+    """Continue one text conversation with an injected Pydantic AI model.
+
+    Each turn sends its instructions, the earlier messages unchanged and one new message. The reply is plain text
+    checked by the turn itself, so every step of a conversation shares one request prefix whatever shape its reply has.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Model,
+        limits: InferenceLimits | None = None,
+        model_settings: ModelSettings | None = None,
+        name: str | None = None,
+    ) -> None:
+        if isinstance(model, str) or not isinstance(model, Model):
+            raise PydanticAIConfigurationError("model-instance")
+        self._limits = InferenceLimits() if limits is None else limits
+        self._provider_observations = ProviderObservationSource(
+            provider_name(model.system), "generation", current_provider_observer()
+        )
+        bounded_settings = model_settings
+        if self._limits.max_output_tokens_per_request is not None:
+            bounded_settings = merge_model_settings(
+                model_settings,
+                ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
+            )
+        self._agent = Agent(
+            model if self._limits.allow_continuations else _CompleteResponseModel(model),
+            deps_type=ConversationTurn,
+            output_type=str,
+            model_settings=bounded_settings,
+            retries=self._limits.max_requests - 1,
+            name=name,
+        )
+
+        def check(context: RunContext[ConversationTurn[Any]], output: str) -> Any:
+            try:
+                return context.deps.check(output)
+            except InvalidInferenceOutputError as error:
+                raise ModelRetry(error.detail) from error
+
+        self._agent.output_validator(check)
+
+    async def generate(self, value: ConversationTurn[OutputT], /) -> GenerationResult[ConversationReply[OutputT]]:
+        """Generate one checked reply within the configured request and time limits."""
+
+        if not value.instructions.strip():
+            raise PydanticAIConfigurationError("instructions")
+        with self._provider_observations.operation(), self._agent.override(instructions=value.instructions):
+            result, usage = await _run_bounded(
+                lambda run_usage, usage_limits: self._agent.run(
+                    value.message,
+                    deps=value,
+                    message_history=cast("list[ModelMessage]", list(value.history)) or None,
+                    usage=run_usage,
+                    usage_limits=usage_limits,
+                    metadata=None if value.metadata is None else dict(value.metadata),
+                ),
+                self._limits,
+            )
+        reply = ConversationReply(output=cast(OutputT, result.output), history=tuple(result.all_messages()))
+        return GenerationResult(output=reply, usage=usage)
+
+
+async def _run_bounded(
+    run: Callable[[RunUsage, UsageLimits], Awaitable[Any]], limits: InferenceLimits, /
+) -> tuple[Any, InferenceUsage]:
+    """Run one Agent call within the limits and map its failures, keeping the usage known so far."""
+
+    run_usage = RunUsage()
+    raw_usage: list[InferenceUsage] = []
+    try:
+        with collect_approved_usage() as raw_usage:
+            result = await asyncio.wait_for(
+                run(
+                    run_usage,
+                    UsageLimits(request_limit=limits.max_requests, output_tokens_limit=limits.output_tokens_limit),
+                ),
+                timeout=limits.timeout_seconds,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        # An exhausted retry budget reports the rule the last response broke, not a generic failure.
+        rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
+        mapped = rejected or _map_error(error, operation="generate", timeout_seconds=limits.timeout_seconds)
+        if mapped is not None and raw_usage:
+            prior = approved_usage(raw_usage)
+            mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+        elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+            prior = _generation_usage(run_usage)
+            mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+        if mapped is None:
+            raise
+        if mapped is error:
+            raise
+        raise mapped from error
+    return result, approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
 
 
 class PydanticAIEmbeddingModel:
