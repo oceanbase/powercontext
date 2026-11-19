@@ -50,7 +50,7 @@ jobs:
           ((inputs.suites == '' && needs.changes.result != 'success') ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').oceanbase_acceptance) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -88,10 +88,24 @@ jobs:
           PY
 
       - name: Install uv
+        id: uv
         if: steps.plan.outputs.replay == 'true'
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          enable-cache: 'true'
+          save-cache: 'false'
+          cache-suffix: harness-validate-py3.12
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/bub/pyproject.toml
+            e2e/bub/pyproject.toml
+            e2e/bub/uv.lock
 
       # A lock that reuses cleanly can still describe an unsatisfiable graph, so `uv lock --locked`
       # does not catch a dependency declaration that the project version can never satisfy. This job
@@ -101,6 +115,19 @@ jobs:
         if: steps.plan.outputs.replay == 'true'
         run: uv lock --upgrade --dry-run
 
+      - name: Install harness validation dependencies
+        if: steps.plan.outputs.replay == 'true'
+        run: |
+          uv sync --frozen
+          make harness-sync
+
+      - name: Save harness validation dependencies
+        if: steps.plan.outputs.replay == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv.outputs.cache-key }}
+
       - name: Check harness formatting for standalone runs
         if: steps.plan.outputs.replay == 'true' && !inputs.preflight-checked
         run: make harness-lint
@@ -108,7 +135,6 @@ jobs:
       - name: Validate harness and Compose definitions
         if: steps.plan.outputs.replay == 'true'
         run: |
-          make harness-sync
           make harness-test
           make harness-compose-check
 
@@ -116,7 +142,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Bounded tests total about 146m; allow separate image pull/startup and final evidence.
     timeout-minutes: 185
     env:
@@ -336,7 +362,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
     timeout-minutes: 295
     strategy:
@@ -484,7 +510,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # Eight cases (including three parser fallbacks), bounded setup, and diagnostics.
     timeout-minutes: 80
     env:
@@ -582,7 +608,7 @@ jobs:
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     timeout-minutes: 5
     steps:
       - name: Require every shard to succeed
@@ -620,7 +646,7 @@ jobs:
     needs: validate
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     # OceanBase: 15m setup + 60m native + 40m replay + 10m diagnostics/evidence/cleanup.
     # Replay includes image builds and a separate full Server schema migration.
     timeout-minutes: ${{ matrix.database == 'oceanbase' && 125 || 50 }}

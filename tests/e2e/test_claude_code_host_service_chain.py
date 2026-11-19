@@ -268,8 +268,9 @@ def _text(output: str | bytes | None) -> str:
 
 
 def _isolated_environment(home: Path, tmp_path: Path, model_url: str) -> dict[str, str]:
-    # Inherited Claude Code variables would reattach to the session running these tests, and proxies would route the
-    # loopback Server and model traffic away from this host.
+    # Inherited Claude Code variables would reattach to the session running these tests, an inherited
+    # `POWERCONTEXT_CLAUDE_AUTHORIZATION` would let the hooks skip the credential setup saves and MCP fall back to its
+    # static header, and proxies would route the loopback Server and model traffic away from this host.
     prefixes = ("POWERCONTEXT_", "CLAUDE", "ANTHROPIC_", "OTEL_", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")
     environment = {
         name: value
@@ -298,8 +299,6 @@ def _isolated_environment(home: Path, tmp_path: Path, model_url: str) -> dict[st
         ANTHROPIC_DEFAULT_HAIKU_MODEL="fixture-small",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
         DISABLE_AUTOUPDATER="1",
-        # The documented client credential: the hooks read it, and the plugin's MCP configuration expands it.
-        POWERCONTEXT_CLAUDE_AUTHORIZATION=f"Bearer {TOKEN}",
         # A loaded runner must not turn a slow Server reply into a silently skipped preparation or capture. The budget
         # leaves the hook time to start within its 10 s timeout, so a slow Server still ends in the plugin's own
         # fail-open path rather than a killed hook.
@@ -318,6 +317,10 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
     setup_environment = dict(environment)
     setup_environment["PATH"] = os.pathsep.join((str(bin_directory), environment.get("PATH", "")))
     setup_environment["PYTHONPATH"] = str(REPOSITORY / "src")
+    # Only setup receives the client credential, and it saves the credential for this Server under
+    # `$CLAUDE_CONFIG_DIR/powercontext/credentials.json`. `claude` runs without the variable: the hooks read the saved
+    # credential, and MCP gets it from the plugin's `headersHelper`.
+    setup_environment["POWERCONTEXT_CLAUDE_AUTHORIZATION"] = f"Bearer {TOKEN}"
     script = (
         "import json, sys; from powercontext.cli.installation import setup; "
         "print(json.dumps(setup('claude-code', source=sys.argv[1], server_url=sys.argv[2])))"
@@ -334,6 +337,7 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
     log.write_text(f"$ powercontext setup claude-code\n{completed.stdout}\n{completed.stderr}\n", encoding="utf-8")
     assert completed.returncode == 0, f"powercontext_setup_claude_code_failed; see {log}"
     report = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert report["authorization_state"] == "configured", f"powercontext_setup_saved_no_credential; see {log}"
     return Path(report["cache_dir"])
 
 
