@@ -49,3 +49,26 @@ def test_decision_overrides_require_decision_model() -> None:
 def test_decision_base_url_requires_decision_model() -> None:
     with pytest.raises(ValidationError, match="decision_base_url requires decision_model"):
         InferenceConfig.model_validate({"decision_base_url": "https://decision.example/v1"})
+
+
+def test_prefix_extraction_requires_normal_extraction_as_its_fallback() -> None:
+    with pytest.raises(ValidationError, match="prefix extraction requires generation_model"):
+        InferenceConfig.model_validate({"prefix_extraction_gateway_url": "http://127.0.0.1:8787"})
+    with pytest.raises(ValidationError, match="requires prefix_extraction_gateway_url"):
+        InferenceConfig.model_validate({
+            "generation_model": "provider:model",
+            "prefix_extraction_gateway_headers": {"Authorization": "Bearer gateway-key"},
+        })
+    configured = InferenceConfig.model_validate({
+        "generation_model": "provider:model",
+        "prefix_extraction_gateway_url": "http://127.0.0.1:8787",
+        "prefix_extraction_gateway_headers": {"Authorization": "Bearer gateway-key"},
+    })
+    assert "gateway-key" not in repr(configured)
+
+
+def test_prefix_extraction_cached_input_ratio_is_a_price_fraction() -> None:
+    for ratio in (0, 1.5):
+        with pytest.raises(ValidationError, match="prefix_extraction_cached_input_ratio"):
+            InferenceConfig.model_validate({"prefix_extraction_cached_input_ratio": ratio})
+    assert InferenceConfig().prefix_extraction_cached_input_ratio == 0.1

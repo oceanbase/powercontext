@@ -27,7 +27,7 @@ run-name: Desktop candidate ${{ inputs.version || 'validation' }} · ${{ inputs.
 
 jobs:
   contract:
-    runs-on: ubuntu-24.04
+    runs-on: powercontext-ci-light
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -112,7 +112,7 @@ jobs:
         run: |
           uv run --no-sync python scripts/desktop_candidate.py prepare --resources build/resources \
             --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA"
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
       - name: Install pinned Rust target
@@ -150,7 +150,7 @@ jobs:
 
   assemble:
     needs: native
-    runs-on: ubuntu-24.04
+    runs-on: powercontext-ci-light
     timeout-minutes: 20
     env:
       DESKTOP_VERSION: ${{ inputs.version }}

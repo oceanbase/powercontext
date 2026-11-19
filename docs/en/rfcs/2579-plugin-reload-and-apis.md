@@ -62,8 +62,9 @@ Goals:
 3. Plugins can declare their own HTTP APIs; core handles routing, authentication, authorization, request size, and time
    limits, and the plugin writes only handlers.
 4. Writes to core data through plugin APIs follow the same permission and provenance rules as user changes in RFC #2549.
-5. Plugin pages never get the user's PowerContext session and cannot use it to call any Server API other than their own
-   plugin's APIs.
+5. Plugin pages never get the user's PowerContext session. A page can only ask the Dashboard to call, as the current
+   user, its own plugin's APIs and the generic Artifact APIs of its plugin's family; it cannot use the session to call any
+   other Server API.
 
 # Guide-level explanation
 
@@ -221,6 +222,11 @@ plugin = ArtifactPlugin(
 - A page can link to, navigate to, or open external sites in a new window, for example handing search results to an
   external RAG service's page. Plugins are trusted code, so pages may reach external sites freely; core guarantees only
   that a page cannot borrow the user's PowerContext session.
+- An Artifact plugin's page can also call the generic Artifact APIs (RFC #2549) of its plugin's family: read, history,
+  governance state, create, edit, merge, forget, restore, and tags. The Dashboard forwards these calls as the signed-in
+  user in the same way, and they are equivalent to calling the generic APIs directly: core handles permissions, version
+  preconditions, and provenance, and passes changes to the plugin's user change methods. The page declares no routes for
+  them.
 - Pages can only be static files (HTML, JavaScript, CSS, images, fonts), which core serves directly from the plugin's
   current version snapshot without running plugin code.
 
@@ -230,6 +236,10 @@ Calls from a page:
 const client = powercontextPluginClient();            // a small script from core that wraps postMessage
 const { scopeId } = await client.context();
 const result = await client.request("GET", `/knowledge-bases/${scopeId}/documents/${sourceId}/original`);
+
+// generic Artifact APIs of this plugin's family; the path follows /v1/scopes/{scopeId}/artifacts/{family}
+const document = await client.artifacts("GET", `/${artifactId}`, { scopeId });
+await client.artifacts("PUT", `/${artifactId}`, { scopeId, json: { content }, ifMatch: document.etag });
 ```
 
 # Reference-level explanation
@@ -239,12 +249,17 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 ### 1.1 Scanning and checks
 
 - Each Server process computes a content digest for every direct subdirectory of the plugin directory at startup and
-  every scan interval.
+  every scan interval. A subdirectory may be a symbolic link; it is resolved again at every scan, so deployers publish
+  another release by pointing the link at it.
 - A digest equal to the current version is skipped; a digest that differs from the previous scan waits, and a directory is
   checked only once its digest is the same for two consecutive scans and differs from the current version, so
-  half-written directories are never checked.
+  half-written directories are never checked. Removal also needs two consecutive scans that miss the directory, so
+  replacing a directory by renames does not take the plugin offline.
 - The check is RFC #2549's startup check, run on a version snapshot (see 1.3); the plugin is added, updated, or unloaded
   according to the result.
+- A version that failed is not checked again at every scan: it is retried after 5 minutes, with the wait doubling after
+  each failure up to 1 hour; changed directory contents are checked at once. A plugin that failed because another plugin
+  had its family is checked again at the next scan after that plugin unloads or moves to another family.
 
 - The digest is computed from file contents, like the code fingerprint in RFC #2549. File sizes and modification times
   are not enough: a new version unpacked from an archive with normalized timestamps can have exactly the same sizes and
@@ -265,6 +280,7 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 | Updated, check passes, declaration unchanged | Switch to the new snapshot: replace the host process (see 1.4); background calls use the new snapshot from the next dispatch |
 | Updated, check passes, declaration changed | Register again from the new declaration: added Source types, routes, and pages take effect and removed ones become unavailable; the binding's scheduling parameters follow the new declaration; switch to the new snapshot |
 | Updated, check fails | Keep using the current snapshot and record the check failure; `GET /v1/plugins` shows the category of the latest check failure |
+| Updated, registration fails | Same as a failed check. Registrations that can fail (such as the database rejecting a Source Definition with the same name and version but another schema) run before the old version is released; the switch that follows only replaces this process's registrations and, should it fail, puts the old version's registrations back |
 | Removed | Unregister Source types, the family, APIs, pages, and the binding; stop the host process once in-flight synchronous calls finish or time out |
 
 - Renaming a family is removing the old family and adding a new one. Artifacts of the old family stay in core and are
@@ -283,17 +299,22 @@ code. Plugin code is therefore imported only from version snapshots:
 
 - **Creation**: once the digest settles, core copies the plugin directory into a read-only snapshot under the data
   directory, named by its content digest, and runs the check on the snapshot. Dependencies are not in the plugin
-  directory, so snapshots are usually small.
+  directory, so snapshots are usually small. Symbolic links inside the plugin directory are copied as the content they
+  lead to, so a snapshot holds no links and later changes to their targets never reach a call in progress; a link that
+  leads outside the plugin directory fails the check, so a snapshot never brings in files from outside the plugin.
 - **Use**: check child processes, host processes, and Workers put the snapshot directory on the import path, and
   `ctx.plugin_dir` points to the snapshot; page static files are also served from the current snapshot. The plugin
   directory itself is used only for scanning.
 - **Replaces the code fingerprint check**: in RFC #2549, Workers and host processes check the code fingerprint before
   importing. With snapshots, the dispatch hands the snapshot path to the Worker, and since snapshots never change, no check
   is needed; with hot reload disabled, RFC #2549's check still applies.
-- **Cleanup**: each Server process deletes, at its next scan, only snapshots it created that are neither the current
-  version nor in use by a host process or Worker of this process. At startup it deletes only snapshots older than its own
-  start that are not any current version. When several Server processes on one machine share a data directory (such as
-  `api` and `background` roles), one process starting never deletes a snapshot another is using. Snapshots are derived local files that can be regenerated from the plugin directory and need no backup.
+- **Cleanup**: several Server processes on one machine may share a data directory (such as `api` and `background`
+  roles). Each Server process keeps its snapshots in a subdirectory of its own that lives as long as the process: it holds
+  a lock file next to the subdirectory while it runs, deletes at its next scan the snapshots that are neither the current
+  version nor in use by a host process or Worker of this process, and deletes the whole subdirectory when it exits. A
+  subdirectory left by a process that exited abnormally has a lock file nobody holds, and the next Server process to
+  start deletes it. No process deletes a snapshot another process is using. Snapshots are derived local files that can be
+  regenerated from the plugin directory and need no backup.
 
 ### 1.4 Host process replacement and background calls
 
@@ -327,7 +348,7 @@ The active plugin record lives only in each process's memory and is not synchron
 async def upgrade(ctx: PluginContext) -> None:
     """Called each time this version loads; decides whether existing data needs upgrading."""
 
-plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600)
+plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_seconds=600, setup_timeout_seconds=60)
 ```
 
 - **When**: on every load of a plugin version, both at Server startup and when hot reload switches to a new version, not
@@ -344,9 +365,24 @@ plugin = ArtifactPlugin(..., setup=setup, upgrade=upgrade, upgrade_timeout_secon
   the script uses the plugin's own storage and core's public APIs, and core provides no extra mechanism for it.
 - **Failure**: if `upgrade` raises or exceeds `upgrade_timeout_seconds` (600 seconds by default), core treats the new
   version as failing its check: hot reload keeps the old version, and at Server startup the plugin is `failed`.
+- **Startup phase limits**: a host process starts in three phases that Server times separately. When a phase's message
+  has not arrived by its limit, Server terminates the process and names the phase in `last_check_failure`:
+
+  | Phase | Limit | Host process sends at its end |
+  | --- | --- | --- |
+  | Core startup: start the interpreter, import the plugin, connect to the database, open dedicated storage | Fixed by core at 60 seconds (`start_timeout`) | Startup complete |
+  | `upgrade` (only when declared) | `upgrade_timeout_seconds`, 600 seconds by default (`upgrade_timeout`) | Upgrade complete |
+  | `setup(ctx)` | `setup_timeout_seconds`, 60 seconds by default (`setup_timeout`) | Ready |
+
+  `setup` is timed from the end of `upgrade`, or from startup complete when there is no `upgrade`, so a long `upgrade`
+  does not use up the `setup` limit. Timing does not rely on the host process itself: code that blocks synchronously in
+  `upgrade` or `setup` is also terminated at the limit. A plugin with heavy dependencies imports them in `setup` and
+  raises `setup_timeout_seconds` as needed.
 - **Context**: dedicated storage, models, and the logger. `ctx.reads(scope_id)` and `ctx.writer(scope_id)` act as the
   plugin itself, as in a Worker, without checking a caller's permissions, so the plugin can rewrite a small number of old-format
-  Artifacts as new revisions; write transaction rules are the same as in Workers, and one `upgrade` opens at most one
+  Artifacts as new revisions. With access control enforced, the plugin itself is the background identity set by
+  `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID`; without one, writes to Artifacts fail while dedicated storage
+  stays usable; write transaction rules are the same as in Workers, and one `upgrade` opens at most one
   write transaction block. Core does not list the Scopes that hold plugin data; the plugin walks its own records. Earlier Artifact
   revisions are immutable, so code that reads history still has to understand old formats.
 - **Repetition and concurrency**: every Server instance calls `upgrade` on every load, and core does not coordinate
@@ -440,7 +476,7 @@ in RFC #2549). Besides the RFC #2549 context (dedicated storage, models, logger)
 
 | Capability | Description |
 | --- | --- |
-| `ctx.require(action, scope_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), or `server.admin`, and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations |
+| `ctx.require(action, scope_id=None, *, artifact_id=None)` | Checks whether the caller has `scope.read`, `scope.contribute` (with `scope_id`), `server.admin`, or `artifact.write` on an Artifact of this plugin's family (with `scope_id` and `artifact_id`), and raises otherwise, so the API returns 403. Used in `authenticated` routes and cross-Scope operations; `artifact.write` is for APIs that accept a request and let `generate` change an existing Artifact later: that write happens in the background with no caller identity, so the check belongs at acceptance |
 | `ctx.reads(scope_id)` | A read-only Artifact view of the given Scope, checked against the caller's permissions before reading; `reads(...).reads(family)` reads other families |
 | `ctx.writer(scope_id)` | The Artifact plugin's writer, scoped to the given Scope and the plugin's family; usable only for a Scope whose `scope.contribute` was confirmed in this request |
 | `ctx.sources.submit(scope_id, definition, value)` | Submits one Source of a definition this plugin provides (a Source plugin, or an Artifact plugin that declares `definitions`), with the same validation, `resolve`, and Projections as the Source write APIs, and returns a `SourceRef`; usable only for a Scope whose `scope.contribute` was confirmed in this request |
@@ -475,7 +511,8 @@ Scopes created by plugins:
 
 - At creation, core adds the external reference `{"kind": "powercontext.plugin", "value": "<plugin name>"}` to the Scope;
   `ctx.scopes.list()` and `ctx.scopes.update()` use it to decide ownership, and deployers can see which plugin created a
-  Scope.
+  Scope. The `GET /v1/scopes` listing leaves out Scopes with a reference of this kind; a request with
+  `external_reference_kind=powercontext.plugin` lists them.
 - The permission to create Scopes is not relaxed for plugins. Letting non-administrators create Scopes (for example,
   child Scopes under a parent) requires changing core's authorization model and is out of scope for this proposal.
 - A plugin's business configuration (for example, a knowledge base's chunking strategy) is not written into the Scope;
@@ -538,11 +575,20 @@ class PluginPages(BaseModel):
 
 - **Hosting page**: `/dashboard/plugins/{name}` is a core Dashboard page that requires sign-in. It loads the plugin page
   in a sandboxed iframe and, after the iframe's first load, sends the page the current Scope, locale, and theme; it then
-  accepts request messages only from that iframe, requires the path to match a route the plugin declared, forwards the
-  request through a same-origin server-side call, and returns the result as a message (binary responses as a Blob).
+  accepts request messages only from that iframe, requires the path to match a route the plugin declared or to be a
+  generic Artifact API of the plugin's family, forwards the request through a same-origin server-side call, and returns
+  the result as a message (binary responses as a Blob).
 - **Server-side forwarding**: `/dashboard/plugins/{name}/api/...` is a Dashboard server route. It requires a Dashboard
   session and a `Sec-Fetch-Site` of `same-origin` (checking that `Origin` matches Server when the header is missing), and
   follows the Dashboard's existing approach of calling `/v1/plugins/{name}/api/...` as the session's identity.
+- **Forwarding generic Artifact APIs**: `/dashboard/plugins/{name}/artifacts/{scope_id}/...` is a second Dashboard server
+  route with the same session and same-origin requirements. It calls `/v1/scopes/{scope_id}/artifacts/{family}/...` as
+  the session's identity, where the Dashboard fills in the family from the plugin's declaration and the page cannot
+  choose it. Create (`POST /dashboard/plugins/{name}/artifacts/{scope_id}`) becomes the plugin branch of the generic
+  create API, with the family also filled in by the Dashboard. The request's `If-Match` and body pass to the generic API
+  unchanged, and the response's status code, `ETag`, `Location`, and body are returned unchanged. The forwarding layer
+  makes no authorization decision and does not interpret content. A plugin that declares no family (a Source plugin) has
+  no such route.
 - **Session isolation**: the Dashboard session cookie is `HttpOnly`, `SameSite=Strict`, with path `/dashboard`. A plugin
   page is in an opaque origin, so its scripts cannot read the cookie, and Server does not accept forwarding requests with
   `Origin: null`.
@@ -550,8 +596,9 @@ class PluginPages(BaseModel):
   prevent. The external page can also send `postMessage` to the hosting page and passes the `event.source` check. The
   hosting page therefore stops forwarding after the iframe's second load, so an external page cannot borrow the user's
   session. Plugin pages should be single-page applications; navigating between plugin pages also stops forwarding.
-- **Scope**: the hosting page forwards only to routes the plugin declared; forwarded requests are still checked by core
-  against the caller's permissions, so a plugin page cannot use forwarding to reach Scopes the caller cannot access.
+- **Scope**: the hosting page forwards only to routes the plugin declared and to the generic Artifact APIs of the
+  plugin's family; forwarded requests are still checked by core against the caller's permissions, so a plugin page cannot
+  use forwarding to reach Scopes the caller cannot access or Artifacts of another family.
 - **Page client script**: core serves a small script at `/dashboard/plugins/_client.js` that wraps this message protocol,
   and plugin pages can reference it directly.
 
@@ -582,10 +629,10 @@ the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins
 | --- | --- |
 | Added | `/v1/plugins/{name}/api/...`: routes plugins declare |
 | Added | `GET /v1/plugins/{name}/openapi.json` |
-| Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/_client.js` |
+| Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/{name}/artifacts/{scope_id}/...`, `/dashboard/plugins/_client.js` |
 | Added | Routes a plugin declares with `mcp=True` appear as MCP tools on Server's MCP endpoint |
 | Added | `powercontext.plugins`: `PluginApi`, `Route`, `ApiRequest`, `BinaryResponse`, `ApiError`, `Caller`, `PluginPages`; the context's `require`, `reads`, `writer`, `sources`, and `scopes` |
-| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, and `upgrade_timeout_seconds` fields |
+| Changed | `SourcePlugin` and `ArtifactPlugin` gain `api`, `pages`, `upgrade`, `upgrade_timeout_seconds`, and `setup_timeout_seconds` fields |
 | Changed | Responses of `GET /v1/plugins` and `GET /v1/plugins/{name}` add `version_digest`, `declaration_digest`, `state`, `activated_at`, the category of the latest check failure, the route list, and page information |
 | Added | Environment variables `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` (default 60; 0 disables hot reload) and `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` (default 32 MiB) |
 

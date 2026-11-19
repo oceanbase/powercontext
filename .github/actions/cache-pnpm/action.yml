@@ -8,6 +8,21 @@ inputs:
   cache-dependency-glob:
     description: "Glob matching the project's lockfiles, relative to the repository root"
     required: true
+  save-cache:
+    description: "Save the store after the job; disable when the caller saves dependencies before tests"
+    required: false
+    default: 'true'
+
+outputs:
+  cache-path:
+    description: "The pnpm store directory"
+    value: ${{ steps.pnpm.outputs.path }}
+  cache-key:
+    description: "The complete pnpm dependency cache key"
+    value: ${{ steps.pnpm.outputs.key }}
+  cache-hit:
+    description: "Whether the complete pnpm dependency cache was restored"
+    value: ${{ steps.restore.outputs.cache-hit || steps.cache.outputs.cache-hit }}
 
 runs:
   using: "composite"
@@ -16,16 +31,30 @@ runs:
       id: pnpm
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        CACHE_KEY_PREFIX: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working-directory }}
+        CACHE_DEPENDENCY_HASH: ${{ hashFiles(inputs.cache-dependency-glob) }}
       run: |
         store_path=$(pnpm store path --silent)
         pnpm_version=$(pnpm --version)
         echo "path=$store_path" >> "$GITHUB_OUTPUT"
-        echo "version=$pnpm_version" >> "$GITHUB_OUTPUT"
+        echo "key=$CACHE_KEY_PREFIX-$pnpm_version-$CACHE_DEPENDENCY_HASH" >> "$GITHUB_OUTPUT"
+        echo "restore-key=$CACHE_KEY_PREFIX-$pnpm_version-" >> "$GITHUB_OUTPUT"
 
     - name: Cache pnpm store
+      id: cache
+      if: inputs.save-cache != 'false'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ steps.pnpm.outputs.path }}
-        key: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working-directory }}-${{ steps.pnpm.outputs.version }}-${{ hashFiles(inputs.cache-dependency-glob) }}
-        restore-keys: |
-          pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.working-directory }}-${{ steps.pnpm.outputs.version }}-
+        key: ${{ steps.pnpm.outputs.key }}
+        restore-keys: ${{ steps.pnpm.outputs.restore-key }}
+
+    - name: Restore pnpm store for early saving
+      id: restore
+      if: inputs.save-cache == 'false'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.pnpm.outputs.path }}
+        key: ${{ steps.pnpm.outputs.key }}
+        restore-keys: ${{ steps.pnpm.outputs.restore-key }}

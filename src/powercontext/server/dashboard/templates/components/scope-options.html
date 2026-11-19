@@ -106,6 +106,12 @@ limitations under the License.
         no_results: (data, escape) => `<div class="no-results">${escape(component.dataset.noResults)}</div>`,
       },
     });
+    component.closest('#workspace').addEventListener('htmx:beforeSwap', event => {
+      if (event.detail.shouldSwap && event.detail.target.contains(component)) {
+        // Do not restore the outgoing picker's focus into the new workspace.
+        picker.blur();
+      }
+    }, {signal: controller.signal});
     component.on('htmx:beforeCleanupElement', event => {
       if (event.detail.elt === component) { controller.abort(); picker.destroy(); }
     });

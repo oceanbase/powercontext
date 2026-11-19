@@ -20,12 +20,14 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from hashlib import sha256
 from time import perf_counter
+from types import MethodType
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 from uuid import uuid4
 
@@ -216,6 +218,7 @@ from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.models import (
+    BUILTIN_CONTEXT_FAMILIES,
     ApproveCandidateRequest,
     BootstrapContext,
     BootstrapContextItem,
@@ -614,14 +617,17 @@ class ScopedSourceApplication:
             return ()
         if any(value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND for value in values):
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
-        captures = tuple(
-            ContentCapture(
-                source_id=value.source_id,
-                content=value.content,
-                metadata=value.model_dump(mode="json")["metadata"],
+        try:
+            captures = tuple(
+                ContentCapture(
+                    source_id=value.source_id,
+                    content=value.content,
+                    metadata=value.model_dump(mode="json")["metadata"],
+                )
+                for value in values
             )
-            for value in values
-        )
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
         if self._runtime._record_service is None:
             raise InvalidRuntimeRequestError("batch-capture-unavailable")
         try:
@@ -794,9 +800,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.create", self.scope_id, storage_location="prompt-create-storage"
+                    family, f"{family}.create", self.scope_id, storage_location=f"{family}-create-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
@@ -913,9 +919,9 @@ class ScopedRecordApplication:
             self._runtime._locked(self.scope_id),
             (
                 observe_processing_failure(
-                    "prompt", "prompt.replace", self.scope_id, storage_location="prompt-replace-storage"
+                    family, f"{family}.replace", self.scope_id, storage_location=f"{family}-replace-storage"
                 )
-                if family == "prompt"
+                if family in {"experience", "profile", "prompt", "skill"}
                 else nullcontext()
             ),
         ):
@@ -1448,6 +1454,16 @@ class ScopedContextApplication:
             experience_candidates,
             profile_candidates,
             code,
+            plugins={
+                section.family: bool(section.hits)
+                for section in (request.assembly.sections if request.assembly is not None else ())
+                if section.family not in BUILTIN_CONTEXT_FAMILIES
+            },
+            failed_plugins=[
+                section.family
+                for section in (request.assembly.sections if request.assembly is not None else ())
+                if section.search_failed
+            ],
         )
         started_build = perf_counter() if evidence is not None else None
         with self._runtime._stage(
@@ -1582,10 +1598,16 @@ class ScopedContextApplication:
         experience: Sequence[PreparedExperienceCandidates],
         profiles: Sequence[PreparedProfileCandidate],
         code: Sequence[PreparedCodeCandidate],
+        *,
+        plugins: Mapping[str, bool],
+        failed_plugins: Sequence[str] = (),
     ) -> None:
         if evidence is None:
             return
+        for family in failed_plugins:
+            evidence.search(family, "none", "failed")
         retrieved = {
+            **plugins,
             MEMORY_FAMILY: any(group.hits for group in memory),
             TOPIC_MEMORY_FAMILY: bool(topic),
             EXPERIENCE_FAMILY: any(group.hits for group in experience),
@@ -2925,18 +2947,26 @@ class ScopedExperienceApplication:
     ) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window into Review."""
 
+        from powercontext.builtin.runtime.relational import RelationalContexts
+
         incubator = self._runtime._experience_incubator
         if incubator is None:
             raise _RuntimeStateError("experience-incubation")
         window_limit = EXPERIENCE_INCUBATION_WINDOW_LIMIT if limit is None else limit
         if window_limit < 1:
             raise _RuntimeConfigurationError("limit")
+        scope_lock: AbstractAsyncContextManager[None] = self._runtime._locked(self.scope_id)
+        # The relational incubator can acquire the Scope lock at commit.
+        # Other callbacks rely on the Runtime to serialize the whole invocation.
+        if isinstance(incubator, MethodType) and incubator.__func__ is RelationalContexts.incubate_experience:
+            incubator = partial(incubator, commit_lock=scope_lock)
+            scope_lock = nullcontext()
         async with (
             self._runtime._scoped_operation(
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._locked(self.scope_id),
+            scope_lock,
         ):
             with self._runtime._stage("experience.incubation", attributes={}) as span:
                 result = await incubator(
@@ -3968,6 +3998,17 @@ class ScopedArtifactMergeApplication:
                 inputs, content, artifact_id=artifact_id, lineage=lineage, context=self._context(context)
             )
 
+    async def forget(
+        self, artifact_id: str, *, expected_revision: int, expected_state_version: int, context: Any = None
+    ) -> ArtifactMergeMutationResult:
+        async with self._runtime._scoped_operation(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING):
+            return await self._scoped.forget(
+                artifact_id,
+                expected_revision=expected_revision,
+                expected_state_version=expected_state_version,
+                context=self._context(context),
+            )
+
     async def preview_restoration(
         self,
         artifact_id: str,
@@ -4009,6 +4050,21 @@ class ArtifactMergeRuntimeApplication:
 
     def for_scope(self, scope_id: str, family: str, /) -> ScopedArtifactMergeApplication:
         return ScopedArtifactMergeApplication(self._runtime, self._application, scope_id, family)
+
+    def register(self, service: Any) -> None:
+        """Add a Family discovered after composition, such as a plugin family loaded at startup."""
+
+        self._application.register(service)
+
+    def unregister(self, family: str) -> None:
+        """Forget a plugin family that was removed or replaced."""
+
+        self._application.unregister(family)
+
+    def content_type(self, family: str) -> type[BaseModel]:
+        """The content model a registered Family's merge results validate against."""
+
+        return self._application.content_type(family)
 
 
 class ScopedTopicMemoryApplication:

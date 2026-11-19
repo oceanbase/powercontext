@@ -86,7 +86,7 @@ impl EstablishmentReference {
             .ok_or(ReplayError::DependencyUnavailable)?;
         let mut bytes = [0; 32];
         bytes[..8].copy_from_slice(&millis.to_be_bytes());
-        getrandom::getrandom(&mut bytes[8..]).map_err(|_| ReplayError::DependencyUnavailable)?;
+        getrandom::fill(&mut bytes[8..]).map_err(|_| ReplayError::DependencyUnavailable)?;
         Ok(Self(bytes))
     }
 

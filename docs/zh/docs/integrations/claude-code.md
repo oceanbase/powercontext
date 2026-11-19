@@ -67,7 +67,8 @@ claude
 
 MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLAUDE_SERVER_URL` 覆盖。
 修改环境地址后也要用同源 setup 的 `--server-url` 更新持久配置，保证两条路径一致。
-认证使用客户端文件的 `POWERCONTEXT_CLAUDE_AUTHORIZATION`，Hook 与 MCP headersHelper 都需要它。
+setup 会按该 `server_url` 保存客户端的 `POWERCONTEXT_CLAUDE_AUTHORIZATION`；Hook 与 MCP `headersHelper`
+都读取它。优先级与轮换方式参见[连接启用认证的 Server](#连接启用认证的-server)。
 桌面或其他启动方式可能不继承终端环境，改文件后要重启实际使用的 Claude 进程。
 
 再次执行 setup 会更新插件配置并验证已安装版本，不会删除已有的 PowerContext Server 数据。
@@ -185,15 +186,23 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-在包含匹配完整 header 的环境中启动 Claude Code：
+在包含匹配完整 header 的环境中运行 setup：
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-claude
+powercontext setup claude-code
 ```
 
-Hook 会直接读取该进程环境变量，MCP 配置则把它展开到 `Authorization` header。变量不存在时，MCP header
-使用空值。不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
+setup 会把与 URL 绑定的凭据保存到 `$CLAUDE_CONFIG_DIR/powercontext/credentials.json`（默认为
+`~/.claude/powercontext/credentials.json`）。Hook 读取该记录，插件的 MCP server 则通过 `headersHelper` 读取它；
+helper 与 Hook 一样用 `python3` 运行 `scripts/mcp_headers.py`。新会话，包括由桌面版或其他启动方式启动的会话，
+都不需要导出 authorization。凭据对应的 endpoint 不同、存储格式错误或 POSIX 权限不安全时，会被拒绝；已保存
+的凭据只用于 HTTPS 或环回 Server。连接非环回 HTTP Server 时，启动 Claude Code 前导出该值。
+
+对 Hook 而言，显式的 `POWERCONTEXT_CLAUDE_AUTHORIZATION` 值会覆盖已保存的 authorization，但不会修改它。MCP
+只在其 endpoint 没有已保存凭据时才把该值作为静态 header 发送：Claude Code 在运行插件的 `headersHelper` 前会移除
+看起来像凭据的环境变量，因此 MCP 以已保存的凭据为准。轮换 token 时，用新值重新运行 setup；不带 token 重新运行
+setup 会保留已保存的凭据。不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
 
 环回地址默认允许明文 HTTP。连接非环回 Server 时，使用 HTTPS，或显式设置
 `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP=true`。引导安装可以保存该同意，并同时配置 Hook 与原生 MCP 地址；
@@ -245,7 +254,7 @@ claude plugin marketplace remove powercontext
 | `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Hook 使用的 Server base URL |
 | `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP` | `false` | 显式允许 PowerContext 请求使用非环回明文 HTTP |
 | `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
-| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | 完整的 `Bearer <token>` header；Hook 优先使用它而非 setup 保存的凭据，MCP 只在没有已保存凭据时使用它 |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT` | `false` | 在支持的 `SessionStart` 事件中注入精选启动 profile |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` | `4096` | 启动上下文总预算；有效范围为 512 到 8192 bytes |
 | `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` | 未设置 | 一个 exact committed Handoff 的 JSON 身份，例如 `{"artifact_id":"...","revision":3}` |
@@ -257,7 +266,7 @@ claude plugin marketplace remove powercontext
 
 `powercontext setup claude-code` 会把 `server_url` 和 `capture_prompts` 保存为非敏感的 Claude Code 插件
 选项。启动 Claude Code 的进程中，对应的 `POWERCONTEXT_CLAUDE_*` 环境变量优先级更高。
-Authorization 只能来自环境变量，不能加入 Server URL 或插件选项。
+Authorization 来自 setup 保存的凭据或环境变量，不能加入 Server URL 或插件选项。
 
 `UserPromptSubmit` Hook 的外层超时为十秒。召回与采集共用一个 wall-clock 时间预算，但会独立降级。
 显式允许 HTTP 不会关闭 HTTPS 证书校验。修改环境变量后需要重启 Claude Code。

@@ -662,7 +662,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
- "getrandom 0.2.17",
+ "getrandom 0.4.3",
  "hyper",
  "pc-gateway-evidence",
  "pc-gateway-protocol",

@@ -46,8 +46,8 @@ and [npm release instructions](https://github.com/oceanbase/powercontext/blob/ma
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.1
+uv tool install --force "powercontext[cli,server]==1.5.2"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.2
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
@@ -85,7 +85,8 @@ The native client connects through a process-local streaming boundary that forwa
 endpoint and rejects every redirect. It preserves native discovery, session headers, streaming and connection cleanup;
 it does not register HTTP operation tools or change the host's global fetch. HTTP failures expose controlled status/code
 information, not upstream response bodies or diagnostic headers. Content writes, including nested Handoff state, Drafts
-and prepared carriers, are rejected with `secret_rejected` before approval or dispatch when they contain likely secrets.
+and prepared carriers, are rejected with `secret_rejected` before approval or dispatch when they contain a credential
+recognized by the shared automatic prompt privacy rule, including the configured Server token.
 The plugin's MCP catalog and approval classification are generated from the Server's public `tools/list` results,
 separately from the lifecycle HTTP operations table.
 
@@ -116,7 +117,7 @@ host's overrides. A healthy Server with extraction disabled may return valid emp
 default cold inference probe budget (30 seconds), subsequent access checks (up to 5 seconds), and transport
 headroom. Doctor reports both `request_timeout_ms` and `readiness_request_timeout_ms`. For custom Server
 probe budgets above these defaults, increase `requestTimeoutMs` accordingly. Other requests retain their
-configured deadline (1000 ms by default), and caller cancellation still stops readiness immediately.
+configured deadline (3000 ms by default), and caller cancellation still stops readiness immediately.
 
 The operations table used by the lifecycle client in `src/operations.generated.ts` is generated from the repository
 `openapi/powercontext.yaml`. From the PowerContext root:

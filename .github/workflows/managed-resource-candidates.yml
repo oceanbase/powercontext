@@ -42,7 +42,7 @@ jobs:
 
   select-targets:
     name: Select candidate targets
-    runs-on: ubuntu-24.04
+    runs-on: powercontext-ci-light
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
     steps:

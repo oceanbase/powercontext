@@ -273,6 +273,7 @@ search API and Prepared Context return 422 for the family.
 | `timeout_seconds` | 300 | Time limit for the whole invocation |
 | `transaction_timeout_seconds` | 30 | Time limit for the write transaction block, at most `timeout_seconds` |
 | `max_workers` | 1 | Concurrency limit across Scopes |
+| `host_processes` | 1 | Suggested limit on this plugin's host processes in each Server process; deployers can override it per plugin, and plugins with heavy API requests can raise it |
 | `change_timeout_seconds` | 30 | Time limit for one user-change call, including its write transaction block |
 | `definitions` | `()` | The plugin's own Source types, registered when the plugin loads; see section 3 and reference section 2 |
 | `setup` | Required | See the table above |
@@ -314,7 +315,7 @@ class IncidentReports:
                     "report", source.ref.source_type, source.ref.source_id)
                 written = await tx.put(artifact_id, content={"title": "Incident report", "summary": summary},
                                        source_refs=[source.ref])
-                # Write the owned index once the real artifact_id and revision are known; upsert by ID
+                # Write the owned index once the real artifact_id and revision are known, keyed by (artifact_id, revision)
                 await self.index.upsert(request.scope_id, written.ref.artifact_id, written.ref.revision, vector)
         # The block ended normally: core commits the Artifact writes, the cursor advance, and the acknowledgment
 
@@ -354,8 +355,9 @@ plugin = ArtifactPlugin(
 ```
 
 If the block raises, core rolls back every Artifact write in it, the cursor stays put, and the same window is retried.
-The plugin's own index is not part of core's transaction: the plugin upserts by stable ID, so a retry overwrites entries
-left by the previous attempt, and reads from the owned index defer to core's current data (see reference 3.5).
+The plugin's own index is not part of core's transaction: the plugin writes under `(artifact_id, revision)` and keeps
+older revisions' entries until it cleans them up; core filters search results to current revisions, so entries left by
+a rollback are never returned (see reference 3.5).
 
 ### 4.4 How callers use it
 
@@ -424,8 +426,9 @@ invocation after it finishes.
 - **Startup**: Server checks each plugin directory in turn. A failed check (no `plugin.py`, import failure, an invalid
   declaration, or a family or Source type that conflicts with a built-in or another plugin) affects only that plugin;
   Server and the other plugins start normally.
-- **Inspection** (all require `server.admin`, are read-only, and come from the startup check or the database, so every
-  Server role returns the same answer):
+- **Inspection** (all require `server.admin` and are read-only): check results come from the startup check and are the
+  same on every Server role; failures found only after `setup` (such as a missing required method) appear only on
+  instances that start host processes, not on `background` instances:
   - `GET /v1/plugins`, `GET /v1/plugins/{name}`: each plugin's check result, kind, family or Source types, consumed Source
     types, triggers, and Scope range.
   - `GET /v1/plugins/{name}/scopes`: for each Scope, whether work is pending, the journal position consumed through, and
@@ -436,11 +439,12 @@ invocation after it finishes.
   or changing that family through the generic APIs returns 404, as for a family that does not exist. A plugin
   Artifact's content usually records only digests or locations, while bodies, chunks, and files live in the plugin's own
   storage and cannot be interpreted without the plugin, so there are no reads without the plugin. New writes of the plugin's
-  Source types return 422. Redeploying a plugin with the same name
+  Source types return 404, as for an unknown Source type. Redeploying a plugin with the same name
   restores reads and continues generation from the existing cursor. The plugin's dedicated storage is not deleted with
   it; the deployer keeps or cleans it up.
-- **Host processes**: core starts, reuses, and restarts them on demand; deployers neither configure nor manage them.
-  Host process starts, terminations, and restarts appear only in logs and metrics.
+- **Host processes**: core starts them once a plugin loads, adds and removes them with load, and restarts them when they
+  stop responding. Deployers can tune each plugin's process limit and the total limit (see reference section 6) without
+  managing individual processes. Host process starts, terminations, and restarts appear only in logs and metrics.
 
 # Reference-level explanation
 
@@ -458,7 +462,7 @@ class Interval(BaseModel):
 
 class Cron(BaseModel):
     expression: str
-    timezone: str = "Asia/Shanghai"
+    timezone: str | None = None           # defaults to the time zone of the machine running Server
 
 class ArtifactPlugin(BaseModel):          # fields in guide 4.2
     family: str
@@ -514,8 +518,12 @@ class PluginModels(Protocol):
 - **Dedicated storage**: core uses Server's existing database connection settings to allocate an area for the plugin on
   the same backend, with no additional database login:
   - SQLite: `plugins/<plugin name>.sqlite3` in the data directory.
-  - OceanBase / seekdb: a database named `powercontext_plugin_<plugin name>` (with `-` replaced by `_`), created by core on
-    first use. When Server's database login cannot create databases, the deployer creates it in advance.
+  - OceanBase / seekdb: a database named `powercontext_plugin_<plugin name>` (with `-` replaced by `_`) on the same tenant
+    or instance, created by core when the plugin loads and reused when it exists. When Server's database login cannot
+    create databases, the deployer creates it in advance. If the database is missing and cannot be created, or its name
+    exceeds 64 characters (a plugin name longer than 44), the plugin still loads, and accessing `ctx.storage` raises an
+    error that states the reason. A tenant or instance carries one deployment, so the name does not identify the
+    deployment.
   - The plugin manages its own tables and migrations; core does not read, migrate, or back up this area. It is not part
     of core's transactions, and its consistency with core data follows 3.5.
   - This area belongs to the whole plugin and is not isolated by Scope. The plugin partitions its data by `scope_id` and,
@@ -612,7 +620,7 @@ validation and raises immediately when a rule is violated:
 
 | Operation | Semantics |
 | --- | --- |
-| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | Creates revision 1 if absent; otherwise appends a revision on the current head. With `expected_revision`, a different current revision is a conflict; without it, the revision this invocation read outside the transaction is used (see 3.5), and nothing is checked if it was not read. Identical content to the current revision writes nothing and returns the current snapshot, and the supplied `source_refs` and `artifact_refs` are not recorded (see the write constraints below). `put` in user changes is the exception, see 4.1 |
+| `put(artifact_id, *, content, source_refs=(), artifact_refs=(), expected_revision=None)` | Creates revision 1 if absent; otherwise appends a revision on the current head. With `expected_revision`, a different current revision is a conflict; without it, the revision this invocation read outside the transaction is used (see 3.5), and nothing is checked if it was not read. An Artifact read outside the transaction is also checked against the governance state version that was read (see 3.5). Identical content to the current revision writes nothing and returns the current snapshot, and the supplied `source_refs` and `artifact_refs` are not recorded (see the write constraints below). `put` in user changes is the exception, see 4.1 |
 | `revert(artifact_id, *, to_revision)` | Appends a new revision with a historical revision's content and records `restored_from_revision`; a forgotten or merge-frozen target is restored as well. Returns an `ArtifactChange`: the target's new snapshot plus exact references to the other Artifacts restored and retired with it |
 | `set_lifecycle(artifact_id, state, *, replacement_artifact_id=None)` | `deprecated` forgets, `active` restores, and `retired` is irreversible. Restoring uses shared restoration: it records a new revision with the same content, and an input frozen by a merge undoes that merge as one group. Forgetting and retiring append no revision. Returns the same as `revert`, so the plugin can update entries in its own index affected by the cascade |
 | `merge(inputs, *, into, content, source_refs=(), artifact_refs=())` | Follows the shared merge method ([RFC #1859](1859_artifact_merge.md)): takes the current revisions of `inputs`, creates `into`, records the merge, and freezes the inputs. `into` must be a new ID; when the same inputs are merged again after an undo, the plugin should include the input revisions in `stable_id` to avoid colliding with the retired result |
@@ -700,18 +708,26 @@ class ArtifactReads(Protocol):
   transaction as the expected value. If a user changed the Artifact after the read, the write conflicts, the invocation
   rolls back, and it is rescheduled. This matches built-in Atomic Memory, which checks before committing whether the
   memories it read have changed, so a plugin write based on old content never silently overwrites a user change.
+  Forget, restore, and merge do not always change the revision, so core also checks the governance state version
+  (`governance_generation`) read outside the transaction: if the Artifact was forgotten, restored, or merged after the
+  read, the write conflicts in the same way. Core does this check automatically and the plugin passes no parameter; it
+  also applies when `expected_revision` is given. Changing tags does not change the governance state version and causes
+  no conflict.
 - **Plugin-owned storage**: the plugin's indexes and other storage (the dedicated storage core allocates, or any database,
   object store, or vector store the plugin connects to itself) are outside core's transaction. The plugin writes and
   commits owned storage with its own clients; core takes no part and does not guarantee their consistency. Core's
   transaction is the only commit point for core data: data in owned storage takes effect only once a committed revision
   in core references it. This needs no two-phase commit; the following practice keeps them consistent:
-  1. Write owned storage inside the write transaction block after receiving the `ArtifactSnapshot`, upserting by
-     `artifact_id`. A failed write to owned storage then rolls back the core writes too.
-  2. If the write transaction fails to commit, owned storage may keep entries from that attempt. The retry processes the
-     same window, derives the same stable IDs, and overwrites them.
-  3. Treat the owned index as a source of candidates: read each hit's current snapshot from core with `get`, and use that
-     snapshot's content and state. Entries left by rollbacks then cannot make the plugin read stale content. Plugins may
-     also rebuild their index from core data periodically.
+  1. Write owned storage inside the write transaction block after receiving the `ArtifactSnapshot`, keyed by
+     `(artifact_id, revision)`, without overwriting other revisions' entries. A failed write to owned storage then rolls
+     back the core writes too.
+  2. If the write transaction fails to commit, owned storage keeps an entry for an uncommitted revision while the current
+     revision's entry is still there. A background retry writes the same key again; user changes are not retried, and the
+     leftover entry is overwritten when that revision number is next written, or removed by periodic cleanup.
+  3. In search, the plugin returns the exact revisions it matched, and core keeps only current, active revisions the
+     caller may read (reference section 7), so neither rollback leftovers nor older revisions' entries reach results.
+     Elsewhere, a plugin reading its owned storage defers to core's current snapshot. Plugins clean up older revisions'
+     entries periodically and may rebuild their index from core data.
   4. Store large content (bodies, chunks, file bytes) as immutable records keyed by content digest: write and commit them
      to owned storage first, then commit an Artifact whose content carries that digest in the write transaction block.
      Do not key them by `(artifact_id, revision)`: after a write transaction rolls back, the same revision number is
@@ -783,8 +799,9 @@ class InvalidContent(Exception):          # the plugin rejects the content; the 
 - The write transaction in these calls allows only the matching write operation from the table, plus `set_tags` on the
   same Artifact; writing any other Artifact raises immediately. If the method returns normally without performing the
   required write, core rolls back and returns 502, meaning the plugin did not complete the contract.
-- The plugin may normalize the content (for example, by filling default fields); the written content is what the plugin
-  submits.
+- The plugin interprets the request's `content`. It may normalize the content (for example, by filling default fields),
+  or treat it as a description of one change and compute the content to write from it. The written content is what the
+  plugin passes to the writer.
 - `put` in `create_artifact` and `update_artifact` always appends a revision, even when the content equals the current
   revision. This matches edits to built-in families: every user edit has a new `lineage_only` Content Source (see 4.2),
   which needs a new revision to record it.
@@ -801,7 +818,9 @@ class InvalidContent(Exception):          # the plugin rejects the content; the 
 - **Provenance**: as for built-in families, on create, edit, restore, and undo merge core stores the submitted content as
   an internal Content Source in the same transaction (`lineage_only`, with operation `artifact_create`,
   `artifact_replace`, `artifact_restore`, or `artifact_undo_merge`) and records it in lineage as the new revision's
-  direct source. Core writes these Sources, and they never enter a plugin's input window.
+  direct source. On create and edit, core stores the request's `content` as submitted; when the plugin writes different
+  content, this Source is still what the caller submitted, and the content the plugin wrote is in the new revision. Core
+  writes these Sources, and they never enter a plugin's input window.
 - **Merge registry**: the generic merge, forget, and restoration APIs sit on the registry of the shared merge engine
   ([RFC #1859](1859_artifact_merge.md)) and work for every registered family. Experience and
   Atomic Memory are the registered built-in families and use their own adapters; a plugin family is registered at load
@@ -875,16 +894,34 @@ long-lived host process:
 | `render_artifact`, `search_artifacts` | Host process |
 | `generate` | Supervisor Worker |
 
-- **Count and startup**: each Server process keeps at most one host process for each loaded plugin, starts it in the
-  background once the plugin loads, and reuses it afterward. Every plugin implements `render_artifact`, so every
-  loaded plugin has a host process.
+- **A group of processes per plugin**: each Server process keeps a group of host processes for each loaded plugin, and
+  plugins never share a process. One plugin blocking, crashing, or being terminated does not affect the others, and
+  per-plugin dependency isolation later needs a separate interpreter per plugin anyway.
+- **Count**: once a plugin loads, one host process starts and stays. Every plugin implements `render_artifact`, so every
+  loaded plugin has at least one. When all of the plugin's processes are busy and requests are queuing, core starts
+  another, up to the plugin's limit; extra processes stop after 5 idle minutes. The plugin's limit is its declared
+  `host_processes`, which deployers can override with `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` (JSON keyed by plugin
+  name). Host processes of all plugins together stay within `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES`; at that
+  limit no process is added for load and requests queue on the existing ones. Each plugin's first, always-running
+  process is exempt from the total. A new process takes seconds to start, so extra
+  processes help only with sustained load.
 - **Execution**: the host process imports `plugin.py` once at startup and compares the declaration, and the writer runs
   inside the host process. One host process can serve several requests concurrently, up to a limit set in the Server
-  configuration.
-- **Timeouts and failures**: each call has its own time limit (Source writes, presentation, and search use
-  Server's synchronous call limit; user changes use `change_timeout_seconds`). On a timeout, crash, or loss of response, core
-  terminates the process, in-flight requests return 503, and the process restarts after a backoff. During the backoff
-  the plugin's synchronous calls return 503; background calls are unaffected.
+  configuration; requests go to the process with the fewest in flight.
+- **Timeouts**: each call has its own time limit (Source writes, presentation, and search use Server's synchronous call
+  limit; user changes use `change_timeout_seconds`). When a request exceeds its limit, core cancels only that request:
+  while the plugin awaits I/O the cancellation takes effect at once, the write transaction rolls back, the request returns
+  504, and other requests in the same process are unaffected.
+- **Loss of response**: host processes report a heartbeat to Server. When a plugin blocks the event loop (CPU-heavy work,
+  or a blocking call without `await`), cancellation cannot take effect and the heartbeat stops; past the heartbeat limit
+  core terminates the process. Requests that passed their own time limit before then return 504; requests still in
+  flight at termination, including the one that blocked, return 503. A crash also returns 503 for in-flight requests. Plugins should move CPU-heavy work into `asyncio.to_thread` or into
+  background `generate`.
+- **Restarts**: when the plugin has no usable host process, core restarts one after a backoff; during the backoff the
+  plugin's synchronous calls return 503, and background calls are unaffected.
+- **Long work belongs in the background**: more processes only help requests that are slow but finish within their limit.
+  Work measured in minutes, such as parsing large files or embedding in bulk, should save its input, submit a Source, and
+  return at once from the API, leaving `generate` to process it in a Worker while the page polls for status.
 - **Code changes**: a host process does not re-import the plugin while it lives, and checks the code fingerprint when it
   starts. Restart Server after changing a plugin, the same rule as for Workers.
 - **Isolation**: as with Workers, the host process isolates ordinary failures and is not a sandbox for untrusted code.
@@ -893,8 +930,8 @@ long-lived host process:
 directory, kind, declaration digest, check result, and the current host process state (not started, running, or in
 restart backoff). Routing user requests, starting host processes, and dispatching Workers all use this record. It is not
 persisted or synchronized across processes, and is rebuilt from the plugin directory when Server restarts. The
-operational APIs return only the check results and declarations, which are the same on every process; host process state
-is visible through logs and metrics.
+operational APIs return check results, declarations, and permanent failures reported by this instance's host processes;
+host process runtime state is visible through logs and metrics.
 
 ## 7. Public reads, presentation, and search
 
@@ -944,13 +981,15 @@ class SearchResult(BaseModel):
   interprets them against the plugin's own indexes; a plugin raises `InvalidContent` for controls it does not support, and
   the API returns 422. Core keeps only matches that are active current revisions the caller may read, returns the exact
   revisions in the plugin's order, and adds the plugin's scores when `include_scores` is set. A plugin therefore cannot
-  return data the caller cannot see through search.
+  return data the caller cannot see through search. After filtering, results may number fewer than requested; core
+  does not fetch more.
 - **Prepared Context**: `assembly.sections` may list plugin families. Core calls `search_artifacts` with Prepared Context's
   `query`, the section's `limit`, and the request's byte budget, and fills the matched passages in section order as
   context entries that, like built-in entries, cite exact revisions and count toward the byte budget and the receipt;
-  entries beyond the budget are truncated or left out. A section may carry an
-  optional `search` with the fields of a search request other than `query` and `limit`, passed on to the plugin
-  unchanged; built-in families that carry `search` return 422.
+  entries beyond the budget are truncated or left out. When the plugin is unavailable (no usable host process, a
+  timeout, or a failed search), core omits that section and records why in the receipt, and the other sections are
+  returned as usual. A section may carry an optional `search` with the fields of a search request other than `query`
+  and `limit`, passed on to the plugin unchanged; built-in families that carry `search` return 422.
 - Review and Recall are not open to plugin families; those APIs return an explicit "not supported" error, and
   `GET /v1/capabilities` lists plugin families.
 
@@ -973,7 +1012,7 @@ class SearchResult(BaseModel):
   the plugin directory is modified while Server runs, new Worker invocations and newly started host processes fail and
   ask for a restart, so one Server never mixes old and new code. Deployers should restart Server after a change.
 - Server instances in the `api` role run no background work, but they also check plugins and register families and
-  Source types for reads, search, Source writes, and user changes; they start host processes on demand and do not
+  Source types for reads, search, Source writes, and user changes; they start host processes and do not
   dispatch Workers. Instances in the `background` role receive no requests and start no host processes.
 - Adding or removing plugins at runtime (hot reload) and plugin-defined APIs are covered by
   [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579), built on host processes.
@@ -1020,9 +1059,8 @@ class SearchResult(BaseModel):
 Additions and removals ship as **one new migration revision**; the migration resources of released versions stay
 unchanged. Its notes list the tables, columns, and data ranges added and removed. The migration preflight first confirms the old Artifact plugin
 framework left no data behind: Artifacts of old plugin families, and old plugin registrations and invocation intents.
-If it finds any, it refuses the upgrade, lists the plugin names, families, and
-row counts, and leaves the database unchanged; the deployer exports what they need, uninstalls the old plugins, and cleans
-up their data on the old version, then upgrades. The migration drops these tables only when they are empty.
+If it finds any, it refuses the upgrade, identifies the retained storage, and leaves the database unchanged.
+There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The migration drops these tables only when they are empty.
 
 The readiness check of this revision,
 which Server runs against the current database at every startup, differs from the previous one in two ways:
@@ -1054,6 +1092,7 @@ new format.
 | Changed | `POST /v1/context/prepare`: `ContextAssemblySection.family` changes from an enum to a string that may name a loaded plugin family; an optional `search` (the fields of a search request other than `query` and `limit`) applies to plugin families only; the family of receipt entries changes from an enum to a string that may name a plugin family |
 | Changed | The format version of Artifact revision records in export and restore increases by one and adds `metadata` |
 | Changed | The environment variable `POWERCONTEXT_SERVER_PLUGINS_DIR` replaces `POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR` |
+| Added | Environment variables `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` (JSON overriding host process limits by plugin name) and `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` (total host process limit in each Server process) |
 
 After `openapi/powercontext.yaml` is updated per the table, `src/powercontext/http/_generated/` and each integration's
 operation table are regenerated.
@@ -1073,11 +1112,14 @@ record one event.
 
 # Drawbacks
 
-- **Host processes hold resources**: each Server process gets one more long-lived process for each plugin that needs
-  synchronous calls, and the count grows with instances in multi-instance deployments. Synchronous calls add one
-  inter-process round trip and serialization.
+- **Host processes hold resources**: each Server process gets at least one more long-lived process for each loaded
+  plugin, more under load, and the count grows with instances in multi-instance deployments. Each host process is a
+  full interpreter with the core runtime and the plugin loaded, so its memory is of the same order as a Server
+  process's, and more for plugins with heavier dependencies. Synchronous calls add one inter-process round trip and
+  serialization.
 - **Synchronous calls depend on the plugin being available**: while a host process is crashed or in restart backoff, the
-  plugin's Source writes and user changes return 503; defects in plugin code show up directly as failed user requests.
+  plugin's Source writes and user changes return 503; defects in plugin code show up directly as failed user requests. A
+  plugin that blocks the event loop makes other requests in the same process fail with it.
 - **The write transaction holds locks**: the block holds database locks, which on SQLite block other writes. A plugin that
   does slow work in the block slows every write in Server until the block times out and rolls back.
 - **Plugin-owned storage is not guaranteed consistent with core data**: they are not in the same transaction, so a failed
@@ -1102,7 +1144,8 @@ record one event.
 - **Content structure is not governed by core**: core does not validate a `content` schema, and plugins validate
   user-submitted content; plugins and applications must keep historical revisions interpretable.
 - **Presentation and search depend on the plugin**: presentation, search, and Prepared Context for plugin families go
-  through the host process and return 503 when the plugin is unavailable; without `search_artifacts`, a plugin's data cannot
+  through the host process; when the plugin is unavailable, presentation and search return 503 and Prepared Context
+  omits the section; without `search_artifacts`, a plugin's data cannot
   be used through generic search or Prepared Context.
 - **Servers may load different plugin versions**: core records which plugin version wrote each revision but does not stop
   instances from loading different versions; whether old and new versions can read and write the same data at once is the
@@ -1171,11 +1214,11 @@ Reasons for this choice:
 | Question | Notes |
 | --- | --- |
 | Default limits for the write transaction block | Whether 30 seconds is right; whether SQLite and OceanBase need different defaults; per-block operation and byte limits |
-| Host process defaults | Default synchronous call limit, per-host-process concurrency limit, and restart backoff |
+| Host process defaults | Default synchronous call limit, per-host-process concurrency limit, heartbeat limit, idle stop time, total host process limit, and restart backoff |
 | Permission to create the dedicated database | When Server's database login cannot create databases, whether to allow falling back to tables prefixed by plugin name in core's database, besides the deployer creating the database in advance |
 | Plugin families in Recall | Prepared Context is covered; whether Recall should be, and how its candidates are defined |
 | Passages in generic search results | The generic search API returns only exact revisions, and the passages a plugin returns are used only by Prepared Context. Whether search results should add passages and their locations |
-| Naming families and Source types | Whether they must start with the plugin name, so naming alone keeps plugins from taking over each other's families |
+| Naming families and Source types | Whether they must start with the plugin name, so naming alone keeps plugins from taking over each other's families. With the prefix, core can map a family to its plugin directory even when `plugin.py` fails to import, and return 503 for that family instead of 404, distinguishing it from a removed plugin |
 | Search controls in Prepared Context | Letting built-in families accept a section's `search` too is a new optional field that leaves existing calls unaffected; a separate proposal is recommended. Removing or renaming Prepared Context's other feature-specific parameters is a breaking change that needs a new API version, so v1 leaves them as they are |
 | Shrinking the window | Built-in Atomic Memory shrinks the next Source window when the model times out. Plugins cannot affect the window size, so an oversized window keeps timing out. Whether plugins may request a smaller window for the Scope with an agreed exception |
 | Windows that keep failing | A Source window that always fails blocks later invocations in the Scope. Whether to offer an operation that skips it or moves it to a dead letter, and how to record skipped input |

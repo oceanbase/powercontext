@@ -464,7 +464,7 @@ impl ReplayStore {
         if let Some(source) = self.random_source {
             return source(bytes);
         }
-        getrandom::getrandom(bytes).map_err(|_| ReplayError::DependencyUnavailable)
+        getrandom::fill(bytes).map_err(|_| ReplayError::DependencyUnavailable)
     }
 }
 

@@ -32,7 +32,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from powercontext_eval_longmemeval_v2.receipt_diagnostics import prepared_context_diagnostics
+
 AUDIT_SCHEMA = "powercontext.longmemeval-v2-memory-audit.v1"
+RECEIPT_AUDIT_SCHEMA = "powercontext.longmemeval-v2-memory-audit.v2"
 DEFAULT_MEMORY_KIND = "longmemeval_v2_trajectory"
 DEFAULT_SOURCE_CHUNK_BYTES = 180_000
 MAX_SOURCE_CHUNK_BYTES = 190_000
@@ -79,6 +82,7 @@ _HARNESS_RUNTIME_KEYS = {
     "query_trace_dir",
 }
 _AUDIT_LOCKS: dict[Path, threading.Lock] = {}
+_AUDIT_SCHEMAS: dict[Path, str] = {}
 _AUDIT_LOCKS_GUARD = threading.Lock()
 
 
@@ -220,6 +224,16 @@ class PowerContextMemory:
             raise PowerContextMemoryAdapterError(
                 f"query_strategy must be one of {', '.join(QUERY_STRATEGIES)}, not {self.query_strategy!r}"
             )
+        self.receipt_diagnostics = self.memory_params.get("receipt_diagnostics", False)
+        if not isinstance(self.receipt_diagnostics, bool):
+            raise PowerContextMemoryAdapterError("receipt_diagnostics must be a boolean")
+        if self.receipt_diagnostics:
+            if self.query_strategy != "prepared-context":
+                raise PowerContextMemoryAdapterError("receipt_diagnostics requires query_strategy=prepared-context")
+            revision = self.memory_params.get("receipt_server_revision")
+            if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+                raise PowerContextMemoryAdapterError("receipt_server_revision must be a 40-character lowercase SHA")
+        self._audit_schema = RECEIPT_AUDIT_SCHEMA if self.receipt_diagnostics else AUDIT_SCHEMA
         self.prepared_context_max_bytes = _integer(
             self.memory_params.get("prepared_context_max_bytes", 8_000),
             "prepared_context_max_bytes",
@@ -254,6 +268,7 @@ class PowerContextMemory:
         self._runtime: PowerContextRuntime = self._http_runtime()
         self._clock_ns: Callable[[], int] = time.perf_counter_ns
         self._audit_lock = _audit_lock_for(self.audit_path)
+        self._open_audit()
         self._insert_lock = threading.Lock()
         self._inserted_trajectory_ids: set[str] = set()
         self._query_context_local = threading.local()
@@ -376,19 +391,23 @@ class PowerContextMemory:
         actual_mode: str | None = None
         status = "failed"
         failure: str | None = None
+        diagnostics: dict[str, object] | None = None
         requested_mode = self.search_mode if self.query_strategy == "memory-search" else None
         try:
             stage_started = self._clock_ns()
             if self.query_strategy == "prepared-context":
-                response = self._runtime.prepare_context(
-                    {
-                        "scope_id": self.scope_id,
-                        "query": retrieval_query,
-                        "max_bytes": self.prepared_context_max_bytes,
-                    }
-                )
+                request: dict[str, object] = {
+                    "scope_id": self.scope_id,
+                    "query": retrieval_query,
+                    "max_bytes": self.prepared_context_max_bytes,
+                }
+                if self.receipt_diagnostics:
+                    request["include_receipt"] = True
+                response = self._runtime.prepare_context(request)
                 search_ns = self._clock_ns() - stage_started
                 items.extend(_prepared_context_items(response, maximum_bytes=self.prepared_context_max_bytes))
+                if self.receipt_diagnostics:
+                    diagnostics = prepared_context_diagnostics(response, maximum_bytes=self.prepared_context_max_bytes)
             else:
                 response = self._runtime.search_memory(
                     {
@@ -456,6 +475,7 @@ class PowerContextMemory:
                     "citations": citations,
                     "timings_ms": timings,
                     "failure_type": failure,
+                    **({"prepared_context_diagnostics": diagnostics} if diagnostics is not None else {}),
                 }
             )
 
@@ -493,7 +513,7 @@ class PowerContextMemory:
 
     def _write_audit(self, event: dict[str, object]) -> None:
         record = {
-            "schema": AUDIT_SCHEMA,
+            "schema": self._audit_schema,
             "observed_at": datetime.now(UTC).isoformat(),
             **event,
         }
@@ -502,6 +522,26 @@ class PowerContextMemory:
             self.audit_path.parent.mkdir(parents=True, exist_ok=True)
             with self.audit_path.open("a", encoding="utf-8", newline="") as stream:
                 stream.write(line)
+
+    def _open_audit(self) -> None:
+        """Check the run once and reserve its schema before any concurrent writer starts."""
+
+        identity = self.audit_path.resolve()
+        with self._audit_lock:
+            existing_schema = _AUDIT_SCHEMAS.get(identity)
+            if existing_schema is not None and existing_schema != self._audit_schema:
+                raise PowerContextMemoryAdapterError("audit schema differs; use a new run directory")
+            if existing_schema == self._audit_schema:
+                return
+            if self.audit_path.exists():
+                try:
+                    with self.audit_path.open(encoding="utf-8") as stream:
+                        for line in stream:
+                            if line.strip() and json.loads(line).get("schema") != self._audit_schema:
+                                raise PowerContextMemoryAdapterError("audit schema differs; use a new run directory")
+                except (UnicodeError, json.JSONDecodeError, AttributeError) as error:
+                    raise PowerContextMemoryAdapterError("invalid audit; use a new run directory") from error
+            _AUDIT_SCHEMAS[identity] = self._audit_schema
 
 
 def _project_trajectory(trajectory: Mapping[str, object]) -> tuple[str, str]:
