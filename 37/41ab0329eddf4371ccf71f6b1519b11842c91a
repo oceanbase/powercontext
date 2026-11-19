@@ -1,0 +1,30 @@
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_d140faf09cd1aa 146-147
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_d140faf09cd1aa 124-130,228-345
+  s_2ef0feea0a110d::t_d502e821c15643 346-347
+scripts/ci_cache.py
+  s_2ef0feea0a110d::t_36782401bfe517 317
+  s_2ef0feea0a110d::t_d140faf09cd1aa 154-157,163-166,171-186
+.github/actions/setup-mise/action.yml
+  s_2ef0feea0a110d::t_d140faf09cd1aa 40-48,57-71
+  s_2ef0feea0a110d::t_f577ec257824e3 72
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_d140faf09cd1aa 146-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3741ab0329eddf4371ccf71f6b1519b11842c91a",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
