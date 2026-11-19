@@ -38,3 +38,10 @@ runs:
     - name: Install Python dependencies
       run: uv sync --frozen
       shell: bash
+
+    - name: Use a writable cache directory for project tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/project-cache"
+        echo "XDG_CACHE_HOME=$RUNNER_TEMP/project-cache" >> "$GITHUB_ENV"
