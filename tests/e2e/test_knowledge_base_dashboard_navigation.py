@@ -44,11 +44,14 @@ def test_dashboard_keeps_plugin_navigation_separate_from_host_scope_picker(tmp_p
             # Leaving the explicit Scope through the host closes the old draft before plugin navigation.
             await page.locator(".scope-picker .ts-control").click()
             await page.locator('.scope-picker .option[data-value=""]').click()
+            # The editor can disappear while HTMX is still replacing the iframe. Wait for
+            # the new host context before navigating inside the plugin's replacement frame.
+            await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("选择知识库")
             await expect(frame.get_by_role("textbox", name="分块正文")).to_have_count(0)
             await frame.get_by_role("button", name="切换空间").click()
             await frame.get_by_role("menuitem", name="Host selection", exact=True).click()
-            await select_library(frame, "Host B")
             await expect(frame.get_by_role("button", name="切换空间")).to_contain_text("Host selection")
+            await select_library(frame, "Host B")
             await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Host B")
             await expect(frame.get_by_role("textbox", name="分块正文")).to_have_count(0)
             await frame.get_by_role("button", name="浏览", exact=True).click()
