@@ -15,13 +15,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateTable
@@ -31,11 +34,14 @@ from powercontext.builtin.artifacts.topic_memory import TopicMemoryStorageInvari
 from powercontext.builtin.persistence import topic_memory_reindex as shared_reindex_module
 from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexError
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.oceanbase import topic_memory_reindex as reindex_module
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.builtin.persistence.topic_memory_reindex import plan_topic_memory_reindex, reindex_topic_memory
+from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.server.settings import ServerSettings
 
 
 def _profile() -> EmbeddingProfile:
@@ -230,11 +236,20 @@ def _native_connection(drivername: str, vector_type: str, incompatible: int | No
 
 
 @pytest.mark.parametrize("incompatible", [None, 1], ids=["empty-projection", "populated-projection"])
-def test_seekdb_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
+@pytest.mark.parametrize(
+    ("drivername", "backend_name"),
+    [
+        pytest.param("mysql+aseekdb", "embedded SeekDB", id="embedded-seekdb"),
+        pytest.param("mysql+aoceanbase", "OceanBase", id="remote-oceanbase"),
+    ],
+)
+def test_unsupported_native_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
     monkeypatch: pytest.MonkeyPatch,
+    drivername: str,
+    backend_name: str,
     incompatible: int | None,
 ) -> None:
-    """Exercise fresh native connections without claiming embedded SeekDB execution."""
+    """Exercise fresh native connections without claiming native database execution."""
 
     source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
     target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
@@ -253,7 +268,7 @@ def test_seekdb_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
             backend = OceanBaseTopicMemoryReindexBackend(target)
             backend.validate_active = AsyncMock()
             backend.prepare = AsyncMock(side_effect=AssertionError("persistent DDL must not be reached"))
-            connection = _native_connection("mysql+aseekdb", "VECTOR(2)", incompatible)
+            connection = _native_connection(drivername, "VECTOR(2)", incompatible)
             report = await reindex_topic_memory(
                 cast(AsyncDatabase, _Database(connection)),
                 backend,
@@ -264,7 +279,7 @@ def test_seekdb_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
 
             assert not report.ready and not report.activated
             assert not report.atomic_memory_rebuild_required
-            assert any("embedded SeekDB does not support changing" in error for error in report.errors)
+            assert any(f"{backend_name} does not support changing" in error for error in report.errors)
             backend.prepare.assert_not_awaited()
             connection.execute.assert_not_called()
             connection.exec_driver_sql.assert_not_called()
@@ -275,7 +290,7 @@ def test_seekdb_dimension_change_is_rejected_before_ddl_on_repeated_attempts(
 @pytest.mark.parametrize(
     ("drivername", "vector_type", "incompatible"),
     [
-        pytest.param("mysql+aiomysql", "VECTOR(2)", None, id="remote-oceanbase-cross-dimension"),
+        pytest.param("mysql+aoceanbase", "VECTOR(3)", 1, id="oceanbase-same-dimension-row-rebuild"),
         pytest.param("mysql+aseekdb", "VECTOR(3)", 1, id="seekdb-same-dimension-row-rebuild"),
     ],
 )
@@ -304,9 +319,94 @@ def test_supported_native_atomic_rebuilds_remain_ready(
     asyncio.run(scenario())
 
 
-def test_seekdb_vector_reconfiguration_rejects_before_index_or_column_ddl() -> None:
+@pytest.mark.parametrize("dry_run", [False, True], ids=["apply", "dry-run"])
+def test_managed_oceanbase_dry_run_is_ready_but_apply_is_rejected_before_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    dry_run: bool,
+) -> None:
+    """Use the real config and planner with a mocked connection, not a native OceanBase claim."""
+
+    from powercontext.server import cli as server_cli
+
+    source = _profile().model_copy(update={"profile_id": "source", "dimension": 2})
+    target = source.model_copy(update={"profile_id": "target", "model": "target-model"})
+    _patch_native_planner(monkeypatch, source)
+    monkeypatch.setattr(OceanBaseTopicMemoryReindexBackend, "validate_active", AsyncMock())
+    connection = _native_connection("mysql+aoceanbase", "VECTOR(2)", 1)
+
+    class _Database:
+        @asynccontextmanager
+        async def transaction(self):
+            yield connection
+
+    @asynccontextmanager
+    async def open_profile():
+        yield SimpleNamespace(database=cast(AsyncDatabase, _Database()))
+
+    monkeypatch.setattr(OceanBaseProfile, "open", lambda *_args, **_kwargs: open_profile())
+    monkeypatch.setattr(OceanBaseProfile, "open_existing", lambda *_args, **_kwargs: open_profile())
+    provider = AsyncMock(side_effect=AssertionError("a rejected apply must not initialize inference"))
+    writes = AsyncMock(side_effect=AssertionError("a rejected apply must not write storage"))
+    monkeypatch.setattr(server_cli, "_embedding_models", provider)
+    monkeypatch.setattr(server_cli, "reindex_topic_memory", writes)
+
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    journal_path = evidence_dir / "maintenance.json"
+    journal_path.write_bytes(b'{"state":"complete"}\n')
+    original_journal = journal_path.read_bytes()
+    settings = ServerSettings(
+        database=OceanBaseConfig(url=SecretStr("mysql+aoceanbase://fixture@localhost:2881/fixture?charset=utf8mb4")),
+        inference=InferenceConfig(
+            embedding_model=target.model,
+            embedding_profile_id=target.profile_id,
+            embedding_dimension=target.dimension,
+            embedding_normalization=target.normalization,
+        ),
+    )
+
+    ready = asyncio.run(
+        server_cli._topic_memory_reindex(
+            settings,
+            dry_run=dry_run,
+            maintenance_confirmed=True,
+            batch_size=1,
+            rebuild_atomic_memory=True,
+            show_progress=False,
+            evidence_dir=evidence_dir,
+        )
+    )
+
+    assert ready is dry_run
+    report = json.loads(capsys.readouterr().out)
+    assert report["action"] == ("dry-run" if dry_run else "apply")
+    assert report["ready"] is dry_run and report["activated"] is False
+    assert report["atomic_memory_rebuild_required"] is True
+    if dry_run:
+        assert report["errors"] == []
+    else:
+        assert any("managed OceanBase" in error and "not supported" in error for error in report["errors"])
+    provider.assert_not_called()
+    writes.assert_not_called()
+    connection.exec_driver_sql.assert_not_called()
+    assert journal_path.read_bytes() == original_journal
+
+
+@pytest.mark.parametrize(
+    ("drivername", "backend_name"),
+    [
+        pytest.param("mysql+aseekdb", "embedded SeekDB", id="embedded-seekdb"),
+        pytest.param("mysql+aoceanbase", "OceanBase", id="remote-oceanbase"),
+    ],
+)
+def test_unsupported_native_vector_reconfiguration_rejects_before_index_or_column_ddl(
+    drivername: str,
+    backend_name: str,
+) -> None:
     target = _profile().model_copy(update={"profile_id": "target", "dimension": 3})
-    connection = _native_connection("mysql+aseekdb", "VECTOR(2)", None)
+    connection = _native_connection(drivername, "VECTOR(2)", None)
     statements: list[str] = []
 
     async def ddl(statement, *_args, **_kwargs) -> None:
@@ -319,7 +419,7 @@ def test_seekdb_vector_reconfiguration_rejects_before_index_or_column_ddl() -> N
     async def scenario() -> None:
         with pytest.raises(AtomicMemoryIndexError) as caught:
             await OceanBaseAtomicMemoryIndex(target).reconfigure_vector_column(connection)
-        assert "embedded SeekDB does not support changing" in str(caught.value)
+        assert f"{backend_name} does not support changing" in str(caught.value)
 
     asyncio.run(scenario())
     assert statements == []

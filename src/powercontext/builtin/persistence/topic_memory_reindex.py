@@ -492,9 +492,9 @@ async def _inspect_atomic_rebuild(
     requested: bool,
 ) -> tuple[bool, str | None]:
     if connection.dialect.name == "mysql":
-        from powercontext.builtin.persistence.oceanbase.atomic_memory_index import seekdb_vector_dimension_error
+        from powercontext.builtin.persistence.oceanbase.atomic_memory_index import native_vector_dimension_error
 
-        if error := await seekdb_vector_dimension_error(connection, profile):
+        if error := await native_vector_dimension_error(connection, profile):
             return False, error
     atomic_error = await _atomic_profile_error(connection, profile)
     rebuild_can_address = atomic_error is None or not atomic_error.startswith("managed Atomic Memory storage")

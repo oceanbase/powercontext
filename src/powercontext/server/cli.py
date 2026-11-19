@@ -703,7 +703,20 @@ async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps
                 backend,
                 rebuild_atomic_memory=rebuild_atomic_memory,
             )
-        if not dry_run and not inspection.errors and journal is not None and stored_profile is not None:
+        if not dry_run and isinstance(database, OceanBaseConfig) and stored_profile is not None:
+            # An unrecorded successful switch invalidates the coordinated migration
+            # evidence. Reject it before staging, inference or journal/storage writes.
+            inspection = inspection.model_copy(
+                update={
+                    "ready": False,
+                    "errors": (
+                        *inspection.errors,
+                        "managed OceanBase Topic Memory reindex apply is not supported; "
+                        "keep the current embedding profile or create a new vector-enabled deployment",
+                    ),
+                }
+            )
+        elif not dry_run and not inspection.errors and journal is not None and stored_profile is not None:
             if not journal.has_maintenance_evidence():
                 inspection = inspection.model_copy(
                     update={

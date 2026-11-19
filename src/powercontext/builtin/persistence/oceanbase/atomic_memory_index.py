@@ -138,17 +138,23 @@ def oceanbase_atomic_memory_vector_sql(eligibility: str, /) -> str:
     )
 
 
-async def seekdb_vector_dimension_error(connection: AsyncConnection, profile: EmbeddingProfile) -> str | None:
-    """Reject only a confirmed embedded SeekDB cross-dimension transition."""
+async def native_vector_dimension_error(connection: AsyncConnection, profile: EmbeddingProfile) -> str | None:
+    """Reject confirmed native cross-dimension transitions before any derived-schema DDL."""
 
-    if connection.dialect.name != "mysql" or connection.engine.url.drivername != "mysql+aseekdb":
+    if connection.dialect.name != "mysql":
+        return None
+    backend = {
+        "mysql+aseekdb": "embedded SeekDB",
+        "mysql+aoceanbase": "OceanBase",
+    }.get(connection.engine.url.drivername)
+    if backend is None:
         return None
     actual = await connection.scalar(_VECTOR_TYPE)
     match = re.fullmatch(r"VECTOR\((\d+)\)", str(actual).strip(), flags=re.IGNORECASE)
     if match is None or int(match[1]) == profile.dimension:
         return None
     return (
-        "embedded SeekDB does not support changing the Atomic Memory VECTOR dimension; "
+        f"{backend} does not support changing the Atomic Memory VECTOR dimension; "
         "keep the current dimension or create a new vector-enabled deployment"
     )
 
@@ -277,7 +283,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
 
         if connection.dialect.name != "mysql" or self.profile is None:
             raise AtomicMemoryIndexError("vector-schema", "Vector reconfiguration requires an OceanBase vector profile")
-        if error := await seekdb_vector_dimension_error(connection, self.profile):
+        if error := await native_vector_dimension_error(connection, self.profile):
             raise AtomicMemoryIndexError("vector-schema", error)
         if await connection.scalar(_INDEX_EXISTS, {"index_name": _VECTOR_INDEX_NAME}):
             await connection.exec_driver_sql(f"DROP INDEX {_VECTOR_INDEX_NAME} ON pc_atomic_memory_current")
