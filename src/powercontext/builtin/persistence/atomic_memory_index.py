@@ -397,7 +397,6 @@ class AtomicMemoryProjectionPublisher:
         record: Any,
         prepared: PreparedAtomicMemoryProjection,
     ) -> None:
-        artifact = record.artifact
         if record.state.state != "active":
             await self.retire(connection, scope_id, record)
             return
