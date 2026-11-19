@@ -1,0 +1,41 @@
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_68fbb8ec8a657a 228-230,238
+  s_2ef0feea0a110d::t_22ce5a8d7a70e4 167,198-227,231-237,239-255
+scripts/ci_changes.py
+  s_2ef0feea0a110d::t_c62a967695a7c4 62-64,66-70
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_68fbb8ec8a657a 235,244,306,308,313-314
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_b7c18292a5b9d8 36-41,46
+  s_2ef0feea0a110d::t_6549120b54c196 47
+tests/test_ci_shard_collection.py
+  s_2ef0feea0a110d::t_2fde8e0fb2ef68 43-55
+  s_2ef0feea0a110d::t_028f5a2c562936 1-42,56-76
+Makefile
+  s_2ef0feea0a110d::t_c62a967695a7c4 70-74,76-78
+tests/conftest.py
+  s_2ef0feea0a110d::t_c62a967695a7c4 17,82-84,158-163,166,169,172-173,209-215
+  s_2ef0feea0a110d::t_a5f7b8e00ff0a3 164-165,167-168,170-171
+  s_2ef0feea0a110d::t_f99ff924ca47d0 216-218
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_b7c18292a5b9d8 36-41,46
+  s_2ef0feea0a110d::t_13ee27f45e1e3c 47
+tests/test_ci_changes.py
+  s_2ef0feea0a110d::t_c1ce1397e01fb7 526-528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2911110d93494398a3dda1b10f8825c6acdb9f40",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
