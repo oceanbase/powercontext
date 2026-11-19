@@ -254,6 +254,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          # The 3.11 unit job also downloads minimum Pydantic after the root install.
+          shared-cache: ${{ matrix.suite == 'e2e' || matrix.python-version != '3.11' }}
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
@@ -289,6 +291,15 @@ jobs:
         run: >-
           uv run --with 'pydantic==2.12.0' python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
+
+      - name: Cache Gateway dependencies and compilation
+        if: matrix.suite == 'e2e'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
 
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
@@ -385,6 +396,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          shared-cache: 'true'
           python-version: "3.12"
 
       - name: Test documentation contracts
@@ -844,9 +856,11 @@ jobs:
           persist-credentials: false
 
       - name: Set up the environment
+        id: python
         uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
+          save-cache: 'false'
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
@@ -855,6 +869,16 @@ jobs:
             integrations/opendal/pyproject.toml
             integrations/dify/pyproject.toml
             integrations/dify/uv.lock
+
+      - name: Install isolated Dify dependencies
+        run: uv sync --locked --project integrations/dify --python 3.12
+
+      - name: Save complete Dify dependencies
+        if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.python.outputs.cache-path }}
+          key: ${{ steps.python.outputs.cache-key }}
 
       - name: Check out the supported Dify host helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -889,8 +913,11 @@ jobs:
           go-version-file: .artifacts/dify-daemon/go.mod
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
-      - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - name: Set up Node for host compatibility probes
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .mise.toml
+          package-manager-cache: false
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -911,6 +938,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Check out the supported Hermes host
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -938,6 +967,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -988,6 +1019,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1031,6 +1064,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1065,6 +1100,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
@@ -1163,6 +1200,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       - name: Install the pinned Claude Code host
@@ -1254,17 +1293,46 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
+        id: pnpm
         uses: ./.github/actions/cache-pnpm
         with:
+          save-cache: 'false'
           working-directory: integrations/openclaw/plugins/memory-powercontext
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
+
+      - name: Install OpenClaw package dependencies
+        run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+
+      - name: Save OpenClaw package dependencies
+        if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm.outputs.cache-path }}
+          key: ${{ steps.pnpm.outputs.cache-key }}
+
       - name: Test OpenClaw package
-        run: mise exec node@24.15.0 -- make openclaw-plugin-test
+        run: |
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
+
+      - name: Resolve OpenClaw npm cache directory
+        id: npm
+        run: echo "path=$(mise exec node@24.15.0 -- npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OpenClaw host downloads
+        id: openclaw-host-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-${{ env.OPENCLAW_VERSION }}
 
       - name: Install the pinned OpenClaw host
         run: |
@@ -1273,6 +1341,13 @@ jobs:
           cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
           mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
           echo "OPENCLAW_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Save OpenClaw host downloads
+        if: steps.openclaw-host-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: ${{ steps.openclaw-host-cache.outputs.cache-primary-key }}
 
       - name: Run OpenClaw with the PowerContext plugin against a real Server
         # Without the binary the cases skip, so refuse to run without it. The Gateway inherits this Node from PATH.
@@ -1626,6 +1701,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
       - name: Install Helm
         run: |
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz

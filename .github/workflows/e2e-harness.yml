@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Plan selected acceptance work
@@ -88,10 +89,24 @@ jobs:
           PY
 
       - name: Install uv
+        id: uv
         if: steps.plan.outputs.replay == 'true'
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          enable-cache: 'true'
+          save-cache: 'false'
+          cache-suffix: harness-validate-py3.12
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/bub/pyproject.toml
+            e2e/bub/pyproject.toml
+            e2e/bub/uv.lock
 
       # A lock that reuses cleanly can still describe an unsatisfiable graph, so `uv lock --locked`
       # does not catch a dependency declaration that the project version can never satisfy. This job
@@ -101,6 +116,19 @@ jobs:
         if: steps.plan.outputs.replay == 'true'
         run: uv lock --upgrade --dry-run
 
+      - name: Install harness validation dependencies
+        if: steps.plan.outputs.replay == 'true'
+        run: |
+          uv sync --frozen
+          make harness-sync
+
+      - name: Save harness validation dependencies
+        if: steps.plan.outputs.replay == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv.outputs.cache-key }}
+
       - name: Check harness formatting for standalone runs
         if: steps.plan.outputs.replay == 'true' && !inputs.preflight-checked
         run: make harness-lint
@@ -108,7 +136,6 @@ jobs:
       - name: Validate harness and Compose definitions
         if: steps.plan.outputs.replay == 'true'
         run: |
-          make harness-sync
           make harness-test
           make harness-compose-check
 
