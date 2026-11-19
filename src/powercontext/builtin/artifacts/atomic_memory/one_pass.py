@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""One conversation per Source window: list the facts, then decide every memory operation.
+"""One conversation per Source window: list the memories to write, then decide every memory operation.
 
-Step 1 names the facts in the evidence and a recall query for each. The Runtime recalls existing memories for those
+Step 1 names each memory the evidence calls for, the facts it must state and a recall query. The Runtime recalls existing memories for those
 queries and step 2, continuing the same conversation, returns the final operations. A re-check turn follows only for
 created memories whose own text recalls a memory that step 2 did not see. Every operation is applied through
 ``AtomicMemoryWindowWorkset``, so publication, lineage and validation are those of per-candidate reconciliation.
@@ -51,7 +51,7 @@ from powercontext.builtin.processing_diagnostics import (
     attach_diagnostics,
 )
 
-ONE_PASS_MAX_FACTS = 30
+ONE_PASS_MAX_ENTRIES = 30
 ONE_PASS_MEMORIES_PER_QUERY = 5
 ONE_PASS_MAX_MEMORIES = 40
 
@@ -77,7 +77,7 @@ Step 1 (your first reply): list the memories this evidence calls for, one entry 
 rules above: one subject and topic each, at the granularity those rules ask of a candidate. For each entry give a
 short label naming the memory (not its text), a details list with one short label for every fact from the evidence
 that the memory must state, and a short recall query of a few words naming its subject and topic, used to look up
-existing memories on the same topic. Leave no fact worth remembering out of the details. List at most {max_facts}
+existing memories on the same topic. Leave no fact worth remembering out of the details. List at most {max_entries}
 entries. Step 1 only finds the existing memories to check: include an entry or a detail when in doubt, since step 2
 decides what is kept; return an empty list only when the evidence states no fact at all.
 Reply with only this JSON object: {{"items": [{{"memory": "...", "details": ["..."], "query": "..."}}]}}
@@ -124,7 +124,7 @@ memory, and "noop" drops it because the target memory already states it. Reply w
 def one_pass_instructions(extraction_rules: str, reconciliation_guidance: str | None = None) -> str:
     """Return the conversation's fixed instructions around one Scope's extraction rules and guidance."""
 
-    instructions = _INSTRUCTIONS.format(extraction_rules=extraction_rules.strip(), max_facts=ONE_PASS_MAX_FACTS)
+    instructions = _INSTRUCTIONS.format(extraction_rules=extraction_rules.strip(), max_entries=ONE_PASS_MAX_ENTRIES)
     if reconciliation_guidance is None or not reconciliation_guidance.strip():
         return instructions
     return (
@@ -133,15 +133,16 @@ def one_pass_instructions(extraction_rules: str, reconciliation_guidance: str | 
     )
 
 
-class OnePassFact(BaseModel):
+class OnePassEntry(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
-    fact: str = ""
+    memory: str = ""
+    details: tuple[str, ...] = ()
     query: str = Field(min_length=1)
 
 
-class OnePassFacts(BaseModel):
+class OnePassEntries(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
-    items: tuple[OnePassFact, ...] = ()
+    items: tuple[OnePassEntry, ...] = ()
 
 
 class OnePassOperation(BaseModel):
@@ -161,11 +162,11 @@ class OnePassOperations(BaseModel):
     operations: tuple[OnePassOperation, ...] = ()
 
 
-def parse_one_pass_facts(reply: str) -> tuple[OnePassFact, ...]:
-    """Parse step 1 and keep one entry per distinct query, within the fact limit."""
+def parse_one_pass_entries(reply: str) -> tuple[OnePassEntry, ...]:
+    """Parse step 1 and keep one entry per distinct query, within the entry limit."""
 
-    items = _parse(reply, OnePassFacts).items
-    return tuple({item.query: item for item in items}.values())[:ONE_PASS_MAX_FACTS]
+    items = _parse(reply, OnePassEntries).items
+    return tuple({item.query: item for item in items}.values())[:ONE_PASS_MAX_ENTRIES]
 
 
 def render_existing_memories(labels: Mapping[str, AtomicMemoryWorkingItem]) -> str:

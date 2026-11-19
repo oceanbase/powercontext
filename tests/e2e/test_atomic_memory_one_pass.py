@@ -53,7 +53,7 @@ class _Conversation:
 
 
 def _facts(*queries: str) -> dict[str, Any]:
-    return {"items": [{"fact": query, "query": query} for query in queries]}
+    return {"items": [{"memory": query, "details": [query], "query": query} for query in queries]}
 
 
 def _write(action: str, text: str, *targets: str, **extra: Any) -> dict[str, Any]:

@@ -47,7 +47,7 @@ from powercontext.builtin.artifacts.atomic_memory.one_pass import (
     apply_one_pass_operations,
     apply_one_pass_recheck,
     one_pass_instructions,
-    parse_one_pass_facts,
+    parse_one_pass_entries,
     render_existing_memories,
     render_recheck,
 )
@@ -686,7 +686,7 @@ class AtomicMemorySourceWindowProcessor:
             return None
         workset = AtomicMemoryWindowWorkset()
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
-        facts = await conversation.turn(evidence, parse_one_pass_facts)
+        entries = await conversation.turn(evidence, parse_one_pass_entries)
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
 
         async def recall(query: str) -> tuple[str, ...]:
@@ -707,20 +707,20 @@ class AtomicMemorySourceWindowProcessor:
             return tuple(recalled)
 
         shown: dict[str, str] = {}
-        for fact in facts.output:
+        for entry in entries.output:
             if len(shown) >= ONE_PASS_MAX_MEMORIES:
                 break
-            for key in await recall(fact.query):
+            for key in await recall(entry.query):
                 if len(shown) < ONE_PASS_MAX_MEMORIES and key not in shown.values():
                     shown[f"M{len(shown) + 1}"] = key
-        conversation.sent.append(json.dumps([fact.model_dump() for fact in facts.output], ensure_ascii=False))
+        conversation.sent.append(json.dumps([entry.model_dump() for entry in entries.output], ensure_ascii=False))
         message = render_existing_memories({label: workset.items[key] for label, key in shown.items()})
         if not conversation.fits(message):
             return None
         compared = {read.ref.artifact_id for key in shown.values() for read in workset.items[key].origins}
         await self._authorize_comparison_basis(scope_id, context, tuple(workset.items[key] for key in shown.values()))
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), facts.history
+            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries.history
         )
         workset, created = operations.output
 
@@ -734,7 +734,7 @@ class AtomicMemorySourceWindowProcessor:
     ):
         """Decide created memories again beside the memories that only their own text recalls.
 
-        Step 2 compared a created memory with what its fact's query recalled; ``compared`` holds those identities.
+        Step 2 compared a created memory with what its entry's query recalled; ``compared`` holds those identities.
         """
         pending: dict[str, str] = {}
         unseen: dict[str, dict[str, str]] = {}
