@@ -1,0 +1,19 @@
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_07937c4f0e55ea 1,7-9,11,14,16-35,37-44,46-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "919589c40fe33f182e2ec23331de9f412e8a5b9c",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
