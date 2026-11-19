@@ -131,7 +131,12 @@ jobs:
         test "$RUNNER_ENVIRONMENT" = self-hosted
         test "$RUNNER_NAME" != "$QUALITY_RUNNER_NAME"
         test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-        test "$(uv --version)" = 'uv 0.10.12'
+        uv_version=$(uv --version)
+        printf 'uv version: %s\n' "$uv_version"
+        case "$uv_version" in
+          'uv 0.10.12'|'uv 0.10.12 ('*')') ;;
+          *) echo 'Unexpected uv version' >&2; exit 1 ;;
+        esac
         printf 'Application runner: %s\n' "$RUNNER_NAME"
         cat > "$RUNNER_TEMP/bundle-acceptance-python" <<'SH'
         #!/usr/bin/env bash
