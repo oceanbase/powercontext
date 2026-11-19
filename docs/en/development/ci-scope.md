@@ -117,6 +117,26 @@ The exact test paths in `[exclusions].database` use SQLite or in-memory behavior
 
 These rules reduce unnecessary work for local changes. Shared-runtime and CI-policy changes retain broad coverage; runner minutes and queue latency require measurement after rollout.
 
+## Dependency cache storage
+
+The shared cache actions select an S3-compatible backend when a self-hosted Linux runner provides `PC_CI_CACHE_ENDPOINT`. The runner Pod supplies the following configuration; workflow files do not contain service addresses or credentials.
+
+| Variable | Meaning |
+| --- | --- |
+| `PC_CI_CACHE_ENDPOINT` | Internal S3-compatible service endpoint |
+| `PC_CI_CACHE_BUCKET` | Existing cache bucket |
+| `PC_CI_CACHE_ACCESS_KEY` | Access key supplied by runner configuration |
+| `PC_CI_CACHE_SECRET_KEY` | Secret key supplied by runner configuration |
+| `PC_CI_CACHE_REGION` | Optional signing region; defaults to `us-east-1` |
+
+The backend helper reads the inherited Pod environment and exposes `backend` as `s3` or `github` before cache steps run. An internal endpoint with missing required settings fails configuration validation. With no endpoint, the shared actions retain GitHub caching. Windows, macOS and GitHub-hosted jobs retain their existing cache backend, including the hosted Docker build cache. Artifact upload and download also remain on GitHub.
+
+Internal caches use `runs-on/cache` to store dependency and tool snapshots. Python, pnpm, npm, Cargo, Go, mise, OpenAPI generator and pre-commit caches use the shared actions in the migrated jobs. Existing explicit saves after dependency installation remain before tests; Rust saves also run after ordinary test failures. Restored Rust snapshots retain third-party compiled dependencies, while workspace crates are rebuilt so embedded inputs outside the workspace cannot leave stale binaries. Cancellation or runner termination can prevent a save. GitHub cache objects are not copied automatically; packages absent from both the internal cache and runner image still download from package registries. Cache hits transfer contents from the internal service.
+
+Historical-source bundle builds use `$/` action references, so cache tooling follows the workflow commit while the requested source checkout remains unchanged. The nested cache actions use the same reference convention. This requires GitHub.com and runner 2.336.0 or newer; see GitHub's [self-repository action reference announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/).
+
+The cache service must have storage that outlives worker reclamation and be reachable from every runner Pod. The helper bypasses the outbound proxy for the endpoint host. Service deployment, bucket provisioning and persistent storage are infrastructure configuration; repository workflows do not create them. Validate a save and restore from different Pods, verify persistence after worker removal, and compare dependency-install duration on real CI runs. YAML validation alone does not establish backend availability or a performance improvement.
+
 ## Parallelism and cancellation budgets
 
 | Matrix | Maximum parallel jobs per run | Failure behavior |

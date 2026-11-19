@@ -1,0 +1,49 @@
+name: Cache Save
+description: Keep internal runner archives in S3 and hosted runner archives in GitHub
+
+inputs:
+  path:
+    description: Files and directories to archive
+    required: true
+  key:
+    description: Cache identity
+    required: true
+
+outputs:
+  cache-backend:
+    description: Selected cache backend
+    value: ${{ steps.backend.outputs.backend }}
+  cache-primary-key:
+    description: Requested cache key
+    value: ${{ inputs.key }}
+
+runs:
+  using: composite
+  steps:
+    - id: backend
+      if: always()
+      uses: $/.github/actions/cache-backend
+
+    - id: github
+      if: always() && steps.backend.outputs.backend == 'github'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+
+    - id: s3
+      if: always() && steps.backend.outputs.backend == 's3'
+      uses: runs-on/cache/save@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
+        NO_PROXY: ${{ env.PC_CI_CACHE_NO_PROXY }}
+        no_proxy: ${{ env.PC_CI_CACHE_NO_PROXY }}

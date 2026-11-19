@@ -117,6 +117,26 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 这些规则减少局部改动带来的无关任务。公共运行时和 CI 策略改动仍保留广泛覆盖；runner 分钟和排队时间需要上线后实测。
 
+## 依赖缓存存储
+
+自托管 Linux runner 提供 `PC_CI_CACHE_ENDPOINT` 时，共用缓存 action 会选择兼容 S3 的后端。以下配置由 runner Pod 提供，工作流文件不包含服务地址或凭据。
+
+| 变量 | 含义 |
+| --- | --- |
+| `PC_CI_CACHE_ENDPOINT` | 内部兼容 S3 的服务地址 |
+| `PC_CI_CACHE_BUCKET` | 已创建的缓存 bucket |
+| `PC_CI_CACHE_ACCESS_KEY` | 由 runner 配置提供的访问密钥 ID |
+| `PC_CI_CACHE_SECRET_KEY` | 由 runner 配置提供的访问密钥 |
+| `PC_CI_CACHE_REGION` | 可选的签名区域，默认 `us-east-1` |
+
+缓存步骤执行前，后端 helper 读取 Pod 继承的环境变量，通过 `backend` 输出 `s3` 或 `github`。配置了内部地址但缺少必填项时，配置校验会失败。未配置地址时，共用 action 继续使用 GitHub 缓存。Windows、macOS 和 GitHub 托管任务保持原缓存后端，包括托管任务的 Docker 构建缓存。Artifact 的上传和下载也仍使用 GitHub。
+
+内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。已有的依赖安装后显式保存步骤仍在测试前执行；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+
+打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+
+缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。
+
 ## 并发预算与取消
 
 | 矩阵 | 每次运行的最大并发 | 失败策略 |

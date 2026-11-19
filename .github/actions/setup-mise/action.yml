@@ -1,0 +1,53 @@
+name: Set up mise with the CI cache backend
+description: Restore tools locally and save completed installations before tests
+inputs:
+  working_directory:
+    description: Project configuration directory
+    default: ''
+  version:
+    description: mise version
+    default: ''
+  install_args:
+    description: Arguments for mise install
+    default: ''
+outputs:
+  cache-hit:
+    description: Whether the tool snapshot was restored
+    value: ${{ steps.internal.outputs.cache-hit || steps.mise.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      uses: $/.github/actions/cache-backend
+
+    - id: snapshot
+      if: steps.backend.outputs.backend == 's3'
+      shell: bash
+      env:
+        CI_CACHE_MISE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        CI_CACHE_MISE_VERSION: ${{ inputs.version }}
+        CI_CACHE_MISE_INSTALL_ARGS: ${{ inputs.install_args }}
+        CI_CACHE_MISE_ACTION: d5574b52816a478f9d4e6529a3f6ff17a8a36785
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" mise
+
+    - id: internal
+      if: steps.backend.outputs.backend == 's3'
+      uses: $/.github/actions/cache-restore
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+
+    - id: mise
+      uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      with:
+        working_directory: ${{ inputs.working_directory }}
+        version: ${{ inputs.version }}
+        install_args: ${{ inputs.install_args }}
+        cache: ${{ steps.backend.outputs.backend != 's3' }}
+
+    - name: Save installed tools
+      if: steps.backend.outputs.backend == 's3' && steps.internal.outputs.cache-hit != 'true'
+      uses: $/.github/actions/cache-save
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
