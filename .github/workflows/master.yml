@@ -247,6 +247,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -961,6 +963,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 40
     runs-on: powercontext-ci-light
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1013,6 +1017,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 25
     runs-on: powercontext-ci-light
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1058,6 +1064,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 30
     runs-on: powercontext-ci-light
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1095,6 +1103,7 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       OPENCODE_VERSION: '1.19.5'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1152,6 +1161,7 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       CODEX_VERSION: '0.167.2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1197,6 +1207,7 @@ jobs:
     # Claude Code ships no baseline x64 build, and some light runners lack the AVX2 its binary needs.
     runs-on: ubuntu-24.04
     env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       CLAUDE_CODE_VERSION: '2.1.277'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1290,6 +1301,7 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       OPENCLAW_VERSION: '2026.8.1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1400,6 +1412,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: windows-latest
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1426,6 +1440,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: powercontext-ci-standard
+    env:
+      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
