@@ -98,6 +98,62 @@ def test_rejects_intranet_url_next_to_cjk_punctuation_or_inline_code(tmp_path: P
         assert f"punctuation.md:{number}:" in result.stderr
 
 
+def test_rejects_intranet_url_with_userinfo(tmp_path: Path) -> None:
+    # RFC 3986 userinfo may carry sub-delimiters, a colon and a password, or
+    # percent-encoding. A capture limited to hostname characters stopped at the
+    # first of those and checked the userinfo instead of the host, so every
+    # form below used to pass.
+    hosts = [
+        "user@yuque.antfin.com",
+        "user+tag@yuque.antfin.com",
+        "user:p%40ss@yuque.antfin.com",
+        "user:pa$$word@yuque.antfin.com",
+        "us~er@yuque.antfin.com",
+        "us!er@yuque.antfin.com",
+        "us%2Ber@yuque.antfin.com",
+        "us&er@yuque.antfin.com",
+        "us'er@yuque.antfin.com",
+        "us(er)@yuque.antfin.com",
+        "us*er@yuque.antfin.com",
+        "us,er@yuque.antfin.com",
+        "us;er@yuque.antfin.com",
+        "us=er@yuque.antfin.com",
+        "user@yuque.antfin.com:8443",
+        "user+tag@docs.antfin.com:8443",
+    ]
+    doc = tmp_path / "userinfo.md"
+    doc.write_text("\n".join(f"- see {internal_url(host)}" for host in hosts) + "\n", encoding="utf-8")
+
+    result = run_checker(doc)
+
+    assert result.returncode == 1, result.stdout
+    assert result.stderr.count("internal document URL is not allowed") == len(hosts)
+    for number in range(1, len(hosts) + 1):
+        assert f"userinfo.md:{number}:" in result.stderr
+
+
+def test_accepts_userinfo_that_only_mentions_an_intranet_host(tmp_path: Path) -> None:
+    # The userinfo is not the host, so a public destination must stay accepted;
+    # the same check must not start rejecting hosts that merely resemble a
+    # configured suffix.
+    doc = tmp_path / "public-userinfo.md"
+    doc.write_text(
+        "\n".join([
+            f"- {internal_url('yuque.antfin.com@evil.example')}",
+            "- https://user+tag@github.com/oceanbase/powercontext",
+            "- https://notantfin.com@yuque.example.com/doc",
+            "- https://user@powercontext.internal.example:8765/doc",
+        ])
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_checker(doc)
+
+    assert result.returncode == 0, result.stderr
+    assert "no internal document URLs" in result.stdout
+
+
 def test_scans_non_utf8_text(tmp_path: Path) -> None:
     # Legacy-encoded Chinese docs must not hide an ASCII URL behind a decode error.
     doc = tmp_path / "gbk.md"

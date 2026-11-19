@@ -42,17 +42,31 @@ INTERNAL_HOST_SUFFIXES = (
     "aliyun-inc.com",
 )
 MAX_FILE_BYTES = 4 * 1024 * 1024
-# Only URL-authority characters belong in the host capture. A permissive
-# "anything but ASCII punctuation" class also swallows CJK punctuation,
-# full-width brackets or quotes, and Markdown backticks, which commonly follow
-# a bare URL in Chinese docs and inline code. Those characters would become
-# part of the host and defeat the suffix check, silently accepting the link.
-URL_RE = re.compile(r"https?://([A-Za-z0-9._:@-]+)", re.IGNORECASE)
+# Capture the complete RFC 3986 authority, then take the hostname out of it.
+# Capturing only "hostname characters" stops at the first userinfo delimiter:
+# `https://user+tag@intranet.example/doc` yields `user`, so the suffix check
+# inspects the userinfo instead of the host and silently accepts the link.
+# The authority ends at `/ ? #` or whitespace; every other character that can
+# follow a bare URL in Chinese docs or Markdown inline code (full-width
+# punctuation, brackets, quotes, backticks) is dropped by HOSTNAME_PREFIX_RE
+# below rather than by narrowing this capture.
+URL_RE = re.compile(r"https?://([^\s/?#]+)", re.IGNORECASE)
+# Longest leading DNS-label run of an authority: drops the userinfo that
+# `hostname_of()` split off, along with any port, path-less delimiter or
+# trailing dot.
+HOSTNAME_PREFIX_RE = re.compile(r"[A-Za-z0-9._-]+")
 
 
-def is_internal_host(host: str) -> bool:
-    """Return whether a URL authority points at a corporate intranet domain."""
-    hostname = host.rsplit("@", 1)[-1].split(":", 1)[0].lower().rstrip(".")
+def hostname_of(authority: str) -> str | None:
+    """Return the lowercase DNS name of a URL authority, or None when it has none."""
+    match = HOSTNAME_PREFIX_RE.match(authority.rsplit("@", 1)[-1])
+    if match is None:
+        return None
+    return match.group(0).lower().rstrip(".")
+
+
+def is_internal_hostname(hostname: str) -> bool:
+    """Return whether a normalized hostname points at a corporate intranet domain."""
     return any(hostname == suffix or hostname.endswith("." + suffix) for suffix in INTERNAL_HOST_SUFFIXES)
 
 
@@ -102,11 +116,13 @@ def scan_files(files: list[Path]) -> tuple[list[str], int, int]:
         checked += 1
         for number, line in enumerate(lines, start=1):
             for match in URL_RE.finditer(line):
-                if is_internal_host(match.group(1)):
-                    findings.append(
-                        f"{path.as_posix()}:{number}: internal document URL is not allowed in public "
-                        f"content: {match.group(0)}"
-                    )
+                hostname = hostname_of(match.group(1))
+                if hostname is None or not is_internal_hostname(hostname):
+                    continue
+                findings.append(
+                    f"{path.as_posix()}:{number}: internal document URL is not allowed in public "
+                    f"content: https://{hostname}"
+                )
     return findings, checked, skipped
 
 
