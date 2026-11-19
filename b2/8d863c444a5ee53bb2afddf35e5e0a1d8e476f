@@ -1,0 +1,21 @@
+desktop/VALIDATION.md
+  s_624ad8983708a5::t_6fe90a1f8c6aef 3888-3931
+desktop/src-tauri/src/connections/compatibility.json
+  s_624ad8983708a5::t_1e16f4c7327a06 1973-1994
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b28d863c444a5ee53bb2afddf35e5e0a1d8e476f",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

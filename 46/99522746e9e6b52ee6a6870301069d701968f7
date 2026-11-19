@@ -1,0 +1,19 @@
+.github/workflows/desktop-qualification-2725.yml
+  s_624ad8983708a5::t_b2ad254816daf4 19-20,83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4699522746e9e6b52ee6a6870301069d701968f7",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

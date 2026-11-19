@@ -1,0 +1,172 @@
+docs/zh/development/capture-coverage.md
+  s_13fec9a57c9104::t_72221cd04118f7 39,64-65,89-105
+gateway/README.md
+  s_13fec9a57c9104::t_72221cd04118f7 22,59,103-105
+docs/zh/docs/operate/configuration.md
+  s_13fec9a57c9104::t_72221cd04118f7 37,212-214
+docs/zh/docs/operate/deploy-server.md
+  s_13fec9a57c9104::t_72221cd04118f7 300-344
+tests/builtin/runtime/test_context_check.py
+  s_13fec9a57c9104::t_72221cd04118f7 287-337
+  s_13fec9a57c9104::t_c8497f01c5e6f2 286
+src/powercontext/server/app.py
+  s_13fec9a57c9104::t_72221cd04118f7 520-521,813,1007-1008,1680,4040-4047
+  s_13fec9a57c9104::t_4bf1b6396a39d7 4048-4049
+gateway/crates/pc-gateway-core/src/transcript.rs
+  s_13fec9a57c9104::t_72221cd04118f7 15,17-23,25,28-50,52-59,64-87,103,106,111,116,120,133,135,140,142-144,146-246,249-260,281-283,309-310,320,322,329-331,343,349,353-368,373,375-385,389-404,406-419,421-433,441,444,446-447,449,454-456,458-465,469-505,512,521,532-538,550-551,553,556-571,577-582,621-631,633,635-638,640-656,658-662,667-684,688-705,707-711,714-715,718-719,721-728,730-732,734-736,738-742,746-771,773-788,790-793,797,799-805,808-813,818-835,839-842,844-845,847-849,864,871-874,882-889,892-895
+gateway/crates/pc-gateway-app/src/link.rs
+  s_13fec9a57c9104::t_72221cd04118f7 19,70
+docs/zh/docs/operate/observability.md
+  s_13fec9a57c9104::t_72221cd04118f7 144-149
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_13fec9a57c9104::t_72221cd04118f7 27,34,89-90,175,177-187,288,350,389,1639,3063-3068,3070-3076,3079-3096,3098,3105-3107,3113-3117,4278-4520
+gateway/crates/pc-gateway-types/src/prepare.rs
+  s_13fec9a57c9104::t_72221cd04118f7 148-150,152,154-159
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_13fec9a57c9104::t_72221cd04118f7 73
+src/powercontext/builtin/runtime/models.py
+  s_13fec9a57c9104::t_72221cd04118f7 219
+docs/en/docs/operate/deploy-server.md
+  s_13fec9a57c9104::t_72221cd04118f7 333-396
+gateway/crates/pc-gateway-types/src/check.rs
+  s_13fec9a57c9104::t_72221cd04118f7 154-159
+desktop/src-tauri/src/transport/operations.json
+  s_13fec9a57c9104::t_72221cd04118f7 2
+src/powercontext/http/_generated/operations.py
+  s_13fec9a57c9104::t_72221cd04118f7 54-55,997-1011
+  s_13fec9a57c9104::t_145eb507ed8090 1012-1025
+src/powercontext/http/_generated/schema.py
+  s_13fec9a57c9104::t_72221cd04118f7 1005-1060,10520-10597,11812-11870
+desktop/src-tauri/src/transport/wire.rs
+  s_13fec9a57c9104::t_72221cd04118f7 1054-1067,1087-1088
+gateway/crates/pc-gateway-core/tests/executor_network_lifecycle.rs
+  s_13fec9a57c9104::t_72221cd04118f7 91,114
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_13fec9a57c9104::t_72221cd04118f7 421-431
+gateway/crates/pc-gateway-app/src/main.rs
+  s_13fec9a57c9104::t_72221cd04118f7 72-73,174-183,193-198,228,230-233,274
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_13fec9a57c9104::t_72221cd04118f7 19,26,29-32,54-55,169-170,173-176,178-184,186-231
+src/powercontext/builtin/runtime/composition.py
+  s_13fec9a57c9104::t_72221cd04118f7 841,1547-1572,1813
+docs/en/development/capture-coverage.md
+  s_13fec9a57c9104::t_72221cd04118f7 41,68-69,94-116
+src/powercontext/http/_generated/models.py
+  s_13fec9a57c9104::t_72221cd04118f7 1555-1584,2153-2166,5351-5358,6139-6146
+  s_13fec9a57c9104::t_fe4b9823e211b2 6147-6148
+src/powercontext/builtin/runtime/config.py
+  s_13fec9a57c9104::t_72221cd04118f7 266,339-343,395-401,439-447
+  s_13fec9a57c9104::t_0b887182231f61 448-449
+.env.example
+  s_13fec9a57c9104::t_72221cd04118f7 171-176
+src/powercontext/client/client.py
+  s_13fec9a57c9104::t_72221cd04118f7 61-62,236,598-601
+  s_13fec9a57c9104::t_ba3c397d950912 602
+tests/test_extraction_capabilities.py
+  s_13fec9a57c9104::t_72221cd04118f7 94-108
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_13fec9a57c9104::t_72221cd04118f7 389-399
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_13fec9a57c9104::t_72221cd04118f7 45-50,209,1202-1256
+  s_13fec9a57c9104::t_04fe635706a5e2 1257-1262
+gateway/crates/pc-gateway-core/tests/real_core_rpc_recovery.rs
+  s_13fec9a57c9104::t_72221cd04118f7 20,222,224-228,230,242-246,266,268,270-278,284-285,287
+desktop/VALIDATION.md
+  s_13fec9a57c9104::t_72221cd04118f7 3620-3841
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_13fec9a57c9104::t_72221cd04118f7 117
+src/powercontext/server/mapping.py
+  s_13fec9a57c9104::t_72221cd04118f7 21,196-198,395-411,569-576
+  s_13fec9a57c9104::t_670a02b115d534 577-578
+src/powercontext/http/__init__.py
+  s_13fec9a57c9104::t_72221cd04118f7 124,127-129,663,666-667,670
+integrations/hermes/plugins/powercontext/helpers.py
+  s_13fec9a57c9104::t_72221cd04118f7 43
+desktop/ui/src/generated/api.d.ts
+  s_13fec9a57c9104::t_72221cd04118f7 464-483,4159-4181,4645-4648,7458-7480,7487-7488
+  s_13fec9a57c9104::t_2aad76da331176 7481-7486
+tests/integration_conformance/capture_coverage_cases.json
+  s_13fec9a57c9104::t_72221cd04118f7 156-167,347-360
+gateway/crates/pc-gateway-core/src/gate_client.rs
+  s_13fec9a57c9104::t_72221cd04118f7 16,42,46
+tests/builtin/artifacts/atomic_memory/test_prefixed_extraction.py
+  s_13fec9a57c9104::t_72221cd04118f7 1-283
+tests/test_server_generation.py
+  s_13fec9a57c9104::t_72221cd04118f7 52-74
+tests/test_capture_content_sources.py
+  s_13fec9a57c9104::t_72221cd04118f7 1-127
+desktop/ui/src/generated/operations.ts
+  s_13fec9a57c9104::t_72221cd04118f7 18
+gateway/crates/pc-gateway-core/src/http_gate_client.rs
+  s_13fec9a57c9104::t_72221cd04118f7 17,155,159
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_13fec9a57c9104::t_72221cd04118f7 422-432
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_13fec9a57c9104::t_72221cd04118f7 144-296,363-364,506,1264,1551-1605
+  s_13fec9a57c9104::t_5ebccdc7e3a2d4 1606
+src/powercontext/server/factory.py
+  s_13fec9a57c9104::t_72221cd04118f7 103,848-853
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_13fec9a57c9104::t_72221cd04118f7 389-399
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_13fec9a57c9104::t_72221cd04118f7 33,46-48,79-80,160-161,163,209-210,212,282-295,438,657,661-674,682-729,731,742,783-823
+  s_13fec9a57c9104::t_c49f7f9b9b536f 824
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_13fec9a57c9104::t_72221cd04118f7 33,42-43
+docs/en/docs/operate/observability.md
+  s_13fec9a57c9104::t_72221cd04118f7 152-158
+src/powercontext/builtin/artifacts/atomic_memory/prefixed_extraction.py
+  s_13fec9a57c9104::t_72221cd04118f7 1-248
+docs/zh/docs/develop/http-api.md
+  s_13fec9a57c9104::t_72221cd04118f7 191
+docs/en/docs/operate/configuration.md
+  s_13fec9a57c9104::t_72221cd04118f7 42,227-229
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_13fec9a57c9104::t_72221cd04118f7 119-122
+openapi/powercontext.yaml
+  s_13fec9a57c9104::t_72221cd04118f7 1083-1124,9396-9453,10440-10451
+src/powercontext/builtin/runtime/application.py
+  s_13fec9a57c9104::t_72221cd04118f7 620-627,629-630
+gateway/crates/pc-gateway-core/Cargo.toml
+  s_13fec9a57c9104::t_72221cd04118f7 35
+gateway/crates/pc-gateway-core/tests/core_rpc_recovery.rs
+  s_13fec9a57c9104::t_72221cd04118f7 20-21,64,66-70
+desktop/src-tauri/src/connections/compatibility.json
+  s_13fec9a57c9104::t_72221cd04118f7 1797-1950
+desktop/ui/src/generated/ipc.ts
+  s_13fec9a57c9104::t_72221cd04118f7 218-226
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_13fec9a57c9104::t_72221cd04118f7 489-499
+gateway/crates/pc-gateway-core/src/capture_coverage.rs
+  s_13fec9a57c9104::t_72221cd04118f7 23,28
+gateway/crates/pc-gateway-core/src/uds_gate_client.rs
+  s_13fec9a57c9104::t_72221cd04118f7 26,445,451
+docs/en/docs/develop/http-api.md
+  s_13fec9a57c9104::t_72221cd04118f7 211
+gateway/crates/pc-gateway-core/src/prefix_store.rs
+  s_13fec9a57c9104::t_72221cd04118f7 1-178
+gateway/Cargo.lock
+  s_13fec9a57c9104::t_967a41fcb56811 664
+integrations/dsh/plugins/powercontext/src/operations.generated.ts
+  s_13fec9a57c9104::t_e9519fdc49d823 48
+integrations/opencode/plugins/powercontext/src/operations.generated.ts
+  s_13fec9a57c9104::t_3af5effcd50295 48
+integrations/pi/plugins/powercontext/src/operations.generated.ts
+  s_13fec9a57c9104::t_0e24390dacefe3 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d460a32023a5e74d139588bc04bfad7c2f7ebc02",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
