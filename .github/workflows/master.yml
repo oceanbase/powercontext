@@ -207,6 +207,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          GOCACHE: ${{ runner.temp }}/go-build
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
@@ -224,7 +225,7 @@ jobs:
       - name: Cache prek environments
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/prek
+          path: ${{ runner.temp }}/prek
           key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run checks
@@ -259,10 +260,6 @@ jobs:
           # The 3.11 unit job also downloads minimum Pydantic after the root install.
           shared-cache: ${{ matrix.suite == 'e2e' || matrix.python-version != '3.11' }}
           python-version: ${{ matrix.python-version }}
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -976,10 +973,6 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
-
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
@@ -1032,10 +1025,6 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
-
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
@@ -1081,10 +1070,6 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
-
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
@@ -1120,10 +1105,6 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
@@ -1182,10 +1163,6 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
-
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Install the pinned Codex host
         run: |
@@ -1230,10 +1207,6 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       - name: Install the pinned Claude Code host
@@ -1327,10 +1300,6 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
@@ -1470,10 +1439,6 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up website tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
