@@ -52,7 +52,12 @@ jobs:
           enable-cache: true
           cache-suffix: desktop-qualification-2725
       - name: Install locked Python dependencies
-        run: uv sync --locked --python 3.12
+        run: |
+          uv sync --locked --python 3.12.13 --managed-python
+          uv run --no-sync python - <<'PY'
+          import sqlite3
+          assert hasattr(sqlite3.Connection, 'enable_load_extension')
+          PY
       - name: Build the exact implementation commit
         run: |
           git worktree add --detach "$RUNNER_TEMP/qualification-source" "$SERVER_COMMIT"
