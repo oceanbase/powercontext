@@ -141,6 +141,12 @@ Supervisor 的 worker 和 wait spans 在跨进程后保留 child 的有限错误
 `auto` 已设置且模型名前缀不属于 `anthropic`、`openai`、`openai-chat`、`openai-responses` 时，`unit` 为
 `inference` 的 `inference.generation.streaming_not_applied` WARNING 表示该模型仍走非流式请求。该事件不携带
 prompt 或响应内容，也不改变本次请求的结果。
+配置了前缀抽取（`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`）时，对含一个带前缀句柄的网关回合的
+窗口，每次尝试输出一条 INFO 级别的 `atomic_memory.prefixed_extraction` 事件，`operation` 为 `atomic_memory.extract`，
+`unit` 为 `inference`。使用了基于缓存前缀的回复时 `outcome` 为 `success`；改用普通抽取时为 `fallback`，此时
+`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
+`gateway_unavailable`、`provider_error`、`gateway_error` 或 `invalid_output` 之一。不含这种回合的窗口不输出该事件。该事件不携带句柄、
+prompt 或响应内容。
 Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed`，outcome/category 为 `cancelled`，
 诊断代码为 `worker_cancelled`。Application spans 根据已映射的诊断代码分类，
 即使敏感 exception values 已从 logs 和 traces 中排除，也保留正确分类。

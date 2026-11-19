@@ -626,14 +626,17 @@ class ScopedSourceApplication:
             return ()
         if any(value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND for value in values):
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
-        captures = tuple(
-            ContentCapture(
-                source_id=value.source_id,
-                content=value.content,
-                metadata=value.model_dump(mode="json")["metadata"],
+        try:
+            captures = tuple(
+                ContentCapture(
+                    source_id=value.source_id,
+                    content=value.content,
+                    metadata=value.model_dump(mode="json")["metadata"],
+                )
+                for value in values
             )
-            for value in values
-        )
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
         if self._runtime._record_service is None:
             raise InvalidRuntimeRequestError("batch-capture-unavailable")
         try:

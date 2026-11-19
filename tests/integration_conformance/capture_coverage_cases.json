@@ -153,6 +153,18 @@
           "unmeasured_projection"
         ]
       }
+    },
+    {
+      "id": "gateway-turn-text.v2-0",
+      "projection": "gateway-turn-text.v2",
+      "reasons": [],
+      "expected": {
+        "schema": "powercontext.capture-coverage.v1",
+        "projection": "gateway-turn-text.v2",
+        "unit": "gateway_turn_projection",
+        "status": "complete",
+        "reasons": []
+      }
     }
   ],
   "interpretations": [
@@ -331,6 +343,20 @@
         }
       },
       "expected": "partial"
+    },
+    {
+      "id": "valid-gateway-turn-text.v2-0",
+      "metadata": {
+        "powercontext_capture_coverage": {
+          "schema": "powercontext.capture-coverage.v1",
+          "projection": "gateway-turn-text.v2",
+          "unit": "gateway_turn_projection",
+          "status": "complete",
+          "reasons": []
+        },
+        "prefix_handle": "synthetic-opaque"
+      },
+      "expected": "complete"
     },
     {
       "id": "missing",
