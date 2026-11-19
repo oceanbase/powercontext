@@ -164,7 +164,7 @@ def preserve_history(before, after) -> None:
             raise ValueError(message)
 
 
-def checkout_resources(root: Path, ref: str, target: Path) -> None:
+def checkout_resources(root: Path, ref: str, target: Path) -> str:
     commit = subprocess.check_output(  # noqa: S603 -- git resolves the ref without a shell
         [GIT, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],
         cwd=root,
@@ -188,17 +188,21 @@ def checkout_resources(root: Path, ref: str, target: Path) -> None:
                 message = "Missing resource in Git archive"
                 raise ValueError(message)
             path.write_bytes(stream.read())
+    return commit
 
 
 def check(root: Path, *, base_ref: str | None = None, release: bool = False):
+    if base_ref is not None and not base_ref.strip():
+        message = "--base-ref must not be empty; omit it to run without a baseline comparison"
+        raise ValueError(message)
     current = bundles(root)
     if release and any(bundle.head == DRAFT for bundle in current.values()):
         message = "Release contains mutable 000; run make schema-freeze VERSION=X.Y.Z"
         raise ValueError(message)
-    if base_ref:
+    if base_ref is not None:
         with tempfile.TemporaryDirectory(prefix="pc-schema-base-") as temporary:
             base = Path(temporary)
-            checkout_resources(root, base_ref, base)
+            commit = checkout_resources(root, base_ref, base)
             previous = bundles(base)
             preserve_history(previous, current)
             head = current["server"].head
@@ -207,6 +211,7 @@ def check(root: Path, *, base_ref: str | None = None, release: bool = False):
                 if head != "v" + policy["target_version"].replace(".", "_"):
                     message = "New frozen revision must match the declared release target"
                     raise ValueError(message)
+            print(f"Frozen migration history matches base: {commit}")
     return current
 
 

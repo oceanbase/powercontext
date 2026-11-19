@@ -17,6 +17,8 @@
 import json
 import shutil
 import sqlite3
+import subprocess
+import sys
 import zipfile
 from contextlib import closing
 from pathlib import Path
@@ -437,3 +439,65 @@ def test_frozen_code_profile_and_registration_cannot_change(tmp_path, source, ch
             new_schema.verify(old_schema.required(bundle.head), bundle.head)
     with pytest.raises(ValueError, match="Frozen migration resources changed"):
         schema.preserve_history(before, after)
+
+
+@pytest.mark.parametrize("baseline", ["", "   "])
+def test_cli_rejects_explicit_empty_baseline(draft, monkeypatch, capsys, baseline):
+    root, _ = draft
+    monkeypatch.setattr(schema, "ROOT", root)
+    monkeypatch.setattr(sys, "argv", ["schema_release.py", "check", "--base-ref", baseline])
+    assert schema.main() == 1
+    output = capsys.readouterr()
+    assert "--base-ref must not be empty" in output.err
+    assert "Server migration head" not in output.out
+
+
+def test_cli_allows_omitting_baseline(draft, monkeypatch, capsys):
+    root, _ = draft
+    monkeypatch.setattr(schema, "ROOT", root)
+    monkeypatch.setattr(sys, "argv", ["schema_release.py", "check"])
+    assert schema.main() == 0
+    output = capsys.readouterr()
+    assert "Server migration head: 000" in output.out
+    assert "matches base" not in output.out
+
+
+def test_cli_reports_verified_baseline_and_rejects_history_edits(draft, monkeypatch, capsys):
+    root, _ = draft
+    # Archive the same registered directory roots as the real repository.
+    (root / schema.SOURCES).mkdir(parents=True)
+    (root / schema.SOURCES / ".gitkeep").write_text("")
+
+    def git(*args):
+        return subprocess.check_output(
+            [
+                schema.GIT,
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                *args,
+            ],
+            cwd=root,
+            text=True,
+        ).strip()
+
+    git("init", "--quiet")
+    git("add", ".")
+    git("commit", "--quiet", "--no-gpg-sign", "-m", "Fixture baseline")
+    commit = git("rev-parse", "HEAD")
+    monkeypatch.setattr(schema, "ROOT", root)
+    monkeypatch.setattr(sys, "argv", ["schema_release.py", "check", "--base-ref", "HEAD"])
+    assert schema.main() == 0
+    assert f"Frozen migration history matches base: {commit}" in capsys.readouterr().out
+    path = root / schema.SERVER / "versions/v1_5_2.py"
+    path.write_text(path.read_text() + "\n# changed frozen history\n")
+    assert schema.main() == 1
+    output = capsys.readouterr()
+    assert "Frozen migration resources changed" in output.err
+    assert "matches base" not in output.out
+    monkeypatch.setattr(sys, "argv", ["schema_release.py", "check", "--base-ref", "refs/heads/missing-baseline"])
+    assert schema.main() == 1
+    assert "matches base" not in capsys.readouterr().out
