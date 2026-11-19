@@ -143,6 +143,8 @@ Bundle 准备过程在隔离环境中安装固定版本的打包工具，并单�
 
 Docker 镜像缓存与依赖快照分开配置。Runner 可以通过 `PC_CI_OCEANBASE_435_IMAGE` 和 `PC_CI_OCEANBASE_442_IMAGE` 使用对应固定版本 OceanBase 镜像的内部副本，也可以通过 `PC_CI_DOCKER_REGISTRY_MIRROR` 为嵌套 E2E daemon 指定 Docker Hub 镜像缓存；runner 外层 daemon 需要单独配置镜像缓存。嵌套 harness 也可以直接接收 `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR`。未配置这些变量时，沿用原有公共镜像地址和 daemon 行为。应逐个预热镜像，核对复制后的平台摘要，再将 runner 切换到内部副本。
 
+内部 mise 缓存还会单独保存启动所需的二进制、版本记录和签名校验文件，并在已安装工具恢复后恢复该快照，避免旧工具快照覆盖这些文件。固定版本的上游 action 仍会在本地校验二进制、安装项目工具并导出环境。已安装工具精确命中时，仍可保存尚未命中的启动快照；显式指定 mise 版本时使用独立的启动缓存键。只发布文件齐全的启动快照；校验文件缺失时仅跳过缓存写入，不使已成功的工具安装失败。
+
 打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
 
 缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。

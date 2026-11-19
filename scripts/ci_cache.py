@@ -151,13 +151,37 @@ def mise() -> None:
     data_dir = os.environ.get("MISE_DATA_DIR") or str(
         Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "mise"
     )
+    bootstrap = {
+        "action": os.environ.get("CI_CACHE_MISE_ACTION", ""),
+        "version": os.environ.get("CI_CACHE_MISE_VERSION") or "default",
+    }
     write_command_file(
         "GITHUB_OUTPUT",
         {
             "cache-path": data_dir,
             "cache-key": f"mise-internal-v1-{platform_key()}-{digest(values)}-{file_fingerprint(configs, root)}",
+            # The upstream action verifies its binary using the version record
+            # and signed checksum files stored beside it in this directory.
+            "bootstrap-cache-path": str(Path(data_dir) / "bin"),
+            "bootstrap-cache-key": f"mise-bootstrap-v1-{platform_key()}-{digest(bootstrap)}",
         },
     )
+
+
+def mise_bootstrap_ready() -> None:
+    directory = Path(os.environ["CI_CACHE_BOOTSTRAP_PATH"])
+    ready = False
+    try:
+        version = (directory / "mise-version").read_text(encoding="utf-8").strip()
+        files = [
+            directory / name for name in ("mise", f"SHASUMS256-{version}.txt", f"SHASUMS256-{version}.txt.minisig")
+        ]
+        ready = bool(version) and all(path.is_file() and path.stat().st_size > 0 for path in files)
+    except (OSError, UnicodeError):
+        pass
+    write_command_file("GITHUB_OUTPUT", {"ready": str(ready).lower()})
+    if not ready:
+        print("Mise bootstrap cache is incomplete; skipping cache publication.")
 
 
 def cargo_clean() -> None:
@@ -290,6 +314,7 @@ if __name__ == "__main__":
             "cargo": cargo,
             "cargo-clean": cargo_clean,
             "mise": mise,
+            "mise-bootstrap-ready": mise_bootstrap_ready,
             "go": go,
             "npm": npm,
             "pip": pip,
