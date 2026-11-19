@@ -1,0 +1,24 @@
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_13fec9a57c9104::t_4f0007599157bd 36,459-496
+  s_13fec9a57c9104::t_ee64004f1980b0 497
+release/upgrade-support.json
+  s_13fec9a57c9104::t_9f3839b791395b 6-7
+src/powercontext/builtin/persistence/database.py
+  s_13fec9a57c9104::t_e45a1918f97ae9 384-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "307cfe28840435e6119e92242bca86d49ddb776d",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
