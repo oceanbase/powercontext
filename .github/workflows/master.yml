@@ -247,7 +247,7 @@ jobs:
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
     # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 50 }}
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
@@ -384,7 +384,8 @@ jobs:
   docs-tests:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
-    timeout-minutes: 15
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1355,7 +1356,8 @@ jobs:
   check-website:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
-    timeout-minutes: 20
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 40
     runs-on: powercontext-ci-standard
     steps:
       - name: Check out
