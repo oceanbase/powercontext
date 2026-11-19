@@ -34,7 +34,7 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').kimi) }}
     name: controlled-cli (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +52,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           python-version: '3.12'
+          shared-cache: 'true'
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

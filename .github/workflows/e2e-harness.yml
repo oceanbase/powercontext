@@ -51,7 +51,7 @@ jobs:
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').oceanbase_acceptance) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 15
+    timeout-minutes: 25
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:

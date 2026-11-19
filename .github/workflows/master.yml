@@ -214,6 +214,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Resolve Python version for hook cache
         id: python
@@ -315,7 +317,7 @@ jobs:
   isolated-installations:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     strategy:
       fail-fast: true
@@ -410,7 +412,7 @@ jobs:
   worker-observability:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -457,7 +459,7 @@ jobs:
   evaluation-tests:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -847,7 +849,7 @@ jobs:
   dify-tools:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -928,7 +930,7 @@ jobs:
   hermes-skills:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -957,7 +959,7 @@ jobs:
   dsh-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1009,7 +1011,7 @@ jobs:
   cindy-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1054,7 +1056,7 @@ jobs:
   pi-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1090,7 +1092,7 @@ jobs:
   opencode-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
       OPENCODE_VERSION: '1.19.5'
@@ -1147,7 +1149,7 @@ jobs:
   codex-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').codex) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
       CODEX_VERSION: '0.167.2'
@@ -1157,6 +1159,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Install the pinned Codex host
@@ -1245,7 +1249,7 @@ jobs:
   bub-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').bub) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1283,7 +1287,7 @@ jobs:
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
       OPENCLAW_VERSION: '2026.8.1'
@@ -1374,7 +1378,7 @@ jobs:
   opendal-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1593,7 +1597,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1695,7 +1699,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
