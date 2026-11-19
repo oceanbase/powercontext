@@ -1,0 +1,19 @@
+.github/actions/setup-python-env/action.yml
+  s_7ef64a2bfbe178::t_ee15ccd35f0153 41-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "47bb65a77ec78a7bc3e73484275c3c6ef057a2b6",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
