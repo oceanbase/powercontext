@@ -236,6 +236,7 @@ from powercontext.builtin.persistence.errors import (
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.persistence.source_collection import SourceCollectionError
+from powercontext.builtin.processing_status import ProcessingStatusApplication
 from powercontext.builtin.publication import (
     ArtifactPublicationApplication,
     ArtifactPublicationConflictError,
@@ -498,6 +499,7 @@ from powercontext.http import (
     ArtifactGovernanceResponse,
     ArtifactHandleBinding,
     ArtifactPage,
+    ArtifactProcessingStatusResponse,
     ArtifactReadFamily,
     ArtifactReference,
     ArtifactRendering,
@@ -838,6 +840,7 @@ from powercontext.http._generated.operations import (
     GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
     GET_ARTIFACT_GOVERNANCE,
+    GET_ARTIFACT_PROCESSING_STATUS,
     GET_ARTIFACT_RENDERING,
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
@@ -974,6 +977,7 @@ from powercontext.server.ownership import (
     plan_ownership_migration,
 )
 from powercontext.server.plugins import PluginManager
+from powercontext.server.processing_status import processing_status_response
 from powercontext.server.request_id import REQUEST_ID_HEADER, HttpRequestIdMiddleware
 from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
@@ -1602,6 +1606,7 @@ def create_app(
 
     _add_route(app, CREATE_DREAM_RUN, create_dream_run)
     _add_route(app, GET_DREAM_RUN, get_dream_run)
+    _add_route(app, GET_ARTIFACT_PROCESSING_STATUS, get_artifact_processing_status)
     _add_route(app, LIST_DREAM_RUNS, list_dream_runs)
     _add_route(app, GET_LIVENESS, get_liveness)
     _add_route(app, GET_READINESS, get_readiness)
@@ -5128,6 +5133,26 @@ def _list_dreams_query(
         "cursor": cursor,
         "limit": limit,
     })
+
+
+async def get_artifact_processing_status(
+    scope_id: _ScopePathId,
+    family: Annotated[str, Query(min_length=1, max_length=128)],
+    response: Response,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> ArtifactProcessingStatusResponse | JSONResponse:
+    _require_strict_query(http_request, {"family"})
+    response.headers["Cache-Control"] = "no-store"
+    if not isinstance(application, BuiltinRuntime):
+        return _error_response(
+            503,
+            code="processing_status_unavailable",
+            message="This application does not provide passive processing inspection.",
+            headers={"Cache-Control": "no-store"},
+        )
+    result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family)
+    return processing_status_response(result)
 
 
 async def list_dream_runs(

@@ -27,6 +27,7 @@ from powercontext.http._generated.models import (
     ArtifactGovernanceResponse,
     ArtifactHandleBinding,
     ArtifactPage,
+    ArtifactProcessingStatusResponse,
     ArtifactPublication,
     ArtifactRendering,
     ArtifactRestorationResult,
@@ -91,6 +92,7 @@ from powercontext.http._generated.models import (
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
+    GetArtifactProcessingStatusRequest,
     GetArtifactRenderingRequest,
     GetCandidateRequest,
     GetConnectorCheckpointRequest,
@@ -2391,6 +2393,36 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_ARTIFACT_PROCESSING_STATUS = Operation[GetArtifactProcessingStatusRequest, ArtifactProcessingStatusResponse](
+    method="GET",
+    path="/v1/scopes/{scope_id}/processing-status",
+    operation_id="get_artifact_processing_status",
+    request_type=GetArtifactProcessingStatusRequest,
+    request_location="query",
+    path_parameters=("scope_id",),
+    response_type=ArtifactProcessingStatusResponse,
+    success_status=200,
+    summary="Inspect existing artifact processing evidence",
+    tags=("processing",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Existing processing evidence; unsupported families are explicitly unavailable.",
+            "headers": {
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                "Cache-Control": {"description": "Always no-store.", "schema": {"type": "string"}},
+            },
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
 LIST_DREAM_RUNS = Operation[ListDreamRunsRequest, DreamRunPage](

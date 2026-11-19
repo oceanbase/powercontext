@@ -416,6 +416,17 @@ async def scope_context(api: DashboardAPI, ctx: dict[str, Any], descriptor: dict
     set_scope(ctx, descriptor)
 
 
+@router.get("/artifact-processing-status")
+async def artifact_processing_status(
+    request: Request,
+    scope: str = Query(min_length=1, max_length=256),
+    family: str = Query(min_length=1, max_length=128),
+) -> HTMLResponse:
+    from powercontext.server.dashboard.artifact_processing import artifact_processing_status as inspect
+
+    return await inspect(request, scope, family)
+
+
 @router.get("/scope-options")
 async def scope_options(
     request: Request,
