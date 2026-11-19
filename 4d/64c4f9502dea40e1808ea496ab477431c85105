@@ -1,0 +1,115 @@
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_dd0cf3b04bdd9d 750-773
+  s_624ad8983708a5::t_fe2c043cf1fc53 692-749
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_0efa3909a45fcb 8796-8799,8801,8807-8809,8814
+  s_624ad8983708a5::t_176e5f3386da47 2965,2973,8815-9029,9042-9043,9057
+  s_624ad8983708a5::t_3b3449b9b75e8f 2948-2964,2966-2972,2974-3001,8800,8802-8806,8810-8813,9030-9041,9044-9056,9058-9107
+docs/zh/development/dashboard.md
+  s_624ad8983708a5::t_c9508c685fee2f 148-149
+  s_624ad8983708a5::t_0f14171109e667 136-147
+src/powercontext/server/dashboard/templates/handoff.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 20
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_dd0cf3b04bdd9d 750-773
+  s_624ad8983708a5::t_fe2c043cf1fc53 692-749
+src/powercontext/server/processing_status.py
+  s_624ad8983708a5::t_76ce381a552e0e 55-60
+  s_624ad8983708a5::t_7c200cfca177ad 1-28,46-54,61-71,77-85,89-99,103-110,114-124,139-143
+  s_624ad8983708a5::t_912c8f73626209 29-45,72-76,86-88,100-102,111-113,125-138
+src/powercontext/server/dashboard/templates/components/artifact-processing.html
+  s_624ad8983708a5::t_d301f65295133d 22
+  s_624ad8983708a5::t_fe2c043cf1fc53 1-21,23-27
+src/powercontext/server/app.py
+  s_624ad8983708a5::t_912c8f73626209 239,502,843,980
+  s_624ad8983708a5::t_7c200cfca177ad 1609,5138-5155
+  s_624ad8983708a5::t_39e8ea2dffb36e 5156-5157
+src/powercontext/server/dashboard/templates/notes.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 34
+src/powercontext/server/dashboard/templates/topics.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 23
+src/powercontext/server/dashboard/artifact_processing.py
+  s_624ad8983708a5::t_912c8f73626209 42-45
+  s_624ad8983708a5::t_a51c200e2dc72f 19
+  s_624ad8983708a5::t_fe2c043cf1fc53 1-18,20-41,46-55
+src/powercontext/server/dashboard/templates/components/artifact-processing-result.html
+  s_624ad8983708a5::t_a51c200e2dc72f 1-25,27-43,45-60,62-64
+  s_624ad8983708a5::t_d301f65295133d 26,44,61
+src/powercontext/server/dashboard/templates/profile.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 31,36-37
+src/powercontext/http/__init__.py
+  s_624ad8983708a5::t_912c8f73626209 68-73,243,610-615,785
+src/powercontext/server/dashboard/templates/methods.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 24
+src/powercontext/server/dashboard/static/artifact-processing.js
+  s_624ad8983708a5::t_912c8f73626209 1-17,19-21,23-28,30-31,33-36,39-124,126-130,132-134,136-137,139,141-144,154-163,174-178
+  s_624ad8983708a5::t_18efe24c202b61 18,22,29,32,37-38,131,135,138,140,145-153
+  s_624ad8983708a5::t_901e6459e342fc 125,164-173
+src/powercontext/client/client.py
+  s_624ad8983708a5::t_6789d0b481fc0e 220,662-665
+  s_624ad8983708a5::t_76ce381a552e0e 217,263,666
+  s_624ad8983708a5::t_3b3f4186f096df 667
+docs/en/development/dashboard.md
+  s_624ad8983708a5::t_b7604a94eff352 136-147
+  s_624ad8983708a5::t_c9508c685fee2f 148-149
+src/powercontext/server/dashboard/content.py
+  s_624ad8983708a5::t_07cde71f2b3338 282,285-286
+  s_624ad8983708a5::t_b496fb1a2dada1 283-284
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_413cd3679f0f7f 70-74
+  s_624ad8983708a5::t_4bd33cfc9cbaff 42-46,67
+  s_624ad8983708a5::t_6ff33471b5b189 157,159,166-174
+  s_624ad8983708a5::t_72f24a487c3f95 1-2,15-41,47-66,68-69,75-149,151-156,158,160-165,175-182
+  s_624ad8983708a5::t_d91a19e964ad55 150
+  s_624ad8983708a5::t_fc70b8aea0750a 3-5,12-14
+src/powercontext/server/dashboard/routes.py
+  s_624ad8983708a5::t_fe2c043cf1fc53 419-429
+src/powercontext/server/dashboard/templates/prompts.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 19
+src/powercontext/server/dashboard/static/layout.css
+  s_624ad8983708a5::t_a51c200e2dc72f 288-292
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_1e6e33d96552f4 153,235-239
+  s_624ad8983708a5::t_2732f85d9e5924 193,226
+  s_624ad8983708a5::t_759d2487d95e78 35,71-82
+  s_624ad8983708a5::t_f8efc7f23c41ab 26-27,29,32,150-152,241,253-279
+  s_624ad8983708a5::t_76ce381a552e0e 1-25,28,30-31,33-34,36-70,83-123,125-148,154-192,194-225,227-229,242-252
+  s_624ad8983708a5::t_5b9720f25dcf0b 124
+  s_624ad8983708a5::t_0a2b32b9696fe1 149,230-234,240
+src/powercontext/server/dashboard/templates/base.html
+  s_624ad8983708a5::t_fe2c043cf1fc53 35
+desktop/src-tauri/src/transport/operations.json
+  s_624ad8983708a5::t_1e9b659e0c1eee 2
+desktop/ui/src/generated/api.d.ts
+  s_624ad8983708a5::t_186c4a07d2a993 1474-1493,3915-4014,9204-9236
+desktop/ui/src/generated/operations.ts
+  s_624ad8983708a5::t_6166d9342ff044 18
+integrations/dsh/plugins/powercontext/src/operations.generated.ts
+  s_624ad8983708a5::t_02700026668d83 102
+integrations/opencode/plugins/powercontext/src/operations.generated.ts
+  s_624ad8983708a5::t_b322933fa12c3b 102
+integrations/pi/plugins/powercontext/src/operations.generated.ts
+  s_624ad8983708a5::t_7988cd0b2993b0 102
+src/powercontext/http/_generated/models.py
+  s_624ad8983708a5::t_411774e5e781a9 1330-1400,5293-5361
+src/powercontext/http/_generated/operations.py
+  s_624ad8983708a5::t_cf6a90d38f019c 30,95,2398-2427
+src/powercontext/http/_generated/schema.py
+  s_624ad8983708a5::t_ce17effc939e63 3634-3691,9768-9962
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d64c4f9502dea40e1808ea496ab477431c85105",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
