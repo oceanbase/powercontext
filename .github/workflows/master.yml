@@ -253,7 +253,7 @@ jobs:
         run: make contract-test
 
   tests:
-    name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
+    name: tests (${{ matrix.python-version }}, ${{ matrix.suite }}${{ matrix.suite == 'e2e' && format(', shard {0}', matrix.shard-index) || '' }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
@@ -262,7 +262,7 @@ jobs:
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
-      matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
+      matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"include":[{"python-version":"3.11","suite":"unit"},{"python-version":"3.12","suite":"unit"},{"python-version":"3.13","suite":"unit"},{"python-version":"3.14","suite":"unit"},{"python-version":"3.11","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.11","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":1,"shard-count":2}]}') }}
     defaults:
       run:
         shell: bash
@@ -324,15 +324,15 @@ jobs:
           cache-on-failure: true
 
       - name: Run the ZCode service chain with native Hook deadlines
-        if: matrix.suite == 'e2e'
+        if: matrix.suite == 'e2e' && matrix.shard-index == 0
         # Preserve the real Hook deadlines without competing with xdist workers.
-        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+        run: make e2e-test-serial
 
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
-          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
-        run: make e2e-test
+          PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
+        run: make e2e-test-parallel
 
       - name: Save Gateway dependencies and compilation
         if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'

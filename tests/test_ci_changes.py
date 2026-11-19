@@ -523,8 +523,9 @@ def test_selector_cli_exposes_full_matrix_and_required_jobs_on_missing_baseline(
     run_selector(repository, "pull_request", "", git(repository, "rev-parse", "HEAD"))
     outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
     matrix = json.loads(outputs["test-matrix"])
-    assert set(matrix["python-version"]) == {"3.11", "3.12", "3.13", "3.14"}
-    assert set(matrix["suite"]) == {"unit", "e2e"}
+    assert len(matrix["include"]) == 12
+    assert {row["python-version"] for row in matrix["include"]} == {"3.11", "3.12", "3.13", "3.14"}
+    assert {row["suite"] for row in matrix["include"]} == {"unit", "e2e"}
     assert set(json.loads(outputs["required-jobs"])) == {
         job for suite, jobs in RULES["checks"].items() if suite not in RULES["nightly_suites"] for job in jobs
     } | {

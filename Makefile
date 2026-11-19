@@ -67,7 +67,15 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
+	@$(MAKE) e2e-test-parallel
+	@$(MAKE) e2e-test-serial
+
+.PHONY: e2e-test-parallel
+e2e-test-parallel: ## Run end-to-end tests that can share xdist workers.
 	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+
+.PHONY: e2e-test-serial
+e2e-test-serial: ## Run service-chain tests with native Hook deadlines without xdist contention.
 	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
 
 .PHONY: gateway-tck

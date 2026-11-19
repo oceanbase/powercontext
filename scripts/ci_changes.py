@@ -59,12 +59,15 @@ def test_matrix(event: str, paths: list[str], rules: dict[str, Any], *, full: bo
     dependencies = any(path in {"pyproject.toml", "uv.lock"} for path in paths)
     unknown = any(all(select_suites([path], rules).values()) for path in paths)
     if event != "pull_request" or full or shared or dependencies or unknown:
-        return {"python-version": ["3.11", "3.12", "3.13", "3.14"], "suite": ["unit", "e2e"]}
+        unit_versions = e2e_versions = ["3.11", "3.12", "3.13", "3.14"]
+    else:
+        unit_versions, e2e_versions = ["3.11", "3.14"], ["3.12"]
     return {
-        "include": [
-            {"python-version": "3.11", "suite": "unit"},
-            {"python-version": "3.14", "suite": "unit"},
-            {"python-version": "3.12", "suite": "e2e"},
+        "include": [{"python-version": version, "suite": "unit"} for version in unit_versions]
+        + [
+            {"python-version": version, "suite": "e2e", "shard-index": index, "shard-count": 2}
+            for version in e2e_versions
+            for index in range(2)
         ]
     }
 
