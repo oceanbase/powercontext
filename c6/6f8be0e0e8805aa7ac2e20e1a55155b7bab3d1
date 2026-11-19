@@ -1,0 +1,161 @@
+.env.example
+  s_2ef0feea0a110d::t_23cf5a7a56261b 171-176
+desktop/VALIDATION.md
+  s_2ef0feea0a110d::t_42b06b72006cf4 3620-3841
+desktop/src-tauri/src/connections/compatibility.json
+  s_2ef0feea0a110d::t_a0e391e2fa086a 1797-1950
+desktop/src-tauri/src/transport/operations.json
+  s_2ef0feea0a110d::t_51b749c10e8b2c 2
+desktop/src-tauri/src/transport/wire.rs
+  s_2ef0feea0a110d::t_b03ddb37b1f6a5 1054-1067,1087-1088
+desktop/ui/src/generated/api.d.ts
+  s_2ef0feea0a110d::t_28f17f150c3329 464-483,4159-4181,4645-4648,7458-7488
+desktop/ui/src/generated/ipc.ts
+  s_2ef0feea0a110d::t_576d4f73b7066d 218-226
+desktop/ui/src/generated/operations.ts
+  s_2ef0feea0a110d::t_df179555189226 18
+docs/en/development/capture-coverage.md
+  s_2ef0feea0a110d::t_ed066b086217f9 41,68-69,94-116
+docs/en/docs/develop/http-api.md
+  s_2ef0feea0a110d::t_266f90d071cbe4 211
+docs/en/docs/operate/configuration.md
+  s_2ef0feea0a110d::t_9c0c6cd2ff2cab 42,227-229
+docs/en/docs/operate/deploy-server.md
+  s_2ef0feea0a110d::t_ca975f84c9f925 333-396
+docs/en/docs/operate/observability.md
+  s_2ef0feea0a110d::t_48d242ca19d4d9 152-158
+docs/zh/development/capture-coverage.md
+  s_2ef0feea0a110d::t_7af8bb97b00d52 39,64-65,89-105
+docs/zh/docs/develop/http-api.md
+  s_2ef0feea0a110d::t_da1300154e8b4d 191
+docs/zh/docs/operate/configuration.md
+  s_2ef0feea0a110d::t_68aaf95dba050e 37,212-214
+docs/zh/docs/operate/deploy-server.md
+  s_2ef0feea0a110d::t_c0b76dde2ab7f3 300-344
+docs/zh/docs/operate/observability.md
+  s_2ef0feea0a110d::t_f48fac22af2a9c 144-149
+gateway/Cargo.lock
+  s_2ef0feea0a110d::t_a5d4ca7a8f56a2 664
+gateway/README.md
+  s_2ef0feea0a110d::t_db774c186ac04e 22,59,103-105
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_2ef0feea0a110d::t_b2ae7c8a2f3eee 45-50,209,1202-1262
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_2ef0feea0a110d::t_719394643f1a58 144-296,363-364,506,1264,1551-1606
+gateway/crates/pc-gateway-app/src/link.rs
+  s_2ef0feea0a110d::t_eb29d47fceb9a3 19,70
+gateway/crates/pc-gateway-app/src/main.rs
+  s_2ef0feea0a110d::t_dffe8ed7125ed5 72-73,174-183,193-198,228,230-233,274
+gateway/crates/pc-gateway-core/Cargo.toml
+  s_2ef0feea0a110d::t_7d573ea7e71c68 35
+gateway/crates/pc-gateway-core/src/capture_coverage.rs
+  s_2ef0feea0a110d::t_696dacd5623d9c 23,28
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_2ef0feea0a110d::t_072e27159cc973 33,46-48,79-80,160-161,163,209-210,212,282-295,438,657,661-674,682-729,731,742,783-824
+gateway/crates/pc-gateway-core/src/gate_client.rs
+  s_2ef0feea0a110d::t_82f83109ecfa83 16,42,46
+gateway/crates/pc-gateway-core/src/http_gate_client.rs
+  s_2ef0feea0a110d::t_c749f2926e181d 17,155,159
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_2ef0feea0a110d::t_f22f12c3bc1108 33,42-43
+gateway/crates/pc-gateway-core/src/prefix_store.rs
+  s_2ef0feea0a110d::t_c4a9479e67e43e 1-178
+gateway/crates/pc-gateway-core/src/transcript.rs
+  s_2ef0feea0a110d::t_2b3c7a2a06fdfc 15,17-23,25,28-50,52-59,64-87,103,106,111,116,120,133,135,140,142-144,146-246,249-260,281-283,309-310,320,322,329-331,343,349,353-368,373,375-385,389-404,406-419,421-433,441,444,446-447,449,454-456,458-465,469-505,512,521,532-538,550-551,553,556-571,577-582,621-631,633,635-638,640-656,658-662,667-684,688-705,707-711,714-715,718-719,721-728,730-732,734-736,738-742,746-771,773-788,790-793,797,799-805,808-813,818-835,839-842,844-845,847-849,864,871-874,882-889,892-895
+gateway/crates/pc-gateway-core/src/uds_gate_client.rs
+  s_2ef0feea0a110d::t_f33d250c7a19c3 26,445,451
+gateway/crates/pc-gateway-core/tests/core_rpc_recovery.rs
+  s_2ef0feea0a110d::t_d63051c5390689 20-21,64,66-70
+gateway/crates/pc-gateway-core/tests/executor_network_lifecycle.rs
+  s_2ef0feea0a110d::t_7a845ec512b910 91,114
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_2ef0feea0a110d::t_7afbd7649c2dad 27,34,89-90,175,177-187,288,350,389,1639,3063-3068,3070-3076,3079-3096,3098,3105-3107,3113-3117,4278-4520
+gateway/crates/pc-gateway-core/tests/real_core_rpc_recovery.rs
+  s_2ef0feea0a110d::t_8a820c0bfa21d3 20,222,224-228,230,242-246,266,268,270-278,284-285,287
+gateway/crates/pc-gateway-types/src/check.rs
+  s_2ef0feea0a110d::t_fc34e5d8f48ab7 154-159
+gateway/crates/pc-gateway-types/src/prepare.rs
+  s_2ef0feea0a110d::t_f544fa981e9c04 148-150,152,154-159
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_2ef0feea0a110d::t_59624d144043ef 421-431
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_2ef0feea0a110d::t_0608a0161d908e 73
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_2ef0feea0a110d::t_b8de78355c0326 422-432
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_2ef0feea0a110d::t_e939540dc244c2 489-499
+integrations/dsh/plugins/powercontext/src/operations.generated.ts
+  s_2ef0feea0a110d::t_6e9afa589f369c 48
+integrations/hermes/plugins/powercontext/helpers.py
+  s_2ef0feea0a110d::t_44cd4a1e529bbf 43
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_2ef0feea0a110d::t_63608f05a46fd3 389-399
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_2ef0feea0a110d::t_de95f30ad95e58 389-399
+integrations/opencode/plugins/powercontext/src/operations.generated.ts
+  s_2ef0feea0a110d::t_49399c17602ac3 48
+integrations/pi/plugins/powercontext/src/operations.generated.ts
+  s_2ef0feea0a110d::t_407d5388c07ffd 48
+openapi/powercontext.yaml
+  s_2ef0feea0a110d::t_709df44debec7a 1083-1124,9396-9453,10440-10451
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_2ef0feea0a110d::t_9cc9b155110b49 19,26,29-32,54-55,169-170,173-176,178-184,186-231
+src/powercontext/builtin/artifacts/atomic_memory/prefixed_extraction.py
+  s_2ef0feea0a110d::t_0eb9bf22d41d0a 1-248
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_2ef0feea0a110d::t_01582213387b60 119-122
+src/powercontext/builtin/runtime/application.py
+  s_2ef0feea0a110d::t_e890dc72a29704 620-627,629-630
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_2ef0feea0a110d::t_a6cf9d481cbbed 117
+src/powercontext/builtin/runtime/composition.py
+  s_2ef0feea0a110d::t_9030597d81bbc3 841,1547-1572,1813
+src/powercontext/builtin/runtime/config.py
+  s_2ef0feea0a110d::t_4b59f660892845 266,339-343,395-401,439-449
+src/powercontext/builtin/runtime/models.py
+  s_2ef0feea0a110d::t_f1081f3b63ca41 219
+src/powercontext/client/client.py
+  s_2ef0feea0a110d::t_dfc29c96ef7378 61-62,236,598-602
+src/powercontext/http/__init__.py
+  s_2ef0feea0a110d::t_e0382b0386e58f 124,127-129,663,666-667,670
+src/powercontext/http/_generated/models.py
+  s_2ef0feea0a110d::t_0096219dc60690 1555-1584,2153-2166,5351-5358,6139-6148
+src/powercontext/http/_generated/operations.py
+  s_2ef0feea0a110d::t_76293c31653b0e 54-55,997-1025
+src/powercontext/http/_generated/schema.py
+  s_2ef0feea0a110d::t_79b7bf02ff0639 1005-1060,10520-10597,11812-11870
+src/powercontext/server/app.py
+  s_2ef0feea0a110d::t_91dc2690ba84e3 520-521,813,1007-1008,1680,4040-4049
+src/powercontext/server/factory.py
+  s_2ef0feea0a110d::t_4582b225f47932 103,848-853
+src/powercontext/server/mapping.py
+  s_2ef0feea0a110d::t_749f26cfbe1750 21,196-198,395-411,569-578
+tests/builtin/artifacts/atomic_memory/test_prefixed_extraction.py
+  s_2ef0feea0a110d::t_90abd5301f910b 1-283
+tests/builtin/runtime/test_context_check.py
+  s_2ef0feea0a110d::t_ed6365c406702d 286-337
+tests/integration_conformance/capture_coverage_cases.json
+  s_2ef0feea0a110d::t_97612129c0d6e6 156-167,347-360
+tests/test_capture_content_sources.py
+  s_2ef0feea0a110d::t_ade39ead8367c3 1-127
+tests/test_extraction_capabilities.py
+  s_2ef0feea0a110d::t_3366935ea08145 94-108
+tests/test_server_generation.py
+  s_2ef0feea0a110d::t_876b4cd6887746 52-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c66f8be0e0e8805aa7ac2e20e1a55155b7bab3d1",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
