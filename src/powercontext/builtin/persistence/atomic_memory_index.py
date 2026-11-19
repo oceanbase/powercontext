@@ -56,9 +56,11 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
     ATOMIC_MEMORY_PROJECTION_FORMAT,
     atomic_memory_alias_table,
 )
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
 from powercontext.builtin.tags import TagFilter
+from powercontext.sources import SourceRef
 from powercontext.sources.evidence import SourceEvidence
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
@@ -249,6 +251,16 @@ class AtomicMemoryIndex(Protocol):
         /,
     ) -> AtomicMemoryEvidenceAnnotation: ...
 
+    async def capture_evidence_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        revisions: Sequence[tuple[ArtifactRef, Sequence[SourceRef]]],
+        /,
+        *,
+        sources: SourceRepository,
+    ) -> None: ...
+
     async def read_evidence(
         self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
     ) -> AtomicMemoryEvidenceAnnotation | None: ...
@@ -282,6 +294,12 @@ class AtomicMemoryIndex(Protocol):
         The first call ranks the complete eligible set; later calls only read the
         cursor's lightweight slice. Bodies and authorization stay per page.
         """
+        ...
+
+    async def related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
+        """Observe complete ranks in one statement; later body admission uses their exact versions."""
         ...
 
     async def enumerate_related_with_heads(
@@ -362,17 +380,15 @@ class AtomicMemoryProjectionPublisher:
             embedding_input_hash=None if vector is None else atomic_memory_embedding_input_hash(kind, body),
         )
 
-    async def capture_evidence(self, connection: AsyncConnection, scope_id: str, record: Any) -> None:
-        """Accept history only for a committed body write, never state-only republishing."""
-
-        artifact = record.artifact
-        if (
-            self._sources is not None
-            and await self.index.read_evidence(connection, scope_id, artifact.as_ref()) is None
-        ):
-            evidence = await self._sources.evidence(connection, scope_id, artifact.lineage.sources)
-            annotation = await self.index.save_evidence(connection, scope_id, artifact.as_ref(), evidence)
-            await self.index.project_evidence(connection, annotation)
+    async def capture_evidence_many(self, connection: AsyncConnection, scope_id: str, records: Sequence[Any]) -> None:
+        if self._sources is None or not records:
+            return
+        await self.index.capture_evidence_many(
+            connection,
+            scope_id,
+            tuple((record.artifact.as_ref(), record.artifact.lineage.sources) for record in records),
+            sources=self._sources,
+        )
 
     async def publish(
         self,
@@ -385,8 +401,7 @@ class AtomicMemoryProjectionPublisher:
         if record.state.state != "active":
             await self.retire(connection, scope_id, record)
             return
-        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
-        await self.index.replace_many(connection, scope_id, (self._projection(record, prepared, tags),))
+        await self.publish_many(connection, scope_id, ((record, prepared),))
 
     async def publish_many(
         self,
@@ -394,11 +409,16 @@ class AtomicMemoryProjectionPublisher:
         scope_id: str,
         records: Sequence[tuple[Any, PreparedAtomicMemoryProjection]],
     ) -> None:
-        """Publish independent, newly created and untagged revisions in one transaction."""
+        """Publish active revisions with their current tags in the caller's transaction."""
+        tags = await load_atomic_memory_tags_many(
+            connection, scope_id, tuple(record.artifact.artifact_id for record, _ in records)
+        )
         await self.index.replace_many(
             connection,
             scope_id,
-            tuple(self._projection(record, prepared, ()) for record, prepared in records),
+            tuple(
+                self._projection(record, prepared, tags[record.artifact.artifact_id]) for record, prepared in records
+            ),
         )
 
     def _projection(
@@ -525,21 +545,32 @@ class AtomicMemoryProjectionPublisher:
 
 
 async def load_atomic_memory_tags(connection: AsyncConnection, scope_id: str, artifact_id: str) -> tuple[str, ...]:
-    rows = (
-        await connection.execute(
-            select(ARTIFACT_TAGS_TABLE.c.tag_key)
-            .where(
-                ARTIFACT_TAGS_TABLE.c.scope_id == scope_id,
-                ARTIFACT_TAGS_TABLE.c.family == "atomic-memory",
-                ARTIFACT_TAGS_TABLE.c.artifact_id == artifact_id,
-                ARTIFACT_TAGS_TABLE.c.target_type == "artifact",
-                ARTIFACT_TAGS_TABLE.c.target_id == artifact_id,
+    return (await load_atomic_memory_tags_many(connection, scope_id, (artifact_id,)))[artifact_id]
+
+
+async def load_atomic_memory_tags_many(
+    connection: AsyncConnection, scope_id: str, artifact_ids: Sequence[str]
+) -> dict[str, tuple[str, ...]]:
+    tags: dict[str, list[str]] = {identity: [] for identity in artifact_ids}
+    identities = tuple(tags)
+    for offset in range(0, len(identities), SELECTION_BATCH_SIZE):
+        rows = (
+            await connection.execute(
+                select(ARTIFACT_TAGS_TABLE.c.artifact_id, ARTIFACT_TAGS_TABLE.c.tag_key)
+                .where(
+                    ARTIFACT_TAGS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_TAGS_TABLE.c.family == "atomic-memory",
+                    ARTIFACT_TAGS_TABLE.c.artifact_id.in_(identities[offset : offset + SELECTION_BATCH_SIZE]),
+                    ARTIFACT_TAGS_TABLE.c.target_type == "artifact",
+                    ARTIFACT_TAGS_TABLE.c.target_id == ARTIFACT_TAGS_TABLE.c.artifact_id,
+                )
+                .order_by(ARTIFACT_TAGS_TABLE.c.artifact_id, ARTIFACT_TAGS_TABLE.c.tag_key)
+                .with_for_update()
             )
-            .order_by(ARTIFACT_TAGS_TABLE.c.tag_key)
-            .with_for_update()
-        )
-    ).scalars()
-    return tuple(str(row) for row in rows)
+        ).mappings()
+        for row in rows:
+            tags[row["artifact_id"]].append(str(row["tag_key"]))
+    return {identity: tuple(values) for identity, values in tags.items()}
 
 
 def atomic_memory_embedding_input(kind: str, body: str, /) -> str:
@@ -899,6 +930,49 @@ def combine_atomic_memory_channels(  # noqa: C901
     )
 
 
+def atomic_memory_related_vector_sql(eligibility: str, distance: str, invalid: str, /) -> str:
+    """Validate the whole eligible set and rank its admitted vectors in one read."""
+    return (
+        "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
+        f"CASE WHEN {invalid} THEN NULL ELSE {distance} END AS distance, "
+        f"MAX(CASE WHEN {invalid} THEN 1 ELSE 0 END) OVER () AS invalid_vectors, "
+        "ROW_NUMBER() OVER () AS position FROM pc_atomic_memory_current "
+        f"WHERE scope_id = :scope_id AND ({eligibility})) "
+        "SELECT artifact_id, revision, state_version, kind, distance, invalid_vectors FROM ranked "
+        "WHERE (invalid_vectors = 0 AND distance <= :max_distance) "
+        "OR (invalid_vectors = 1 AND position = 1) ORDER BY distance, artifact_id"
+    )
+
+
+def atomic_memory_checked_vector_ranks(rows: Any, /) -> tuple[AtomicMemoryRelatedRank, ...]:
+    """Reject an incomplete eligible set, including rows outside the query distance."""
+    rows = tuple(rows)
+    if rows and rows[0]["invalid_vectors"]:
+        raise AtomicMemoryIndexError(
+            "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
+        )
+    return atomic_memory_channel_ranks(rows, vector=True)
+
+
+def atomic_memory_related_hybrid_sql(fts: str, vector: str, /) -> str:
+    """Observe both channels and vector completeness at the same statement snapshot."""
+    return (
+        f"WITH text_ranks AS ({fts}), vector_ranks AS ({vector}) "  # noqa: S608
+        "SELECT 'text' AS channel, artifact_id, revision, state_version, kind, "
+        "score, raw_score, score_metric, NULL AS distance, 0 AS invalid_vectors FROM text_ranks "
+        "UNION ALL SELECT 'vector' AS channel, artifact_id, revision, state_version, kind, "
+        "NULL AS score, NULL AS raw_score, NULL AS score_metric, distance, invalid_vectors FROM vector_ranks "
+        "ORDER BY channel, score DESC, distance, artifact_id"
+    )
+
+
+def atomic_memory_hybrid_ranks(rows: Any, /) -> tuple[AtomicMemoryRelatedRank, ...]:
+    rows = tuple(rows)
+    vectors = atomic_memory_checked_vector_ranks(row for row in rows if row["channel"] == "vector")
+    lexical = atomic_memory_channel_ranks(row for row in rows if row["channel"] == "text")
+    return combine_atomic_memory_related_ranks(lexical, vectors)
+
+
 def atomic_memory_channel_ranks(rows: Any, /, *, vector: bool = False) -> tuple[AtomicMemoryRelatedRank, ...]:
     """Decode lightweight channel ranks without reading projection or authority bodies."""
 
@@ -993,6 +1067,17 @@ class RelationalAtomicMemoryIndex:
         /,
     ) -> AtomicMemoryEvidenceAnnotation:
         return await self._evidence.save(connection, scope_id, artifact_ref, sources)
+
+    async def capture_evidence_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        revisions: Sequence[tuple[ArtifactRef, Sequence[SourceRef]]],
+        /,
+        *,
+        sources: SourceRepository,
+    ) -> None:
+        await self._evidence.capture_many(connection, scope_id, revisions, sources=sources)
 
     async def read_evidence(
         self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
@@ -1174,11 +1259,11 @@ class RelationalAtomicMemoryIndex:
         if request.mode in {"fts", "hybrid"}:
             terms, required = fts_query_requirements(request.query, floor=request.admission)
             _, lower_required = fts_query_requirements(request.query, floor=floor)
+            if request.mode == "fts" and (lower_required >= required or lower_required > len(terms)):
+                return False
             if terms:
-                if dialect == "sqlite":
-                    lexical, coverage_parameters = sqlite_fts_coverage_sql(terms)
-                else:
-                    lexical, coverage_parameters = oceanbase_fts_coverage_sql(terms)
+                coverage_sql = sqlite_fts_coverage_sql if dialect == "sqlite" else oceanbase_fts_coverage_sql
+                lexical, coverage_parameters = coverage_sql(terms)
                 parameters.update(coverage_parameters)
                 parameters.update(probe_required=required, probe_lower_required=lower_required)
                 current.append(f"(({lexical}) >= :probe_required)")
