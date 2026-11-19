@@ -1,0 +1,22 @@
+tests/e2e/conftest.py
+  s_13fec9a57c9104::t_7a6a88e803e95d 22-23,39-67
+  s_13fec9a57c9104::t_7e5ffb861e190f 68-69
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_7a6a88e803e95d 307-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9108530e5152c7597e989242c058226fbfca2038",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
