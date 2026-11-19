@@ -60,5 +60,3 @@ runs:
         RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
         RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
         RUNS_ON_RUNNER_NAME: ''
-        NO_PROXY: ${{ env.PC_CI_CACHE_NO_PROXY }}
-        no_proxy: ${{ env.PC_CI_CACHE_NO_PROXY }}

@@ -57,9 +57,11 @@ def backend() -> None:
         print(f"::add-mask::{value}")
     values["PC_CI_CACHE_REGION"] = os.environ.get("PC_CI_CACHE_REGION") or "us-east-1"
     host = urlparse(values["PC_CI_CACHE_ENDPOINT"]).hostname or ""
-    values["PC_CI_CACHE_NO_PROXY"] = ",".join(
-        filter(None, [os.environ.get("NO_PROXY", ""), os.environ.get("no_proxy", ""), host])
-    )
+    bypass = [*os.environ.get("NO_PROXY", "").split(","), *os.environ.get("no_proxy", "").split(","), host]
+    no_proxy = ",".join(dict.fromkeys(value.strip() for value in bypass if value.strip()))
+    # Linux GITHUB_ENV preserves case, while action YAML env mappings reject
+    # NO_PROXY/no_proxy together. Keep both consumers on the internal route.
+    values.update(NO_PROXY=no_proxy, no_proxy=no_proxy)
     # Register inherited Pod values for later action expressions, without setting
     # default AWS credentials in the environment of unrelated test processes.
     write_command_file("GITHUB_ENV", values)

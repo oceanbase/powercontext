@@ -63,6 +63,52 @@ def test_internal_cache_registers_namespaced_credentials_without_default_aws_env
     assert "::add-mask::test-secret" in result.stdout
 
 
+@pytest.mark.parametrize(
+    ("upper", "lower", "expected"),
+    [
+        ("localhost,.upper.test", "localhost,.lower.test", "localhost,.upper.test,.lower.test,cache.example.test"),
+        ("localhost", "", "localhost,cache.example.test"),
+        ("", ".lower.test", ".lower.test,cache.example.test"),
+        ("", "", "cache.example.test"),
+    ],
+)
+def test_internal_cache_bypasses_proxy_for_both_environment_spellings(
+    tmp_path: Path, upper: str, lower: str, expected: str
+) -> None:
+    values = {
+        "RUNNER_ENVIRONMENT": "self-hosted",
+        "PC_CI_CACHE_ENDPOINT": "http://cache.example.test:8333",
+        "PC_CI_CACHE_BUCKET": "ci-cache",
+        "PC_CI_CACHE_ACCESS_KEY": "test-access",
+        "PC_CI_CACHE_SECRET_KEY": "test-secret",
+        "NO_PROXY": upper,
+        "no_proxy": lower,
+    }
+    result, _, environment = run_cache(tmp_path, "backend", **values)
+    assert result.returncode == 0, result.stderr
+    assert output_value(environment, "NO_PROXY") == expected
+    assert output_value(environment, "no_proxy") == expected
+    assert "HTTP_PROXY=" not in environment
+    assert "http_proxy=" not in environment
+    # Every nested helper selects its backend. Repeating it must not grow the
+    # bypass list or discard entries originally present in either spelling.
+    values.update(NO_PROXY=expected, no_proxy=expected)
+    result, _, repeated = run_cache(tmp_path, "backend", **values)
+    assert result.returncode == 0, result.stderr
+    assert output_value(repeated, "NO_PROXY") == expected
+    assert output_value(repeated, "no_proxy") == expected
+
+
+@pytest.mark.parametrize("name", ["cache", "cache-restore", "cache-save"])
+def test_cache_action_environment_has_no_case_insensitive_duplicate_keys(name: str) -> None:
+    action = yaml.safe_load((SCRIPT.parents[1] / f".github/actions/{name}/action.yml").read_text())
+    for step in action["runs"]["steps"]:
+        names = list(step.get("env", {}))
+        # GitHub validates action YAML environment mappings without case
+        # distinctions, even though a Linux process environment is case-sensitive.
+        assert len(names) == len({key.casefold() for key in names}), step["id"]
+
+
 def test_hosted_runner_uses_github_even_when_process_has_internal_configuration(tmp_path: Path) -> None:
     result, output, environment = run_cache(
         tmp_path,
