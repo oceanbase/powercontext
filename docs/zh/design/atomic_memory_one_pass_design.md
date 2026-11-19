@@ -5,7 +5,7 @@
 | 特性类型 | 原子记忆的可选处理模式，**默认关闭** |
 | 对外契约 | 不新增 HTTP API，不改 OpenAPI，不改持久化格式，不新增提示词 key |
 | 新增配置 | 一个 Server 运行时配置项，选择原子记忆处理模式 |
-| 文档状态 | 设计评审 |
+| 文档状态 | 已实现，评测进行中 |
 | Language | 中文（技术术语保留英文原文） |
 
 ---
@@ -26,8 +26,8 @@
 | --- | --- | --- |
 | C1 | 发布路径不变：写入仍经过 `AtomicMemoryWindowWorkset`、写入闸门、`_publish` | 单次整理只替换 `_prepare` 内的候选生成与对账，产出同一个 workset |
 | C2 | 溯源不变：每条发布的记忆仍带正确的 `sources` | 第 2 步的每个操作给出 `evidence_ids`，Core 校验后按现有方式计算 `sources` |
-| C3 | 审计不变：记录比较过哪些已有记忆、使用了哪些提示词 | 每个操作按现有 `AtomicMemoryReconciliationOutput` 校验，`compared_ids` 取本轮展示过的相关条目 |
-| C4 | 提示词配置不分裂：用户仍只维护 `atomic_memory.extract` 与 `atomic_memory.reconcile` | 两步流程本身是带版本号的代码常量；Scope guidance 按现有 `resolve()` 编译后嵌入 |
+| C3 | 校验与读依赖不变 | 每个 revise / merge 转换为 `AtomicMemoryReconciliationOutput` 后由 `workset.apply()` 校验；展示过的已有记忆全部记入 workset 的读依赖，发布时照常做冲突检查 |
+| C4 | 提示词配置不分裂：用户仍只维护 `atomic_memory.extract` 与 `atomic_memory.reconcile` | 流程指令是代码常量；两个 key 的现有配置嵌入其中（§4） |
 | C5 | 默认行为字节级不变 | 未开启时不进入任何新代码路径 |
 
 ## 2. 现有流程（master）
@@ -45,47 +45,59 @@
 
 ## 3. 单次整理流程
 
-### 3.1 两步对话
+### 3.1 对话的三步
 
 ```
-第 1 步  [流程指令 + 抽取规则 + 证据] ──▶ 模型 ──▶ {"items":[{"fact","query"}, ...]}   (≤30 条)
+第 1 步  [流程指令 + 抽取规则] + [证据] ──▶ 模型 ──▶ {"items":[{"fact","query"}, ...]}   (≤30 条)
          Core 用每个 query 召回已有记忆，分配本轮标签 M1, M2, ...
-第 2 步  [同一前缀 + 第 1 步回复 + 已有记忆列表] ──▶ 模型 ──▶ {"operations":[...]}
-复核     对 create 收集未展示过的相似记忆；没有则跳过，有则在预算内合并复核
-应用     每个操作转换为 AtomicMemoryReconciliationOutput，经 workset.apply() 进入现有发布路径
+第 2 步  同一前缀 + 第 1 步回复 + [已有记忆列表] ──▶ 模型 ──▶ {"operations":[...]}
+第 3 步  仅当某条 create 的正文召回到第 2 步没展示过的记忆时：
+         同一前缀 + 第 2 步回复 + [这些 create 与各自的未展示记忆] ──▶ 模型 ──▶ {"operations":[...]}
+应用     每一步的操作经 workset.apply() 进入现有发布路径
 ```
 
 - **第 1 步只负责检索。** 指令明确说明：第 1 步只是为了找出需要比对的已有记忆，拿不准的事实也要列上，
   保留与否由第 2 步决定。评测中去掉这一说明后，模型会随机返回空列表，整轮不写入（§6.3）。
 - **第 1 步为空时仍进入第 2 步**，此时展示的已有记忆为空。代价是一次短调用，避免第 1 步误判导致整轮漏写。
-- **第 2 步续接第 1 步。** 第 2 步的请求是第 1 步请求加上第 1 步回复和一条新消息，前缀完全相同，
+- **后一步续接前一步。** 每一步的请求都是上一步的请求加上模型回复和一条新消息，指令与此前的消息逐字相同，
   可由模型服务的前缀缓存命中。这一点不依赖网关。
-- **标签而非 ID。** 已有记忆以 M1、M2… 展示，Core 负责映射回 workset key，模型输出的未知标签按无效输出处理。
+- **标签而非 ID。** 已有记忆以 M1、M2… 展示，Core 负责映射回 workset key。
+- **回复不合规则时在同一步内纠正。** 每一步的回复先应用到 workset 的副本上；标签未知、缺少证据、
+  时间限定词丢失等规则被违反时，规则名称返回给模型重答（次数受现有 `max_requests` 限制），副本丢弃。
+  纠正次数用尽后本窗口失败，不发布部分结果。
 
 ### 3.2 证据与溯源
 
-第 1 步的证据沿用 `AtomicMemoryExtractionInput` 的渲染方式，每段证据带 `evidence_id`。第 2 步的
-create / revise / merge 必须给出 `evidence_ids`，Core 校验其属于本窗口证据，再按现有方式构造工作条目：
-`evidence=selected`、`sources=tuple(item.source_ref for item in selected)`。noop 的 `evidence_ids` 为空。
-窗口只有一个 Source 时，缺省 `evidence_ids` 可由 Core 直接补为该 Source。
+第 1 步的证据沿用 `AtomicMemoryExtractionInput` 的渲染方式（含输入编码），每段证据带 `evidence_id`。
+第 2 步的 create / revise / merge 给出 `evidence_ids`，Core 校验其属于本窗口证据，再按现有方式构造工作条目：
+`evidence=selected`、`sources=tuple(item.source_ref for item in selected)`。缺省时：
+
+- 窗口只有一个 Source：补为该 Source；
+- 只合并已有记忆、不含新事实的 merge：以被合并记忆的已发布内容作为依据；
+- 其余情况按无效回复处理。
+
+create 的内容按抽取候选的同一套规则校验（`validate_extraction_output`：kind、正文、引用的证据、时间限定词）。
 
 ### 3.3 应用到 workset
 
 | 操作 | workset 处理 |
 | --- | --- |
-| create | 以操作内容新建 proposal 条目，`related` 为空，按 `create` 应用 |
+| create | 以操作内容新建条目，直接保留 |
 | revise | 以操作内容新建 proposal，`related` 为唯一目标条目，按 `revise` 应用 |
 | merge | 以操作内容新建 proposal，`related` 为全部目标条目，按 `merge` 应用 |
-| noop | 不新增条目，记录 `compared_ids` 与 `reason` 供审计 |
+| noop | 不新增条目，目标记忆不变 |
 
-`compared_ids` 取第 2 步展示过、且与该操作的事实相关的条目；`reason` 由第 2 步一并输出。
-现有 `RedundantAtomicMemoryRevisionError` 等校验规则原样生效。
+revise / merge 的 `compared_ids` 与 `target_ids` 都取目标条目，`reason` 由模型给出；
+`validate_reconciliation_decision` 的规则原样生效。内容与目标完全相同的 revise
+（`RedundantAtomicMemoryRevisionError`）按 noop 处理。
 
-### 3.4 批量复核
+### 3.4 复核（第 3 步）
 
-第 2 步结束后，Core 用每条 create 的正文召回相关记忆，收集第 2 步没有展示过的条目。若不存在则不调用；
-若存在，把待复核的 create 及其未展示过的相关记忆合并成尽量少的复核调用（按 §5.2 的预算分批），模型对每条
-create 重新给出操作。复核同样续接第 2 步的前缀。
+第 2 步里，一条 create 只和它的检索词召回的记忆比过。第 2 步结束后，Core 用每条 create 的正文再召回一次
+（同样取前 5 条），找出第 2 步没有展示过的记忆。都没有则不调用；有则在同一对话里追加第 3 步：
+列出这些 create（标签 C1、C2…）和各自的未展示记忆，模型对每条 create 重新给出操作
+（create 表示保留，revise / merge 与目标合并，noop 表示目标已包含该事实）。这一步与逐候选流程的一次比对等价，
+直接用 `workset.apply(候选, 未展示记忆, 操作)` 应用。
 
 ### 3.5 比对范围
 
@@ -95,41 +107,46 @@ create 重新给出操作。复核同样续接第 2 步的前缀。
 
 ## 4. 提示词
 
-两步流程的指令是代码常量，带版本号（例如 `powercontext.atomic-memory.one-pass.v1`），用户不能修改，
-相当于 invariant。其中两处嵌入现有提示词配置：
+流程指令是 `builtin/artifacts/atomic_memory/one_pass.py` 中的代码常量，用户不能修改，相当于 invariant。
+其中两处嵌入现有提示词配置：
 
 | 位置 | 来源 |
 | --- | --- |
-| "什么值得记" | `atomic_memory.extract` 经 `resolve()` 编译后的指令：内置抽取规则（随 profile 变化），以及 Scope 的 custom guidance |
-| 第 2 步的对账原则 | `atomic_memory.reconcile` 的 Scope custom guidance，追加在操作定义之后 |
+| "什么值得记" | `atomic_memory.extract` 经 `resolve()` 编译后的指令：内置抽取规则（随 profile 变化）；Scope 自定义时还包含其 guidance 与 demonstrations |
+| 第 2、3 步的对账原则 | `atomic_memory.reconcile` 的 Scope 自定义指令原文，追加在流程指令之后；未自定义时不追加 |
 
 - 流程指令保持领域中立，不提编码或对话；领域差异全部来自 profile 与 Scope guidance。
-- 提示词 digest 与 builtin_version 需要包含单次整理的流程版本号，避免两种模式被当作同一份提示词审计或缓存。
-- Scope 的 demonstrations 以"输入 → 候选"的形式校验。嵌入单次整理时只作为"哪些内容值得记住"的示例渲染，
-  不带输出格式，以免干扰第 2 步的操作格式。这一路径尚未评测（§7）。
-
-附录 A 给出评测所用的流程指令全文。
+- 抽取规则原本面向"输出候选列表"的回复。流程指令在其后说明：选择、措辞、语言与时间方面的规则照常适用，
+  输出格式以各步的说明为准。
+- `atomic_memory.reconcile` 的内置指令描述的是逐候选回复（`compared_ids` 等），不嵌入；它的 demonstrations
+  同样是逐候选格式，单次整理不使用。
+- 两个 key 的自定义 Prompt Artifact 都记入本窗口发布条目的 `artifacts`，与逐候选流程一致。
+- 带 demonstrations 的 Scope 尚未评测（§7）。
 
 ## 5. 配置、预算与失败处理
 
 ### 5.1 配置
 
 `RuntimeConfig` 新增 `atomic_memory_processing_mode: Literal["per_candidate", "one_pass"] = "per_candidate"`，
-对应环境变量 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`，同步写入中英文配置文档。
-`AtomicMemoryProcessingConfig.from_runtime()` 读取该值。第 1 步事实上限与展示的已有记忆上限作为内部常量，
-评测值分别为 30 和每个 query 5 条、总计 40 条。
+对应环境变量 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`，中英文配置文档已同步。
+`AtomicMemoryProcessingConfig.from_runtime()` 读取该值。第 1 步事实上限（30）、每个检索词展示的记忆数（5）
+与展示总数上限（40）是 `one_pass.py` 中的常量。
+
+注入自定义 `AtomicMemoryGenerationPipeline` 的部署需要同时提供 `conversation` 生成器才能开启该模式，
+否则处理窗口时报 `InferenceUnavailableError`。
 
 ### 5.2 预算
 
-- 第 1 步输入与现有抽取相同，沿用 `atomic_memory.extract` 的预算检查；超出时沿用窗口缩减。
-- 第 2 步输入为第 1 步输入加上已有记忆列表，按 `atomic_memory_input_tokens_limit` 检查。召回到的已有记忆
-  全部展示，不因预算丢弃，第 2 步也不拆成多次调用。
-- 第 2 步超出预算时，本窗口改用逐候选流程（§2）处理，结果与默认模式相同。逐候选流程在预算不足时本来就会把
-  每次比对的记忆数减半直到一条，单次整理拆分到最细也是同样的调用方式，却要另外处理跨批次的相似条目；直接回到
-  逐候选流程不引入新的行为，代价是该窗口没有成本收益，并多付一次第 1 步调用。
-- 已有记忆列表最多 40 条。只有窗口证据本身接近预算上限时第 2 步才会超出，这类窗口的占比在原型上测量（§7）。
-- 复核调用在第 2 步的前缀上追加未展示过的相似记忆；超出预算时按 create 条目拆成多次调用，每次续接同一前缀。
-  各条 create 的复核只针对各自的未展示记忆，互不依赖。
+所有估算沿用 `atomic_memory_input_tokens_limit` 与管线的 token estimator，估算内容为流程指令加上对话中已发送的
+全部消息。
+
+- 第 1 步或第 2 步的输入超出预算时，本窗口改用逐候选流程（§2）处理，结果与默认模式相同。
+  第 2 步不拆成多次调用，召回到的已有记忆也不因预算丢弃：逐候选流程在预算不足时本来就会把每次比对的记忆数
+  减半直到一条，把第 2 步拆到最细也是同样的调用方式，却要另外处理跨批次的相似条目。回到逐候选流程不引入新的
+  行为，代价是该窗口没有成本收益，第 2 步超出时还多付一次第 1 步调用。
+- 已有记忆列表最多 40 条。只有窗口证据本身接近预算上限时第 2 步才会超出，这类窗口的占比见 §7。
+- 第 3 步超出预算时把待复核的 create 对半拆成多次调用，每次都续接第 2 步的回复。各条 create 的复核只针对
+  各自的未展示记忆，互不依赖。单条 create 的复核仍超出时按现有的预算错误处理（触发窗口缩减）。
 
 ### 5.3 失败与重试
 
@@ -139,9 +156,11 @@ create 重新给出操作。复核同样续接第 2 步的前缀。
 
 ### 5.4 推理接口
 
-现有 `StructuredGenerator` 是单次调用。单次整理需要在同一对话里连续生成：管线新增一个支持
-消息历史的生成接口，由 Pydantic AI 的 `message_history` 实现，第 2 步与复核分别传入前序消息。
-观测沿用现有 stage 与 span，按步骤区分 operation，不记录提示词与模型输出内容。
+现有 `StructuredGenerator` 的实现把输出 schema 写进指令，不同输出格式的两次调用因此没有相同的前缀。
+单次整理使用新增的 `PydanticAIConversationGenerator`：输入是 `ConversationTurn`（指令、新消息、此前的对话、
+回复检查函数），回复是纯文本，由检查函数解析并校验，返回 `ConversationReply`（检查结果与可续接的对话）。
+它与现有生成器共用同一套超时、请求次数限制、错误映射和用量上报（`UsageReportingStructuredGenerator`），
+在链路中的名称为 `atomic_memory_one_pass`。不新增日志字段，不记录提示词与模型输出内容。
 
 ## 6. 评测
 
@@ -218,55 +237,12 @@ create 重新给出操作。复核同样续接第 2 步的前缀。
 - LoCoMo 的 J 不低于现有流程；
 - 成本优势保持。
 
-## 附录 A：流程指令（评测版本）
+## 附录 A：流程指令
 
-`{extraction_rules}` 处嵌入 `atomic_memory.extract` 的编译结果；`{max_items}` 为 30。
+全文见 `src/powercontext/builtin/artifacts/atomic_memory/one_pass.py` 的 `_INSTRUCTIONS`。结构如下：
 
-```text
-You are now curating long-term memory for this session. Nothing below is a task for you to work on.
-
-The conversation above is the source. Only its most recent user turn is evidence: the last user message before this
-one and everything after it. Earlier turns are context only. Content between a BEGIN_POWERCONTEXT_<NAME> marker and its
-END_POWERCONTEXT_<NAME> marker was supplied by PowerContext from existing memory: it is never evidence for the new turn.
-
-What is worth remembering:
-{extraction_rules}
-
-You will work in two steps.
-
-Step 1 (now): list every fact in the evidence that is worth remembering, one entry per fact that can change on its own.
-Several facts can share a subject or topic; list each of them. For each fact give a short label naming it (not the
-memory text) and a short recall query of a few words naming its subject and topic, used to look up existing memories
-on the same fact. List at most {max_items} facts. Step 1 only finds the existing memories to check: include a fact when
-in doubt, since step 2 decides what is kept; return an empty list only when the evidence states no fact at all.
-Reply with only this JSON object: {"items": [{"fact": "...", "query": "..."}]}
-
-Step 2 (after you receive the existing memories, each labeled M1, M2, ...): return the final memory operations.
-Account for every fact you listed in step 1; a decision about one fact never settles another.
-- "create": a fact from the evidence that no shown memory states; target_ids empty.
-- "revise": the evidence changes or corrects details of exactly one existing memory, such as a cause, a value, a
-  status, a date, a name or a path, even when its overall conclusion stays the same; target_ids is that one label, and
-  the content is the complete corrected memory.
-- "merge": several shown memories state the same fact (with or without the evidence); target_ids lists their labels,
-  and the content is the single complete combined memory.
-- "noop": an existing memory already states everything the evidence says about the fact; target_ids is that label.
-Restating the same fact in other words, another language or with confirming evidence is a noop; a better description
-alone is not a reason to revise. When the evidence changes the same enduring fact (same subject, attribute and
-applicability) as an existing memory, revise that memory instead of creating another, and keep the earlier value as
-history when the change matters. Keep facts that can change independently, and genuinely different conditions,
-separate. Do not touch memories unrelated to the facts you listed. Use only the labels shown.
-
-How to write each memory:
-- One memory per fact that can change on its own. Do not fold several independent facts into one memory, and do not
-  split one fact across memories.
-- Write it as completely as a standalone note read without the conversation: keep the exact names, values, dates,
-  reasons, conditions and outcomes the evidence gives. Do not shorten a fact to save space.
-- Name its subject (the person, project, team or system it is about) in every memory.
-- State the resulting fact or state, not the story of how this session reached it.
-
-Every create, revise or merge needs kind (fact, preference, decision, constraint or working_note), text (the complete
-atomic fact) and description (a short catalog label). Step 2 replies with only this JSON object:
-{"operations": [{"action": "...", "target_ids": [], "kind": "...", "text": "...", "description": "..."}]}
-```
-
-Core 实现中，第一段改为描述带 `evidence_id` 的证据输入，第 2 步的输出增加 `evidence_ids` 与 `reason`（§3.2、§3.3）。
+1. 说明输入：第一条消息是带 `evidence_id` 的证据 JSON，已有记忆在后续消息里给出，且不能作为新事实的证据。
+2. "什么值得记"：嵌入 `atomic_memory.extract` 的编译结果。
+3. 第 1 步：逐条列出事实与检索词，至多 30 条；拿不准也列上。
+4. 第 2 步：create / revise / merge / noop 的定义、同一事实优先修订的原则、每条记忆的写法、输出格式。
+5. 第 3 步：对列出的 create 重新决定。
