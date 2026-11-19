@@ -83,14 +83,33 @@ def _spec_name(spec: Any) -> str | None:
     return spec.get("name") if isinstance(spec, Mapping) else None
 
 
+def _effective_model(model: Any) -> Any:
+    """Return the model Deep Agents will use, resolving its deprecated default when needed."""
+    if model is not None:
+        return model
+    try:
+        from deepagents.graph import _build_default_model
+    except ImportError:  # pragma: no cover - exercised only with a different deepagents layout
+        try:
+            from deepagents.graph import get_default_model as _build_default_model
+        except ImportError:
+            return None
+    try:
+        return _build_default_model()
+    except Exception:  # the builder can require provider configuration
+        return None
+
+
 def _default_general_purpose_enabled(model: Any) -> bool:
     """Whether the active harness profile allows Deep Agents' default subagent.
 
     A profile can disable the built-in ``general-purpose`` subagent, and Deep Agents honours that only when it
     auto-adds the default. An explicit spec bypasses the setting, so the adapter must not add one in that case.
-    Profile resolution is best effort: any failure keeps the current default behavior.
+    ``model=None`` is deprecated but still supported, and Deep Agents resolves it to its own default model, so the
+    same effective model decides here. Profile resolution is best effort: any failure keeps the current behavior.
     """
-    if model is None:
+    resolved = _effective_model(model)
+    if resolved is None:
         return True
     try:
         from deepagents._models import resolve_model
@@ -99,8 +118,8 @@ def _default_general_purpose_enabled(model: Any) -> bool:
         return True
     try:
         spec = model if isinstance(model, str) else None
-        profile = _harness_profile_for_model(resolve_model(model) if spec is not None else model, spec)
-    except Exception:
+        profile = _harness_profile_for_model(resolve_model(resolved) if spec is not None else resolved, spec)
+    except Exception:  # resolution must never block agent creation
         return True
     general_purpose = profile.general_purpose_subagent
     return general_purpose is None or general_purpose.enabled is not False

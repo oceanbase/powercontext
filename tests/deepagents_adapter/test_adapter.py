@@ -258,6 +258,30 @@ def test_disabled_general_purpose_profile_keeps_delegation_disabled() -> None:
         registry.update(snapshot)
 
 
+def test_disabled_general_purpose_profile_applies_to_the_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deprecated default-model path must resolve the same profile as Deep Agents."""
+    from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
+    from deepagents.profiles.harness import harness_profiles
+
+    registry = harness_profiles._HARNESS_PROFILES
+    snapshot = dict(registry)
+    try:
+        register_harness_profile(
+            "_answeringmodel",
+            HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)),
+        )
+        model = _AnsweringModel()
+        monkeypatch.setattr("deepagents.graph._build_default_model", lambda: model)
+
+        agent = create_powercontext_deep_agent(tools=[])
+        agent.invoke({"messages": [{"role": "user", "content": "hi"}]}, context=PowerContextScope())
+
+        assert "task" not in model.tool_names
+    finally:
+        registry.clear()
+        registry.update(snapshot)
+
+
 def test_explicit_general_purpose_subagent_is_not_duplicated() -> None:
     spec = {"name": "general-purpose", "description": "custom", "system_prompt": "custom prompt"}
     augmented = powercontext_subagents([spec])
