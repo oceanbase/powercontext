@@ -1,0 +1,79 @@
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_f034dacb36bc58 218
+.github/workflows/build-artifacts.yml
+  s_2ef0feea0a110d::t_ccace1a72e834d 129-137,152-157
+  s_2ef0feea0a110d::t_b54e53d862396a 158
+tests/test_bub_docker_mirror.py
+  s_2ef0feea0a110d::t_7034d307c6cbc3 34-36,50-51
+  s_2ef0feea0a110d::t_e1eb4ba2a0b41c 1-33,37-49,52-82
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_88155f3d6586f9 134-140
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_2ef0feea0a110d::t_52b7258b53416a 11,20
+.github/actions/cache-pip/action.yml
+  s_2ef0feea0a110d::t_ccace1a72e834d 1-31
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_52b7258b53416a 684,771-772
+  s_2ef0feea0a110d::t_426c30d52d60c8 168,176,396,404,543,551
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_f4da17c1e36f8a 332-334,364-377,384,416-427
+  s_2ef0feea0a110d::t_2340fb381e2805 288,307,359,402-415,428-451
+  s_2ef0feea0a110d::t_d47b690196b170 350
+  s_7849825a984032::t_94cc328b005ae8 272-287,289-306,308-331,335-349,351-358,360-363,378-383,385-401,452-493
+.github/workflows/skill-guidance.yml
+  s_2ef0feea0a110d::t_83233f14007d30 51,53-56
+  s_2ef0feea0a110d::t_21855bccdeb0dc 52
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_ccace1a72e834d 67-97
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_88155f3d6586f9 134-140
+tests/e2e/gateway_tck.py
+  s_2ef0feea0a110d::t_ef2037df035b71 221-224
+  s_2ef0feea0a110d::t_f4da17c1e36f8a 214-216
+scripts/ci_cache.py
+  s_2ef0feea0a110d::t_d47b690196b170 263
+  s_2ef0feea0a110d::t_96c48ea0cc2636 231,238
+  s_2ef0feea0a110d::t_88e9cde8de9f9b 229-230,232,239-242,259-260
+  s_2ef0feea0a110d::t_e6d4230b2983d8 261,264
+  s_2ef0feea0a110d::t_f4da17c1e36f8a 267-272,288-296
+  s_2ef0feea0a110d::t_8f68bb4d800746 21,24,219-228,233-237,243-258,262,265-266,273-285
+e2e/bub/container-entrypoint.sh
+  s_2ef0feea0a110d::t_6b6680b8fdb406 37-52
+.github/actions/cache-npm/action.yml
+  s_2ef0feea0a110d::t_ccace1a72e834d 1-35
+.github/actions/check-license/action.yml
+  s_2ef0feea0a110d::t_19c3eac4f8f6a6 1-25,27-48
+  s_2ef0feea0a110d::t_21855bccdeb0dc 26
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_6b6680b8fdb406 75
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_ccace1a72e834d 62-68,83-88
+  s_2ef0feea0a110d::t_27bf581535d937 89
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_7034d307c6cbc3 1144-1145,1152-1164,1167-1180,1217-1223,1229-1238
+  s_2ef0feea0a110d::t_19c3eac4f8f6a6 206,216,218-226,232-234,239-248,1748-1751
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "be857cb7c01d0116e4f0af640e4227c40e39897f",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
