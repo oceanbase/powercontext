@@ -247,8 +247,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -261,6 +259,10 @@ jobs:
           # The 3.11 unit job also downloads minimum Pydantic after the root install.
           shared-cache: ${{ matrix.suite == 'e2e' || matrix.python-version != '3.11' }}
           python-version: ${{ matrix.python-version }}
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -963,8 +965,6 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 40
     runs-on: powercontext-ci-light
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -975,6 +975,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1017,8 +1021,6 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 25
     runs-on: powercontext-ci-light
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1029,6 +1031,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1064,8 +1070,6 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 30
     runs-on: powercontext-ci-light
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1076,6 +1080,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1103,7 +1111,6 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       OPENCODE_VERSION: '1.19.5'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1113,6 +1120,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
@@ -1161,7 +1172,6 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       CODEX_VERSION: '0.167.2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1171,6 +1181,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Install the pinned Codex host
@@ -1207,7 +1221,6 @@ jobs:
     # Claude Code ships no baseline x64 build, and some light runners lack the AVX2 its binary needs.
     runs-on: ubuntu-24.04
     env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       CLAUDE_CODE_VERSION: '2.1.277'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1217,6 +1230,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       - name: Install the pinned Claude Code host
@@ -1301,7 +1318,6 @@ jobs:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
       OPENCLAW_VERSION: '2026.8.1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1311,6 +1327,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
@@ -1412,13 +1432,15 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: windows-latest
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up website tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1440,8 +1462,6 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
     runs-on: powercontext-ci-standard
-    env:
-      MISE_CACHE_DIR: ${{ runner.temp }}/mise-cache
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1450,6 +1470,10 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up website tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
