@@ -257,6 +257,14 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         "experience.generate",
         "skill.generate",
         "handoff.generate",
+        "topic_memory.probe",
+        "topic_memory.global",
+        "topic_memory.planner",
+        "topic_memory.evolve",
+        "topic_memory.temporary",
+        "topic_memory.reduce",
+        "topic_memory.reconcile",
+        "profile.generate",
     )
     for value in await api.prompt_configurations(ctx["scope"], keys):
         if isinstance(value, ReadError):
@@ -264,30 +272,30 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         else:
             ctx["data"]["prompts"].append(value)
     selected_key = request.query_params.get("prompt_key")
-    if selected_key:
-        configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
-        artifact = None if configuration is None else configuration.get("artifact")
-        if artifact and str(artifact.get("revision", "")).isdigit():
-            selected = request.query_params.get("prompt_revision") or str(artifact["revision"])
-            if str(selected).isdigit():
-                ctx["prompt_key"] = selected_key
-                try:
-                    ctx["prompt_opened"] = await api.artifact_revision(
-                        ctx["scope"], "prompt", selected_key, int(selected)
-                    )
-                except ReadError as error:
-                    # Showing the current configuration here would mislabel it as the requested revision.
-                    ctx["errors"]["prompt_selected"] = error
-                    return
-                ctx["history"] = await load_history(
-                    api,
-                    request,
-                    ctx,
-                    family="prompt",
-                    artifact_id=selected_key,
-                    selected=int(selected),
-                    cursor_key="prompt_revision_cursor",
-                )
+    if not selected_key:
+        return
+    ctx["prompt_key"] = selected_key
+    configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
+    artifact = None if configuration is None else configuration.get("artifact")
+    raw_revision = request.query_params.get("prompt_revision")
+    if raw_revision is None and artifact is None:
+        return
+    try:
+        selected = positive_revision(raw_revision if raw_revision is not None else str(artifact["revision"]))
+        ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", selected_key, selected)
+    except ReadError as error:
+        # Never substitute current content for an unavailable or invalid historical revision.
+        ctx["errors"]["prompt_selected"] = error
+        return
+    ctx["history"] = await load_history(
+        api,
+        request,
+        ctx,
+        family="prompt",
+        artifact_id=selected_key,
+        selected=selected,
+        cursor_key="prompt_revision_cursor",
+    )
 
 
 async def load_note_history(api: DashboardAPI, request: Request, ctx: dict[str, Any], *, snapshot=None) -> None:
