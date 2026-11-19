@@ -36,7 +36,7 @@ prefix extraction 扩展。不得加入正文、路径、message ID 列表、pro
 | 字段 | 契约 |
 | --- | --- |
 | `schema` | 固定为 `powercontext.capture-coverage.v1`。 |
-| `projection` | 下表定义的三个 profile 之一。 |
+| `projection` | 下表定义的四个 profile 之一。 |
 | `unit` | 与 profile 精确配对的投影单元。 |
 | `status` | `complete`、`partial` 或 `unknown`。 |
 | `reasons` | 受支持字符串，去重并按字典序升序排列。 |
@@ -61,7 +61,8 @@ reason 重复或乱序、status 与 reasons 矛盾，都解释为 unknown。解�
 | --- | --- | --- |
 | `hermes-turn-text.v1` | `user_assistant_text_pair` | 当前规范化后的 user/assistant 文本对，包含既有角色标签和分隔符。 |
 | `hermes-precompress-text.v1` | `new_user_assistant_window` | 宿主提供、经现有过滤及重叠去重后，本次待捕获的新 user/assistant 条目窗口。 |
-| `gateway-turn-text.v1` | `gateway_turn_projection` | 当前受支持的 Chat/Responses 规范投影，从最后一条 user 到 terminal assistant。 |
+| `gateway-turn-text.v1` | `gateway_turn_projection` | 早期的 Chat/Responses 规范投影，从最后一条 user 到 terminal assistant，字段与整条记录有字节上限。只用于解读已有 Source。 |
+| `gateway-turn-text.v2` | `gateway_turn_projection` | Gateway 当前写入的完整回合投影，范围同 v1，不截断、不省略。 |
 
 ### Hermes completed turn
 
@@ -85,7 +86,23 @@ fingerprint 和 overlap 处理。投影单元是本次请求捕获的完整新�
 Scope 固定、重叠身份和 checkpoint 状态转换保持现有语义。capture 已持久化之后，后续 extraction
 失败不否定 checkpoint。
 
-### Gateway normalized turn
+### Gateway complete turn（v2）
+
+Gateway 新写入的 Source 使用 `gateway-turn-text.v2`。它保留这一回合中模型读到的全部内容：用户文本、其后的其他消息、
+推理的可见摘要、工具调用的全部参数字段、工具输出与错误、内置工具返回的结果和无法识别的条目，以及最终助手文本。
+字段不截断，步骤不省略。注入的 prepare、推理密文、ID、状态和其他传输元数据不在 profile 内；`data:` 二进制内容记为带
+媒体类型和字节数的占位文本。排除这些内容本身不使投影变为 partial。
+
+一段 Source 按 Core 的字符估算（转义后的文本，ASCII 每 4 个字符、其他每个字符各一个 token）最多 50,000 个 token；
+Core 生效的 Atomic Memory 输入上限更低时以它为准，Core 在能力信息的
+`context_protection.limits.atomic_memory_input_tokens` 中报告这个上限。更大的回合按顺序拆成几段 Source，每段都是完整的 JSON 文档，带 `part` 与 `parts`，并在步骤边界结束；单个步骤放不下时，其最长的
+文本字段拆成连续的同类步骤，断点落在换行处（一行自身放不下时除外），后续部分带 `"continued": true`。拆分不丢失内容，
+每段的声明都是 `complete`。各段在一次批量请求里沉淀，要么全部入库，要么都不入库。各段元数据中的 `turn` 给出所属回合的 `source_id` 与段号。终止响应的判定与 v1 相同。
+
+### Gateway normalized turn（v1）
+
+以下描述 v1 投影，供解读 v1 声明的已有 Source；Gateway 不再写入 v1。
+
 
 继续保留既有可见文本、工具调用和工具输出投影。注入的 prepare、opaque reasoning、传输 ID 及不支持
 的媒体仍在 profile 之外；排除它们本身不代表该投影 partial。

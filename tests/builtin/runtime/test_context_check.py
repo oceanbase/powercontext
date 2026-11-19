@@ -284,6 +284,58 @@ async def test_utf8_exact_block_requires_user_position_and_complete_binding(mode
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+async def test_a_replayed_turn_with_appended_items_still_needs_its_injected_block_bound(mode):
+    # The gateway's prefixed extraction replays the request it sent, injected block included, and appends the
+    # response output and one instruction message.
+    block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n历史资料\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1"
+    prefix = "fix the bug\n"
+
+    async def validate(binding):
+        assert binding == "opaque"
+        return ValidatedContextReuse(
+            content_digest=sha256(block.encode()).hexdigest(),
+            content_bytes=len(block.encode()),
+            expires_at=NOW + timedelta(minutes=5),
+            ordered_roots=(),
+        )
+
+    location = {
+        "binding": "opaque",
+        "location": {
+            "pointer": "/input/0/content/0/text",
+            "start_byte": len(prefix.encode()),
+            "end_byte": len((prefix + block).encode()),
+        },
+    }
+    payload = _payload({
+        "model": "test",
+        "max_output_tokens": 64,
+        "tool_choice": "none",
+        "input": [
+            {"role": "user", "content": [{"type": "input_text", "text": prefix + block}]},
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]},
+            {"role": "user", "content": [{"type": "input_text", "text": "Extract memories from the turn above."}]},
+        ],
+    })
+    base = _config(mode=mode)
+    config = base.model_copy(
+        update={
+            "targets": {
+                "test": base.targets["test"].model_copy(
+                    update={"endpoint": "https://model.example/v1/responses", "protocol": "openai-responses"}
+                )
+            }
+        }
+    )
+    bound = _send(payload=payload, prepared_contexts=(location,))
+    result = await _check(bound, BindingCodec(), config=config, validate_reuse=validate)
+    assert result.decision == "allow"
+    with pytest.raises(InvalidRuntimeRequestError, match="binding-required"):
+        await _check(_send(payload=payload), BindingCodec(), config=config)
+
+
+@pytest.mark.anyio
 async def test_current_dependency_failure_withholds_instead_of_refreshing():
     async def revoked(_binding):
         raise ContextReuseError("context-reuse-source-changed")
