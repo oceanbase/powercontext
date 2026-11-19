@@ -114,7 +114,7 @@ class AtomicMemoryProcessingConfig:
     related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
     comparison_batch_size: int = 20
-    input_tokens_limit: int = 24_000
+    input_tokens_limit: int = 64_000
 
     def __post_init__(self) -> None:
         if (
