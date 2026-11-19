@@ -1,0 +1,21 @@
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_b49bc990453052 1119-1120
+tests/native/test_installation.py
+  s_13fec9a57c9104::t_b69e1ad4b00476 45-52,63,260-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e162d7133385c0b1ae0f24f6ea9ee37d940722de",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
