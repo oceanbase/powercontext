@@ -326,6 +326,7 @@ def test_dashboard_cross_library_retrieval_chunk_removal_and_forget(tmp_path):
             await frame.get_by_role("tab", name="检索测试", exact=True).click()
             await frame.get_by_role("combobox", name="检索知识库").press("ArrowDown")
             await frame.get_by_text("Search B", exact=True).last.click()
+            await frame.get_by_role("combobox", name="检索知识库").press("Escape")
             await frame.get_by_role("textbox", name="检索问题").fill("quartz")
             async with page.expect_response(
                 lambda r: r.request.method == "POST" and r.url.endswith("/retrieve")

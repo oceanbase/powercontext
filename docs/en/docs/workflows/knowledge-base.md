@@ -33,12 +33,14 @@ export POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
 uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 ```
 
-Use the deployment's normal authentication and authorization configuration. Open `/dashboard/plugins/knowledge-base`
-The Dashboard opens the knowledge base selected by the host Scope picker in its owning space, without changing the
-user's default space. An ordinary or inaccessible knowledge-base Scope shows a notice and lets the user choose a
-knowledge base from the default space or switch spaces.
+Use the deployment's normal authentication and authorization configuration. After signing in, open
+`/dashboard/plugins/knowledge-base` and select a space and knowledge base in the plugin's navigation.
+Plugin-created Scopes are hidden from the host Scope picker's default listings. An explicit
+`?scope=<knowledge-base-scope-id>` URL opens that knowledge base in its owning space without changing the user's default
+space. An ordinary or inaccessible knowledge-base Scope shows a notice and lets the user choose a knowledge base from
+the default space or switch spaces.
 
-after signing in. Space creation/renaming, knowledge-base creation and processing configuration require `server.admin`;
+Space creation/renaming, knowledge-base creation and processing configuration require `server.admin`;
 imports require Scope contribution and searches require Scope read. Editing and forgetting also enforce Artifact authority.
 New replacement requests for an existing document, including changed-file uploads, retries and explicit reprocessing, also
 require its Artifact write authority. Replaying an already accepted request retains its original fixed base and receipt.

@@ -20,7 +20,7 @@ from tests.e2e.plugin_server import wait_for
 from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
 
 
-def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
+def test_dashboard_keeps_plugin_navigation_separate_from_host_scope_picker(tmp_path):
     async def scenario():
         async with dashboard(tmp_path) as (call, page, frame, origin, expect):
             default = await call("GET", "/me/default-space")
@@ -35,9 +35,19 @@ def test_dashboard_follows_host_scope_without_changing_default(tmp_path):
             await frame.get_by_role("checkbox", name="选择分块 1", exact=True).check()
             await frame.get_by_role("button", name="编辑分块", exact=True).click()
             await frame.get_by_role("textbox", name="分块正文").fill("Unsaved draft for A")
+            # Plugin Scopes are reachable by explicit URL, but are not ordinary host picker options.
+            options = await page.request.get(origin + "/dashboard/scope-options?query=Host")
+            assert options.ok
+            assert not {a["scope_id"], b["scope_id"], other["space_scope_id"]} & {
+                item["scope_id"] for item in (await options.json())["items"]
+            }
+            # Leaving the explicit Scope through the host closes the old draft before plugin navigation.
             await page.locator(".scope-picker .ts-control").click()
-            await page.locator(".scope-picker .dropdown-input").fill("Host B")
-            await page.locator(".scope-picker .option").filter(has_text="Host B").first.click()
+            await page.locator('.scope-picker .option[data-value=""]').click()
+            await expect(frame.get_by_role("textbox", name="分块正文")).to_have_count(0)
+            await frame.get_by_role("button", name="切换空间").click()
+            await frame.get_by_role("menuitem", name="Host selection", exact=True).click()
+            await select_library(frame, "Host B")
             await expect(frame.get_by_role("button", name="切换空间")).to_contain_text("Host selection")
             await expect(frame.get_by_role("button", name="切换知识库")).to_contain_text("Host B")
             await expect(frame.get_by_role("textbox", name="分块正文")).to_have_count(0)

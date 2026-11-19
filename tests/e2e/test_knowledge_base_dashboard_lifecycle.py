@@ -86,6 +86,7 @@ def test_dashboard_refresh_invalidates_search_and_shows_hit_library(tmp_path):
             await frame.get_by_role("tab", name="检索测试", exact=True).click()
             await frame.get_by_role("combobox", name="检索知识库").press("ArrowDown")
             await frame.get_by_text("Review B", exact=True).last.click()
+            await frame.get_by_role("combobox", name="检索知识库").press("Escape")
             await frame.get_by_role("textbox", name="检索问题").fill("Quartz")
             await frame.get_by_role("button", name="检索", exact=True).click()
             await frame.get_by_role("button", name="定位分块", exact=True).click()

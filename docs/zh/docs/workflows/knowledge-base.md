@@ -31,8 +31,9 @@ export POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
 uv run --no-sync powercontext server run --host 127.0.0.1 --port 8765
 ```
 
-沿用部署的认证与权限配置，登录后打开 `/dashboard/plugins/knowledge-base`。
-Dashboard 使用宿主选择的知识库 Scope 定位所属空间并打开知识库，不改变用户默认空间。
+沿用部署的认证与权限配置，登录后打开 `/dashboard/plugins/knowledge-base`，在插件顶部导航中选择空间和知识库。
+宿主 Scope 选择器默认不列出插件创建的 Scope。通过显式 `?scope=<知识库-scope-id>` URL 可定位所属空间并打开知识库，
+不改变用户默认空间。
 普通或不可访问的知识库 Scope 会显示提示，用户可在默认空间中选择知识库或切换空间。
 空间创建／重命名、知识库创建和处理配置要求 `server.admin`；导入要求 Scope contribute，检索要求 Scope read；
 编辑与遗忘还检查 Artifact 权限。插件页面拿不到会话凭据；Dashboard 桥接仅转发已声明的插件路由，以及显式启用的本插件 family 操作，
