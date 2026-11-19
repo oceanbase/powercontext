@@ -18,8 +18,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import os
+import platform
 import subprocess
 import sys
 import uuid
@@ -214,9 +216,84 @@ def go() -> None:
     )
 
 
+def download_dependencies(root: Path) -> list[Path]:
+    patterns = os.environ.get("CI_CACHE_DEPENDENCY_PATH", "").splitlines()
+    return [path for pattern in patterns if pattern.strip() for path in root.glob(pattern.strip()) if path.is_file()]
+
+
+def npm() -> None:
+    root = Path.cwd()
+    dependencies = download_dependencies(root)
+    packages = sorted(os.environ.get("CI_CACHE_PACKAGES", "").split())
+    if not dependencies and not packages:
+        message = "npm cache requires dependency files or pinned packages"
+        raise ValueError(message)
+    runtime = subprocess.run(
+        ["node", "-p", "JSON.stringify([process.version, process.platform, process.arch])"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    version = subprocess.run(["npm", "--version"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
+    cache_dir = subprocess.run(
+        ["npm", "config", "get", "cache"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    prefix = f"npm-v1-{platform_key()}-{digest([runtime, version])}-"
+    write_command_file(
+        "GITHUB_OUTPUT",
+        {
+            "cache-path": str(Path(cache_dir) / "_cacache"),
+            "cache-key": prefix + digest([packages, file_fingerprint(dependencies, root)]),
+            "restore-key": prefix,
+        },
+    )
+
+
+def pip() -> None:
+    root = Path.cwd()
+    dependencies = download_dependencies(root)
+    if not dependencies:
+        message = "pip cache requires exported dependency files"
+        raise ValueError(message)
+    command = [sys.executable, "-m", "pip", "cache", "dir"]
+    cache_dir = Path(
+        subprocess.run(  # noqa: S603 - fixed pip cache query through the current Python interpreter
+            command, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+    runtime = [
+        sys.version_info[:3],
+        sys.implementation.cache_tag,
+        platform.machine(),
+        importlib.metadata.version("pip"),
+    ]
+    prefix = f"pip-http-v1-{platform_key()}-{digest(runtime)}-"
+    # HTTP responses include downloaded wheels, but never locally built wheels
+    # or checkout-generated distributions. pip still verifies the locked hashes.
+    write_command_file(
+        "GITHUB_OUTPUT",
+        {
+            "cache-path": "\n".join(str(cache_dir / name) for name in ("http", "http-v2")),
+            "cache-key": prefix + file_fingerprint(dependencies, root),
+            "restore-key": prefix,
+        },
+    )
+
+
 if __name__ == "__main__":
     try:
-        {"backend": backend, "cargo": cargo, "cargo-clean": cargo_clean, "mise": mise, "go": go}[sys.argv[1]]()
+        {
+            "backend": backend,
+            "cargo": cargo,
+            "cargo-clean": cargo_clean,
+            "mise": mise,
+            "go": go,
+            "npm": npm,
+            "pip": pip,
+        }[sys.argv[1]]()
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

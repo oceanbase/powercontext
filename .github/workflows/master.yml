@@ -203,7 +203,7 @@ jobs:
 
       - name: Check License Header
         timeout-minutes: 10
-        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
+        uses: ./.github/actions/check-license
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
@@ -213,17 +213,38 @@ jobs:
           mode: check
 
       - name: Set up the environment
+        id: python-env
         uses: ./.github/actions/setup-python-env
+        with:
+          save-cache: 'false'
+
+      - name: Save preflight Python dependencies
+        if: steps.python-env.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.python-env.outputs.cache-path }}
+          key: ${{ steps.python-env.outputs.cache-key }}
 
       - name: Resolve Python version for hook cache
         id: python
         run: echo "version=$(python -c 'import platform; print(platform.python_version())')" >> "$GITHUB_OUTPUT"
 
-      - name: Cache prek environments
-        uses: ./.github/actions/cache
+      - name: Restore prek environments
+        id: prek-cache
+        uses: ./.github/actions/cache-restore
         with:
           path: ~/.cache/prek
           key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Prepare prek environments
+        run: uv run prek install-hooks
+
+      - name: Save prek environments
+        if: steps.prek-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ~/.cache/prek
+          key: ${{ steps.prek-cache.outputs.cache-primary-key }}
 
       - name: Run checks
         run: make check
@@ -1120,17 +1141,43 @@ jobs:
       - name: Test OpenCode package
         run: make opencode-test
 
-      - name: Install the pinned OpenCode host
+      - name: Select the pinned OpenCode package
+        id: opencode-package
         run: |
           package="opencode-$(node -p 'process.platform + "-" + process.arch')"
           # OpenCode's default x64 build needs AVX2; its own installer falls back to the baseline build without it.
           if [ "$package" = opencode-linux-x64 ] && ! grep -qw avx2 /proc/cpuinfo; then
             package=opencode-linux-x64-baseline
           fi
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OpenCode host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        id: opencode-npm-cache
+        uses: $/.github/actions/cache-npm
+        with:
+          packages: ${{ steps.opencode-package.outputs.package }}@${{ env.OPENCODE_VERSION }}
+
+      - name: Install the pinned OpenCode host
+        env:
+          OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
+        run: |
           npm install --prefix "$RUNNER_TEMP/opencode-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
-            "$package@$OPENCODE_VERSION"
-          cli="$RUNNER_TEMP/opencode-host/node_modules/$package/bin/opencode"
+            "$OPENCODE_PACKAGE@$OPENCODE_VERSION"
+
+      - name: Save OpenCode host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.opencode-npm-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.opencode-npm-cache.outputs.cache-path }}
+          key: ${{ steps.opencode-npm-cache.outputs.cache-key }}
+
+      - name: Verify the pinned OpenCode host
+        env:
+          OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
+        run: |
+          cli="$RUNNER_TEMP/opencode-host/node_modules/$OPENCODE_PACKAGE/bin/opencode"
           test "$("$cli" --version)" = "$OPENCODE_VERSION"
           echo "OPENCODE_CLI_BIN=$cli" >> "$GITHUB_ENV"
 
@@ -1167,11 +1214,28 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - uses: ./.github/actions/setup-mise
+      - name: Restore Codex host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        id: codex-npm-cache
+        uses: $/.github/actions/cache-npm
+        with:
+          packages: '@openai/codex@${{ env.CODEX_VERSION }}'
+
       - name: Install the pinned Codex host
         run: |
           npm install --prefix "$RUNNER_TEMP/codex-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "@openai/codex@$CODEX_VERSION"
+
+      - name: Save Codex host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.codex-npm-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.codex-npm-cache.outputs.cache-path }}
+          key: ${{ steps.codex-npm-cache.outputs.cache-key }}
+
+      - name: Verify the pinned Codex host
+        run: |
           cli="$RUNNER_TEMP/codex-host/node_modules/.bin/codex"
           test "$("$cli" --version)" = "codex-cli $CODEX_VERSION"
           echo "CODEX_CLI_BIN=$cli" >> "$GITHUB_ENV"
@@ -1681,6 +1745,10 @@ jobs:
           shared-cache: 'true'
       - name: Install Helm
         run: |
+          if command -v helm >/dev/null && [ "$(helm version --template '{{.Version}}')" = v3.19.0 ]; then
+            helm version --short
+            exit 0
+          fi
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz.sha256sum -o /tmp/helm.sha256
           EXPECTED=$(cut -d ' ' -f 1 /tmp/helm.sha256)

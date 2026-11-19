@@ -165,6 +165,7 @@ jobs:
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -172,6 +173,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name recall-effort-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -391,6 +393,7 @@ jobs:
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -398,6 +401,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-clean-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -536,6 +540,7 @@ jobs:
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_442_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -543,6 +548,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_442_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-native-fts-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -675,6 +681,7 @@ jobs:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/oceanbase/acceptance
         run: |
+          export POWERCONTEXT_E2E_OCEANBASE_IMAGE="${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-${PC_CI_OCEANBASE_435_IMAGE:-}}"
           mkdir -p "$POWERCONTEXT_E2E_OUTPUT" "$RUNNER_TEMP/oceanbase-acceptance"
           compose=(docker compose -f e2e/bub/compose.yaml -f e2e/bub/compose.oceanbase.yaml)
           timeout --kill-after=10s 700s "${compose[@]}" up --detach --wait --wait-timeout 660 oceanbase
@@ -761,6 +768,8 @@ jobs:
           POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
         run: |
+          export POWERCONTEXT_E2E_OCEANBASE_IMAGE="${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-${PC_CI_OCEANBASE_435_IMAGE:-}}"
+          export POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR="${POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR:-${PC_CI_DOCKER_REGISTRY_MIRROR:-}}"
           # Nested task containers do not inherit the runner's outbound proxy.
           # Keep an explicitly configured task-reachable proxy; otherwise use the runner's route.
           # The harness passes this secret by reference to Harbor, including during agent setup.

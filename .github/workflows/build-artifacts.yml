@@ -126,6 +126,15 @@ jobs:
             --format requirements-txt \
             --output-file build/artifact-input/plugin-requirements.lock
 
+      - name: Restore dependency wheel downloads
+        id: pip-cache
+        # Fingerprint the requested source's exports with workflow-bound tooling.
+        uses: $/.github/actions/cache-pip
+        with:
+          cache-dependency-glob: |
+            build/artifact-input/requirements.lock
+            build/artifact-input/plugin-requirements.lock
+
       - name: Download Linux x86_64 dependency wheels
         run: |
           python -m pip download \
@@ -139,6 +148,13 @@ jobs:
             --only-binary=:all: \
             --dest build/artifact-input/plugin-wheelhouse \
             --requirement build/artifact-input/plugin-requirements.lock
+
+      - name: Save dependency wheel downloads
+        if: steps.pip-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.pip-cache.outputs.cache-path }}
+          key: ${{ steps.pip-cache.outputs.cache-key }}
 
       - name: Assemble customer bundle
         id: bundle

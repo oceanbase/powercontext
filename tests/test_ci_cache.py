@@ -269,3 +269,225 @@ def test_cargo_restore_rebuilds_workspace_inputs_and_preserves_dependencies(tmp_
     rebuilt = subprocess.run(command, capture_output=True, text=True, check=True)
     assert rebuilt.stdout.strip() == "B 7"
     assert dependency_artifact.stat().st_mtime_ns == dependency_mtime
+
+
+@pytest.mark.parametrize("changed_input", ["package", "lock", "architecture"])
+def test_npm_download_cache_tracks_install_inputs_and_excludes_installed_packages(
+    tmp_path: Path, changed_input: str
+) -> None:
+    if shutil.which("npm") is None:
+        pytest.skip("requires npm")
+    lock = tmp_path / "package-lock.json"
+    lock.write_text('{"lockfileVersion": 3, "packages": {}}')
+    values = {
+        "npm_config_cache": str(tmp_path / "npm-cache"),
+        "CI_CACHE_PACKAGES": "@openai/codex@0.167.2",
+        "CI_CACHE_DEPENDENCY_PATH": "package-lock.json",
+    }
+    first, initial, _ = run_cache(tmp_path, "npm", **values)
+    assert first.returncode == 0, first.stderr
+    assert output_value(initial, "cache-path") == str(tmp_path / "npm-cache/_cacache")
+    if changed_input == "package":
+        values["CI_CACHE_PACKAGES"] = "@openai/codex@0.168.0"
+    elif changed_input == "lock":
+        lock.write_text('{"lockfileVersion": 3, "packages": {"node_modules/bun": {"version": "1.4.4"}}}')
+    else:
+        values["RUNNER_ARCH"] = "ARM64"
+    changed, updated, _ = run_cache(tmp_path, "npm", **values)
+    assert changed.returncode == 0, changed.stderr
+    assert output_value(initial, "cache-key") != output_value(updated, "cache-key")
+
+
+def test_pip_download_cache_tracks_exported_dependencies_and_excludes_built_wheels(tmp_path: Path) -> None:
+    pytest.importorskip("pip")
+    requirements = tmp_path / "requirements.lock"
+    requirements.write_text("fixture==1.0 --hash=sha256:abc\n")
+    values = {"PIP_CACHE_DIR": str(tmp_path / "pip-cache"), "CI_CACHE_DEPENDENCY_PATH": "requirements.lock"}
+    first, initial, _ = run_cache(tmp_path, "pip", **values)
+    assert first.returncode == 0, first.stderr
+    assert str(tmp_path / "pip-cache/http") in initial
+    assert str(tmp_path / "pip-cache/http-v2") in initial
+    assert "/wheels" not in initial
+    requirements.write_text("fixture==2.0 --hash=sha256:def\n")
+    changed, updated, _ = run_cache(tmp_path, "pip", **values)
+    assert changed.returncode == 0, changed.stderr
+    assert output_value(initial, "cache-key") != output_value(updated, "cache-key")
+    changed, architecture, _ = run_cache(tmp_path, "pip", **values, RUNNER_ARCH="ARM64")
+    assert changed.returncode == 0, changed.stderr
+    assert output_value(updated, "cache-key") != output_value(architecture, "cache-key")
+
+
+def test_restored_pip_http_cache_reuses_download_but_recreates_wheelhouse(tmp_path: Path) -> None:
+    pytest.importorskip("pip")
+    import hashlib
+    import io
+    import threading
+    import zipfile
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    wheel_name = "cache_fixture-1.0-py3-none-any.whl"
+    wheel = io.BytesIO()
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("cache_fixture/__init__.py", "value = 1\n")
+        archive.writestr(
+            "cache_fixture-1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: cache-fixture\nVersion: 1.0\n"
+        )
+        archive.writestr("cache_fixture-1.0.dist-info/WHEEL", "Wheel-Version: 1.0\nTag: py3-none-any\n")
+        archive.writestr("cache_fixture-1.0.dist-info/RECORD", "")
+    payload = wheel.getvalue()
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            requests.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - BaseHTTPRequestHandler signature
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    requirements = tmp_path / "requirements.lock"
+    requirements.write_text(
+        f"http://127.0.0.1:{server.server_port}/{wheel_name} --hash=sha256:{hashlib.sha256(payload).hexdigest()}\n"
+    )
+    cache = tmp_path / "pip-cache"
+    destination = tmp_path / "wheelhouse"
+    env = {**os.environ, "PIP_CACHE_DIR": str(cache), "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "download",
+        "--require-hashes",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--trusted-host",
+        "127.0.0.1",
+        "--no-index",
+        "--dest",
+        str(destination),
+        "--requirement",
+        str(requirements),
+    ]
+    try:
+        subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert requests == [f"/{wheel_name}"]
+        result, identity, _ = run_cache(
+            tmp_path, "pip", PIP_CACHE_DIR=str(cache), CI_CACHE_DEPENDENCY_PATH="requirements.lock"
+        )
+        assert result.returncode == 0, result.stderr
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        for name in ("http", "http-v2"):
+            if (cache / name).exists():
+                assert str(cache / name) in identity
+                shutil.copytree(cache / name, snapshot / name)
+        shutil.rmtree(cache)
+        shutil.rmtree(destination)
+        shutil.copytree(snapshot, cache)
+        restored = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert requests == [f"/{wheel_name}"], restored.stdout
+        assert (destination / wheel_name).read_bytes() == payload
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+def test_tck_prepare_restores_pinned_sources_without_installed_runners(tmp_path: Path) -> None:
+    import json
+
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("requires git")
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    subprocess.run([git, "init", "--quiet", str(upstream)], check=True)
+    (upstream / "suite.txt").write_text("pinned upstream suite\n")
+    subprocess.run([git, "-C", str(upstream), "add", "suite.txt"], check=True)
+    subprocess.run(
+        [
+            git,
+            "-C",
+            str(upstream),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "pin",
+        ],
+        check=True,
+    )
+    commit = subprocess.check_output([git, "-C", str(upstream), "rev-parse", "HEAD"], text=True).strip()
+    root = tmp_path / "checkout"
+    script = root / "tests/e2e/gateway_tck.py"
+    script.parent.mkdir(parents=True)
+    shutil.copyfile(SCRIPT.parents[1] / "tests/e2e/gateway_tck.py", script)
+    tck = root / "gateway/tck"
+    tck.mkdir(parents=True)
+    (tck / "upstreams.json").write_text(
+        json.dumps({name: {"repository": str(upstream), "commit": commit} for name in ("openai_sdk", "openresponses")})
+    )
+    cache = root / ".cache/gateway-tck"
+    command = [sys.executable, str(script), "--prepare-only", "--cache", str(cache)]
+    first = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert first.returncode == 0, first.stderr
+    shutil.rmtree(upstream)
+    restored = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert restored.returncode == 0, restored.stderr
+    assert sorted(path.name for path in cache.iterdir()) == [f"openai_sdk-{commit}", f"openresponses-{commit}"]
+    assert not (tck / "node_modules").exists()
+    (cache / f"openai_sdk-{commit}" / "suite.txt").write_text("changed suite\n")
+    modified = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert modified.returncode != 0
+
+
+def test_restored_npm_download_cache_reinstalls_packages_offline(tmp_path: Path) -> None:
+    import functools
+    import io
+    import tarfile
+    import threading
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    npm = shutil.which("npm")
+    if npm is None:
+        pytest.skip("requires npm")
+    package = b'{"name":"cache-fixture","version":"1.0.0"}'
+    with tarfile.open(tmp_path / "fixture.tgz", "w:gz") as archive:
+        metadata = tarfile.TarInfo("package/package.json")
+        metadata.size = len(package)
+        archive.addfile(metadata, io.BytesIO(package))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(SimpleHTTPRequestHandler, directory=str(tmp_path)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    cache = tmp_path / "npm-cache"
+    prefix = tmp_path / "install"
+    url = f"http://127.0.0.1:{server.server_port}/fixture.tgz"
+    env = {**os.environ, "npm_config_cache": str(cache)}
+    command = [npm, "install", "--prefix", str(prefix), "--ignore-scripts", "--no-audit", "--no-fund", url]
+    try:
+        subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+    result, identity, _ = run_cache(tmp_path, "npm", npm_config_cache=str(cache), CI_CACHE_PACKAGES=url)
+    assert result.returncode == 0, result.stderr
+    downloads = Path(output_value(identity, "cache-path"))
+    snapshot = tmp_path / "snapshot"
+    shutil.copytree(downloads, snapshot)
+    shutil.rmtree(cache)
+    shutil.rmtree(prefix)
+    shutil.copytree(snapshot, downloads)
+    # The upstream is offline and the entire previous installation is absent.
+    subprocess.run([*command, "--offline"], env=env, capture_output=True, text=True, check=True)
+    assert (prefix / "node_modules/cache-fixture/package.json").read_bytes() == package

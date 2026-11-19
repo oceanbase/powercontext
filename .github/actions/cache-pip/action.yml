@@ -1,0 +1,31 @@
+name: Restore pip HTTP downloads
+description: Restore dependency downloads without reusing locally built wheels
+inputs:
+  cache-dependency-glob:
+    description: Exported dependency file globs relative to the source checkout, one per line
+    required: true
+outputs:
+  cache-path:
+    description: pip HTTP response directories
+    value: ${{ steps.snapshot.outputs.cache-path }}
+  cache-key:
+    description: Python, platform and exported dependency fingerprint
+    value: ${{ steps.snapshot.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact dependency snapshot was restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: snapshot
+      shell: bash
+      env:
+        CI_CACHE_DEPENDENCY_PATH: ${{ inputs.cache-dependency-glob }}
+      run: python "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" pip
+
+    - id: restore
+      uses: $/.github/actions/cache-restore
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+        restore-keys: ${{ steps.snapshot.outputs.restore-key }}

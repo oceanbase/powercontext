@@ -34,11 +34,22 @@ if is_loopback_proxy "${http_proxy:-}"; then unset http_proxy; fi
 if is_loopback_proxy "${https_proxy:-}"; then unset https_proxy; fi
 if is_loopback_proxy "${all_proxy:-}"; then unset all_proxy; fi
 
-dockerd \
-    --host=unix:///var/run/docker.sock \
-    --storage-driver="$storage_driver" \
-    --log-level=error \
-    >"$docker_log" 2>&1 &
+start_dockerd() {
+    set -- --host=unix:///var/run/docker.sock --storage-driver="$storage_driver" --log-level=error
+    mirror=${POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR:-}
+    if [ -n "$mirror" ]; then
+        set -- "$@" --registry-mirror "$mirror"
+        case "$mirror" in
+            http://*)
+                registry=${mirror#http://}
+                set -- "$@" --insecure-registry "${registry%/}"
+                ;;
+        esac
+    fi
+    dockerd "$@" >"$docker_log" 2>&1 &
+}
+
+start_dockerd
 
 attempt=0
 until docker info >/dev/null 2>&1; do

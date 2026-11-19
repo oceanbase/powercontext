@@ -59,6 +59,13 @@ jobs:
           node-version: '24.21.0'
           package-manager-cache: ${{ !(runner.os == 'Linux' && runner.environment == 'self-hosted') }}
 
+      - name: Restore Kimi CLI downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        id: kimi-npm-cache
+        uses: $/.github/actions/cache-npm
+        with:
+          packages: '@moonshot-ai/kimi-code@${{ env.KIMI_VERSION }}'
+
       - name: Install the pinned Kimi CLI
         run: |
           npm install --prefix "${{ runner.temp }}/kimi-host" \
@@ -72,6 +79,13 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
               environment.write(f"KIMI_CLI_BIN={cli}\n")
           PY
+
+      - name: Save Kimi CLI downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.kimi-npm-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.kimi-npm-cache.outputs.cache-path }}
+          key: ${{ steps.kimi-npm-cache.outputs.cache-key }}
 
       - name: Verify the real CLI and record provenance
         run: |

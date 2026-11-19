@@ -215,7 +215,7 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     assert len(checkouts) == 1
     assert checkouts[0]["with"]["fetch-depth"] == 0
     selection = next(step for step in steps if step.get("id") == "select")
-    license_check = next(step for step in steps if step.get("uses", "").startswith("apache/skywalking-eyes/header@"))
+    license_check = next(step for step in steps if step.get("uses") == "./.github/actions/check-license")
     quality = next(step for step in steps if step.get("run") == "make check")
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"

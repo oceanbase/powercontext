@@ -131,7 +131,13 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 缓存步骤执行前，后端 helper 读取 Pod 继承的环境变量，通过 `backend` 输出 `s3` 或 `github`。配置了内部地址但缺少必填项时，配置校验会失败。未配置地址时，共用 action 继续使用 GitHub 缓存。Windows、macOS 和 GitHub 托管任务保持原缓存后端，包括托管任务的 Docker 构建缓存。Artifact 的上传和下载也仍使用 GitHub。
 
-内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。已有的依赖安装后显式保存步骤仍在测试前执行；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、pip、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。依赖安装和 pre-commit 环境准备完成后会在检查开始前保存快照；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+
+npm helper 根据实际 Node/npm 版本及依赖文件或固定软件包版本生成内容下载缓存键，不恢复已安装的软件包。Bundle 构建根据 Python/pip 版本及导出的依赖清单缓存 pip HTTP 响应，本地构建的 wheel 不进入共享快照。Gateway TCK 任务还会缓存固定提交的上游源码。准备步骤在测试前填充这些缓存；原有的依赖安装、源码版本检查、构建和测试仍会执行。
+
+内部 Linux 镜像可以在 `/opt/powercontext-ci-tools` 下预装固定版本的 `license-eye` 可执行文件和 `skill-up`。工作流复用匹配的已安装工具，工具不存在时保留原有下载或构建路径。Helm 同样复用符合要求的已安装版本。
+
+Docker 镜像缓存与依赖快照分开配置。Runner 可以通过 `PC_CI_OCEANBASE_435_IMAGE` 和 `PC_CI_OCEANBASE_442_IMAGE` 使用对应固定版本 OceanBase 镜像的内部副本，也可以通过 `PC_CI_DOCKER_REGISTRY_MIRROR` 为嵌套 E2E daemon 指定 Docker Hub 镜像缓存；runner 外层 daemon 需要单独配置镜像缓存。嵌套 harness 也可以直接接收 `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR`。未配置这些变量时，沿用原有公共镜像地址和 daemon 行为。应逐个预热镜像，核对复制后的平台摘要，再将 runner 切换到内部副本。
 
 打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
 
