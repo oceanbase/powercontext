@@ -217,7 +217,14 @@ def check(root: Path, *, base_ref: str | None = None, release: bool = False):
 
 def rewrite_json(value, names: dict[str, str], revision: str, field: str = ""):
     identity_fields = {"revision", "down_revision", "source_revision", "target_revision"}
-    identity_maps = {"revision_resources", "sqlite_fingerprints", "domain_readiness", "revisions", "mysql_wrappers"}
+    identity_maps = {
+        "revision_resources",
+        "sqlite_fingerprints",
+        "domain_readiness",
+        "revisions",
+        "mysql_wrappers",
+        "checkpoints",
+    }
     identity_values = {"sqlite_baselines", "retained_revisions"}
     if isinstance(value, str):
         if value == DRAFT and field in identity_fields | identity_values:

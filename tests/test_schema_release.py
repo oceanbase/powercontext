@@ -354,6 +354,46 @@ def test_native_environment_history_cannot_be_rewritten(tmp_path, source):
         schema.preserve_history(before, schema.bundles(tmp_path))
 
 
+def test_freeze_preserves_native_checkpoint_layouts(draft):
+    root, baseline = draft
+    directory = root / schema.SERVER
+    change = "CREATE TABLE pc_notes (id INTEGER PRIMARY KEY)"
+    write_json(directory / "schemas/mysql-baseline.json", {"mysql": [baseline]})
+    write_json(directory / "schemas/mysql-checkpoint-000.json", {"mysql": [baseline, change]})
+    write_json(
+        directory / "schemas/mysql-history.json",
+        {
+            "format": "powercontext.mysql-layouts.v1",
+            "revisions": {"v1_5_2": [baseline]},
+            "checkpoints": {"v1_5_2": "schemas/mysql-baseline.json"},
+        },
+    )
+    write_json(
+        directory / "schemas/mysql-000.json",
+        {
+            "format": "powercontext.mysql-layouts.v1",
+            "revisions": {"000": [change]},
+            "checkpoints": {"000": "schemas/mysql-checkpoint-000.json"},
+        },
+    )
+    path = directory / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["mysql_layouts"] = ["schemas/mysql-history.json", "schemas/mysql-000.json"]
+    manifest["revision_resources"]["v1_5_2"] = ["schemas/mysql-history.json", "schemas/mysql-baseline.json"]
+    manifest["revision_resources"]["000"] += ["schemas/mysql-000.json", "schemas/mysql-checkpoint-000.json"]
+    write_json(path, manifest)
+    before = schema.check(root)
+    expected = MySQLSchema(before["server"]).required("000")
+
+    assert schema.freeze(root, "1.5.3") == "v1_5_3"
+
+    after = schema.check(root, release=True)
+    native = MySQLSchema(after["server"])
+    assert native.required("v1_5_3") == expected
+    assert native.statements("v1_5_3") == (change,)
+    schema.preserve_history(before, after)
+
+
 @pytest.mark.parametrize("missing_module", [False, True])
 def test_freeze_preserves_conditional_native_operation(draft, missing_module):
     root, baseline = draft
