@@ -1057,6 +1057,72 @@ def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_t
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    ("provider", "failure"),
+    [
+        ("anthropic", "context"),
+        ("anthropic", "prefixed-context"),
+        ("openai", "context"),
+        ("openai", "prefixed-context"),
+        ("openai", "compatible-context"),
+        ("openai", "prefixed-compatible-context"),
+        ("anthropic", "output-setting"),
+        ("openai", "output-setting"),
+    ],
+)
+def test_native_provider_context_errors_keep_their_classification(provider: str, failure: str) -> None:
+    import anthropic._base_client as _anthropic_client
+
+    _http = (
+        (vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"])
+        if provider == "anthropic"
+        else httpx2
+    )
+    message = (
+        "prompt is too long: 210000 tokens > 200000 maximum"
+        if provider == "anthropic" or "compatible" in failure
+        else "This model's maximum context length is 8192 tokens. You requested 9000 tokens."
+    )
+    if failure.startswith("prefixed-"):
+        message = f"400: {message}"
+    elif failure == "output-setting":
+        message = "The requested output token limit is unsupported"
+    message += " private-provider-detail"
+
+    def respond(request: _http.Request) -> _http.Response:
+        return _http.Response(
+            400, json={"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+        )
+
+    async def scenario() -> None:
+        async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
+            model = (
+                AnthropicModel("claude-sonnet-5-5", provider=AnthropicProvider(api_key="fixture", http_client=client))
+                if provider == "anthropic"
+                else OpenAIChatModel("gpt-4o", provider=OpenAIProvider(api_key="fixture", http_client=client))
+            )
+            generator = PydanticAIStructuredGenerator(
+                model=model,
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                limits=InferenceLimits(max_requests=1),
+            )
+            with pytest.raises(PydanticAIConfigurationError) as caught:
+                await generator.generate(Question("bounded evidence"))
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.GENERATION
+            assert diagnostics.reason is (
+                ProcessingFailureReason.CONFIGURATION
+                if failure == "output-setting"
+                else ProcessingFailureReason.CONTEXT_OVERFLOW
+            )
+            assert "private-provider-detail" not in repr(diagnostics) + str(caught.value)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("allow_continuations", [True, False])
 def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(allow_continuations: bool) -> None:
     async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:

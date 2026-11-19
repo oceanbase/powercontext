@@ -854,7 +854,9 @@ def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
         details = details.get("message")
     if not isinstance(details, str):
         return False
-    message = details[:1024].lower()
+    message = re.sub(r"^(?:400|413|422):\s*", "", details[:1024].lower())
+    if re.match(r"(?:prompt|input) is too long:\s*\d+\s+tokens\s*>\s*\d+\s+maximum\b", message):
+        return True
     return message.startswith((
         "this model's maximum context length is",
         "maximum context length exceeded",
