@@ -179,8 +179,6 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     timeout-minutes: 45
     runs-on: powercontext-ci-light
-    env:
-      PREK_HOME: ${{ runner.temp }}/prek
     outputs:
       suites: ${{ steps.select.outputs.suites }}
       test-matrix: ${{ steps.select.outputs.test-matrix }}
@@ -228,10 +226,12 @@ jobs:
       - name: Cache prek environments
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ${{ env.PREK_HOME }}
+          path: ${{ runner.temp }}/prek
           key: prek-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run checks
+        env:
+          PREK_HOME: ${{ runner.temp }}/prek
         run: make check
 
       - name: Validate cumulative migration against the PR base
