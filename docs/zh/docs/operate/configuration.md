@@ -34,7 +34,7 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | 相关记忆向量枚举及同窗口先前候选的最大精确 L2 距离，非负；不用于普通有 limit 的搜索 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
 
 未配置 secret 不会生成随机进程密钥。更换 secret 或 key ID 后，旧 token 无法验证，应重新预览。
 带 token 的恢复遇到变化会返回 `preview_stale`，不会自动重新解释意图；重试预算也不处理提交结果未知的连接失败。
@@ -209,6 +209,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING` | `disabled` | `auto` 时，仅模型名前缀为 `anthropic`、`openai`、`openai-chat`、`openai-responses` 的 generation 模型改用流式请求并在本地聚合为完整响应。其他前缀仍走非流式。`disabled` 时全部保持非流式请求 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS` | `60` | 流式聚合时的最大空闲秒数：覆盖等待流建立并收到首个模型事件，以及相邻模型事件（正文、思考、工具调用）之间的间隔。供应商心跳不重置这个计时，超过即按超时处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Topic 处理预算使用的 generation model 总上下文窗口 |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` | 未设置 | 同一主机上网关的 base URL；为单个网关回合复用其缓存前缀抽取 Atomic Memory，失败时回退到普通抽取。需要 `GENERATION_MODEL`。参见[复用缓存前缀抽取记忆](deploy-server.md#复用缓存前缀抽取记忆) |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` | `0.1` | Agent 目标上命中缓存的输入 token 相对未命中缓存的价格比例，大于 0 且不超过 1；只有估算复用前缀比普通抽取更便宜时才复用 |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` | `{}` | 发往网关的静态 header JSON 对象，例如网关的 `Authorization` 密钥；值为 secret |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model；必须同时设置 profile ID 和 dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |

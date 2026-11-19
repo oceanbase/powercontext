@@ -1080,6 +1080,48 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/sources/content/batch:
+    post:
+      tags: [sources]
+      summary: Capture several ContentSources in one transaction
+      description: >-
+        Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation
+        turn. Each item follows the rules of the single ContentSource capture operation. All items are stored in one
+        transaction, or none is stored. Newly stored items receive consecutive journal positions in request order.
+        An exact replay is idempotent, and an item whose identity already exists with the same content and metadata
+        counts as stored and keeps its existing position. An item whose identity exists with different content or
+        different metadata rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
+      operationId: capture_content_sources
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptureContentSourcesRequest"
+      responses:
+        "202":
+          description: Every Source is durably stored for later processing.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureContentSourcesResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/sources/working-notes:
     post:
       tags: [sources]
@@ -9351,6 +9393,64 @@ components:
           description: >-
             Caller metadata. The reserved kind value `working_note` is rejected; use the dedicated Working Note
             capture operation instead.
+    CaptureContentSourceItem:
+      type: object
+      additionalProperties: false
+      required: [source_id, content]
+      properties:
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200000
+          description: Raw integration content, under the rules of the single ContentSource capture operation.
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Caller metadata, under the rules of the single ContentSource capture operation.
+    CaptureContentSourcesRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, sources]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 128
+          description: Sources in journal order. Each source_id appears once.
+          items:
+            $ref: "#/components/schemas/CaptureContentSourceItem"
+    CaptureContentSourcesResponse:
+      type: object
+      additionalProperties: false
+      required: [status, sources]
+      properties:
+        status:
+          $ref: "#/components/schemas/CaptureStatus"
+        sources:
+          type: array
+          description: One receipt per requested Source, in request order.
+          items:
+            $ref: "#/components/schemas/CapturedContentSource"
+    CapturedContentSource:
+      type: object
+      additionalProperties: false
+      required: [source, position]
+      properties:
+        source:
+          $ref: "#/components/schemas/SourceReference"
+        position:
+          type: integer
+          minimum: 1
     WorkingNoteKind:
       type: string
       enum: [inspection, abandoned_approach, validation, unresolved, host_context]
@@ -10352,6 +10452,18 @@ components:
         dependencies: {type: integer, minimum: 1}
         send_seconds: {type: integer, minimum: 1}
         correlate_seconds: {type: integer, minimum: 1}
+        atomic_memory_input_tokens:
+          type: integer
+          minimum: 1
+          description: >-
+            The effective estimated-token limit of one Atomic Memory model input, including a deployment override.
+            A gateway sizes each captured Source against it. Absent when the runtime does not report the limit.
+        capture_batch_sources:
+          type: integer
+          minimum: 1
+          description: >-
+            The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer
+            the batch capture operation.
     BootstrapContextItem:
       type: object
       additionalProperties: false

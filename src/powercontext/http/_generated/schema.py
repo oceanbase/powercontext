@@ -1002,6 +1002,62 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/sources/content/batch": {
+            "post": {
+                "tags": ["sources"],
+                "summary": "Capture several ContentSources in one transaction",
+                "description": "Accept an ordered group of raw "
+                "content Sources that belong "
+                "together, such as the parts of "
+                "one conversation turn. Each item "
+                "follows the rules of the single "
+                "ContentSource capture operation. "
+                "All items are stored in one "
+                "transaction, or none is stored. "
+                "Newly stored items receive "
+                "consecutive journal positions in "
+                "request order. An exact replay "
+                "is idempotent, and an item whose "
+                "identity already exists with the "
+                "same content and metadata counts "
+                "as stored and keeps its existing "
+                "position. An item whose identity "
+                "exists with different content or "
+                "different metadata rejects the "
+                "whole request. Accepted Source "
+                "evidence does not mean Memory "
+                "was extracted.",
+                "operationId": "capture_content_sources",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CaptureContentSourcesRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "Every Source is durably stored for later processing.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CaptureContentSourcesResponse"}
+                            }
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/sources/working-notes": {
             "post": {
                 "tags": ["sources"],
@@ -10461,6 +10517,84 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "source_id", "content"],
             },
+            "CaptureContentSourceItem": {
+                "properties": {
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "content": {
+                        "type": "string",
+                        "maxLength": 200000,
+                        "minLength": 1,
+                        "description": "Raw "
+                        "integration "
+                        "content, "
+                        "under "
+                        "the "
+                        "rules "
+                        "of "
+                        "the "
+                        "single "
+                        "ContentSource "
+                        "capture "
+                        "operation.",
+                    },
+                    "metadata": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Caller "
+                        "metadata, "
+                        "under "
+                        "the "
+                        "rules "
+                        "of "
+                        "the "
+                        "single "
+                        "ContentSource "
+                        "capture "
+                        "operation.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source_id", "content"],
+            },
+            "CaptureContentSourcesRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/CaptureContentSourceItem"},
+                        "type": "array",
+                        "maxItems": 128,
+                        "minItems": 1,
+                        "description": "Sources in journal order. Each source_id appears once.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "sources"],
+            },
+            "CaptureContentSourcesResponse": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/CaptureStatus"},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/CapturedContentSource"},
+                        "type": "array",
+                        "description": "One receipt per requested Source, in request order.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "sources"],
+            },
+            "CapturedContentSource": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "position"],
+            },
             "WorkingNoteKind": {
                 "type": "string",
                 "enum": ["inspection", "abandoned_approach", "validation", "unresolved", "host_context"],
@@ -11716,6 +11850,65 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "dependencies": {"type": "integer", "minimum": 1.0},
                     "send_seconds": {"type": "integer", "minimum": 1.0},
                     "correlate_seconds": {"type": "integer", "minimum": 1.0},
+                    "atomic_memory_input_tokens": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "effective "
+                        "estimated-token "
+                        "limit "
+                        "of "
+                        "one "
+                        "Atomic "
+                        "Memory "
+                        "model "
+                        "input, "
+                        "including "
+                        "a "
+                        "deployment "
+                        "override. "
+                        "A "
+                        "gateway "
+                        "sizes "
+                        "each "
+                        "captured "
+                        "Source "
+                        "against "
+                        "it. "
+                        "Absent "
+                        "when "
+                        "the "
+                        "runtime "
+                        "does "
+                        "not "
+                        "report "
+                        "the "
+                        "limit.",
+                    },
+                    "capture_batch_sources": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "most "
+                        "Sources "
+                        "one "
+                        "batch "
+                        "ContentSource "
+                        "capture "
+                        "request "
+                        "accepts. "
+                        "Absent "
+                        "when "
+                        "the "
+                        "Server "
+                        "does "
+                        "not "
+                        "offer "
+                        "the "
+                        "batch "
+                        "capture "
+                        "operation.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

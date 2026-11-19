@@ -1552,6 +1552,36 @@ class CaptureContentSourceRequest(BaseModel):
     ] = None
 
 
+class CaptureContentSourceItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    content: Annotated[
+        StrictStr,
+        Field(
+            description="Raw integration content, under the rules of the single ContentSource capture operation.",
+            max_length=200000,
+            min_length=1,
+        ),
+    ]
+    metadata: Annotated[
+        dict[str, Any] | None,
+        Field(description="Caller metadata, under the rules of the single ContentSource capture operation."),
+    ] = None
+
+
+class CaptureContentSourcesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    sources: Annotated[
+        list[CaptureContentSourceItem],
+        Field(description="Sources in journal order. Each source_id appears once.", max_length=128, min_length=1),
+    ]
+
+
 class WorkingNoteKind(StrEnum):
     INSPECTION = "inspection"
     ABANDONED_APPROACH = "abandoned_approach"
@@ -2144,6 +2174,20 @@ class ContextProtectionCapabilitiesLimits(BaseModel):
     dependencies: Annotated[StrictInt, Field(ge=1)]
     send_seconds: Annotated[StrictInt, Field(ge=1)]
     correlate_seconds: Annotated[StrictInt, Field(ge=1)]
+    atomic_memory_input_tokens: Annotated[
+        StrictInt | None,
+        Field(
+            description="The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit.",
+            ge=1,
+        ),
+    ] = None
+    capture_batch_sources: Annotated[
+        StrictInt | None,
+        Field(
+            description="The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer the batch capture operation.",
+            ge=1,
+        ),
+    ] = None
 
 
 class RepairSurface(StrEnum):
@@ -5328,6 +5372,14 @@ class WorkSourceReceipt(BaseModel):
     content_digest: Annotated[StrictStr, Field(max_length=71, min_length=71, pattern="^sha256:[0-9a-f]{64}$")]
 
 
+class CapturedContentSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: SourceReference
+    position: Annotated[StrictInt, Field(ge=1)]
+
+
 class CaptureContentSourceResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6106,6 +6158,16 @@ class ExtractionStatus(BaseModel):
     ]
     background: ExtractionBackground
     observation: ExtractionObservation
+
+
+class CaptureContentSourcesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: CaptureStatus
+    sources: Annotated[
+        list[CapturedContentSource], Field(description="One receipt per requested Source, in request order.")
+    ]
 
 
 class HandoffCitation(RootModel[HandoffSourceCitation | HandoffArtifactCitation]):

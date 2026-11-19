@@ -17,7 +17,7 @@
 
 //! Required real Python Core acceptance: startup failures fail, never skip.
 use pc_gateway_core::{GateClient, GateError, UdsGateClient};
-use pc_gateway_types::{CaptureContentSourceRequest, PrepareContextRequest};
+use pc_gateway_types::{CaptureContentSource, CaptureContentSourcesRequest, PrepareContextRequest};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -227,13 +227,15 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     let scope = post(&admin, "/v1/scopes", json!({"title":"RPC recovery", "summary":"real UDS evidence", "idempotency_key":"rpc-scope"})).await["scope_id"].as_str().unwrap().to_string();
     post(&admin, "/v1/access/bindings/create", json!({"subject":{"type":"service","id":"server-token"},
         "resource":{"type":"scope", "scope_id":scope}, "role":"scope.contributor", "idempotency_key":"rpc-grant"})).await;
-    let capture = CaptureContentSourceRequest {
+    let capture = CaptureContentSourcesRequest {
         scope_id: scope.clone(),
-        source_id: "stable-source".into(),
-        content: "原始证据".into(),
-        metadata: Some(json!({"nested":{"items":[1,"值"]},"flag":true})),
+        sources: vec![CaptureContentSource {
+            source_id: "stable-source".into(),
+            content: "原始证据".into(),
+            metadata: Some(json!({"nested":{"items":[1,"值"]},"flag":true})),
+        }],
     };
-    let (proxy, worker) = loss_proxy(&socket, "/v1/sources/content", 2).await;
+    let (proxy, worker) = loss_proxy(&socket, "/v1/sources/content/batch", 2).await;
     let recovered = UdsGateClient::with_token(proxy, Some(TOKEN.into()))
         .capture(capture.clone())
         .await
@@ -245,8 +247,11 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     assert_eq!(committed.len(), 2);
     assert_eq!(committed[0], committed[1]);
     assert_eq!(recovered, committed[0]);
-    assert_eq!(recovered["position"], 1);
-    assert_eq!(recovered["source"]["source_id"], "stable-source");
+    assert_eq!(recovered["sources"][0]["position"], 1);
+    assert_eq!(
+        recovered["sources"][0]["source"]["source_id"],
+        "stable-source"
+    );
     let read_path = format!("http://localhost/v1/scopes/{scope}/sources/content/stable-source");
     let stored: Value = admin
         .get(&read_path)
@@ -266,21 +271,28 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     for metadata_only in [false, true] {
         let mut different = capture.clone();
         if metadata_only {
-            different.metadata = Some(json!({"changed":true}));
+            different.sources[0].metadata = Some(json!({"changed":true}));
         } else {
-            different.content = "异值".into();
+            different.sources[0].content = "异值".into();
         }
+        // 冲突的一段使整批都不入库：排在它前面的新段也不留下。
+        different.sources.insert(
+            0,
+            CaptureContentSource {
+                source_id: "never-stored".into(),
+                content: "同批的另一段".into(),
+                metadata: None,
+            },
+        );
         assert!(matches!(
             client.capture(different).await,
             Err(GateError::GateRejected(409))
         ));
     }
-    let second = CaptureContentSourceRequest {
-        source_id: "next-source".into(),
-        ..capture.clone()
-    };
+    let mut second = capture.clone();
+    second.sources[0].source_id = "next-source".into();
     assert_eq!(
-        client.capture(second).await.unwrap()["position"],
+        client.capture(second).await.unwrap()["sources"][0]["position"],
         2,
         "lost reply recovery and conflicts must not append journal entries"
     );
@@ -475,6 +487,7 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
                 degrade_policy: DegradePolicy::Pause,
                 inject_context: false,
                 include_code: false,
+                capture_prefix: false,
                 conversation_id: None,
                 sediment: false,
                 prepared_contexts: vec![],

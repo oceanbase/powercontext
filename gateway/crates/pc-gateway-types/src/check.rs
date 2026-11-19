@@ -160,6 +160,12 @@ pub struct ContextProtectionLimits {
     pub dependencies: u64,
     pub send_seconds: u64,
     pub correlate_seconds: u64,
+    /// Core 生效的 Atomic Memory 输入上限（估算 token）；Core 没有报告时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomic_memory_input_tokens: Option<u64>,
+    /// 一次批量沉淀最多接受的 Source 数；Core 不提供批量沉淀时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_batch_sources: Option<u64>,
 }
 
 impl ContextProtectionCapabilities {
