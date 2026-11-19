@@ -318,6 +318,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "skill": None,
             "topic_memory": [],
             "topic_memory_selected": None,
+            "topic_processing": None,
             "prompts": [],
             "profile": None,
         },

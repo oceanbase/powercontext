@@ -47,6 +47,77 @@ Prepared-context estimates cover only comparable records. A reduction percentage
 
 Home summaries, daily charts and detail tables use the same statistical definitions. The Server supplies the reporting period and daily attribution; the interface does not invent historical data.
 
+## Topic Memory processing evidence
+
+The Topic Memory directory has a compact Processing status section and a details drawer for the selected Scope.
+This covers the Source-window path in [#2308](https://github.com/oceanbase/powercontext/issues/2308), within
+[#2130](https://github.com/oceanbase/powercontext/issues/2130). Saved Topic search, pagination and exact revision
+reads remain independent; an inspection error leaves independently readable topics available.
+
+| Family / path | Coverage of this section | Evidence and limitations |
+| --- | --- | --- |
+| Topic Memory / Source window | Selected-Scope progress, current allowance and applicable retained block | Durable records; current execution is unknown. |
+| Memory, Profile, Experience / Source consumption | Not covered by this section | Each path needs its own progress and intent mapping. |
+| Skill, Prompt and other explicit / Dream paths | Not covered by this section | Existing Dream records remain on the processing page; Source-window progress is not applicable. |
+| Handoff | Not covered by this section | Existing corresponding operation outcomes remain separate from Source-window progress. |
+
+| Displayed fact | Authoritative source | Meaning and limitation |
+| --- | --- | --- |
+| Consumed through position | `pc_source_cursors`, selected Scope and `topic-memory-source-window` binding | Input consumption; does not establish publication or a recorded no-change outcome. A missing cursor starts at zero. |
+| Source head position | `pc_source_journal_heads`, selected Scope | Latest journal position; position differences are not artifact counts or completion percentages. A missing head starts at zero. |
+| Retained target position | `pc_topic_memory_processing_targets`, same Scope and binding | Can remain after the cursor catches up; absence means no retained target, not execution success. |
+| Current frontier allowance | `pc_topic_memory_work_budgets`, same Scope, binding and cursor position | Recorded attempts, request reservations and token capacity reservations; missing records remain unavailable. Reservations are conservative, not exact provider calls, usage or billing. |
+| Exact attempt / allowance end positions | Current allowance or retained block | Attempt and cumulative allowance ranges can differ. Missing exact attempt positions remain unknown. |
+| Current retained block | `pc_topic_memory_work_blocks`, matched to current allowance | Scope, binding, frontier, attempt and terminal reason must match; the block must be unretried and still apply to outstanding input. Historical or superseded blocks are not current failures. |
+| Safe reason and last error | Applicable retained block | Retained codes only; no raw provider exceptions, Source bodies or model content. Missing last errors remain unknown. |
+| Block first observed at | Applicable retained block's `blocked_at` | First observation time, not an invented failure time. |
+| Snapshot read time | Scope read snapshot clock | Read time, not proof of a fresh Worker observation. |
+| Current execution | No Scope-and-binding execution observation is used | Explicitly unknown, including external workers and after restart; family-wide counts cannot establish this Scope's state. |
+
+The directory loads saved topics first, then inspects processing in a separate authorized, consistent read snapshot
+with its own two-second timeout. Exact revision pages do not inspect processing. The projection is adopted only after
+its transaction and required audit complete. Inspection timeout, connection failure or inspection-specific
+authorization/audit failure produces a section error without discarding independently authorized topic reads.
+Request cancellation still propagates. At most five keyed SELECTs return at most one current allowance and block. It does not scan Source content or block history, call
+models, probe readiness, dispatch work, request retries, change allowances or write business/processing state.
+Existing authorization and audit behavior stays at its owning boundary. No public HTTP contract is added.
+
+The two-second budget applies to processing inspection, including its transaction and audit boundary; it is not a
+two-second response-time guarantee for the entire page. Topic reads, cancellation cleanup and rendering also take
+time. Directory browsing uses pages of 50 topics. Search uses the existing bounded result set and has no search
+pagination; processing inspection does not change either behavior.
+
+The supported recovery status operation can materialize legacy diagnostics and remains separate. An exhausted
+allowance without an applicable retained block stays pending while input or a target remains; page access does not
+create its missing diagnostic. The final allowed attempt might still publish. Explicit recovery retains the old
+block for audit, but that retried block no longer appears as current. A caught-up cursor without a retained target
+is shown as Inputs caught up, without claiming artifact completion, stopped execution or a no-change outcome.
+
+Run the provider-free Dashboard acceptance scenarios with:
+
+```bash
+uv run --locked pytest -q tests/e2e/test_dashboard_topic_processing.py
+```
+
+The suite uses real Dashboard requests, SQLite and controlled persisted fixtures. It covers progress, targets,
+current/obsolete blocks, recovery transitions, missing legacy diagnostics, a final attempt without a block, repeated
+passive reads, Scope isolation, immediate errors, timeouts, invalidated inspection connections, inspection-specific
+authorization/audit failures, independent saved-topic reads and a second Runtime opening the same
+database without local execution history. These are local checks, not real-provider or OceanBase acceptance.
+Additional scenarios cover search hits and empty results, multi-page browsing during inspection errors and timeouts,
+exact historical revisions after replacement, return navigation, and distinct per-Scope progress, targets, allowances
+and blocks. Provider-free repeated reads observe the actual worker-launch boundary and must launch no workers.
+Existing Dashboard pagination and recovery suites cover their respective behavior separately.
+
+For a manual check, enable the Dashboard using [Install and run](../docs/get-started/install-and-run.md), open
+`/dashboard/topics?lang=en` and `/dashboard/topics?lang=zh`, switch Scope, and open View details. Check drawer
+scrolling, close-button and Escape dismissal, focus return, narrow viewports and both themes. Search and open a saved
+exact revision, then return to the directory. Also exercise directory → detail → browser Back → open the drawer →
+browser Forward, including navigation during the opening transition. The new page must scroll normally, with no
+remaining backdrop or focus trap; repeat the sequence to check cleanup. The drawer uses native dismissal before
+instance disposal when HTMX replaces its element. Without a configured model, captured input can remain pending and
+execution must stay unknown; opening or refreshing this page must not create a block or start processing.
+
 ## How pages organize reading
 
 ### Home provides an overview and entry points
