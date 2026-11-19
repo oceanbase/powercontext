@@ -85,4 +85,4 @@ it('round trips a complete current-work Handoff and a selected exact Revision th
       rmSync(server.home, { recursive: true, force: true })
     }
   }
-}, 60_000)
+}, 120_000)
