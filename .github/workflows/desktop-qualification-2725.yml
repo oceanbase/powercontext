@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   qualify:
-    runs-on: ubuntu-24.04
+    runs-on: macos-15
     timeout-minutes: 55
     env:
       CARGO_BUILD_JOBS: '2'
@@ -22,13 +22,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Install native Linux dependencies
+      - name: Verify hosted native build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential \
-            libayatana-appindicator3-dev libgtk-3-dev libsecret-1-dev \
-            libssl-dev libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev \
-            openjdk-17-jre-headless pkg-config
+          java -version
+          xcodebuild -version
+          clang --version
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
@@ -37,7 +35,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri -> target
-          key: linux
+          key: macos-macos-15
           cache-bin: false
       - name: Install locked JavaScript dependencies
         run: pnpm --dir desktop install --frozen-lockfile
@@ -91,7 +89,7 @@ jobs:
             --product-qualification "$QUALIFICATION_ID" \
             --wheel desktop/.artifacts/qualification/server-wheel/*.whl
           cp desktop/.artifacts/real-server.json desktop/.artifacts/qualification/real-server.json
-          sha256sum desktop/src-tauri/target/debug/examples/server_probe > desktop/.artifacts/qualification/native-probe.sha256
+          shasum -a 256 desktop/src-tauri/target/debug/examples/server_probe > desktop/.artifacts/qualification/native-probe.sha256
           uname -a > desktop/.artifacts/qualification/platform.txt
           uv run --no-sync python --version >> desktop/.artifacts/qualification/platform.txt
       - name: Verify all Desktop Rust checks
