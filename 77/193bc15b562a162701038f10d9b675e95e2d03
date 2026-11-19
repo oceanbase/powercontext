@@ -1,0 +1,19 @@
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_82e3268dd5be2d 250-251,966-967,1020-1021,1067-1068,1106,1164,1210,1304,1415-1416,1443-1444
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "77193bc15b562a162701038f10d9b675e95e2d03",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
