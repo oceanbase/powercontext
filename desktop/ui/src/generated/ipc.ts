@@ -215,7 +215,15 @@ export type Configuration = "configured" | "unconfigured" | "unknown";
 export type ConnectionAuthentication = "disabled" | "authenticated";
 export type ConnectionIdentity = { server_id: string, authentication: ConnectionAuthentication, access_mode: AccessControlMode, principal: AccessPrincipal | null, };
 export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
-export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
+export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number,
+/**
+ * The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit.
+ */
+atomic_memory_input_tokens?: number,
+/**
+ * The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer the batch capture operation.
+ */
+capture_batch_sources?: number, };
 export type ContractVersion = { major: number, minor: number, };
 export type DreamOperation = "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags";
 export type Effect = "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";

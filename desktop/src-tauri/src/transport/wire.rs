@@ -1051,6 +1051,20 @@ pub struct ContextProtectionCapabilitiesLimits {
     pub send_seconds: i64,
     #[serde(rename = "correlate_seconds")]
     pub correlate_seconds: i64,
+    /// The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit.
+    #[ts(optional)]
+    #[serde(
+        rename = "atomic_memory_input_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub atomic_memory_input_tokens: Option<i64>,
+    /// The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer the batch capture operation.
+    #[ts(optional)]
+    #[serde(
+        rename = "capture_batch_sources",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub capture_batch_sources: Option<i64>,
 }
 
 impl ContextProtectionCapabilitiesLimits {
@@ -1070,6 +1084,8 @@ impl ContextProtectionCapabilitiesLimits {
             dependencies,
             send_seconds,
             correlate_seconds,
+            atomic_memory_input_tokens: None,
+            capture_batch_sources: None,
         }
     }
 }
