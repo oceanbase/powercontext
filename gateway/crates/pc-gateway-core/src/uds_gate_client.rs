@@ -23,7 +23,7 @@
 
 use crate::{GateClient, GateError};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
+    CaptureContentSourcesRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
     PrepareContextResult,
 };
 use std::path::PathBuf;
@@ -455,13 +455,19 @@ impl GateClient for UdsGateClient {
 
     async fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> Result<serde_json::Value, GateError> {
         let body = serde_json::to_vec(&request).expect("serialize gate request");
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/sources/content", Some(&body), true, false)
+                .request(
+                    "POST",
+                    "/v1/sources/content/batch",
+                    Some(&body),
+                    true,
+                    false,
+                )
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));

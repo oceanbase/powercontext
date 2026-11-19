@@ -14,7 +14,7 @@
 
 use crate::{GateClient, GateError};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
+    CaptureContentSourcesRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
     PrepareContextResult,
 };
 use serde::de::DeserializeOwned;
@@ -178,11 +178,11 @@ impl GateClient for HttpGateClient {
 
     async fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> Result<serde_json::Value, GateError> {
         self.request(
             reqwest::Method::POST,
-            "/v1/sources/content",
+            "/v1/sources/content/batch",
             Some(serde_json::to_vec(&request).expect("serialize capture")),
             true,
             false,
