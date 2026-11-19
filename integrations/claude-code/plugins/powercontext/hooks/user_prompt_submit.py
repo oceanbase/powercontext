@@ -37,6 +37,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from powercontext_lifecycle import prepared_context as _prepared_context  # noqa: E402
+from powercontext_lifecycle.dsh_handoff import receiver_context  # noqa: E402
 from powercontext_lifecycle.prompt_privacy import scrub_secrets  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
@@ -151,6 +152,17 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:  # noqa: C901
 
         http_deadline = monotonic() + settings.http_budget_seconds
         session_id = _payload_identifier(payload, "session_id")
+        handoff = receiver_context(
+            prompt,
+            cwd=cwd,
+            target_ids=("claude-desktop", "claude-code-cli"),
+            resolve_scope=lambda: resolve_scope_id(
+                cwd, session_id=session_id, settings=settings, deadline=http_deadline
+            ),
+        )
+        if handoff is not None:
+            _write_hook_output(context=handoff, diagnostic_events=[])
+            return 0
         try:
             scope_id = resolve_scope_id(
                 cwd,

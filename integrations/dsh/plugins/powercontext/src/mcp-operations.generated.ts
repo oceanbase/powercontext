@@ -77,6 +77,9 @@ export const MCP_OPERATIONS = {
   "get_candidate_history": {
     "readOnly": true
   },
+  "get_connection_identity": {
+    "readOnly": true
+  },
   "get_dream_run": {
     "readOnly": true
   },

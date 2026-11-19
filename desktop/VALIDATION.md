@@ -3617,3 +3617,61 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-scope-listing-bc22089e-v1 \
   --wheel desktop/.artifacts/plugin-scope-listing/powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl
 ```
+
+## DSH receipt contract protocol qualification
+
+`sqlite-dsh-receipt-d1adea81-v1` qualifies the thirteen bundled Desktop operations
+against Server source `d1adea81a1462493b686bd5ba40227b635a8c1d6` and the OpenAPI
+contract containing the optional Server-owned `SourceRecord.handoff_receipt` field.
+
+- Normalized OpenAPI SHA-256: `cd4d0547dd9b48f913585e8d1bf370992750485396438b7a336451b45c5a3a4c`.
+- Wheel: `powercontext-1.5.2.dev0+gd1adea81-py3-none-any.whl`.
+- Wheel SHA-256: `f92b13a2aba31bfae1c94fc148fe6b2a257537a63402ba5af1243e836d42ff3b`.
+
+All 794 packaged Server and service bootstrap files match the archived commit
+after CRLF normalization. On 2026-11-14, the macOS arm64 Desktop probe selected
+the bundled record and passed anonymous loopback, static Bearer, HTTPS with an
+explicit CA and base path, and enforced Provider cases against real SQLite Servers.
+
+```bash
+mkdir -p desktop/.artifacts/dsh-receipt-source desktop/.artifacts/dsh-receipt-wheel
+git archive d1adea81a1462493b686bd5ba40227b635a8c1d6 | tar -x -C desktop/.artifacts/dsh-receipt-source
+SETUPTOOLS_SCM_PRETEND_VERSION=1.5.2.dev0+gd1adea81 uv build --offline --wheel desktop/.artifacts/dsh-receipt-source --out-dir desktop/.artifacts/dsh-receipt-wheel
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk cargo +1.95.0 build --offline --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-dsh-receipt-d1adea81-v1 --wheel desktop/.artifacts/dsh-receipt-wheel/powercontext-1.5.2.dev0+gd1adea81-py3-none-any.whl
+make contract-test
+```
+
+This evidence covers the recorded wheel and contract in the native protocol
+probe. It does not qualify an installed UI, external databases or other platforms.
+
+## Server e48137e0 reconciled DSH receipt protocol qualification
+
+`sqlite-dsh-receipt-e48137e0-v1` qualifies the thirteen Desktop operations
+against Server source `e48137e0a9a7ed59e21822871d7c77db50eb7886`. This contract
+includes both the upstream Scope listing behavior and the Server-owned
+`SourceRecord.handoff_receipt` field.
+
+- Normalized OpenAPI SHA-256: `1d5ef8bcf96f41160e539639529d8c31c141ad66fe8fcff6d6ba661d7c26be0c`.
+- Wheel: `powercontext-1.5.2.dev0+ge48137e0-py3-none-any.whl`.
+- Wheel SHA-256: `e89ca87560a37e363fea2bd20c689508e9f6726980ce6566793ee42d85d45180`.
+- Native debug probe SHA-256 (built without debug info): `7023c1dc5700e9a99668351b98515175eab97ceb5d42ffc3681e3fadab496137`.
+
+All 794 packaged Server and service bootstrap files match the archived
+commit after CRLF normalization. On 2026-11-18, the macOS 26.6 arm64
+Desktop probe selected the bundled record and passed against real SQLite
+Servers in anonymous loopback, static Bearer, HTTPS with an explicit CA
+and base path, and enforced Provider modes. The client and Server
+qualification contract digests matched.
+
+```bash
+mkdir -p desktop/.artifacts/dsh-receipt-sync-source desktop/.artifacts/dsh-receipt-sync-wheel
+git archive e48137e0 | tar -x -C desktop/.artifacts/dsh-receipt-sync-source
+SETUPTOOLS_SCM_PRETEND_VERSION=1.5.2.dev0+ge48137e0 uv build --offline --wheel desktop/.artifacts/dsh-receipt-sync-source --out-dir desktop/.artifacts/dsh-receipt-sync-wheel
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk CARGO_PROFILE_DEV_DEBUG=0 cargo +1.95.0 build --offline --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-dsh-receipt-e48137e0-v1 --wheel desktop/.artifacts/dsh-receipt-sync-wheel/powercontext-1.5.2.dev0+ge48137e0-py3-none-any.whl
+```
+
+This evidence covers the recorded Desktop protocol and Server wheel with
+SQLite. Installed UI, credential persistence, external databases and
+other platforms are outside this qualification.

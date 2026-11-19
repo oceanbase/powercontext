@@ -96,7 +96,11 @@ def test_pre_tool_hook_binds_every_current_scope_operation(
                 "session_id": "session-a",
                 "cwd": "/workspace",
                 "tool_name": f"mcp__powercontext__{operation}",
-                "tool_input": {"scope_id": "agent-selected"},
+                "tool_input": {
+                    "scope_id": "bound-scope"
+                    if operation in {"continue_handoff", "acknowledge_handoff"}
+                    else "agent-selected"
+                },
             })
         ),
     )
@@ -166,7 +170,12 @@ def test_pre_tool_hook_binds_every_mcp_tool_that_takes_a_scope(
         output = io.StringIO()
         monkeypatch.setattr(sys, "stdout", output)
         assert bind_tools_module.main() == 0
-        updated = json.loads(output.getvalue() or "{}").get("hookSpecificOutput", {}).get("updatedInput", {})
+        decision = json.loads(output.getvalue() or "{}").get("hookSpecificOutput", {})
+        if name in {"continue_handoff", "acknowledge_handoff"}:
+            assert decision.get("permissionDecision") == "deny"
+            assert "updatedInput" not in decision
+            continue
+        updated = decision.get("updatedInput", {})
         if updated.get("scope_id") != "bound-scope" and updated.get("selection") != {
             "mode": "exact",
             "scope_ids": ["bound-scope"],
@@ -324,6 +333,31 @@ def _hook_payload() -> str:
         "tool_name": "mcp__powercontext__search_memory",
         "tool_input": {"query": "current state"},
     })
+
+
+@pytest.mark.parametrize("operation", ["continue_handoff", "acknowledge_handoff"])
+def test_pre_tool_hook_does_not_move_handoff_to_a_different_scope(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "current-scope")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                **json.loads(_hook_payload()),
+                "tool_name": f"mcp__powercontext__{operation}",
+                "tool_input": {"scope_id": "package-scope", "selection": "prepared"},
+            })
+        ),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    assert bind_tools_module.main() == 0
+    result = json.loads(output.getvalue())["hookSpecificOutput"]
+    assert result["permissionDecision"] == "deny"
 
 
 def _run_hook(
