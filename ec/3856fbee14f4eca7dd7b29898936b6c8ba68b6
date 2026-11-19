@@ -1,0 +1,19 @@
+src/powercontext/server/dashboard/content.py
+  s_13fec9a57c9104::t_42f2f0fe4d3148 281-284,286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec3856fbee14f4eca7dd7b29898936b6c8ba68b6",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
