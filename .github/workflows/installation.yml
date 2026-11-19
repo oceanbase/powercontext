@@ -61,7 +61,7 @@ jobs:
         env:
           POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
         run: >-
-          uv run --no-sync pytest -q tests/native/test_installation.py
+          uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
           --junitxml "$RUNNER_TEMP/installation.xml"
           --basetemp "$RUNNER_TEMP/installation-tests"
 

@@ -16,7 +16,7 @@
 
 use pc_gateway_core::{GateClient, GateError, HttpGateClient, UdsGateClient};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
+    CaptureContentSourcesRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
     PrepareContextResult,
 };
 
@@ -67,7 +67,7 @@ impl GateClient for CoreLink {
 
     async fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> Result<serde_json::Value, GateError> {
         match self {
             CoreLink::Uds(c) => c.capture(request).await,

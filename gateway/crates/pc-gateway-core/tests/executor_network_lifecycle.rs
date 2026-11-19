@@ -88,6 +88,7 @@ fn call(base: &str) -> ManagedCall {
         degrade_policy: DegradePolicy::PassthroughWithoutMemory,
         inject_context: true,
         include_code: false,
+        capture_prefix: false,
         conversation_id: None,
         sediment: true,
         prepared_contexts: vec![],
@@ -110,7 +111,7 @@ async fn actual_receivers_verify_stops_zero_send_and_recovery_at_all_network_sta
             }
             Json(json!({"schema":"powercontext.prepared-context.v1", "status":"empty", "content_bytes":0}))
         }))
-        .route("/v1/sources/content", post(|State(state): State<Arc<Receiver>>| async move {
+        .route("/v1/sources/content/batch", post(|State(state): State<Arc<Receiver>>| async move {
             if state.fault.load(Ordering::SeqCst) == 5 {
                 state.entered.notify_one(); state.release.notified().await;
             }

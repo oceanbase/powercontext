@@ -58,6 +58,8 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CaptureContentSourcesRequest,
+    CaptureContentSourcesResponse,
     CaptureWorkingNoteRequest,
     CheckContextRequest,
     ClearScopeBindingRequest,
@@ -233,6 +235,7 @@ from powercontext.http._generated.operations import (
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
     CAPTURE_CONTENT_SOURCE,
+    CAPTURE_CONTENT_SOURCES,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
     CHECK_CONTEXT,
@@ -594,6 +597,11 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def capture_content_sources(self, request: CaptureContentSourcesRequest) -> CaptureContentSourcesResponse:
+        """Capture several content Sources in one transaction."""
+
+        return await self._request(CAPTURE_CONTENT_SOURCES, request)
 
     async def capture_working_note(self, request: CaptureWorkingNoteRequest) -> CaptureContentSourceResponse:
         """Capture explicit session-local work state as Source evidence."""
