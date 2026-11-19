@@ -1,0 +1,21 @@
+tests/test_schema_release.py
+  s_7ef64a2bfbe178::t_5e2f7f467a5ad9 357-396
+scripts/schema_release.py
+  s_7ef64a2bfbe178::t_65845e096342e3 220-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fa34dc3599ff939b47af26f5caff86d9e1470bd5",
+  "prompts": {},
+  "sessions": {
+    "s_7ef64a2bfbe178": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e847-795d-7453-8e8c-9e06d242b745",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
