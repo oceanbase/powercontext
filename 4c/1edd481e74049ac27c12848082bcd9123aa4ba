@@ -1,0 +1,21 @@
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_32cbdae2641ba6 1,7,12,15,20,23,29-42,44-55
+integrations/dsh/plugins/powercontext/package.json
+  s_2ef0feea0a110d::t_32cbdae2641ba6 73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4c1edd481e74049ac27c12848082bcd9123aa4ba",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
