@@ -30,6 +30,7 @@
 
 use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
+use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 
@@ -42,9 +43,9 @@ use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
-    parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
-    ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
-    PreparedContextLocation,
+    parse_rfc3339_ms, CaptureContentSource, CaptureContentSourcesRequest, CheckDecision,
+    CheckPhase, ContextCheckRequest, ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation,
+    PrepareContextRequest, PreparedContextLocation,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -75,6 +76,8 @@ pub struct ManagedCall {
     pub include_code: bool,
     /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
     pub conversation_id: Option<String>,
+    /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
+    pub capture_prefix: bool,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -154,7 +157,10 @@ pub struct Executor<G, T> {
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+    source_tokens: usize,
+    capture_batch: Option<usize>,
     require_privacy_coverage: bool,
+    prefixes: PrefixStore,
 }
 
 /// One-way admission closure, also usable by a process signal handler. Closing
@@ -200,7 +206,10 @@ where
             handoff: Mutex::new(()),
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
+            source_tokens: crate::transcript::MAX_SOURCE_TOKENS,
+            capture_batch: Some(128),
             require_privacy_coverage: true,
+            prefixes: PrefixStore::default(),
         }
     }
 
@@ -267,6 +276,20 @@ where
     /// cannot bypass the currently supported complete-body parser ceiling.
     pub fn with_input_limit(mut self, limit: usize) -> Self {
         self.max_input_bytes = limit.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
+    }
+
+    /// 一段沉淀 Source 的估算 token 上限，取自 Core 生效的 Atomic Memory 输入上限（见
+    /// [`crate::source_token_limit`]）。
+    pub fn with_source_token_limit(mut self, limit: usize) -> Self {
+        self.source_tokens = limit;
+        self
+    }
+
+    /// 一次批量沉淀最多接受的 Source 数，取自 Core 的能力报告。`None` 表示 Core 不提供批量沉淀：回合不沉淀，
+    /// 因为逐段写入可能只存下一个回合的一部分。
+    pub fn with_capture_batch_limit(mut self, limit: Option<usize>) -> Self {
+        self.capture_batch = limit;
         self
     }
 
@@ -412,6 +435,7 @@ where
                                 degrade_policy: DegradePolicy::Pause,
                                 inject_context: false,
                                 include_code: false,
+                                capture_prefix: false,
                                 conversation_id: None,
                                 sediment: false,
                                 prepared_contexts: Vec::new(),
@@ -630,10 +654,24 @@ where
                                 &pristine_request,
                                 &release_body,
                                 renderer.message_list_key(),
+                                self.source_tokens,
                             )
                         })
                         .flatten();
-                    if let Some(transcript) = transcript {
+                    // 一个回合的各段在一次批量请求里沉淀，Core 在一个事务内全部入库或都不入库。
+                    let batch = match (transcript, self.capture_batch) {
+                        (None, _) => None,
+                        (Some(_), None) => {
+                            evidence.record_not_sent(0, "sediment_failed:batch_unsupported");
+                            None
+                        }
+                        (Some(transcript), Some(limit)) if transcript.parts.len() > limit => {
+                            evidence.record_not_sent(0, "sediment_failed:too_many_parts");
+                            None
+                        }
+                        (Some(transcript), Some(_)) => Some(transcript),
+                    };
+                    if let Some(transcript) = batch {
                         let digest = turn_digest(&call, &pristine_request).unwrap_or_else(|| {
                             result
                                 .binding
@@ -641,15 +679,56 @@ where
                                 .map(simple_digest)
                                 .unwrap_or_else(|| simple_digest(&release_body))
                         });
-                        let capture = CaptureContentSourceRequest {
+                        let source_id = format!("gw-turn-{digest}");
+                        // 保留前缀供 Core 复用缓存抽取：句柄写在这一回合最后一段 Source 的元数据里。注入的准备块在
+                        // 前缀里、不在 Source 里，Core 的抽取指令说明标记内的内容不是证据。
+                        let prefix = self.keep_prefix(
+                            &call,
+                            &payload.bytes,
+                            &release_body,
+                            renderer.message_list_key(),
+                        );
+                        let count = transcript.parts.len();
+                        let coverage = transcript.coverage;
+                        let sources = transcript
+                            .parts
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, content)| {
+                                let mut metadata = serde_json::json!({
+                                    "kind": "gateway_turn",
+                                    "target_profile": call.target_profile,
+                                    "powercontext_capture_coverage": coverage,
+                                });
+                                if count > 1 {
+                                    metadata["turn"] = serde_json::json!({
+                                        "source_id": source_id,
+                                        "part": index + 1,
+                                        "parts": count,
+                                    });
+                                }
+                                // 第一段总是用回合标识本身：同一回合再次沉淀时，不论分成几段都与已有记录冲突，
+                                // Core 拒绝整批。
+                                let part_id = if index == 0 {
+                                    source_id.clone()
+                                } else {
+                                    format!("{source_id}-{}of{count}", index + 1)
+                                };
+                                if index + 1 == count {
+                                    for (key, value) in prefix.iter().flatten() {
+                                        metadata[*key] = value.clone();
+                                    }
+                                }
+                                CaptureContentSource {
+                                    source_id: part_id,
+                                    content,
+                                    metadata: Some(metadata),
+                                }
+                            })
+                            .collect();
+                        let capture = CaptureContentSourcesRequest {
                             scope_id: call.scope_id.clone(),
-                            source_id: format!("gw-turn-{digest}"),
-                            content: transcript.text,
-                            metadata: Some(serde_json::json!({
-                                "kind": "gateway_turn",
-                                "target_profile": call.target_profile,
-                                "powercontext_capture_coverage": transcript.coverage,
-                            })),
+                            sources,
                         };
                         if let Err(stop) = execution.checkpoint() {
                             return stop;
@@ -660,7 +739,7 @@ where
                         }
                         match captured {
                             Ok(_) => {}
-                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
+                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留，这一次的各段都不入库。
                             Err(GateError::GateRejected(409)) => {
                                 evidence.record_not_sent(0, "sediment_duplicate")
                             }
@@ -699,6 +778,48 @@ where
                 CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
             },
         }
+    }
+
+    /// Core 凭句柄取回的前缀（同一 Scope、未过期）。
+    pub fn prefix(&self, handle: &str, scope_id: &str) -> Option<std::sync::Arc<PrefixEntry>> {
+        self.prefixes.get(handle, scope_id, now_ms())
+    }
+
+    /// 保留一个 Responses 回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话。
+    /// 规模取自终止响应的用量：输入部分在抽取时命中缓存，输出部分作为新输入计费，Core 据此判断复用前缀是否比
+    /// 普通抽取便宜。
+    fn keep_prefix(
+        &self,
+        call: &ManagedCall,
+        sent: &bytes::Bytes,
+        release_body: &str,
+        list_key: &str,
+    ) -> Option<Vec<(&'static str, serde_json::Value)>> {
+        if !call.capture_prefix || list_key != "input" {
+            return None;
+        }
+        let conversation_id = call.conversation_id.clone()?;
+        let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
+        let response_output = response.get("output")?.as_array()?.clone();
+        let usage = response.get("usage");
+        let tokens = |field: &str| usage.and_then(|u| u.get(field)).and_then(|v| v.as_u64());
+        let handle = self.prefixes.add(
+            PrefixEntry {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                conversation_id,
+                request_body: sent.clone(),
+                response_output,
+                prepared_contexts: call.prepared_contexts.clone(),
+            },
+            now_ms(),
+        )?;
+        let mut fields = vec![("prefix_handle", handle.into())];
+        if let (Some(input), Some(output)) = (tokens("input_tokens"), tokens("output_tokens")) {
+            fields.push(("prefix_input_tokens", input.into()));
+            fields.push(("prefix_output_tokens", output.into()));
+        }
+        Some(fields)
     }
 
     /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
