@@ -3878,3 +3878,16 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Server 10d47577 OAuth and batch capture protocol qualification
+
+`sqlite-oauth-10d47577-v1` qualifies all thirteen Desktop operations against Server source `10d47577800a205a52f7e4e2b1934444d11b3512`, which combines the OAuth response evidence and batch Source capture contracts. All 812 packaged runtime files match a Git archive of the Server commit.
+
+- Normalized OpenAPI SHA-256: `130bb849d1a4bd8fc4c1854d2bc3f5472da2f5dc37d399a88e87b187cb10aaf3`.
+- Wheel: `powercontext-1.5.2.dev0-py3-none-any.whl`.
+- Wheel SHA-256: `c7526b30851fd9b95128668faf3bf73299634ad5ce9b220fc4cbb05a96fef6bb`.
+- Native debug probe SHA-256: `5ac1b63acc9aa01870af0bfce9a7f7cc2e94964ccc1c9cc98c9d5255ff6fe9b9`.
+
+On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with enforced access. The product ConnectionManager selected the bundled qualification and reported matching client and Server contract digests. The checks used SQLite on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6.
+
+The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.
