@@ -177,7 +177,7 @@ jobs:
   quality:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: powercontext-ci-light
     outputs:
       suites: ${{ steps.select.outputs.suites }}
@@ -202,7 +202,8 @@ jobs:
         run: python3 scripts/ci_changes.py
 
       - name: Check License Header
-        timeout-minutes: 10
+        # Include a cold Go toolchain download and license-eye build.
+        timeout-minutes: 20
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
