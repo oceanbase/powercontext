@@ -18,9 +18,59 @@ limitations under the License.
 {{ page_heading(t.prompts,t.prompts_subtitle) }}
 {% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
 {% if not data.prompts and not errors.get('prompts') %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
-<div class="record-list">{% for prompt in data.prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set mode = opened.content.mode if opened else prompt.mode %}
-<article><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="badge bg-secondary-lt ms-2">{{ t.get('prompt_state_' ~ prompt.status,prompt.status) }}</span><span class="text-secondary small ms-2">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</span></summary>
+<div class="prompt-browser">
+<style>
+  me .prompt-overview { display: inline-grid; grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 2fr) auto; gap: 1rem; width: calc(100% - 1rem); align-items: baseline; }
+  @media (max-width: 767px) { me .prompt-overview { grid-template-columns: 1fr; gap: .25rem; } }
+</style>
+<div class="row g-3 mb-3">
+  <div class="col-md-8"><label class="form-label" for="prompt-search">{{ t.prompt_search }}</label><input id="prompt-search" type="search" class="form-control" autocomplete="off"></div>
+  <div class="col-md-4"><label class="form-label" for="prompt-source">{{ t.prompt_source }}</label><select id="prompt-source" class="form-select"><option value="">{{ t.prompt_source_all }}</option><option value="auto">{{ t.prompt_builtin_default }}</option><option value="custom">{{ t.prompt_custom }}</option></select></div>
+</div>
+{% set groups = [
+  ('memory', ['atomic_memory.extract', 'atomic_memory.reconcile', 'memory.rerank']),
+  ('topics', ['topic_memory.probe', 'topic_memory.global', 'topic_memory.planner', 'topic_memory.evolve', 'topic_memory.temporary', 'topic_memory.reduce', 'topic_memory.reconcile']),
+  ('experience', ['experience.incubate', 'experience.generate']),
+  ('skill', ['skill.generate']), ('handoff', ['handoff.generate']), ('profile', ['profile.generate'])
+] %}
+{% for group, keys in groups %}{% set prompts = data.prompts|selectattr('prompt_key', 'in', keys)|list %}
+{% if prompts %}<details class="supporting-details prompt-group mb-3" {% if prompt_key in keys %}open{% endif %}>
+<summary><strong>{{ t['prompt_group_' ~ group] }}</strong><span class="badge bg-secondary-lt ms-2" data-prompt-count>{{ prompts|length }}</span></summary>
+{% if group == 'topics' %}<p class="text-secondary mt-3">{{ t.prompt_topic_conditional }}</p>{% endif %}
+<div class="record-list">{% for prompt in prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set failed = prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{% set mode = none if failed else (opened.content.mode if opened else prompt.mode) %}
+<article data-prompt-search="{{ (t.get(prompt.prompt_key,prompt.prompt_key) ~ ' ' ~ prompt.prompt_key)|lower }}" data-prompt-source="{{ mode }}"><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="prompt-overview"><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="text-secondary small">{{ t[prompt.prompt_key ~ '_purpose'] }}</span><span class="text-secondary small">{{ t.prompt_revision_unavailable if failed else (t.prompt_custom if mode == 'custom' else t.prompt_builtin_default) }}</span></span></summary>
+<p class="text-secondary mt-3">{{ t.prompt_status }}: {{ t.get('prompt_state_' ~ prompt.status,t.get('prompt_' ~ prompt.status,prompt.status)) }}{% if prompt.reason %} — {{ t['prompt_reason_' ~ prompt.reason] }}{% endif %}</p>
+{% if not failed %}<p class="small">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>
 <div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> · {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} · {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
-{% if prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% else %}<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>{% endif %}
+<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>
 {% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} →</a>{% endif %}
-</details></article>{% endfor %}</div>{% include 'components/revision-history.html' %}
+{% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
+{% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
+{% else %}<code>{{ prompt.prompt_key }}</code>{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% endif %}
+</details></article>{% endfor %}</div></details>{% endif %}{% endfor %}
+<p class="text-secondary" data-prompt-empty hidden role="status">{{ t.prompt_no_match }}</p>
+<script>
+me().run(browser => {
+  const search = browser.querySelector('#prompt-search');
+  const source = browser.querySelector('#prompt-source');
+  function filter() {
+    const query = search.value.trim().toLowerCase();
+    let total = 0;
+    for (const group of browser.querySelectorAll('.prompt-group')) {
+      let count = 0;
+      for (const row of group.querySelectorAll('[data-prompt-search]')) {
+        row.hidden = !row.dataset.promptSearch.includes(query) || (source.value && row.dataset.promptSource !== source.value);
+        if (!row.hidden) count++;
+      }
+      group.hidden = count === 0;
+      group.querySelector('[data-prompt-count]').textContent = count;
+      if (query || source.value) group.open = count > 0;
+      total += count;
+    }
+    browser.querySelector('[data-prompt-empty]').hidden = total > 0;
+  }
+  search.addEventListener('input', filter);
+  source.addEventListener('change', filter);
+});
+</script>
+</div>{% include 'components/revision-history.html' %}
