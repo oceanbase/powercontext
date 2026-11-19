@@ -246,7 +246,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
+    # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 50 }}
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
