@@ -232,7 +232,11 @@ the blocker. State and next action must cite readable evidence. The next action 
 Handoff does not become an action queue.
 
 Omissions record relevant material that was known but unavailable, excluded, or not verified. An omission should retain
-its original reference when one exists.
+its original reference when one exists. Each fresh model response must include `omissions`, using `[]` when there is
+nothing to record. The generation request asks for a tentative claim and its stated basis together in the omission
+text. For an evidence gap, it asks the model to name the missing evidence. For example, “The offset may be 12 degrees
+based on one reading” records a hypothesis, while “The calibration log is unavailable” records a gap. A citation
+identifies where the information came from. The v1 format stores both kinds as text and an optional citation.
 
 Evidence may cite a Source, an exact Artifact Revision, or an exact Memory entry version. A Memory entry citation
 refines an exact Memory Revision; it does not replace that Revision in the committed Handoff's Artifact lineage.

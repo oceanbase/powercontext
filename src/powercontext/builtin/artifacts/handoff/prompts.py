@@ -14,7 +14,15 @@
 
 """Versioned instructions owned by the Handoff Artifact Family."""
 
-HANDOFF_GENERATION_INSTRUCTIONS_VERSION = "powercontext.handoff.generate.v2"
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from powercontext.builtin.artifacts.handoff.generation import HandoffGenerationInput
+
+HANDOFF_GENERATION_INSTRUCTIONS_VERSION = "powercontext.handoff.generate.v3"
 
 HANDOFF_GENERATION_INSTRUCTIONS = f"""
 You generate a concise Handoff for the next participant from bounded evidence.
@@ -38,4 +46,25 @@ Rules:
 - Keep the complete generated Handoff within the supplied max_bytes budget.
 """.strip()
 
-__all__ = ["HANDOFF_GENERATION_INSTRUCTIONS", "HANDOFF_GENERATION_INSTRUCTIONS_VERSION"]
+
+def render_handoff_generation_input(value: HandoffGenerationInput, /) -> str:
+    """Attach omission guidance to the current user message after the bounded evidence."""
+    return json.dumps(
+        {
+            **value.model_dump(mode="json"),
+            "omission_guidance": (
+                "Always include omissions, using [] when empty. Keep each relevant hypothesis qualified in an omission "
+                "along with its stated basis. If the evidence supplies no basis, say so. Describe missing evidence as "
+                "a gap. Keep state factual and avoid assuming a hypothesis is true in the next action."
+            ),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+__all__ = [
+    "HANDOFF_GENERATION_INSTRUCTIONS",
+    "HANDOFF_GENERATION_INSTRUCTIONS_VERSION",
+    "render_handoff_generation_input",
+]

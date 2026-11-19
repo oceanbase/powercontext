@@ -1592,6 +1592,7 @@ async def _generation_pipelines(
         HandoffGenerationOutput,
         LLMHandoffGenerationPipeline,
     )
+    from powercontext.builtin.artifacts.handoff.prompts import render_handoff_generation_input
     from powercontext.builtin.artifacts.memory import (
         MEMORY_RERANK_INSTRUCTIONS,
         LLMMemoryReranker,
@@ -1776,6 +1777,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="handoff_generation",
             prompt_key="handoff.generate",
+            input_renderer=render_handoff_generation_input,
         )
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),

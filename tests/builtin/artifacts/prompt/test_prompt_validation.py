@@ -337,6 +337,11 @@ def test_custom_handoff_demonstrations_reject_rollover_outputs_that_prepare_woul
     assert not caught.value.during_inference
 
 
+def test_handoff_prompt_advertises_the_live_result_contract() -> None:
+    definition = PromptRegistry(builtin_prompt_definitions()).get("handoff.generate")
+    assert "omissions" in definition.output_type.model_json_schema()["required"]
+
+
 def test_custom_handoff_demonstrations_allow_descriptive_rollover_mentions() -> None:
     case = deepcopy(_case("handoff.generate"))
     case["input"]["rollover_reasons"] = ["user_requested"]

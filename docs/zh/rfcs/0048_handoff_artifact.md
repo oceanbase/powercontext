@@ -212,6 +212,9 @@ state 至少包含一个当前事实。disposition 必须由 state 支持；工�
 next action 必须引用可读取的 evidence。next action 是可选的单值，避免让 Handoff 变成 action queue。
 
 omissions 记录已知相关但无法读取、被排除或未经验证的材料。存在原始引用时，omission 应保留该引用。
+模型每次生成 Handoff 都必须返回 `omissions`，没有遗漏时返回 `[]`。生成请求要求模型在同一条 omission 中写明假设及其已有依据；
+遇到证据缺口，则说明缺少哪项证据。例如，“根据一次读数推测偏移量可能是 12 度”记录了假设，“校准日志无法读取”记录了缺口。
+citation 标明信息的来源。v1 格式均使用文本和可选的 citation 保存这两类信息。
 
 evidence 可以引用 Source、精确 Artifact Revision 或精确 Memory entry version。Memory entry citation 是对精确
 Memory Revision 的细化，不能在已提交 Handoff 的 Artifact lineage 中取代该 Revision。

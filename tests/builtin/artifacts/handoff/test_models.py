@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -79,6 +81,26 @@ def test_draft_preserves_inspected_content_during_finalization() -> None:
 def test_content_contract_rejects_incomplete_handoffs(value: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         HandoffDraft.model_validate(value)
+
+
+def test_legacy_omission_round_trips_byte_for_byte() -> None:
+    citation = {"kind": "source", "source_ref": {"source_type": "content", "source_id": "turn-1"}}
+    body = json.dumps(
+        {
+            "schema": "powercontext.handoff.v1",
+            "objective": "Check calibration.",
+            "state": [{"text": "The file is named calibration.json.", "citations": [citation]}],
+            "disposition": "blocked",
+            "next_action": None,
+            "omissions": [
+                {"text": "The offset may be 12°.", "citation": citation},
+                {"text": "The calibration log is unavailable.", "citation": None},
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    assert HandoffContent.model_validate_json(body).model_dump_json(by_alias=True, indent=2) == body
 
 
 def test_handoff_values_are_frozen_after_validation() -> None:

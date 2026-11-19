@@ -20,7 +20,7 @@ import re
 from collections.abc import Mapping
 from typing import Annotated, Literal, Protocol, TypeAlias
 
-from pydantic import BaseModel, Field, JsonValue, TypeAdapter, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError, model_validator
 
 from powercontext.artifacts import Artifact
 from powercontext.builtin.artifacts.handoff.models import (
@@ -76,27 +76,31 @@ class HandoffGenerationInput(BaseModel):
         return self
 
 
-class HandoffGenerationStatement(BaseModel):
+class _HandoffOutputValue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class HandoffGenerationStatement(_HandoffOutputValue):
     """One generated statement with operation-local citations."""
 
     text: str
     evidence_ids: tuple[str, ...]
 
 
-class HandoffGenerationOmission(BaseModel):
+class HandoffGenerationOmission(_HandoffOutputValue):
     """One generated omission with optional operation-local evidence."""
 
     text: str
     evidence_id: str | None = None
 
 
-class HandoffGenerationOutput(BaseModel):
+class HandoffGenerationOutput(_HandoffOutputValue):
     """Schema-bound Handoff generation output."""
 
     state: tuple[HandoffGenerationStatement, ...]
     disposition: HandoffDisposition
     next_action: HandoffGenerationStatement | None = None
-    omissions: tuple[HandoffGenerationOmission, ...] = ()
+    omissions: tuple[HandoffGenerationOmission, ...]
 
 
 class HandoffEvidenceProjector(Protocol):
@@ -142,7 +146,11 @@ class LLMHandoffGenerationPipeline:
 
     async def generate(self, request: HandoffGenerationRequest, /) -> HandoffDraft:
         generation_input, citations = _generation_input(request, self._evidence_projector)
-        output = _validated_output(await self._generator.generate(generation_input))
+        try:
+            output = _validated_output(await self._generator.generate(generation_input))
+        except InvalidInferenceOutputError as error:
+            # Provider retry traces can contain the rejected model response.
+            raise error from None
         try:
             return HandoffDraft(
                 objective=request.objective,
@@ -163,7 +171,7 @@ class LLMHandoffGenerationPipeline:
                     failure_location="handoff-generate-contract",
                     cause_exception_type=type(error).__name__,
                 ),
-            ) from error
+            ) from None
 
 
 def _validated_output(result: GenerationResult[HandoffGenerationOutput]) -> HandoffGenerationOutput:

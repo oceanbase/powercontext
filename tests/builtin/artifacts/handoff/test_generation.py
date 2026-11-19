@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 
 from powercontext import SourceMaterialization
 from powercontext.builtin.artifacts.handoff import (
@@ -61,6 +62,31 @@ def _evidence() -> HandoffSourceEvidence:
     )
 
 
+@pytest.mark.parametrize(
+    ("fields", "expected_errors"),
+    [
+        ({}, {(("omissions",), "missing")}),
+        (
+            {
+                "omissions": [
+                    {"text": "The offset may be 12 degrees.", "kind": "working_hypothesis", "basis": "One reading."}
+                ]
+            },
+            {(("omissions", 0, "kind"), "extra_forbidden"), (("omissions", 0, "basis"), "extra_forbidden")},
+        ),
+        ({"omissions": [], "hypotheses": ["The offset may be 12 degrees."]}, {(("hypotheses",), "extra_forbidden")}),
+    ],
+)
+def test_model_output_cannot_silently_lose_omissions(fields, expected_errors) -> None:
+    with pytest.raises(ValidationError) as caught:
+        HandoffGenerationOutput.model_validate({
+            "state": [{"text": "The calibration file is named calibration.json.", "evidence_ids": ["source:0"]}],
+            "disposition": "complete",
+            **fields,
+        })
+    assert {(error["loc"], error["type"]) for error in caught.value.errors()} == expected_errors
+
+
 def test_llm_pipeline_maps_only_bounded_evidence_and_preserves_objective() -> None:
     async def scenario() -> None:
         generator = RecordingGenerator(
@@ -72,6 +98,7 @@ def test_llm_pipeline_maps_only_bounded_evidence_and_preserves_objective() -> No
                     ),
                 ),
                 disposition="continuable",
+                omissions=(),
                 next_action=HandoffGenerationStatement(
                     text="Run public-interface regression tests.",
                     evidence_ids=("source:0",),
@@ -116,6 +143,7 @@ def test_llm_pipeline_rejects_evidence_outside_the_bounded_request() -> None:
                         ),
                     ),
                     disposition="blocked",
+                    omissions=(),
                 )
             )
         )
@@ -149,6 +177,7 @@ def test_llm_pipeline_rejects_uncited_statements() -> None:
                         ),
                     ),
                     disposition="blocked",
+                    omissions=(),
                 )
             )
         )

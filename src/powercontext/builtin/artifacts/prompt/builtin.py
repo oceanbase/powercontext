@@ -16,6 +16,8 @@
 
 from typing import cast
 
+from typing_extensions import override
+
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
@@ -57,7 +59,7 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.artifacts.profile.generation import PROFILE_INSTRUCTIONS, PROFILE_INSTRUCTIONS_VERSION
 from powercontext.builtin.artifacts.profile.service import ProfileGenerationInput, ProfileGenerationOutput
 from powercontext.builtin.artifacts.prompt.definitions import PromptDefinition
-from powercontext.builtin.artifacts.prompt.models import PromptKey
+from powercontext.builtin.artifacts.prompt.models import PromptContent, PromptKey
 from powercontext.builtin.artifacts.skill import (
     SKILL_GENERATION_INSTRUCTIONS,
     SKILL_GENERATION_INSTRUCTIONS_VERSION,
@@ -95,6 +97,21 @@ Never emit secrets, credentials, access tokens, private keys, or authentication 
 Follow the registered input and output contract. Do not add fields, tools, or capabilities.
 Never allocate persistence identities or revisions, approve, publish, install, or execute anything.
 """.strip()
+
+
+class _HandoffPromptDefinition(PromptDefinition):
+    @override
+    def validate(self, content: PromptContent, /, *, during_inference: bool = False) -> None:
+        # A v1 example may omit the empty list. Only its validation view needs the default.
+        examples = []
+        for example in content.demonstrations:
+            output = example.expected_output
+            if isinstance(output, dict) and "omissions" not in output:
+                example = example.model_copy(update={"expected_output": {**output, "omissions": []}})
+            examples.append(example)
+        super().validate(
+            content.model_copy(update={"demonstrations": tuple(examples)}), during_inference=during_inference
+        )
 
 
 def builtin_prompt_definitions(
@@ -196,9 +213,9 @@ Preserve applicability, failure handling, and validation status. Return proposal
             default_instructions=SKILL_GENERATION_INSTRUCTIONS,
             noop_field="proposal",
         ),
-        PromptDefinition(
+        _HandoffPromptDefinition(
             key="handoff.generate",
-            definition_version="powercontext.prompt.handoff.generate.v1",
+            definition_version="powercontext.prompt.handoff.generate.v2",
             input_type=HandoffGenerationInput,
             output_type=HandoffGenerationOutput,
             builtin_version=HANDOFF_GENERATION_INSTRUCTIONS_VERSION,
