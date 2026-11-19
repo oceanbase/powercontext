@@ -1,286 +1,55 @@
-name: DSH readiness controlled experiment
+name: DSH full job acceptance
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  baseline:
+  dsh-package:
     timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
         with:
           shared-cache: 'true'
+
       - name: Set up project tools
         uses: ./.github/actions/setup-mise
+
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
         with:
           working-directory: integrations/dsh/plugins/powercontext
           cache-dependency-glob: integrations/dsh/plugins/powercontext/**/pnpm-lock.yaml
-      - name: Install and build the unchanged DSH package
+
+      - name: Test DSH package
+        run: make js-test
+
+      - name: Verify DSH npm archive installation
+        run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+
+      - name: Test built plugin in the real DSH runtime
+        run: make dsh-runtime-test
+
+      - name: Install native DSH configuration test APIs
+        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+
+      - name: Resolve required DSH test runtimes
         run: |
-          pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
-          pnpm --dir integrations/dsh/plugins/powercontext build
-          git diff --exit-code -- integrations/dsh/plugins/powercontext/src/operations.generated.ts integrations/dsh/plugins/powercontext/lib integrations/dsh/plugins/dsh-pet/lib
-      - name: Run the complete E2E arm and preserve its actual exit code
-        run: |
-          cat > "$RUNNER_TEMP/dsh-readiness-probe.py" <<'PYPROBE'
-          import compileall, datetime, json, os, re, socket, subprocess, sys, sysconfig, time
-          from pathlib import Path
-          arm=sys.argv[1]
-          assert arm in ('baseline','serial','precompiled')
-          out=Path(os.environ['RUNNER_TEMP'])/'dsh-readiness'/arm
-          out.mkdir(parents=True,exist_ok=True)
-          def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
-          def cpu():
-           p=Path('/sys/fs/cgroup/cpu.stat')
-           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
-           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           stats['throttled_usec']=stats.pop('throttled_time')//1000
-           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
-           return stats
-          def cpu_max():
-           p=Path('/sys/fs/cgroup/cpu.max')
-           if p.exists():return p.read_text().strip()
-           root=Path('/sys/fs/cgroup/cpu')
-           quota=int((root/'cpu.cfs_quota_us').read_text())
-           period=int((root/'cpu.cfs_period_us').read_text())
-           return f'{quota if quota>=0 else "max"} {period}'
-          def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
-          def count(root): return sum(1 for _ in root.rglob('*.pyc'))
-          site=Path(sysconfig.get_path('purelib'))
-          source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
-          if arm=='precompiled':
-           start=time.monotonic();before=cpu()
-           results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
-           metadata['precompile']={'seconds':time.monotonic()-start,'complete':results,'cpu_delta':delta(before,cpu()),'bytecode_after':{'site_packages':count(site),'runtime_src':count(source)}}
-          command=['pnpm','--dir','integrations/dsh/plugins/powercontext','exec','vitest','run','tests/e2e']
-          if arm=='serial':command.append('--no-file-parallelism')
-          metadata.update(command=command,started_at=now(),cpu_before=cpu())
-          (out/'metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          start=time.monotonic();lines=[]
-          with (out/'vitest.log').open('w') as log:
-           process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
-           for line in process.stdout:
-            log.write(line);log.flush();sys.stdout.write(line);sys.stdout.flush();lines.append(line)
-           code=process.wait()
-          metadata.update(completed_at=now(),seconds=time.monotonic()-start,exit_code=code,cpu_after=cpu())
-          metadata['cpu_delta']=delta(metadata['cpu_before'],metadata['cpu_after'])
-          plain=re.sub(r'\x1b\[[0-9;]*m','', ''.join(lines))
-          markers=('server.starting','server.ready','Application startup complete','Uvicorn running','server.stopping','did not become ready','Test Files','Tests ','Duration ')
-          timeline=[line for line in plain.splitlines() if any(marker in line for marker in markers)]
-          (out/'timeline.txt').write_text('\n'.join(timeline)+'\n')
-          (out/'result.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          print('\nEXPERIMENT_RESULT '+json.dumps(metadata),flush=True)
-          summary=os.environ.get('GITHUB_STEP_SUMMARY')
-          if summary:
-           with open(summary,'a') as f:
-            f.write(f'### DSH readiness arm: {arm}\n\nExit code: `{code}`; elapsed: `{metadata["seconds"]:.3f}s`; CPU quota: `{metadata["cpu_max"]}`.\n\n')
-            f.write('All three original E2E files ran; no assertion, Server deadline, job deadline or Pod resource was changed. A nonzero exit remains a failed test step.\n\n')
-            f.write('```text\n'+'\n'.join(timeline[-30:])+'\n```\n')
-          sys.exit(code)
-          PYPROBE
-          uv run --no-sync python "$RUNNER_TEMP/dsh-readiness-probe.py" baseline
-      - name: Upload this arm's measurements and original test output
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: dsh-readiness-baseline-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/dsh-readiness/baseline/
-          if-no-files-found: warn
-  serial:
-    needs: baseline
-    if: ${{ always() }}
-    timeout-minutes: 30
-    runs-on: powercontext-ci-light
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Set up the Python environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: 'true'
-      - name: Set up project tools
-        uses: ./.github/actions/setup-mise
-      - name: Cache DSH dependencies
-        uses: ./.github/actions/cache-pnpm
-        with:
-          working-directory: integrations/dsh/plugins/powercontext
-          cache-dependency-glob: integrations/dsh/plugins/powercontext/**/pnpm-lock.yaml
-      - name: Install and build the unchanged DSH package
-        run: |
-          pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
-          pnpm --dir integrations/dsh/plugins/powercontext build
-          git diff --exit-code -- integrations/dsh/plugins/powercontext/src/operations.generated.ts integrations/dsh/plugins/powercontext/lib integrations/dsh/plugins/dsh-pet/lib
-      - name: Run the complete E2E arm and preserve its actual exit code
-        run: |
-          cat > "$RUNNER_TEMP/dsh-readiness-probe.py" <<'PYPROBE'
-          import compileall, datetime, json, os, re, socket, subprocess, sys, sysconfig, time
-          from pathlib import Path
-          arm=sys.argv[1]
-          assert arm in ('baseline','serial','precompiled')
-          out=Path(os.environ['RUNNER_TEMP'])/'dsh-readiness'/arm
-          out.mkdir(parents=True,exist_ok=True)
-          def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
-          def cpu():
-           p=Path('/sys/fs/cgroup/cpu.stat')
-           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
-           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           stats['throttled_usec']=stats.pop('throttled_time')//1000
-           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
-           return stats
-          def cpu_max():
-           p=Path('/sys/fs/cgroup/cpu.max')
-           if p.exists():return p.read_text().strip()
-           root=Path('/sys/fs/cgroup/cpu')
-           quota=int((root/'cpu.cfs_quota_us').read_text())
-           period=int((root/'cpu.cfs_period_us').read_text())
-           return f'{quota if quota>=0 else "max"} {period}'
-          def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
-          def count(root): return sum(1 for _ in root.rglob('*.pyc'))
-          site=Path(sysconfig.get_path('purelib'))
-          source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
-          if arm=='precompiled':
-           start=time.monotonic();before=cpu()
-           results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
-           metadata['precompile']={'seconds':time.monotonic()-start,'complete':results,'cpu_delta':delta(before,cpu()),'bytecode_after':{'site_packages':count(site),'runtime_src':count(source)}}
-          command=['pnpm','--dir','integrations/dsh/plugins/powercontext','exec','vitest','run','tests/e2e']
-          if arm=='serial':command.append('--no-file-parallelism')
-          metadata.update(command=command,started_at=now(),cpu_before=cpu())
-          (out/'metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          start=time.monotonic();lines=[]
-          with (out/'vitest.log').open('w') as log:
-           process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
-           for line in process.stdout:
-            log.write(line);log.flush();sys.stdout.write(line);sys.stdout.flush();lines.append(line)
-           code=process.wait()
-          metadata.update(completed_at=now(),seconds=time.monotonic()-start,exit_code=code,cpu_after=cpu())
-          metadata['cpu_delta']=delta(metadata['cpu_before'],metadata['cpu_after'])
-          plain=re.sub(r'\x1b\[[0-9;]*m','', ''.join(lines))
-          markers=('server.starting','server.ready','Application startup complete','Uvicorn running','server.stopping','did not become ready','Test Files','Tests ','Duration ')
-          timeline=[line for line in plain.splitlines() if any(marker in line for marker in markers)]
-          (out/'timeline.txt').write_text('\n'.join(timeline)+'\n')
-          (out/'result.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          print('\nEXPERIMENT_RESULT '+json.dumps(metadata),flush=True)
-          summary=os.environ.get('GITHUB_STEP_SUMMARY')
-          if summary:
-           with open(summary,'a') as f:
-            f.write(f'### DSH readiness arm: {arm}\n\nExit code: `{code}`; elapsed: `{metadata["seconds"]:.3f}s`; CPU quota: `{metadata["cpu_max"]}`.\n\n')
-            f.write('All three original E2E files ran; no assertion, Server deadline, job deadline or Pod resource was changed. A nonzero exit remains a failed test step.\n\n')
-            f.write('```text\n'+'\n'.join(timeline[-30:])+'\n```\n')
-          sys.exit(code)
-          PYPROBE
-          uv run --no-sync python "$RUNNER_TEMP/dsh-readiness-probe.py" serial
-      - name: Upload this arm's measurements and original test output
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: dsh-readiness-serial-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/dsh-readiness/serial/
-          if-no-files-found: warn
-  precompiled:
-    needs: serial
-    if: ${{ always() }}
-    timeout-minutes: 30
-    runs-on: powercontext-ci-light
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Set up the Python environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: 'true'
-      - name: Set up project tools
-        uses: ./.github/actions/setup-mise
-      - name: Cache DSH dependencies
-        uses: ./.github/actions/cache-pnpm
-        with:
-          working-directory: integrations/dsh/plugins/powercontext
-          cache-dependency-glob: integrations/dsh/plugins/powercontext/**/pnpm-lock.yaml
-      - name: Install and build the unchanged DSH package
-        run: |
-          pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
-          pnpm --dir integrations/dsh/plugins/powercontext build
-          git diff --exit-code -- integrations/dsh/plugins/powercontext/src/operations.generated.ts integrations/dsh/plugins/powercontext/lib integrations/dsh/plugins/dsh-pet/lib
-      - name: Run the complete E2E arm and preserve its actual exit code
-        run: |
-          cat > "$RUNNER_TEMP/dsh-readiness-probe.py" <<'PYPROBE'
-          import compileall, datetime, json, os, re, socket, subprocess, sys, sysconfig, time
-          from pathlib import Path
-          arm=sys.argv[1]
-          assert arm in ('baseline','serial','precompiled')
-          out=Path(os.environ['RUNNER_TEMP'])/'dsh-readiness'/arm
-          out.mkdir(parents=True,exist_ok=True)
-          def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
-          def cpu():
-           p=Path('/sys/fs/cgroup/cpu.stat')
-           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
-           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
-           stats['throttled_usec']=stats.pop('throttled_time')//1000
-           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
-           return stats
-          def cpu_max():
-           p=Path('/sys/fs/cgroup/cpu.max')
-           if p.exists():return p.read_text().strip()
-           root=Path('/sys/fs/cgroup/cpu')
-           quota=int((root/'cpu.cfs_quota_us').read_text())
-           period=int((root/'cpu.cfs_period_us').read_text())
-           return f'{quota if quota>=0 else "max"} {period}'
-          def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
-          def count(root): return sum(1 for _ in root.rglob('*.pyc'))
-          site=Path(sysconfig.get_path('purelib'))
-          source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
-          if arm=='precompiled':
-           start=time.monotonic();before=cpu()
-           results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
-           metadata['precompile']={'seconds':time.monotonic()-start,'complete':results,'cpu_delta':delta(before,cpu()),'bytecode_after':{'site_packages':count(site),'runtime_src':count(source)}}
-          command=['pnpm','--dir','integrations/dsh/plugins/powercontext','exec','vitest','run','tests/e2e']
-          if arm=='serial':command.append('--no-file-parallelism')
-          metadata.update(command=command,started_at=now(),cpu_before=cpu())
-          (out/'metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          start=time.monotonic();lines=[]
-          with (out/'vitest.log').open('w') as log:
-           process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
-           for line in process.stdout:
-            log.write(line);log.flush();sys.stdout.write(line);sys.stdout.flush();lines.append(line)
-           code=process.wait()
-          metadata.update(completed_at=now(),seconds=time.monotonic()-start,exit_code=code,cpu_after=cpu())
-          metadata['cpu_delta']=delta(metadata['cpu_before'],metadata['cpu_after'])
-          plain=re.sub(r'\x1b\[[0-9;]*m','', ''.join(lines))
-          markers=('server.starting','server.ready','Application startup complete','Uvicorn running','server.stopping','did not become ready','Test Files','Tests ','Duration ')
-          timeline=[line for line in plain.splitlines() if any(marker in line for marker in markers)]
-          (out/'timeline.txt').write_text('\n'.join(timeline)+'\n')
-          (out/'result.json').write_text(json.dumps(metadata,indent=2)+'\n')
-          print('\nEXPERIMENT_RESULT '+json.dumps(metadata),flush=True)
-          summary=os.environ.get('GITHUB_STEP_SUMMARY')
-          if summary:
-           with open(summary,'a') as f:
-            f.write(f'### DSH readiness arm: {arm}\n\nExit code: `{code}`; elapsed: `{metadata["seconds"]:.3f}s`; CPU quota: `{metadata["cpu_max"]}`.\n\n')
-            f.write('All three original E2E files ran; no assertion, Server deadline, job deadline or Pod resource was changed. A nonzero exit remains a failed test step.\n\n')
-            f.write('```text\n'+'\n'.join(timeline[-30:])+'\n```\n')
-          sys.exit(code)
-          PYPROBE
-          uv run --no-sync python "$RUNNER_TEMP/dsh-readiness-probe.py" precompiled
-      - name: Upload this arm's measurements and original test output
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: dsh-readiness-precompiled-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/dsh-readiness/precompiled/
-          if-no-files-found: warn
+          bin="$(node --input-type=module -e "import { dshBin } from './integrations/dsh/plugins/powercontext/tests/runtime/fixture.mjs'; process.stdout.write(dshBin)")"
+          test -n "$bin" && test -f "$bin" || { echo "DSH test executable unresolved"; exit 1; }
+          boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
+          test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
+          echo "DSH_TEST_EXECUTABLE=$bin" >> "$GITHUB_ENV"
+          echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
+
+      - name: Verify DSH setup with customized profiles
+        run: uv run pytest tests/test_dsh_transport.py --require-dsh-runtime
+
+      - name: Verify DSH guidance adapter requests and results
+        run: uv run pytest tests/test_integration_guidance_evaluation.py::test_dsh_controlled_native_handoff_uses_only_mcp_tools_and_preserves_complete_carriers
