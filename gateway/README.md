@@ -26,6 +26,8 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 `pc_gateway_core::replay_epoch` provides a bounded, memory-only replay epoch correlation store supporting establishment,
 continuation, recovery, and closure. It is not wired into production model ingress or the Executor; recovery restores
 correlation only, not an answer or permission to regenerate a model response.
+Closed or expired records remain charged against entry and byte limits until explicit cleanup. The store owner must
+drive `cleanup`; the module starts no background task, and `establish` does not reclaim records implicitly.
 
 Run the no-model host simulation:
 
