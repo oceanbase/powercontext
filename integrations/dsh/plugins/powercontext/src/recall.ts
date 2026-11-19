@@ -22,7 +22,7 @@ import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
 import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { formatScopeRouting, sessionCwd } from './scope.ts'
-import { scrubSecrets } from './secrets.ts'
+import { scrubSecrets } from './prompt-privacy.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
 export interface TextBlock {
@@ -188,13 +188,15 @@ export async function runRecallPreStep(input: RecallInput): Promise<PreStepDecis
   const userPrompt = messagesToUserPrompt(messages)
   const recalled = await recallThenCapture(automaticInput, query, userPrompt, observation)
   if (recalled.content) observation?.record('injection', { state: 'running' })
-  if ((!recalled.scopeId && !recalled.content) || signal.aborted) {
-    observation?.skip('injection', signal.aborted ? cancellationReason(signal)
-      : 'no_prepared_content')
+  // The automatic deadline only bounds waiting; host cancellation still withdraws results that settled in time.
+  const cancelled = input.signal?.aborted === true
+  if ((!recalled.scopeId && !recalled.content) || cancelled) {
+    observation?.skip('injection', cancelled ? cancellationReason(input.signal)
+      : signal.aborted ? cancellationReason(signal) : 'no_prepared_content')
     return downstream
   }
   try {
-    if (signal.aborted) throw new TransportError('', signal.reason)
+    if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const additions = []
     if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)))
     if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)))
@@ -238,6 +240,8 @@ async function recallThenCapture(
   }
   observation?.scope(scopeId)
   const content = await recallContent(input, query, scopeId, observation)
+  // Results are final once preparation settles before the deadline; capture and flush cannot withdraw them.
+  const settled = input.signal?.aborted ? {} : { scopeId, content: content ?? undefined }
   observation?.skip('capture', input.signal?.aborted ? cancellationReason(input.signal) : 'no_user_text')
   observation?.skip('flush', 'capture_skipped')
   if (userPrompt && !input.signal?.aborted) {
@@ -259,5 +263,5 @@ async function recallThenCapture(
       reportFailure(input.log, 'capture_content_source', error)
     }
   }
-  return input.signal?.aborted ? {} : { scopeId, content: content ?? undefined }
+  return settled
 }

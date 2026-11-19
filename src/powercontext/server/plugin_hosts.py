@@ -29,6 +29,7 @@ import logging
 import multiprocessing
 import time
 from contextlib import suppress
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
@@ -37,18 +38,28 @@ from powercontext.builtin.plugins.host import run_plugin_host
 from powercontext.builtin.plugins.host_protocol import (
     HostCancel,
     HostFailed,
-    HostHeartbeat,
     HostMethod,
     HostReady,
+    HostRegistry,
     HostRequest,
     HostResponse,
     HostShutdown,
+    HostStarted,
+    HostUpgraded,
+    PipeChannel,
     PluginHostSpec,
 )
 
 logger = logging.getLogger(__name__)
 
 READY_TIMEOUT_SECONDS = 60.0
+# Why a process that never became ready stopped, as reported for the version.
+_START_FAILURES = {
+    "crash": "start_failed",
+    "start_timeout": "start_timeout",
+    "upgrade_timeout": "upgrade_timeout",
+    "setup_timeout": "setup_timeout",
+}
 HOST_CONCURRENCY = 8
 HEARTBEAT_TIMEOUT_SECONDS = 5.0
 IDLE_STOP_SECONDS = 300.0
@@ -90,8 +101,11 @@ class _HostProcess:
     def __init__(self, group: PluginHost) -> None:
         self.group = group
         self.process: Any = None
-        self.connection: Any = None
+        self.channel: PipeChannel | None = None
         self.ready = False
+        # The startup phase the Server is timing: core's own startup, then upgrade if declared, then setup.
+        self.phase: str = "start"
+        self.phase_since = time.monotonic()
         # False once the process is being stopped; it takes no new calls.
         self.accepting = True
         self.in_flight = 0
@@ -100,48 +114,62 @@ class _HostProcess:
         self.last_beat = self.started_at
         self.idle_since = self.started_at
         self.reason = "crash"
-        self._send_lock = asyncio.Lock()
         self._exited = asyncio.Event()
 
     async def run(self) -> None:
         group = self.group
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe(duplex=True)
+        spawned = group.spec
         self.process = context.Process(
-            target=run_plugin_host, args=(child, group.spec), name=f"powercontext-plugin-host-{group.name}"
+            target=run_plugin_host, args=(child, spawned), name=f"powercontext-plugin-host-{group.name}"
         )
-        self.connection = parent
         try:
             await asyncio.to_thread(self.process.start)
             child.close()
+            channel = self.channel = PipeChannel(parent, name=f"powercontext-plugin-host-{group.name}")
+            current = group.spec
+            if (current.plugin_families, current.source_bindings) != (spawned.plugin_families, spawned.source_bindings):
+                # Registrations changed while the process was being spawned; it reads this before any call.
+                await channel.send(
+                    HostRegistry(plugin_families=current.plugin_families, source_bindings=current.source_bindings)
+                )
             log_safely(logger, logging.INFO, f"Plugin host {group.name} started")
-            while True:
-                message = await asyncio.to_thread(parent.recv)
-                self.last_beat = time.monotonic()
-                if isinstance(message, HostHeartbeat):
-                    continue
-                if isinstance(message, HostReady):
-                    group.implemented = message.implemented
-                    self.ready = True
-                    self.idle_since = time.monotonic()
-                    group.notify()
-                elif isinstance(message, HostFailed):
-                    log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
-                    if message.permanent:
-                        group.failure = message.error
-                    break
-                elif isinstance(message, HostResponse):
-                    future = self.pending.pop(message.id, None)
-                    if future is not None and not future.done():
-                        future.set_result(message)
+            while self._received(await channel.recv()):
+                pass
         except (EOFError, OSError):
             pass
         except Exception as error:
             log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed ({type(error).__name__})")
         finally:
-            await asyncio.shield(self._cleanup())
+            await asyncio.shield(self._cleanup(parent))
 
-    async def _cleanup(self) -> None:
+    def _received(self, message: object) -> bool:
+        """Handle one message from the host; False once the host reported that it cannot start."""
+
+        group = self.group
+        self.last_beat = time.monotonic()
+        if isinstance(message, HostStarted | HostUpgraded):
+            self.phase = "upgrade" if isinstance(message, HostStarted) and group.upgrade else "setup"
+            self.phase_since = time.monotonic()
+        elif isinstance(message, HostReady):
+            group.implemented = message.implemented
+            self.ready = True
+            self.idle_since = time.monotonic()
+            group.notify()
+        elif isinstance(message, HostFailed):
+            log_safely(logger, logging.WARNING, f"Plugin host {group.name} failed to start ({message.error})")
+            group.start_failure = message.category or "start_failed"
+            if message.permanent:
+                group.failure = message.error
+            return False
+        elif isinstance(message, HostResponse):
+            future = self.pending.pop(message.id, None)
+            if future is not None and not future.done():
+                future.set_result(message)
+        return True
+
+    async def _cleanup(self, connection: Any) -> None:
         self.accepting = self.ready = False
         for future in self.pending.values():
             if not future.done():
@@ -149,15 +177,17 @@ class _HostProcess:
         self.pending.clear()
         if self.process is not None and self.process.pid is not None:
             await asyncio.to_thread(_stop_process, self.process)
-        self.connection.close()
+        if self.channel is None:
+            connection.close()
+        else:
+            await self.channel.close()
         self._exited.set()
         self.group.exited(self)
 
     async def send(self, message: object) -> None:
-        if self.connection is None:
+        if self.channel is None:
             raise OSError("the host process has not started")  # noqa: TRY003
-        async with self._send_lock:
-            await asyncio.to_thread(self.connection.send, message)
+        await self.channel.send(message)
 
     async def request(self, request: HostRequest, deadline: float) -> HostResponse:
         future: asyncio.Future[HostResponse] = asyncio.get_running_loop().create_future()
@@ -227,6 +257,16 @@ class PluginHost:
         self._backoff = 0.0
         self._not_before = 0.0
         self._closing = False
+        self._waiting = 0
+        # Why the last process exited before it was ready, such as "upgrade_failed".
+        self.start_failure: str | None = None
+        declared = spec.manifest.get("spec", {})
+        self.upgrade = bool(spec.manifest.get("upgrade"))
+        self._phase_limits = {
+            "start": READY_TIMEOUT_SECONDS,
+            "upgrade": float(declared.get("upgrade_timeout_seconds", 600)),
+            "setup": float(declared.get("setup_timeout_seconds", 60)),
+        }
 
     async def start(self) -> None:
         """Start the process the plugin always keeps; callers wait for readiness within their own time limit."""
@@ -257,6 +297,8 @@ class PluginHost:
         self._changed = asyncio.Event()
 
     def exited(self, process: _HostProcess) -> None:
+        if not process.ready and self.start_failure is None and process.reason in _START_FAILURES:
+            self.start_failure = _START_FAILURES[process.reason]
         self._processes.remove(process)
         self._budget.give_back()
         self.notify()
@@ -282,8 +324,9 @@ class PluginHost:
             for process in serving:
                 if process.ready and now - process.last_beat > HEARTBEAT_TIMEOUT_SECONDS:
                     self.spawn_task(process.stop("unresponsive"))
-                elif not process.ready and now - process.started_at > READY_TIMEOUT_SECONDS:
-                    self.spawn_task(process.stop("start_timeout"))
+                elif not process.ready and now - process.phase_since > self._phase_limits[process.phase]:
+                    # Each phase has its own limit, so a long upgrade does not count against setup.
+                    self.spawn_task(process.stop(f"{process.phase}_timeout"))
             idle = [
                 process
                 for process in serving
@@ -316,6 +359,7 @@ class PluginHost:
             elif not serving and not self._launch(resident=True):
                 raise PluginHostUnavailable(self.name)
             changed = self._changed
+            self._waiting += 1
             try:
                 await asyncio.wait_for(changed.wait(), max(0.0, deadline - time.monotonic()))
             except TimeoutError:
@@ -323,6 +367,8 @@ class PluginHost:
                 if any(process.ready and process.accepting for process in self._processes):
                     raise PluginHostTimeout(self.name) from None
                 raise PluginHostUnavailable(self.name) from None
+            finally:
+                self._waiting -= 1
 
     async def call(
         self,
@@ -356,6 +402,42 @@ class PluginHost:
                 process.idle_since = time.monotonic()
             self.notify()
 
+    async def wait_ready(self) -> str | None:
+        """Wait for the first process of a new version; return why it failed, or None once one is ready.
+
+        The watchdog stops a process that overruns any startup phase, so this wait always ends.
+        """
+
+        while True:
+            if any(process.ready for process in self._processes):
+                return None
+            if self.failure is not None or not self._processes:
+                return self.start_failure or "start_failed"
+            await self._changed.wait()
+
+    def update_registry(
+        self, families: tuple[str, ...], bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...]
+    ) -> None:
+        """New processes start with these registrations; spawned ones replace theirs.
+
+        A process still starting was spawned with earlier registrations. It reads this message
+        once it is ready, before the first call, because calls are sent only to ready processes.
+        """
+
+        self.spec = replace(self.spec, plugin_families=families, source_bindings=bindings)
+        message = HostRegistry(plugin_families=families, source_bindings=bindings)
+        for process in self._processes:
+            if process.channel is not None and process.accepting:
+                self.spawn_task(_send_quietly(process, message))
+
+    async def retire(self) -> None:
+        """Stop taking new processes, let accepted and queued calls finish within their limits, then close."""
+
+        self._closing = True
+        while any(process.in_flight for process in self._processes) or self._waiting:
+            await self._changed.wait()
+        await self.close()
+
     async def close(self) -> None:
         self._closing = True
         if self._watcher is not None:
@@ -365,6 +447,11 @@ class PluginHost:
         )
         if self._tasks:
             await asyncio.wait(list(self._tasks), timeout=_SHUTDOWN_SECONDS)
+
+
+async def _send_quietly(process: _HostProcess, message: object) -> None:
+    with suppress(OSError):
+        await process.send(message)
 
 
 def _stop_process(process: Any) -> None:

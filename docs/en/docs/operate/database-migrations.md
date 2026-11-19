@@ -15,10 +15,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.1 target (stored compatibility IDs shown below):
+1.5.2 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -93,6 +93,10 @@ Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metad
 
 Revision `v1_5_0_004` registers `pc_artifact_source_locators`, an optional relation keyed by the existing Artifact Revision and Source-edge ordinal. Existing managed databases require explicit migration before Server startup. The migration preserves existing lineage rows, exact identities and historical payloads without rewriting them or backfilling locators. Atomic Memory embeddings remain unchanged; no re-embedding is required. See [Source citation locators](../workflows/sources.md) for locator behavior.
 
+Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and adds nullable `pc_artifacts.metadata`. The upgrade refuses to proceed while old plugin registrations or data remain. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The immutable revision keeps its original `1.5.0` numbering.
+
+Revision `v1_5_2_pr2639` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
+
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
 index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
@@ -145,9 +149,15 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.1**. Migration names use
-`v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
-Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
+The target release is **PowerContext 1.5.2**. New Server migration names use
+`v<major>_<minor>_<patch>_pr<PR number>`, for example `v1_5_2_pr2674`.
+The version is the target release declared when the migration is registered, the PR number
+identifies the introducing PR in this repository. Each PR adds at most one logical schema
+revision, shared by its backend implementations; there is no PR-local sequence. Keep the full ID within the existing 32-character storage limit.
+
+Historical names retain `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence
+within the release. Historical sequence `000` identifies a registered baseline; upgrade
+steps start at `001`. The following registered names remain unchanged:
 
 | Migration name | Software release | Step | Compatible stored revision | Meaning |
 | --- | --- | --- | --- | --- |
@@ -163,12 +173,14 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
 | `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
+| `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
+| `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
 
-Both registered source paths reach `v1_5_0_004`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -179,6 +191,14 @@ contains `name`, `software_version`, `sequence` and the compatible `revision` ID
 {"revision":"v1_5_0_001","name":"v1_5_0_001","software_version":"1.5.0","sequence":1}
 ```
 
+For a PR-scoped name, the same fields describe the registration target; `sequence` is `null`:
+
+```json
+{"revision":"v1_5_2_pr2674","name":"v1_5_2_pr2674","software_version":"1.5.2","sequence":null}
+```
+
+`sequence` remains populated for historical release-sequence names only. It does not define execution order.
+
 The software version describes the registered database state, not the currently running binary
 or the source of an interrupted maintenance window. A release without storage changes may reuse
 the same database revision. Names do not prove upgrade acceptance; the full release gate still applies.
@@ -188,11 +208,33 @@ frozen resources and recovery evidence. Their release-based names are display al
 additional executable revisions or accepted replacement IDs for stamping a database. This keeps
 existing plans and original backups usable. Partial prototype bundles keep their own opaque IDs.
 
-For a new Server migration, use the release-based name directly as its Alembic `revision` and
-register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_5_0_004` when appending directly to the current head), even if that ID has
-a display alias. The framework follows this registered chain, not lexical name ordering. Already
-registered names and release assignments stay immutable; a version bump must not rename history.
+For a new Server migration, create a draft PR first and use its PR-scoped name directly as
+Alembic `revision`. Register its schema, domain steps and recovery checkpoints as usual.
+Agree on the target release before the first schema PR registers a revision, using the version
+already declared in `openapi/powercontext.yaml` and `release/upgrade-support.json`; feature PRs
+must not independently bump it. At registration, the new prefix must match both declarations;
+this requirement does not apply retroactively when the target release changes. A single revision
+may contain multiple DDL operations, data tasks and validations, all executed during stopped-write
+maintenance. If independent revision checkpoints are necessary, split the work into dependent PRs. The names above illustrate the naming format; they
+do not register additional migrations or change the current head.
+
+Before merging, update against master and check the combined changes for duplicate IDs.
+Reconcile unpublished dependencies and any conflicting schema operations, then rerun migration
+validation and keep a single head, as required by [RFC #1771](../../rfcs/1771-unified-database-migrations.md).
+`down_revision` references the actual predecessor (`v1_5_2_pr2639` when appending directly to the
+current head). The framework follows this chain, not version, PR-number or lexical ordering.
+For example, if the PR containing `v1_5_2_pr2688` merges first, `v1_5_2_pr2674` can depend
+on it without either ID changing. A development database that already ran the earlier branch
+chain must be rebuilt or use an explicitly validated conversion; editing `down_revision` does
+not apply missing predecessors to that database.
+
+Release preparation records the package version and database head in the release notes and
+verifies the supported upgrades. It must not defer dependency reconciliation until publication.
+`make version-bump` updates release references, not migration IDs. Once registered, names and
+version prefixes remain unchanged even if a PR ships later than planned; release notes identify
+the actual shipping version. A release without schema changes adds no revision and keeps its head.
+Existing `pc_schema_revision` values, frozen resources, plans and checksums remain unchanged;
+`v1_5_0_005` is the database head of the published 1.5.2, and `v1_5_2_pr2639` is registered after it. Published migrations must not be rewritten.
 
 ## Initialization and maintenance ownership
 

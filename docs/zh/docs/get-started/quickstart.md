@@ -5,16 +5,34 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 
 # 快速开始
 
-本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，再在新会话中找回决策。以下命令使用 PowerContext 1.5.1，Agent 插件使用对应的 `powercontext-v1.5.1` tag。
+本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，再在新会话中找回决策。安装脚本默认选择最新稳定版，后续插件命令会使用与已安装版本匹配的 tag。
 
-需要 macOS 或 Linux、Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和已安装的 Codex CLI。完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。需要自动安装 Python 和 uv 时，使用[安装脚本](install-and-run.md#使用推荐安装脚本)。
+需要 macOS、Linux 或 Windows、Git 和已安装的 Codex CLI；安装脚本会在需要时安装 Python 和 uv。完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
 
 ## 1. 安装并进入配置向导
 
-```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
-mkdir -p ~/powercontext-demo
-cd ~/powercontext-demo
+```bash tab="macOS / Linux"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
+```
+
+```powershell tab="Windows"
+irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+继续前，按安装器提示在当前终端设置 PATH。指定版本、切换镜像或仅安装远程客户端，见[安装和运行](install-and-run.md)。
+
+创建配置目录并进入向导：
+
+```bash tab="macOS / Linux"
+mkdir -p "$HOME/powercontext-demo"
+cd "$HOME/powercontext-demo"
+powercontext config init --language zh --output .env
+```
+
+```powershell tab="Windows"
+New-Item -ItemType Directory -Force "$HOME/powercontext-demo" | Out-Null
+Set-Location "$HOME/powercontext-demo"
 powercontext config init --language zh --output .env
 ```
 
@@ -39,7 +57,7 @@ powercontext config init --language zh --output .env
 
 ## 2. 启动 Server
 
-注册个人服务，让 Server 在关闭终端后继续运行。Linux 需要可用的 `systemd --user` 管理器。执行：
+注册个人服务，让 Server 在关闭终端后继续运行。Linux 需要可用的 `systemd --user` 管理器；Windows 会询问是否在下次登录时自动启动。三个平台均可使用以下命令：
 
 ```bash
 powercontext config validate --env-file .env
@@ -49,13 +67,22 @@ powercontext service status
 
 在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的 `POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。首次没有数据是正常现象。开发、排障、临时使用或没有原生用户服务管理器时，可使用 `powercontext server run --env-file .env`；如个人服务正在运行，先将其停止。服务管理详见[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
 
-加载客户端连接配置并检查服务：
+加载客户端连接配置并检查服务。Windows 请将地址替换为 `.env` 中的 `POWERCONTEXT_CLIENT_SERVER_URL`，按提示输入 Server Token；未启用认证时直接回车。Token 只供当前终端及其子进程使用。
 
-```bash
-cd ~/powercontext-demo
+```bash tab="macOS / Linux"
+cd "$HOME/powercontext-demo"
 set -a
 . ./.env
 set +a
+powercontext ready
+powercontext capabilities
+```
+
+```powershell tab="Windows"
+Set-Location "$HOME/powercontext-demo"
+$env:POWERCONTEXT_CLIENT_SERVER_URL = "http://127.0.0.1:17429"
+$serverToken = Read-Host "Server token (empty if disabled)" -AsSecureString
+$env:POWERCONTEXT_CLIENT_API_TOKEN = [System.Net.NetworkCredential]::new("", $serverToken).Password
 powercontext ready
 powercontext capabilities
 ```
@@ -64,23 +91,38 @@ powercontext capabilities
 
 ## 3. 创建 Scope 并安装 Codex 插件
 
-打开 `.env.next-steps.md`，执行其中“创建计划中的独立 Scope”的请求。Server 响应会返回真正的 `scope_id`。将它写入 `.env`：
+打开 `.env.next-steps.md`，执行其中“创建计划中的独立 Scope”的请求。在 PowerShell 中，也可以通过同一 Server 的 CLI 创建：
+
+```powershell
+powercontext scope create --title "Aurora" --summary "Aurora quick-start project"
+```
+
+Server 响应会返回真正的 `scope_id`。将它写入 `.env`：
 
 ```dotenv
-POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
+POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
 ```
 
 `codex-xxxxxxxx` 是向导规划的标题，不是 ID。配置 Claude Code 时，将其创建请求返回的 ID 写入 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
 
-修改 `.env` 后，更新服务设置，重新加载客户端配置并安装匹配的插件：
+修改 `.env` 后，需要把 Scope 传给启动 Codex 的终端。macOS 和 Linux 重新加载文件；PowerShell 则显式设置返回的 ID，不要将 `.env` 当作脚本执行：
+
+```bash tab="macOS / Linux"
+set -a
+. ./.env
+set +a
+```
+
+```powershell tab="Windows"
+$env:POWERCONTEXT_CODEX_SCOPE_ID = "replace-with-returned-scope-id"
+```
+
+更新服务设置并安装匹配的插件。`setup` 会从 `.env` 读取连接配置：
 
 ```bash
 powercontext service install --env-file .env
 powercontext service status
-set -a
-. ./.env
-set +a
-powercontext setup codex --ref powercontext-v1.5.1
+powercontext setup codex --env-file .env --ref "powercontext-v$(powercontext --version)"
 powercontext doctor codex
 codex
 ```

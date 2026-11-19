@@ -40,6 +40,7 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     SHARED_TABLES,
+    SOURCE_DEFINITION_MANIFESTS_TABLE,
     SOURCES_TABLE,
 )
 from powercontext.builtin.runtime import SubmitSourceObservation
@@ -200,11 +201,16 @@ def test_source_batch_binds_each_new_identity_and_preserves_replayed_evidence() 
 def test_evidence_reads_large_source_batches_with_sqlite_variable_limit() -> None:
     async def scenario() -> None:
         declaration = MemoryEvidenceDeclaration(authority="repository_attested", verification="verified")
-        registry = SourceDefinitionRegistry((AdapterSourceDefinition(SOURCE_ADAPTERS[1], memory_evidence=declaration),))
+        registry = SourceDefinitionRegistry(
+            tuple(AdapterSourceDefinition(adapter, memory_evidence=declaration) for adapter in SOURCE_ADAPTERS)
+        )
         repository = SourceRepository(registry)
-        sources = tuple(
-            NoteSource(name=f"note-{index}", materialization=SourceMaterialization.CAPTURED, body="Retained text.")
-            for index in range(501)
+        sources = (
+            *(
+                NoteSource(name=f"note-{index}", materialization=SourceMaterialization.CAPTURED, body="Retained text.")
+                for index in range(501)
+            ),
+            CommitSource(name="commit", materialization=SourceMaterialization.REFERENCED, revision="retained"),
         )
         async with (
             SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile,
@@ -220,6 +226,15 @@ def test_evidence_reads_large_source_batches_with_sqlite_variable_limit() -> Non
                 await driver._execute(driver._conn.setlimit, sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
             assert tuple(item.source_ref for item in evidence) == tuple(reversed(refs))
             assert all(item.declaration == declaration for item in evidence)
+            await connection.execute(
+                update(SOURCE_DEFINITION_MANIFESTS_TABLE)
+                .where(SOURCE_DEFINITION_MANIFESTS_TABLE.c.definition_name == "commit")
+                .values(manifest=b"invalid")
+            )
+            retained = await repository.evidence(connection, "scope", refs)
+            assert tuple(item.source_ref for item in retained) == refs
+            assert all(item.declaration == declaration for item in retained[:-1])
+            assert retained[-1].declaration == MemoryEvidenceDeclaration()
 
     asyncio.run(scenario())
 

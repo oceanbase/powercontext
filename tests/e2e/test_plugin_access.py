@@ -51,6 +51,10 @@ class Notes:
         async with writer.transaction() as tx:
             await tx.set_lifecycle(request.path_params["artifact_id"], "retired")
 
+    async def accept(self, request: ApiRequest):
+        # A route that accepts a replacement for later checks the caller's authority over the Artifact now.
+        await self.ctx.require("artifact.write", request.scope_id, artifact_id=request.path_params["artifact_id"])
+
     async def bind(self, request: ApiRequest):
         writer = self.ctx.writer(request.scope_id)
         current = await writer.get(request.path_params["artifact_id"])
@@ -75,7 +79,7 @@ def _route(name):
 plugin = ArtifactPlugin(
     family="notes",
     setup=setup,
-    api=PluginApi(routes=(_route("tag"), _route("retire"), _route("bind"))),
+    api=PluginApi(routes=(_route("accept"), _route("tag"), _route("retire"), _route("bind"))),
 )
 """
 
@@ -169,14 +173,14 @@ def test_plugin_family_reads_and_direct_writes_need_the_callers_permission(tmp_p
 
                 # Another contributor cannot change Alice's note through a plugin route either.
                 routes = f"/v1/plugins/notes/api/scopes/{shared}/notes/{note}"
-                for action in ("tag", "retire", "bind"):
+                for action in ("accept", "tag", "retire", "bind"):
                     denied = await bob.post(f"{routes}/{action}")
                     assert denied.status_code == 403, (action, denied.text)
                 state = (await alice.get(f"{path}/governance")).json()
                 assert state["lifecycle_state"] == "active"
                 assert (await alice.get(f"{path}/tags")).json()["tags"] == []
 
-                for action in ("tag", "bind", "retire"):
+                for action in ("accept", "tag", "bind", "retire"):
                     allowed = await alice.post(f"{routes}/{action}")
                     assert allowed.status_code == 204, (action, allowed.text)
                 assert (await alice.get(f"{path}/governance")).json()["lifecycle_state"] == "retired"
@@ -206,5 +210,120 @@ def test_empty_plugin_directory_needs_no_background_identity(tmp_path):
             response = await client.get("/v1/plugins")
             assert response.status_code == 200, response.text
             assert response.json()["items"] == []
+
+    asyncio.run(scenario())
+
+
+ROOMS = """
+from pydantic import BaseModel
+
+from powercontext.plugins import ApiRequest, ArtifactPlugin, PluginApi, Rendering, Route
+
+
+class Room(BaseModel):
+    title: str
+
+
+class Rename(BaseModel):
+    title: str
+    version: int
+
+
+class Rooms:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    async def render_artifact(self, request):
+        return Rendering(text="")
+
+    async def create(self, request: ApiRequest):
+        title = request.body.title
+        scope = await self.ctx.scopes.create(title=title, summary="A room.", idempotency_key=title)
+        return scope.model_dump()
+
+    async def list(self, request: ApiRequest):
+        return {"scope_ids": [scope.scope_id for scope in await self.ctx.scopes.list()]}
+
+    async def rename(self, request: ApiRequest):
+        scope_id = request.path_params["scope_id"]
+        scope = await self.ctx.scopes.update(
+            scope_id, expected_version=request.body.version, title=request.body.title, summary="A room."
+        )
+        return scope.model_dump()
+
+
+async def setup(ctx):
+    return Rooms(ctx)
+
+
+plugin = ArtifactPlugin(
+    family="rooms",
+    setup=setup,
+    api=PluginApi(
+        routes=(
+            Route(method="POST", path="/rooms", handler="create", access="authenticated", body="json",
+                  request_model=Room),
+            Route(method="GET", path="/rooms", handler="list", access="authenticated"),
+            Route(method="POST", path="/rooms/{scope_id}/rename", handler="rename", access="authenticated",
+                  body="json", request_model=Rename),
+        )
+    ),
+)
+"""
+
+
+def test_plugin_scopes_list_only_readable_own_scopes_and_update_checks_admin_first(tmp_path):
+    plugins = tmp_path / "plugins"
+    (plugins / "rooms").mkdir(parents=True)
+    (plugins / "rooms" / "plugin.py").write_text(ROOMS, encoding="utf-8")
+    identities = _identities(tmp_path)
+
+    async def scenario():
+        async with (
+            running_server(tmp_path, plugins, extra_env=identities) as admin,
+            httpx.AsyncClient(
+                base_url=admin.base_url, headers={"Authorization": "Bearer alice-token"}, timeout=20
+            ) as alice,
+        ):
+            api = "/v1/plugins/rooms/api/rooms"
+            created = []
+            for title in ("east", "west"):
+                response = await admin.post(api, json={"title": title})
+                assert response.status_code == 200, response.text
+                created.append(response.json())
+            east, west = created
+            other = await create_scope(admin, "not-a-room")
+            await _grant(admin, "alice", east["scope_id"], "scope.viewer")
+            await _grant(admin, "alice", other, "scope.viewer")
+
+            # Only this plugin's Scopes that the caller may read.
+            listed = await alice.get(api)
+            assert listed.status_code == 200, listed.text
+            assert listed.json()["scope_ids"] == [east["scope_id"]]
+
+            # Changing a Scope needs server.admin before anything about the Scope is revealed.
+            rename = {"title": "renamed", "version": east["version"]}
+            for scope_id in (east["scope_id"], "missing-scope"):
+                denied = await alice.post(f"{api}/{scope_id}/rename", json=rename)
+                assert denied.status_code == 403, denied.text
+            missing = await admin.post(f"{api}/missing-scope/rename", json=rename)
+            assert missing.status_code == 404, missing.text
+            foreign = await admin.post(f"{api}/{other}/rename", json={"title": "renamed", "version": 1})
+            assert foreign.status_code == 403, foreign.text
+            renamed = await admin.post(f"{api}/{east['scope_id']}/rename", json=rename)
+            assert renamed.status_code == 200, renamed.text
+            assert renamed.json()["title"] == "renamed"
+            assert west["scope_id"] not in listed.json()["scope_ids"]
+
+            # Scope listings leave a plugin's Scopes out, as one complete list and as pages with any filter.
+            rooms = {east["scope_id"], west["scope_id"]}
+            for query in ("", "?limit=100", "?query=e&query_field=title"):
+                page = await admin.get(f"/v1/scopes{query}")
+                assert page.status_code == 200, page.text
+                assert not rooms & {item["scope_id"] for item in page.json()["items"]}
+            assert other in {item["scope_id"] for item in (await admin.get("/v1/scopes")).json()["items"]}
+            # Asking for the plugin reference kind lists exactly them.
+            asked = await admin.get("/v1/scopes?external_reference_kind=powercontext.plugin")
+            assert {item["scope_id"] for item in asked.json()["items"]} == rooms
 
     asyncio.run(scenario())

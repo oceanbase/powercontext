@@ -102,8 +102,10 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
         ):
             raise MigrationError(
                 "unsupported_plugin_data",
-                "Plugins of the removed Artifact plugin framework still hold data; export it and remove those"
-                " plugins on the previous version before upgrading.",
+                "Plugins of the removed Artifact plugin framework still hold data; no supported in-place upgrade path"
+                " is available. Unloading plugins or exporting archives does not clear retained framework records."
+                " Keep this database on the previous version; do not manually delete framework records to bypass"
+                " this check.",
             )
     except DBAPIError as error:
         raise MigrationError(
@@ -1012,28 +1014,42 @@ def _table_matches(table: dict[str, Any], expected: dict[str, Any]) -> bool:
 
 def compatible_inventory(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     """Require managed semantics while allowing independently owned objects."""
-    required = copy.deepcopy(expected)
-    observed = copy.deepcopy(actual)
-    names = set(required["tables"])
-    if not names <= observed["tables"].keys():
+    names = expected["tables"].keys()
+    if actual.keys() != expected.keys() or not names <= actual["tables"].keys():
         return False
-    observed["tables"] = {name: observed["tables"][name] for name in names}
-    observed["views"] = [view for view in observed["views"] if view in required["views"]]
-    observed["triggers"] = [trigger for trigger in observed["triggers"] if trigger.get("Table") in names]
-    for name, target in required["tables"].items():
-        table = observed["tables"][name]
-        for column in set(table["columns"]) - target["columns"].keys():
+    observed = {
+        **actual,
+        "views": [view for view in actual["views"] if view in expected["views"]],
+        "triggers": [trigger for trigger in actual["triggers"] if trigger.get("Table") in names],
+    }
+    if any(value != expected[key] for key, value in observed.items() if key != "tables"):
+        return False
+    for name, target in expected["tables"].items():
+        table = actual["tables"][name]
+        columns = target["columns"].keys()
+        if not columns <= table["columns"].keys():
+            return False
+        for column in table["columns"].keys() - columns:
             definition = table["columns"][column]
             if not definition["nullable"] and definition["default"] is None:
                 return False
-            del table["columns"][column]
-        for index in set(table["indexes"]) - target["indexes"].keys():
-            if not table["indexes"][index]["unique"]:
-                del table["indexes"][index]
+        # Normalize only the maps used by the comparison; recovery checks many
+        # prefixes and must not copy or mutate the complete reflected inventory.
+        observed = {
+            **table,
+            "columns": {column: table["columns"][column] for column in columns},
+            "indexes": {
+                index: definition
+                for index, definition in table["indexes"].items()
+                if index in target["indexes"] or definition["unique"]
+            },
+            "checks": {digest(value): value for value in table["checks"].values()},
+        }
         # Constraint labels do not affect enforcement; expression trees do.
-        for definition in (table, target):
-            definition["checks"] = {digest(value): value for value in definition["checks"].values()}
-    return _matches(observed, required)
+        required = {**target, "checks": {digest(value): value for value in target["checks"].values()}}
+        if not _table_matches(observed, required):
+            return False
+    return True
 
 
 def _literal(lexeme: str) -> str:

@@ -42,7 +42,7 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, SourceCursor
-from powercontext.plugins import GenerateRequest, GenerationSource, PluginContext
+from powercontext.plugins import ArtifactPlugin, GenerateRequest, GenerationSource, PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class PluginWorkerSpec:
     security: dict[str, Any] | None = None
     inference: Any = None
     storage_root: str | None = None
+    # The loaded plugins' Source inputs, for Workers that write Sources: (binding, Scopes, Source types).
+    source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...] = ()
 
 
 def run_plugin_worker(
@@ -67,6 +69,14 @@ def run_plugin_worker(
 
 @asynccontextmanager
 async def open_plugin_database(config: DatabaseConfig):
+    async with open_plugin_profile(config) as profile:
+        yield profile.database
+
+
+@asynccontextmanager
+async def open_plugin_profile(config: DatabaseConfig):
+    """The opened profile; its seekdb connection options also reach the plugin's own database."""
+
     from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
     from powercontext.builtin.persistence.seekdb.profile import SeekDBProfile
     from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -79,14 +89,16 @@ async def open_plugin_database(config: DatabaseConfig):
     else:
         opened = SeekDBProfile.open(config, tables=())
     async with opened as profile:
-        yield profile.database
+        yield profile
 
 
 async def execute_plugin(  # noqa: C901 - one window from selection through acknowledgment
     spec: PluginWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /, *, database: Any = None
 ) -> ArtifactProcessingWorkerCompletion:
     manifest = PluginManifest.model_validate(spec.manifest)
-    generate = manifest.spec
+    generate = manifest.artifact
+    if generate is None:
+        raise ValueError("only Artifact plugins generate")  # noqa: TRY003
     if assignment.binding_name != manifest.binding_name or assignment.artifact_family != generate.family:
         raise ValueError("assignment does not match the plugin declaration")  # noqa: TRY003
     register_plugin_family(generate.family)
@@ -95,8 +107,11 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
     sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
     cursors = SourceCursorRepository()
     async with AsyncExitStack() as resources:
+        connection_options = None
         if database is None:
-            database = await resources.enter_async_context(open_plugin_database(spec.database))
+            profile = await resources.enter_async_context(open_plugin_profile(spec.database))
+            database = profile.database
+            connection_options = getattr(profile, "connection_options", None)
         from powercontext.builtin.authz.worker import open_worker_security
 
         security = await resources.enter_async_context(open_worker_security(spec.security, database))
@@ -169,14 +184,19 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
             call = bool(window) or inputs is None
             if call:
                 directory = Path(spec.directory)
-                loaded, declaration = load_plugin(directory)
-                if loaded != manifest:
+                loaded, declaration = load_plugin(directory, manifest.name)
+                if loaded != manifest or not isinstance(declaration, ArtifactPlugin):
                     raise ValueError("the plugin changed after the Server checked it; restart the Server")  # noqa: TRY003
                 async with AsyncExitStack() as plugin_resources:
                     from powercontext.builtin.plugins.storage import open_plugin_resources
 
                     storage, models = await open_plugin_resources(
-                        spec.database, spec.storage_root, manifest.name, spec.inference, plugin_resources
+                        spec.database,
+                        spec.storage_root,
+                        manifest.name,
+                        spec.inference,
+                        plugin_resources,
+                        connection_options=connection_options,
                     )
                     context = PluginContext(
                         name=manifest.name,

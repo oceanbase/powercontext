@@ -121,13 +121,15 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 | 矩阵 | 每次运行的最大并发 | 失败策略 |
 | --- | --- | --- |
-| Python 测试 | 3 | 首个失败后停止其余组合 |
-| 隔离安装，每个 Python 版本一个任务 | 2 | 单个任务尝试全部角色；任务失败后取消尚未结束的另一个 Python 任务 |
-| 安装发布升级 | 3 | 保留全部用例与证据汇总 |
-| OceanBase 干净迁移分片 | 2 | 保留全部分片与完整性检查 |
-| Candidate replay | 2 | 保留所有后端结果 |
-| 历史 schema 捕获 | 2 | 保留所有配置结果 |
+| Python 测试 | 按可用 runner 调度 | 首个失败后停止其余组合 |
+| 隔离安装，每个 Python 版本一个任务 | 按可用 runner 调度 | 单个任务尝试全部角色；任务失败后取消尚未结束的另一个 Python 任务 |
+| 安装发布升级 | 按可用 runner 调度 | 保留全部用例与证据汇总 |
+| OceanBase 干净迁移分片 | 按可用 runner 调度 | 保留全部分片与完整性检查 |
+| Candidate replay | 按可用 runner 调度 | 保留所有后端结果 |
+| 历史 schema 捕获 | 按可用 runner 调度 | 保留所有配置结果 |
 | 托管资源候选构建 | 2 | 保留全部三个原生平台 |
+
+Linux 矩阵省略 `max-parallel`，由 GitHub 按可用 runner 分发已就绪的任务。内部 runner 各自运行在独立 Pod 中，Kubernetes 根据完整的 Pod 资源声明调度，等待调度的需求驱动 worker 扩容，直至配置的资源池容量上限。回退到 GitHub 托管 runner 时，仍受其并发额度约束。把 `max-parallel` 设成更大的数字不会增加矩阵任务数量，也不会增加 worker 容量。
 
 `max-parallel` 只限制一条矩阵运行，不限制整个仓库或组织。不能把多个 PR 放进一个普通 concurrency 组来模拟全局 semaphore：默认组只保留一个 pending 项，会替换其他 PR 的等待任务。正式发布也不能与普通 PR 共用取消组。
 

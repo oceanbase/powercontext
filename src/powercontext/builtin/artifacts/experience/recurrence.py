@@ -36,6 +36,7 @@ from powercontext.builtin.work.models import TaskCheck, TaskOutcome, WorkClaim
 from powercontext.sources import SourceRef
 
 RECURRENCE_REVIEW_STREAK_THRESHOLD = 3
+RECURRENCE_EFFECTIVENESS_MIN_VERDICTS = 5
 NEAR_DUPLICATE_BIGRAM_OVERLAP = 0.8
 MAX_RECURRENCE_HANDOFF_SCAN = 64
 
@@ -271,6 +272,41 @@ def needing_review(verdicts: tuple[RecurrenceObservation, ...], /) -> bool:
     return terminal_streak(verdicts) >= RECURRENCE_REVIEW_STREAK_THRESHOLD
 
 
+def effectiveness_from_counts(
+    artifact_ref: ArtifactRef,
+    signature_key: str,
+    /,
+    *,
+    selected: int,
+    recurred: int,
+    avoided: int,
+) -> RecurrenceEffectiveness:
+    """Return the effectiveness projection of one bucket from its event counts.
+
+    The counts arrive aggregated by the ledger's query, so reading a bucket
+    never decodes its rows. ``verdicts = recurred + avoided`` — recall alone
+    yields no decidable outcome, so ``selected`` never enters the denominator —
+    and the reading depends only on the counts and
+    ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS``, never on wall-clock time, the
+    current head, or call order. The key must already be normalized, exactly
+    like the recorded events it names: an unnormalized cue is a caller bug,
+    not missing evidence.
+    """
+
+    if normalize_match_text(signature_key) != signature_key:
+        raise ValueError("signature_key must already be normalized")  # noqa: TRY003
+    verdicts = recurred + avoided
+    return RecurrenceEffectiveness(
+        artifact_ref=artifact_ref,
+        signature_key=signature_key,
+        selected=selected,
+        recurred=recurred,
+        avoided=avoided,
+        verdicts=verdicts,
+        effectiveness=avoided / verdicts if verdicts >= RECURRENCE_EFFECTIVENESS_MIN_VERDICTS else None,
+    )
+
+
 class TaskOutcomeItemRef(_ArtifactValue):
     """A ledger-internal locator into immutable Task Outcome content."""
 
@@ -366,6 +402,36 @@ class RecurrenceRevisionProposal(_ArtifactValue):
     proposal: ExperienceContent
     sources: tuple[SourceRef, ...] = Field(min_length=1, max_length=MAX_EXPERIENCE_CANDIDATE_EVIDENCE)
     reason: str
+
+
+class RecurrenceEffectiveness(_ArtifactValue):
+    """The read-only effectiveness projection of one ``(artifact_ref, signature_key)`` bucket.
+
+    ``effectiveness`` is the share of terminal verdicts whose problem was
+    avoided. It is a verdict-outcome ratio, not a measure of causal
+    contribution to task success, and it stays ``None`` until the bucket
+    reaches ``RECURRENCE_EFFECTIVENESS_MIN_VERDICTS`` verdicts: insufficient
+    evidence must never be read as total ineffectiveness.
+    """
+
+    artifact_ref: ArtifactRef
+    signature_key: str
+    selected: Annotated[int, Field(ge=0)]
+    recurred: Annotated[int, Field(ge=0)]
+    avoided: Annotated[int, Field(ge=0)]
+    verdicts: Annotated[int, Field(ge=0)]
+    effectiveness: float | None
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> RecurrenceEffectiveness:
+        if self.verdicts != self.recurred + self.avoided:
+            raise ValueError("verdicts must equal recurred plus avoided")  # noqa: TRY003
+        if self.verdicts >= RECURRENCE_EFFECTIVENESS_MIN_VERDICTS:
+            if self.effectiveness != self.avoided / self.verdicts:
+                raise ValueError("effectiveness must equal avoided divided by verdicts")  # noqa: TRY003
+        elif self.effectiveness is not None:
+            raise ValueError("effectiveness must be None below the minimum verdict sample")  # noqa: TRY003
+        return self
 
 
 class RecurrenceObservationIdentity(_ArtifactValue):
@@ -637,7 +703,9 @@ def _bigrams(value: str) -> frozenset[tuple[str, ...]]:
 __all__ = [
     "MAX_RECURRENCE_HANDOFF_SCAN",
     "NEAR_DUPLICATE_BIGRAM_OVERLAP",
+    "RECURRENCE_EFFECTIVENESS_MIN_VERDICTS",
     "RECURRENCE_REVIEW_STREAK_THRESHOLD",
+    "RecurrenceEffectiveness",
     "RecurrenceEvent",
     "RecurrenceMatch",
     "RecurrenceObservation",
@@ -647,6 +715,7 @@ __all__ = [
     "avoided_refs",
     "candidate_set_digest",
     "canonical_digest",
+    "effectiveness_from_counts",
     "eligible_candidates",
     "failure_item_text",
     "failure_refs",
