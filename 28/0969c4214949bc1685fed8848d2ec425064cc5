@@ -1,0 +1,31 @@
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_8ae091ac38ee38 257-258,295-303,399,859,863,873-882,916-920,941-942,970-971,1022-1023,1067-1068,1103-1104,1203-1204,1296-1297,1303,1306,1309-1319,1321-1328,1351,1705
+  s_13fec9a57c9104::t_923669674b99e8 1329-1335,1345-1350,1704
+.github/workflows/e2e-harness.yml
+  s_13fec9a57c9104::t_8ae091ac38ee38 97-109,119-130
+  s_13fec9a57c9104::t_e3abe70b6912f5 62,92,131
+.github/actions/cache-pnpm/action.yml
+  s_13fec9a57c9104::t_8ae091ac38ee38 11-25,34-36,41-42,45-46,50-60
+.github/actions/setup-python-env/action.yml
+  s_13fec9a57c9104::t_8ae091ac38ee38 13-20,31-41,50,55-56,60-63,65-72
+.github/workflows/gateway.yml
+  s_13fec9a57c9104::t_dafb999d1f5fc2 44,46,55
+.github/workflows/installation.yml
+  s_13fec9a57c9104::t_14f94d596cce7f 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "280969c4214949bc1685fed8848d2ec425064cc5",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
