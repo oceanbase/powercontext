@@ -4211,3 +4211,41 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Server ff058b03 memory and batch capture protocol qualification
+
+`sqlite-memory-batch-ff058b03-v1` qualifies all thirteen bundled Desktop operations against
+Server source `ff058b0399d81614c02bc5d927e107d177b7827d`, whose contract includes keyed Memory creation
+and batch ContentSource capture.
+
+- Normalized OpenAPI SHA-256: `faf79a7df51ecb088c26691c04f8d6d10ca5d968891078dedc55aeb3aff90e92`.
+- Wheel: `powercontext-1.5.2.dev306+gff058b039-py3-none-any.whl`.
+- Wheel SHA-256: `456545493b0f93361c31dc46e8a1d8ed82e1247884063fa78e329f4ad5228a52`.
+- Native debug probe SHA-256: `12f3af459c4eb21774b700fd97247ba885485779da3c1d07035e3b3823af113b`.
+
+The wheel was built from the recorded Git commit. All 811 packaged runtime files match that
+commit's source archive after CRLF normalization. Rust 1.95.0 built the native probe with the
+product Cargo lock and without `ci-fixtures`.
+
+On 2026-11-20, the real-Server harness selected the bundled product record in all four modes:
+anonymous loopback, static Bearer, HTTPS with explicit CA and a base path, and enforced Provider.
+The run used Linux 6.5.0-26 x86_64 with glibc 2.39 and Python 3.12.3 in an Ubuntu 24.04 container.
+The client and Server contract digests matched. Memory saves, searches, exact revision reads and
+the other bundled operations passed, including lost-response handling and Provider revocation.
+The native session suite passed all nine cases. The Desktop probe exercises HTTP/SQLite and the
+native protocol. Separate Server tests exercise keyed Memory replay and batch capture.
+
+The wheel, source comparison, probe checksum, and four-mode report are retained under ignored
+`desktop/.artifacts/pr2583-batch-capture/` on the validation host.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-batch-ff058b03-v1 \
+  --wheel desktop/.artifacts/pr2583-batch-capture/server-wheel/powercontext-1.5.2.dev306+gff058b039-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+```
+
+本记录绑定精确源码、组合契约与 wheel。811 个运行时文件与源码归档一致，匿名、Bearer、HTTPS
+和 Provider 四种真实 HTTP／SQLite 连接均选中该内置资格记录，原生 session 九项测试通过。
+带键 Memory 重放和批量 ContentSource 采集由独立的 Server 测试覆盖。
