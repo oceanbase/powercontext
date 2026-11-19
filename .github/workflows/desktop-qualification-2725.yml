@@ -16,8 +16,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      SERVER_COMMIT: 4d64c4f9502dea40e1808ea496ab477431c85105
-      QUALIFICATION_ID: sqlite-dashboard-processing-4d64c4f9-v1
+      SERVER_COMMIT: 2cfd63f392d74815a849cea996921eb41466355c
+      QUALIFICATION_ID: sqlite-dashboard-processing-merged-2cfd63f3-v1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -80,7 +80,7 @@ jobs:
               'contractSha256': contract['contractSha256'],
               'artifactSha256': hashlib.sha256(wheel.read_bytes()).hexdigest(),
               'operations': sorted(contract['operations']),
-              'evidence': 'desktop/VALIDATION.md#dashboard-processing-status-protocol-qualification',
+              'evidence': 'desktop/VALIDATION.md#merged-dashboard-processing-status-protocol-qualification',
           }
           catalog_path = root / 'src-tauri/src/connections/compatibility.json'
           catalog = json.loads(catalog_path.read_text())
