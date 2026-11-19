@@ -61,9 +61,14 @@ class ScopeReadSnapshot:
         statistics: RelationalScopedStatistics,
         as_of: datetime,
         records,
+        *,
+        source_processing_families=None,
+        supervisors=None,
     ) -> None:
         self.connection = connection
         self.scope_id = scope_id
+        self._source_processing_families = source_processing_families
+        self._supervisors = supervisors
         self._atomic = atomic
         self._artifacts = atomic.application.artifacts
         self._statistics = statistics
@@ -139,6 +144,22 @@ class ScopeReadSnapshot:
 
     async def scope(self):
         return await scope_reads.scope_header(self.connection, self.scope_id)
+
+    async def source_consumption(self, family, *, context=None):
+        from powercontext.builtin.processing_status import ProcessingStatusInspector
+
+        await self._atomic.application.security.authorize(self.connection, self.scope_id, context, "read")
+        processing_family = "memory" if family == "atomic-memory" else family
+        configured = (
+            None if self._source_processing_families is None else processing_family in self._source_processing_families
+        )
+        return await ProcessingStatusInspector().source_consumption(
+            self.connection,
+            self.scope_id,
+            family,
+            configured=configured,
+            supervisors=self._supervisors,
+        )
 
     async def usage(self, period: str, *, include_scope: bool = False):
         resolved = _resolve_period(StatisticsPeriod(period), _as_utc(self._as_of).date())
