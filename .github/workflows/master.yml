@@ -928,7 +928,8 @@ jobs:
   hermes-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
-    timeout-minutes: 15
+    # Include cold checkouts of this repository and Hermes, environment setup, and cache publication.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
       # The pinned Hermes revision requires Python 3.14; keep uv from choosing another installed interpreter.
