@@ -40,12 +40,24 @@ jobs:
           def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
           def cpu():
            p=Path('/sys/fs/cgroup/cpu.stat')
-           return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())} if p.exists() else {}
+           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
+           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           stats['throttled_usec']=stats.pop('throttled_time')//1000
+           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
+           return stats
+          def cpu_max():
+           p=Path('/sys/fs/cgroup/cpu.max')
+           if p.exists():return p.read_text().strip()
+           root=Path('/sys/fs/cgroup/cpu')
+           quota=int((root/'cpu.cfs_quota_us').read_text())
+           period=int((root/'cpu.cfs_period_us').read_text())
+           return f'{quota if quota>=0 else "max"} {period}'
           def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
           def count(root): return sum(1 for _ in root.rglob('*.pyc'))
           site=Path(sysconfig.get_path('purelib'))
           source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':Path('/sys/fs/cgroup/cpu.max').read_text().strip(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
+          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
           if arm=='precompiled':
            start=time.monotonic();before=cpu()
            results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
@@ -122,12 +134,24 @@ jobs:
           def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
           def cpu():
            p=Path('/sys/fs/cgroup/cpu.stat')
-           return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())} if p.exists() else {}
+           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
+           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           stats['throttled_usec']=stats.pop('throttled_time')//1000
+           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
+           return stats
+          def cpu_max():
+           p=Path('/sys/fs/cgroup/cpu.max')
+           if p.exists():return p.read_text().strip()
+           root=Path('/sys/fs/cgroup/cpu')
+           quota=int((root/'cpu.cfs_quota_us').read_text())
+           period=int((root/'cpu.cfs_period_us').read_text())
+           return f'{quota if quota>=0 else "max"} {period}'
           def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
           def count(root): return sum(1 for _ in root.rglob('*.pyc'))
           site=Path(sysconfig.get_path('purelib'))
           source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':Path('/sys/fs/cgroup/cpu.max').read_text().strip(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
+          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
           if arm=='precompiled':
            start=time.monotonic();before=cpu()
            results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
@@ -204,12 +228,24 @@ jobs:
           def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
           def cpu():
            p=Path('/sys/fs/cgroup/cpu.stat')
-           return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())} if p.exists() else {}
+           if p.exists():return {k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           p=Path('/sys/fs/cgroup/cpu/cpu.stat')
+           stats={k:int(v) for k,v in (x.split() for x in p.read_text().splitlines())}
+           stats['throttled_usec']=stats.pop('throttled_time')//1000
+           stats['usage_usec']=int(Path('/sys/fs/cgroup/cpuacct/cpuacct.usage').read_text())//1000
+           return stats
+          def cpu_max():
+           p=Path('/sys/fs/cgroup/cpu.max')
+           if p.exists():return p.read_text().strip()
+           root=Path('/sys/fs/cgroup/cpu')
+           quota=int((root/'cpu.cfs_quota_us').read_text())
+           period=int((root/'cpu.cfs_period_us').read_text())
+           return f'{quota if quota>=0 else "max"} {period}'
           def delta(a,b): return {k:b[k]-a.get(k,0) for k in b}
           def count(root): return sum(1 for _ in root.rglob('*.pyc'))
           site=Path(sysconfig.get_path('purelib'))
           source=Path('src').resolve()
-          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':Path('/sys/fs/cgroup/cpu.max').read_text().strip(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
+          metadata={'arm':arm,'python':sys.version,'runner':os.environ.get('RUNNER_NAME'),'pod_hostname':socket.gethostname(),'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'cpu_max':cpu_max(),'node_available_parallelism':subprocess.check_output(['node','-p',"require('node:os').availableParallelism()"],text=True).strip(),'bytecode_before':{'site_packages':count(site),'runtime_src':count(source)}}
           if arm=='precompiled':
            start=time.monotonic();before=cpu()
            results={'site_packages':compileall.compile_dir(site,quiet=2,workers=1),'runtime_src':compileall.compile_dir(source,quiet=2,workers=1)}
